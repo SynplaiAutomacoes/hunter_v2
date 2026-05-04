@@ -6,6 +6,7 @@ from apps.finance.views import (
     EmissionRequestCreateView,
     EmissionWorkOrderKitComponentUpdateView,
     EmissionWorkOrderItemUpdateView,
+    CommissionReportView,
     FinancialGroupCreateView,
     FinancialGroupDeleteView,
     FinancialGroupListView,
@@ -15,14 +16,17 @@ from apps.finance.views import (
     IssuedDocumentsListView,
     NfeCreateRedirectView,
     NfeDocumentDownloadView,
+    NfePreviewPdfView,
     NfeRequestCancelView,
     NfeRequestDetailView,
+    NfeRequestInvalidateView,
     NfeRequestListView,
     NfeRequestReconcileView,
     NfeRequestUpdateView,
     NfseCreateRedirectView,
     NfseRequestCancelView,
     NfseDocumentDownloadView,
+    NfsePreviewPdfView,
     NfseRequestDetailView,
     NfseRequestListView,
     NfseRequestUpdateView,
@@ -55,6 +59,7 @@ from apps.finance.views.financial_movement import (
 )
 from apps.finance.views.payment_method import PaymentMethodListView, PaymentMethodCreateView, PaymentMethodUpdateView
 from apps.finance.views.reports import ReportMovementEditView, ReportMovementDeleteView
+from apps.finance.views.movement_group import GroupMovementWizardView, GroupMovementDeleteView
 
 app_name = "finance"
 
@@ -62,6 +67,9 @@ urlpatterns = [
     path("reports/", FinancialReportsHomeView.as_view(), name="reports_home"),
     path("reports/movement/<int:pk>/edit/", ReportMovementEditView.as_view(), name="report_movement_edit"),
     path("reports/movement/<int:pk>/delete/", ReportMovementDeleteView.as_view(), name="report_movement_delete"),
+    path("reports/group/wizard/", GroupMovementWizardView.as_view(), name="group_movement_wizard"),
+    path("reports/group/<int:pk>/delete/", GroupMovementDeleteView.as_view(), name="group_movement_delete"),
+    path("comissoes/", CommissionReportView.as_view(), name="commission_report"),
     path("notas-emitidas/", IssuedDocumentsListView.as_view(), name="issued_documents_list"),
     path("notas-emitidas/download/<str:document_group>/", IssuedDocumentsArchiveDownloadView.as_view(), name="issued_documents_download"),
     # Financial Groups
@@ -84,8 +92,10 @@ urlpatterns = [
     path("nfe/create/", NfeCreateRedirectView.as_view(), name="nfe_create"),
     path("nfe/<int:pk>/", NfeRequestDetailView.as_view(), name="nfe_detail"),
     path("nfe/<int:pk>/reconciliar/", NfeRequestReconcileView.as_view(), name="nfe_reconcile"),
+    path("nfe/<int:pk>/inutilizar/", NfeRequestInvalidateView.as_view(), name="nfe_invalidate"),
     path("nfe/<int:pk>/cancelar/", NfeRequestCancelView.as_view(), name="nfe_cancel"),
     path("nfe/<int:pk>/documentos/<str:document>/", NfeDocumentDownloadView.as_view(), name="nfe_document_download"),
+    path("nfe/<int:pk>/previa/pdf/", NfePreviewPdfView.as_view(), name="nfe_preview_pdf"),
     path("nfe/<int:pk>/edit/", NfeRequestUpdateView.as_view(), name="nfe_update"),
     # Classe Imposto
     path("classe-imposto/", TaxClassListView.as_view(), name="tax_class_list"),
@@ -111,6 +121,7 @@ urlpatterns = [
     path("nfse/<int:pk>/", NfseRequestDetailView.as_view(), name="nfse_detail"),
     path("nfse/<int:pk>/cancelar/", NfseRequestCancelView.as_view(), name="nfse_cancel"),
     path("nfse/<int:pk>/documentos/<str:document>/", NfseDocumentDownloadView.as_view(), name="nfse_document_download"),
+    path("nfse/<int:pk>/previa/pdf/", NfsePreviewPdfView.as_view(), name="nfse_preview_pdf"),
     path("nfse/<int:pk>/edit/", NfseRequestUpdateView.as_view(), name="nfse_update"),
     # WebMania
     path("webmania/empresas/", WebmaniaCompanyListView.as_view(), name="webmania_company_list"),

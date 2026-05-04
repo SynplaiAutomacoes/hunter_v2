@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views.workshops import (
     NavbarWorkshopSelectView,
+    PublicWorkshopLogoView,
     WorkshopEmissionHistoryView,
     WorkshopCreateView,
     WorkshopDeleteView,
@@ -35,6 +36,7 @@ urlpatterns = [
     path("create/", WorkshopCreateView.as_view(), name="create"),
     path("<int:pk>/edit/", WorkshopUpdateView.as_view(), name="update"),
     path("<int:pk>/logo/", WorkshopLogoView.as_view(), name="logo"),
+    path("logo/public/<str:token>/", PublicWorkshopLogoView.as_view(), name="logo_public"),
     path("<int:pk>/delete/", WorkshopDeleteView.as_view(), name="delete"),
     path("workshop-select/", NavbarWorkshopSelectView.as_view(), name="workshop_select"),
     # Monthly Costs

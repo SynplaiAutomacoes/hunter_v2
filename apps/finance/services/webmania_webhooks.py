@@ -80,7 +80,7 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
     if model == "nfse":
         nfse_item = NfseItem.objects.filter(uuid=event_uuid).select_related("request").order_by("-id").first()
         if nfse_item is None:
-            _mark_event_deferred(event, error=f"NFS-e {event_uuid} ainda nao foi sincronizada localmente.")
+            _mark_event_deferred(event, error=f"Nota Fiscal de Serviço {event_uuid} ainda nao foi sincronizada localmente.")
             return False
 
         with transaction.atomic():
@@ -96,7 +96,7 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
     if model == "nfe":
         nfe_item = NfeItem.objects.filter(uuid=event_uuid).select_related("request").order_by("-id").first()
         if nfe_item is None:
-            _mark_event_deferred(event, error=f"NF-e {event_uuid} ainda nao foi sincronizada localmente.")
+            _mark_event_deferred(event, error=f"Nota Fiscal {event_uuid} ainda nao foi sincronizada localmente.")
             return False
 
         with transaction.atomic():

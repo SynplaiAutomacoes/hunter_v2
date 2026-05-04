@@ -12,6 +12,7 @@ from apps.catalog.kit_applications import KitApplicationsTableValue, build_kit_a
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.core.models import TimeStampedModel
+from apps.core.text_normalization import sentence_case
 from apps.workshops.models.workshops import Workshop
 
 
@@ -65,6 +66,13 @@ class Kit(TimeStampedModel):
     def __str__(self) -> str:
         return self.name
 
+    def save(self, *args: object, **kwargs: object) -> None:
+        if self.name:
+            self.name = sentence_case(self.name)
+        if self.description:
+            self.description = sentence_case(self.description)
+        super().save(*args, **kwargs)
+
     def ordered_applications(self) -> list[KitApplication]:
         prefetched = getattr(self, "_prefetched_objects_cache", {}).get("applications")
         applications = list(prefetched) if prefetched is not None else list(self.applications.all())
@@ -88,6 +96,22 @@ class Kit(TimeStampedModel):
         if self.workorderitem_set.exists():
             return True
         return False
+
+    def recalculate_total_price(self) -> None:
+        product_total = Money(0, "BRL")
+        for kit_product in self.kit_products.select_related("product"):
+            product_total += (kit_product.product.selling_price or Money(0, "BRL")) * kit_product.quantity
+
+        service_total = Money(0, "BRL")
+        services_total_duration = timedelta()
+        for item in self.kit_services.select_related("service"):
+            unit_sell = item.resolved_duration_selling_price if self.service_pricing_mode == self.ServicePricingMode.BY_DURATION else item.resolved_selling_price
+            service_total += unit_sell * item.quantity
+            services_total_duration += (item.duration or timedelta()) * item.quantity
+
+        self.total_price = product_total + service_total
+        self.total_duration = services_total_duration
+        self.save(update_fields=["total_price", "total_duration", "atualizado_em"])
 
 
 class KitApplication(TimeStampedModel):

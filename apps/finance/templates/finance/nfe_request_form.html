@@ -3,7 +3,7 @@
 {% block crud_content %}
     <div class="flex items-center justify-between gap-4">
         <div>
-            <h1 class="text-3xl font-bold text-base-content">Emissao de NF-e</h1>
+            <h1 class="text-3xl font-bold text-base-content">Emissao de Nota Fiscal</h1>
             <p class="text-base-content/70 mt-1">Siga as etapas para gerar uma solicitacao de Nota Fiscal de Produto.</p>
         </div>
     </div>
@@ -14,7 +14,53 @@
         </div>
     </div>
 
+    <dialog id="form_modal" class="modal">
+        <div id="modal-container"></div>
+    </dialog>
+
     {% if ncm_invalid_modal %}
         {% include 'finance/partials/ncm_invalid_modal.html' %}
     {% endif %}
+
+    <script>
+        (function () {
+            const formModal = document.getElementById('form_modal');
+            const modalContainer = document.getElementById('modal-container');
+
+            function clearModalContainer() {
+                if (modalContainer) {
+                    modalContainer.innerHTML = '';
+                }
+            }
+
+            window.openEmissionModal = function () {
+                if (formModal && !formModal.open) {
+                    formModal.showModal();
+                }
+            };
+
+            window.closeEmissionModal = function () {
+                if (!formModal) {
+                    return;
+                }
+
+                if (formModal.open) {
+                    formModal.close();
+                }
+
+                clearModalContainer();
+            };
+
+            if (formModal) {
+                formModal.addEventListener('close', clearModalContainer);
+            }
+
+            document.body.addEventListener('htmx:afterSwap', function (event) {
+                const target = event.detail ? event.detail.target : null;
+                if (target && target.id === 'modal-container' && formModal && !formModal.open) {
+                    formModal.showModal();
+                }
+            });
+        })();
+    </script>
 {% endblock %}

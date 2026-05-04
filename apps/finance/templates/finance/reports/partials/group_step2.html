@@ -1,0 +1,135 @@
+<div class="px-8 pt-8 pb-6 bg-base-100 rounded-t-3xl border-b border-base-200">
+    <div class="flex justify-between items-center mb-6">
+        <div>
+            <h3 class="text-2xl font-black text-base-content tracking-tight">Agrupar Lançamentos</h3>
+            <p class="text-sm font-medium text-base-content/60 mt-1">Lançamentos de <strong>{{ entity_name }}</strong>.</p>
+        </div>
+        <button type="button" class="btn btn-circle btn-ghost btn-sm" onclick="group_modal.close()">
+            <span class="material-icons">close</span>
+        </button>
+    </div>
+    
+    <ul class="steps steps-vertical lg:steps-horizontal w-full">
+      <li class="step step-primary font-medium text-sm">Entidade</li>
+      <li class="step step-primary font-medium text-sm">Lançamentos</li>
+      <li class="step text-sm opacity-50">Finalizar</li>
+    </ul>
+</div>
+
+<div class="p-8 bg-base-50 flex flex-col gap-6">
+    {% if error %}
+    <div class="alert alert-error shadow-sm rounded-xl">
+        <span class="material-icons">error</span>
+        <span>{{ error }}</span>
+    </div>
+    {% endif %}
+
+    <!-- Filter Form -->
+    <div class="bg-base-100 p-5 rounded-2xl shadow-sm border border-base-200">
+        <form hx-post="{% url 'finance:group_movement_wizard' %}" hx-target="#group-modal-content" class="flex flex-wrap gap-4 items-end">
+            <input type="hidden" name="step" value="1">
+            <input type="hidden" name="entity" value="{{ entity_type }}_{{ entity_id }}">
+            
+            <div class="form-control w-full sm:w-auto flex-1">
+                <label class="label"><span class="label-text font-medium text-base-content/70">Tipo</span></label>
+                <select name="filter_direction" class="select select-bordered select-sm w-full">
+                    <option value="">Todos</option>
+                    <option value="CREDIT" {% if filter_direction == 'CREDIT' %}selected{% endif %}>Crédito</option>
+                    <option value="DEBIT" {% if filter_direction == 'DEBIT' %}selected{% endif %}>Débito</option>
+                </select>
+            </div>
+            
+            <div class="form-control w-full sm:w-auto flex-1">
+                <label class="label"><span class="label-text font-medium text-base-content/70">Data Inicial</span></label>
+                <input type="date" name="filter_start_date" value="{{ filter_start_date }}" class="input input-bordered input-sm w-full" />
+            </div>
+            
+            <div class="form-control w-full sm:w-auto flex-1">
+                <label class="label"><span class="label-text font-medium text-base-content/70">Data Final</span></label>
+                <input type="date" name="filter_end_date" value="{{ filter_end_date }}" class="input input-bordered input-sm w-full" />
+            </div>
+            
+            <div class="w-full sm:w-auto">
+                <button type="submit" class="btn btn-primary btn-sm w-full">Filtrar</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Main Selection Form -->
+    <form hx-post="{% url 'finance:group_movement_wizard' %}" hx-target="#group-modal-content">
+        <input type="hidden" name="step" value="2">
+        <input type="hidden" name="entity_type" value="{{ entity_type }}">
+        <input type="hidden" name="entity_id" value="{{ entity_id }}">
+        
+        <div class="bg-base-100 rounded-2xl shadow-sm border border-base-200 overflow-hidden">
+            {% if movements %}
+            <div class="overflow-x-auto">
+                <table class="table table-zebra table-sm w-full">
+                    <thead class="bg-base-200/50">
+                        <tr>
+                            <th class="w-12 text-center"></th>
+                            <th class="font-semibold text-base-content/70">Vencimento</th>
+                            <th class="font-semibold text-base-content/70">Tipo</th>
+                            <th class="font-semibold text-base-content/70">Descrição</th>
+                            <th class="font-semibold text-base-content/70">Forma Pgto</th>
+                            <th class="font-semibold text-base-content/70">Status</th>
+                            <th class="font-semibold text-base-content/70 text-right">Valor</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for movement in movements %}
+                        <tr class="hover">
+                            <td class="text-center">
+                                <input type="checkbox" name="movements" value="{{ movement.id }}" class="checkbox checkbox-primary checkbox-sm rounded-md" />
+                            </td>
+                            <td class="whitespace-nowrap">{{ movement.due_date|date:"d/m/Y" }}</td>
+                            <td>
+                                {% if movement.direction == "CREDIT" %}
+                                    <span class="badge badge-success badge-sm font-medium">Crédito</span>
+                                {% elif movement.direction == "DEBIT" %}
+                                    <span class="badge badge-error badge-sm font-medium">Débito</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="font-medium text-base-content">{{ movement.description }}</div>
+                                {% if movement.items_observation %}
+                                    <div class="text-xs text-base-content/60 mt-0.5">{{ movement.items_observation|truncatechars:50 }}</div>
+                                {% endif %}
+                            </td>
+                            <td class="text-sm">{{ movement.payment_method|default:"-" }}</td>
+                            <td>
+                                {% if movement.is_paid %}
+                                    <span class="badge badge-success badge-sm badge-outline">Pago</span>
+                                {% else %}
+                                    <span class="badge badge-warning badge-sm badge-outline">Pendente</span>
+                                {% endif %}
+                            </td>
+                            <td class="font-semibold text-right whitespace-nowrap">{{ movement.amount }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="p-10 text-center">
+                <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-info/10 text-info mb-4">
+                    <span class="material-icons text-3xl">info</span>
+                </div>
+                <h4 class="text-lg font-semibold text-base-content mb-2">Nenhum lançamento encontrado</h4>
+                <p class="text-base-content/60 max-w-sm mx-auto">Não há lançamentos pendentes correspondentes aos filtros aplicados para este {{ entity_type|yesno:"Fornecedor,Colaborador" }}.</p>
+            </div>
+            {% endif %}
+        </div>
+        
+        <div class="mt-6 flex justify-between items-center bg-base-100 -mx-8 -mb-8 p-6 rounded-b-3xl border-t border-base-200">
+            <button type="button" class="btn btn-ghost text-base-content/70 hover:bg-base-300/50" hx-get="{% url 'finance:group_movement_wizard' %}?step=1" hx-target="#group-modal-content">
+                <span class="material-icons text-sm mr-1">arrow_back</span>
+                Voltar
+            </button>
+            <button type="submit" class="btn btn-primary px-8 shadow-sm group" {% if not movements %}disabled{% endif %}>
+                Próximo Passo
+                <span class="material-icons text-sm transition-transform group-hover:translate-x-1">arrow_forward</span>
+            </button>
+        </div>
+    </form>
+</div>

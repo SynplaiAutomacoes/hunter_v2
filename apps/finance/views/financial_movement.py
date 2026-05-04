@@ -11,9 +11,10 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView
 
 from apps.core.forms import MultiStepFormMixin
+from apps.core.navigation import FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.finance.forms.financial_movement import MovementStep1Form, MovementStep2Form, MovementStep3Form, MovementStep4Form
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.views.navigation import append_query_params
@@ -85,10 +86,11 @@ class FinancialMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTem
         return context
 
 
-class FinancialMovementCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, CreateView):
+class FinancialMovementCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, CreateView):
     model = FinancialMovement
     template_name = "finance/financial_movement/financial_movement_form.html"
     workshop_permission_codename = "add_financialmovement"
+    favorite_page_definition = FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE
 
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
@@ -168,6 +170,7 @@ class FinancialMovementCreateView(LoginRequiredMixin, WorkshopScopedMixin, Multi
 
         if self.request.htmx:
             from django.http import HttpResponse
+
             response = HttpResponse(status=204)
             response["HX-Redirect"] = success_url
             return response
@@ -176,6 +179,8 @@ class FinancialMovementCreateView(LoginRequiredMixin, WorkshopScopedMixin, Multi
 
 
 class FinancialMovementUpdateView(FinancialMovementCreateView):
+    favorite_page_definition = None
+
     def get(self, request, *args, **kwargs):
         self.object = self.get_object()
         step_na_url = int(request.GET.get("step", 0))

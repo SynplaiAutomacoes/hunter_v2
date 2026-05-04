@@ -12,7 +12,7 @@ Em termos simples:
 - Tailwind cuida da camada visual
 - HTMX adiciona interacoes incrementais sem transformar o produto em SPA
 - PostgreSQL guarda o estado principal do sistema
-- MongoDB/GridFS armazena alguns arquivos de oficina
+- Railway Storage Bucket armazena alguns arquivos de oficina
 - integracoes externas se conectam a partir de services, webhooks e comandos
 
 ## Estrutura principal de pastas
@@ -134,7 +134,7 @@ Usada para emissao e tratamento de documentos fiscais, com suporte a webhook e c
 
 Usada para assinatura digital. O sistema possui sincronizacao de webhook e endpoint dedicado para receber eventos de conclusao.
 
-### MongoDB/GridFS
+### Bucket S3 compativel
 
 Usado para guardar arquivos da oficina, em especial certificado e logo, com servico dedicado para leitura, escrita, limpeza e sincronizacao.
 

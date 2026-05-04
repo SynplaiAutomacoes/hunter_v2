@@ -7,6 +7,8 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
 
+from apps.core.forms import CoreModelForm
+from apps.core.text_normalization import sentence_case
 from apps.core.widgets import SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.forms.emission_ui import (
     build_slider_widget_attrs,
@@ -51,7 +53,7 @@ def _collect_service_rows(
 
 class NfseRequestStep1Form(SharedEmissionWorkorderSelectionForm):
     step_title = "Selecionar Ordem de Serviço"
-    step_subtitle = "Selecione a ordem de serviço aprovada que será utilizada para emitir a NFS-e."
+    step_subtitle = "Selecione a ordem de serviço aprovada que será utilizada para emitir a Nota Fiscal de Serviço."
     workorder_label = "Ordem de Serviço"
     empty_customer_label = "Cliente não informado"
 
@@ -71,13 +73,14 @@ class NfseRequestStep2Form(SharedEmissionCustomerReviewForm):
         fields: list[str] = []
 
 
-class NfseRequestStep3Form(forms.ModelForm):
+class NfseRequestStep3Form(CoreModelForm):
     class Meta:
         model = NfseRequest
-        fields = ["pricing_slider", "tax_class", "service_description"]
+        fields = ["pricing_slider", "tax_class", "service_description", "additional_information"]
         widgets = {
             "tax_class": TextInput(),
             "service_description": TextareaInput(rows=4),
+            "additional_information": TextareaInput(rows=4),
         }
 
     def __init__(self, *args, **kwargs):
@@ -97,7 +100,7 @@ class NfseRequestStep3Form(forms.ModelForm):
 
         slider_field = self.fields["pricing_slider"]
         slider_field.label = "Slider da emissao"
-        slider_field.help_text = "Ajuste a distribuicao do valor total para esta NFS-e sem alterar o orcamento."
+        slider_field.help_text = "Ajuste a distribuicao do valor total para esta Nota Fiscal de Serviço sem alterar o orcamento."
         slider_field.widget = forms.NumberInput(
             attrs=build_slider_widget_attrs(
                 preview_url=f"{preview_url}&preview=1" if preview_url else "",
@@ -112,7 +115,7 @@ class NfseRequestStep3Form(forms.ModelForm):
         dropdown_choices = [("", "Selecione a classe de imposto")]
         dropdown_choices.extend(self.tax_class_choices)
         tax_class_field.widget = SearchableSelectInput(choices=dropdown_choices)
-        tax_class_field.help_text = "Classe de imposto de servico (NFS-e)."
+        tax_class_field.help_text = "Classe de imposto de servico (Nota Fiscal de Serviço)."
         self._valid_tax_class_refs = {value for value, _ in self.tax_class_choices if value}
 
         current_tax_class_source = self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", getattr(self.instance, "tax_class", ""))
@@ -140,10 +143,15 @@ class NfseRequestStep3Form(forms.ModelForm):
                 slider_override=selected_slider,
             )
             if allocation.services_target <= 0:
-                warning_html = "<div class='alert alert-warning mb-4'>A configuracao atual do slider nao deixa saldo de servicos para emitir NFS-e.</div>"
+                warning_html = "<div class='alert alert-warning mb-4'>A configuracao atual do slider nao deixa saldo de servicos para emitir Nota Fiscal de Serviço.</div>"
 
         if not self.instance.service_description and "service_description" not in self.initial:
             self.initial["service_description"] = default_description
+
+        additional_information_field = self.fields["additional_information"]
+        additional_information_field.label = "Observacao da nota"
+        additional_information_field.required = False
+        additional_information_field.help_text = "Enviada como informacao complementar quando o provedor da Nota Fiscal de Serviço suportar esse campo."
 
         rows_html = "".join(
             f"""
@@ -199,13 +207,14 @@ class NfseRequestStep3Form(forms.ModelForm):
         self.helper.layout = Layout(
             Div(
                 HTML("<h2 class='text-2xl font-bold'>Conferir serviços realizados</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Revise os serviços e finalize a emissão da NFS-e.</p>"),
+                HTML("<p class='text-base-content/70 mb-6'>Revise os serviços e finalize a emissão da Nota Fiscal de Serviço.</p>"),
                 build_step5_pricing_panel_layout(prefix="nfse", panel_data=panel_data, slider_field_name="pricing_slider", form_selector="#nfse-form") if panel_data is not None else HTML(""),
                 Div(
                     Field("tax_class", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("service_description", wrapper_class="col-span-12 lg:col-span-8"),
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
                 ),
+                Field("additional_information"),
                 HTML('<div id="nfse-warning-block">' + warning_html + "</div>"),
                 HTML('<div id="nfse-preview-block">' + preview_html + "</div>"),
                 css_class="space-y-4",
@@ -217,3 +226,11 @@ class NfseRequestStep3Form(forms.ModelForm):
         if self._valid_tax_class_refs and tax_class not in self._valid_tax_class_refs:
             raise forms.ValidationError("Selecione uma classe de imposto valida da lista.")
         return tax_class
+
+    def clean_service_description(self) -> str:
+        value = str(self.cleaned_data.get("service_description") or "").strip()
+        return sentence_case(value) if value else value
+
+    def clean_additional_information(self) -> str:
+        value = str(self.cleaned_data.get("additional_information") or "").strip()
+        return sentence_case(value) if value else value

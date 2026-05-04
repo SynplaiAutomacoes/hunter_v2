@@ -9,9 +9,10 @@ from apps.catalog.models.services import Service
 from apps.core.widgets import CheckboxInput, DurationInput, MoneyInput, NumberInput, TextInput, SearchableSelectInput
 
 from .shared import _budget_item_type
+from apps.core.forms import CoreForm, CoreModelForm
 
 
-class BudgetItemEditForm(forms.ModelForm):
+class BudgetItemEditForm(CoreModelForm):
     ncm = forms.CharField(required=False, widget=TextInput(attrs={"placeholder": "Ex: 87089990"}))
 
     class Meta:
@@ -81,21 +82,21 @@ class BudgetItemEditForm(forms.ModelForm):
             self.fields.pop("ncm")
 
 
-class BudgetKitProductEditRowForm(forms.Form):
+class BudgetKitProductEditRowForm(CoreForm):
     quantity = forms.IntegerField(min_value=0, widget=NumberInput(attrs={"data-field": "quantity", "min": "0"}))
     cost = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "cost"}))
     price = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "price"}))
     shipping = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "shipping"}))
 
 
-class BudgetKitServiceEditRowForm(forms.Form):
+class BudgetKitServiceEditRowForm(CoreForm):
     quantity = forms.IntegerField(min_value=0, widget=NumberInput(attrs={"data-field": "quantity", "min": "0"}))
     cost = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "cost"}))
     price = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "price"}))
     duration = forms.CharField(required=False, widget=DurationInput(attrs={"data-field": "duration"}))
 
 
-class LocalProductForm(forms.ModelForm):
+class LocalProductForm(CoreModelForm):
     class Meta:
         model = BudgetItem
         fields = ["description", "quantity", "product_cost_price", "product_selling_price", "shipping"]
@@ -119,7 +120,7 @@ class LocalProductForm(forms.ModelForm):
             self.fields["product_selling_price"].label = "Valor de Venda"
 
 
-class LocalServiceForm(forms.ModelForm):
+class LocalServiceForm(CoreModelForm):
     class Meta:
         model = BudgetItem
         fields = ["description", "quantity", "service_cost_price", "service_selling_price", "duration"]
@@ -156,7 +157,7 @@ class LocalServiceForm(forms.ModelForm):
             )
 
 
-class QuickProductForm(forms.ModelForm):
+class QuickProductForm(CoreModelForm):
     """Formulário simplificado para cadastro rápido de produtos (apenas campos obrigatórios)"""
 
     class Meta:
@@ -222,7 +223,7 @@ class QuickProductForm(forms.ModelForm):
         return code
 
 
-class QuickServiceForm(forms.ModelForm):
+class QuickServiceForm(CoreModelForm):
     """Formulário simplificado para cadastro rápido de serviços (apenas campos obrigatórios)"""
 
     class Meta:

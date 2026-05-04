@@ -1,7 +1,7 @@
 {% extends 'crud/list_page.html' %}
 
 {% block crud_title %}Classe de Imposto{% endblock %}
-{% block crud_subtitle %}Gerencie classes fiscais de NF-e e NFS-e.{% endblock %}
+{% block crud_subtitle %}Gerencie classes fiscais de Nota Fiscal e Nota Fiscal de Serviço.{% endblock %}
 
 {% block crud_header_actions %}
     <div class="flex flex-wrap gap-2">
@@ -11,9 +11,9 @@
 {% endblock %}
 
 {% block crud_table %}
-    <div class="tabs tabs-lift mb-6">
-        <a href="{% url 'finance:tax_class_list' %}?tab=nfe" class="tab {% if active_tab == 'nfe' %}tab-active{% endif %}">NF-e</a>
-        <a href="{% url 'finance:tax_class_list' %}?tab=nfse" class="tab {% if active_tab == 'nfse' %}tab-active{% endif %}">NFS-e</a>
+    <div class="app-tabs tabs tabs-lift mb-6">
+        <a href="{% url 'finance:tax_class_list' %}?tab=nfe" class="tab {% if active_tab == 'nfe' %}tab-active{% endif %}">Nota Fiscal</a>
+        <a href="{% url 'finance:tax_class_list' %}?tab=nfse" class="tab {% if active_tab == 'nfse' %}tab-active{% endif %}">Nota Fiscal de Serviço</a>
     </div>
 
     <div class="overflow-x-auto">
@@ -56,7 +56,7 @@
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="4" class="text-center text-base-content/60 py-6">Nenhuma classe de imposto de NF-e encontrada.</td>
+                            <td colspan="4" class="text-center text-base-content/60 py-6">Nenhuma classe de imposto de Nota Fiscal encontrada.</td>
                         </tr>
                     {% endfor %}
                 {% else %}
@@ -88,7 +88,7 @@
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="4" class="text-center text-base-content/60 py-6">Nenhuma classe de imposto de NFS-e encontrada.</td>
+                            <td colspan="4" class="text-center text-base-content/60 py-6">Nenhuma classe de imposto de Nota Fiscal de Serviço encontrada.</td>
                         </tr>
                     {% endfor %}
                 {% endif %}

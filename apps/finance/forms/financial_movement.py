@@ -11,9 +11,11 @@ from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.services.financial_movement import generate_card_fee_movement
 from apps.suppliers.models import Supplier
+from apps.core.text_normalization import sentence_case
+from apps.core.forms import CoreModelForm
 
 
-class FinancialMovementBaseForm(forms.ModelForm):
+class FinancialMovementBaseForm(CoreModelForm):
     def __init__(self, *args, **kwargs):
         self.request = kwargs.pop("request", None)
         self.workshop = kwargs.pop("workshop", None)
@@ -252,6 +254,14 @@ class MovementStep2Form(FinancialMovementBaseForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
 
+    def clean_description(self):
+        value = self.cleaned_data.get("description")
+        return sentence_case(value) if value else value
+
+    def clean_items_observation(self):
+        value = self.cleaned_data.get("items_observation")
+        return sentence_case(value) if value else value
+
 
 class MovementStep3Form(FinancialMovementBaseForm):
     is_paid = forms.TypedChoiceField(label="Pago", required=True, initial=False, coerce=lambda value: str(value).lower() == "true", choices=((False, "Não"), (True, "Sim")), widget=SearchableSelectInput(choices=[(False, "Não"), (True, "Sim")]))
@@ -322,7 +332,7 @@ class MovementStep3Form(FinancialMovementBaseForm):
                 #
                 Div("nf_number", css_class="col-span-6"),
                 Div(
-                    Div(Field("repeat_count", wrapper_class="mb-0"), HTML('<span class="text-sm font-semibold">vezes</span>'), HTML(repeat_html), css_class="flex items-center gap-4mb-4 col-span-6"),
+                    Div(Field("repeat_count", wrapper_class="mb-0"), HTML('<span class="text-sm font-semibold">vezes</span>'), HTML(repeat_html), css_class="flex items-center gap-4 mb-4 col-span-6"),
                     css_class="col-span-6",
                 ),
                 #
@@ -346,6 +356,10 @@ class MovementStep3Form(FinancialMovementBaseForm):
                     self.request.session.pop(f"repeat_count_{instance.pk}", None)
                     self.request.session.pop(f"repeat_type_{instance.pk}", None)
         return instance
+
+    def clean_financial_observation(self):
+        value = self.cleaned_data.get("financial_observation")
+        return sentence_case(value) if value else value
 
 
 class MovementStep4Form(FinancialMovementBaseForm):
@@ -656,6 +670,18 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             ),
             HTML("</section>"),
         )
+
+    def clean_description(self):
+        value = self.cleaned_data.get("description")
+        return sentence_case(value) if value else value
+
+    def clean_items_observation(self):
+        value = self.cleaned_data.get("items_observation")
+        return sentence_case(value) if value else value
+
+    def clean_financial_observation(self):
+        value = self.cleaned_data.get("financial_observation")
+        return sentence_case(value) if value else value
 
     def _build_entity_details_context(self) -> dict[str, object]:
         supplier_id = self.data.get("supplier") or (self.instance.supplier_id if self.instance.pk else None)

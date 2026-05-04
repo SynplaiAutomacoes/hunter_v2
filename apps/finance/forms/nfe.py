@@ -7,7 +7,9 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
 
-from apps.core.widgets import SearchableSelectInput
+from apps.core.forms import CoreModelForm
+from apps.core.text_normalization import sentence_case
+from apps.core.widgets import SearchableSelectInput, TextareaInput
 from apps.finance.forms.emission_ui import (
     build_slider_widget_attrs,
     build_step5_pricing_panel_data,
@@ -22,7 +24,7 @@ from apps.finance.services.nfe_emission import build_nfe_preview_rows, build_nfe
 
 
 class NfeRequestStep1Form(SharedEmissionWorkorderSelectionForm):
-    step_subtitle = "Selecione a ordem de servico aprovada que sera utilizada para emitir a NF-e."
+    step_subtitle = "Selecione a ordem de servico aprovada que sera utilizada para emitir a Nota Fiscal."
 
     class Meta:
         model = NfeRequest
@@ -35,10 +37,13 @@ class NfeRequestStep2Form(SharedEmissionCustomerReviewForm):
         fields: list[str] = []
 
 
-class NfeRequestStep3Form(forms.ModelForm):
+class NfeRequestStep3Form(CoreModelForm):
     class Meta:
         model = NfeRequest
-        fields = ["pricing_slider", "tax_class"]
+        fields = ["pricing_slider", "tax_class", "additional_information"]
+        widgets = {
+            "additional_information": TextareaInput(rows=4),
+        }
 
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
@@ -57,7 +62,7 @@ class NfeRequestStep3Form(forms.ModelForm):
 
         slider_field = self.fields["pricing_slider"]
         slider_field.label = "Slider da emissao"
-        slider_field.help_text = "Ajuste a distribuicao do valor total para esta NF-e sem alterar o orcamento."
+        slider_field.help_text = "Ajuste a distribuicao do valor total para esta Nota Fiscal sem alterar o orcamento."
         slider_field.widget = forms.NumberInput(
             attrs=build_slider_widget_attrs(
                 preview_url=f"{preview_url}&preview=1" if preview_url else "",
@@ -72,8 +77,13 @@ class NfeRequestStep3Form(forms.ModelForm):
         dropdown_choices = [("", "Selecione a classe de imposto")]
         dropdown_choices.extend(self.tax_class_choices)
         tax_class_field.widget = SearchableSelectInput(choices=dropdown_choices)
-        tax_class_field.help_text = "Classe de imposto de produto (NF-e)."
+        tax_class_field.help_text = "Classe de imposto de produto (Nota Fiscal)."
         self._valid_tax_class_refs = {value for value, _ in self.tax_class_choices if value}
+
+        additional_information_field = self.fields["additional_information"]
+        additional_information_field.label = "Observacao da nota"
+        additional_information_field.required = False
+        additional_information_field.help_text = "Enviada como informacao complementar junto com a Nota Fiscal."
 
         current_tax_class_source = self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", getattr(self.instance, "tax_class", ""))
         current_tax_class = str(current_tax_class_source or "").strip()
@@ -132,7 +142,7 @@ class NfeRequestStep3Form(forms.ModelForm):
                             <th>Produto</th>
                             <th class="text-center">Qtd</th>
                             <th class="text-right">Total Base</th>
-                            <th class="text-right">Total para NF-e</th>
+                            <th class="text-right">Total para Nota Fiscal</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -140,11 +150,11 @@ class NfeRequestStep3Form(forms.ModelForm):
                     </tbody>
                     <tfoot>
                         <tr>
-                            <th colspan="3" class="text-right">Total NF-e (produtos)</th>
+                            <th colspan="3" class="text-right">Total da Nota Fiscal (produtos)</th>
                             <th class="text-right">{total_products_formatted}</th>
                         </tr>
                         <tr>
-                            <th colspan="3" class="text-right">Saldo NFS-e (servicos)</th>
+                            <th colspan="3" class="text-right">Saldo da Nota Fiscal de Serviço (servicos)</th>
                             <th class="text-right">{total_services_formatted}</th>
                         </tr>
                     </tfoot>
@@ -163,12 +173,13 @@ class NfeRequestStep3Form(forms.ModelForm):
         self.helper.layout = Layout(
             Div(
                 HTML("<h2 class='text-2xl font-bold'>Conferir produtos e impostos</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Revise os produtos da OS e finalize a emissao da NF-e.</p>"),
+                HTML("<p class='text-base-content/70 mb-6'>Revise os produtos da OS e finalize a emissao da Nota Fiscal.</p>"),
                 build_step5_pricing_panel_layout(prefix="nfe", panel_data=panel_data, slider_field_name="pricing_slider", form_selector="#nfe-form") if panel_data is not None else HTML(""),
                 Div(
                     Field("tax_class", wrapper_class="col-span-12 lg:col-span-6"),
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
                 ),
+                Field("additional_information"),
                 HTML('<div id="nfe-warning-block">' + warning_html + "</div>"),
                 HTML('<div id="nfe-preview-block">' + preview_html + "</div>"),
                 css_class="space-y-4",
@@ -180,3 +191,7 @@ class NfeRequestStep3Form(forms.ModelForm):
         if self._valid_tax_class_refs and tax_class not in self._valid_tax_class_refs:
             raise forms.ValidationError("Selecione uma classe de imposto valida da lista.")
         return tax_class
+
+    def clean_additional_information(self) -> str:
+        value = str(self.cleaned_data.get("additional_information") or "").strip()
+        return sentence_case(value) if value else value

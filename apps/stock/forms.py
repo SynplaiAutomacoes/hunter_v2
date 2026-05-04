@@ -15,7 +15,6 @@ import gzip
 import base64
 
 from django.core.paginator import Paginator
-from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils.safestring import mark_safe
 from lxml.etree import fromstring
@@ -28,15 +27,16 @@ from pynfe.processamento import ComunicacaoSefaz
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.catalog.price_tracking import build_product_price_warning, record_product_last_purchase_price, record_product_last_used_price
-from apps.core.forms import address_layout, AddressFormMixin
+from apps.core.forms import address_layout, AddressFormMixin, CoreForm, CoreModelForm
+from apps.core.search import apply_text_search
 from apps.core.utils import alert_confirm_layout
-from apps.core.widgets import TextInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput, TextareaInput, \
-    SearchableSelectInput
+from apps.core.widgets import TextInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput, TextareaInput, SearchableSelectInput
 from apps.finance.models.payment_method import PaymentMethod
 
 from apps.stock.financial_entries import ADDITIONAL_CHARGE_ENTRY_TYPE, PAYMENT_ENTRY_TYPE, calculate_import_totals, get_entry_amount, get_entry_reason, normalize_entry_type
 from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement, SefazZipCache
 from apps.stock.models import StockTransfer
+from apps.core.text_normalization import name_case, sentence_case
 
 from apps.stock.utils import NFParser, extract_nf_number_from_access_key, parse_sefaz_distribution_doc_metadata
 from apps.suppliers.models import Supplier
@@ -84,7 +84,7 @@ def _format_money_display(value: Money | None) -> str:
 # Stock
 
 
-class ImportStep1Form(forms.ModelForm):
+class ImportStep1Form(CoreModelForm):
     xml_file = forms.FileField(label="Selecione o arquivo XML", required=False)
     access_key = forms.CharField(label="Insira a chave de acesso", max_length=47, required=False, widget=TextInput(attrs={"oninput": "this.value = this.value.replace(/[^0-9]/g, '')"}))
 
@@ -222,7 +222,7 @@ class ImportStep1Form(forms.ModelForm):
         return cleaned_data
 
 
-class ImportStepSupplierForm(forms.ModelForm):
+class ImportStepSupplierForm(CoreModelForm):
     class Meta:
         model = StockImport
         fields = []
@@ -272,7 +272,7 @@ class ImportStepSupplierForm(forms.ModelForm):
         return self.instance
 
 
-class ImportStepItemsForm(forms.ModelForm):
+class ImportStepItemsForm(CoreModelForm):
     class Meta:
         model = StockImport
         fields = []
@@ -406,7 +406,7 @@ class ImportStepItemsForm(forms.ModelForm):
         return cleaned_data
 
 
-class ImportStepPaymentForm(forms.ModelForm):
+class ImportStepPaymentForm(CoreModelForm):
     payment_method = forms.ModelChoiceField(queryset=PaymentMethod.objects.none(), label="Forma de Pagamento", widget=SearchableSelectInput, required=False, empty_label="Selecione uma forma")
     installments_count = forms.IntegerField(min_value=1, initial=1, label="Número de Parcelas", widget=forms.HiddenInput, required=False)
     first_amount = MoneyField(max_digits=14, decimal_places=2, label="Valor Pago", widget=MoneyInput, required=False)
@@ -657,7 +657,7 @@ class ImportStepPaymentForm(forms.ModelForm):
             </table>"""
 
 
-class ImportStepSummaryForm(forms.ModelForm):
+class ImportStepSummaryForm(CoreModelForm):
     class Meta:
         model = StockImport
         fields = []
@@ -861,7 +861,7 @@ class ImportStepSummaryForm(forms.ModelForm):
         return cleaned_data
 
 
-class AdditionalChargeSessionForm(forms.Form):
+class AdditionalChargeSessionForm(CoreForm):
     amount = MoneyField(max_digits=14, decimal_places=2, label="Valor", widget=MoneyInput)
     reason = forms.CharField(label="Motivo", max_length=255, widget=TextareaInput(attrs={"rows": 3, "placeholder": "Ex: Frete da transportadora"}))
 
@@ -881,10 +881,10 @@ class AdditionalChargeSessionForm(forms.Form):
         reason = str(self.cleaned_data.get("reason") or "").strip()
         if not reason:
             raise forms.ValidationError("Informe o motivo do valor adicional.")
-        return reason
+        return sentence_case(reason)
 
 
-class ImportSefazListForm(forms.ModelForm):
+class ImportSefazListForm(CoreModelForm):
     selected_key = forms.CharField(widget=forms.HiddenInput(), required=False)
 
     class Meta:
@@ -1020,7 +1020,7 @@ class ImportSefazListForm(forms.ModelForm):
         return cleaned_data
 
 
-class ImportStepSupplierManualForm(forms.ModelForm):
+class ImportStepSupplierManualForm(CoreModelForm):
     supplier_select = forms.ChoiceField(label="Selecione o Fornecedor", required=True)
 
     class Meta:
@@ -1116,7 +1116,7 @@ class ImportStepSupplierManualForm(forms.ModelForm):
         return super().save(commit=commit)
 
 
-class ManualLinkItemEditForm(forms.Form):
+class ManualLinkItemEditForm(CoreForm):
     product_id = forms.IntegerField(widget=forms.HiddenInput())
     item_idx = forms.IntegerField(required=False, widget=forms.HiddenInput())
     confirm_lower_price = forms.CharField(required=False, widget=forms.HiddenInput())
@@ -1415,7 +1415,7 @@ class ManualLinkItemEditForm(forms.Form):
         return cleaned_data
 
 
-class ImportManualItemsForm(forms.ModelForm):
+class ImportManualItemsForm(CoreModelForm):
     class Meta:
         model = StockImport
         fields = []
@@ -1792,7 +1792,7 @@ class ImportManualItemsForm(forms.ModelForm):
 # Transfer
 
 
-class TransferStepOperationForm(forms.ModelForm):
+class TransferStepOperationForm(CoreModelForm):
     class Meta:
         model = StockTransfer
         fields = ["operation_type"]
@@ -1814,7 +1814,7 @@ class TransferStepOperationForm(forms.ModelForm):
         )
 
 
-class TransferStepReasonForm(forms.ModelForm):
+class TransferStepReasonForm(CoreModelForm):
     selected_product_id = forms.IntegerField(widget=forms.HiddenInput(), required=False)
 
     class Meta:
@@ -1827,7 +1827,7 @@ class TransferStepReasonForm(forms.ModelForm):
         queryset = Product.objects.filter(workshop=self.instance.source_workshop, is_active=True, stock_products__current_quantity__gt=0).select_related("stock_products").order_by("name")
 
         if search_query:
-            queryset = queryset.filter(Q(code__icontains=search_query) | Q(name__icontains=search_query))
+            queryset = apply_text_search(queryset, search_value=search_query, lookups=("code", "name"))
 
         selected_ids = {str(item.get("source_product_id")) for item in (self.instance.items_data or [])}
 
@@ -1995,8 +1995,12 @@ class TransferStepReasonForm(forms.ModelForm):
 
         return cleaned_data
 
+    def clean_reason(self):
+        value = self.cleaned_data.get("reason")
+        return sentence_case(value) if value else value
 
-class TransferStepWorkshopsForm(forms.ModelForm):
+
+class TransferStepWorkshopsForm(CoreModelForm):
     source_workshop = forms.ModelChoiceField(queryset=Workshop.objects.none(), label="Oficina de Origem", widget=SearchableSelectInput())
     destination_workshop = forms.ModelChoiceField(queryset=Workshop.objects.none(), label="Oficina de Destino", widget=SearchableSelectInput())
 
@@ -2063,7 +2067,7 @@ class TransferStepWorkshopsForm(forms.ModelForm):
         return cleaned_data
 
 
-class TransferItemsForm(forms.ModelForm):
+class TransferItemsForm(CoreModelForm):
     class Meta:
         model = StockTransfer
         fields = []
@@ -2096,7 +2100,7 @@ class TransferItemsForm(forms.ModelForm):
         search_query = self.request.GET.get("source_search", "").strip() if self.request is not None else ""
         queryset = Product.objects.filter(workshop=self.instance.source_workshop, is_active=True, stock_products__current_quantity__gt=0).select_related("group", "stock_products").order_by("name")
         if search_query:
-            queryset = queryset.filter(Q(code__icontains=search_query) | Q(name__icontains=search_query) | Q(brand__icontains=search_query))
+            queryset = apply_text_search(queryset, search_value=search_query, lookups=("code", "name", "brand"))
         return queryset, search_query
 
     def _render_source_column(self) -> str:
@@ -2306,7 +2310,7 @@ class TransferItemsForm(forms.ModelForm):
         return cleaned_data
 
 
-class TransferSummaryForm(forms.ModelForm):
+class TransferSummaryForm(CoreModelForm):
     class Meta:
         model = StockTransfer
         fields = []
@@ -2534,7 +2538,7 @@ class TransferSummaryForm(forms.ModelForm):
 # Quick Forms
 
 
-class QuickProductForm(forms.ModelForm):
+class QuickProductForm(CoreModelForm):
     class Meta:
         model = Product
         fields = ["code", "name", "unit", "group", "cost_price", "selling_price", "profit_margin", "ncm", "origin_cst", "purpose"]
@@ -2615,8 +2619,12 @@ class QuickProductForm(forms.ModelForm):
             )
         )
 
+    def clean_name(self):
+        value = self.cleaned_data.get("name")
+        return sentence_case(value) if value else value
 
-class QuickSupplierForm(AddressFormMixin, forms.ModelForm):
+
+class QuickSupplierForm(AddressFormMixin, CoreModelForm):
     class Meta:
         model = Supplier
         fields = ["cnpj", "name", "contact_person", "phone", "mobile", "email", "registration_date", "is_active", "cep", "logradouro", "numero", "complemento", "bairro", "cidade", "estado"]
@@ -2676,8 +2684,32 @@ class QuickSupplierForm(AddressFormMixin, forms.ModelForm):
 
         return cleaned_data
 
+    def clean_name(self):
+        value = self.cleaned_data.get("name")
+        return name_case(value) if value else value
 
-class CatalogGroupQuickForm(forms.ModelForm):
+    def clean_contact_person(self):
+        value = self.cleaned_data.get("contact_person")
+        return name_case(value) if value else value
+
+    def clean_logradouro(self):
+        value = self.cleaned_data.get("logradouro")
+        return sentence_case(value) if value else value
+
+    def clean_complemento(self):
+        value = self.cleaned_data.get("complemento")
+        return sentence_case(value) if value else value
+
+    def clean_bairro(self):
+        value = self.cleaned_data.get("bairro")
+        return sentence_case(value) if value else value
+
+    def clean_cidade(self):
+        value = self.cleaned_data.get("cidade")
+        return sentence_case(value) if value else value
+
+
+class CatalogGroupQuickForm(CoreModelForm):
     class Meta:
         model = CatalogGroup
         fields = ["name"]
@@ -2699,4 +2731,4 @@ class CatalogGroupQuickForm(forms.ModelForm):
                 qs = qs.exclude(pk=self.instance.pk)
             if qs.exists():
                 raise forms.ValidationError("Já existe um grupo com este nome.")
-        return name
+        return sentence_case(name) if name else name

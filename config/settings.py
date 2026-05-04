@@ -59,10 +59,11 @@ SUPERSIGN_ACCOUNT_ID = os.getenv("SUPERSIGN_ACCOUNT_ID", "")
 SUPERSIGN_API_KEY = os.getenv("SUPERSIGN_API_KEY", "")
 SUPERSIGN_FOLDER_ID = os.getenv("SUPERSIGN_FOLDER_ID", "")
 
-MONGODB_URI = os.getenv("MONGODB_URI", "")
-MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "hunter")
-MONGODB_CERT_BUCKET = os.getenv("MONGODB_CERT_BUCKET", "certificado")
-MONGODB_LOGO_BUCKET = os.getenv("MONGODB_LOGO_BUCKET", "logo")
+STORAGE_ACCESS_KEY_ID = os.getenv("ACCESS_KEY_ID", "")
+STORAGE_SECRET_ACCESS_KEY = os.getenv("SECRET_ACCESS_KEY", "")
+STORAGE_BUCKET = os.getenv("BUCKET", "")
+STORAGE_ENDPOINT = os.getenv("ENDPOINT", "")
+STORAGE_REGION = os.getenv("REGION", "auto")
 
 if not DEBUG:
     SECURE_SSL_REDIRECT = os.getenv("DJANGO_SECURE_SSL_REDIRECT", "1").lower() in ("1", "true", "yes")
@@ -84,6 +85,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.postgres",
     # Dependencies
     "django_tailwind_cli",
     "crispy_tailwind",
@@ -147,10 +149,12 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 # Local
                 "apps.workshops.context_processors.active_workshops",
+                "apps.core.context_processors.navbar",
             ],
             "builtins": [
                 "crispy_forms.templatetags.crispy_forms_tags",
                 "crispy_tailwind.templatetags.tailwind_filters",
+                "apps.core.templatetags.text_filters",
             ],
         },
     },

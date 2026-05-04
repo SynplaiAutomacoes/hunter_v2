@@ -6,9 +6,10 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from apps.catalog.forms.groups import CatalogGroupForm
 from apps.catalog.models.groups import CatalogGroup
+from apps.core.navigation import CATALOG_GROUP_CREATE_FAVORITE_PAGE
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
@@ -32,11 +33,12 @@ class CatalogGroupListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplate
         return context
 
 
-class CatalogGroupCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
+class CatalogGroupCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     model = CatalogGroup
     form_class = CatalogGroupForm
     template_name = "groups/group_create.html"
     success_url = reverse_lazy("catalog:group_list")
+    favorite_page_definition = CATALOG_GROUP_CREATE_FAVORITE_PAGE
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()

@@ -1,7 +1,7 @@
 {% extends 'crud/list_page.html' %}
 
 {% block crud_title %}Presets de Classe de Imposto{% endblock %}
-{% block crud_subtitle %}Monte modelos reutilizáveis de NF-e e NFS-e para cada oficina sem depender de presets hardcoded.{% endblock %}
+{% block crud_subtitle %}Monte modelos reutilizáveis de Nota Fiscal e Nota Fiscal de Serviço para cada oficina sem depender de presets hardcoded.{% endblock %}
 
 {% block crud_header_actions %}
     <div class="flex flex-wrap gap-2">
@@ -11,9 +11,9 @@
 {% endblock %}
 
 {% block crud_table %}
-    <div class="tabs tabs-lift mb-6">
-        <a href="{% url 'finance:tax_class_preset_list' %}?tab=nfe{% if request.GET.is_active %}&is_active={{ request.GET.is_active }}{% endif %}" class="tab {% if active_tab == 'nfe' %}tab-active{% endif %}">NF-e</a>
-        <a href="{% url 'finance:tax_class_preset_list' %}?tab=nfse{% if request.GET.is_active %}&is_active={{ request.GET.is_active }}{% endif %}" class="tab {% if active_tab == 'nfse' %}tab-active{% endif %}">NFS-e</a>
+    <div class="app-tabs tabs tabs-lift mb-6">
+        <a href="{% url 'finance:tax_class_preset_list' %}?tab=nfe{% if request.GET.is_active %}&is_active={{ request.GET.is_active }}{% endif %}" class="tab {% if active_tab == 'nfe' %}tab-active{% endif %}">Nota Fiscal</a>
+        <a href="{% url 'finance:tax_class_preset_list' %}?tab=nfse{% if request.GET.is_active %}&is_active={{ request.GET.is_active }}{% endif %}" class="tab {% if active_tab == 'nfse' %}tab-active{% endif %}">Nota Fiscal de Serviço</a>
     </div>
 
     <div class="mb-6 flex flex-wrap items-end gap-3">
@@ -84,7 +84,7 @@
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="5" class="text-center text-base-content/60 py-6">Nenhum preset de NF-e cadastrado para esta oficina.</td>
+                            <td colspan="5" class="text-center text-base-content/60 py-6">Nenhum preset de Nota Fiscal cadastrado para esta oficina.</td>
                         </tr>
                     {% endfor %}
                 {% else %}
@@ -122,7 +122,7 @@
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="5" class="text-center text-base-content/60 py-6">Nenhum preset de NFS-e cadastrado para esta oficina.</td>
+                            <td colspan="5" class="text-center text-base-content/60 py-6">Nenhum preset de Nota Fiscal de Serviço cadastrado para esta oficina.</td>
                         </tr>
                     {% endfor %}
                 {% endif %}

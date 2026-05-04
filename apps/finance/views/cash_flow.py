@@ -6,10 +6,10 @@ from typing import Any
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse
-from django.utils import timezone
 from django.views.generic import TemplateView
 
 from django.db.models import Q
+from apps.core.search import apply_text_search
 from apps.finance.forms.emission_ui import format_money
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.bank_account import BankAccount
@@ -84,6 +84,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     def _get_financial_movements_queryset(self):
         queryset = (
             FinancialMovement.objects.filter(workshop=self.workshop)
+            .filter(Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT))
             .select_related(
                 "source",
                 "budget_plan",
@@ -96,50 +97,43 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             .prefetch_related("workorder__payments", "workorder__payments__payment_method")
             .order_by("-due_date", "-pk")
         )
-        
+
         filter_params = self._get_filter_params()
-        
+
         # Date Filters
         if filter_params["start_date"]:
             queryset = queryset.filter(due_date__gte=filter_params["start_date"])
         if filter_params["end_date"]:
             queryset = queryset.filter(due_date__lte=filter_params["end_date"])
-            
+
         # Agent Filter
         if filter_params["agent"]:
-            agent_filter = Q(source__name__icontains=filter_params["agent"]) | \
-                           Q(workorder__budget__customer__name__icontains=filter_params["agent"])
-            queryset = queryset.filter(agent_filter)
-            
+            queryset = apply_text_search(queryset, search_value=filter_params["agent"], lookups=("source__name", "workorder__budget__customer__name"))
+
         # Payment Method Filter
         if filter_params["payment_method_id"]:
-            pm_filter = Q(payment_method_id=filter_params["payment_method_id"]) | \
-                        Q(workorder__payments__payment_method_id=filter_params["payment_method_id"])
+            pm_filter = Q(payment_method_id=filter_params["payment_method_id"]) | Q(workorder__payments__payment_method_id=filter_params["payment_method_id"])
             queryset = queryset.filter(pm_filter).distinct()
-            
+
         # Budget Plan Filter
         if filter_params["budget_plan_id"]:
             queryset = queryset.filter(budget_plan_id=filter_params["budget_plan_id"])
-            
+
         # Movement Type Filter (Credit/Debit)
         if filter_params["movement_type"]:
             queryset = queryset.filter(direction=filter_params["movement_type"])
-            
+
         # Bank Account Filter
         if filter_params["bank_account_id"]:
             if filter_params["bank_account_id"] == "none":
                 queryset = queryset.filter(bank_account__isnull=True)
             else:
                 queryset = queryset.filter(bank_account_id=filter_params["bank_account_id"])
-            
+
         # Global Search
         if filter_params["search"]:
-            search_query = Q(description__icontains=filter_params["search"]) | \
-                           Q(source__name__icontains=filter_params["search"]) | \
-                           Q(nf_number__icontains=filter_params["search"]) | \
-                           Q(workorder__budget__customer__name__icontains=filter_params["search"])
-            queryset = queryset.filter(search_query).distinct()
-            
+            queryset = apply_text_search(queryset, search_value=filter_params["search"], lookups=("description", "source__name", "nf_number", "workorder__budget__customer__name")).distinct()
+
         return queryset
 
     def _build_financial_movement_row(self, movement: FinancialMovement, filter_start_date: date | None, filter_end_date: date | None) -> dict[str, object] | None:
@@ -150,36 +144,38 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 
         if movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT and workorder is not None:
             paid_payments = [p for p in payments if p.due_date is not None and getattr(getattr(p, "total_paid", None), "amount", Decimal("0.00")) > 0]
-            
+
             # Filter payments by Date Period if any filters apply to the movement listing
             if filter_start_date:
                 paid_payments = [p for p in paid_payments if p.due_date >= filter_start_date]
             if filter_end_date:
                 paid_payments = [p for p in paid_payments if p.due_date <= filter_end_date]
-                
+
             if not paid_payments:
-                return None # Skipped, no paid portion in this timeframe
-                
+                return None  # Skipped, no paid portion in this timeframe
+
             latest_payment_date = max((payment.due_date for payment in paid_payments), default=None)
             total_paid = sum((self._resolve_money_amount(payment.total_paid) for payment in paid_payments), start=Decimal("0.00"))
-            
+
             due_date = latest_payment_date
             agent = getattr(customer, "name", "-") or "-"
             origin = f"OS #{workorder.pk}"
             description = self._resolve_workorder_description(workorder)
             payment_type = self._resolve_payment_method_summary(paid_payments)
-            
+
             details = []
             remaining_amount = self._resolve_money_amount(workorder.total_budget_value)
             for payment in paid_payments:
                 payment_amount = self._resolve_money_amount(payment.total_paid)
                 remaining_amount = max(Decimal("0.00"), remaining_amount - payment_amount)
-                details.append({
-                    "payment_date": payment.due_date,
-                    "payment_type": getattr(getattr(payment, "payment_method", None), "description", "-") or "-",
-                    "amount": format_money(payment.total_paid),
-                })
-                
+                details.append(
+                    {
+                        "payment_date": payment.due_date,
+                        "payment_type": getattr(getattr(payment, "payment_method", None), "description", "-") or "-",
+                        "amount": format_money(payment.total_paid),
+                    }
+                )
+
             return {
                 "component": f"financial-movement-{movement.pk}",
                 "is_expandable": bool(details),
@@ -201,8 +197,8 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 
         # Normal payments (Non-Workorder) or just simple ones
         if not movement.is_paid:
-            return None # Must be paid
-            
+            return None  # Must be paid
+
         return {
             "component": f"financial-movement-{movement.pk}",
             "is_expandable": False,
@@ -231,7 +227,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         filter_params = self._get_filter_params()
-        
+
         bank_account_id = filter_params.get("bank_account_id")
         selected_account_name = None
         if bank_account_id:
@@ -245,12 +241,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
                     selected_account_name = None
 
         # Saldo geral ou da conta específica, do inicio até o dia atual
-        general_overview = build_financial_overview(
-            workshop=self.workshop,
-            start_date=self.workshop.criado_em.date() if self.workshop.criado_em else date(2000, 1, 1),
-            end_date=None,
-            bank_account_id=bank_account_id if bank_account_id else None
-        )
+        general_overview = build_financial_overview(workshop=self.workshop, start_date=self.workshop.criado_em.date() if self.workshop.criado_em else date(2000, 1, 1), end_date=None, bank_account_id=bank_account_id if bank_account_id else None)
 
         context["saldo_atual"] = {
             "value": format_money(general_overview.confirmed_result),
@@ -261,11 +252,11 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         context["filter_end_date"] = filter_params["end_date"]
         context["financial_movement_report_rows"] = self._get_financial_movement_report_rows()
         context["clear_filters_url"] = reverse("finance:cash_flow")
-        
+
         # Filter Choices
         context["bank_accounts"] = BankAccount.objects.filter(workshop=self.workshop).order_by("bank_name")
         context["payment_methods"] = PaymentMethod.objects.filter(workshop=self.workshop).order_by("description")
         context["budget_plans"] = FinancialGroup.objects.filter(workshop=self.workshop).order_by("sort_key")
         context["movement_types"] = FinancialMovement.MovementDirection.choices
-        
+
         return context

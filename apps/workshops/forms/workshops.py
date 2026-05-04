@@ -11,6 +11,7 @@ from django.urls import reverse
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
+from apps.core.forms import CoreForm, CoreModelForm
 from apps.core.webmania.util import is_webmania_homolog_environment
 from apps.core.widgets import (
     CEPInput,
@@ -19,8 +20,8 @@ from apps.core.widgets import (
     EmailInput,
     ImageInput,
     NumberInput,
-    SearchableSelectInput,
     PhoneInput,
+    SearchableSelectInput,
     TextInput,
     TextareaInput,
     PasswordInput,
@@ -44,7 +45,7 @@ def _format_decimal(value: Decimal, *, places: int = 2) -> str:
     return f"{value.quantize(quantizer):f}"
 
 
-class WorkshopForm(forms.ModelForm):
+class WorkshopForm(CoreModelForm):
     class Meta:
         model = Workshop
         fields = ["name", "cnpj", "phone", "address", "uf", "is_active"]
@@ -90,7 +91,7 @@ class _PreviewableFileValue:
         self.url = url
 
 
-class BaseWebmaniaCompanySectionForm(forms.ModelForm):
+class BaseWebmaniaCompanySectionForm(CoreModelForm):
     secret_fields: tuple[str, ...] = ()
     nullable_boolean_fields: tuple[str, ...] = ()
 
@@ -232,6 +233,8 @@ class WorkshopCompanySectionForm(BaseWebmaniaCompanySectionForm):
     def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
         super().__init__(*args, workshop=workshop, **kwargs)
         self.fields["email"].required = True
+        self.fields["logomarca"].disabled = True
+        self.fields["logomarca"].help_text = "A URL da logomarca e sincronizada automaticamente com o upload da logo da oficina."
         if self.workshop is not None:
             self.initial["workshop_is_active"] = bool(self.workshop.is_active)
 
@@ -281,11 +284,11 @@ class WorkshopCompanySectionForm(BaseWebmaniaCompanySectionForm):
         return instance
 
 
-class WorkshopLogoForm(forms.Form):
+class WorkshopLogoForm(CoreForm):
     logo = forms.FileField(
         required=False,
         label="Logo da oficina",
-        validators=[FileExtensionValidator(allowed_extensions=["png", "jpg", "jpeg", "gif", "webp", "svg"])],
+        validators=[FileExtensionValidator(allowed_extensions=["png", "jpg", "jpeg", "webp", "svg"], message="Permitido logomarca somente nos formatos JPEG, PNG, WEBP ou SVG.")],
         widget=ImageInput(),
     )
 
@@ -295,6 +298,18 @@ class WorkshopLogoForm(forms.Form):
 
         if preview_url:
             self.initial["logo"] = _PreviewableFileValue(preview_url)
+
+    def clean_logo(self):
+        logo = self.cleaned_data.get("logo")
+        if logo in (None, False):
+            return logo
+
+        allowed_content_types = {"image/jpeg", "image/png", "image/webp", "image/svg+xml"}
+        content_type = str(getattr(logo, "content_type", "") or "").strip().lower()
+        if content_type and content_type not in allowed_content_types:
+            raise forms.ValidationError("Permitido logomarca somente nos formatos JPEG, PNG, WEBP ou SVG.")
+
+        return logo
 
     def has_new_upload(self) -> bool:
         uploaded_file = self.cleaned_data.get("logo")
@@ -437,7 +452,7 @@ class WorkshopOptionalsSectionForm(BaseWebmaniaCompanySectionForm):
         }
 
 
-class WorkshopCertificateSectionForm(forms.Form):
+class WorkshopCertificateSectionForm(CoreForm):
     pfx_certificate = forms.FileField(
         required=False,
         validators=[FileExtensionValidator(allowed_extensions=["pfx", "p12"])],

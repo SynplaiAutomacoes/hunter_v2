@@ -1,6 +1,7 @@
 from django import forms
-from django.contrib.auth import get_user_model
+from django.contrib.auth import get_user_model, authenticate
 from django.contrib.auth.forms import AuthenticationForm, UserCreationForm, UsernameField
+from django.db.models import Q
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Submit
@@ -23,6 +24,18 @@ class LoginForm(AuthenticationForm):
         self.helper.form_method = "post"
         self.helper.attrs = {"class": "grid grid-cols-1 gap-4"}
         self.helper.add_input(Submit("submit", "Entrar", css_class="btn btn-primary w-full"))
+
+    def clean_username(self):
+        username = self.cleaned_data.get("username")
+        if username:
+            username = username.lower()
+            # Suporta login por username ou email de forma case-insensitive
+            try:
+                user = User.objects.get(Q(username__iexact=username) | Q(email__iexact=username))
+                return user.username
+            except (User.DoesNotExist, User.MultipleObjectsReturned):
+                return username
+        return username
 
 
 class SignUpForm(UserCreationForm):
@@ -49,3 +62,22 @@ class SignUpForm(UserCreationForm):
         self.helper.form_method = "post"
         self.helper.attrs = {"class": "grid grid-cols-1 gap-4"}
         self.helper.add_input(Submit("submit", "Criar conta", css_class="btn btn-primary w-full"))
+
+    def clean_username(self):
+        username = self.cleaned_data.get("username")
+        if username:
+            return username.lower()
+        return username
+
+    def clean_email(self):
+        email = self.cleaned_data.get("email")
+        if email:
+            email = email.lower()
+            # Verifica se o e-mail já existe (case-insensitive)
+            qs = User.objects.filter(email__iexact=email)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise forms.ValidationError("Este e-mail já está em uso.")
+            return email
+        return email

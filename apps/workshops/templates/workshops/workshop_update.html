@@ -19,7 +19,7 @@
         x-data="{ activeTab: '{{ active_tab }}', nfTab: '{{ active_nf_subtab }}', showCredentials: false }"
     >
         <div class="card-body p-6 md:p-8 space-y-6">
-            <div class="tabs tabs-lift flex-wrap gap-1">
+            <div class="app-tabs tabs tabs-lift flex-wrap gap-1">
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'empresa' }" @click="activeTab = 'empresa'">Empresa</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'endereco' }" @click="activeTab = 'endereco'">Endereco</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'nota_fiscal' }" @click="activeTab = 'nota_fiscal'">Nota Fiscal</button>
@@ -157,10 +157,10 @@
                     </div>
                 {% endif %}
 
-                <div class="tabs tabs-boxed mb-4 w-fit">
-                    <button type="button" class="tab" :class="{ 'tab-active': nfTab === 'nfe' }" @click="nfTab = 'nfe'">NF-e</button>
+                <div class="app-tabs tabs tabs-boxed mb-4 w-fit">
+                    <button type="button" class="tab" :class="{ 'tab-active': nfTab === 'nfe' }" @click="nfTab = 'nfe'">Nota Fiscal</button>
                     <button type="button" class="tab" :class="{ 'tab-active': nfTab === 'nfce' }" @click="nfTab = 'nfce'">NFC-e</button>
-                    <button type="button" class="tab" :class="{ 'tab-active': nfTab === 'nfse' }" @click="nfTab = 'nfse'">NFS-e</button>
+                    <button type="button" class="tab" :class="{ 'tab-active': nfTab === 'nfse' }" @click="nfTab = 'nfse'">Nota Fiscal de Serviço</button>
                 </div>
 
                 <div x-show="nfTab === 'nfe'" x-cloak class="grid grid-cols-1 lg:grid-cols-12 gap-4">

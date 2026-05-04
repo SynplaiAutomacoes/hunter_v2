@@ -11,6 +11,8 @@ from django.urls import reverse
 from djmoney.forms import MoneyField
 from djmoney.money import Money
 
+from apps.core.forms import CoreForm
+from apps.core.text_normalization import sentence_case
 from apps.core.widgets import DurationInput, MoneyInput, NumberInput, TextareaInput, SearchableSelectInput
 from apps.finance.forms.emission_ui import (
     build_slider_widget_attrs,
@@ -26,8 +28,8 @@ from apps.finance.services.pricing import build_emission_pricing_snapshot_for_wo
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 
 
-EMISSION_NOTE_TYPE_CHOICES: list[tuple[str, str]] = [("nfe", "NF-e"), ("nfse", "NFS-e")]
-EMISSION_NOTE_MODE_CHOICES: list[tuple[str, str]] = [("nfe", "NF-e"), ("nfse", "NFS-e"), ("both", "Ambas")]
+EMISSION_NOTE_TYPE_CHOICES: list[tuple[str, str]] = [("nfe", "Nota Fiscal"), ("nfse", "Nota Fiscal de Serviço")]
+EMISSION_NOTE_MODE_CHOICES: list[tuple[str, str]] = [("nfe", "Nota Fiscal"), ("nfse", "Nota Fiscal de Serviço"), ("both", "Ambas")]
 
 
 def _build_modal_action_button(*, label: str, icon: str, url: str) -> str:
@@ -178,9 +180,9 @@ def _build_summary_warning_html(*, workorder: WorkOrder, selected_slider: int) -
     warnings: list[str] = []
 
     if allocation.products_target <= 0 or not snapshot.product_lines:
-        warnings.append("Com a configuracao atual do slider, nao ha saldo de produtos para emitir NF-e.")
+        warnings.append("Com a configuracao atual do slider, nao ha saldo de produtos para emitir Nota Fiscal.")
     if allocation.services_target <= 0 or not snapshot.service_lines:
-        warnings.append("Com a configuracao atual do slider, nao ha saldo de servicos para emitir NFS-e.")
+        warnings.append("Com a configuracao atual do slider, nao ha saldo de servicos para emitir Nota Fiscal de Serviço.")
 
     return "".join(f"<div class='alert alert-warning'>{warning}</div>" for warning in warnings)
 
@@ -280,7 +282,7 @@ def _build_nfe_preview_html(*, workorder: WorkOrder, selected_slider: int) -> tu
 
     warnings.extend(build_nfe_preview_warning_messages(workorder=workorder, slider_override=selected_slider))
     if allocation.products_target <= 0:
-        warnings.append("A configuracao atual do slider nao deixa saldo de produtos para emitir NF-e.")
+        warnings.append("A configuracao atual do slider nao deixa saldo de produtos para emitir Nota Fiscal.")
 
     warning_html = "".join(f"<div class='alert alert-warning'>{escape(message)}</div>" for message in warnings)
 
@@ -308,11 +310,11 @@ def _build_nfe_preview_html(*, workorder: WorkOrder, selected_slider: int) -> tu
         <div class="space-y-4">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="rounded-xl border border-base-300 bg-base-200/50 p-4">
-                    <p class="text-xs uppercase tracking-wide text-base-content/60">Total NF-e</p>
+                    <p class="text-xs uppercase tracking-wide text-base-content/60">Total da Nota Fiscal</p>
                     <p class="text-2xl font-black text-base-content">{total_products_formatted}</p>
                 </div>
                 <div class="rounded-xl border border-base-300 bg-base-200/50 p-4">
-                    <p class="text-xs uppercase tracking-wide text-base-content/60">Saldo NFS-e</p>
+                    <p class="text-xs uppercase tracking-wide text-base-content/60">Saldo da Nota Fiscal de Serviço</p>
                     <p class="text-2xl font-black text-base-content">{total_services_formatted}</p>
                 </div>
             </div>
@@ -339,7 +341,7 @@ def _build_nfse_preview_html(*, workorder: WorkOrder, selected_slider: int) -> t
     allocation = build_slider_allocation_for_workorder(workorder=workorder, slider_override=selected_slider)
     warning_html = ""
     if allocation.services_target <= 0:
-        warning_html = "<div class='alert alert-warning'>A configuracao atual do slider nao deixa saldo de servicos para emitir NFS-e.</div>"
+        warning_html = "<div class='alert alert-warning'>A configuracao atual do slider nao deixa saldo de servicos para emitir Nota Fiscal de Serviço.</div>"
 
     rows = build_nfse_service_preview_rows(workorder=workorder, slider_override=selected_slider)
     rows_html = "".join(
@@ -365,11 +367,11 @@ def _build_nfse_preview_html(*, workorder: WorkOrder, selected_slider: int) -> t
         <div class="space-y-4">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="rounded-xl border border-base-300 bg-base-200/50 p-4">
-                    <p class="text-xs uppercase tracking-wide text-base-content/60">Total NFS-e</p>
+                    <p class="text-xs uppercase tracking-wide text-base-content/60">Total da Nota Fiscal de Serviço</p>
                     <p class="text-2xl font-black text-base-content">{format_money(allocation.services_target)}</p>
                 </div>
                 <div class="rounded-xl border border-base-300 bg-base-200/50 p-4">
-                    <p class="text-xs uppercase tracking-wide text-base-content/60">Saldo NF-e</p>
+                    <p class="text-xs uppercase tracking-wide text-base-content/60">Saldo da Nota Fiscal</p>
                     <p class="text-2xl font-black text-base-content">{format_money(allocation.products_target)}</p>
                 </div>
             </div>
@@ -391,7 +393,7 @@ def _build_nfse_preview_html(*, workorder: WorkOrder, selected_slider: int) -> t
     return warning_html, preview_html
 
 
-class EmissionKitProductComponentForm(forms.Form):
+class EmissionKitProductComponentForm(CoreForm):
     quantity = forms.IntegerField(label="Quantidade por kit", min_value=0, widget=NumberInput())
     cost = MoneyField(label="Custo do produto", required=False, widget=MoneyInput())
     price = MoneyField(label="Valor de venda", required=False, widget=MoneyInput())
@@ -403,7 +405,7 @@ class EmissionKitProductComponentForm(forms.Form):
             self.fields["quantity"].help_text = f"Este kit aparece {parent_quantity}x na O.S.; o total final sera multiplicado por essa quantidade."
 
 
-class EmissionKitServiceComponentForm(forms.Form):
+class EmissionKitServiceComponentForm(CoreForm):
     quantity = forms.IntegerField(label="Quantidade por kit", min_value=0, widget=NumberInput())
     cost = MoneyField(label="Custo do servico", required=False, widget=MoneyInput())
     price = MoneyField(label="Valor de venda", required=False, widget=MoneyInput())
@@ -415,7 +417,7 @@ class EmissionKitServiceComponentForm(forms.Form):
             self.fields["quantity"].help_text = f"Este kit aparece {parent_quantity}x na O.S.; o total final sera multiplicado por essa quantidade."
 
 
-class EmissionStep1Form(forms.Form):
+class EmissionStep1Form(CoreForm):
     workorder = forms.ModelChoiceField(queryset=WorkOrder.objects.none(), label="Ordem de Servico")
 
     def __init__(self, *args, **kwargs):
@@ -453,7 +455,7 @@ class EmissionStep1Form(forms.Form):
         )
 
 
-class EmissionStep2Form(forms.Form):
+class EmissionStep2Form(CoreForm):
     def __init__(self, *args, **kwargs):
         workorder = kwargs.pop("workorder", None)
         super().__init__(*args, **kwargs)
@@ -526,7 +528,7 @@ class EmissionStep2Form(forms.Form):
         )
 
 
-class EmissionStep3Form(forms.Form):
+class EmissionStep3Form(CoreForm):
     def __init__(self, *args, **kwargs):
         workorder = kwargs.pop("workorder", None)
         super().__init__(*args, **kwargs)
@@ -646,7 +648,7 @@ class EmissionStep3Form(forms.Form):
         )
 
 
-class EmissionStep4Form(forms.Form):
+class EmissionStep4Form(CoreForm):
     pricing_slider = forms.IntegerField(label="", min_value=-100, max_value=100)
 
     def __init__(self, *args, **kwargs):
@@ -703,17 +705,46 @@ class EmissionStep4Form(forms.Form):
         return clamp_slider_value(self.cleaned_data.get("pricing_slider"), default=0)
 
 
-class EmissionStep5Form(forms.Form):
+class EmissionStep5Form(CoreForm):
     note_mode = forms.ChoiceField(label="Tipo de notas fiscais", choices=EMISSION_NOTE_MODE_CHOICES)
 
     def __init__(self, *args, **kwargs):
         note_mode_choices = kwargs.pop("note_mode_choices", EMISSION_NOTE_MODE_CHOICES)
+        allowed_note_modes = set(kwargs.pop("allowed_note_modes", {"nfe", "nfse", "both"}))
+        availability_message = str(kwargs.pop("availability_message", "") or "").strip()
         super().__init__(*args, **kwargs)
 
         note_mode_field = self.fields["note_mode"]
         note_mode_field.choices = list(note_mode_choices)
         note_mode_field.widget = SearchableSelectInput(choices=list(note_mode_choices))
         note_mode_field.help_text = "Escolha se a emissão sera somente de produtos, somente de servicos, ou das duas notas em sequencia."
+
+        selected_note_mode = str((self.data.get("note_mode") if self.is_bound else self.initial.get("note_mode", "")) or "").strip()
+        if selected_note_mode not in allowed_note_modes:
+            if "both" in allowed_note_modes:
+                selected_note_mode = "both"
+            elif "nfe" in allowed_note_modes:
+                selected_note_mode = "nfe"
+            elif "nfse" in allowed_note_modes:
+                selected_note_mode = "nfse"
+            else:
+                selected_note_mode = ""
+            if not self.is_bound:
+                self.initial["note_mode"] = selected_note_mode
+
+        option_cards_html = "".join(
+            self._build_note_mode_option_html(
+                value=value,
+                label=label,
+                checked=value == selected_note_mode,
+                disabled=value not in allowed_note_modes,
+            )
+            for value, label in note_mode_choices
+        )
+
+        availability_notice_html = ""
+        if availability_message:
+            availability_notice_html = f"<div class='alert alert-info'>{availability_message}</div>"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -726,24 +757,47 @@ class EmissionStep5Form(forms.Form):
                     <div class="rounded-2xl border border-base-300 bg-base-200/60 p-5 text-base-content/80">
                         <p class="font-semibold mb-2">Como funciona:</p>
                         <ul class="list-disc ml-5 space-y-1 text-sm">
-                            <li><strong>NF-e</strong>: abre a etapa de configuracao fiscal dos produtos.</li>
-                            <li><strong>NFS-e</strong>: abre a etapa de configuracao fiscal dos servicos.</li>
+                            <li><strong>Nota Fiscal</strong>: abre a etapa de configuracao fiscal dos produtos.</li>
+                            <li><strong>Nota Fiscal de Serviço</strong>: abre a etapa de configuracao fiscal dos servicos.</li>
                             <li><strong>Ambas</strong>: abre as duas etapas e faz a emissão em sequencia na ultima tela.</li>
                         </ul>
                     </div>
                     """
                 ),
-                Field("note_mode"),
+                HTML(availability_notice_html),
+                HTML(f"<div class='grid grid-cols-1 lg:grid-cols-3 gap-4'>{option_cards_html}</div>"),
                 css_class="space-y-4",
             )
         )
 
+        self._allowed_note_modes = allowed_note_modes
+
+    @staticmethod
+    def _build_note_mode_option_html(*, value: str, label: str, checked: bool, disabled: bool) -> str:
+        disabled_class = "opacity-50 cursor-not-allowed" if disabled else "cursor-pointer hover:border-primary/50"
+        checked_class = "border-primary ring-2 ring-primary/20" if checked else "border-base-300"
+        disabled_attr = "disabled" if disabled else ""
+        checked_attr = "checked" if checked else ""
+        return f"""
+            <label class="flex items-start gap-3 rounded-2xl border bg-base-100 p-5 transition {checked_class} {disabled_class}">
+                <input type="radio" name="note_mode" value="{value}" class="radio radio-primary mt-1" {checked_attr} {disabled_attr}>
+                <div>
+                    <div class="font-semibold text-base-content">{label}</div>
+                    <div class="text-sm text-base-content/70 mt-1">{"Indisponível com a configuração atual." if disabled else "Disponível para emissão nesta configuração."}</div>
+                </div>
+            </label>
+        """
+
     def clean_note_mode(self) -> str:
-        return _resolve_note_mode(self.cleaned_data.get("note_mode"))
+        note_mode = _resolve_note_mode(self.cleaned_data.get("note_mode"))
+        if note_mode not in self._allowed_note_modes:
+            raise forms.ValidationError("Selecione um tipo de nota fiscal disponível para a configuração atual.")
+        return note_mode
 
 
-class EmissionNfeConfigForm(forms.Form):
+class EmissionNfeConfigForm(CoreForm):
     tax_class = forms.ChoiceField(label="Classe de imposto", choices=[])
+    additional_information = forms.CharField(label="Observacao da nota", required=False, widget=TextareaInput(rows=4))
 
     def __init__(self, *args, **kwargs):
         workorder = kwargs.pop("workorder", None)
@@ -756,8 +810,11 @@ class EmissionNfeConfigForm(forms.Form):
         tax_class_field = self.fields["tax_class"]
         tax_class_field.choices = dropdown_choices
         tax_class_field.widget = SearchableSelectInput(choices=dropdown_choices)
-        tax_class_field.help_text = "Classe fiscal que sera aplicada aos produtos emitidos na NF-e."
+        tax_class_field.help_text = "Classe fiscal que sera aplicada aos produtos emitidos na Nota Fiscal."
         self._valid_tax_class_refs = {value for value, _ in tax_class_choices if value}
+
+        additional_information_field = self.fields["additional_information"]
+        additional_information_field.help_text = "Enviada como informacao complementar junto com a Nota Fiscal."
 
         current_tax_class = str((self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", "")) or "").strip()
         if self._valid_tax_class_refs and current_tax_class not in self._valid_tax_class_refs and not self.is_bound:
@@ -772,9 +829,10 @@ class EmissionNfeConfigForm(forms.Form):
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
-                HTML("<h2 class='text-2xl font-bold'>NF-e</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Confira os produtos que serao enviados na NF-e e selecione a classe de imposto.</p>"),
+                HTML("<h2 class='text-2xl font-bold'>Nota Fiscal</h2>"),
+                HTML("<p class='text-base-content/70 mb-6'>Confira os produtos que serao enviados na Nota Fiscal e selecione a classe de imposto.</p>"),
                 Field("tax_class"),
+                Field("additional_information"),
                 HTML(warning_html),
                 HTML(preview_html),
                 css_class="space-y-4",
@@ -787,10 +845,15 @@ class EmissionNfeConfigForm(forms.Form):
             raise forms.ValidationError("Selecione uma classe de imposto valida da lista.")
         return tax_class
 
+    def clean_additional_information(self) -> str:
+        value = str(self.cleaned_data.get("additional_information") or "").strip()
+        return sentence_case(value) if value else value
 
-class EmissionNfseConfigForm(forms.Form):
+
+class EmissionNfseConfigForm(CoreForm):
     tax_class = forms.ChoiceField(label="Classe de imposto", choices=[])
     service_description = forms.CharField(label="Descricao do servico", required=False, widget=TextareaInput(rows=4))
+    additional_information = forms.CharField(label="Observacao da nota", required=False, widget=TextareaInput(rows=4))
 
     def __init__(self, *args, **kwargs):
         workorder = kwargs.pop("workorder", None)
@@ -803,7 +866,7 @@ class EmissionNfseConfigForm(forms.Form):
         tax_class_field = self.fields["tax_class"]
         tax_class_field.choices = dropdown_choices
         tax_class_field.widget = SearchableSelectInput(choices=dropdown_choices)
-        tax_class_field.help_text = "Classe fiscal que sera aplicada ao valor total da NFS-e."
+        tax_class_field.help_text = "Classe fiscal que sera aplicada ao valor total da Nota Fiscal de Serviço."
         self._valid_tax_class_refs = {value for value, _ in tax_class_choices if value}
 
         current_tax_class = str((self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", "")) or "").strip()
@@ -816,6 +879,9 @@ class EmissionNfseConfigForm(forms.Form):
         if not self.is_bound and not str(self.initial.get("service_description") or "").strip():
             self.initial["service_description"] = default_service_description
 
+        additional_information_field = self.fields["additional_information"]
+        additional_information_field.help_text = "Enviada como informacao complementar quando o provedor da Nota Fiscal de Serviço suportar esse campo."
+
         warning_html = ""
         preview_html = ""
         if workorder is not None:
@@ -825,13 +891,14 @@ class EmissionNfseConfigForm(forms.Form):
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
-                HTML("<h2 class='text-2xl font-bold'>NFS-e</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Confira os servicos que compoem a NFS-e, escolha a classe fiscal e revise a descricao.</p>"),
+                HTML("<h2 class='text-2xl font-bold'>Nota Fiscal de Serviço</h2>"),
+                HTML("<p class='text-base-content/70 mb-6'>Confira os servicos que compoem a Nota Fiscal de Serviço, escolha a classe fiscal e revise a descricao.</p>"),
                 Div(
                     Field("tax_class", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("service_description", wrapper_class="col-span-12 lg:col-span-8"),
                     css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
                 ),
+                Field("additional_information"),
                 HTML(warning_html),
                 HTML(preview_html),
                 css_class="space-y-4",
@@ -848,5 +915,13 @@ class EmissionNfseConfigForm(forms.Form):
         cleaned_data = super().clean() or {}
         service_description = str(cleaned_data.get("service_description") or "").strip()
         if not service_description:
-            self.add_error("service_description", "Informe a descricao do servico para emitir NFS-e.")
+            self.add_error("service_description", "Informe a descricao do servico para emitir Nota Fiscal de Serviço.")
         return cleaned_data
+
+    def clean_service_description(self) -> str:
+        value = str(self.cleaned_data.get("service_description") or "").strip()
+        return sentence_case(value) if value else value
+
+    def clean_additional_information(self) -> str:
+        value = str(self.cleaned_data.get("additional_information") or "").strip()
+        return sentence_case(value) if value else value

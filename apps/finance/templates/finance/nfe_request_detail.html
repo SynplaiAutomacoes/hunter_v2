@@ -1,14 +1,16 @@
 {% extends 'crud/detail.html' %}
 
-{% block crud_title %}Detalhes da NF-e{% endblock %}
-{% block crud_subtitle %}Acompanhe o status, identificadores e documentos da NF-e emitida.{% endblock %}
+{% block crud_title %}Detalhes da Nota Fiscal{% endblock %}
+{% block crud_subtitle %}Acompanhe o status, identificadores e documentos da Nota Fiscal emitida.{% endblock %}
 {% block crud_back_url %}{{ back_url }}{% endblock %}
 
 {% block crud_header_actions %}
-    <a href="{% url 'finance:nfe_update' pk=nfe_request.pk %}" class="btn btn-sm btn-primary gap-2">
-        <span class="material-icons text-sm">edit</span>
-        Editar
-    </a>
+    {% if nfe_request.status != 'invalidated' %}
+        <a href="{% url 'finance:nfe_update' pk=nfe_request.pk %}" class="btn btn-sm btn-primary gap-2">
+            <span class="material-icons text-sm">edit</span>
+            Editar
+        </a>
+    {% endif %}
     <form method="post" action="{% url 'finance:nfe_reconcile' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
         {% csrf_token %}
         <button type="submit" class="btn btn-sm btn-outline gap-2">
@@ -16,10 +18,16 @@
             Reconsultar status
         </button>
     </form>
+    {% if can_invalidate %}
+        <button type="button" class="btn btn-sm btn-warning gap-2" onclick="invalidate_nfe_modal.showModal()">
+            <span class="material-icons text-sm">block</span>
+            Inutilizar numeracao
+        </button>
+    {% endif %}
     {% if can_cancel %}
         <button type="button" class="btn btn-sm btn-error gap-2" onclick="cancel_nfe_modal.showModal()">
             <span class="material-icons text-sm">cancel</span>
-            Cancelar NF-e
+            Cancelar Nota Fiscal
         </button>
     {% endif %}
 {% endblock %}
@@ -45,6 +53,16 @@
                         <p class="font-medium break-all">{{ field.value }}</p>
                     </div>
                 {% endfor %}
+                {% if nfe_request.invalidated_at %}
+                    <div>
+                        <p class="text-xs text-base-content/70 mb-1">Numeracao inutilizada em</p>
+                        <p class="font-medium">{{ nfe_request.invalidated_at|date:'d/m/Y H:i' }}</p>
+                    </div>
+                    <div class="md:col-span-2">
+                        <p class="text-xs text-base-content/70 mb-1">Motivo da inutilizacao</p>
+                        <p class="font-medium break-all">{{ nfe_request.invalidation_reason|default:'-' }}</p>
+                    </div>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -115,20 +133,51 @@
                     {% else %}
                         <span class="btn btn-outline btn-sm btn-disabled">DANFE etiqueta</span>
                     {% endif %}
+                    {% if nfe_request.invalidation_xml_url %}
+                        <a href="{{ nfe_request.invalidation_xml_url }}" class="btn btn-outline btn-sm" target="_blank" rel="noopener">XML inutilizacao</a>
+                    {% endif %}
                 </div>
             {% else %}
                 <div class="alert alert-warning">
-                    <span>A NF-e ainda nao possui item sincronizado. Reenvie a consulta quando a Webmania retornar o processamento.</span>
+                    <span>A Nota Fiscal ainda nao possui item sincronizado. Reenvie a consulta quando a Webmania retornar o processamento.</span>
                 </div>
+                {% if nfe_request.invalidation_xml_url %}
+                    <div class="mt-4">
+                        <a href="{{ nfe_request.invalidation_xml_url }}" class="btn btn-outline btn-sm" target="_blank" rel="noopener">XML inutilizacao</a>
+                    </div>
+                {% endif %}
             {% endif %}
         </div>
     </div>
+    {% if can_invalidate %}
+        <dialog id="invalidate_nfe_modal" class="modal" onclick="if (event.target === this) this.close()">
+            <div class="modal-box w-11/12 max-w-xl border border-base-300 bg-base-100 shadow-2xl">
+                <form method="post" action="{% url 'finance:nfe_invalidate' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
+                    {% csrf_token %}
+                    <h3 class="text-base font-semibold text-base-content">Inutilizar numeracao</h3>
+                    <p class="text-sm text-base-content/70 mt-2">A numeracao reservada {{ nfe_request.reserved_number|default:'-' }}/{{ nfe_request.reserved_series|default:'-' }} sera marcada como inutilizada na SEFAZ. Informe o motivo entre 15 e 255 caracteres.</p>
+
+                    <div class="mt-4">
+                        <label for="nfe-invalidate-reason" class="label">
+                            <span class="label-text">Motivo da inutilizacao</span>
+                        </label>
+                        <textarea id="nfe-invalidate-reason" name="reason" class="textarea textarea-bordered w-full" rows="4" minlength="15" maxlength="255" required></textarea>
+                    </div>
+
+                    <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                        <button type="button" class="btn-form-cancel" onclick="invalidate_nfe_modal.close()">Cancelar</button>
+                        <button type="submit" class="btn btn-warning">Confirmar inutilizacao</button>
+                    </div>
+                </form>
+            </div>
+        </dialog>
+    {% endif %}
     {% if can_cancel %}
         <dialog id="cancel_nfe_modal" class="modal" onclick="if (event.target === this) this.close()">
             <div class="modal-box w-11/12 max-w-xl border border-base-300 bg-base-100 shadow-2xl">
                 <form method="post" action="{% url 'finance:nfe_cancel' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
                     {% csrf_token %}
-                    <h3 class="text-base font-semibold text-base-content">Cancelar NF-e</h3>
+                    <h3 class="text-base font-semibold text-base-content">Cancelar Nota Fiscal</h3>
                     <p class="text-sm text-base-content/70 mt-2">Informe o motivo do cancelamento (entre 15 e 255 caracteres).</p>
 
                     <div class="mt-4">

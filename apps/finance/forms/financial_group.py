@@ -10,6 +10,7 @@ from django.urls import reverse
 from apps.core.widgets import CheckboxInput, SearchableSelectInput, TextInput
 from apps.finance.models.financial_group import FinancialGroup
 from apps.workshops.models.workshops import Workshop
+from apps.core.forms import CoreModelForm
 
 
 class FinancialGroupParentChoiceField(forms.ModelChoiceField):
@@ -17,7 +18,7 @@ class FinancialGroupParentChoiceField(forms.ModelChoiceField):
         return obj.dre_hierarchy_label
 
 
-class FinancialGroupForm(forms.ModelForm):
+class FinancialGroupForm(CoreModelForm):
     parent = FinancialGroupParentChoiceField(
         queryset=FinancialGroup.objects.none(),
         label="Grupo pai",

@@ -50,13 +50,14 @@ Isso reduz risco de perda de evento e ajuda no troubleshooting.
 
 ## Certificado e armazenamento de arquivos
 
-`apps/workshops/services/files.py` mostra que certificado e logo de oficina podem ser guardados no MongoDB/GridFS. No caso do certificado, ha ainda sincronizacao com dados da Webmania e tratamento atomico para evitar estado parcial.
+`apps/workshops/services/files.py` mostra que certificado e logo de oficina ficam em um bucket S3 compativel. No caso do certificado, ha ainda sincronizacao com dados da Webmania e tratamento atomico para evitar estado parcial.
 
 Pontos relevantes:
 
-- `MONGODB_URI` precisa estar configurado para o fluxo novo de arquivos
-- certificados podem ser armazenados e recuperados por bucket GridFS
+- `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `BUCKET` e `ENDPOINT` precisam estar configurados para o fluxo de arquivos
+- certificados e logos sao persistidos por chave no bucket privado
 - o servico faz limpeza de arquivos antigos quando substitui conteudo
+- o logo da oficina e sincronizado com a Webmania por uma URL publica servida pela aplicacao
 - o processo tenta manter consistencia entre banco local e estado remoto na Webmania
 
 ## Variaveis de ambiente essenciais
@@ -77,10 +78,11 @@ Pontos relevantes:
 
 ### Estrutura de certificado/arquivo
 
-- `MONGODB_URI`
-- `MONGODB_DB_NAME`
-- `MONGODB_CERT_BUCKET`
-- `MONGODB_LOGO_BUCKET`
+- `ACCESS_KEY_ID`
+- `SECRET_ACCESS_KEY`
+- `BUCKET`
+- `ENDPOINT`
+- `REGION`
 
 ## Homologacao x producao
 
@@ -119,7 +121,7 @@ O repositorio contem o comando `manage.py reconcile_webmania_documents`. Isso e 
 ### Erro envolvendo certificado
 
 - confira se o certificado esta salvo para a oficina correta
-- confira `MONGODB_URI`
+- confira as credenciais do bucket
 - confira senha do certificado
 
 ## Onde navegar no codigo

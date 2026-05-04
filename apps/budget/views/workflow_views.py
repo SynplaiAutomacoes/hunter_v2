@@ -20,15 +20,17 @@ from djmoney.money import Money
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
 from apps.budget.documents.provider import build_budget_status_report_pdf_render_request, render_budget_status_report_pdf_document
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
-from apps.budget.models import Budget, BudgetItem, BudgetStatus, SignatureStatus
+from apps.budget.models import Budget, BudgetItem, BudgetStatus, SignatureStatus, BudgetType
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.budget.service import SuperSignError, send_budget_for_signature
 from apps.core.documents.http import build_pdf_http_response
 from apps.core.forms import MultiStepFormMixin
+from apps.core.navigation import BUDGET_CREATE_FAVORITE_PAGE
 from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
+from apps.core.text_normalization import sentence_case
 from apps.scheduling.models import Appointment
 from apps.workorder.discount_sync import sync_budget_discount_to_workorder
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -99,6 +101,12 @@ BUDGET_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
         lookup="criado_em__date",
         kind="date_lte",
     ),
+    QueryParamFilter(
+        param_name="budget_type",
+        lookup="budget_type",
+        kind="choice",
+        allowed_values=frozenset(str(choice.value) for choice in BudgetType),
+    ),
 )
 
 BUDGET_STATUS_REPORT_FILTERS: tuple[QueryParamFilter, ...] = (
@@ -115,6 +123,7 @@ BUDGET_STATUS_REPORT_FILTERS: tuple[QueryParamFilter, ...] = (
 )
 
 BUDGET_STATUS_CHOICES = tuple((status.value, str(status.label)) for status in BudgetStatus)
+BUDGET_TYPE_CHOICES = tuple((choice.value, str(choice.label)) for choice in BudgetType)
 BUDGET_STATUS_BADGE_CLASSES = {
     BudgetStatus.DRAFT: "badge-neutral min-w-sm",
     BudgetStatus.WAITING_CLIENT: "badge-warning min-w-sm",
@@ -228,6 +237,7 @@ class BudgetStatusReportDataMixin:
             TableColumn("ID", attr="id"),
             TableColumn(str(Budget.customer.field.verbose_name), attr=Budget.customer.field.name, search_by="customer__name"),
             TableColumn(str(Budget.vehicle.field.verbose_name), attr=Budget.vehicle.field.name, search_by=("vehicle__plate", "vehicle__model", "vehicle__brand")),
+            TableColumn("Vinculado à", attr="reference_budget_id", search_by="reference_budget__id"),
             TableColumn(str(Budget.budget_type.field.verbose_name), attr="type_budget_badge", searchable=False, format="status_badge"),
             TableColumn("Criado em", attr="criado_em"),
             TableColumn("Valor Total", attr="total_budget_value", searchable=False),
@@ -300,6 +310,7 @@ class BudgetListView(LoginRequiredMixin, BudgetStatusReportDataMixin, WorkshopSc
             TableActionDefaults.edit("budget:budget_update"),
         ]
         context["status_choices"] = BUDGET_STATUS_CHOICES
+        context["budget_type_choices"] = BUDGET_TYPE_CHOICES
         context["selected_status_report"] = self._get_selected_status_report()
         context["status_report_period_label"] = self._get_status_report_period_label()
         context["status_report_querystring"] = self._get_status_report_querystring()
@@ -334,9 +345,10 @@ class BudgetStatusReportPdfView(LoginRequiredMixin, BudgetStatusReportDataMixin,
         return build_pdf_http_response(document=document, download=request.GET.get("download") == "1")
 
 
-class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, CreateView):
+class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, CreateView):
     model = Budget
     template_name = "budget/budget_form.html"
+    favorite_page_definition = BUDGET_CREATE_FAVORITE_PAGE
 
     steps_definition = [
         {"title": "Dados do Cliente", "form_class": BudgetStep1Form, "status": BudgetStatus.WAITING_CLIENT, "auto_apply": True},
@@ -521,11 +533,24 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
         if block_step5_response:
             return block_step5_response
 
-        if self.object.current_step < current_step + 1:
-            self.object.current_step = current_step + 1
+        total_steps = len(self.steps_definition)
+        next_step_value = min(current_step + 1, total_steps)
+
+        if self.object.current_step < next_step_value:
+            self.object.current_step = next_step_value
             self.object.save(update_fields=["current_step"])
 
-        if current_step < len(self.steps_definition):
+        if current_step == total_steps:
+            review_url = self._build_create_flow_url(step=current_step, budget_id=self.object.pk)
+            toast_type, toast_message = ("success", "Revisão do orçamento salva com sucesso.")
+
+            if bool(getattr(self.request, "htmx", False)):
+                return self._render_htmx_step_response(step=current_step, push_url=review_url, triggers={"showToast": {"message": toast_message, "type": toast_type}})
+
+            messages.success(self.request, toast_message)
+            return redirect(review_url)
+
+        if current_step < total_steps:
             next_step = current_step + 1
             success_url = self._build_create_flow_url(step=next_step, budget_id=self.object.pk)
 
@@ -558,6 +583,8 @@ class BudgetCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMix
 
 
 class BudgetUpdateView(BudgetCreateView):
+    favorite_page_definition = None
+
     def get(self, request, *args, **kwargs):
         self.object = self.get_object()
         if self.object is None:
@@ -609,11 +636,24 @@ class BudgetUpdateView(BudgetCreateView):
             return block_step5_response
 
         # Lógica de progressão de etapa (opcional em Update, mas útil se ele puder avançar)
-        if self.object.current_step < current_step + 1:
-            self.object.current_step = current_step + 1
+        total_steps = len(self.steps_definition)
+        next_step_value = min(current_step + 1, total_steps)
+
+        if self.object.current_step < next_step_value:
+            self.object.current_step = next_step_value
             self.object.save(update_fields=["current_step"])
 
-        if current_step < len(self.steps_definition):
+        if current_step == total_steps:
+            success_url = f"{reverse('budget:budget_update', kwargs={'pk': self.object.pk})}?step={current_step}"
+            toast_type, toast_message = ("success", "Revisão do orçamento salva com sucesso.")
+
+            if bool(getattr(self.request, "htmx", False)):
+                return self._render_htmx_step_response(step=current_step, push_url=success_url, triggers={"showToast": {"message": toast_message, "type": toast_type}})
+
+            messages.success(self.request, toast_message)
+            return redirect(success_url)
+
+        if current_step < total_steps:
             next_step = current_step + 1
             # Importante: Apontamos para budget_update para manter o contexto de edição
             success_url = f"{reverse('budget:budget_update', kwargs={'pk': self.object.pk})}?step={next_step}"
@@ -700,6 +740,12 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
             messages.error(request, error_message)
             return JsonResponse({"success": False, "error": error_message}, status=400)
 
+        step6_action_blockers = budget.step6_action_blockers
+        if step6_action_blockers:
+            error_message = " ".join(step6_action_blockers)
+            messages.error(request, error_message)
+            return JsonResponse({"success": False, "error": error_message}, status=400)
+
         # Validação de Aprovação
         if status == "approve":
             try:
@@ -728,6 +774,11 @@ class SendBudgetSignatureView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
         toast_type, toast_message, _ = trigger_signature_send_if_needed(request=request, budget=budget)
+
+        if toast_type in {"success", "info"}:
+            budget.status = BudgetStatus.WAITING_APPROVAL
+            budget.save(update_fields=["status"])
+
         status_code = 200 if toast_type in {"success", "info"} else 400
         return JsonResponse({"success": toast_type in {"success", "info"}, "type": toast_type, "message": toast_message}, status=status_code)
 
@@ -783,10 +834,58 @@ class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
         try:
             data = json.loads(request.body)
             budget_id = int(data.get("budget_id"))
-            observation = data.get("observation", "").strip()
+            observation = sentence_case(str(data.get("observation", "")).strip())
             budget = _get_budget_for_workshop(self.workshop, budget_id)
             budget.pdf_observation = observation
             budget.save(update_fields=["pdf_observation"])
             return JsonResponse({"success": True})
         except (TypeError, ValueError, json.JSONDecodeError, AttributeError, Http404):
             return JsonResponse({"success": False}, status=400)
+
+
+class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "change_budget"
+
+    def get(self, request, pk):
+        budget = _get_budget_for_workshop(self.workshop, pk)
+        context = {
+            "budget": budget,
+        }
+        return render(request, "budget/partials/budget_reference_modal.html", context)
+
+    def post(self, request, pk):
+        current_budget = _get_budget_for_workshop(self.workshop, pk)
+        relate = request.POST.get("relate_budget") == "yes"
+
+        try:
+            with transaction.atomic():
+                new_budget = Budget(
+                    workshop=current_budget.workshop,
+                    customer=current_budget.customer,
+                    vehicle=current_budget.vehicle,
+                    cost_estimator=request.user,
+                    collaborator=current_budget.collaborator,
+                    checklist=current_budget.checklist,
+                    expiration_date=current_budget.expiration_date,
+                    entry_date=timezone.now().date(),
+                    problem_description=current_budget.problem_description,
+                    technical_diagnosis=current_budget.technical_diagnosis,
+                    notes=current_budget.notes,
+                    pdf_observation=current_budget.pdf_observation,
+                    fuel_level=current_budget.fuel_level,
+                    defect=current_budget.defect,
+                    discount_value=current_budget.discount_value,
+                    discount_percentage=current_budget.discount_percentage,
+                    reference_budget=current_budget if relate else None,
+                )
+                new_budget.save()
+        except Exception as e:
+            return HttpResponse(f"Erro ao criar orçamento: {str(e)}", status=400)
+
+        # Redirect or trigger HTMX reload
+        response = HttpResponse("", status=200)
+        redirect_url = f"{reverse('budget:budget_update', kwargs={'pk': new_budget.pk})}?step=1"
+        triggers = {"showToast": {"message": "Orçamento criado com sucesso.", "type": "success"}, "redirectAfterToast": {"url": redirect_url, "delay": 500}}
+        response["HX-Trigger"] = json.dumps(triggers)
+        return response

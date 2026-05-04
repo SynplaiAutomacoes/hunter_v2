@@ -1,83 +1,13 @@
-<nav x-data="{
-    menus: [
-        {
-            label: 'Orçamentos',
-            href: '{% url "budget:budget_list" %}'
-        },
-        {
-            label: 'Ordens de Serviço',
-            href: '{% url "workorder:workorder_list" %}'
-        },
-        {
-            label: 'Agendamentos',
-            href: '{% url "scheduling:appointment_calendar" %}'
-        },
-        {
-            label: 'Estoque',
-            items: [
-                { label: 'Exportar Itens', href: '{% url "stock:transfer" %}' },
-                { label: 'Importar Itens', href: '{% url "stock:stock_list" %}' },
-                { label: 'Aprovação', href: '{% url "stock:approvals" %}' },
-                { label: 'Reabastecimento', href: '{% url "stock:replenishment" %}' },
-                { label: 'Relatório', href: '{% url "stock:report" %}' },
-                { label: 'Movimentações', href: '{% url "stock:movements" %}' },
-                { label: 'Alertas', href: '{% url "stock:alerts" %}' }
-            ]
-        },
-        {
-            label: 'Financeiro',
-            items: [
-                { label: 'Emitir nota', href: '{% url "finance:emission_create" %}?reset=1' },
-                { label: 'Central de Notas', href: '{% url "finance:issued_documents_list" %}' },
-                { label: 'Movimentação Financeira', href: '{% url "finance:reports_home" %}' },
-                { label: 'Conta Bancária', href: '{% url "finance:bank_account_list" %}' },
-                { label: 'Formas de Pagamento', href: '{% url "finance:payment_methods_list" %}' },
-                { label: 'Grupos Financeiros', href: '{% url "finance:financial_groups_list" %}' },
-                { label: 'Classe de Imposto', href: '{% url "finance:tax_class_list" %}' },
-                { label: 'Gerar DRE', href: '{% url "finance:dre_report" %}' },
-                { label: 'Fluxo de Contas', href: '{% url "finance:cash_flow" %}' }
-            ]
-        },
-        {
-            label: 'Consulta',
-            items: [
-                { label: 'Histórico de Clientes', href: '{% url "customer:customer_history_list" %}'}
-            ]
-        },
-        {
-            label: 'Cadastros',
-            items: [
-                { label: 'Cliente', href: '{% url "customer:customer_list" %}' },
-                { label: 'Mensagens WhatsApp', href: '{% url "messaging:message_template_list" %}' },
-                { label: 'Grupos de Mensagens', href: '{% url "messaging:customer_message_group_list" %}' },
-                { label: 'Colaborador', href: '{% url "collaborators:collaborator_list" %}' },
-                { label: 'Fornecedor', href: '{% url "suppliers:supplier_list" %}' },
-                { label: 'Produto', href: '{% url "catalog:product_list" %}' },
-                { label: 'Serviço', href: '{% url "catalog:services_list" %}' },
-                { label: 'Kit', href: '{% url "catalog:kits_list" %}' },
-                { label: 'Grupo', href: '{% url "catalog:group_list" %}' },
-                { label: 'Checklist', href: '{% url "checklist:checklist_list" %}' },
-            ]
-        },
-        {
-            label: 'Gestão',
-            items: [
-                { label: 'Gerenciar Oficinas', href: '{% url "workshops:list" %}' },
-                { label: 'Gerenciar Permissões', href: '{% url "iam:role_list" %}' },
-                {% if active_workshop_is_director or active_workshop_is_manager %}
-                    { label: 'Histórico de Emissões', href: '{% url "workshops:emission_history" %}' },
-                {% endif %}
-                { label: 'Custos Mensais', href: '{% url "workshops:cost_list" %}' },
-                { label: 'Custo Mensal da Oficina', href: '{% url "workshops:workshop_cost_list" %}' },
-                { label: 'Perguntas Investigativas', href: '{% url "quote:investigative_question_list" %}' }
-            ]
-        }
-    ]
-}">
-    <div class="navbar bg-navbar text-navbar-text md:px-10 xl:px-20 sticky top-0 z-100">
-        <!-- ──── START ──── -->
-        <div class="navbar-start">
-            <!-- Mobile hamburger -->
+<nav
+    x-data="navbarFavorites({
+        reorderUrl: '{% url 'core:favorite_page_reorder' %}',
+        csrfToken: '{{ csrf_token|escapejs }}',
+        reorderErrorMessage: 'Não foi possível reordenar os favoritos agora.'
+    })"
+>
+    <div class="sticky top-0 z-100 bg-navbar text-navbar-text shadow-sm">
+        <div class="navbar gap-2 md:grid md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:items-center md:px-10 lg:flex xl:px-20">
+            <div class="navbar-start gap-2 md:w-auto md:min-w-0 lg:w-1/2">
             <div class="dropdown">
                 <div tabindex="0" role="button" class="pr-5 lg:hidden" aria-label="Abrir menu">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-9 w-9" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -85,47 +15,54 @@
                     </svg>
                 </div>
 
-                <!-- Mobile menu (dropdown clicável) -->
                 <ul tabindex="0" class="dropdown-content menu menu-md bg-base-100 text-base-content rounded-box w-64 shadow">
-                    <template x-for="menu in menus" :key="menu.label">
+                    {% for menu in navbar_menus %}
                         <li>
-                            <template x-if="menu.items" class="hidden">
+                            {% if menu.children %}
                                 <details x-data="{ open: false }" @toggle="open = $el.open">
                                     <summary class="flex items-center justify-between gap-2">
-                                        <span x-text="menu.label"></span>
+                                        <span>{{ menu.label }}</span>
                                     </summary>
                                     <ul>
-                                        <template x-for="item in menu.items" :key="item.label">
-                                            <li><a :href="item.href" x-text="item.label"></a></li>
-                                        </template>
+                                        {% for item in menu.children %}
+                                            <li>
+                                                <div class="flex items-center justify-between gap-2">
+                                                    <a class="flex-1" href="{{ item.href }}">{{ item.label }}</a>
+                                                    {% if item.favoritable %}
+                                                        {% include 'favorites/partials/favorite_button.html' with favorite_url=item.href favorite_label=item.label %}
+                                                    {% endif %}
+                                                </div>
+                                            </li>
+                                        {% endfor %}
                                     </ul>
                                 </details>
-                            </template>
-
-                            <template x-if="!menu.items" class="hidden">
-                                <a :href="menu.href" x-text="menu.label"></a>
-                            </template>
+                            {% else %}
+                                <div class="flex items-center justify-between gap-2">
+                                    <a class="flex-1" href="{{ menu.href }}">{{ menu.label }}</a>
+                                    {% if menu.favoritable %}
+                                        {% include 'favorites/partials/favorite_button.html' with favorite_url=menu.href favorite_label=menu.label %}
+                                    {% endif %}
+                                </div>
+                            {% endif %}
                         </li>
-                    </template>
+                    {% endfor %}
                 </ul>
             </div>
 
-            <!-- Logo -->
-            <a href="/core/" class="hidden items-center gap-1 md:flex md:absolute md:left-1/2 md:-translate-x-1/2 lg:static lg:translate-x-0">
+            <a href="/core/" class="hidden items-center gap-1 md:flex md:justify-self-center lg:justify-self-auto">
                 <span class="material-icons !text-4xl text-indigo-300">directions_car</span>
                 <h1 class="text-2xl font-semibold">Hunter</h1>
             </a>
-        </div>
+            </div>
 
-        <!-- ──── CENTER ──── -->
-        <div class="navbar-center hidden lg:flex">
+            <div class="navbar-center hidden lg:flex lg:flex-none">
             <ul class="menu menu-horizontal">
-                <template x-for="menu in menus" :key="menu.label">
+                {% for menu in navbar_menus %}
                     <li>
-                        <template x-if="menu.items" class="hidden">
+                        {% if menu.children %}
                             <div class="dropdown dropdown-hover dropdown-center" x-data="{ hover: false }" @mouseenter="hover = true" @mouseleave="hover = false">
                                 <div tabindex="0" role="button" class="flex items-center gap-1 text-base font-medium">
-                                    <span x-text="menu.label"></span>
+                                    <span>{{ menu.label }}</span>
                                     <svg xmlns="http://www.w3.org/2000/svg"
                                          viewBox="0 0 20 20"
                                          fill="currentColor"
@@ -135,24 +72,33 @@
                                         <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.938a.75.75 0 1 1 1.08 1.04l-4.24 4.5a.75.75 0 0 1-1.08 0l-4.24-4.5a.75.75 0 0 1 .02-1.06Z" clip-rule="evenodd"></path>
                                     </svg>
                                 </div>
-                                <ul tabindex="-1" class="dropdown-content bg-base-100 text-base-content rounded-box z-1 mt-1 w-52 p-2 shadow">
-                                    <template x-for="item in menu.items" :key="item.label">
-                                        <li><a :href="item.href" x-text="item.label"></a></li>
-                                    </template>
+                                <ul tabindex="-1" class="dropdown-content bg-base-100 text-base-content rounded-box z-1 mt-1 w-56 p-2 shadow">
+                                    {% for item in menu.children %}
+                                        <li>
+                                            <div class="flex items-center justify-between gap-2">
+                                                <a class="flex-1" href="{{ item.href }}">{{ item.label }}</a>
+                                                {% if item.favoritable %}
+                                                    {% include 'favorites/partials/favorite_button.html' with favorite_url=item.href favorite_label=item.label %}
+                                                {% endif %}
+                                            </div>
+                                        </li>
+                                    {% endfor %}
                                 </ul>
                             </div>
-                        </template>
-
-                        <template x-if="!menu.items" class="hidden">
-                            <a class="text-base font-medium" :href="menu.href" x-text="menu.label"></a>
-                        </template>
+                        {% else %}
+                            <div class="flex items-center justify-between gap-2">
+                                <a class="flex-1 text-base font-medium" href="{{ menu.href }}">{{ menu.label }}</a>
+                                {% if menu.favoritable %}
+                                    {% include 'favorites/partials/favorite_button.html' with favorite_url=menu.href favorite_label=menu.label favorite_button_class='btn btn-ghost btn-circle btn-xs text-navbar-text/80 hover:text-warning' %}
+                                {% endif %}
+                            </div>
+                        {% endif %}
                     </li>
-                </template>
+                {% endfor %}
             </ul>
-        </div>
+            </div>
 
-        <!-- ──── END ──── -->
-        <div class="navbar-end gap-2">
+            <div class="navbar-end gap-2 md:w-auto md:min-w-0 md:justify-self-end lg:w-1/2">
             {% include 'navbar/partials/workshop_select.html' %}
 
             <label class="swap swap-rotate px-2 text-navbar-text m-0" aria-label="Alternar tema">
@@ -164,12 +110,10 @@
                     @change="window.__theme?.set($el.checked ? window.__theme.THEME_DARK : window.__theme.THEME_LIGHT)"
                 />
 
-                <!-- sol (light) -->
                 <svg class="swap-off h-7 w-7 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                     <path d="M5.64,17l-.71.71a1,1,0,0,0,0,1.41,1,1,0,0,0,1.41,0l.71-.71A1,1,0,0,0,5.64,17ZM5,12a1,1,0,0,0-1-1H3a1,1,0,0,0,0,2H4A1,1,0,0,0,5,12Zm7-7a1,1,0,0,0,1-1V3a1,1,0,0,0-2,0V4A1,1,0,0,0,12,5ZM5.64,7.05a1,1,0,0,0,.7.29,1,1,0,0,0,.71-.29,1,1,0,0,0,0-1.41l-.71-.71A1,1,0,0,0,4.93,6.34Zm12,.29a1,1,0,0,0,.7-.29l.71-.71a1,1,0,1,0-1.41-1.41L17,5.64a1,1,0,0,0,0,1.41A1,1,0,0,0,17.66,7.34ZM21,11H20a1,1,0,0,0,0,2h1a1,1,0,0,0,0-2Zm-9,8a1,1,0,0,0-1,1v1a1,1,0,0,0,2,0V20A1,1,0,0,0,12,19ZM18.36,17A1,1,0,0,0,17,18.36l.71.71a1,1,0,0,0,1.41,0,1,1,0,0,0,0-1.41ZM12,6.5A5.5,5.5,0,1,0,17.5,12,5.51,5.51,0,0,0,12,6.5Zm0,9A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"></path>
                 </svg>
 
-                <!-- lua (dark) -->
                 <svg class="swap-on h-7 w-7 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                     <path d="M21.64,13a1,1,0,0,0-1.05-.14,8.05,8.05,0,0,1-3.37.73A8.15,8.15,0,0,1,9.08,5.49a8.59,8.59,0,0,1,.25-2A1,1,0,0,0,8,2.36,10.14,10.14,0,1,0,22,14.05,1,1,0,0,0,21.64,13Zm-9.5,6.69A8.14,8.14,0,0,1,7.08,5.22v.27A10.15,10.15,0,0,0,17.22,15.63a9.79,9.79,0,0,0,2.1-.22A8.11,8.11,0,0,1,12.14,19.73Z"></path>
                 </svg>
@@ -181,11 +125,156 @@
                         <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="36px" height="36px" viewBox="0,0,256,256"><g fill="#ffffff" fill-rule="nonzero" stroke="none" stroke-width="1" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="10" stroke-dasharray="" stroke-dashoffset="0" font-family="none" font-weight="none" font-size="none" text-anchor="none" style="mix-blend-mode: normal"><g transform="scale(5.33333,5.33333)"><path d="M24,4c-5.50508,0 -10,4.49492 -10,10c0,5.50508 4.49492,10 10,10c5.50508,0 10,-4.49492 10,-10c0,-5.50508 -4.49492,-10 -10,-10zM24,7c3.88376,0 7,3.11624 7,7c0,3.88376 -3.11624,7 -7,7c-3.88376,0 -7,-3.11624 -7,-7c0,-3.88376 3.11624,-7 7,-7zM11.97852,28c-2.17981,0 -3.97852,1.79871 -3.97852,3.97852v1.52148c0,3.60417 2.27927,6.39223 5.30664,8.0625c3.02737,1.67027 6.86146,2.4375 10.69336,2.4375c3.8319,0 7.66599,-0.76723 10.69336,-2.4375c2.58128,-1.42415 4.52398,-3.69988 5.06836,-6.5625h0.24023v-3.02148c0,-2.17981 -1.80066,-3.97852 -3.98047,-3.97852zM11.97852,31h24.04297c0.55819,0 0.98047,0.42033 0.98047,0.97852v0.02148h-0.00195v1.5c0,2.39583 -1.34573,4.10777 -3.75586,5.4375c-2.41013,1.32973 -5.82604,2.0625 -9.24414,2.0625c-3.4181,0 -6.83401,-0.73277 -9.24414,-2.0625c-2.41013,-1.32973 -3.75586,-3.04167 -3.75586,-5.4375v-1.52148c0,-0.55819 0.42033,-0.97852 0.97852,-0.97852z"></path></g></g></svg>
                     </div>
                 </div>
-                <ul tabindex="0"
-                    class="dropdown-content menu bg-base-100 text-base-content rounded-box mt-3 w-52 p-2 shadow">
+                <ul tabindex="0" class="dropdown-content menu bg-base-100 text-base-content rounded-box mt-3 w-52 p-2 shadow">
                     <li><a hx-post="{% url 'accounts:logout' %}" hx-target="body" hx-swap="outerHTML">Sair</a></li>
                 </ul>
             </div>
+            </div>
         </div>
+
+        {% if navbar_favorites %}
+            <div class="px-2 pb-3 md:px-10 xl:px-20">
+                <div class="flex flex-col items-center gap-2">
+                    <div class="w-full overflow-x-auto">
+                        <div class="flex min-w-full justify-center">
+                            <ul x-ref="favoritePagesList" x-sort="reorderFavorites()" class="flex w-max gap-2 pb-1">
+                                {% for favorite in navbar_favorites %}
+                                    <li
+                                        x-sort:item="{{ favorite.id }}"
+                                        data-favorite-id="{{ favorite.id }}"
+                                        class="flex items-center gap-2 rounded-full border border-base-100/20 bg-base-100 px-3 shadow-sm transition-shadow hover:shadow-md"
+                                    >
+                                        <a href="{{ favorite.href }}" class="whitespace-nowrap py-2 pr-2 text-sm font-medium text-base-content">{{ favorite.label }}</a>
+                                        {% include 'favorites/partials/favorite_button.html' with favorite_url=favorite.href favorite_label=favorite.label favorite_button_class='btn btn-ghost btn-circle btn-xs text-warning hover:text-warning' favorite_icon_class='material-icons text-[18px] leading-none' %}
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
     </div>
+
+    <dialog id="favorite-pages-limit-modal" class="modal" @click="if ($event.target === $el) $el.close()">
+        <div class="modal-box max-w-lg border border-warning/30 bg-base-100 shadow-2xl">
+            <div class="flex flex-col items-center gap-4 py-2 text-center">
+                <span class="material-icons text-6xl text-warning">warning</span>
+                <div class="space-y-2">
+                    <h3 id="favorite-pages-limit-title" class="text-xl font-semibold text-base-content">Limite de favoritos atingido</h3>
+                    <p id="favorite-pages-limit-message" class="text-sm leading-6 text-base-content/70">Você pode favoritar no máximo 5 páginas. Remova uma página favorita para adicionar outra.</p>
+                </div>
+            </div>
+
+            <div class="modal-action justify-center">
+                <button type="button" class="btn btn-warning" @click="$el.closest('dialog').close()">Entendi</button>
+            </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+            <button type="submit">close</button>
+        </form>
+    </dialog>
 </nav>
+
+<script>
+    (function () {
+        if (!window.navbarFavorites) {
+            window.navbarFavorites = function (config) {
+                return {
+                    reorderUrl: config.reorderUrl,
+                    csrfToken: config.csrfToken,
+                    reorderErrorMessage: config.reorderErrorMessage,
+                    isReordering: false,
+                    async reorderFavorites() {
+                        if (this.isReordering || !this.$refs.favoritePagesList) {
+                            return;
+                        }
+
+                        const favoriteIds = Array.from(this.$refs.favoritePagesList.querySelectorAll('[data-favorite-id]')).map(function (element) {
+                            return element.dataset.favoriteId;
+                        });
+
+                        if (favoriteIds.length < 2) {
+                            return;
+                        }
+
+                        this.isReordering = true;
+
+                        const payload = new URLSearchParams();
+                        favoriteIds.forEach(function (favoriteId) {
+                            payload.append('favorite_ids', favoriteId);
+                        });
+
+                        try {
+                            const response = await fetch(this.reorderUrl, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                                    'HX-Request': 'true',
+                                    'X-CSRFToken': this.csrfToken,
+                                },
+                                body: payload.toString(),
+                            });
+
+                            const triggerHeader = response.headers.get('HX-Trigger');
+                            if (triggerHeader) {
+                                try {
+                                    const triggers = JSON.parse(triggerHeader);
+                                    Object.entries(triggers).forEach(function ([eventName, detail]) {
+                                        document.body.dispatchEvent(new CustomEvent(eventName, { detail: detail }));
+                                    });
+                                } catch (error) {
+                                }
+                            }
+
+                            if (!response.ok) {
+                                throw new Error(this.reorderErrorMessage);
+                            }
+
+                            if (response.headers.get('HX-Refresh') === 'true') {
+                                window.location.reload();
+                            }
+                        } catch (error) {
+                            document.body.dispatchEvent(new CustomEvent('showToast', {
+                                detail: {
+                                    message: this.reorderErrorMessage,
+                                    type: 'error',
+                                }
+                            }));
+                            window.setTimeout(function () {
+                                window.location.reload();
+                            }, 250);
+                        } finally {
+                            this.isReordering = false;
+                        }
+                    },
+                };
+            };
+        }
+
+        if (window.__favoritePagesLimitModalBound === true) {
+            return;
+        }
+
+        window.__favoritePagesLimitModalBound = true;
+        document.body.addEventListener('favoritePagesLimitReached', function (event) {
+            const modal = document.getElementById('favorite-pages-limit-modal');
+            if (!modal) {
+                return;
+            }
+
+            const title = document.getElementById('favorite-pages-limit-title');
+            const message = document.getElementById('favorite-pages-limit-message');
+            if (title && event.detail && event.detail.title) {
+                title.textContent = event.detail.title;
+            }
+            if (message && event.detail && event.detail.message) {
+                message.textContent = event.detail.message;
+            }
+
+            if (!modal.open) {
+                modal.showModal();
+            }
+        });
+    })();
+</script>

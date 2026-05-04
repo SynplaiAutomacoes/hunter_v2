@@ -47,11 +47,13 @@ from ..catalog.models.products import Product
 from ..budget.pdf_context import build_workshop_logo_data_uri
 from ..core.documents.http import build_pdf_http_response
 from ..core.forms import MultiStepFormMixin
+from ..core.navigation import STOCK_IMPORT_CREATE_FAVORITE_PAGE
 from ..core.query_filters import QueryParamFilter, apply_query_param_filters
+from ..core.search import apply_text_search
 from ..core.tables import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
 from ..core.utils import clean_id
-from ..core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin
+from ..core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, PageFavoriteMixin
 from ..finance.models.payment_method import PaymentMethod
 from ..finance.services.payment_method_fees import calculate_payment_method_fee_amount
 from ..suppliers.models import Supplier
@@ -475,10 +477,11 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         return context
 
 
-class StockImportCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, CreateView):
+class StockImportCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, CreateView):
     model = StockImport
     template_name = "stock/import_form.html"
     workshop_permission_codename = "add_stockimport"
+    favorite_page_definition = STOCK_IMPORT_CREATE_FAVORITE_PAGE
 
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
@@ -587,6 +590,8 @@ class StockImportCreateView(LoginRequiredMixin, WorkshopScopedMixin, MultiStepFo
 
 
 class StockImportUpdateView(StockImportCreateView):
+    favorite_page_definition = None
+
     def get(self, request, *args, **kwargs):
         self.object = self.get_object()
         step_na_url = int(request.GET.get("step", 0))
@@ -1097,7 +1102,7 @@ class StockProductSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         qs = Product.objects.filter(workshop=self.workshop, is_active=True)
         if query:
-            qs = qs.filter(Q(code__icontains=query) | Q(name__icontains=query) | Q(brand__icontains=query))
+            qs = apply_text_search(qs, search_value=query, lookups=("code", "name", "brand"))
 
         # Otimização com .only() incluindo os campos de moeda do djmoney
         qs = qs.order_by("name").only("id", "code", "name", "brand", "cost_price", "cost_price_currency", "selling_price", "selling_price_currency")
@@ -1561,7 +1566,7 @@ class TransferSourceProductSearchView(StockTransferAccessMixin, View):
 
         qs = Product.objects.filter(workshop=source_workshop, is_active=True, stock_products__current_quantity__gt=0)
         if query:
-            qs = qs.filter(Q(code__icontains=query) | Q(name__icontains=query) | Q(brand__icontains=query))
+            qs = apply_text_search(qs, search_value=query, lookups=("code", "name", "brand"))
 
         qs = qs.select_related("stock_products").order_by("name").only("id", "code", "name", "brand", "cost_price", "cost_price_currency", "stock_products__current_quantity")
         paginator = Paginator(qs, 10)
@@ -1654,7 +1659,7 @@ class TransferDestinationProductSearchView(StockTransferAccessMixin, View):
 
         qs = Product.objects.filter(workshop=destination_workshop, is_active=True)
         if query:
-            qs = qs.filter(Q(code__icontains=query) | Q(name__icontains=query) | Q(brand__icontains=query))
+            qs = apply_text_search(qs, search_value=query, lookups=("code", "name", "brand"))
 
         qs = qs.order_by("name").only("id", "code", "name", "brand", "cost_price", "cost_price_currency", "selling_price", "selling_price_currency")
         paginator = Paginator(qs, 10)

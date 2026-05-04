@@ -7,6 +7,8 @@ from typing import Any, Callable, Literal, Sequence
 from django.db.models import QuerySet
 from django.http import QueryDict
 
+from apps.core.search import build_accent_insensitive_lookup
+
 FilterKind = Literal["choice", "boolean", "icontains", "iexact", "date_gte", "date_lte"]
 ValueNormalizer = Callable[[str], str]
 
@@ -64,7 +66,7 @@ def apply_query_param_filters(
             continue
 
         if filter_config.kind == "icontains":
-            filtered_queryset = filtered_queryset.filter(**{f"{filter_config.lookup}__icontains": raw_value})
+            filtered_queryset = filtered_queryset.filter(**{build_accent_insensitive_lookup(filter_config.lookup): raw_value})
             continue
 
         if filter_config.kind == "date_gte":

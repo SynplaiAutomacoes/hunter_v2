@@ -14,13 +14,14 @@ from django.db import transaction
 from django.utils import timezone
 from djmoney.money import Money
 
+from apps.budget.models import Budget, BudgetStatus, BudgetType, FuelLevel
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.checklist.models import Checklist, ChecklistItem
 from apps.collaborators.models import WorkshopCollaborator
-from apps.customer.models import Customer
+from apps.customer.models import Customer, Vehicle
 from apps.finance.models import FinancialGroup, PaymentMethod
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.finance import TaxClassNfe, TaxClassNfeCofinsScenario, TaxClassNfeIcmsScenario, TaxClassNfeIpiScenario, TaxClassNfePisScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState
@@ -40,6 +41,15 @@ DEFAULT_SEED = 20260309
 BRL = "BRL"
 PRICE_QUANTIZER = Decimal("0.01")
 MARGIN_QUANTIZER = Decimal("0.000001")
+WORKSHOP_COST_REFERENCE_MONTHS = 12
+
+EXTRA_MONTHLY_COSTS: tuple[str, ...] = (
+    "Assinaturas de software",
+    "Epis e uniformes",
+    "Manutencao de equipamentos",
+    "Marketing digital",
+    "Limpeza e descarte",
+)
 
 CHECKLIST_RESPONSE_BRR = "BOM_REGULAR_RUIM"
 CHECKLIST_RESPONSE_SIM_NAO = "SIM_NAO"
@@ -190,6 +200,30 @@ ADMINISTRATIVE_POSITIONS: tuple[str, ...] = (
     "Assistente financeiro",
     "Comprador",
     "Gerente operacional",
+)
+
+VEHICLE_MODELS: tuple[tuple[str, str, str, str, str], ...] = (
+    ("Fiat", "Argo", "Hatch", "Flex", "1.3"),
+    ("Volkswagen", "Gol", "Hatch", "Flex", "1.6"),
+    ("Chevrolet", "Onix", "Hatch", "Flex", "1.0"),
+    ("Hyundai", "HB20", "Hatch", "Flex", "1.0"),
+    ("Toyota", "Corolla", "Sedan", "Hibrido", "1.8"),
+    ("Jeep", "Renegade", "SUV", "Flex", "1.8"),
+    ("Ford", "Ranger", "Picape", "Diesel", "2.2"),
+    ("Renault", "Kwid", "Hatch", "Flex", "1.0"),
+    ("Honda", "Civic", "Sedan", "Flex", "2.0"),
+    ("Nissan", "Kicks", "SUV", "Flex", "1.6"),
+    ("Peugeot", "208", "Hatch", "Flex", "1.6"),
+    ("Mitsubishi", "L200", "Picape", "Diesel", "2.4"),
+)
+
+VEHICLE_COLORS: tuple[str, ...] = (
+    "Branco",
+    "Prata",
+    "Preto",
+    "Cinza",
+    "Azul",
+    "Vermelho",
 )
 
 
@@ -550,6 +584,24 @@ def _generate_cnpj(index: int) -> str:
     remainder = total % 11
     second_digit = 0 if remainder < 2 else 11 - remainder
     return _format_cnpj(f"{base}{first_digit}{second_digit}")
+
+
+def _vehicle_plate(index: int) -> str:
+    first = chr(ord("A") + ((index // (26 * 26)) % 26))
+    second = chr(ord("A") + ((index // 26) % 26))
+    third = chr(ord("A") + (index % 26))
+    number = (index * 7) % 10
+    letter = chr(ord("A") + ((index * 11) % 26))
+    suffix = (index * 19) % 100
+    return f"{first}{second}{third}{number}{letter}{suffix:02d}"
+
+
+def _vehicle_renavam(index: int) -> str:
+    return f"{90000000000 + index * 137:011d}"[-11:]
+
+
+def _vehicle_chassi(index: int) -> str:
+    return f"9BWZZZ377VT{index:06d}"[-17:]
 
 
 def _reference_month(reference_date: date, months_back: int) -> tuple[int, int]:
@@ -1219,9 +1271,11 @@ class Command(BaseCommand):
             products = self._seed_products(workshop=workshop, groups=groups, suppliers=suppliers)
             services = self._seed_services(workshop=workshop)
             self._seed_kits(workshop=workshop, products=products, services=services)
-            self._seed_customers(workshop=workshop)
+            customers = self._seed_customers(workshop=workshop)
             collaborators = self._seed_collaborators(workshop=workshop)
+            vehicles = self._seed_vehicles(workshop=workshop, customers=customers)
             self._seed_checklists(workshop=workshop)
+            self._seed_budgets(workshop=workshop, vehicles=vehicles, collaborators=collaborators)
             self._seed_questions(workshop=workshop)
             financial_groups = self._seed_financial_groups(workshop=workshop)
             payment_methods = self._seed_payment_methods(workshop=workshop)
@@ -1241,6 +1295,8 @@ class Command(BaseCommand):
                     f"servicos: {Service.objects.filter(workshop=workshop).count()}",
                     f"kits: {Kit.objects.filter(workshop=workshop).count()}",
                     f"clientes: {Customer.objects.filter(workshop=workshop).count()}",
+                    f"veiculos: {Vehicle.objects.filter(workshop=workshop).count()}",
+                    f"orcamentos: {Budget.objects.filter(workshop=workshop).count()}",
                     f"fornecedores: {Supplier.objects.filter(workshop=workshop).count()}",
                     f"checklists: {Checklist.objects.filter(workshop=workshop).count()}",
                     f"colaboradores: {WorkshopCollaborator.objects.filter(workshop=workshop).count()}",
@@ -1265,6 +1321,14 @@ class Command(BaseCommand):
                 model=MonthlyCost,
                 lookup={"workshop": workshop, "name": name},
                 defaults={"is_active": True, "is_editable": False},
+            )
+            costs[name] = monthly_cost
+
+        for name in EXTRA_MONTHLY_COSTS:
+            monthly_cost, _ = self._get_or_create_and_fill_missing(
+                model=MonthlyCost,
+                lookup={"workshop": workshop, "name": name},
+                defaults={"is_active": True, "is_editable": True},
             )
             costs[name] = monthly_cost
         return costs
@@ -1409,7 +1473,8 @@ class Command(BaseCommand):
                     defaults={"quantity": service_item.quantity, "duration": row_duration},
                 )
 
-    def _seed_customers(self, *, workshop: Workshop) -> None:
+    def _seed_customers(self, *, workshop: Workshop) -> list[Customer]:
+        customers: list[Customer] = []
         for index, (name, sex) in enumerate(PF_CUSTOMERS, start=1):
             defaults: dict[str, object] = {
                 "customer_type": "PF",
@@ -1426,11 +1491,12 @@ class Command(BaseCommand):
                 "foundation_date": None,
                 **_address(index + 40),
             }
-            self._get_or_create_and_fill_missing(
+            customer, _ = self._get_or_create_and_fill_missing(
                 model=Customer,
                 lookup={"workshop": workshop, "cpf_or_cnpj": _generate_cpf(index)},
                 defaults=defaults,
             )
+            customers.append(customer)
 
         for index, (name, fantasy_name) in enumerate(PJ_CUSTOMERS, start=1):
             defaults = {
@@ -1448,11 +1514,14 @@ class Command(BaseCommand):
                 "foundation_date": date(2008 + (index % 10), ((index * 3) % 12) + 1, ((index * 2) % 28) + 1),
                 **_address(index + 60),
             }
-            self._get_or_create_and_fill_missing(
+            customer, _ = self._get_or_create_and_fill_missing(
                 model=Customer,
                 lookup={"workshop": workshop, "cpf_or_cnpj": _generate_cnpj(800 + index)},
                 defaults=defaults,
             )
+            customers.append(customer)
+
+        return customers
 
     def _seed_collaborators(self, *, workshop: Workshop) -> list[WorkshopCollaborator]:
         collaborators: list[WorkshopCollaborator] = []
@@ -1479,6 +1548,9 @@ class Command(BaseCommand):
                 "email": f"{_slugify(name)}@oficina-demo.local",
                 "position": position,
                 "salary": _money(salary_base),
+                "payment_day_type": WorkshopCollaborator.PaymentDayType.FIFTH_BUSINESS_DAY,
+                "payment_day_of_month": None,
+                "transport_allowance_daily": _money(13 + (index % 4) * 2),
                 "admission_date": date(2020 + (index % 5), ((index * 2) % 12) + 1, ((index * 3) % 28) + 1),
                 "termination_date": None,
                 "collaborator_type": collaborator_type,
@@ -1494,9 +1566,116 @@ class Command(BaseCommand):
             collaborators.append(collaborator)
         return collaborators
 
+    def _seed_vehicles(self, *, workshop: Workshop, customers: Sequence[Customer]) -> list[Vehicle]:
+        vehicles: list[Vehicle] = []
+        running_index = 1
+        for customer_index, customer in enumerate(customers, start=1):
+            vehicles_per_customer = 2 if customer.customer_type == "PJ" else 1
+            for local_index in range(vehicles_per_customer):
+                model_index = running_index % len(VEHICLE_MODELS)
+                brand, model, vehicle_type, fuel, engine = VEHICLE_MODELS[model_index]
+                year_fabrication = 2014 + (running_index % 10)
+                year_model = min(year_fabrication + 1, timezone.localdate().year + 1)
+                km = 28000 + ((running_index * 15370) % 210000)
+                plate = _vehicle_plate(100 + running_index)
+
+                vehicle, _ = self._get_or_create_and_fill_missing(
+                    model=Vehicle,
+                    lookup={"workshop": workshop, "plate": plate},
+                    defaults={
+                        "customer": customer,
+                        "brand": brand,
+                        "model": model,
+                        "year_fabrication": str(year_fabrication),
+                        "year_model": str(year_model),
+                        "color": VEHICLE_COLORS[(customer_index + running_index) % len(VEHICLE_COLORS)],
+                        "fuel": fuel,
+                        "km": km,
+                        "engine": engine,
+                        "type": vehicle_type,
+                        "renavam": _vehicle_renavam(running_index),
+                        "chassi": _vehicle_chassi(running_index),
+                    },
+                )
+                vehicles.append(vehicle)
+                running_index += 1
+
+        return vehicles
+
+    def _seed_budgets(self, *, workshop: Workshop, vehicles: Sequence[Vehicle], collaborators: Sequence[WorkshopCollaborator]) -> None:
+        productive_collaborators = [collaborator for collaborator in collaborators if collaborator.collaborator_type == WorkshopCollaborator.CollaboratorType.PRODUCTIVE and collaborator.is_active]
+        if not productive_collaborators:
+            return
+
+        today = timezone.localdate()
+        status_cycle = (
+            BudgetStatus.WAITING_CLIENT,
+            BudgetStatus.WAITING_DIAGNOSIS,
+            BudgetStatus.WAITING_ITEMS,
+            BudgetStatus.WAITING_PRICING,
+            BudgetStatus.WAITING_REVIEW,
+            BudgetStatus.WAITING_APPROVAL,
+        )
+
+        for index, vehicle in enumerate(vehicles, start=1):
+            primary = productive_collaborators[index % len(productive_collaborators)]
+            secondary = productive_collaborators[(index + 3) % len(productive_collaborators)]
+            entry_date = today - timedelta(days=2 + (index % 21))
+            expiration_date = entry_date + timedelta(days=10 + (index % 12))
+            current_km = int(vehicle.km or 0)
+            if current_km <= 0:
+                current_km = 15000 + index * 1300
+
+            budget, budget_created = self._get_or_create_and_fill_missing(
+                model=Budget,
+                lookup={
+                    "workshop": workshop,
+                    "vehicle": vehicle,
+                    "entry_date": entry_date,
+                    "problem_description": f"Atendimento seed para {vehicle.plate} com foco em revisao e diagnostico.",
+                },
+                defaults={
+                    "customer": vehicle.customer,
+                    "collaborator": primary,
+                    "expiration_date": expiration_date,
+                    "budget_type": BudgetType.SALE,
+                    "status": status_cycle[index % len(status_cycle)],
+                    "technical_diagnosis": "Checklist inicial indica necessidade de revisao preventiva e conferencia de desgaste.",
+                    "notes": "Registro criado automaticamente pelo seed para fluxo de orcamento.",
+                    "pdf_observation": "Valores sujeitos a nova avaliacao apos desmontagem.",
+                    "current_km": current_km,
+                    "fuel_level": FuelLevel.ONE_HALF,
+                    "current_step": 5,
+                    "slider": (index % 9) - 4,
+                },
+            )
+
+            expected_collaborators: list[WorkshopCollaborator] = [primary]
+            if secondary != primary:
+                expected_collaborators.append(secondary)
+
+            if budget_created or budget.collaborators.count() == 0:
+                budget.collaborators.set(expected_collaborators)
+
     def _seed_checklists(self, *, workshop: Workshop) -> None:
         for index, blueprint in enumerate(CHECKLIST_BLUEPRINTS):
-            checklist, _ = Checklist.objects.get_or_create(workshop=workshop, name=blueprint.name)
+            checklist, _ = Checklist.objects.get_or_create(
+                workshop=workshop,
+                name=blueprint.name,
+                defaults={
+                    "checklist_type": Checklist.ChecklistType.AUTOMOTIVE_DIAGNOSTIC,
+                    "source": Checklist.ChecklistSource.MANUAL,
+                },
+            )
+            checklist_update_fields = _merge_missing_seed_fields(
+                checklist,
+                defaults={
+                    "checklist_type": Checklist.ChecklistType.AUTOMOTIVE_DIAGNOSTIC,
+                    "source": Checklist.ChecklistSource.MANUAL,
+                },
+            )
+            if checklist_update_fields:
+                checklist.save(update_fields=checklist_update_fields)
             items = self._build_checklist_items(blueprint=blueprint, seed_index=index)
             existing_items = {(item.group, item.description): item for item in ChecklistItem.objects.filter(checklist=checklist)}
             for order, (group, description, response_type) in enumerate(items):
@@ -1798,9 +1977,10 @@ class Command(BaseCommand):
             "minimum_hourly_cost",
             "hourly_cost_value",
         )
-        for offset in range(6):
+        for offset in range(WORKSHOP_COST_REFERENCE_MONTHS):
             month, year = _reference_month(reference_date, offset)
-            factor = Decimal("0.97") + Decimal(5 - offset) * Decimal("0.01") + Decimal(rng.randint(0, 2)) * Decimal("0.005")
+            inverse_offset = (WORKSHOP_COST_REFERENCE_MONTHS - 1) - offset
+            factor = Decimal("0.94") + Decimal(inverse_offset) * Decimal("0.008") + Decimal(rng.randint(0, 3)) * Decimal("0.004")
 
             workshop_cost, workshop_cost_created = self._get_or_create_and_fill_missing(
                 model=WorkshopCost,
@@ -1872,6 +2052,11 @@ class Command(BaseCommand):
             "internet": Decimal("189.00"),
             "seguro": Decimal("970.00"),
             "iptu": Decimal("610.00"),
+            "assinaturas de software": Decimal("540.00"),
+            "epis e uniformes": Decimal("760.00"),
+            "manutencao de equipamentos": Decimal("890.00"),
+            "marketing digital": Decimal("1150.00"),
+            "limpeza e descarte": Decimal("460.00"),
         }
         base_amount = base_amounts.get(normalized_name, Decimal("250.00"))
         return _money(base_amount * factor)

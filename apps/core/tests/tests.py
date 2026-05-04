@@ -93,6 +93,74 @@ class CrudWrapperTemplateTests(SimpleTestCase):
         self.assertIn("new URLSearchParams(window.location.search)", html)
         self.assertIn("event.detail.parameters = parameters;", html)
 
+    def test_page_wrapper_renders_clickable_favorite_button_in_navbar(self):
+        request = self.factory.get("/workshops/")
+        template = Template(
+            """
+            {% extends 'crud/page.html' %}
+            {% block crud_content %}<div>Conteudo</div>{% endblock %}
+            """
+        )
+
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "active_workshops": [],
+                    "active_workshop_is_director": False,
+                    "navbar_menus": [
+                        {"label": "Cadastros", "children": [{"label": "Cliente", "href": "/customer/", "favoritable": True}]},
+                        {"label": "Orcamentos", "href": "/budget/", "favoritable": False},
+                    ],
+                    "navbar_favorites": [{"id": 1, "label": "Cliente", "href": "/customer/"}],
+                    "navbar_favorite_urls": {"/customer/"},
+                }
+            )
+        )
+
+        self.assertIn(reverse("core:favorite_page_toggle"), html)
+        self.assertIn("favorite-pages-limit-modal", html)
+        self.assertIn('x-sort="reorderFavorites()"', html)
+        self.assertIn('data-favorite-id="1"', html)
+        self.assertIn("Remover Cliente dos favoritos", html)
+        self.assertNotIn("Adicionar Orcamentos aos favoritos", html)
+
+    def test_form_page_does_not_render_page_favorite_button_when_present(self):
+        request = self.factory.get("/customer/create/")
+        template = Template(
+            """
+            {% extends 'crud/form_page.html' %}
+            {% block crud_title %}Criar cliente{% endblock %}
+            {% block crud_subtitle %}Cadastro{% endblock %}
+            {% block crud_back_url %}/clientes/{% endblock %}
+            {% block crud_form %}<div>Formulario</div>{% endblock %}
+            """
+        )
+
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "active_workshops": [],
+                    "active_workshop_is_director": False,
+                    "page_favorite": {"label": "Criar Cliente", "href": reverse("customer:customer_create"), "favoritable": True},
+                    "navbar_favorite_urls": {reverse("customer:customer_create")},
+                }
+            )
+        )
+
+        self.assertNotIn("Remover Criar Cliente dos favoritos", html)
+
+    def test_favoritable_action_link_renders_embedded_star_button(self):
+        request = self.factory.get("/customer/")
+        template = Template("{% include 'favorites/partials/favoritable_action_link.html' with action_url='/customer/create/' action_label='Criar Cliente' favorite_url='/customer/create/' favorite_label='Criar Cliente' %}")
+
+        html = template.render(Context({"request": request, "navbar_favorite_urls": {"/customer/create/"}}))
+
+        self.assertIn("btn btn-primary pr-11", html)
+        self.assertIn(reverse("core:favorite_page_toggle"), html)
+        self.assertIn("Remover Criar Cliente dos favoritos", html)
+
     def test_detail_wrapper_only_syncs_query_params_for_its_own_requests(self):
         request = self.factory.get("/workshops/1/?q=Oficina&page=2")
         template = Template(
@@ -527,6 +595,58 @@ class TestRenderTableTag(TestCase):
 
         self.assertIn("Beta - Avenida Industrial", html)
         self.assertNotIn("Alpha - Rua Central", html)
+
+    def test_search_filters_queryset_rows_without_accents_and_case(self):
+        create_workshop(name="Sao Bento", cnpj="10.000.000/0001-05")
+        create_workshop(name="Alpha", cnpj="10.000.000/0001-06")
+
+        request = self.factory.get("/workshops/?q=SÃO")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields table_id='t' per_page=10 %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.all(),
+                    "fields": [
+                        TableColumn(label="Nome", attr="name"),
+                    ],
+                }
+            )
+        )
+
+        self.assertIn("Sao Bento", html)
+        self.assertNotIn("Alpha", html)
+
+    def test_search_filters_sequence_rows_without_accents_and_case(self):
+        create_workshop(name="Sao Bento", cnpj="10.000.000/0001-07")
+        create_workshop(name="Alpha", cnpj="10.000.000/0001-08")
+
+        request = self.factory.get("/workshops/?q=são")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields table_id='t' per_page=10 %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": list(Workshop.objects.order_by("pk")),
+                    "fields": [
+                        TableColumn(label="Nome", attr="name"),
+                    ],
+                }
+            )
+        )
+
+        self.assertIn("Sao Bento", html)
+        self.assertNotIn("Alpha", html)
 
     def test_search_query_is_kept_in_pagination_links(self):
         for i in range(1, 26):

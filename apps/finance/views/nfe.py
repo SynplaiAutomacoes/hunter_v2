@@ -7,29 +7,54 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
+from django.utils import timezone
+from django.utils.decorators import method_decorator
 from django.urls import reverse
+from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views import View
 from django.views.generic import DetailView, ListView
 
+from apps.core.forms import CoreForm
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.forms import NfeRequestStep1Form, NfeRequestStep2Form, NfeRequestStep3Form
 from apps.finance.models.finance import NfeItem, NfeRequest, NfeRequestStatus
 from apps.finance.services.nfe_consulta import NfeConsultaError, reconcile_nfe_item
-from apps.finance.services.nfe_emission import NfeEmissionError, cancel_nfe_document, emit_nfe_request, sync_nfe_emission_response
+from apps.finance.services.nfe_emission import NfeEmissionError, cancel_nfe_document, download_nfe_preview_document, emit_nfe_request, invalidate_nfe_number, sync_nfe_emission_response
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.views.ncm_validation import build_invalid_ncm_modal_context, pop_invalid_ncm_modal_context, store_invalid_ncm_modal_context
 from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url
-from apps.finance.views.request_workflow import SharedEmissionRequestCreateBaseView, SharedEmissionRequestUpdateBaseView
+from apps.finance.views.request_workflow import (
+    SharedEmissionRequestCreateBaseView,
+    SharedEmissionRequestUpdateBaseView,
+    build_preview_hidden_fields,
+    render_emission_preview_modal,
+)
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
 logger = logging.getLogger(__name__)
 
 
-class NfeCancelForm(forms.Form):
+class NfeCancelForm(CoreForm):
     reason = forms.CharField(min_length=15, max_length=255)
+
+
+class NfeInvalidateForm(CoreForm):
+    reason = forms.CharField(min_length=15, max_length=255)
+
+
+def _can_invalidate_nfe_request(*, nfe_request: NfeRequest, latest_item: NfeItem | None) -> bool:
+    if nfe_request.status == NfeRequestStatus.INVALIDATED:
+        return False
+    if nfe_request.reserved_number is None or nfe_request.reserved_series is None:
+        return False
+    if latest_item is None:
+        return True
+
+    status = str(getattr(latest_item, "status", "")).strip().lower()
+    return status in {"reprovado", "denegado"}
 
 
 class NfeRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -91,6 +116,7 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         context = super().get_context_data(**kwargs)
         latest_item = self.object.items.order_by("-id").first()
         can_cancel = bool(latest_item and str(getattr(latest_item, "status", "")).strip().lower() in {"aprovado", "contingencia"})
+        can_invalidate = _can_invalidate_nfe_request(nfe_request=self.object, latest_item=latest_item)
         fallback_back_url = reverse("finance:nfe_list")
         context.update(
             {
@@ -102,12 +128,13 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
                     _build_field("Ordem de serviço", self.object.workorder),
                     _build_field("Cliente", self.object.customer_name),
                     _build_field("Classe de imposto", self.object.tax_class),
-                    _build_field("Número da NF-e", self.object.reserved_number),
-                    _build_field("Série da NF-e", self.object.reserved_series),
+                    _build_field("Número da Nota Fiscal", self.object.reserved_number),
+                    _build_field("Série da Nota Fiscal", self.object.reserved_series),
                     _build_field("Criado em", self.object.criado_em.strftime("%d/%m/%Y %H:%M") if self.object.criado_em else "-"),
                     _build_field("Atualizado em", self.object.atualizado_em.strftime("%d/%m/%Y %H:%M") if self.object.atualizado_em else "-"),
                 ],
                 "latest_item_status_badge": _format_item_status_badge(getattr(latest_item, "status", "")),
+                "can_invalidate": can_invalidate,
             }
         )
         return context
@@ -122,12 +149,12 @@ class NfeRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
         latest_item = nfe_request.items.order_by("-id").first()
         if latest_item is None:
-            messages.error(request, "A NF-e ainda nao possui item sincronizado para cancelamento.")
+            messages.error(request, "A Nota Fiscal ainda nao possui item sincronizado para cancelamento.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         status = str(getattr(latest_item, "status", "")).strip().lower()
         if status not in {"aprovado", "contingencia"}:
-            messages.error(request, "Somente NF-e aprovada ou em contingencia pode ser cancelada.")
+            messages.error(request, "Somente Nota Fiscal aprovada ou em contingencia pode ser cancelada.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         form = NfeCancelForm(request.POST)
@@ -157,7 +184,7 @@ class NfeRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
         latest_item.save(update_fields=["status", "reason", "raw_payload", "xml_url"])
 
         nfe_request.set_status(NfeRequestStatus.CANCELED)
-        messages.success(request, "NF-e cancelada com sucesso.")
+        messages.success(request, "Nota Fiscal cancelada com sucesso.")
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 
@@ -170,7 +197,7 @@ class NfeRequestReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
         item = nfe_request.items.order_by("-id").first()
         if item is None:
-            messages.error(request, "A NF-e ainda nao possui um item sincronizado para consulta.")
+            messages.error(request, "A Nota Fiscal ainda nao possui um item sincronizado para consulta.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
         try:
@@ -178,8 +205,51 @@ class NfeRequestReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):
         except NfeConsultaError as exc:
             messages.error(request, str(exc))
         else:
-            messages.success(request, "Status da NF-e atualizado com sucesso.")
+            messages.success(request, "Status da Nota Fiscal atualizado com sucesso.")
 
+        return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+
+class NfeRequestInvalidateView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "change_nfserequest"
+
+    def post(self, request, *args, **kwargs):
+        nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+        latest_item = nfe_request.items.order_by("-id").first()
+
+        if not _can_invalidate_nfe_request(nfe_request=nfe_request, latest_item=latest_item):
+            messages.error(request, "A numeracao desta Nota Fiscal nao pode ser inutilizada no estado atual.")
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+        form = NfeInvalidateForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Informe um motivo de inutilizacao entre 15 e 255 caracteres.")
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+        reason = str(form.cleaned_data["reason"]).strip()
+
+        try:
+            response_payload = invalidate_nfe_number(
+                workshop=self.workshop,
+                number=int(nfe_request.reserved_number),
+                reason=reason,
+                series=int(nfe_request.reserved_series),
+            )
+        except NfeEmissionError as exc:
+            messages.error(request, str(exc))
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+        raw_log_payload = response_payload.get("log")
+        nfe_request.invalidation_reason = str(response_payload.get("motivo") or reason)
+        nfe_request.invalidation_xml_url = str(response_payload.get("xml") or "")
+        nfe_request.invalidation_log_payload = raw_log_payload if isinstance(raw_log_payload, dict) else ({"raw": raw_log_payload} if raw_log_payload not in (None, "") else {})
+        nfe_request.invalidated_at = timezone.now()
+        nfe_request.save(update_fields=["invalidation_reason", "invalidation_xml_url", "invalidation_log_payload", "invalidated_at"])
+        nfe_request.set_status(NfeRequestStatus.INVALIDATED)
+
+        messages.success(request, "Numeracao da Nota Fiscal inutilizada com sucesso.")
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 
@@ -224,6 +294,32 @@ class NfeDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return f'attachment; filename="nfe-{document_kind}-{safe_identifier}.{extension}"'
 
 
+@method_decorator(xframe_options_exempt, name="dispatch")
+class NfePreviewPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "view_nfserequest"
+
+    def get(self, request, *args, **kwargs):
+        nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+
+        try:
+            downloaded = download_nfe_preview_document(nfe_request=nfe_request, request=request)
+        except NfeEmissionError as exc:
+            return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
+
+        response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
+        response["Content-Disposition"] = self._build_content_disposition(nfe_request=nfe_request)
+        response["Cache-Control"] = "no-store"
+        return response
+
+    @staticmethod
+    def _build_content_disposition(*, nfe_request: NfeRequest) -> str:
+        identifier = str(getattr(nfe_request, "reserved_number", "") or nfe_request.pk or "documento").strip()
+        safe_identifier = identifier.replace(" ", "-")
+        return f'inline; filename="nfe-previa-{safe_identifier}.pdf"'
+
+
 class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
     model = NfeRequest
     workshop_permission_model = "nfserequest"
@@ -232,9 +328,9 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
     partial_template_name = "finance/partials/nfe_step_content.html"
     preview_template_name = "finance/partials/nfe_step3_preview.html"
     step3_form_class = NfeRequestStep3Form
-    preview_initial_fields = ("pricing_slider", "tax_class")
+    preview_initial_fields = ("pricing_slider", "tax_class", "additional_information")
     tax_class_kind = "nfe"
-    tax_class_warning_message = "Nao foi possivel carregar classes de imposto de NF-e: {error}"
+    tax_class_warning_message = "Nao foi possivel carregar classes de imposto de Nota Fiscal: {error}"
     success_redirect_name = "finance:nfe_emit"
     status_by_step = {
         1: NfeRequestStatus.CHECKING_CLIENT,
@@ -265,12 +361,32 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
             if not self.object.update_status_based_on_request(response_payload.get("status")):
                 self.object.set_status(NfeRequestStatus.PROCESSING)
 
-            messages.success(self.request, "Solicitacao de NF-e enviada com sucesso.")
+            messages.success(self.request, "Solicitacao de Nota Fiscal enviada com sucesso.")
             return True
         except NfeEmissionError as exc:
             logger.exception("Falha ao emitir NF-e", extra={"nfe_request_id": self.object.pk})
             messages.error(self.request, str(exc))
             return False
+
+    def _build_preview_response(self, *, form) -> HttpResponse:
+        invalid_ncm_modal = build_invalid_ncm_modal_context(workorder=self.object.workorder, return_url=self.request.get_full_path())
+        if invalid_ncm_modal is not None:
+            store_invalid_ncm_modal_context(request=self.request, modal_context=invalid_ncm_modal)
+            step_url = self._step_url(step=self.get_current_step())
+            if self.request.htmx:
+                response = HttpResponse()
+                response["HX-Redirect"] = step_url
+                return response
+            return redirect(step_url)
+
+        return render_emission_preview_modal(
+            request=self.request,
+            title="Previa da Nota Fiscal",
+            description="Confira o documento antes de transmitir a Nota Fiscal para a Webmania.",
+            previews=[{"label": "DANFE", "embed_url": reverse("finance:nfe_preview_pdf", kwargs={"pk": self.object.pk})}],
+            transmit_url=self._step_url(step=self.get_current_step()),
+            hidden_fields=build_preview_hidden_fields(cleaned_data=form.cleaned_data),
+        )
 
 
 class NfeRequestUpdateView(SharedEmissionRequestUpdateBaseView, NfeRequestCreateView):

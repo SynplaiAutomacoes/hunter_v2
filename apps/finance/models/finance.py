@@ -84,6 +84,7 @@ class NfeRequestStatus(models.TextChoices):
     DENIED = "denied", "Denegado"
     CANCELED = "canceled", "Cancelado"
     CONTINGENCY = "contingency", "Contingência"
+    INVALIDATED = "invalidated", "Inutilizada"
 
 
 class TaxClassNfe(TimeStampedModel):
@@ -106,11 +107,11 @@ class TaxClassNfe(TimeStampedModel):
 
     def __str__(self) -> str:
         workshop_id = getattr(self, "workshop_id", "-")
-        return f"NF-e {self.reference} ({workshop_id})"
+        return f"Nota Fiscal {self.reference} ({workshop_id})"
 
 
 class TaxClassNfeIcmsScenario(models.Model):
-    tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe NF-e", on_delete=models.CASCADE, related_name="icms_scenarios")
+    tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe de Nota Fiscal", on_delete=models.CASCADE, related_name="icms_scenarios")
     position = models.PositiveIntegerField(verbose_name="Posição", default=0)
     tipo_tributacao = models.CharField(verbose_name="Tipo tributação", max_length=30, blank=True, default="")
     cenario = models.CharField(verbose_name="Cenário", max_length=30, blank=True, default="")
@@ -129,7 +130,7 @@ class TaxClassNfeIcmsScenario(models.Model):
 
 
 class TaxClassNfeIpiScenario(models.Model):
-    tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe NF-e", on_delete=models.CASCADE, related_name="ipi_scenarios")
+    tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe de Nota Fiscal", on_delete=models.CASCADE, related_name="ipi_scenarios")
     position = models.PositiveIntegerField(verbose_name="Posição", default=0)
     cenario = models.CharField(verbose_name="Cenário", max_length=30, blank=True, default="")
     tipo_pessoa = models.CharField(verbose_name="Tipo pessoa", max_length=20, blank=True, default="")
@@ -145,7 +146,7 @@ class TaxClassNfeIpiScenario(models.Model):
 
 
 class TaxClassNfePisScenario(models.Model):
-    tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe NF-e", on_delete=models.CASCADE, related_name="pis_scenarios")
+    tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe de Nota Fiscal", on_delete=models.CASCADE, related_name="pis_scenarios")
     position = models.PositiveIntegerField(verbose_name="Posição", default=0)
     cenario = models.CharField(verbose_name="Cenário", max_length=30, blank=True, default="")
     tipo_pessoa = models.CharField(verbose_name="Tipo pessoa", max_length=20, blank=True, default="")
@@ -160,7 +161,7 @@ class TaxClassNfePisScenario(models.Model):
 
 
 class TaxClassNfeCofinsScenario(models.Model):
-    tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe NF-e", on_delete=models.CASCADE, related_name="cofins_scenarios")
+    tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe de Nota Fiscal", on_delete=models.CASCADE, related_name="cofins_scenarios")
     position = models.PositiveIntegerField(verbose_name="Posição", default=0)
     cenario = models.CharField(verbose_name="Cenário", max_length=30, blank=True, default="")
     tipo_pessoa = models.CharField(verbose_name="Tipo pessoa", max_length=20, blank=True, default="")
@@ -224,7 +225,7 @@ class TaxClassNfse(TimeStampedModel):
 
     def __str__(self) -> str:
         workshop_id = getattr(self, "workshop_id", "-")
-        return f"NFS-e {self.reference} ({workshop_id})"
+        return f"Nota Fiscal de Serviço {self.reference} ({workshop_id})"
 
 
 class TaxClassSyncState(TimeStampedModel):
@@ -238,8 +239,8 @@ class TaxClassSyncState(TimeStampedModel):
 
 
 class TaxClassPresetKind(models.TextChoices):
-    NFE = "nfe", "NF-e"
-    NFSE = "nfse", "NFS-e"
+    NFE = "nfe", "Nota Fiscal"
+    NFSE = "nfse", "Nota Fiscal de Serviço"
 
 
 class TaxClassPreset(TimeStampedModel):
@@ -307,9 +308,9 @@ class WebmaniaCompany(TimeStampedModel):
     cidade = models.CharField(verbose_name="Cidade", max_length=120, blank=True, default="")
     uf = models.CharField(verbose_name="UF", max_length=2, blank=True, default="")
 
-    nfe_serie = models.PositiveIntegerField(verbose_name="Série NF-e", null=True, blank=True)
-    nfe_numero = models.PositiveIntegerField(verbose_name="Próximo número NF-e", null=True, blank=True)
-    nfe_numero_dev = models.PositiveIntegerField(verbose_name="Próximo número NF-e homologação", null=True, blank=True)
+    nfe_serie = models.PositiveIntegerField(verbose_name="Série da Nota Fiscal", null=True, blank=True)
+    nfe_numero = models.PositiveIntegerField(verbose_name="Próximo número da Nota Fiscal", null=True, blank=True)
+    nfe_numero_dev = models.PositiveIntegerField(verbose_name="Próximo número da Nota Fiscal homologação", null=True, blank=True)
     cnae_issqn = models.CharField(verbose_name="CNAE ISSQN", max_length=10, blank=True, default="")
 
     nfce_serie = models.PositiveIntegerField(verbose_name="Série NFC-e", null=True, blank=True)
@@ -321,7 +322,7 @@ class WebmaniaCompany(TimeStampedModel):
     nfce_codigo_csc_dev = models.CharField(verbose_name="Código CSC NFC-e homologação", max_length=60, blank=True, default="")
 
     informacoes_fisco = models.TextField(verbose_name="Informações ao fisco", blank=True, default="")
-    nfse_rps_serie = models.CharField(verbose_name="Série RPS NFS-e", max_length=10, blank=True, default="")
+    nfse_rps_serie = models.CharField(verbose_name="Série RPS da Nota Fiscal de Serviço", max_length=10, blank=True, default="")
     nfse_rps_numero = models.PositiveIntegerField(verbose_name="Próximo RPS NFS-e", null=True, blank=True)
     cnae = models.CharField(verbose_name="CNAE NFS-e", max_length=255, blank=True, default="")
     nfse_login = models.CharField(verbose_name="Login NFS-e", max_length=120, blank=True, default="")
@@ -379,6 +380,7 @@ class NfseRequest(TimeStampedModel):
         help_text="Copia o slider do orcamento na criacao e permanece independente para a emissao.",
     )
     service_description = models.TextField(verbose_name="Discriminação do Serviço", blank=True, default="")
+    additional_information = models.TextField(verbose_name="Informações complementares", blank=True, default="")
     tax_class = models.CharField(verbose_name="Classe de Imposto", max_length=30, default="REF000000")
     reserved_rps_number = models.PositiveIntegerField(verbose_name="RPS reservado", null=True, blank=True)
     reserved_rps_series = models.CharField(verbose_name="Série RPS reservada", max_length=20, blank=True, default="")
@@ -470,9 +472,14 @@ class NfeRequest(TimeStampedModel):
         validators=[MinValueValidator(-100), MaxValueValidator(100)],
         help_text="Copia o slider do orcamento na criacao e permanece independente para a emissao.",
     )
+    additional_information = models.TextField(verbose_name="Informações complementares", blank=True, default="")
     tax_class = models.CharField(verbose_name="Classe de Imposto", max_length=30, default="REF000000")
     reserved_number = models.PositiveIntegerField(verbose_name="Número reservado", null=True, blank=True)
     reserved_series = models.PositiveIntegerField(verbose_name="Série reservada", null=True, blank=True)
+    invalidation_reason = models.TextField(verbose_name="Motivo da inutilização", blank=True, default="")
+    invalidation_xml_url = models.URLField(verbose_name="XML da inutilização", blank=True, default="")
+    invalidation_log_payload = models.JSONField(verbose_name="Log da inutilização", blank=True, default=dict)
+    invalidated_at = models.DateTimeField(verbose_name="Data da inutilização", null=True, blank=True)
 
     def save(self, *args, **kwargs):
         if self.pk is None and self.pricing_slider is None:
@@ -505,6 +512,7 @@ class NfeRequest(TimeStampedModel):
             NfeRequestStatus.DENIED: "badge-soft badge-error",
             NfeRequestStatus.CANCELED: "badge-soft badge-error",
             NfeRequestStatus.CONTINGENCY: "badge-soft badge-warning",
+            NfeRequestStatus.INVALIDATED: "badge-soft badge-error",
         }
 
         return {

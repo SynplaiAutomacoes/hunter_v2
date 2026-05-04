@@ -16,9 +16,11 @@ from apps.customer.cpf_cnpj_validator import is_valid_cpf
 from apps.customer.vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
 from apps.customer.models import Customer, Vehicle
 from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
+from apps.core.text_normalization import name_case, plate_case, sentence_case
 from apps.scheduling.models import Appointment, AppointmentStatus
 from apps.workorder.models import WorkOrder
 from apps.workshops.models.workshops import Workshop
+from apps.core.forms import CoreForm, CoreModelForm
 
 
 def _uppercase_text_input() -> TextInput:
@@ -69,7 +71,7 @@ def _build_readonly_vehicle_field(*, field_id: str, label: str, value: str, wrap
     '''
 
 
-class AppointmentForm(forms.ModelForm):
+class AppointmentForm(CoreModelForm):
     is_customer_registered = forms.BooleanField(label="Cliente cadastrado", required=False, initial=True, widget=CheckboxInput())
     customer = forms.ModelChoiceField(label="Cliente", queryset=Customer.objects.none(), widget=SearchableSelectInput(), required=False)
     vehicle = forms.ModelChoiceField(label="Veiculo", queryset=Vehicle.objects.none(), widget=SearchableSelectInput(), required=False)
@@ -701,6 +703,30 @@ class AppointmentForm(forms.ModelForm):
         guest_vehicle_fuel = self.cleaned_data.get("guest_vehicle_fuel")
         return normalize_vehicle_fuel_choice(guest_vehicle_fuel)
 
+    def clean_title(self):
+        value = self.cleaned_data.get("title")
+        return sentence_case(value) if value else value
+
+    def clean_notes(self):
+        value = self.cleaned_data.get("notes")
+        return sentence_case(value) if value else value
+
+    def clean_guest_customer_name(self):
+        value = self.cleaned_data.get("guest_customer_name")
+        return name_case(value) if value else value
+
+    def clean_guest_vehicle_brand(self):
+        value = self.cleaned_data.get("guest_vehicle_brand")
+        return sentence_case(value) if value else value
+
+    def clean_guest_vehicle_model(self):
+        value = self.cleaned_data.get("guest_vehicle_model")
+        return sentence_case(value) if value else value
+
+    def clean_guest_vehicle_plate(self):
+        value = self.cleaned_data.get("guest_vehicle_plate")
+        return plate_case(value) if value else value
+
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean()
         if cleaned_data is None:
@@ -709,12 +735,12 @@ class AppointmentForm(forms.ModelForm):
         customer = cleaned_data.get("customer")
         vehicle = cleaned_data.get("vehicle")
         is_customer_registered = bool(cleaned_data.get("is_customer_registered"))
-        guest_customer_name = _normalize_upper_text(cleaned_data.get("guest_customer_name"))
+        guest_customer_name = name_case(cleaned_data.get("guest_customer_name") or "")
         guest_customer_cpf = _digits_only(cleaned_data.get("guest_customer_cpf"))[:11]
         guest_customer_phone = (cleaned_data.get("guest_customer_phone") or "").strip()
-        guest_vehicle_plate = _normalize_upper_text(cleaned_data.get("guest_vehicle_plate"))
-        guest_vehicle_brand = _normalize_upper_text(cleaned_data.get("guest_vehicle_brand"))
-        guest_vehicle_model = _normalize_upper_text(cleaned_data.get("guest_vehicle_model"))
+        guest_vehicle_plate = plate_case(cleaned_data.get("guest_vehicle_plate") or "")
+        guest_vehicle_brand = sentence_case(cleaned_data.get("guest_vehicle_brand") or "")
+        guest_vehicle_model = sentence_case(cleaned_data.get("guest_vehicle_model") or "")
         guest_vehicle_year_fabrication = str(cleaned_data.get("guest_vehicle_year_fabrication") or "").strip()
         guest_vehicle_year_model = str(cleaned_data.get("guest_vehicle_year_model") or "").strip()
         guest_vehicle_engine = normalize_vehicle_engine_choice(cleaned_data.get("guest_vehicle_engine"))
@@ -799,7 +825,7 @@ class AppointmentForm(forms.ModelForm):
         return super().save(commit=commit)
 
 
-class AppointmentCalendarFilterForm(forms.Form):
+class AppointmentCalendarFilterForm(CoreForm):
     date_from = forms.DateField(
         required=False,
         label="Data Início",
@@ -856,7 +882,7 @@ class AppointmentCalendarFilterForm(forms.Form):
             vehicle_field.queryset = Vehicle.objects.none()
 
 
-class AppointmentMoveForm(forms.Form):
+class AppointmentMoveForm(CoreForm):
     starts_at = forms.DateTimeField()
     ends_at = forms.DateTimeField()
 

@@ -1,5 +1,6 @@
 import base64
 import json
+from datetime import datetime
 from decimal import Decimal
 from html import escape
 from typing import cast
@@ -13,17 +14,19 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from djmoney.money import Money
 
-from apps.budget.models import Budget, BudgetImage, BudgetImageType, Defect, SignatureStatus
+from apps.budget.models import Budget, BudgetImage, BudgetImageType, BudgetStatus, Defect, SignatureStatus
 from apps.budget.pricing import resolve_discount_fields
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.utils import alert_confirm_layout
+from apps.core.text_normalization import sentence_case
 from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.customer.models import Customer, Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 
 from .shared import MAX_BUDGET_IMAGES, _get_budget_with_prefetched_items, _render_budget_items_rows, _validate_uploaded_files, _validate_uploaded_images
 from .widgets import MultipleFileField, MultipleFileInput
+from apps.core.forms import CoreModelForm
 
 
 SLOT_IMAGE_TYPES = [
@@ -263,7 +266,7 @@ def _build_step3_images_initial_html(budget, slot_placeholder_urls):
     return "".join(slots_html), "".join(additional_html)
 
 
-class BudgetStep1Form(forms.ModelForm):
+class BudgetStep1Form(CoreModelForm):
     workshop = forms.CharField(label="Empresa", widget=TextInput(attrs={"readonly": "readonly"}), required=False)
     cost_estimator = forms.CharField(label="Orçamentista", widget=TextInput(attrs={"readonly": "readonly"}), required=False)
     vehicle = forms.ModelChoiceField(label="Veículo", queryset=Vehicle.objects.none(), required=False, widget=SearchableSelectInput())
@@ -684,7 +687,7 @@ class BudgetStep1Form(forms.ModelForm):
         return int(digits)
 
 
-class BudgetStep2Form(forms.ModelForm):
+class BudgetStep2Form(CoreModelForm):
     class Meta:
         model = Budget
         fields = ["problem_description", "notes"]
@@ -780,8 +783,16 @@ class BudgetStep2Form(forms.ModelForm):
                 InvestigativeResponse.objects.update_or_create(budget=budget, question_id=question_id, defaults={"workshop": self.workshop, "response": str(response_text)})
         return budget
 
+    def clean_problem_description(self):
+        value = self.cleaned_data.get("problem_description")
+        return sentence_case(value) if value else value
 
-class BudgetStep3Form(forms.ModelForm):
+    def clean_notes(self):
+        value = self.cleaned_data.get("notes")
+        return sentence_case(value) if value else value
+
+
+class BudgetStep3Form(CoreModelForm):
     new_defect = forms.CharField(label=False, required=False, widget=TextInput(attrs={"id": "id_new_defect", "placeholder": "Digite um defeito e clique em Adicionar", "onkeypress": "if(event.keyCode==13){ event.preventDefault(); addDefectRow(); }"}))
     collaborator = forms.ModelMultipleChoiceField(label="Selecione os colaboradores", required=False, queryset=WorkshopCollaborator.objects.none())
     images = MultipleFileField(label=None, required=False, widget=MultipleFileInput(attrs={"class": "file-input file-input-bordered w-full"}))
@@ -807,7 +818,14 @@ class BudgetStep3Form(forms.ModelForm):
 
         if self.workshop:
             self.fields["collaborator"].queryset = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True)
-            self.fields["checklist"].queryset = Checklist.objects.filter(workshop=self.workshop).order_by("name")
+            diagnostic_checklists = Checklist.objects.filter(
+                workshop=self.workshop,
+                checklist_type=Checklist.ChecklistType.AUTOMOTIVE_DIAGNOSTIC,
+            )
+            if self.instance.pk and self.instance.checklist_id:
+                self.fields["checklist"].queryset = (diagnostic_checklists | Checklist.objects.filter(workshop=self.workshop, pk=self.instance.checklist_id)).order_by("name").distinct()
+            else:
+                self.fields["checklist"].queryset = diagnostic_checklists.order_by("name")
 
         initial_collaborators = []
         if self.instance.pk:
@@ -1003,6 +1021,7 @@ class BudgetStep3Form(forms.ModelForm):
                 </dialog>
             """),
         )
+
         self.helper.layout.append(
             HTML(
                 """
@@ -1566,6 +1585,10 @@ class BudgetStep3Form(forms.ModelForm):
                     """)
                 )
 
+    def clean_technical_diagnosis(self):
+        value = self.cleaned_data.get("technical_diagnosis")
+        return sentence_case(value) if value else value
+
     def clean(self):
         cleaned_data = super().clean()
 
@@ -1624,6 +1647,11 @@ class BudgetStep3Form(forms.ModelForm):
             else:
                 budget.collaborators.clear()
 
+            if budget.status == BudgetStatus.APPROVED:
+                workorder = budget.workorders.order_by("id").first()
+                if workorder is not None:
+                    workorder.sync_from_budget()
+
         # Processamento dos Defeitos (Somente no Save final)
         if "defects_list" in self.request.POST:
             defect_names = self.request.POST.getlist("defects_list")
@@ -1678,7 +1706,7 @@ class BudgetStep3Form(forms.ModelForm):
         return budget
 
 
-class BudgetStep4Form(forms.ModelForm):
+class BudgetStep4Form(CoreModelForm):
     class Meta:
         model = Budget
         fields = []
@@ -1730,7 +1758,19 @@ class BudgetStep4Form(forms.ModelForm):
             Div(
                 # Coluna Esquerda: Seleção
                 Div(
-                    HTML('<h2 class="text-2xl font-bold mb-6">Seleção de Produtos e Serviços</h2>'),
+                    HTML(f'''
+                        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+                            <h2 class="text-2xl font-bold">Seleção de Produtos, Serviços e Kits</h2>
+                            <button
+                                type="button"
+                                class="btn btn-primary text-base btn-base mt-2 sm:mt-0"
+                                hx-get="{reverse("budget:import_items_search_modal", kwargs={"pk": budget.pk})}"
+                                hx-target="#modal-container"
+                                onclick="form_modal.showModal()">
+                                Trazer itens de outro orçamento
+                            </button>
+                        </div>
+                    '''),
                     # Seção de Produtos
                     Div(
                         Div(
@@ -1765,15 +1805,16 @@ class BudgetStep4Form(forms.ModelForm):
                                     <thead class="bg-primary text-primary-content">
                                         <tr>
                                             <th class="budget-step4-select-col text-center">
-                                                <input type="checkbox" id="select-all-products" class="checkbox checkbox-primary checkbox-sm" aria-label="Selecionar todas as peças">
+                                                <input type="checkbox" id="select-all-products" class="checkbox text-white checkbox-sm" 
+                                                       style="border-color: white; color: white;" aria-label="Selecionar todas as peças">
                                             </th>
                                             <th class="w-[16%] text-left">DESCRIÇÃO</th>
-                                            <th class="w-[16%] text-left">APLICAÇÃO</th>
-                                            <th class="w-[10%] text-center whitespace-normal break-words leading-tight">FORNECIDO PELO CLIENTE</th>
+                                            <th class="w-[12%] text-left">APLICAÇÃO</th>
+                                            <th class="w-[14%] text-center whitespace-normal break-words leading-tight">FORNECIDO PELO CLIENTE</th>
                                             <th class="w-[8%] text-center">QTD.</th>
                                             <th class="w-[10%] text-right">CUSTO</th>
-                                            <th class="w-[12%] text-right">VALOR VENDA</th>
-                                            <th class="w-[8%] text-right">FRETE</th>
+                                            <th class="w-[10%] text-right">VALOR VENDA</th>
+                                            <th class="w-[10%] text-right">FRETE</th>
                                             <th class="w-[10%] text-right">TOTAL</th>
                                             <th class="w-[10%] text-center budget-step4-actions">AÇÕES</th>
                                         </tr>
@@ -1821,7 +1862,8 @@ class BudgetStep4Form(forms.ModelForm):
                                     <thead class="bg-primary text-primary-content">
                                         <tr>
                                             <th class="budget-step4-select-col text-center">
-                                                <input type="checkbox" id="select-all-services" class="checkbox checkbox-primary checkbox-sm" aria-label="Selecionar todos os serviços">
+                                                <input type="checkbox" id="select-all-services" class="checkbox text-white checkbox-sm" 
+                                                       style="border-color: white; color: white;" aria-label="Selecionar todos os serviços">
                                             </th>
                                             <th class="w-[24%] text-left">DESCRIÇÃO</th>
                                             <th class="w-[8%] text-center">QTD.</th>
@@ -1875,7 +1917,8 @@ class BudgetStep4Form(forms.ModelForm):
                                     <thead class="bg-primary text-primary-content">
                                         <tr>
                                             <th class="budget-step4-select-col text-center">
-                                                <input type="checkbox" id="select-all-kits" class="checkbox checkbox-primary checkbox-sm" aria-label="Selecionar todos os kits">
+                                                <input type="checkbox" id="select-all-kits" class="checkbox text-white checkbox-sm" 
+                                                       style="border-color: white; color: white;" aria-label="Selecionar todos os kits">
                                             </th>
                                             <th class="w-[22%] text-left">NOME</th>
                                             <th class="w-[8%] text-center">QTD.</th>
@@ -2017,7 +2060,7 @@ class BudgetStep4Form(forms.ModelForm):
         return super().save(commit=commit)
 
 
-class BudgetStep5Form(forms.ModelForm):
+class BudgetStep5Form(CoreModelForm):
     slider = forms.IntegerField(required=False, widget=forms.NumberInput(attrs={"class": "w-full centered-range", "type": "range", "min": "-100", "max": "100", "step": "5"}))
 
     class Meta:
@@ -2708,16 +2751,37 @@ class BudgetStep5Form(forms.ModelForm):
         return budget
 
 
-class BudgetStep6Form(forms.ModelForm):
+class BudgetStep6Form(CoreModelForm):
     class Meta:
         model = Budget
-        fields = []
-        widgets = {}
+        fields = ["customer_agreed_departure_at", "service_expected_completion_at"]
+        widgets = {
+            "customer_agreed_departure_at": forms.DateTimeInput(format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local", "class": "input-theme h-12"}),
+            "service_expected_completion_at": forms.DateTimeInput(format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local", "class": "input-theme h-12"}),
+        }
 
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
         self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
+
+        customer_agreed_departure_at_field = self.fields["customer_agreed_departure_at"]
+        service_expected_completion_at_field = self.fields["service_expected_completion_at"]
+
+        if not isinstance(customer_agreed_departure_at_field, forms.DateTimeField) or not isinstance(service_expected_completion_at_field, forms.DateTimeField):
+            raise TypeError("Campos de data/hora invalidos no BudgetStep6Form")
+
+        for field in (customer_agreed_departure_at_field, service_expected_completion_at_field):
+            field.input_formats = [
+                "%Y-%m-%dT%H:%M",
+                "%Y-%m-%dT%H:%M:%S",
+                "%Y-%m-%d %H:%M",
+                "%Y-%m-%d %H:%M:%S",
+            ]
+            field.required = True
+
+        customer_agreed_departure_at_field.error_messages["required"] = Budget.CUSTOMER_AGREED_DEPARTURE_REQUIRED_MESSAGE
+        service_expected_completion_at_field.error_messages["required"] = Budget.SERVICE_EXPECTED_COMPLETION_REQUIRED_MESSAGE
 
         budget = _get_budget_with_prefetched_items(self.instance)
 
@@ -2726,12 +2790,21 @@ class BudgetStep6Form(forms.ModelForm):
         status_class = status_data["class"]
         is_signature_resend = budget.signature_request_status == SignatureStatus.SENT and bool(budget.signature_external_id)
         signature_button_label = "Reenviar Documento" if is_signature_resend else "Enviar para Assinatura"
+        action_blockers = list(budget.step6_action_blockers)
+        action_blockers_display = " ".join(action_blockers)
+        action_blocked_reason_json = escape(json.dumps(action_blockers_display))
         approval_blockers = list(budget.approval_blockers)
         approval_blockers_display = " ".join(approval_blockers)
+        approval_blocked_reason_json = escape(json.dumps(approval_blockers_display))
         signature_blockers = list(budget.signature_blockers)
         signature_blockers_display = " ".join(signature_blockers)
-        approval_button_class = "btn-disabled cursor-not-allowed" if approval_blockers else "btn-success"
-        approval_button_attrs = f'disabled title="{escape(approval_blockers_display)}"' if approval_blockers else f"onclick=\"updateBudgetStatus({budget.pk}, 'approve')\""
+        step6_action_button_state_class = "opacity-60 cursor-not-allowed" if action_blockers else ""
+        blocked_step6_action_attrs = f'''onclick="showBlockedStep6Action({action_blocked_reason_json})" aria-disabled="true" title="{escape(action_blockers_display)}"''' if action_blockers else ""
+        blocked_approval_action_attrs = f'''onclick="showBlockedStep6Action({approval_blocked_reason_json})" aria-disabled="true" title="{escape(approval_blockers_display)}"''' if approval_blockers else ""
+        approval_button_class = "btn-success" if not approval_blockers else "opacity-60 cursor-not-allowed"
+        approval_button_attrs = blocked_approval_action_attrs if approval_blockers else f'''onclick="updateBudgetStatus({budget.pk}, 'approve')"'''
+        cancel_button_attrs = blocked_step6_action_attrs if action_blockers else f'''onclick="updateBudgetStatus({budget.pk}, 'cancel')"'''
+        reject_button_attrs = blocked_step6_action_attrs if action_blockers else f'''onclick="updateBudgetStatus({budget.pk}, 'reject')"'''
         signature_blocked_json = "true" if signature_blockers else "false"
         signature_blocked_reason_json = escape(json.dumps(signature_blockers_display))
         can_toggle_signed_pdf = budget.signature_request_status in {SignatureStatus.SENT, SignatureStatus.APPROVED} and bool(budget.signature_external_id or budget.signature_document_id)
@@ -2780,6 +2853,15 @@ class BudgetStep6Form(forms.ModelForm):
                             observation: observation,
                         })
                     });
+                }
+
+                function showBlockedStep6Action(message) {
+                    document.body.dispatchEvent(new CustomEvent('showToast', {
+                        detail: {
+                            type: 'error',
+                            message: message || 'Preencha e salve os campos obrigatorios da revisao antes de continuar.',
+                        },
+                    }));
                 }
                 
                 function openKitModal(button) {
@@ -3080,6 +3162,15 @@ class BudgetStep6Form(forms.ModelForm):
                                 </div>
                                 """),
                     ),
+                    Div(
+                        HTML('<h4 class="font-bold text-lg mb-2 border-b">Prazos</h4>'),
+                        Div(
+                            Field("customer_agreed_departure_at", wrapper_class="col-span-12"),
+                            Field("service_expected_completion_at", wrapper_class="col-span-12"),
+                            css_class="grid grid-cols-1 gap-4 mb-8",
+                        ),
+                        css_class="p-4 bg-base-200/50 rounded-lg",
+                    ),
                     # -------- PDF (RESTORED 1:1) --------
                     Div(
                         HTML('<h4 class="font-bold text-lg mb-2 border-b">PDF</h4>'),
@@ -3144,8 +3235,9 @@ class BudgetStep6Form(forms.ModelForm):
                         HTML('<h4 class="font-bold text-lg mb-2 border-b">Aprovação</h4>'),
                         HTML(f"""
                         <div class="grid grid-cols-12 gap-3">
-                            <button type="button" class="btn btn-error col-span-4"
-                                onclick="updateBudgetStatus({budget.pk}, 'cancel')">
+                            <button type="button"
+                                class="btn btn-error col-span-4 {step6_action_button_state_class}"
+                                {cancel_button_attrs}>
                                 Cancelar
                             </button>
 
@@ -3155,8 +3247,9 @@ class BudgetStep6Form(forms.ModelForm):
                                 Aprovar
                             </button>
 
-                            <button type="button" class="btn btn-warning col-span-4"
-                                onclick="updateBudgetStatus({budget.pk}, 'reject')">
+                            <button type="button"
+                                class="btn btn-warning col-span-4 {step6_action_button_state_class}"
+                                {reject_button_attrs}>
                                 Reprovar
                             </button>
                         </div>
@@ -3191,10 +3284,12 @@ class BudgetStep6Form(forms.ModelForm):
                                 x-show="showSignatureBtn"
                                 data-url="{% url 'budget:send_signature' form.instance.pk %}"
                                 :data-is-resend="isSignatureResend ? 'true' : 'false'"
-                                :class="signatureBlocked ? 'btn-disabled cursor-not-allowed' : 'btn-primary'"
-                                :disabled="signatureBlocked"
+                                :data-blocked="signatureBlocked ? 'true' : 'false'"
+                                :data-blocked-reason="signatureBlockedReason"
+                                :class="signatureBlocked ? 'opacity-60 cursor-not-allowed' : 'btn-primary'"
+                                :aria-disabled="signatureBlocked ? 'true' : 'false'"
                                 :title="signatureBlockedReason"
-                                onclick="sendBudgetForSignature(this)">
+                                onclick="if (this.dataset.blocked === 'true') { showBlockedStep6Action(this.dataset.blockedReason); return; } sendBudgetForSignature(this)">
                             <span class="loading loading-spinner loading-xs hidden" id="send-signature-spinner"></span>
                             <span id="send-signature-label" x-text="signatureButtonLabel"></span>
                         </button>
@@ -3362,3 +3457,14 @@ class BudgetStep6Form(forms.ModelForm):
                 </dialog>
             """),
         )
+
+    def clean(self):
+        cleaned_data = super().clean() or {}
+
+        customer_agreed_departure_at = cleaned_data.get("customer_agreed_departure_at")
+        service_expected_completion_at = cleaned_data.get("service_expected_completion_at")
+
+        if isinstance(customer_agreed_departure_at, datetime) and isinstance(service_expected_completion_at, datetime) and customer_agreed_departure_at < service_expected_completion_at:
+            self.add_error("customer_agreed_departure_at", Budget.STEP6_DATE_ORDER_ERROR_MESSAGE)
+
+        return cleaned_data
