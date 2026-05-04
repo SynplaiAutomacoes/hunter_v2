@@ -5,6 +5,7 @@ from datetime import date
 import unicodedata
 from typing import Any, Sequence
 
+from django.db.models import Q
 from djmoney.money import Money
 
 from apps.finance.models import FinancialGroup
@@ -119,18 +120,18 @@ def _normalize_tipo_data(tipo_data: str | None) -> str:
 
 
 def _get_financial_movements(*, workshops: Sequence[Workshop], start_date: date, end_date: date, tipo_data: str) -> list[FinancialMovement]:
+    period_filter = Q(due_date__gte=start_date, due_date__lte=end_date) | Q(due_date__isnull=True, workorder__criado_em__date__gte=start_date, workorder__criado_em__date__lte=end_date) | Q(due_date__isnull=True, workorder__isnull=True, criado_em__date__gte=start_date, criado_em__date__lte=end_date)
+
     queryset = FinancialMovement.objects.filter(
         workshop__in=workshops,
-        due_date__gte=start_date,
-        due_date__lte=end_date,
-    )
+    ).filter(period_filter)
 
     if tipo_data == "PG":
         queryset = queryset.filter(is_paid=True)
     elif tipo_data == "NPG":
         queryset = queryset.filter(is_paid=False)
 
-    return list(queryset.select_related("payment_method", "source", "workshop", "budget_plan", "budget_plan__parent", "budget_plan__parent__parent").order_by("due_date", "pk"))
+    return list(queryset.select_related("payment_method", "source", "workshop", "workorder", "budget_plan", "budget_plan__parent", "budget_plan__parent__parent").order_by("due_date", "criado_em", "pk"))
 
 
 def _group_financial_movements_by_topic(*, financial_movements: list[FinancialMovement]) -> dict[str, list[FinancialMovement]]:
@@ -146,7 +147,7 @@ def _group_financial_movements_by_topic(*, financial_movements: list[FinancialMo
 def _resolve_movement_component(*, movement: FinancialMovement) -> str | None:
     budget_plan = getattr(movement, "budget_plan", None)
     if budget_plan is None:
-        return None
+        return _resolve_component_from_movement_kind(movement=movement)
 
     current_group = budget_plan
     while current_group is not None:
@@ -156,6 +157,15 @@ def _resolve_movement_component(*, movement: FinancialMovement) -> str | None:
                 return component
         current_group = getattr(current_group, "parent", None)
 
+    return _resolve_component_from_movement_kind(movement=movement)
+
+
+def _resolve_component_from_movement_kind(*, movement: FinancialMovement) -> str | None:
+    movement_kind = getattr(movement, "movement_kind", None)
+    if movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
+        return _ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS
+    if movement_kind == FinancialMovement.MovementKind.WORKORDER_CARD_FEE:
+        return _ROW_COMPONENT_DESPESAS_FINANCEIRAS
     return None
 
 
@@ -298,7 +308,7 @@ def _build_financial_movement_detail(*, movement: FinancialMovement, include_wor
         "summary": _build_financial_movement_summary(movement=movement),
         "reference": _build_financial_movement_reference(movement=movement, include_workshop_reference=include_workshop_reference),
         "entry_date": created_at.date() if created_at is not None else None,
-        "payment_date": movement.due_date,
+        "payment_date": _resolve_effective_movement_date(movement=movement),
         "amount": movement.amount,
     }
 
@@ -338,6 +348,22 @@ def _build_financial_movement_reference(*, movement: FinancialMovement, include_
         reference_parts.append(f"Pagamento: {payment_method}")
 
     return " | ".join(reference_parts) or "-"
+
+
+def _resolve_effective_movement_date(*, movement: FinancialMovement) -> date | None:
+    if movement.due_date is not None:
+        return movement.due_date
+
+    workorder = getattr(movement, "workorder", None)
+    workorder_created_at = getattr(workorder, "criado_em", None)
+    if workorder_created_at is not None:
+        return workorder_created_at.date()
+
+    created_at = getattr(movement, "criado_em", None)
+    if created_at is not None:
+        return created_at.date()
+
+    return None
 
 
 def _build_row(
