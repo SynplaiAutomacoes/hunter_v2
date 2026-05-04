@@ -2,15 +2,13 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import timedelta
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
-from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, render
 from django.urls import reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
@@ -18,12 +16,13 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 from djmoney.money import Money
 
 from apps.catalog.forms.kits import KitForm, QuickProductEditForm, QuickServiceEditForm
-from apps.catalog.models.kits import Kit, KitService
+from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
-from apps.catalog.util import calculate_catalog_service_prices, get_current_workshop_cost
+from apps.catalog.util import build_product_kits_assignment_context, calculate_catalog_service_prices, get_current_workshop_cost, recalculate_kit_totals
 from apps.core.navigation import KIT_CREATE_FAVORITE_PAGE
 from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
+from apps.core.search import apply_text_search
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.utils import clean_id
@@ -34,6 +33,18 @@ logger = logging.getLogger(__name__)
 
 
 KIT_LIST_FILTERS: tuple[QueryParamFilter, ...] = (QueryParamFilter(param_name="is_active", lookup="is_active", kind="boolean"),)
+
+
+def _selected_kit_ids_from_values(raw_values: list[str]) -> list[int]:
+    selected_kit_ids: list[int] = []
+
+    for raw_id in raw_values:
+        cleaned_id = clean_id(raw_id)
+        if not cleaned_id:
+            continue
+        selected_kit_ids.append(int(cleaned_id))
+
+    return list(dict.fromkeys(selected_kit_ids))
 
 
 class KitListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -181,7 +192,7 @@ class KitProductSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         qs = Product.objects.filter(workshop=self.workshop, is_active=True)
         if query:
-            qs = qs.filter(Q(code__icontains=query) | Q(name__icontains=query) | Q(brand__icontains=query))
+            qs = apply_text_search(qs, search_value=query, lookups=("code", "name", "brand"))
 
         # djmoney MoneyField usa 2 colunas (valor + moeda). Ao usar `.only(...)`,
         # precisamos incluir também os campos `*_currency` para evitar erros ao
@@ -401,21 +412,8 @@ class KitServicesSyncView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 item.selling_price = Money(row["sell_value"], "BRL") if row["sell_value"] is not None else None
                 item.save()
 
-            product_total = Money(0, "BRL")
-            for kit_product in kit.kit_products.select_related("product"):
-                product_total += (kit_product.product.selling_price or Money(0, "BRL")) * kit_product.quantity
-
-            service_total = Money(0, "BRL")
-            services_total_duration = timedelta()
-            for item in KitService.objects.filter(kit=kit).select_related("service"):
-                unit_sell = item.resolved_duration_selling_price if service_pricing_mode == Kit.ServicePricingMode.BY_DURATION else item.resolved_selling_price
-                service_total += unit_sell * item.quantity
-                services_total_duration += (item.duration or timedelta()) * item.quantity
-
-            kit.total_price = product_total + service_total
-            kit.total_duration = services_total_duration
             kit.service_pricing_mode = service_pricing_mode
-            kit.save(update_fields=["total_price", "total_duration", "service_pricing_mode", "atualizado_em"])
+            recalculate_kit_totals(kit)
 
         return JsonResponse({"saved": True})
 
@@ -482,20 +480,7 @@ class KitServiceLocalUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if service_pricing_mode in {choice[0] for choice in Kit.ServicePricingMode.choices} and kit.service_pricing_mode != service_pricing_mode:
             kit.service_pricing_mode = service_pricing_mode
 
-        product_total = Money(0, "BRL")
-        for kit_product in kit.kit_products.select_related("product"):
-            product_total += (kit_product.product.selling_price or Money(0, "BRL")) * kit_product.quantity
-
-        service_total = Money(0, "BRL")
-        services_total_duration = timedelta()
-        for item in kit.kit_services.select_related("service"):
-            unit_sell = item.resolved_duration_selling_price if kit.service_pricing_mode == Kit.ServicePricingMode.BY_DURATION else item.resolved_selling_price
-            service_total += unit_sell * item.quantity
-            services_total_duration += (item.duration or timedelta()) * item.quantity
-
-        kit.total_price = product_total + service_total
-        kit.total_duration = services_total_duration
-        kit.save(update_fields=["total_price", "total_duration", "service_pricing_mode", "atualizado_em"])
+        recalculate_kit_totals(kit)
 
         return JsonResponse(
             {
@@ -523,7 +508,7 @@ class KitServiceSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         qs = Service.objects.filter(workshop=self.workshop, is_active=True)
         if query:
-            qs = qs.filter(name__icontains=query)
+            qs = apply_text_search(qs, search_value=query, lookups=("name",))
 
         # djmoney MoneyField usa 2 colunas (valor + moeda). Ao usar `.only(...)`,
         # precisamos incluir também os campos `*_currency` para evitar erros ao
@@ -553,27 +538,112 @@ class KitServiceSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
 
 class KitsByProductHXView(LoginRequiredMixin, WorkshopScopedMixin, View):
-    model = Kit
+    model = Product
     workshop_permission_codename = "view_kit"
 
     def get(self, request, *args, **kwargs):
-        product_id = clean_id(request.GET.get("product_id"))
-
-        kits = (
-            Kit.objects.filter(
-                workshop=self.workshop,
-                is_active=True,
-                products__id=product_id,
-            )
-            .distinct()
-            .order_by("name")
+        product = get_object_or_404(Product, pk=kwargs["product_id"], workshop=self.workshop)
+        context = build_product_kits_assignment_context(
+            workshop=self.workshop,
+            product=product,
+            query=request.GET.get("q", ""),
+            page=request.GET.get("page", "1"),
+            selected_kit_ids=_selected_kit_ids_from_values(request.GET.getlist("selected_kits")),
         )
+
+        context["object"] = product
+        context["product"] = product
 
         return render(
             request,
-            "kits/partials/kits_related_to_products_list.html",
-            {
-                "kits_disponiveis": kits,
-                "kits_selecionados_ids": [],  # ajuste se houver edição
-            },
+            "products/sections/product_kits_attribution.html",
+            context,
         )
+
+
+class ProductKitsAssignHXView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Product
+    workshop_permission_codename = "change_kit"
+
+    def post(self, request, *args, **kwargs):
+        product = get_object_or_404(Product, pk=kwargs["product_id"], workshop=self.workshop)
+        selected_kit_ids = _selected_kit_ids_from_values(request.POST.getlist("selected_kits"))
+
+        kits = list(Kit.objects.filter(workshop=self.workshop, id__in=selected_kit_ids))
+        existing_kit_ids = set(KitProduct.objects.filter(product=product, kit_id__in=selected_kit_ids).values_list("kit_id", flat=True))
+        created_assignments = 0
+
+        with transaction.atomic():
+            for kit in kits:
+                kit_id = int(kit.pk or 0)
+                if kit_id in existing_kit_ids:
+                    continue
+
+                KitProduct.objects.create(kit=kit, product=product, quantity=1)
+                recalculate_kit_totals(kit)
+                created_assignments += 1
+
+        context = build_product_kits_assignment_context(
+            workshop=self.workshop,
+            product=product,
+            query=request.POST.get("q", ""),
+            page=request.POST.get("page", "1"),
+            selected_kit_ids=[],
+        )
+        context["object"] = product
+        context["product"] = product
+
+        response = render(request, "products/sections/product_kits_attribution.html", context)
+        if created_assignments:
+            response["HX-Trigger"] = json.dumps(
+                {
+                    "showToast": {
+                        "message": f"Produto atribuido a {created_assignments} kit(s) com sucesso.",
+                        "type": "success",
+                    }
+                }
+            )
+        else:
+            response["HX-Trigger"] = json.dumps(
+                {
+                    "showToast": {
+                        "message": "Selecione pelo menos um kit ainda nao atribuido.",
+                        "type": "warning",
+                    }
+                }
+            )
+        return response
+
+
+class ProductKitUnassignHXView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Product
+    workshop_permission_codename = "change_kit"
+
+    def post(self, request, *args, **kwargs):
+        product = get_object_or_404(Product, pk=kwargs["product_id"], workshop=self.workshop)
+        kit = get_object_or_404(Kit, pk=kwargs["kit_id"], workshop=self.workshop)
+
+        deleted_count, _ = KitProduct.objects.filter(kit=kit, product=product).delete()
+        if deleted_count:
+            recalculate_kit_totals(kit)
+
+        context = build_product_kits_assignment_context(
+            workshop=self.workshop,
+            product=product,
+            query=request.POST.get("q", ""),
+            page=request.POST.get("page", "1"),
+            selected_kit_ids=_selected_kit_ids_from_values(request.POST.getlist("selected_kits")),
+        )
+        context["object"] = product
+        context["product"] = product
+
+        response = render(request, "products/sections/product_kits_attribution.html", context)
+        response["HX-Trigger"] = json.dumps(
+            {
+                "showToast": {
+                    "message": "Atribuicao removida com sucesso." if deleted_count else "Este produto nao estava atribuido a este kit.",
+                    "type": "success" if deleted_count else "warning",
+                }
+            }
+        )
+        return response

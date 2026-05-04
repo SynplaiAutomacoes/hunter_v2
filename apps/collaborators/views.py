@@ -23,6 +23,7 @@ from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, ap
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
+from apps.finance.models.financial_movement import FinancialMovement
 from apps.workshops.mixin import WorkshopScopedMixin
 
 AuthUser = get_user_model()
@@ -159,6 +160,32 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
     template_name = "collaborators/collaborator_update.html"
     success_url = reverse_lazy("collaborators:collaborator_list")
 
+    @staticmethod
+    def _parse_selected_movement_ids(raw_values: list[str]) -> list[int]:
+        movement_ids: list[int] = []
+        for raw_value in raw_values:
+            value = str(raw_value or "").strip()
+            if value.isdigit():
+                movement_ids.append(int(value))
+        return movement_ids
+
+    def _delete_selected_pending_movements(self, *, collaborator: WorkshopCollaborator) -> None:
+        if collaborator.termination_date is None:
+            return
+
+        movement_ids = self._parse_selected_movement_ids(self.request.POST.getlist("delete_movement_ids"))
+        if not movement_ids:
+            return
+
+        deleted_count, _ = FinancialMovement.objects.filter(
+            workshop=self.workshop,
+            collaborator=collaborator,
+            is_paid=False,
+            pk__in=movement_ids,
+        ).delete()
+        if deleted_count:
+            messages.success(self.request, f"{deleted_count} lançamento(s) removido(s) com sucesso.")
+
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["account"] = self.request.user.account
@@ -187,6 +214,7 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
 
         month_choices = sorted({payroll.reference_month for payroll in self.object.payrolls.only("reference_month")}, reverse=True)
         year_choices = sorted({payroll.reference_year for payroll in self.object.payrolls.only("reference_year")}, reverse=True)
+        pending_financial_movements = list(FinancialMovement.objects.filter(workshop=self.workshop, collaborator=self.object, is_paid=False).select_related("payment_method").order_by("due_date", "id"))
         context["benefit_formset"] = benefit_formset
         context["benefit_empty_form"] = benefit_formset.empty_form
         context["payroll_history"] = payroll_history[:24]
@@ -199,6 +227,7 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         context["selected_history_month"] = history_month
         context["selected_history_year"] = history_year
         context["selected_history_status"] = history_status
+        context["pending_financial_movements"] = pending_financial_movements
         return context
 
     def post(self, request, *args, **kwargs):
@@ -261,6 +290,7 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
 
             sync_collaborator_payroll(collaborator=collaborator)
             sync_current_month_salary_costs(workshop=self.workshop)
+            self._delete_selected_pending_movements(collaborator=collaborator)
             return response
 
     def forms_invalid(self, form, benefit_formset: BaseInlineFormSet):

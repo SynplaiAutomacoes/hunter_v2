@@ -10,11 +10,12 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
 from apps.core.widgets import TextInput
 from apps.iam.models import WorkshopRole
+from apps.core.forms import CoreModelForm
 
 RESERVED_ROLE_NAMES = {"diretor", "gerente"}
 
 
-class WorkshopRoleForm(forms.ModelForm):
+class WorkshopRoleForm(CoreModelForm):
     permissions = forms.ModelMultipleChoiceField(
         queryset=Permission.objects.select_related("content_type").all(),
         required=False,

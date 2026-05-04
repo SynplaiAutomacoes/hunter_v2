@@ -27,8 +27,8 @@ from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
-from apps.collaborators.models import WorkshopCollaborator, WorkshopMember
-from apps.collaborators.services import sync_collaborator_payroll
+from apps.collaborators.models import CollaboratorCommissionEntry, WorkshopCollaborator, WorkshopMember
+from apps.collaborators.services import sync_collaborator_payroll, sync_workorder_collaborator_payrolls
 from apps.core.documents.contract import DocumentPayload
 from apps.customer.models import Customer, Vehicle
 from apps.finance.documents.provider import build_dre_excel_document, build_dre_pdf_render_request
@@ -56,7 +56,19 @@ from apps.finance.services.emission import (
     preview_nfse_request,
     sync_emission_response,
 )
-from apps.finance.services.nfe_emission import NfeEmissionError, _build_nfe_products_payload, _extract_product_lines, build_nfe_payload, build_nfe_preview_rows, build_nfe_preview_warning_message, build_nfe_preview_warning_messages, cancel_nfe_document, preview_nfe_request, sync_nfe_emission_response
+from apps.finance.services.nfe_emission import (
+    NfeEmissionError,
+    _build_nfe_products_payload,
+    _extract_product_lines,
+    build_nfe_payload,
+    build_nfe_preview_rows,
+    build_nfe_preview_warning_message,
+    build_nfe_preview_warning_messages,
+    cancel_nfe_document,
+    invalidate_nfe_number,
+    preview_nfe_request,
+    sync_nfe_emission_response,
+)
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number, reserve_nfse_request_rps_number
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
@@ -83,6 +95,17 @@ from apps.workshops.models.monthly_costs import MonthlyCost
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.forms.workshops import WorkshopFiscalSectionForm
 from apps.workshops.models.workshops import Workshop
+
+
+if not hasattr(FinancialMovement, "DreTopic"):
+
+    class _FinancialMovementDreTopic:
+        RECEITA_BRUTA_VENDAS_E_SERVICOS = "receita_bruta_vendas_e_servicos"
+        CUSTOS_MERCADORIAS_VENDIDAS = "custos_mercadorias_vendidas"
+        RECEITAS_FINANCEIRAS = "receitas_financeiras"
+        DESPESAS_FINANCEIRAS = "despesas_financeiras"
+
+    FinancialMovement.DreTopic = _FinancialMovementDreTopic  # type: ignore[attr-defined]
 
 
 def create_workshop(*, suffix: int = 1) -> Workshop:
@@ -4028,6 +4051,95 @@ class FiscalDocumentDetailFlowTests(TestCase):
         self.assertEqual(response.headers.get("Location"), reverse("finance:nfe_detail", kwargs={"pk": nfe_request.pk}))
         cancel_mock.assert_not_called()
 
+    def test_nfe_invalidate_view_invalidates_reserved_number(self) -> None:
+        nfe_request = NfeRequest.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            tax_class="REFNFE124",
+            reserved_number=456,
+            reserved_series=99,
+            status=NfeRequestStatus.REPROVED,
+        )
+
+        with patch(
+            "apps.finance.views.nfe.invalidate_nfe_number",
+            return_value={
+                "status": "inutilizado",
+                "motivo": "Inutilizacao por problema tecnico na emissao.",
+                "xml": "https://files.test/nfe-inutilizacao.xml",
+                "log": {"codigo": "102"},
+            },
+        ) as invalidate_mock:
+            response = self.client.post(
+                reverse("finance:nfe_invalidate", kwargs={"pk": nfe_request.pk}),
+                data={"reason": "Inutilizacao por problema tecnico na emissao."},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:nfe_detail", kwargs={"pk": nfe_request.pk}))
+        invalidate_mock.assert_called_once_with(
+            workshop=self.workshop,
+            number=456,
+            reason="Inutilizacao por problema tecnico na emissao.",
+            series=99,
+        )
+
+        nfe_request.refresh_from_db()
+        self.assertEqual(nfe_request.status, NfeRequestStatus.INVALIDATED)
+        self.assertEqual(nfe_request.invalidation_reason, "Inutilizacao por problema tecnico na emissao.")
+        self.assertEqual(nfe_request.invalidation_xml_url, "https://files.test/nfe-inutilizacao.xml")
+        self.assertEqual(nfe_request.invalidation_log_payload, {"codigo": "102"})
+        self.assertIsNotNone(nfe_request.invalidated_at)
+
+    def test_nfe_invalidate_view_rejects_short_reason(self) -> None:
+        nfe_request = NfeRequest.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            tax_class="REFNFE125",
+            reserved_number=789,
+            reserved_series=99,
+            status=NfeRequestStatus.REPROVED,
+        )
+
+        with patch("apps.finance.views.nfe.invalidate_nfe_number") as invalidate_mock:
+            response = self.client.post(
+                reverse("finance:nfe_invalidate", kwargs={"pk": nfe_request.pk}),
+                data={"reason": "curto"},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:nfe_detail", kwargs={"pk": nfe_request.pk}))
+        invalidate_mock.assert_not_called()
+
+    def test_nfe_invalidate_view_blocks_requests_with_approved_item(self) -> None:
+        nfe_request = NfeRequest.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            tax_class="REFNFE126",
+            reserved_number=790,
+            reserved_series=99,
+        )
+        NfeItem.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            request=nfe_request,
+            uuid="0cc6d8d3-dbf3-4ea7-82cd-861cfc9095c6",
+            status="aprovado",
+        )
+
+        with patch("apps.finance.views.nfe.invalidate_nfe_number") as invalidate_mock:
+            response = self.client.post(
+                reverse("finance:nfe_invalidate", kwargs={"pk": nfe_request.pk}),
+                data={"reason": "Inutilizacao por problema tecnico na emissao."},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers.get("Location"), reverse("finance:nfe_detail", kwargs={"pk": nfe_request.pk}))
+        invalidate_mock.assert_not_called()
+
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn("A numeracao desta Nota Fiscal nao pode ser inutilizada no estado atual.", messages)
+
     def test_nfse_cancel_view_cancels_document_and_updates_status(self) -> None:
         nfse_request = NfseRequest.objects.create(
             workshop=self.workshop,
@@ -4522,6 +4634,37 @@ class NfeCancelServiceTests(TestCase):
         put_mock.assert_called_once_with(
             "https://webmania.com.br/api/1/nfe/cancelar/",
             json={"motivo": "Cancelamento por solicitação administrativa.", "chave": "12345678901234567890123456789012345678901234"},
+            headers={"X-Test": "ok"},
+            timeout=30,
+        )
+
+    @override_settings(WEBMANIA_AMBIENT="2")
+    def test_invalidate_nfe_number_uses_put_endpoint_with_reserved_number(self) -> None:
+        workshop = create_workshop(suffix=93)
+        response_payload = {"xml": "https://files.test/nfe-inutilizacao.xml", "log": {"codigo": "102"}}
+
+        with (
+            patch("apps.finance.services.nfe_emission._build_headers", return_value={"X-Test": "ok"}),
+            patch("apps.finance.services.nfe_emission._build_invalidate_url", return_value="https://webmania.com.br/api/1/nfe/inutilizar/"),
+            patch("apps.finance.services.nfe_emission.requests.put", return_value=_mock_response(response_payload)) as put_mock,
+        ):
+            payload = invalidate_nfe_number(
+                workshop=workshop,
+                number=456,
+                reason="Inutilizacao por problema tecnico na emissao.",
+                series=99,
+            )
+
+        self.assertEqual(payload["xml"], "https://files.test/nfe-inutilizacao.xml")
+        put_mock.assert_called_once_with(
+            "https://webmania.com.br/api/1/nfe/inutilizar/",
+            json={
+                "sequencia": "456-456",
+                "motivo": "Inutilizacao por problema tecnico na emissao.",
+                "ambiente": 2,
+                "serie": "99",
+                "modelo": 1,
+            },
             headers={"X-Test": "ok"},
             timeout=30,
         )
@@ -5183,6 +5326,84 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, "R$ 1.100,00")
         self.assertContains(response, "Folha consolidada por colaborador")
         self.assertContains(response, "Holerite")
+
+    def test_commission_report_view_displays_concluded_workorder_commissions(self) -> None:
+        collaborator = self._create_collaborator(suffix=56, name="Tecnico Comissao")
+        collaborator.receives_commission = True
+        collaborator.commission_percentage = Decimal("0.100000")
+        collaborator.save(update_fields=["receives_commission", "commission_percentage"])
+        WorkshopCost.objects.create(workshop=self.workshop, month=5, year=2026, mechanic_quantity=1, work_days_per_month=20)
+
+        approved_workorder = self._create_report_workorder(
+            customer_name="Cliente Aprovado",
+            total_value="200.00",
+            problem_description="Troca de oleo",
+            payment_specs=[{"description": "Pix", "amount": "200.00", "due_date": "2026-05-20"}],
+        )
+        approved_workorder.collaborators.add(collaborator)
+        sync_workorder_financial_movement(workorder=approved_workorder)
+        sync_workorder_collaborator_payrolls(workorder=approved_workorder, reference_date=date(2026, 5, 1))
+
+        draft_workorder = self._create_report_workorder(
+            customer_name="Cliente Em Aberto",
+            total_value="300.00",
+            problem_description="Alinhamento",
+            payment_specs=[{"description": "Pix", "amount": "300.00", "due_date": "2026-05-22"}],
+        )
+        draft_workorder.status = WorkOrderStatus.DRAFT
+        draft_workorder.save(update_fields=["status"])
+        draft_workorder.collaborators.add(collaborator)
+        sync_workorder_financial_movement(workorder=draft_workorder)
+        sync_workorder_collaborator_payrolls(workorder=draft_workorder, reference_date=date(2026, 5, 1))
+
+        response = self.client.get(reverse("finance:commission_report"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Apuração de Comissões")
+        self.assertContains(response, "Tecnico Comissao")
+        self.assertContains(response, "Cliente Aprovado")
+        self.assertContains(response, "Troca de oleo")
+        self.assertContains(response, "R$ 20,00")
+        self.assertNotContains(response, "Cliente Em Aberto")
+        self.assertEqual(CollaboratorCommissionEntry.objects.filter(workorder=approved_workorder).count(), 1)
+        self.assertFalse(CollaboratorCommissionEntry.objects.filter(workorder=draft_workorder).exists())
+
+    def test_commission_report_view_filters_by_collaborator(self) -> None:
+        WorkshopCost.objects.create(workshop=self.workshop, month=5, year=2026, mechanic_quantity=1, work_days_per_month=20)
+        selected_collaborator = self._create_collaborator(suffix=57, name="Alice Comissao")
+        selected_collaborator.receives_commission = True
+        selected_collaborator.commission_percentage = Decimal("0.100000")
+        selected_collaborator.save(update_fields=["receives_commission", "commission_percentage"])
+
+        other_collaborator = self._create_collaborator(suffix=58, name="Bruno Comissao")
+        other_collaborator.receives_commission = True
+        other_collaborator.commission_percentage = Decimal("0.100000")
+        other_collaborator.save(update_fields=["receives_commission", "commission_percentage"])
+
+        selected_workorder = self._create_report_workorder(
+            customer_name="Cliente Alice",
+            total_value="150.00",
+            payment_specs=[{"description": "Pix", "amount": "150.00", "due_date": "2026-05-10"}],
+        )
+        selected_workorder.collaborators.add(selected_collaborator)
+        sync_workorder_financial_movement(workorder=selected_workorder)
+        sync_workorder_collaborator_payrolls(workorder=selected_workorder, reference_date=date(2026, 5, 1))
+
+        other_workorder = self._create_report_workorder(
+            customer_name="Cliente Bruno",
+            total_value="180.00",
+            payment_specs=[{"description": "Pix", "amount": "180.00", "due_date": "2026-05-11"}],
+        )
+        other_workorder.collaborators.add(other_collaborator)
+        sync_workorder_financial_movement(workorder=other_workorder)
+        sync_workorder_collaborator_payrolls(workorder=other_workorder, reference_date=date(2026, 5, 1))
+
+        response = self.client.get(reverse("finance:commission_report"), {"collaborator": selected_collaborator.pk})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Alice Comissao")
+        self.assertContains(response, "Cliente Alice")
+        self.assertNotContains(response, "Cliente Bruno")
 
     def test_reports_home_view_displays_current_year_totals_in_second_card(self) -> None:
         today = timezone.localdate()
@@ -6341,6 +6562,14 @@ class DreReportViewTests(TestCase):
         if payment_method_description:
             payment_method = PaymentMethod.objects.create(workshop=selected_workshop, description=payment_method_description)
 
+        budget_plan_name = {
+            FinancialMovement.DreTopic.RECEITA_BRUTA_VENDAS_E_SERVICOS: "Receitas de Serviços",
+            FinancialMovement.DreTopic.CUSTOS_MERCADORIAS_VENDIDAS: "Custos de Serviços",
+            FinancialMovement.DreTopic.RECEITAS_FINANCEIRAS: "Receitas Financeiras",
+            FinancialMovement.DreTopic.DESPESAS_FINANCEIRAS: "Despesas Financeiras",
+        }[dre_topic]
+        budget_plan, _ = FinancialGroup.objects.get_or_create(workshop=selected_workshop, name=budget_plan_name)
+
         direction = FinancialMovement.MovementDirection.CREDIT
         if dre_topic in {
             FinancialMovement.DreTopic.CUSTOS_MERCADORIAS_VENDIDAS,
@@ -6355,7 +6584,7 @@ class DreReportViewTests(TestCase):
             direction=direction,
             payment_method=payment_method,
             nf_number=nf_number,
-            dre_topic=dre_topic,
+            budget_plan=budget_plan,
             amount=Money(amount, "BRL"),
             due_date=due_date,
             description=description,

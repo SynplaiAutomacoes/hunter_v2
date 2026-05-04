@@ -85,6 +85,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.postgres",
     # Dependencies
     "django_tailwind_cli",
     "crispy_tailwind",
@@ -153,6 +154,7 @@ TEMPLATES = [
             "builtins": [
                 "crispy_forms.templatetags.crispy_forms_tags",
                 "crispy_tailwind.templatetags.tailwind_filters",
+                "apps.core.templatetags.text_filters",
             ],
         },
     },

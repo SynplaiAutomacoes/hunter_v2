@@ -18,7 +18,7 @@
             <h2 class="font-mono text-xl font-semibold">{{ edit_reference }}</h2>
         </div>
     {% else %}
-        <div class="tabs tabs-lift mb-6">
+        <div class="app-tabs tabs tabs-lift mb-6">
             <a href="{{ form_base_url }}?tab=nfe" class="tab {% if active_tab == 'nfe' %}tab-active{% endif %}">Nota Fiscal</a>
             <a href="{{ form_base_url }}?tab=nfse" class="tab {% if active_tab == 'nfse' %}tab-active{% endif %}">Nota Fiscal de Serviço</a>
         </div>

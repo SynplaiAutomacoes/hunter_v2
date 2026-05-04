@@ -54,3 +54,29 @@ class CustomerListViewFilterTests(TestCase):
         self.assertIn(inactive_customer, inactive_queryset)
         self.assertIn(active_customer, all_queryset)
         self.assertIn(inactive_customer, all_queryset)
+
+    def test_customer_list_search_matches_without_accents_and_case(self) -> None:
+        workshop = create_workshop(suffix=2)
+        matched_customer = Customer.objects.create(
+            workshop=workshop,
+            name="Jose da Silva",
+            cpf_or_cnpj="123456789011",
+            email="jose@example.com",
+            is_active=True,
+        )
+        other_customer = Customer.objects.create(
+            workshop=workshop,
+            name="Maria da Silva",
+            cpf_or_cnpj="123456789012",
+            email="maria@example.com",
+            is_active=True,
+        )
+
+        view = CustomerListView()
+        view.request = RequestFactory().get("/customer/", {"q": "JOSÉ"})
+        view.workshop = workshop
+
+        queryset = view.get_queryset()
+
+        self.assertIn(matched_customer, queryset)
+        self.assertNotIn(other_customer, queryset)

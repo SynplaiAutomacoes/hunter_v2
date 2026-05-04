@@ -1,0 +1,96 @@
+{% load format_tags %}
+
+<div class="space-y-6">
+    <div class="flex items-start gap-3">
+        <span class="material-icons text-base-content/80">description</span>
+        <div>
+            <h2 class="text-xl font-bold text-base-content">Histórico do Cliente</h2>
+            <p class="text-sm text-base-content/70">Orçamentos e ordens de serviço vinculados a este cliente.</p>
+        </div>
+    </div>
+
+    <div class="overflow-hidden rounded-box border border-base-300 bg-base-100">
+        <div class="overflow-x-auto">
+            <table class="table w-full">
+                <thead>
+                    <tr class="bg-base-200 text-sm text-base-content/70">
+                        <th>Data</th>
+                        <th>Tipo</th>
+                        <th>Número</th>
+                        <th>Veículo</th>
+                        <th>Valor Total</th>
+                        <th>Status</th>
+                        <th class="text-center">Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in customer_history_rows %}
+                        <tr class="hover">
+                            <td class="whitespace-nowrap">{{ row.date|date:"d/m/Y" }}</td>
+                            <td>{{ row.type_label }}</td>
+                            <td class="whitespace-nowrap">#{{ row.document_number }}</td>
+                            <td>{{ row.vehicle_label }}</td>
+                            <td class="whitespace-nowrap">{{ row.total_value|money_br }}</td>
+                            <td>
+                                <span class="badge {{ row.status_badge.class }} badge-sm whitespace-nowrap">{{ row.status_badge.text }}</span>
+                            </td>
+                            <td class="text-center">
+                                <button
+                                    type="button"
+                                    class="btn-table-view"
+                                    aria-label="Visualizar PDF do documento"
+                                    onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: '{{ row.pdf_title|escapejs }}', url: '{{ row.pdf_url|escapejs }}', downloadUrl: '{{ row.pdf_download_url|escapejs }}' } }))"
+                                >
+                                    <span class="material-icons text-base">visibility</span>
+                                </button>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="7" class="py-8 text-center text-base-content/60">Nenhum histórico de orçamentos ou ordens de serviço encontrado para este cliente.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<dialog
+    id="customerHistoryPdfModal"
+    class="modal"
+    x-data="{ url: '', downloadUrl: '', title: 'Visualizar PDF' }"
+    @open-pdf-modal.window="url = $event.detail.url; downloadUrl = $event.detail.downloadUrl || ''; title = $event.detail.title || 'Visualizar PDF'; $el.showModal()"
+>
+    <div class="modal-box flex h-[90vh] w-full max-w-5xl flex-col p-0">
+        <div class="flex items-center justify-between border-b bg-base-200 px-6 py-4">
+            <h3 class="flex items-center gap-2 text-xl font-bold">
+                <span class="material-icons">description</span>
+                <span x-text="title"></span>
+            </h3>
+
+            <div class="flex gap-2">
+                <button
+                    type="button"
+                    class="btn btn-sm btn-success"
+                    x-show="downloadUrl"
+                    @click="window.open(downloadUrl, '_blank')"
+                >
+                    Baixar PDF
+                </button>
+                <button type="button" class="btn btn-sm" onclick="document.getElementById('customerHistoryPdfModal').close()">
+                    Fechar
+                </button>
+            </div>
+        </div>
+
+        <div class="flex-1 bg-gray-100">
+            <template x-if="url">
+                <iframe :src="url" class="h-full w-full" frameborder="0"></iframe>
+            </template>
+        </div>
+    </div>
+    <form method="dialog" class="modal-backdrop">
+        <button type="submit">close</button>
+    </form>
+</dialog>

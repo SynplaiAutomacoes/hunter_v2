@@ -11,6 +11,7 @@ from django.urls import reverse
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
+from apps.core.forms import CoreForm, CoreModelForm
 from apps.core.webmania.util import is_webmania_homolog_environment
 from apps.core.widgets import (
     CEPInput,
@@ -19,8 +20,8 @@ from apps.core.widgets import (
     EmailInput,
     ImageInput,
     NumberInput,
-    SearchableSelectInput,
     PhoneInput,
+    SearchableSelectInput,
     TextInput,
     TextareaInput,
     PasswordInput,
@@ -44,7 +45,7 @@ def _format_decimal(value: Decimal, *, places: int = 2) -> str:
     return f"{value.quantize(quantizer):f}"
 
 
-class WorkshopForm(forms.ModelForm):
+class WorkshopForm(CoreModelForm):
     class Meta:
         model = Workshop
         fields = ["name", "cnpj", "phone", "address", "uf", "is_active"]
@@ -90,7 +91,7 @@ class _PreviewableFileValue:
         self.url = url
 
 
-class BaseWebmaniaCompanySectionForm(forms.ModelForm):
+class BaseWebmaniaCompanySectionForm(CoreModelForm):
     secret_fields: tuple[str, ...] = ()
     nullable_boolean_fields: tuple[str, ...] = ()
 
@@ -283,7 +284,7 @@ class WorkshopCompanySectionForm(BaseWebmaniaCompanySectionForm):
         return instance
 
 
-class WorkshopLogoForm(forms.Form):
+class WorkshopLogoForm(CoreForm):
     logo = forms.FileField(
         required=False,
         label="Logo da oficina",
@@ -451,7 +452,7 @@ class WorkshopOptionalsSectionForm(BaseWebmaniaCompanySectionForm):
         }
 
 
-class WorkshopCertificateSectionForm(forms.Form):
+class WorkshopCertificateSectionForm(CoreForm):
     pfx_certificate = forms.FileField(
         required=False,
         validators=[FileExtensionValidator(allowed_extensions=["pfx", "p12"])],

@@ -1,14 +1,19 @@
-from django.db.models import Q
+from typing import Any
+
+from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse, JsonResponse
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
+from apps.budget.models import Budget
 from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
+from apps.core.search import apply_text_search
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.core.navigation import CREATE_CLIENT_FAVORITE_PAGE
 from apps.core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, BaseModalFormView, PageFavoriteMixin
+from apps.workorder.models import WorkOrder
 from .forms import QuickCustomerForm, QuickVehicleForm
 from .util import fetch_vehicle_data, build_vehicle_saved_trigger, build_customer_saved_trigger
 from .vehicle_engine import normalize_vehicle_engine_choice
@@ -33,6 +38,65 @@ CUSTOMER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
 )
 
 
+def _build_customer_history_vehicle_label(vehicle: Vehicle | None) -> str:
+    if vehicle is None:
+        return "Veículo não informado"
+
+    description = " ".join(part for part in [vehicle.brand, vehicle.model] if part).strip()
+    if vehicle.plate and description:
+        return f"{vehicle.plate} - {description}"
+    if vehicle.plate:
+        return vehicle.plate
+    if description:
+        return description
+    return "Veículo não informado"
+
+
+def _build_customer_budget_history_entry(budget: Budget) -> dict[str, Any]:
+    pdf_url = f"{reverse('budget:visualizar_pdf_assinatura', kwargs={'pk': budget.pk})}?variant=signed"
+    return {
+        "date": budget.criado_em,
+        "type_label": "Orçamento",
+        "document_number": budget.pk,
+        "vehicle_label": _build_customer_history_vehicle_label(budget.vehicle),
+        "total_value": budget.display_total_budget_value,
+        "status_badge": budget.budget_status_badge,
+        "pdf_title": f"Orçamento #{budget.pk}",
+        "pdf_url": pdf_url,
+        "pdf_download_url": f"{pdf_url}&download=1",
+    }
+
+
+def _build_customer_workorder_history_entry(workorder: WorkOrder) -> dict[str, Any]:
+    pdf_url = reverse("workorder:visualizar_pdf", kwargs={"pk": workorder.pk})
+    return {
+        "date": workorder.criado_em,
+        "type_label": "OS",
+        "document_number": workorder.pk,
+        "vehicle_label": _build_customer_history_vehicle_label(workorder.budget.vehicle),
+        "total_value": workorder.total_budget_value,
+        "status_badge": workorder.workorder_status_badge,
+        "pdf_title": f"OS #{workorder.pk}",
+        "pdf_url": pdf_url,
+        "pdf_download_url": f"{pdf_url}?download=1",
+    }
+
+
+def _build_customer_history_context(customer: Customer) -> dict[str, Any]:
+    budgets = Budget.objects.filter(customer=customer).select_related("vehicle").prefetch_related(Prefetch("workorders", queryset=WorkOrder.objects.select_related("budget__vehicle").order_by("pk"))).order_by("-criado_em")
+
+    history_rows: list[dict[str, Any]] = []
+    for budget in budgets:
+        workorders = list(getattr(budget, "workorders").all())
+        if workorders:
+            history_rows.append(_build_customer_workorder_history_entry(workorders[0]))
+            continue
+        history_rows.append(_build_customer_budget_history_entry(budget))
+
+    history_rows.sort(key=lambda row: row["date"], reverse=True)
+    return {"customer_history_rows": history_rows}
+
+
 class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = Customer
     template_name = "customer/customer_list.html"
@@ -45,7 +109,7 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
         search_query = self.request.GET.get("q", "").strip()
 
         if search_query:
-            queryset = queryset.filter(Q(name__icontains=search_query) | Q(fantasy_name__icontains=search_query) | Q(cpf_or_cnpj__icontains=search_query) | Q(phone__icontains=search_query) | Q(rg__icontains=search_query) | Q(email__icontains=search_query))
+            queryset = apply_text_search(queryset, search_value=search_query, lookups=("name", "fantasy_name", "cpf_or_cnpj", "phone", "rg", "email"))
 
         queryset = apply_is_active_filter(queryset, params=self.request.GET)
 
@@ -137,6 +201,7 @@ class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
             data["vehicles"] = VehicleFormSet(self.request.POST, instance=self.object, prefix="vehicles", form_kwargs={"workshop": self.workshop})
         else:
             data["vehicles"] = VehicleFormSet(instance=self.object, prefix="vehicles", form_kwargs={"workshop": self.workshop})
+        data.update(_build_customer_history_context(self.object))
         return data
 
     def form_valid(self, form):
@@ -192,21 +257,7 @@ class CustomerHistoryDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailV
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-
-        context["vehicle_fields"] = [
-            TableColumn(Vehicle.plate.field.verbose_name, attr=Vehicle.plate.field.name),
-            TableColumn("Marca / Modelo", attr=lambda x: f"{x.brand} {x.model}", search_by=("brand", "model")),
-            TableColumn("Ano (Fab/Mod)", attr=lambda x: f"{x.year_fabrication} / {x.year_model}", search_by=("year_fabrication", "year_model")),
-            TableColumn(Vehicle.km.field.verbose_name, attr=lambda x: x.km if x.km is not None else "-", search_by="km"),
-            TableColumn(Vehicle.chassi.field.verbose_name, attr=Vehicle.chassi.field.name),
-        ]
-
-        context["vehicle_actions"] = [
-            TableActionDefaults.view("customer:vehicle_history_detail"),
-        ]
-
-        context["vehicles"] = self.object.vehicles.all()
-
+        context.update(_build_customer_history_context(self.object))
         return context
 
 

@@ -49,6 +49,7 @@ from ..core.documents.http import build_pdf_http_response
 from ..core.forms import MultiStepFormMixin
 from ..core.navigation import STOCK_IMPORT_CREATE_FAVORITE_PAGE
 from ..core.query_filters import QueryParamFilter, apply_query_param_filters
+from ..core.search import apply_text_search
 from ..core.tables import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
 from ..core.utils import clean_id
@@ -1101,7 +1102,7 @@ class StockProductSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         qs = Product.objects.filter(workshop=self.workshop, is_active=True)
         if query:
-            qs = qs.filter(Q(code__icontains=query) | Q(name__icontains=query) | Q(brand__icontains=query))
+            qs = apply_text_search(qs, search_value=query, lookups=("code", "name", "brand"))
 
         # Otimização com .only() incluindo os campos de moeda do djmoney
         qs = qs.order_by("name").only("id", "code", "name", "brand", "cost_price", "cost_price_currency", "selling_price", "selling_price_currency")
@@ -1565,7 +1566,7 @@ class TransferSourceProductSearchView(StockTransferAccessMixin, View):
 
         qs = Product.objects.filter(workshop=source_workshop, is_active=True, stock_products__current_quantity__gt=0)
         if query:
-            qs = qs.filter(Q(code__icontains=query) | Q(name__icontains=query) | Q(brand__icontains=query))
+            qs = apply_text_search(qs, search_value=query, lookups=("code", "name", "brand"))
 
         qs = qs.select_related("stock_products").order_by("name").only("id", "code", "name", "brand", "cost_price", "cost_price_currency", "stock_products__current_quantity")
         paginator = Paginator(qs, 10)
@@ -1658,7 +1659,7 @@ class TransferDestinationProductSearchView(StockTransferAccessMixin, View):
 
         qs = Product.objects.filter(workshop=destination_workshop, is_active=True)
         if query:
-            qs = qs.filter(Q(code__icontains=query) | Q(name__icontains=query) | Q(brand__icontains=query))
+            qs = apply_text_search(qs, search_value=query, lookups=("code", "name", "brand"))
 
         qs = qs.order_by("name").only("id", "code", "name", "brand", "cost_price", "cost_price_currency", "selling_price", "selling_price_currency")
         paginator = Paginator(qs, 10)

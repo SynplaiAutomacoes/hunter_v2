@@ -13,12 +13,13 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.catalog.kit_applications import evaluate_kit_vehicle_compatibility
-from apps.catalog.forms.kits import KitForm
+from apps.catalog.forms.kits import KitForm, QuickProductEditForm
 from apps.catalog.forms.products import ProductForm
 from apps.catalog.models.groups import CatalogGroup
-from apps.catalog.models.kits import Kit, KitApplication, KitService
+from apps.catalog.models.kits import Kit, KitApplication, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
+from apps.catalog.util import recalculate_kit_totals
 from apps.customer.models import Customer, Vehicle
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.tests import create_director_user_with_workshop
@@ -985,6 +986,148 @@ class KitSearchPartialTests(TestCase):
         self.assertContains(response, "id: '1296'", html=False)
         self.assertNotContains(response, "id: '1.296'", html=False)
 
+    def test_product_search_partial_matches_without_accents_and_case(self) -> None:
+        Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-KIT-2001",
+            name="Bomba Dagua",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+            is_active=True,
+        )
+        Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-KIT-2002",
+            name="Filtro de Ar",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+            is_active=True,
+        )
+
+        response = self.client.get(reverse("catalog:kits_product_search"), data={"product_search": "ÁGUA"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Bomba dagua")
+        self.assertNotContains(response, "Filtro de Ar")
+
+    def test_equivalent_product_search_partial_renders_all_products_when_query_is_empty(self) -> None:
+        Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-3001",
+            name="Produto Equivalente 1",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            brand="Marca A",
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+            is_active=True,
+        )
+        Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-3002",
+            name="Produto Equivalente 2",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            brand="Marca B",
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+            is_active=True,
+        )
+
+        response = self.client.get(reverse("catalog:product_search"), data={"equivalent_search": ""}, HTTP_HX_REQUEST="true")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Produto equivalente 1")
+        self.assertContains(response, "Produto equivalente 2")
+        self.assertContains(response, "checkbox-primary")
+        self.assertContains(response, "bg-success/10 hover:bg-success/20", html=False)
+        self.assertContains(response, ":disabled=\"isAppliedEquivalent('", html=False)
+        self.assertContains(response, "btn btn-xs btn-error text-white")
+
+    def test_equivalent_product_search_partial_excludes_ignored_product(self) -> None:
+        ignored_product = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-4001",
+            name="Produto Ignorado",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            brand="Marca Ignorada",
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+            is_active=True,
+        )
+        Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-4002",
+            name="Produto Mantido",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            brand="Marca Mantida",
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+            is_active=True,
+        )
+
+        response = self.client.get(
+            reverse("catalog:product_search"),
+            data={"equivalent_search": "Produto", "ignore_id": str(ignored_product.pk)},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Produto Ignorado")
+        self.assertContains(response, "Produto mantido")
+
+    def test_service_search_partial_matches_without_accents_and_case(self) -> None:
+        Service.objects.create(
+            workshop=self.workshop,
+            name="Revisao Basica",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money(10, "BRL"),
+            suggested_cost=Money(5, "BRL"),
+            is_third_party=False,
+            is_active=True,
+        )
+        Service.objects.create(
+            workshop=self.workshop,
+            name="Alinhamento",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money(10, "BRL"),
+            suggested_cost=Money(5, "BRL"),
+            is_third_party=False,
+            is_active=True,
+        )
+
+        response = self.client.get(reverse("catalog:kits_service_search"), data={"service_search": "REVISÃO"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Revisao Basica")
+        self.assertNotContains(response, "Alinhamento")
+
 
 class KitCompatibilityEvaluationTests(TestCase):
     def setUp(self) -> None:
@@ -1280,6 +1423,93 @@ class ProductFormTests(TestCase):
         self.assertEqual(html.count("<form"), 1)
         self.assertNotIn('method="dialog"', html)
         self.assertIn('id="submit-id-submit"', html)
+        self.assertIn('class="input-theme border-none bg-base-100 textinput', html)
+
+    def test_product_form_create_hides_equivalent_products_save_button(self) -> None:
+        Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-FORM-001",
+            name="Produto Formulario",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            brand="Marca Formulario",
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+            is_active=True,
+        )
+
+        html = render_crispy_form(ProductForm(workshop=self.workshop))
+
+        self.assertNotIn("Salvar Produtos Equivalentes", html)
+        self.assertIn("isAppliedEquivalent", html)
+        self.assertIn("removeAppliedEquivalent", html)
+        self.assertIn("submittedEquivalentProducts()", html)
+        self.assertIn("bg-success/10 hover:bg-success/20", html)
+        self.assertNotIn("Produtos equivalentes salvos no formulário", html)
+        self.assertIn("Os produtos equivalentes serão salvos quando você salvar o produto.", html)
+        self.assertIn("Produto formulario", html)
+        self.assertIn("Marca formulario", html)
+
+    def test_product_form_update_renders_equivalent_products_persist_controls(self) -> None:
+        equivalent_product = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-FORM-002",
+            name="Produto Persistencia",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            brand="Marca Persistencia",
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+            is_active=True,
+        )
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-FORM-003",
+            name="Produto Atualizacao",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+            is_active=True,
+        )
+        product.equivalent_parts.add(equivalent_product)
+
+        html = render_crispy_form(ProductForm(workshop=self.workshop, instance=product))
+
+        self.assertIn("Salvar Produtos Equivalentes", html)
+        self.assertIn("Produtos equivalentes salvos com sucesso.", html)
+        self.assertIn("isPersistingEquivalentProducts", html)
+        self.assertIn(reverse("catalog:product-equivalents-sync-hx", kwargs={"product_id": product.pk}), html)
+        self.assertIn("Seleção sincronizada com o banco de dados.", html)
+
+    def test_quick_product_edit_form_renders_white_equivalent_search_field(self) -> None:
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-FORM-004",
+            name="Produto Modal",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+            is_active=True,
+        )
+
+        html = render_crispy_form(QuickProductEditForm(workshop=self.workshop, instance=product))
+
+        self.assertIn('class="input-theme border-none bg-base-100 textinput', html)
+        self.assertIn("Salvar Produtos Equivalentes", html)
 
 
 class ProductUpdateNavigationTests(TestCase):
@@ -1354,3 +1584,219 @@ class ProductUpdateNavigationTests(TestCase):
         self.assertContains(response, 'id="product-lower-price-modal"', html=False)
         self.assertContains(response, '@click="continueWithLowerPrice()"', html=False)
         self.assertNotContains(response, 'x-show="lowerPriceWarning"', html=False)
+
+
+class ProductEquivalentSyncHXViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=33)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Equivalentes")
+        self.product = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-SYNC-001",
+            name="Produto Base",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+        )
+
+    def test_product_equivalent_sync_endpoint_persists_selection(self) -> None:
+        equivalent_product_a = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-SYNC-002",
+            name="Produto Equivalente A",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            brand="Marca A",
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+        )
+        equivalent_product_b = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-SYNC-003",
+            name="Produto Equivalente B",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            brand="Marca B",
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+        )
+
+        response = self.client.post(
+            reverse("catalog:product-equivalents-sync-hx", kwargs={"product_id": self.product.pk}),
+            data=json.dumps({"equivalent_ids": [str(equivalent_product_b.pk), str(equivalent_product_a.pk)]}),
+            content_type="application/json",
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(list(self.product.equivalent_parts.order_by("name", "code").values_list("id", flat=True)), [equivalent_product_a.pk, equivalent_product_b.pk])
+        self.assertTrue(equivalent_product_a.equivalent_parts.filter(pk=self.product.pk).exists())
+
+        payload = response.json()
+        self.assertEqual(payload["message"], "Produtos equivalentes salvos com sucesso.")
+        self.assertEqual([item["id"] for item in payload["equivalents"]], [str(equivalent_product_b.pk), str(equivalent_product_a.pk)])
+
+    def test_product_equivalent_sync_endpoint_can_clear_existing_relations(self) -> None:
+        equivalent_product = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-SYNC-004",
+            name="Produto Equivalente C",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("20.00", "BRL"),
+            profit_margin=Decimal("50.00"),
+            ncm="87089990",
+        )
+        self.product.equivalent_parts.add(equivalent_product)
+
+        response = self.client.post(
+            reverse("catalog:product-equivalents-sync-hx", kwargs={"product_id": self.product.pk}),
+            data=json.dumps({"equivalent_ids": []}),
+            content_type="application/json",
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(self.product.equivalent_parts.exists())
+        self.assertEqual(response.json()["equivalents"], [])
+
+    def test_product_equivalent_sync_endpoint_rejects_self_reference(self) -> None:
+        response = self.client.post(
+            reverse("catalog:product-equivalents-sync-hx", kwargs={"product_id": self.product.pk}),
+            data=json.dumps({"equivalent_ids": [str(self.product.pk)]}),
+            content_type="application/json",
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["message"], "O produto não pode ser equivalente a ele mesmo.")
+        self.assertFalse(self.product.equivalent_parts.exists())
+
+
+class ProductKitAssignmentTabTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=32)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Atribuicao Kit")
+        self.product = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-KIT-001",
+            name="Produto Kit",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("25.00", "BRL"),
+            profit_margin=Decimal("60.00"),
+            ncm="87089990",
+        )
+
+    def test_product_update_tab_lists_all_kits_with_pagination_and_assigned_state(self) -> None:
+        [Kit.objects.create(workshop=self.workshop, name=f"Kit {index:02d}", description="", is_active=True) for index in range(1, 11)]
+        assigned_kit = Kit.objects.create(workshop=self.workshop, name="Kit Zebra", description="", is_active=True)
+        Kit.objects.create(workshop=self.workshop, name="Kit ZZ Extra", description="", is_active=True)
+        KitProduct.objects.create(kit=assigned_kit, product=self.product, quantity=1)
+
+        response = self.client.get(reverse("catalog:product_update", kwargs={"pk": self.product.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Kit Zebra")
+        self.assertContains(response, "Kit 01")
+        self.assertNotContains(response, "Kit ZZ Extra")
+        self.assertContains(response, "Página 1 de 2")
+        self.assertContains(response, "Produto já atribuído")
+        self.assertContains(response, "Remover atribuição")
+        self.assertContains(response, 'id="product-kits-search-form"', html=False)
+        self.assertContains(response, 'id="product-kits-search"', html=False)
+        self.assertContains(response, "Buscar")
+        self.assertNotContains(response, 'hx-trigger="input changed delay:300ms, search"', html=False)
+        self.assertContains(response, 'class="flex flex-wrap items-center justify-between gap-3 pt-1"', html=False)
+        self.assertContains(response, 'class="btn btn-sm btn-primary"', html=False)
+        self.assertContains(response, 'class="flex flex-wrap items-center justify-between gap-3"', html=False)
+        self.assertContains(response, 'class="min-w-0 flex-1"', html=False)
+        self.assertContains(response, 'class="shrink-0"', html=False)
+        self.assertContains(response, 'class="btn btn-xs btn-error text-white"', html=False)
+        self.assertLess(response.content.decode().find("Kit Zebra"), response.content.decode().find("Kit 01"))
+
+    def test_product_kits_list_endpoint_filters_by_search_and_preserves_pending_selection(self) -> None:
+        Kit.objects.create(workshop=self.workshop, name="Kit Alinhamento", description="", is_active=True)
+        selected_kit = Kit.objects.create(workshop=self.workshop, name="Kit Freio Premium", description="", is_active=True)
+
+        response = self.client.get(
+            reverse("catalog:kits-by-product-hx", kwargs={"product_id": self.product.pk}),
+            data={"q": "Freio", "selected_kits": [str(selected_kit.pk)]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Kit Freio Premium")
+        self.assertNotContains(response, "Kit Alinhamento")
+        self.assertContains(response, "Selecionado para atribuição")
+        self.assertContains(response, "selectedKitIds: [")
+
+    def test_product_kits_assign_endpoint_creates_assignment_and_recalculates_total(self) -> None:
+        kit = Kit.objects.create(workshop=self.workshop, name="Kit Suspensao", description="", is_active=True)
+
+        response = self.client.post(
+            reverse("catalog:product-kits-assign-hx", kwargs={"product_id": self.product.pk}),
+            data={"selected_kits": [str(kit.pk)], "page": "1", "q": ""},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(KitProduct.objects.filter(kit=kit, product=self.product, quantity=1).exists())
+
+        kit.refresh_from_db()
+        self.assertEqual(kit.total_price, Money("25.00", "BRL"))
+        self.assertContains(response, "Produto já atribuído")
+        self.assertIn("Produto atribuido a 1 kit(s) com sucesso.", response.headers.get("HX-Trigger", ""))
+
+    def test_product_kit_unassign_endpoint_removes_assignment_and_recalculates_total(self) -> None:
+        kit = Kit.objects.create(workshop=self.workshop, name="Kit Revisao", description="", is_active=True)
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Servico Base",
+            description="",
+            duration=datetime.timedelta(minutes=30),
+            selling_price=Money("15.00", "BRL"),
+            suggested_cost=Money("5.00", "BRL"),
+            is_third_party=False,
+            is_active=True,
+        )
+        KitService.objects.create(kit=kit, service=service, quantity=1, duration=datetime.timedelta(minutes=30))
+        KitProduct.objects.create(kit=kit, product=self.product, quantity=1)
+        recalculate_kit_totals(kit)
+
+        response = self.client.post(
+            reverse("catalog:product-kit-unassign-hx", kwargs={"product_id": self.product.pk, "kit_id": kit.pk}),
+            data={"page": "1", "q": ""},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(KitProduct.objects.filter(kit=kit, product=self.product).exists())
+
+        kit.refresh_from_db()
+        self.assertEqual(kit.total_price, Money("15.00", "BRL"))
+        self.assertNotContains(response, "Produto já atribuído")
+        self.assertIn("Atribuicao removida com sucesso.", response.headers.get("HX-Trigger", ""))

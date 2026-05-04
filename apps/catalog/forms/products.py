@@ -9,21 +9,24 @@ from django.urls import reverse
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
+from apps.catalog.forms.equivalent_products import EquivalentProductsFormMixin
+from apps.core.forms import CoreModelForm
 from apps.catalog.models.products import Product
 from apps.catalog.price_tracking import build_product_price_warning
 from apps.core.widgets import (
-    TextInput,
+    CheckboxInput,
+    ImageInput,
     MoneyInput,
     PercentageInput,
-    CheckboxInput,
+    SearchableSelectInput,
+    TextInput,
     TextareaInput,
-    ImageInput, SearchableSelectInput,
 )
+from apps.core.text_normalization import sentence_case
 from apps.workshops.models.workshops import Workshop
 
 
-# TODO: Improve equivalent products to use a modal similar to Kits. Probably make a reusable modal for it.
-class ProductForm(forms.ModelForm):
+class ProductForm(EquivalentProductsFormMixin, CoreModelForm):
     equivalent_search = forms.CharField(required=False, label="Produtos Equivalentes")
     profit_margin = forms.DecimalField(required=False, max_digits=9, decimal_places=6, widget=PercentageInput(attrs={"readonly": True}))
 
@@ -103,6 +106,18 @@ class ProductForm(forms.ModelForm):
             "@submit": "handleSubmit($event)",
         }
         self.helper.layout = self.get_layout()
+
+    def clean_description(self) -> str:
+        value = str(self.cleaned_data.get("description") or "").strip()
+        return sentence_case(value) if value else value
+
+    def clean_brand(self) -> str:
+        value = str(self.cleaned_data.get("brand") or "").strip()
+        return sentence_case(value) if value else value
+
+    def clean_model(self) -> str:
+        value = str(self.cleaned_data.get("model") or "").strip()
+        return sentence_case(value) if value else value
 
     def _build_form_alpine_data(self) -> str:
         last_used_amount = ""
@@ -241,12 +256,7 @@ class ProductForm(forms.ModelForm):
     def get_layout(self):
         cancel_url = self.next_url or reverse("catalog:product_list")
         search_product_url = reverse("catalog:product_search")
-
-        initial_equivalents = []
-        if self.instance.pk:
-            initial_equivalents = [{"id": p.id, "name": str(p)} for p in self.instance.equivalent_parts.all()]
-
-        equivalents_json = json.dumps(initial_equivalents)
+        equivalent_sync_url = reverse("catalog:product-equivalents-sync-hx", kwargs={"product_id": self.instance.pk}) if self.instance.pk else ""
 
         return Layout(
             Div(
@@ -309,65 +319,7 @@ class ProductForm(forms.ModelForm):
                     Field("barcode", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("sku", wrapper_class="col-span-12 lg:col-span-4"),
                     # --- Peças Equivalentes ---
-                    Div(
-                        Div(
-                            Field(
-                                "equivalent_search",
-                                css_class="input-theme border-none !bg-transparent",
-                                wrapper_class="w-full !bg-transparent",
-                                autocomplete="off",
-                                placeholder="Buscar...",
-                                hx_get=search_product_url,
-                                hx_trigger="keyup changed delay:500ms",
-                                hx_target="#product-suggestions",
-                                hx_swap="innerHTML",
-                                id="equivalent-search-input",
-                                hx_vals=json.dumps({"ignore_id": self.instance.pk}) if self.instance.pk else "{}",
-                            ),
-                            HTML('<div id="product-suggestions" class="absolute z-50 w-full top-full left-0"></div>'),
-                            css_class="relative w-full mb-3",
-                        ),
-                        HTML("""
-                            <ul class="flex flex-col gap-2">
-                                <template x-for="(item, index) in selecteds" :key="item.id">
-                                    <li class="flex gap-2 items-center">
-                                        <div class="p-2 rounded-md w-full flex items-center bg-base-200 text-base-content cursor-default border border-base-300">
-                                            <span x-text="item.name"></span>
-                                        </div>
-
-                                        <button type="button" class="btn-table-delete" @click="remove(index)" title="Remover">
-                                            <span class="material-icons text-base">delete</span>
-                                        </button>
-                                    </li>
-                                </template>
-
-                                <li x-show="selecteds.length === 0" class="text-sm text-gray-500 italic">
-                                    Nenhum produto equivalente adicionado.
-                                </li>
-                            </ul>
-                            """),
-                        # Select Oculto para salvar
-                        HTML("""
-                            <select name="equivalent_parts" multiple class="hidden">
-                                <template x-for="item in selecteds" :key="item.id">
-                                    <option :value="item.id" selected></option>
-                                </template>
-                            </select>
-                            """),
-                        **{
-                            "x-data": f"""{{ selecteds: {equivalents_json},remove(index) {{ this.selecteds.splice(index, 1); }}}}""",
-                            "id": "equivalents-manager",
-                            "@add-equivalent.window": """
-                                if(!selecteds.find(i=>i.id==$event.detail.id)) {
-                                    selecteds.push($event.detail);
-                                    // Limpa input e sugestões
-                                    document.getElementById('equivalent-search-input').value = '';
-                                    document.getElementById('product-suggestions').innerHTML = '';
-                                }
-                            """,
-                        },
-                        css_class="col-span-12 p-4 bg-base-300 rounded-box",
-                    ),
+                    self.build_equivalent_products_section(search_url=search_product_url, sync_url=equivalent_sync_url),
                     HTML('<div class="col-span-12 divider my-1"></div>'),
                     # --- FISCAL ---
                     HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Fiscal</h3>'),
@@ -404,8 +356,9 @@ class ProductForm(forms.ModelForm):
 
         return code
 
-    def clean_name(self):
-        name = self.cleaned_data.get("name")
+    def clean_name(self) -> str:
+        name = str(self.cleaned_data.get("name") or "").strip()
+        name = sentence_case(name) if name else name
 
         if name and self.workshop:
             qs = Product.objects.filter(workshop=self.workshop, name__iexact=name)

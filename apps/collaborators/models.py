@@ -14,6 +14,7 @@ from localflavor.br.models import BRCPFField
 from phonenumber_field.modelfields import PhoneNumberField
 
 from apps.core.models import TimeStampedModel
+from apps.core.text_normalization import name_case, sentence_case
 
 
 class WorkshopMember(models.Model):
@@ -108,6 +109,13 @@ class WorkshopCollaborator(TimeStampedModel):
     def __str__(self) -> str:
         return self.name
 
+    def save(self, *args: object, **kwargs: object) -> None:
+        if self.name:
+            self.name = name_case(self.name)
+        if self.position:
+            self.position = sentence_case(self.position)
+        super().save(*args, **kwargs)
+
     @property
     def salary_amount(self) -> Decimal:
         return Decimal(str(getattr(self.salary, "amount", 0) or 0))
@@ -151,6 +159,13 @@ class CollaboratorBenefit(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.collaborator.name} - {self.name}"
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        if self.name:
+            self.name = sentence_case(self.name)
+        if self.description:
+            self.description = sentence_case(self.description)
+        super().save(*args, **kwargs)
 
 
 class CollaboratorPayroll(TimeStampedModel):

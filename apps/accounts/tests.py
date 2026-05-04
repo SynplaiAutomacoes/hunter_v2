@@ -23,7 +23,7 @@ class FavoritePageViewTests(TestCase):
 
         self.favorite_urls = [
             reverse("customer:customer_list"),
-            reverse("customer:customer_history_list"),
+            reverse("collaborators:collaborator_list"),
             reverse("stock:transfer"),
             reverse("finance:issued_documents_list"),
             reverse("finance:reports_home"),

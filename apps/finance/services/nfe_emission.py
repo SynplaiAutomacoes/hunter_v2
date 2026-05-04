@@ -77,6 +77,15 @@ def _build_cancel_url() -> str:
     return f"{base_url}/1/nfe/cancelar/"
 
 
+def _build_invalidate_url() -> str:
+    custom_endpoint = sanitize_webmania_setting(getattr(settings, "WEBMANIA_NFE_INVALIDATE_ENDPOINT", ""))
+    if custom_endpoint:
+        return f"{custom_endpoint.rstrip('/')}/"
+
+    base_url = sanitize_webmania_setting(getattr(settings, "WEBMANIA_TAX_CLASS_BASE_URL", "https://webmania.com.br/api")).rstrip("/")
+    return f"{base_url}/1/nfe/inutilizar/"
+
+
 def _build_tax_class_url() -> str:
     custom_endpoint = sanitize_webmania_setting(getattr(settings, "WEBMANIA_TAX_CLASS_ENDPOINT", ""))
     if custom_endpoint:
@@ -607,6 +616,40 @@ def cancel_nfe_document(*, workshop, access_key: str, event_uuid: str, reason: s
 
     if not isinstance(data, dict):
         raise NfeEmissionError("Resposta invalida da API de cancelamento de Nota Fiscal.")
+
+    error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfe")
+    if error_message:
+        raise NfeEmissionError(error_message)
+
+    return data
+
+
+def invalidate_nfe_number(*, workshop, number: int, reason: str, series: int, model: int = 1) -> dict[str, Any]:
+    headers = _build_headers(workshop=workshop)
+    invalidate_url = _build_invalidate_url()
+
+    payload: dict[str, Any] = {
+        "sequencia": f"{int(number)}-{int(number)}",
+        "motivo": str(reason or "").strip(),
+        "ambiente": int(getattr(settings, "WEBMANIA_AMBIENT", "2") or 2),
+        "serie": str(series),
+        "modelo": int(model),
+    }
+
+    try:
+        response = requests.put(invalidate_url, json=payload, headers=headers, timeout=30)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        message = build_webmania_request_exception_message(exc, default="Falha ao inutilizar numeracao da Nota Fiscal", scope="nfe")
+        raise NfeEmissionError(message) from exc
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise NfeEmissionError("Resposta invalida da API de inutilizacao da Nota Fiscal.") from exc
+
+    if not isinstance(data, dict):
+        raise NfeEmissionError("Resposta invalida da API de inutilizacao da Nota Fiscal.")
 
     error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfe")
     if error_message:

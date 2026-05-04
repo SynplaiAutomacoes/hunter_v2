@@ -1,10 +1,11 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db.models import Q, Prefetch
+from django.db.models import Prefetch
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from apps.core.navigation import SUPPLIER_CREATE_FAVORITE_PAGE
 from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
+from apps.core.search import apply_text_search
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
@@ -33,7 +34,7 @@ class SupplierListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
         search_query = self.request.GET.get("q", "").strip()
 
         if search_query:
-            queryset = queryset.filter(Q(name__icontains=search_query) | Q(cnpj__icontains=search_query) | Q(phone__icontains=search_query) | Q(contact_person__icontains=search_query) | Q(email__icontains=search_query))
+            queryset = apply_text_search(queryset, search_value=search_query, lookups=("name", "cnpj", "phone", "contact_person", "email"))
 
         queryset = apply_query_param_filters(
             queryset,

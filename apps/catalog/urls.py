@@ -21,6 +21,7 @@ from apps.catalog.views.products import (
     ProductCreateView,
     ProductUpdateView,
     ProductDeleteView,
+    ProductEquivalentSyncHXView,
     ProductSearchSelectView,
     StockFieldsUpdateView,
 )
@@ -33,6 +34,8 @@ from apps.catalog.views.kits import (
     KitServiceSearchView,
     KitUpdateView,
     KitsByProductHXView,
+    ProductKitsAssignHXView,
+    ProductKitUnassignHXView,
     KitServiceBulkPricingView,
     KitServicesSyncView,
     KitServiceLocalUpdateView,
@@ -62,6 +65,7 @@ urlpatterns = [
     path("products/<int:pk>/edit/", ProductUpdateView.as_view(), name="product_update"),
     path("products/<int:pk>/delete/", ProductDeleteView.as_view(), name="product_delete"),
     path("products/search/", ProductSearchSelectView.as_view(), name="product_search"),
+    path("products/<int:product_id>/equivalents/sync/", ProductEquivalentSyncHXView.as_view(), name="product-equivalents-sync-hx"),
     path("update_stock_fields/", StockFieldsUpdateView.as_view(), name="update_stock_fields"),
     path("edit_product_modal_form/<int:pk>/", ProductQuickUpdateView.as_view(), name="edit_product_modal_form"),
     # Kits
@@ -74,5 +78,7 @@ urlpatterns = [
     path("kits/<int:pk>/services/<int:service_id>/local-update/", KitServiceLocalUpdateView.as_view(), name="kits_service_local_update"),
     path("kits/products/search/", KitProductSearchView.as_view(), name="kits_product_search"),
     path("kits/services/search/", KitServiceSearchView.as_view(), name="kits_service_search"),
-    path("hx/kits-by-product/", KitsByProductHXView.as_view(), name="kits-by-product-hx"),
+    path("products/<int:product_id>/kits/", KitsByProductHXView.as_view(), name="kits-by-product-hx"),
+    path("products/<int:product_id>/kits/assign/", ProductKitsAssignHXView.as_view(), name="product-kits-assign-hx"),
+    path("products/<int:product_id>/kits/<int:kit_id>/unassign/", ProductKitUnassignHXView.as_view(), name="product-kit-unassign-hx"),
 ]

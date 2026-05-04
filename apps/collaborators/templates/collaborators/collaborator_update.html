@@ -7,7 +7,7 @@
 {% block crud_back_url %}{% url 'collaborators:collaborator_list' %}{% endblock %}
 
 {% block crud_tabs_form %}
-<div class="tabs tabs-bordered mt-7">
+<div class="app-tabs tabs tabs-bordered mt-7">
     <input type="radio" name="collaborator_tabs" value="cadastro" class="tab !border-b-2 checked:!border-primary checked:!text-primary font-medium transition-colors" aria-label="Dados" x-model="activeTab" {% if active_tab != 'historico' %}checked{% endif %}>
     <input type="radio" name="collaborator_tabs" value="historico" class="tab !border-b-2 checked:!border-primary checked:!text-primary font-medium transition-colors" aria-label="Histórico" x-model="activeTab" {% if active_tab == 'historico' %}checked{% endif %}>
 </div>
@@ -22,6 +22,11 @@
         transportDailyDisplay: '',
         workDays: {{ current_work_days }},
         transportTotalDisplay: '{{ current_transport_total }}',
+        pendingMovementsCount: {{ pending_financial_movements|length }},
+        pendingMovementIds: [{% for movement in pending_financial_movements %}'{{ movement.pk }}'{% if not forloop.last %}, {% endif %}{% endfor %}],
+        selectedDeletionIds: [],
+        allPendingSelected: false,
+        terminationModalShown: false,
         parseMoney(value) {
             let normalized = String(value || '').trim().replace(/[^0-9,.-]/g, '');
             if (normalized.includes(',')) {
@@ -37,13 +42,64 @@
             const total = this.parseMoney(this.transportDailyDisplay) * this.workDays;
             this.transportTotalDisplay = this.formatMoney(total);
         },
+        syncAllPendingSelection() {
+            this.allPendingSelected = this.pendingMovementsCount > 0 && this.selectedDeletionIds.length === this.pendingMovementsCount;
+        },
+        toggleAllPendingSelection() {
+            if (this.allPendingSelected) {
+                this.selectedDeletionIds = [...this.pendingMovementIds];
+                return;
+            }
+            this.selectedDeletionIds = [];
+        },
+        togglePendingSelection() {
+            this.syncAllPendingSelection();
+        },
+        openTerminationPendingModal() {
+            if (!this.$refs.terminationPendingModal || this.pendingMovementsCount === 0) {
+                return;
+            }
+            this.$refs.terminationPendingModal.showModal();
+            this.terminationModalShown = true;
+        },
+        handleSubmit(event) {
+            const terminationInput = document.getElementById('id_termination_date');
+            const hasTerminationDate = Boolean(terminationInput && (terminationInput.value || '').trim());
+            if (this.selectedDeletionIds.length > 0 && !hasTerminationDate) {
+                event.preventDefault();
+                window.alert('Preencha a data de saída para apagar lançamentos.');
+                if (terminationInput) {
+                    terminationInput.focus();
+                }
+            }
+        },
+        handleTerminationDateChange() {
+            const terminationInput = document.getElementById('id_termination_date');
+            if (!terminationInput) {
+                return;
+            }
+
+            const hasTerminationDate = Boolean((terminationInput.value || '').trim());
+            if (!hasTerminationDate) {
+                this.terminationModalShown = false;
+                this.selectedDeletionIds = [];
+                this.syncAllPendingSelection();
+                return;
+            }
+
+            if (this.pendingMovementsCount > 0 && !this.terminationModalShown) {
+                this.openTerminationPendingModal();
+            }
+        },
         init() {
             const displayInput = document.getElementById('id_transport_allowance_daily_0_display');
             const amountInput = document.getElementById('id_transport_allowance_daily_0');
+            const terminationInput = document.getElementById('id_termination_date');
             const initialValue = (displayInput && displayInput.value) || (amountInput && amountInput.value) || '';
 
             this.transportDailyDisplay = initialValue;
             this.updateTransportTotal();
+            this.syncAllPendingSelection();
 
             if (displayInput) {
                 displayInput.addEventListener('input', (event) => {
@@ -55,13 +111,21 @@
                     this.updateTransportTotal();
                 });
             }
+
+            if (terminationInput) {
+                terminationInput.addEventListener('input', () => this.handleTerminationDateChange());
+                terminationInput.addEventListener('change', () => this.handleTerminationDateChange());
+            }
         }
     }"
     class="space-y-6"
 >
-    <form method="post" novalidate>
+    <form method="post" novalidate @submit="handleSubmit($event)">
         {% csrf_token %}
         <input type="hidden" name="tab" value="cadastro">
+        <template x-for="movementId in selectedDeletionIds" :key="movementId">
+            <input type="hidden" name="delete_movement_ids" :value="movementId">
+        </template>
 
         {% if form.non_field_errors or benefit_formset.non_form_errors %}
             <div class="alert alert-error">
@@ -87,7 +151,16 @@
                 <div class="col-span-12 lg:col-span-4">{{ form.sex|as_crispy_field }}</div>
 
                 <div class="col-span-12 lg:col-span-4">{{ form.admission_date|as_crispy_field }}</div>
-                <div class="col-span-12 lg:col-span-4">{{ form.termination_date|as_crispy_field }}</div>
+                <div class="col-span-12 lg:col-span-4 space-y-2">
+                    {{ form.termination_date|as_crispy_field }}
+                    {% if pending_financial_movements %}
+                        <button type="button" class="btn btn-outline btn-xs" @click="openTerminationPendingModal()">
+                            Selecionar lançamentos para apagar
+                        </button>
+                    {% else %}
+                        <p class="text-xs text-base-content/60">Sem lançamentos pendentes para apagar.</p>
+                    {% endif %}
+                </div>
                 <div class="col-span-12 lg:col-span-4">{{ form.is_active|as_crispy_field }}</div>
             </div>
 
@@ -150,13 +223,14 @@
                                                     <span>Esta ação atualiza a folha do colaborador assim que for confirmada.</span>
                                                 </div>
                                                 <div class="modal-action">
-                                                    <form method="dialog">
-                                                        <button type="submit" class="btn btn-ghost">Cancelar</button>
-                                                    </form>
-                                                    <form method="post" action="{% url 'collaborators:collaborator_benefit_delete' form.instance.pk benefit_form.instance.pk %}">
-                                                        {% csrf_token %}
-                                                        <button type="submit" class="btn btn-error">Confirmar remoção</button>
-                                                    </form>
+                                                    <button type="button" class="btn btn-ghost" onclick="document.getElementById('delete-benefit-modal-{{ benefit_form.instance.pk }}').close()">Cancelar</button>
+                                                    <button
+                                                        type="button"
+                                                        class="btn btn-error"
+                                                        onclick="deleteBenefit('{% url 'collaborators:collaborator_benefit_delete' form.instance.pk benefit_form.instance.pk %}', 'delete-benefit-modal-{{ benefit_form.instance.pk }}')"
+                                                    >
+                                                        Confirmar remoção
+                                                    </button>
                                                 </div>
                                             </div>
                                         </dialog>
@@ -219,9 +293,109 @@
             <button type="submit" class="btn-form-save">Salvar</button>
         </div>
     </form>
+
+    <dialog
+        class="modal"
+        x-ref="terminationPendingModal"
+        @click="if ($event.target === $el) $el.close()"
+    >
+        <div class="modal-box w-11/12 max-w-4xl border border-base-300 bg-base-100 shadow-2xl">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <h3 class="text-lg font-semibold text-base-content">Apagar lançamentos pendentes</h3>
+                    <p class="mt-1 text-sm text-base-content/70">Selecione um ou mais lançamentos deste colaborador para excluir quando salvar.</p>
+                </div>
+                <button type="button" class="btn btn-circle btn-ghost btn-sm" aria-label="Fechar" @click="$refs.terminationPendingModal.close()">
+                    <span class="material-icons">close</span>
+                </button>
+            </div>
+
+            {% if pending_financial_movements %}
+                <div class="mt-5 rounded-xl border border-base-300 bg-base-200/30 p-4">
+                    <div class="mb-3 flex items-center justify-between gap-3">
+                        <label class="label cursor-pointer gap-3 py-0">
+                            <span class="label-text text-sm font-medium text-base-content">Selecionar todos</span>
+                            <input type="checkbox" class="checkbox checkbox-sm" x-model="allPendingSelected" @change="toggleAllPendingSelection()" />
+                        </label>
+                        <p class="text-xs text-base-content/70">
+                            <span x-text="selectedDeletionIds.length"></span> de {{ pending_financial_movements|length }} selecionados
+                        </p>
+                    </div>
+
+                    <div class="max-h-80 overflow-y-auto rounded-lg border border-base-300 bg-base-100">
+                        <table class="table table-sm">
+                            <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
+                                <tr>
+                                    <th class="w-10"></th>
+                                    <th>Vencimento</th>
+                                    <th>Descricao</th>
+                                    <th>Forma de pagamento</th>
+                                    <th class="text-right">Valor</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for movement in pending_financial_movements %}
+                                    <tr>
+                                        <td>
+                                                <input
+                                                    type="checkbox"
+                                                    class="checkbox checkbox-sm"
+                                                    value="{{ movement.pk }}"
+                                                    x-model="selectedDeletionIds"
+                                                    @change="togglePendingSelection()"
+                                                />
+                                        </td>
+                                        <td>{{ movement.due_date|date:'d/m/Y'|default:'-' }}</td>
+                                        <td>{{ movement.description|default:'-' }}</td>
+                                        <td>{{ movement.payment_method|default:'-' }}</td>
+                                        <td class="text-right font-semibold">{{ movement.amount }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            {% else %}
+                <div class="alert alert-info mt-4 text-sm">
+                    <span>Este colaborador não possui lançamentos pendentes.</span>
+                </div>
+            {% endif %}
+
+            <div class="modal-action mt-6 border-t border-base-200 pt-4">
+                <button type="button" class="btn btn-ghost" @click="$refs.terminationPendingModal.close()">Continuar edição</button>
+            </div>
+        </div>
+    </dialog>
 </div>
 
 <script>
+    function getCsrfToken() {
+        const tokenInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
+        return tokenInput ? tokenInput.value : '';
+    }
+
+    async function deleteBenefit(url, modalId) {
+        const csrfToken = getCsrfToken();
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': csrfToken,
+            },
+            credentials: 'same-origin',
+        });
+
+        if (response.ok) {
+            window.location.reload();
+            return;
+        }
+
+        const modal = document.getElementById(modalId);
+        if (modal) {
+            modal.close();
+        }
+        window.alert('Nao foi possivel remover o beneficio. Tente novamente.');
+    }
+
     function collaboratorBenefitsManager() {
         return {
             addBenefit() {

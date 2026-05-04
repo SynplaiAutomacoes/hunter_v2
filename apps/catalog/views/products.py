@@ -1,21 +1,28 @@
 from __future__ import annotations
 
+import json
+
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db import transaction
 from django.db.models import Q
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse_lazy
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
+from apps.catalog.equivalent_products import get_equivalent_products_queryset, serialize_equivalent_product
 from apps.budget.models import BudgetItem
 from apps.catalog.forms.products import ProductForm
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
+from apps.catalog.util import build_product_kits_assignment_context
+from apps.core.utils import clean_id
 from apps.core.navigation import PRODUCT_CREATE_FAVORITE_PAGE
 from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
+from apps.core.search import apply_text_search, build_text_search_query
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
@@ -37,6 +44,18 @@ PRODUCT_LIST_BASE_FILTERS: tuple[QueryParamFilter, ...] = (
 )
 
 
+def _selected_equivalent_ids_from_values(raw_values: list[object]) -> list[int]:
+    selected_equivalent_ids: list[int] = []
+
+    for raw_id in raw_values:
+        cleaned_id = clean_id(raw_id)
+        if not cleaned_id:
+            continue
+        selected_equivalent_ids.append(int(cleaned_id))
+
+    return list(dict.fromkeys(selected_equivalent_ids))
+
+
 class ProductListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = Product
     template_name = "products/product_list.html"
@@ -49,7 +68,7 @@ class ProductListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
         search_query = self.request.GET.get("q", "").strip()
 
         if search_query:
-            search_filters = Q(name__icontains=search_query) | Q(code__icontains=search_query) | Q(brand__icontains=search_query)
+            search_filters = build_text_search_query(search_value=search_query, lookups=("name", "code", "brand"))
 
             if queryset.filter(code__iexact=search_query).exists():
                 search_filters |= Q(equivalent_parts__workshop=self.workshop, equivalent_parts__code__iexact=search_query)
@@ -191,6 +210,12 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         history_list = sorted(history_dict.values(), key=lambda x: x["date"], reverse=True)
         context["history_list"] = history_list
         context["back_url"] = self._get_next_url() or reverse_lazy("catalog:product_list")
+        context.update(
+            build_product_kits_assignment_context(
+                workshop=self.workshop,
+                product=product,
+            )
+        )
 
         return context
 
@@ -204,7 +229,7 @@ class ProductDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteRespo
 
 
 class ProductSearchSelectView(LoginRequiredMixin, WorkshopScopedMixin, View):
-    """View HTMX para buscar produtos e retornar opções clicáveis para o form."""
+    """View HTMX para buscar produtos equivalentes e sugestões de nome."""
 
     model = Product
     workshop_permission_codename = "view_product"
@@ -214,21 +239,60 @@ class ProductSearchSelectView(LoginRequiredMixin, WorkshopScopedMixin, View):
         query = request.GET.get("name" if is_quick_name_lookup else "equivalent_search", "").strip()
         ignore_id = request.GET.get("ignore_id", "")
 
-        if len(query) < 1:
+        if is_quick_name_lookup and len(query) < 1:
             return HttpResponse("")
 
         if is_quick_name_lookup:
-            products = Product.objects.filter(workshop=self.workshop, name__icontains=query).only("id", "code", "name", "brand").order_by("name")[:5]
+            products = apply_text_search(Product.objects.filter(workshop=self.workshop), search_value=query, lookups=("name",)).only("id", "code", "name", "brand").order_by("name")[:5]
             return render(request, "products/partials/name_suggestions.html", {"products": products, "query": query})
 
-        products = Product.objects.filter(Q(code__icontains=query) | Q(name__icontains=query) | Q(brand__icontains=query), workshop=self.workshop).only("code", "name", "brand")
+        products = get_equivalent_products_queryset(
+            workshop=self.workshop,
+            search_value=query,
+            ignore_product_id=int(ignore_id) if ignore_id.isdigit() else None,
+        )
 
-        if ignore_id and ignore_id.isdigit():
-            products = products.exclude(id=int(ignore_id))
+        return render(request, "products/partials/equivalent_product_rows.html", {"products": products})
 
-        products = products.only("code", "name", "brand")[:5]
 
-        return render(request, "products/partials/search_suggestions.html", {"products": products})
+class ProductEquivalentSyncHXView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Product
+    workshop_permission_codename = "change_product"
+
+    def post(self, request, *args, **kwargs):
+        try:
+            payload = json.loads(request.body.decode("utf-8") or "{}")
+        except json.JSONDecodeError:
+            return JsonResponse({"message": "Não foi possível interpretar os produtos equivalentes enviados.", "type": "error"}, status=400)
+
+        raw_equivalent_ids = payload.get("equivalent_ids")
+        if not isinstance(raw_equivalent_ids, list):
+            return JsonResponse({"message": "Selecione produtos equivalentes válidos para continuar.", "type": "warning"}, status=400)
+
+        product = get_object_or_404(Product, pk=kwargs["product_id"], workshop=self.workshop)
+        selected_equivalent_ids = _selected_equivalent_ids_from_values(raw_equivalent_ids)
+
+        if int(product.pk or 0) in selected_equivalent_ids:
+            return JsonResponse({"message": "O produto não pode ser equivalente a ele mesmo.", "type": "warning"}, status=400)
+
+        selected_equivalent_products = list(Product.objects.filter(workshop=self.workshop, id__in=selected_equivalent_ids).exclude(pk=product.pk).only("id", "code", "name", "brand"))
+        selected_products_by_id = {int(selected_product.pk or 0): selected_product for selected_product in selected_equivalent_products}
+
+        if set(selected_equivalent_ids) != set(selected_products_by_id):
+            return JsonResponse({"message": "Um ou mais produtos equivalentes não foram encontrados na oficina ativa.", "type": "warning"}, status=400)
+
+        ordered_equivalent_products = [selected_products_by_id[equivalent_id] for equivalent_id in selected_equivalent_ids]
+
+        with transaction.atomic():
+            product.equivalent_parts.set(ordered_equivalent_products)
+
+        return JsonResponse(
+            {
+                "message": "Produtos equivalentes salvos com sucesso.",
+                "type": "success",
+                "equivalents": [serialize_equivalent_product(selected_product) for selected_product in ordered_equivalent_products],
+            }
+        )
 
 
 class StockFieldsUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):

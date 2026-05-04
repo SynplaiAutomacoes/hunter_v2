@@ -9,9 +9,10 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from apps.catalog.models.services import Service
 from apps.core.widgets import TextInput, MoneyInput, DurationInput, CheckboxInput, TextareaInput
 from apps.workshops.models.workshops import Workshop
+from apps.core.forms import CoreModelForm
 
 
-class ServiceForm(forms.ModelForm):
+class ServiceForm(CoreModelForm):
     class Meta:
         model = Service
         fields = ["name", "is_third_party", "duration", "selling_price", "suggested_cost", "description", "is_active"]

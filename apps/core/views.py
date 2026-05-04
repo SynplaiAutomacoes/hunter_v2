@@ -191,15 +191,23 @@ def metricas_dashboard(request) -> dict[str, Any]:
     """
     workshop: Workshop = get_active_workshop_or_404(request=request)
     hoje = datetime.now()
-    mes_atual: int = hoje.month
-    ano_atual: int = hoje.year
+    mes_param = request.GET.get("mes")
+    ano_param = request.GET.get("ano")
+
+    mes_selecionado = int(mes_param) if mes_param and mes_param.isdigit() else hoje.month
+    ano_selecionado = hoje.year
+    if ano_param:
+        try:
+            ano_selecionado = int(ano_param.replace(",", "").replace(".", ""))
+        except ValueError:
+            pass
 
     # Auxiliares (valores que não serão retornados no dict, mas que servem para auxílio nas contas das métricas)
     faturamento_result = FinancialMovement.objects.filter(
         workshop=workshop,
         direction=FinancialMovement.MovementDirection.CREDIT,
-        due_date__month=mes_atual,
-        due_date__year=ano_atual,
+        due_date__month=mes_selecionado,
+        due_date__year=ano_selecionado,
         workorder__isnull=False
     ).aggregate(total=Sum('amount'))['total']
 
@@ -207,19 +215,24 @@ def metricas_dashboard(request) -> dict[str, Any]:
     dias_transcorridos = FinancialMovement.objects.filter(
         workshop=workshop,
         direction=FinancialMovement.MovementDirection.CREDIT,
-        due_date__month=mes_atual,
-        due_date__year=ano_atual,
+        due_date__month=mes_selecionado,
+        due_date__year=ano_selecionado,
         workorder__isnull=False
     ).values('due_date').distinct().count()
 
-    _, dias_no_mes = calendar.monthrange(hoje.year, hoje.month)
-    dias_faltantes = dias_no_mes - hoje.day
+    _, dias_no_mes = calendar.monthrange(ano_selecionado, mes_selecionado)
+    if ano_selecionado < hoje.year or (ano_selecionado == hoje.year and mes_selecionado < hoje.month):
+        dias_faltantes = 0
+    elif ano_selecionado == hoje.year and mes_selecionado == hoje.month:
+        dias_faltantes = dias_no_mes - hoje.day
+    else:
+        dias_faltantes = dias_no_mes
 
     orcamentos_aprovados_mes = Budget.objects.filter(
         workshop=workshop,
         status=BudgetStatus.APPROVED,
-        entry_date__month=mes_atual,
-        entry_date__year=ano_atual
+        entry_date__month=mes_selecionado,
+        entry_date__year=ano_selecionado
     )
 
     rentabilidades = [b.rentability for b in orcamentos_aprovados_mes if b.rentability is not None]
@@ -227,20 +240,20 @@ def metricas_dashboard(request) -> dict[str, Any]:
     qtd_garantias_mes = Budget.objects.filter(
         workshop=workshop,
         is_warranty_budget=True,
-        entry_date__month=mes_atual,
-        entry_date__year=ano_atual
+        entry_date__month=mes_selecionado,
+        entry_date__year=ano_selecionado
     ).count()
 
     qtd_veiculos_mes = Budget.objects.filter(
         workshop=workshop,
-        entry_date__month=mes_atual,
-        entry_date__year=ano_atual
+        entry_date__month=mes_selecionado,
+        entry_date__year=ano_selecionado
     ).values('vehicle').distinct().count()
 
     orcamentos_base = Budget.objects.filter(
         workshop=workshop,
-        entry_date__month=mes_atual,
-        entry_date__year=ano_atual,
+        entry_date__month=mes_selecionado,
+        entry_date__year=ano_selecionado,
         budget_type=BudgetType.SALE
     ).exclude(reference_budget__isnull=False)
 
@@ -251,24 +264,31 @@ def metricas_dashboard(request) -> dict[str, Any]:
         workshop=workshop,
         direction=FinancialMovement.MovementDirection.CREDIT,
         is_paid=False,
-        workorder__status=WorkOrderStatus.APPROVED
+        workorder__status=WorkOrderStatus.APPROVED,
+        due_date__month=mes_selecionado,
+        due_date__year=ano_selecionado
     ).aggregate(total=Sum('amount'))['total']
 
-    orcamentos_aguardando = Budget.objects.filter(workshop=workshop, status=BudgetStatus.WAITING_APPROVAL)
+    orcamentos_aguardando = Budget.objects.filter(
+        workshop=workshop,
+        status=BudgetStatus.WAITING_APPROVAL,
+        entry_date__month=mes_selecionado,
+        entry_date__year=ano_selecionado
+    )
 
     orcamentos_reprovados = Budget.objects.filter(
         workshop=workshop,
         status=BudgetStatus.REJECTED,
-        entry_date__month=mes_atual,
-        entry_date__year=ano_atual
+        entry_date__month=mes_selecionado,
+        entry_date__year=ano_selecionado
     )
 
     # Métricas
     qtd_carros_mes: int = Budget.objects.filter(
         workshop=workshop,
         status__in=[BudgetStatus.APPROVED],
-        entry_date__month=mes_atual,
-        entry_date__year=ano_atual
+        entry_date__month=mes_selecionado,
+        entry_date__year=ano_selecionado
     ).exclude(reference_budget__isnull=False).count()
     ticket_medio = faturamento_total / qtd_carros_mes if qtd_carros_mes > 0 else 0
     projecao = ((faturamento_total / dias_transcorridos) * dias_faltantes) + faturamento_total if dias_transcorridos > 0 else faturamento_total
@@ -284,7 +304,14 @@ def metricas_dashboard(request) -> dict[str, Any]:
 
     return {
         'workshop': workshop,
-        'mes_atual': mes_atual,
+        'mes_selecionado': mes_selecionado,
+        'ano_selecionado': ano_selecionado,
+        'meses': [
+            (1, 'Janeiro'), (2, 'Fevereiro'), (3, 'Março'), (4, 'Abril'),
+            (5, 'Maio'), (6, 'Junho'), (7, 'Julho'), (8, 'Agosto'),
+            (9, 'Setembro'), (10, 'Outubro'), (11, 'Novembro'), (12, 'Dezembro')
+        ],
+        'anos': list(range(hoje.year - 3, hoje.year + 2)),
 
         'qtd_carros_mes': qtd_carros_mes,
         'ticket_medio': ticket_medio,

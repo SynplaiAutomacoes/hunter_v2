@@ -7,9 +7,10 @@ from crispy_forms.helper import FormHelper, Layout
 
 from apps.core.widgets import CalendarDateInput, SearchableSelectInput
 from apps.finance.models import FinancialGroup
+from apps.core.forms import CoreForm
 
 
-class DreForm(forms.Form):
+class DreForm(CoreForm):
     ALL_WORKSHOPS_VALUE = "__all__"
 
     TIPO_DATA_CHOICES = (

@@ -7,19 +7,21 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.urls import reverse
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views import View
 from django.views.generic import DetailView, ListView
 
+from apps.core.forms import CoreForm
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.forms import NfeRequestStep1Form, NfeRequestStep2Form, NfeRequestStep3Form
 from apps.finance.models.finance import NfeItem, NfeRequest, NfeRequestStatus
 from apps.finance.services.nfe_consulta import NfeConsultaError, reconcile_nfe_item
-from apps.finance.services.nfe_emission import NfeEmissionError, cancel_nfe_document, download_nfe_preview_document, emit_nfe_request, sync_nfe_emission_response
+from apps.finance.services.nfe_emission import NfeEmissionError, cancel_nfe_document, download_nfe_preview_document, emit_nfe_request, invalidate_nfe_number, sync_nfe_emission_response
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.views.ncm_validation import build_invalid_ncm_modal_context, pop_invalid_ncm_modal_context, store_invalid_ncm_modal_context
 from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url
@@ -35,8 +37,24 @@ from apps.workshops.mixin import WorkshopScopedMixin
 logger = logging.getLogger(__name__)
 
 
-class NfeCancelForm(forms.Form):
+class NfeCancelForm(CoreForm):
     reason = forms.CharField(min_length=15, max_length=255)
+
+
+class NfeInvalidateForm(CoreForm):
+    reason = forms.CharField(min_length=15, max_length=255)
+
+
+def _can_invalidate_nfe_request(*, nfe_request: NfeRequest, latest_item: NfeItem | None) -> bool:
+    if nfe_request.status == NfeRequestStatus.INVALIDATED:
+        return False
+    if nfe_request.reserved_number is None or nfe_request.reserved_series is None:
+        return False
+    if latest_item is None:
+        return True
+
+    status = str(getattr(latest_item, "status", "")).strip().lower()
+    return status in {"reprovado", "denegado"}
 
 
 class NfeRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -98,6 +116,7 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         context = super().get_context_data(**kwargs)
         latest_item = self.object.items.order_by("-id").first()
         can_cancel = bool(latest_item and str(getattr(latest_item, "status", "")).strip().lower() in {"aprovado", "contingencia"})
+        can_invalidate = _can_invalidate_nfe_request(nfe_request=self.object, latest_item=latest_item)
         fallback_back_url = reverse("finance:nfe_list")
         context.update(
             {
@@ -115,6 +134,7 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
                     _build_field("Atualizado em", self.object.atualizado_em.strftime("%d/%m/%Y %H:%M") if self.object.atualizado_em else "-"),
                 ],
                 "latest_item_status_badge": _format_item_status_badge(getattr(latest_item, "status", "")),
+                "can_invalidate": can_invalidate,
             }
         )
         return context
@@ -187,6 +207,49 @@ class NfeRequestReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):
         else:
             messages.success(request, "Status da Nota Fiscal atualizado com sucesso.")
 
+        return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+
+class NfeRequestInvalidateView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "change_nfserequest"
+
+    def post(self, request, *args, **kwargs):
+        nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+        latest_item = nfe_request.items.order_by("-id").first()
+
+        if not _can_invalidate_nfe_request(nfe_request=nfe_request, latest_item=latest_item):
+            messages.error(request, "A numeracao desta Nota Fiscal nao pode ser inutilizada no estado atual.")
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+        form = NfeInvalidateForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Informe um motivo de inutilizacao entre 15 e 255 caracteres.")
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+        reason = str(form.cleaned_data["reason"]).strip()
+
+        try:
+            response_payload = invalidate_nfe_number(
+                workshop=self.workshop,
+                number=int(nfe_request.reserved_number),
+                reason=reason,
+                series=int(nfe_request.reserved_series),
+            )
+        except NfeEmissionError as exc:
+            messages.error(request, str(exc))
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+        raw_log_payload = response_payload.get("log")
+        nfe_request.invalidation_reason = str(response_payload.get("motivo") or reason)
+        nfe_request.invalidation_xml_url = str(response_payload.get("xml") or "")
+        nfe_request.invalidation_log_payload = raw_log_payload if isinstance(raw_log_payload, dict) else ({"raw": raw_log_payload} if raw_log_payload not in (None, "") else {})
+        nfe_request.invalidated_at = timezone.now()
+        nfe_request.save(update_fields=["invalidation_reason", "invalidation_xml_url", "invalidation_log_payload", "invalidated_at"])
+        nfe_request.set_status(NfeRequestStatus.INVALIDATED)
+
+        messages.success(request, "Numeracao da Nota Fiscal inutilizada com sucesso.")
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 

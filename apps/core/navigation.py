@@ -31,22 +31,6 @@ FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE: dict[str, Any] = {"label": "Nova Movime
 
 
 NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
-    {
-        "label": "Cadastros",
-        "items": (
-            {"label": "Cliente", "view_name": "customer:customer_list"},
-            {"label": "Histórico de Clientes", "view_name": "customer:customer_history_list"},
-            {"label": "Mensagens WhatsApp", "view_name": "messaging:message_template_list"},
-            {"label": "Grupos de Mensagens", "view_name": "messaging:customer_message_group_list"},
-            {"label": "Colaborador", "view_name": "collaborators:collaborator_list"},
-            {"label": "Fornecedor", "view_name": "suppliers:supplier_list"},
-            {"label": "Produto", "view_name": "catalog:product_list"},
-            {"label": "Serviço", "view_name": "catalog:services_list"},
-            {"label": "Kit", "view_name": "catalog:kits_list"},
-            {"label": "Grupo", "view_name": "catalog:group_list"},
-            {"label": "Checklist", "view_name": "checklist:checklist_list"},
-        ),
-    },
     {"label": "Orçamentos", "view_name": "budget:budget_list", "favoritable": False},
     {"label": "Ordens de Serviço", "view_name": "workorder:workorder_list", "favoritable": False},
     {"label": "Agendamentos", "view_name": "scheduling:appointment_calendar", "favoritable": False},
@@ -68,6 +52,7 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
             {"label": "Emitir nota", "view_name": "finance:emission_create", "query": {"reset": 1}},
             {"label": "Central de Notas", "view_name": "finance:issued_documents_list"},
             {"label": "Movimentação Financeira", "view_name": "finance:reports_home"},
+            {"label": "Apuração de Comissões", "view_name": "finance:commission_report"},
             {"label": "Conta Bancária", "view_name": "finance:bank_account_list"},
             {"label": "Formas de Pagamento", "view_name": "finance:payment_methods_list"},
             {"label": "Grupos Financeiros", "view_name": "finance:financial_groups_list"},
@@ -77,12 +62,26 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
         ),
     },
     {
+        "label": "Cadastros",
+        "items": (
+            {"label": "Cliente", "view_name": "customer:customer_list"},
+            {"label": "Mensagens WhatsApp", "view_name": "messaging:message_template_list"},
+            {"label": "Grupos de Mensagens", "view_name": "messaging:customer_message_group_list"},
+            {"label": "Colaborador", "view_name": "collaborators:collaborator_list"},
+            {"label": "Fornecedor", "view_name": "suppliers:supplier_list"},
+            {"label": "Produto", "view_name": "catalog:product_list"},
+            {"label": "Serviço", "view_name": "catalog:services_list"},
+            {"label": "Kit", "view_name": "catalog:kits_list"},
+            {"label": "Grupo", "view_name": "catalog:group_list"},
+            {"label": "Checklist", "view_name": "checklist:checklist_list"},
+        ),
+    },
+    {
         "label": "Gestão",
         "items": (
             {"label": "Gerenciar Oficinas", "view_name": "workshops:list"},
             {"label": "Gerenciar Permissões", "view_name": "iam:role_list"},
             {"label": "Histórico de Emissões", "view_name": "workshops:emission_history", "visible_if": _is_director_or_manager},
-            {"label": "Custos Mensais", "view_name": "workshops:cost_list"},
             {"label": "Custo Mensal da Oficina", "view_name": "workshops:workshop_cost_list"},
             {"label": "Perguntas Investigativas", "view_name": "quote:investigative_question_list"},
         ),
