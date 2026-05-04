@@ -166,12 +166,18 @@ class Budget(TimeStampedModel):
 
     @property
     def get_mlr(self):
-        workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year)
-        return workshop_cost.profitability_multiplier
+        workshop_cost = WorkshopCost.objects.filter(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year).first()
+        if workshop_cost:
+            return workshop_cost.profitability_multiplier
+        return 1
 
     @property
     def get_mlo(self):
-        workshop_cost = WorkshopCost.objects.get(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year)
+        workshop_cost = WorkshopCost.objects.filter(workshop=self.workshop, month=timezone.now().month, year=timezone.now().year).first()
+
+        if not workshop_cost:
+            return 1
+
         mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=self.workshop)
 
         # Extra
