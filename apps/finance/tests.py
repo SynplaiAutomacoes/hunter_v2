@@ -97,6 +97,17 @@ from apps.workshops.forms.workshops import WorkshopFiscalSectionForm
 from apps.workshops.models.workshops import Workshop
 
 
+if not hasattr(FinancialMovement, "DreTopic"):
+
+    class _FinancialMovementDreTopic:
+        RECEITA_BRUTA_VENDAS_E_SERVICOS = "receita_bruta_vendas_e_servicos"
+        CUSTOS_MERCADORIAS_VENDIDAS = "custos_mercadorias_vendidas"
+        RECEITAS_FINANCEIRAS = "receitas_financeiras"
+        DESPESAS_FINANCEIRAS = "despesas_financeiras"
+
+    FinancialMovement.DreTopic = _FinancialMovementDreTopic  # type: ignore[attr-defined]
+
+
 def create_workshop(*, suffix: int = 1) -> Workshop:
     return Workshop.objects.create(
         name=f"Oficina {suffix}",
@@ -6551,6 +6562,14 @@ class DreReportViewTests(TestCase):
         if payment_method_description:
             payment_method = PaymentMethod.objects.create(workshop=selected_workshop, description=payment_method_description)
 
+        budget_plan_name = {
+            FinancialMovement.DreTopic.RECEITA_BRUTA_VENDAS_E_SERVICOS: "Receitas de Serviços",
+            FinancialMovement.DreTopic.CUSTOS_MERCADORIAS_VENDIDAS: "Custos de Serviços",
+            FinancialMovement.DreTopic.RECEITAS_FINANCEIRAS: "Receitas Financeiras",
+            FinancialMovement.DreTopic.DESPESAS_FINANCEIRAS: "Despesas Financeiras",
+        }[dre_topic]
+        budget_plan, _ = FinancialGroup.objects.get_or_create(workshop=selected_workshop, name=budget_plan_name)
+
         direction = FinancialMovement.MovementDirection.CREDIT
         if dre_topic in {
             FinancialMovement.DreTopic.CUSTOS_MERCADORIAS_VENDIDAS,
@@ -6565,7 +6584,7 @@ class DreReportViewTests(TestCase):
             direction=direction,
             payment_method=payment_method,
             nf_number=nf_number,
-            dre_topic=dre_topic,
+            budget_plan=budget_plan,
             amount=Money(amount, "BRL"),
             due_date=due_date,
             description=description,
