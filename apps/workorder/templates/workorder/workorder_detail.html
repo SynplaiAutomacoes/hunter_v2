@@ -2,42 +2,59 @@
 {% load crispy_forms_tags %}
 
 {% block crud_content %}
-<div class="p-6 space-y-6">
+<div class="p-6 space-y-6" x-data="{ activeTab: 'resumo' }">
     <div class="items-center">
         <h2 class="text-3xl font-bold text-base-content">Ordem de Serviço N°: {{ workorder.budget.id }}</h2>
         <p class="text-lg-content/70 mt-1">Status: <span class="badge badge-sm {{ workorder.workorder_status_badge.class|cut:' min-w-sm' }} uppercase font-bold">{{ workorder.workorder_status_badge.text }}</span></p>
     </div>
 
-    <div role="tablist" class="tabs tabs-lifted w-full mt-8">
+    <div class="mt-8 space-y-4">
+        <div class="app-tabs tabs tabs-lift flex-wrap" role="tablist" aria-label="Seções da ordem de serviço">
+            <input type="radio" name="workorder_tabs" value="resumo" class="tab" aria-label="Resumo" x-model="activeTab" checked />
+            <input type="radio" name="workorder_tabs" value="pagamento" class="tab" aria-label="Condição de Pagamento" x-model="activeTab" />
+            <input type="radio" name="workorder_tabs" value="aprovacao" class="tab" aria-label="Aprovação do Cliente" x-model="activeTab" />
+            <input type="radio" name="workorder_tabs" value="historico" class="tab" aria-label="Histórico do Veículo" x-model="activeTab" />
+        </div>
 
-        <input type="radio" name="workorder_tabs" role="tab" class="tab text-lg font-semibold" aria-label="Resumo" checked />
-        <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6 shadow-sm">
-            <div id="resume-section">
-                {% include 'workorder/partials/resume_section.html' %}
+        <div x-show="activeTab === 'resumo'" x-cloak>
+            <div class="card bg-base-100 shadow-xl">
+                <div class="card-body p-6 md:p-8">
+                    <div id="resume-section">
+                        {% include 'workorder/partials/resume_section.html' %}
+                    </div>
+                </div>
             </div>
         </div>
 
-        <input type="radio" name="workorder_tabs" role="tab" class="tab text-lg font-semibold" aria-label="Condição de Pagamento" />
-        <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6 shadow-sm">
-            <div id="payment-section">
-                {% include 'workorder/partials/payment_section.html' %}
+        <div x-show="activeTab === 'pagamento'" x-cloak>
+            <div class="card bg-base-100 shadow-xl">
+                <div class="card-body p-6 md:p-8">
+                    <div id="payment-section">
+                        {% include 'workorder/partials/payment_section.html' %}
+                    </div>
+                </div>
             </div>
         </div>
 
-        <input type="radio" name="workorder_tabs" role="tab" class="tab text-lg font-semibold" aria-label="Aprovação do Cliente" />
-        <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6 shadow-sm">
-            <div id="customer-approvement-section">
-                {% include 'workorder/partials/customer_approvement_section.html' %}
+        <div x-show="activeTab === 'aprovacao'" x-cloak>
+            <div class="card bg-base-100 shadow-xl">
+                <div class="card-body p-6 md:p-8">
+                    <div id="customer-approvement-section">
+                        {% include 'workorder/partials/customer_approvement_section.html' %}
+                    </div>
+                </div>
             </div>
         </div>
 
-        <input type="radio" name="workorder_tabs" role="tab" class="tab text-lg font-semibold" aria-label="Histórico do Veículo" />
-        <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6 shadow-sm">
-            <div id="vehicle-history-section">
-                {% include 'workorder/partials/vehicle_history_section.html' %}
+        <div x-show="activeTab === 'historico'" x-cloak>
+            <div class="card bg-base-100 shadow-xl">
+                <div class="card-body p-6 md:p-8">
+                    <div id="vehicle-history-section">
+                        {% include 'workorder/partials/vehicle_history_section.html' %}
+                    </div>
+                </div>
             </div>
         </div>
-
     </div>
 
     <dialog id="form_modal" class="modal">
