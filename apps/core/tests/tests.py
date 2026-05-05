@@ -1,16 +1,27 @@
-from django.contrib.auth import get_user_model
 from dataclasses import dataclass
+from datetime import timedelta
+from typing import Any
+
+from django.contrib.auth import get_user_model
 from django.db import connection
 from django.db.models import F, Func, IntegerField, Value
 from django.db.models.functions import Cast, NullIf
 from django.template import Context, Template
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from phonenumber_field.phonenumber import PhoneNumber
+from djmoney.money import Money
 
+from apps.accounts.models import Account
+from apps.budget.models import Budget, BudgetItem, BudgetStatus
+from apps.collaborators.models import WorkshopMember
 from apps.core.documents.signature import SIGNATURE_POSITION, build_absolute_app_url, normalize_signature_phone_number
 from apps.core.templatetags.table_tags import TableColumn, render_table
+from apps.finance.models.financial_movement import FinancialMovement
+from apps.iam.utils import get_or_create_director_role
 from apps.workshops.models.workshops import Workshop
+from apps.workorder.models import WorkOrder, WorkOrderStatus
 
 
 def create_workshop(**kwargs):
@@ -781,17 +792,17 @@ class TestRenderTableTag(TestCase):
                     "workshops": Workshop.objects.none(),
                     "fields": [TableColumn(label="Nome", attr="name")],
                     "status_choices": [
-                        ("draft", "Em Aberto"),
-                        ("approved", "Aprovado"),
+                        ("draft", "Aprovado"),
+                        ("approved", "Veículo Entregue"),
                     ],
                 }
             )
         )
 
         self.assertIn('value="draft"', html)
-        self.assertIn("Em Aberto", html)
-        self.assertIn('value="approved"', html)
         self.assertIn("Aprovado", html)
+        self.assertIn('value="approved"', html)
+        self.assertIn("Veículo Entregue", html)
 
     def test_render_table_can_render_summary_template_inside_table_content(self):
         for i in range(1, 13):
@@ -861,8 +872,8 @@ class TestRenderTableTag(TestCase):
                     "workshops": Workshop.objects.all(),
                     "fields": [TableColumn(label="Nome", attr="name")],
                     "status_choices": [
-                        ("draft", "Em Aberto"),
-                        ("approved", "Aprovado"),
+                        ("draft", "Aprovado"),
+                        ("approved", "Veículo Entregue"),
                     ],
                 }
             )
@@ -1082,7 +1093,9 @@ class TestRenderTableTag(TestCase):
         w = create_workshop(name="Oficina 01", is_active=True)
 
         User = get_user_model()
-        user = User.objects.create_user(username="u", password="p", cpf="11144477735")
+        user = User.objects.create(username="u", cpf="11144477735")
+        user.set_password("p")
+        user.save(update_fields=["password"])
         self.client.force_login(user)
 
         url = reverse("workshops:delete", args=[w.pk])
@@ -1096,3 +1109,137 @@ class TestRenderTableTag(TestCase):
         self.assertEqual(resp_post.status_code, 200)
         self.assertEqual(resp_post.get("HX-Trigger"), "workshops-table-refresh")
         self.assertFalse(Workshop.objects.filter(pk=w.pk).exists())
+
+
+class DashboardMetricsTests(TestCase):
+    def setUp(self):
+        self.user_model = get_user_model()
+        self.user = self.user_model.objects.create(username="dashboard-user", cpf="11144477735")
+        self.user.set_password("123")
+        self.user.save(update_fields=["password"])
+        self.account = Account.objects.create(name="Conta Dashboard", owner=self.user)
+        self.user = self.user_model.objects.get(pk=self.user.pk)
+        typed_user_any: Any = self.user
+        setattr(typed_user_any, "account", self.account)
+        setattr(typed_user_any, "is_account_owner", True)
+        self.user.save(update_fields=["account", "is_account_owner"])
+
+        self.workshop = Workshop.objects.create(
+            account=self.account,
+            name="Oficina Dashboard",
+            cnpj="11.222.333/0001-99",
+            phone="+5511999999999",
+            address="Rua Dashboard, 123",
+        )
+        director_role = get_or_create_director_role(account=self.account, with_all_permissions=True)
+        WorkshopMember.objects.create(user=self.user, workshop=self.workshop, role=director_role, is_active=True)
+
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def _create_budget(self, *, status: str, amount: str, entry_date) -> Budget:
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=entry_date, status=status)
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            is_local=True,
+            description=f"Item {status}",
+            quantity=1,
+            service_selling_price=Money(amount, "BRL"),
+        )
+        return budget
+
+    def _create_workorder_receivable(
+        self,
+        *,
+        workshop: Workshop,
+        workorder_status: str,
+        amount: str,
+        due_date,
+        is_paid: bool = False,
+    ) -> FinancialMovement:
+        budget = Budget.objects.create(workshop=workshop, entry_date=due_date)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=workorder_status)
+        return FinancialMovement.objects.create(
+            workshop=workshop,
+            workorder=workorder,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money(amount, "BRL"),
+            due_date=due_date,
+            is_paid=is_paid,
+        )
+
+    def test_dashboard_counts_open_budgets_from_all_open_statuses_even_from_previous_months(self):
+        today = timezone.localdate()
+        previous_month_date = today - timedelta(days=40)
+
+        included_statuses = (
+            BudgetStatus.DRAFT,
+            BudgetStatus.WAITING_CLIENT,
+            BudgetStatus.WAITING_DIAGNOSIS,
+            BudgetStatus.WAITING_ITEMS,
+            BudgetStatus.WAITING_PRICING,
+            BudgetStatus.WAITING_REVIEW,
+            BudgetStatus.WAITING_APPROVAL,
+        )
+        included_amounts = ["10.00", "20.00", "30.00", "40.00", "50.00", "60.00", "70.00"]
+
+        for index, status in enumerate(included_statuses):
+            entry_date = previous_month_date if index == 0 else today
+            self._create_budget(status=status, amount=included_amounts[index], entry_date=entry_date)
+
+        self._create_budget(status=BudgetStatus.APPROVED, amount="100.00", entry_date=today)
+        self._create_budget(status=BudgetStatus.REJECTED, amount="200.00", entry_date=today)
+        self._create_budget(status=BudgetStatus.CANCELLED, amount="300.00", entry_date=previous_month_date)
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["total_orcamentos_aguardando_aprovacao"], 280)
+        self.assertContains(response, "R$ 280,00")
+
+    def test_dashboard_counts_only_unpaid_receivables_from_approved_workorders_in_execution(self):
+        today = timezone.localdate()
+        previous_month_date = today - timedelta(days=40)
+
+        self._create_workorder_receivable(
+            workshop=self.workshop,
+            workorder_status=WorkOrderStatus.DRAFT,
+            amount="150.00",
+            due_date=previous_month_date,
+        )
+        self._create_workorder_receivable(
+            workshop=self.workshop,
+            workorder_status=WorkOrderStatus.DRAFT,
+            amount="50.00",
+            due_date=today,
+            is_paid=True,
+        )
+        self._create_workorder_receivable(
+            workshop=self.workshop,
+            workorder_status=WorkOrderStatus.APPROVED,
+            amount="75.00",
+            due_date=today,
+        )
+
+        other_workshop = Workshop.objects.create(
+            account=self.account,
+            name="Oficina Externa Dashboard",
+            cnpj="11.222.333/0001-88",
+            phone="+5511888888888",
+            address="Rua Externa, 456",
+        )
+        self._create_workorder_receivable(
+            workshop=other_workshop,
+            workorder_status=WorkOrderStatus.DRAFT,
+            amount="500.00",
+            due_date=today,
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["total_os_a_receber_em_execucao"], 150)
+        self.assertContains(response, "R$ 150,00")

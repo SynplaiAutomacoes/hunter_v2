@@ -1,12 +1,12 @@
 <div class="modal-box w-full max-w-[95vw] relative overflow-hidden flex flex-col h-[90vh]" style="width: 65vw;">
     <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="form_modal.close()">✕</button>
 
-    <h3 class="font-bold text-lg mb-2 flex-shrink-0">Selecionar itens do Orçamento #{{ reference_budget.pk }}</h3>
+    <h3 class="font-bold text-lg mb-2 flex-shrink-0">Importar itens do Orçamento #{{ reference_budget.pk }}</h3>
     <p class="text-sm text-base-content/70 mb-4 flex-shrink-0">
-        Selecione os itens que deseja copiar para o orçamento atual (#{{ budget.pk }}).
+        Selecione os itens que deseja importar para o orçamento atual (#{{ budget.pk }}).
     </p>
 
-    <form method="post" action="{% url 'budget:import_items_process' pk=budget.pk %}" hx-post="{% url 'budget:import_items_process' pk=budget.pk %}" hx-target="#modal-container" hx-swap="innerHTML" class="flex-grow flex flex-col min-h-0">
+    <form method="post" action="{% url 'budget:import_items_process' pk=budget.pk %}" hx-post="{% url 'budget:import_items_process' pk=budget.pk %}" hx-target="#modal-container" hx-swap="innerHTML" class="flex-grow flex flex-col min-h-0" id="import-items-form">
         {% csrf_token %}
         
         <div class="overflow-y-auto flex-grow bg-base-100 rounded-lg shadow-inner p-2 border border-base-200">
@@ -117,8 +117,12 @@
 
         <div class="modal-action flex-shrink-0 mt-4">
             <button type="button" class="btn" onclick="form_modal.close()">Cancelar</button>
-            <button type="submit" class="btn btn-primary" id="import-confirm-btn" {% if not products and not services and not kits %}disabled{% endif %}>
-                <span class="material-icons" style="vertical-align: middle;">download</span> Importar Itens Selecionados
+            <button type="submit" class="btn btn-primary gap-2" id="import-confirm-btn" {% if not products and not services and not kits %}disabled{% endif %}>
+                <span class="htmx-indicator hidden" id="import-confirm-spinner">
+                    <span class="loading loading-spinner loading-sm"></span>
+                </span>
+                <span class="material-icons normal-icon" style="vertical-align: middle;">download</span>
+                <span class="button-text">Importar itens selecionados</span>
             </button>
         </div>
     </form>
@@ -147,4 +151,43 @@
     setupImportSelection('import-all-products', 'import-product-cb');
     setupImportSelection('import-all-services', 'import-service-cb');
     setupImportSelection('import-all-kits', 'import-kit-cb');
+
+    (function() {
+        const form = document.getElementById('import-items-form');
+        const submitBtn = document.getElementById('import-confirm-btn');
+
+        if (!form || !submitBtn) {
+            return;
+        }
+
+        const spinner = document.getElementById('import-confirm-spinner');
+        const normalIcon = submitBtn.querySelector('.normal-icon');
+        const buttonText = submitBtn.querySelector('.button-text');
+        const defaultLabel = 'Importar itens selecionados';
+        const loadingLabel = 'Importando...';
+
+        function setLoadingState(isLoading) {
+            submitBtn.disabled = isLoading;
+            submitBtn.classList.toggle('loading', isLoading);
+            if (spinner) spinner.classList.toggle('hidden', !isLoading);
+            if (normalIcon) normalIcon.classList.toggle('hidden', isLoading);
+            if (buttonText) buttonText.textContent = isLoading ? loadingLabel : defaultLabel;
+        }
+
+        form.addEventListener('htmx:beforeRequest', function() {
+            setLoadingState(true);
+        });
+
+        form.addEventListener('htmx:afterRequest', function() {
+            setLoadingState(false);
+        });
+
+        form.addEventListener('htmx:responseError', function() {
+            setLoadingState(false);
+        });
+
+        form.addEventListener('htmx:sendError', function() {
+            setLoadingState(false);
+        });
+    })();
 </script>

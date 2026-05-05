@@ -740,12 +740,6 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
             messages.error(request, error_message)
             return JsonResponse({"success": False, "error": error_message}, status=400)
 
-        step6_action_blockers = budget.step6_action_blockers
-        if step6_action_blockers:
-            error_message = " ".join(step6_action_blockers)
-            messages.error(request, error_message)
-            return JsonResponse({"success": False, "error": error_message}, status=400)
-
         # Validação de Aprovação
         if status == "approve":
             try:
