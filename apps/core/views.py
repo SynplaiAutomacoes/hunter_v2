@@ -240,7 +240,12 @@ def metricas_dashboard(request) -> dict[str, Any]:
     qtd_orcamentos_criados = orcamentos_base.count()
     qtd_orcamentos_aprovados = orcamentos_base.filter(status=BudgetStatus.APPROVED).count()
 
-    total_os_a_receber_result = FinancialMovement.objects.filter(workshop=workshop, direction=FinancialMovement.MovementDirection.CREDIT, is_paid=False, workorder__status=WorkOrderStatus.APPROVED, due_date__month=mes_selecionado, due_date__year=ano_selecionado).aggregate(total=Sum("amount"))["total"]
+    total_os_a_receber_result = FinancialMovement.objects.filter(
+        workshop=workshop,
+        direction=FinancialMovement.MovementDirection.CREDIT,
+        is_paid=False,
+        workorder__status=WorkOrderStatus.DRAFT,
+    ).aggregate(total=Sum("amount"))["total"]
 
     orcamentos_aguardando = Budget.objects.filter(workshop=workshop, status__in=OPEN_BUDGET_STATUSES)
 

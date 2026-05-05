@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Any
 
 from django.contrib.auth import get_user_model
 from django.db import connection
@@ -17,8 +18,10 @@ from apps.budget.models import Budget, BudgetItem, BudgetStatus
 from apps.collaborators.models import WorkshopMember
 from apps.core.documents.signature import SIGNATURE_POSITION, build_absolute_app_url, normalize_signature_phone_number
 from apps.core.templatetags.table_tags import TableColumn, render_table
+from apps.finance.models.financial_movement import FinancialMovement
 from apps.iam.utils import get_or_create_director_role
 from apps.workshops.models.workshops import Workshop
+from apps.workorder.models import WorkOrder, WorkOrderStatus
 
 
 def create_workshop(**kwargs):
@@ -1115,8 +1118,10 @@ class DashboardMetricsTests(TestCase):
         self.user.set_password("123")
         self.user.save(update_fields=["password"])
         self.account = Account.objects.create(name="Conta Dashboard", owner=self.user)
-        self.user.account = self.account
-        self.user.is_account_owner = True
+        self.user = self.user_model.objects.get(pk=self.user.pk)
+        typed_user_any: Any = self.user
+        setattr(typed_user_any, "account", self.account)
+        setattr(typed_user_any, "is_account_owner", True)
         self.user.save(update_fields=["account", "is_account_owner"])
 
         self.workshop = Workshop.objects.create(
@@ -1146,6 +1151,26 @@ class DashboardMetricsTests(TestCase):
         )
         return budget
 
+    def _create_workorder_receivable(
+        self,
+        *,
+        workshop: Workshop,
+        workorder_status: str,
+        amount: str,
+        due_date,
+        is_paid: bool = False,
+    ) -> FinancialMovement:
+        budget = Budget.objects.create(workshop=workshop, entry_date=due_date)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=workorder_status)
+        return FinancialMovement.objects.create(
+            workshop=workshop,
+            workorder=workorder,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money(amount, "BRL"),
+            due_date=due_date,
+            is_paid=is_paid,
+        )
+
     def test_dashboard_counts_open_budgets_from_all_open_statuses_even_from_previous_months(self):
         today = timezone.localdate()
         previous_month_date = today - timedelta(days=40)
@@ -1174,3 +1199,47 @@ class DashboardMetricsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["total_orcamentos_aguardando_aprovacao"], 280)
         self.assertContains(response, "R$ 280,00")
+
+    def test_dashboard_counts_only_unpaid_receivables_from_approved_workorders_in_execution(self):
+        today = timezone.localdate()
+        previous_month_date = today - timedelta(days=40)
+
+        self._create_workorder_receivable(
+            workshop=self.workshop,
+            workorder_status=WorkOrderStatus.DRAFT,
+            amount="150.00",
+            due_date=previous_month_date,
+        )
+        self._create_workorder_receivable(
+            workshop=self.workshop,
+            workorder_status=WorkOrderStatus.DRAFT,
+            amount="50.00",
+            due_date=today,
+            is_paid=True,
+        )
+        self._create_workorder_receivable(
+            workshop=self.workshop,
+            workorder_status=WorkOrderStatus.APPROVED,
+            amount="75.00",
+            due_date=today,
+        )
+
+        other_workshop = Workshop.objects.create(
+            account=self.account,
+            name="Oficina Externa Dashboard",
+            cnpj="11.222.333/0001-88",
+            phone="+5511888888888",
+            address="Rua Externa, 456",
+        )
+        self._create_workorder_receivable(
+            workshop=other_workshop,
+            workorder_status=WorkOrderStatus.DRAFT,
+            amount="500.00",
+            due_date=today,
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["total_os_a_receber_em_execucao"], 150)
+        self.assertContains(response, "R$ 150,00")
