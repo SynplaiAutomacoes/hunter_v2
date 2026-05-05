@@ -1,15 +1,23 @@
-from django.contrib.auth import get_user_model
 from dataclasses import dataclass
+from datetime import timedelta
+
+from django.contrib.auth import get_user_model
 from django.db import connection
 from django.db.models import F, Func, IntegerField, Value
 from django.db.models.functions import Cast, NullIf
 from django.template import Context, Template
 from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 from phonenumber_field.phonenumber import PhoneNumber
+from djmoney.money import Money
 
+from apps.accounts.models import Account
+from apps.budget.models import Budget, BudgetItem, BudgetStatus
+from apps.collaborators.models import WorkshopMember
 from apps.core.documents.signature import SIGNATURE_POSITION, build_absolute_app_url, normalize_signature_phone_number
 from apps.core.templatetags.table_tags import TableColumn, render_table
+from apps.iam.utils import get_or_create_director_role
 from apps.workshops.models.workshops import Workshop
 
 
@@ -1082,7 +1090,9 @@ class TestRenderTableTag(TestCase):
         w = create_workshop(name="Oficina 01", is_active=True)
 
         User = get_user_model()
-        user = User.objects.create_user(username="u", password="p", cpf="11144477735")
+        user = User.objects.create(username="u", cpf="11144477735")
+        user.set_password("p")
+        user.save(update_fields=["password"])
         self.client.force_login(user)
 
         url = reverse("workshops:delete", args=[w.pk])
@@ -1096,3 +1106,71 @@ class TestRenderTableTag(TestCase):
         self.assertEqual(resp_post.status_code, 200)
         self.assertEqual(resp_post.get("HX-Trigger"), "workshops-table-refresh")
         self.assertFalse(Workshop.objects.filter(pk=w.pk).exists())
+
+
+class DashboardMetricsTests(TestCase):
+    def setUp(self):
+        self.user_model = get_user_model()
+        self.user = self.user_model.objects.create(username="dashboard-user", cpf="11144477735")
+        self.user.set_password("123")
+        self.user.save(update_fields=["password"])
+        self.account = Account.objects.create(name="Conta Dashboard", owner=self.user)
+        self.user.account = self.account
+        self.user.is_account_owner = True
+        self.user.save(update_fields=["account", "is_account_owner"])
+
+        self.workshop = Workshop.objects.create(
+            account=self.account,
+            name="Oficina Dashboard",
+            cnpj="11.222.333/0001-99",
+            phone="+5511999999999",
+            address="Rua Dashboard, 123",
+        )
+        director_role = get_or_create_director_role(account=self.account, with_all_permissions=True)
+        WorkshopMember.objects.create(user=self.user, workshop=self.workshop, role=director_role, is_active=True)
+
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def _create_budget(self, *, status: str, amount: str, entry_date) -> Budget:
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=entry_date, status=status)
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            is_local=True,
+            description=f"Item {status}",
+            quantity=1,
+            service_selling_price=Money(amount, "BRL"),
+        )
+        return budget
+
+    def test_dashboard_counts_open_budgets_from_all_open_statuses_even_from_previous_months(self):
+        today = timezone.localdate()
+        previous_month_date = today - timedelta(days=40)
+
+        included_statuses = (
+            BudgetStatus.DRAFT,
+            BudgetStatus.WAITING_CLIENT,
+            BudgetStatus.WAITING_DIAGNOSIS,
+            BudgetStatus.WAITING_ITEMS,
+            BudgetStatus.WAITING_PRICING,
+            BudgetStatus.WAITING_REVIEW,
+            BudgetStatus.WAITING_APPROVAL,
+        )
+        included_amounts = ["10.00", "20.00", "30.00", "40.00", "50.00", "60.00", "70.00"]
+
+        for index, status in enumerate(included_statuses):
+            entry_date = previous_month_date if index == 0 else today
+            self._create_budget(status=status, amount=included_amounts[index], entry_date=entry_date)
+
+        self._create_budget(status=BudgetStatus.APPROVED, amount="100.00", entry_date=today)
+        self._create_budget(status=BudgetStatus.REJECTED, amount="200.00", entry_date=today)
+        self._create_budget(status=BudgetStatus.CANCELLED, amount="300.00", entry_date=previous_month_date)
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["total_orcamentos_aguardando_aprovacao"], 280)
+        self.assertContains(response, "R$ 280,00")
