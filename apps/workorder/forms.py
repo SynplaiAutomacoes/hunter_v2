@@ -649,7 +649,7 @@ class WorkOrderCustomerApprovalForm(CoreForm):
         self.fields["km_initial"].initial = km_initial_value
         self.fields["km_initial"].disabled = True
 
-        self.fields["km_final"].error_messages["required"] = "Preencha o KM final para aprovar a ordem de serviço."
+        self.fields["km_final"].error_messages["required"] = "Preencha o KM final para concluir a entrega do veículo."
 
         if self.workorder and self.workorder.km_final is not None and not self.is_bound:
             self.fields["km_final"].initial = self.workorder.km_final

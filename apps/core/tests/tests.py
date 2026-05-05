@@ -781,17 +781,17 @@ class TestRenderTableTag(TestCase):
                     "workshops": Workshop.objects.none(),
                     "fields": [TableColumn(label="Nome", attr="name")],
                     "status_choices": [
-                        ("draft", "Em Aberto"),
-                        ("approved", "Aprovado"),
+                        ("draft", "Aprovado"),
+                        ("approved", "Veículo Entregue"),
                     ],
                 }
             )
         )
 
         self.assertIn('value="draft"', html)
-        self.assertIn("Em Aberto", html)
-        self.assertIn('value="approved"', html)
         self.assertIn("Aprovado", html)
+        self.assertIn('value="approved"', html)
+        self.assertIn("Veículo Entregue", html)
 
     def test_render_table_can_render_summary_template_inside_table_content(self):
         for i in range(1, 13):
@@ -861,8 +861,8 @@ class TestRenderTableTag(TestCase):
                     "workshops": Workshop.objects.all(),
                     "fields": [TableColumn(label="Nome", attr="name")],
                     "status_choices": [
-                        ("draft", "Em Aberto"),
-                        ("approved", "Aprovado"),
+                        ("draft", "Aprovado"),
+                        ("approved", "Veículo Entregue"),
                     ],
                 }
             )

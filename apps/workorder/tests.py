@@ -277,9 +277,9 @@ class WorkOrderListFiltersTests(TestCase):
         response = self.client.get(reverse("workorder:workorder_list"), {"status": WorkOrderStatus.APPROVED, "data_inicial": selected_date, "data_final": selected_date})
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["selected_status_report"], {"value": WorkOrderStatus.APPROVED, "label": "Aprovado", "count": 1, "badge_class": "badge-success min-w-sm"})
+        self.assertEqual(response.context["selected_status_report"], {"value": WorkOrderStatus.APPROVED, "label": "Veículo Entregue", "count": 1, "badge_class": "badge-success min-w-sm"})
         self.assertContains(response, "Relatorio do status")
-        self.assertContains(response, "Aprovado")
+        self.assertContains(response, "Veículo Entregue")
         self.assertContains(response, "O.S. com este status")
         self.assertContains(response, "Imprimir relatorio em PDF")
         self.assertContains(response, f"url: '{reverse('workorder:status_report_pdf_preview')}?status={WorkOrderStatus.APPROVED}")
@@ -346,7 +346,7 @@ class WorkOrderListFiltersTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'id="workorder-table-content"')
         self.assertContains(response, "Relatorio do status")
-        self.assertContains(response, "Aprovado")
+        self.assertContains(response, "Veículo Entregue")
         self.assertContains(response, "Imprimir relatorio em PDF")
 
 
@@ -392,7 +392,7 @@ class WorkOrderStatusReportPdfTests(TestCase):
         self.assertContains(response, "<!DOCTYPE html>", html=False)
         self.assertContains(response, "Relat&oacute;rio de Ordens de Servi&ccedil;o por Status", html=False)
         self.assertContains(response, workshop.name)
-        self.assertContains(response, "Aprovado")
+        self.assertContains(response, "Veículo Entregue")
         self.assertContains(response, f"#{approved_workorder.pk}")
         self.assertContains(response, customer.name)
         self.assertContains(response, vehicle.plate)
