@@ -774,7 +774,7 @@ class Budget(TimeStampedModel):
         return self.product_issue_summary.has_invalid_ncm_issues
 
     @property
-    def step6_action_blockers(self) -> list[str]:
+    def _approval_date_blockers(self) -> list[str]:
         blockers: list[str] = []
         if not self.customer_agreed_departure_at:
             blockers.append(self.CUSTOMER_AGREED_DEPARTURE_REQUIRED_MESSAGE)
@@ -788,8 +788,12 @@ class Budget(TimeStampedModel):
         return blockers
 
     @property
+    def step6_action_blockers(self) -> list[str]:
+        return []
+
+    @property
     def approval_blockers(self) -> list[str]:
-        blockers = list(self.step6_action_blockers)
+        blockers = list(self._approval_date_blockers)
 
         if self.has_local_items:
             blockers.append("Existem itens nao cadastrados no sistema.")
@@ -806,7 +810,7 @@ class Budget(TimeStampedModel):
 
     @property
     def signature_blockers(self) -> list[str]:
-        return list(self.approval_blockers)
+        return []
 
     @property
     def has_signature_blockers(self) -> bool:

@@ -193,7 +193,7 @@ class MessageTemplateRenderingTests(TestCase):
         self.assertIn(str(self.budget.pk), rendered)
         self.assertIn("Em Aberto", rendered)
         self.assertIn(str(self.workorder.pk), rendered)
-        self.assertIn("Aprovado", rendered)
+        self.assertIn("Veículo Entregue", rendered)
 
     def test_render_message_template_preserves_budget_and_workorder_tokens_when_context_is_missing(self) -> None:
         rendered = render_message_template("Olá %%nome%%, orçamento %%orcamento_status%% e O.S. %%os_status%%.", customer=self.customer)

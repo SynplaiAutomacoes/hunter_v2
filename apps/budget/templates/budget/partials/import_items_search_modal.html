@@ -2,9 +2,9 @@
     <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="form_modal.close()">✕</button>
 
     <div class="flex-grow overflow-auto mb-4">
-        <h3 class="font-bold text-2xl mb-4">Trazer itens de outro orçamento</h3>
+        <h3 class="font-bold text-2xl mb-4">Importar de outro orçamento</h3>
         <p class="text-lg text-base-content/70 mb-4">
-            Selecione o orçamento do qual você deseja copiar os itens.
+            Selecione o orçamento de origem para escolher os itens que deseja importar.
         </p>
 
         <form method="post" action="{% url 'budget:import_items_select_modal' pk=budget.pk %}"
