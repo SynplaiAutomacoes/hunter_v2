@@ -154,6 +154,9 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             return ""
         return selected_direction
 
+    def _get_search_value(self) -> str:
+        return str(self.request.GET.get("search") or "").strip()
+
     def _get_filter_params(self) -> dict[str, Any]:
         return {
             "start_date": self._parse_date_param(self.request.GET.get("data_inicial")),
@@ -182,7 +185,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         if direction:
             queryset = queryset.filter(direction=direction)
 
-        search = str(self.request.GET.get("search") or "").strip()
+        search = self._get_search_value()
         if search:
             search_query = build_text_search_query(
                 search_value=search,
@@ -211,12 +214,22 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
 
     def _has_active_filters(self) -> bool:
         filter_params = self._get_filter_params()
-        return bool(filter_params["start_date"] or filter_params["end_date"] or filter_params["budget_plan_ids"] or filter_params["bank_account_id"] is not None or filter_params["direction"])
+        return bool(filter_params["start_date"] or filter_params["end_date"] or filter_params["budget_plan_ids"] or filter_params["bank_account_id"] is not None or filter_params["direction"] or self._get_search_value())
 
     def _build_selection_summary_card(self) -> dict[str, object]:
+        title = "Créditos e Débitos da Filtragem"
+        if not self._has_active_filters():
+            return {
+                "title": title,
+                "is_placeholder": True,
+                "description": "Nenhum filtro ou busca ativo",
+                "rows": [],
+                "results": [],
+            }
+
         return self._build_summary_card(
-            title="Créditos e Débitos da Filtragem",
-            overview=build_financial_overview(workshop=self.workshop, **self._get_filter_params()),
+            title=title,
+            overview=build_financial_overview(workshop=self.workshop, search=self._get_search_value(), **self._get_filter_params()),
         )
 
     def _build_collaborator_payroll_summary_card(self) -> dict[str, object]:

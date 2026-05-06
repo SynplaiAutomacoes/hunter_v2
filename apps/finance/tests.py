@@ -5260,6 +5260,51 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, f"Balanço Geral {timezone.localdate().year}")
         self.assertContains(response, "Créditos e Débitos de Seleção")
 
+    def test_reports_home_view_shows_placeholder_when_no_filter_or_search_is_active(self) -> None:
+        response = self.client.get(reverse("finance:reports_home"))
+        selection_card = response.context["top_summary_cards"][2]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(selection_card["is_placeholder"])
+        self.assertEqual(selection_card["description"], "Nenhum filtro ou busca ativo")
+        self.assertContains(response, "Nenhum filtro ou busca ativo")
+
+    def test_reports_home_view_shows_selection_card_data_when_search_is_active(self) -> None:
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("200.00", "BRL"),
+            due_date=timezone.localdate(),
+            is_paid=True,
+            description="Movimento busca ativa",
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("90.00", "BRL"),
+            due_date=timezone.localdate(),
+            is_paid=True,
+            description="Movimento fora da busca",
+        )
+
+        response = self.client.get(reverse("finance:reports_home"), data={"search": "busca ativa"})
+        selection_card = response.context["top_summary_cards"][2]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(selection_card["is_placeholder"])
+        self.assertEqual(selection_card["rows"][0]["value"], "R$ 200,00")
+        self.assertEqual(selection_card["rows"][1]["value"], "R$ 200,00")
+        self.assertEqual(selection_card["rows"][2]["value"], "R$ 0,00")
+        self.assertEqual(selection_card["results"][0]["value"], "R$ 200,00")
+        self.assertEqual(selection_card["results"][1]["value"], "R$ 200,00")
+        self.assertContains(response, "Movimento busca ativa")
+        self.assertNotContains(response, "Movimento fora da busca")
+        self.assertNotContains(response, "Nenhum filtro ou busca ativo")
+
     def test_reports_home_view_displays_current_month_credit_and_debit_totals(self) -> None:
         today = timezone.localdate()
         previous_month_date = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
