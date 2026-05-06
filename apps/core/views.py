@@ -216,7 +216,26 @@ def metricas_dashboard(request) -> dict[str, Any]:
 
     # Auxiliares (valores que não serão retornados no dict, mas que servem para auxílio nas contas das métricas)
     faturamento_result = FinancialMovement.objects.filter(workshop=workshop, is_paid=True, direction=FinancialMovement.MovementDirection.CREDIT, due_date__month=mes_selecionado, due_date__year=ano_selecionado, workorder__isnull=False).aggregate(total=Sum("amount"))["total"]
-    faturamento_total = getattr(faturamento_result, "amount", faturamento_result) or 0
+    faturamento_total = float(Decimal(str(getattr(faturamento_result, "amount", faturamento_result) or "0.00")))
+
+    movements_os = FinancialMovement.objects.filter(
+        workshop=workshop, 
+        is_paid=True, 
+        direction=FinancialMovement.MovementDirection.CREDIT, 
+        due_date__month=mes_selecionado, 
+        due_date__year=ano_selecionado, 
+        workorder__isnull=False
+    ).select_related("workorder").prefetch_related("workorder__payments")
+
+    for movement in movements_os:
+        amount_total = float(Decimal(str(getattr(movement.amount, "amount", movement.amount) or "0.00")))
+        total_paid = sum(
+            (float(Decimal(str(getattr(payment.total_paid, "amount", payment.total_paid) or "0.00"))) 
+             for payment in movement.workorder.payments.all()),
+            0.0
+        )
+        if amount_total > total_paid:
+            faturamento_total -= (amount_total - total_paid)
     dias_transcorridos = FinancialMovement.objects.filter(workshop=workshop, direction=FinancialMovement.MovementDirection.CREDIT, due_date__month=mes_selecionado, due_date__year=ano_selecionado, workorder__isnull=False).values("due_date").distinct().count()
 
     _, dias_no_mes = calendar.monthrange(ano_selecionado, mes_selecionado)
