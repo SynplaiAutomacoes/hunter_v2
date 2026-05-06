@@ -473,7 +473,7 @@ class KitTests(TestCase):
         )
 
         self.assertFalse(form.is_valid())
-        self.assertIn("Valor de venda por duração inválido para serviço.", form.non_field_errors())
+        self.assertIn("Valor de venda por tempo inválido para serviço.", form.non_field_errors())
 
     def test_kit_form_allows_save_without_applications(self):
         form = KitForm(
@@ -654,7 +654,7 @@ class KitFormPageTests(TestCase):
         self.assertNotContains(response, "Distribuir Tempos")
         self.assertContains(response, "Total dos produtos")
         self.assertContains(response, "Total dos serviços")
-        self.assertContains(response, "Valor de venda por duração")
+        self.assertContains(response, "Valor de venda por tempo")
         self.assertContains(response, "Valor de Venda Inserido")
         self.assertContains(response, "Custo local do kit")
         self.assertContains(response, "Esse valor e recalculado automaticamente com base na duração do serviço.")
