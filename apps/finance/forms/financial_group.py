@@ -7,7 +7,7 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit  # type: ignore
 from django import forms
 from django.urls import reverse
 
-from apps.core.widgets import CheckboxInput, SearchableSelectInput, TextInput
+from apps.core.widgets import CheckboxInput, SearchableSelectInput, TextInput, SelectInput
 from apps.finance.models.financial_group import FinancialGroup
 from apps.workshops.models.workshops import Workshop
 from apps.core.forms import CoreModelForm
@@ -29,10 +29,11 @@ class FinancialGroupForm(CoreModelForm):
 
     class Meta:
         model = FinancialGroup
-        fields = ["parent", "name", "is_active"]
+        fields = ["parent", "name", "dre_type", "is_active"]
         widgets = {
             "name": TextInput(attrs={"placeholder": "Ex: Contas Fixas, Água/Luz/Telefone..."}),
             "is_active": CheckboxInput(),
+            "dre_type": SelectInput(),
         }
 
     def __init__(self, *args: Any, workshop: Workshop | None = None, **kwargs: Any):
@@ -58,9 +59,10 @@ class FinancialGroupForm(CoreModelForm):
         self.helper.form_method = "post"
         self.helper.layout = Layout(
             Div(
-                Field("parent", wrapper_class="col-span-12 lg:col-span-6"),
+                Field("parent", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("name", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("is_active", wrapper_class="col-span-12 lg:col-span-2"),
+                Field("dre_type", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("is_active", wrapper_class="col-span-12 lg:col-span-12"),
                 css_class="grid grid-cols-12 gap-4",
             ),
             HTML('<div class="divider"></div>'),
