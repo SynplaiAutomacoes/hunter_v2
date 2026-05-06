@@ -50,12 +50,20 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         return Decimal(str(getattr(value, "amount", value) or 0))
 
     @staticmethod
-    def _resolve_paid_status(*, total_paid: Decimal, total_amount: Decimal) -> dict[str, str]:
+    def _resolve_paid_status(*, movement: FinancialMovement, total_paid: Decimal, total_amount: Decimal) -> dict[str, str]:
+        is_paid = True
+        label = {"label": "Parcial", "icon": "schedule", "class": "text-warning"}
+
         if total_paid <= Decimal("0.00"):
-            return {"label": "Não", "icon": "cancel", "class": "text-error"}
-        if total_paid >= total_amount and total_amount > Decimal("0.00"):
-            return {"label": "Sim", "icon": "check_circle", "class": "text-success"}
-        return {"label": "Parcial", "icon": "schedule", "class": "text-warning"}
+            is_paid = False
+            label = {"label": "Não", "icon": "cancel", "class": "text-error"}
+
+        if total_paid >= total_amount > Decimal("0.00"):
+            label = {"label": "Sim", "icon": "check_circle", "class": "text-success"}
+
+        movement.is_paid = is_paid
+        movement.save(update_fields=["is_paid"])
+        return label
 
     def _build_summary_card(self, *, title: str, overview: FinancialOverview) -> dict[str, object]:
         return {
@@ -302,7 +310,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
 
         if workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
             total_amount = self._resolve_money_amount(workorder.total_budget_value)
-            paid_status: str | dict[str, str] = self._resolve_paid_status(total_paid=total_paid, total_amount=self._resolve_money_amount(workorder.total_budget_value))
+            paid_status: str | dict[str, str] = self._resolve_paid_status(movement=movement, total_paid=total_paid, total_amount=self._resolve_money_amount(workorder.total_budget_value))
             due_date = latest_payment_date
             description = self._resolve_workorder_description(workorder)
             payment_type = self._resolve_payment_method_summary(payments)
