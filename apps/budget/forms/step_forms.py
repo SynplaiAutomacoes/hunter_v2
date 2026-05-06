@@ -3201,14 +3201,12 @@ class BudgetStep6Form(CoreModelForm):
                         <div class="flex flex-col gap-3 mb-8">
                             <textarea
                                 class="textarea textarea-bordered w-full"
-                                maxlength="250"
                                 rows="4"
                                 id="budget-observation"
                                 placeholder="Digite uma observação para o PDF..."
                             >{saved_observation}</textarea>
 
-                            <div class="flex justify-between items-center text-sm text-gray-500">
-                                <span id="obs-counter">0 / 250</span>
+                            <div class="flex justify-end items-center">
                                 <button type="button"
                                         class="btn btn-sm btn-primary"
                                         onclick="saveObservation({budget.pk})">
@@ -3216,17 +3214,6 @@ class BudgetStep6Form(CoreModelForm):
                                 </button>
                             </div>
                         </div>
-
-                        <script>
-                            const textarea = document.getElementById('budget-observation');
-                            const counter = document.getElementById('obs-counter');
-                            if (textarea && counter) {{
-                                counter.textContent = `${{textarea.value.length}} / 250`;
-                                textarea.addEventListener('input', () => {{
-                                    counter.textContent = `${{textarea.value.length}} / 250`;
-                                }});
-                            }}
-                        </script>
                         """),
                         css_class="p-4 bg-base-200/50 rounded-lg",
                     ),
