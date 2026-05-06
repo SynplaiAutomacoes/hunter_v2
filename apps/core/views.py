@@ -245,21 +245,12 @@ def metricas_dashboard(request) -> dict[str, Any]:
         "items__kit__kit_services"
     )
 
-    # Geral
-    total_valor_os_geral = sum((wo.total_budget_value.amount for wo in workorders_em_execucao), Decimal("0.00"))
-    total_pago_os_geral_result = FinancialMovement.objects.filter(workshop=workshop, workorder__in=workorders_em_execucao, is_paid=True, direction=FinancialMovement.MovementDirection.CREDIT).aggregate(total=Sum("amount"))["total"]
-    total_pago_os_geral = getattr(total_pago_os_geral_result, "amount", total_pago_os_geral_result) or Decimal("0.00")
-    total_geral_os_a_receber_em_execucao = total_valor_os_geral - total_pago_os_geral
+    budgets_aguardando_base = Budget.objects.filter(
+        workshop=workshop,
+        budget_type=BudgetType.SALE,
+        status__in=OPEN_BUDGET_STATUSES
+    ).prefetch_related("items", "items__kit_overrides", "items__kit__kit_products", "items__kit__kit_services")
 
-    # Mensal
-    workorders_mensal = workorders_em_execucao.filter(criado_em__month=mes_selecionado, criado_em__year=ano_selecionado)
-    total_valor_os_mensal = sum((wo.total_budget_value.amount for wo in workorders_mensal), Decimal("0.00"))
-    total_pago_os_mensal_result = FinancialMovement.objects.filter(workshop=workshop, workorder__in=workorders_mensal, is_paid=True, direction=FinancialMovement.MovementDirection.CREDIT).aggregate(total=Sum("amount"))["total"]
-    total_pago_os_mensal = getattr(total_pago_os_mensal_result, "amount", total_pago_os_mensal_result) or Decimal("0.00")
-    print(f"total_pago_os_mensal {total_pago_os_mensal} | total_valor_os_mensal {total_valor_os_mensal}")
-    total_mensal_os_a_receber_em_execucao = total_valor_os_mensal - total_pago_os_mensal
-
-    orcamentos_aguardando = Budget.objects.filter(workshop=workshop, status__in=OPEN_BUDGET_STATUSES)
     orcamentos_reprovados = Budget.objects.filter(workshop=workshop, status=BudgetStatus.REJECTED, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado)
 
     # Métricas
@@ -272,8 +263,27 @@ def metricas_dashboard(request) -> dict[str, Any]:
     taxa_aprovacao = (qtd_orcamentos_aprovados / qtd_orcamentos_criados) * 100 if qtd_orcamentos_criados > 0 else 0
 
     # Financeiro (R$)
+
+    ## Geral
+    total_valor_os_geral = sum((wo.total_budget_value.amount for wo in workorders_em_execucao), Decimal("0.00"))
+    total_pago_os_geral_result = FinancialMovement.objects.filter(workshop=workshop, workorder__in=workorders_em_execucao, is_paid=True, direction=FinancialMovement.MovementDirection.CREDIT).aggregate(total=Sum("amount"))["total"]
+    total_pago_os_geral = getattr(total_pago_os_geral_result, "amount", total_pago_os_geral_result) or Decimal("0.00")
+    total_geral_os_a_receber_em_execucao = total_valor_os_geral - total_pago_os_geral
+
+    ## Mensal
+    workorders_mensal = workorders_em_execucao.filter(criado_em__month=mes_selecionado, criado_em__year=ano_selecionado)
+    total_valor_os_mensal = sum((wo.total_budget_value.amount for wo in workorders_mensal), Decimal("0.00"))
+    total_pago_os_mensal_result = FinancialMovement.objects.filter(workshop=workshop, workorder__in=workorders_mensal, is_paid=True, direction=FinancialMovement.MovementDirection.CREDIT).aggregate(total=Sum("amount"))["total"]
+    total_pago_os_mensal = getattr(total_pago_os_mensal_result, "amount", total_pago_os_mensal_result) or Decimal("0.00")
+    total_mensal_os_a_receber_em_execucao = total_valor_os_mensal - total_pago_os_mensal
+
     total_meses_anteriores_os_a_receber_em_execucao = total_geral_os_a_receber_em_execucao - total_mensal_os_a_receber_em_execucao
-    total_orcamentos_aguardando_aprovacao = sum(getattr(b.total_budget_value, "amount", b.total_budget_value) or 0 for b in orcamentos_aguardando)
+
+    ## Aguardando Aprovação
+    total_geral_orcamentos_aguardando_aprovacao = sum((b.total_budget_value.amount for b in budgets_aguardando_base), Decimal("0.00"))
+    total_mensal_orcamentos_aguardando_aprovacao = sum((b.total_budget_value.amount for b in budgets_aguardando_base.filter(entry_date__month=mes_selecionado, entry_date__year=ano_selecionado)), Decimal("0.00"))
+    total_meses_anteriores_orcamentos_aguardando_aprovacao = total_geral_orcamentos_aguardando_aprovacao - total_mensal_orcamentos_aguardando_aprovacao
+
     total_orcamentos_reprovados = sum(getattr(b.total_budget_value, "amount", b.total_budget_value) or 0 for b in orcamentos_reprovados)
 
     return {
@@ -292,6 +302,8 @@ def metricas_dashboard(request) -> dict[str, Any]:
         "total_mensal_os_a_receber_em_execucao": total_mensal_os_a_receber_em_execucao,
         "total_geral_os_a_receber_em_execucao": total_geral_os_a_receber_em_execucao,
         "total_meses_anteriores_os_a_receber_em_execucao": total_meses_anteriores_os_a_receber_em_execucao,
-        "total_orcamentos_aguardando_aprovacao": total_orcamentos_aguardando_aprovacao,
+        "total_geral_orcamentos_aguardando_aprovacao": total_geral_orcamentos_aguardando_aprovacao,
+        "total_mensal_orcamentos_aguardando_aprovacao": total_mensal_orcamentos_aguardando_aprovacao,
+        "total_meses_anteriores_orcamentos_aguardando_aprovacao": total_meses_anteriores_orcamentos_aguardando_aprovacao,
         "total_orcamentos_reprovados": total_orcamentos_reprovados,
     }
