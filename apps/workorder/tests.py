@@ -1881,6 +1881,56 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(payload["paid_value"], "40.00")
         self.assertEqual(payload["pending_value"], "50.00")
 
+    def test_update_km_final_persists_value_without_changing_status(self) -> None:
+        customer = create_customer(workshop=self.workshop, suffix=241)
+        vehicle = create_vehicle(workshop=self.workshop, customer=customer, suffix=241)
+        self.budget.customer = customer
+        self.budget.vehicle = vehicle
+        self.budget.current_km = 12000
+        self.budget.save(update_fields=["customer", "vehicle", "current_km"])
+
+        response = self.client.post(
+            reverse("workorder:update_km_final", args=[self.workorder.pk]),
+            data={"km_final": "12550"},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+        vehicle.refresh_from_db()
+        payload = json.loads(response.content)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response["Content-Type"].startswith("application/json"))
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["km_final"], 12550)
+        self.assertEqual(self.workorder.km_final, 12550)
+        self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
+        self.assertIsNone(vehicle.km)
+
+    def test_update_km_final_rejects_value_lower_than_initial_km(self) -> None:
+        customer = create_customer(workshop=self.workshop, suffix=242)
+        vehicle = create_vehicle(workshop=self.workshop, customer=customer, suffix=242)
+        self.budget.customer = customer
+        self.budget.vehicle = vehicle
+        self.budget.current_km = 12000
+        self.budget.save(update_fields=["customer", "vehicle", "current_km"])
+
+        response = self.client.post(
+            reverse("workorder:update_km_final", args=[self.workorder.pk]),
+            data={"km_final": "11999"},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+        payload = json.loads(response.content)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(response["Content-Type"].startswith("application/json"))
+        self.assertFalse(payload["ok"])
+        self.assertIn("KM inicial (12.000)", payload["errors"][0])
+        self.assertIsNone(self.workorder.km_final)
+        self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
+
     def test_payment_form_uses_pending_balance_after_discount(self) -> None:
         self.workorder.discount_value = Money("10.00", "BRL")
         self.workorder.save(update_fields=["discount_value"])
