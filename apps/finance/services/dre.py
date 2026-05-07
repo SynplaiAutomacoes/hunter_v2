@@ -10,6 +10,7 @@ from django.db.models import Q
 from apps.finance.models import FinancialGroup
 from apps.finance.models.financial_group import DreType
 from apps.finance.models.financial_movement import FinancialMovement
+from apps.workorder.models import WorkOrderPaymentMethod
 from apps.workshops.models.workshops import Workshop
 
 
@@ -69,15 +70,26 @@ def build_dre_calculation(
     )
 
     # --- Classifica movimentações por seção ---
-    gross_revenue_mvs  = [m for m in movements if m.workorder is not None]
+    gross_revenue_mvs  = [m for m in movements if m.workorder is not None or _resolve_dre_type(m) == DreType.GROSS_REVENUE]
     cogs_mvs           = [m for m in movements if m.workorder is None and _resolve_dre_type(m) == DreType.COGS]
     fin_revenue_mvs    = [m for m in movements if m.workorder is None and _resolve_dre_type(m) == DreType.FINANCIAL_REVENUE]
-    fin_expense_mvs    = [m for m in movements if m.workorder is None and _resolve_dre_type(m) == DreType.FINANCIAL_EXPENSE]
+    fin_expense_mvs = [m for m in movements if m.workorder is None and _resolve_dre_type(m) == DreType.FINANCIAL_EXPENSE]
+
+    from decimal import Decimal
+    wo_pm = WorkOrderPaymentMethod.objects.filter(workorder__workshop__in=workshops).select_related("workorder")
+    if start_date is not None: wo_pm = wo_pm.filter(due_date__gte=start_date)
+    if end_date is not None: wo_pm = wo_pm.filter(due_date__lte=end_date)
+    total_vendido_ate_a_data = sum(
+        (payment.total_paid.amount for payment in wo_pm),
+        Decimal("0.00"),
+    )
+    taxa_maquininha=FinancialMovement.objects.filter(workorder_payment__in=wo_pm, description="Pagamento da taxa da maquininha")
+    total_taxa_maquininha = _sum_movements(list(taxa_maquininha))
 
     # --- Calcula totais ---
-    gross_revenue  = _sum_movements(gross_revenue_mvs)
-    cogs           = _sum_movements(cogs_mvs)
-    gross_profit   = gross_revenue + cogs          # cogs já vem negativo (DEBIT)
+    gross_revenue  = _sum_movements(gross_revenue_mvs) + Money(total_vendido_ate_a_data, "BRL")
+    cogs           = _sum_movements(cogs_mvs) + total_taxa_maquininha
+    gross_profit   = gross_revenue + cogs
     fin_revenue    = _sum_movements(fin_revenue_mvs)
     fin_expense    = _sum_movements(fin_expense_mvs)
     op_result      = gross_profit + fin_revenue + fin_expense
