@@ -83,6 +83,7 @@ def build_dre_calculation(
         (payment.total_paid.amount for payment in wo_pm),
         Decimal("0.00"),
     )
+    taxa_maquininha=FinancialMovement.objects.filter(workorder_payment__in=wo_pm, description="Pagamento da taxa da maquininha")
 
     # --- Calcula totais ---
     gross_revenue  = _sum_movements(gross_revenue_mvs)
