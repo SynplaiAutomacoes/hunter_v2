@@ -65,6 +65,7 @@ def build_dre_calculation(
         start_date=start_date,
         end_date=end_date,
         tipo_data=tipo_data,
+        selected_financial_groups=selected_financial_groups,
     )
 
     # --- Classifica movimentações por seção ---
@@ -183,11 +184,22 @@ def _sum_movements(movements: list[FinancialMovement]) -> Money:
 # Busca de movimentações
 # ---------------------------------------------------------------------------
 
-def _fetch_movements(*, workshops: Sequence[Workshop], start_date: date, end_date: date, tipo_data: str) -> list[FinancialMovement]:
-    qs = FinancialMovement.objects.filter(
-        workshop__in=workshops,
-        due_date__gte=start_date,
-        due_date__lte=end_date,
+
+
+def _fetch_movements(*, workshops: Sequence[Workshop], start_date: date | None, end_date: date | None, tipo_data: str, selected_financial_groups: list[FinancialGroup] | None = None) -> list[FinancialMovement]:
+    qs = FinancialMovement.objects.filter(workshop__in=workshops)
+
+    if start_date is not None:
+        qs = qs.filter(due_date__gte=start_date)
+    if end_date is not None:
+        qs = qs.filter(due_date__lte=end_date)
+        
+    if selected_financial_groups:
+        budget_plan_ids = [g.pk for g in selected_financial_groups]
+        qs = qs.filter(budget_plan_id__in=budget_plan_ids)
+
+    qs = qs.filter(
+        Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT)
     )
 
     if tipo_data == "PG":
