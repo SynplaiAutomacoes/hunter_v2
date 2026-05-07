@@ -69,7 +69,7 @@ def build_dre_calculation(
     )
 
     # --- Classifica movimentações por seção ---
-    gross_revenue_mvs  = [m for m in movements if m.workorder is not None]
+    gross_revenue_mvs  = [m for m in movements if m.workorder is not None or _resolve_dre_type(m) == DreType.GROSS_REVENUE]
     cogs_mvs           = [m for m in movements if m.workorder is None and _resolve_dre_type(m) == DreType.COGS]
     fin_revenue_mvs    = [m for m in movements if m.workorder is None and _resolve_dre_type(m) == DreType.FINANCIAL_REVENUE]
     fin_expense_mvs    = [m for m in movements if m.workorder is None and _resolve_dre_type(m) == DreType.FINANCIAL_EXPENSE]
