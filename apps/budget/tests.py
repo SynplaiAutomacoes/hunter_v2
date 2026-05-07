@@ -45,6 +45,7 @@ from apps.catalog.models.services import Service
 from apps.core.documents.contract import DocumentPayload, SignatureDeliveryResult
 from apps.core.documents.signature import normalize_signature_phone_number, parse_document_signature_token
 from apps.core.documents.services import SignatureDeliveryServiceError, get_signed_document_url
+from apps.core.text_normalization import sentence_case
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.query_filters import apply_query_param_filters
 from apps.customer.models import Customer, Vehicle
@@ -1909,6 +1910,22 @@ class BudgetPdfViewTests(TestCase):
         self.assertEqual(budget_b.pdf_observation, "Nao alterar")
         self.assertEqual(self.workshop.pdf_observation, "Observacao da oficina")
 
+    def test_save_observation_accepts_more_than_250_chars(self) -> None:
+        budget = create_budget(workshop=self.workshop)
+        observation = f"observacao longa {'x' * 280}"
+
+        response = self.client.post(
+            reverse("budget:save_observation"),
+            data=json.dumps({"budget_id": budget.pk, "observation": observation}),
+            content_type="application/json",
+        )
+
+        budget.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertGreater(len(observation), 250)
+        self.assertEqual(budget.pdf_observation, sentence_case(observation))
+
 
 class BudgetStep6FormTests(TestCase):
     def test_step6_requires_both_datetime_fields(self) -> None:
@@ -2066,6 +2083,18 @@ class BudgetStep6FormTests(TestCase):
 
         self.assertIn("Observacao do orcamento", html)
         self.assertNotIn("Observacao da oficina", html)
+
+    def test_step6_observation_field_has_no_character_limit(self) -> None:
+        workshop = create_workshop(suffix=71)
+        budget = create_budget(workshop=workshop)
+
+        request = RequestFactory().get("/")
+        request.user = User.objects.create_user(username="budget-step6-user-71", password="123")
+        form = BudgetStep6Form(instance=budget, workshop=workshop, request=request)
+        html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form, "csrf_token": "token"}))
+
+        self.assertNotIn('maxlength="250"', html)
+        self.assertNotIn("/ 250", html)
 
 
 class BudgetStep6WorkflowTests(TestCase):
