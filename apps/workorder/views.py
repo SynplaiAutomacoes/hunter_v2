@@ -564,6 +564,25 @@ class UpdateWorkOrderDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View)
         )
 
 
+class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkOrder
+    workshop_permission_codename = "change_workorder"
+
+    def post(self, request, pk):
+        workorder = _get_workorder_for_workshop(self.workshop, pk)
+        approval_form = WorkOrderCustomerApprovalForm(request.POST, workorder=workorder)
+
+        if not approval_form.is_valid():
+            km_final_errors = approval_form.errors.get("km_final", [])
+            return JsonResponse({"ok": False, "errors": list(km_final_errors)}, status=400)
+
+        km_final = approval_form.cleaned_data["km_final"]
+        workorder.km_final = km_final
+        workorder.save(update_fields=["km_final"])
+
+        return JsonResponse({"ok": True, "km_final": km_final})
+
+
 class WorkOrderEditItemsModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     model = WorkOrder
     template_name = "workorder/partials/modals/modal_edit_items.html"
