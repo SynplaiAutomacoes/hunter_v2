@@ -9,13 +9,6 @@ from apps.core.models import TimeStampedModel
 from apps.workshops.models.workshops import Workshop
 
 
-class DreType(models.TextChoices):
-    GROSS_REVENUE = "gross_revenue", "Receita Bruta de Vendas e Serviços"
-    COGS = "cogs", "Custos Mercadorias Vendidas"
-    FINANCIAL_REVENUE = "financial_revenue", "Receitas Financeiras"
-    FINANCIAL_EXPENSE = "financial_expense", "Despesas Financeiras"
-
-
 class FinancialGroup(TimeStampedModel):
     SORT_SEGMENT_WIDTH = 6
     MAX_HIERARCHY_RETRIES = 5
@@ -36,7 +29,6 @@ class FinancialGroup(TimeStampedModel):
     )
     name = models.CharField(verbose_name="Nome", max_length=255)
     code = models.CharField(verbose_name="Código", max_length=255, editable=False)
-    dre_type = models.CharField(verbose_name="Tipo DRE", max_length=20, choices=DreType.choices, null=True, blank=True)
     sequence = models.PositiveIntegerField(verbose_name="Sequência", editable=False)
     level = models.PositiveIntegerField(verbose_name="Nível", editable=False)
     sort_key = models.CharField(verbose_name="Chave de ordenação", max_length=255, editable=False)
