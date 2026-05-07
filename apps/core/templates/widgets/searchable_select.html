@@ -25,6 +25,11 @@
                 }
             });
         },
+        setValue(nextValue) {
+            this.value = nextValue === null || nextValue === undefined ? '' : String(nextValue);
+            this.updateLabelFromValue();
+            this.dispatchEvents();
+        },
         dispatchEvents() {
             this.$nextTick(() => {
                 // Dispara eventos nativos para que o Django/HTMX e o pai percebam a mudança
@@ -76,7 +81,8 @@
         }
     }"
     class="relative"
-    @click.outside="closeDropdown()">
+    @click.outside="closeDropdown()"
+    @searchable-set-value="setValue($event.detail ? $event.detail.value : '')">
 
     <input
         x-ref="hiddenInput"
