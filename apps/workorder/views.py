@@ -557,7 +557,9 @@ class UpdateWorkOrderDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View)
                 "ok": True,
                 "discount_value": str(workorder.discount_value),
                 "discount_percentage": str(workorder.discount_percentage),
-                "total_budget_value": str(workorder.total_budget_value),
+                "total_budget_value": str(workorder.total_budget_value.amount),
+                "paid_value": str(sum((payment.total_paid.amount for payment in workorder.payments.all()), start=Decimal("0.00"))),
+                "pending_value": str(max(Decimal("0.00"), workorder.total_budget_value.amount - sum((payment.total_paid.amount for payment in workorder.payments.all()), start=Decimal("0.00")))),
             }
         )
 

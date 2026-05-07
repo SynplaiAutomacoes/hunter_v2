@@ -246,7 +246,7 @@ class WorkOrderPaymentForm(CoreModelForm):
                         const btnSave = formElement ? formElement.querySelector('.btn-form-save') : null;
                         const warningDiv = document.getElementById('payment-warning-workorder-js');
                         const warningMessage = warningDiv ? warningDiv.querySelector('.payment-warning-message') : null;
-                        const pendingValue = parseFloat('{pending_amount_js}') || 0;
+                        let pendingValue = parseFloat('{pending_amount_js}') || 0;
                         const todayValue = '{today_iso}';
                         const discountMoneyDisplay = document.getElementById('id_discount_value_0_display');
                         const discountMoneyHidden = document.getElementById('id_discount_value_0');
@@ -256,6 +256,12 @@ class WorkOrderPaymentForm(CoreModelForm):
                         const totalDisplay = document.getElementById('workorder-total-final-display');
                         const percentageChip = document.getElementById('workorder-discount-percentage-display');
                         const discountSaveStatus = document.getElementById('workorder-discount-save-status');
+                        const totalValueHidden = document.getElementById('id_total_value_0');
+                        const totalValueDisplay = document.getElementById('id_total_value_0_display');
+                        const paidValueHidden = document.getElementById('id_paid_value_0');
+                        const paidValueDisplay = document.getElementById('id_paid_value_0_display');
+                        const pendingValueHidden = document.getElementById('id_pending_value_0');
+                        const pendingValueDisplay = document.getElementById('id_pending_value_0_display');
                         const discountPersistUrl = '{reverse("workorder:update_discount", args=[self.workorder.pk]) if self.workorder else ""}';
                         let discountTimeout = null;
                         let discountRequestController = null;
@@ -382,7 +388,17 @@ class WorkOrderPaymentForm(CoreModelForm):
                                     if (!response.ok || !data.ok) {{
                                         throw new Error(data.error || 'Falha ao salvar desconto.');
                                     }}
+                                    const totalValue = roundCurrency(parseDotDecimal(data.total_budget_value));
+                                    const paidValue = roundCurrency(parseDotDecimal(data.paid_value));
+                                    pendingValue = roundCurrency(parseDotDecimal(data.pending_value));
+                                    if (totalValueHidden) totalValueHidden.value = totalValue.toFixed(2);
+                                    if (totalValueDisplay) totalValueDisplay.value = formatMoney(totalValue);
+                                    if (paidValueHidden) paidValueHidden.value = paidValue.toFixed(2);
+                                    if (paidValueDisplay) paidValueDisplay.value = formatMoney(paidValue);
+                                    if (pendingValueHidden) pendingValueHidden.value = pendingValue.toFixed(2);
+                                    if (pendingValueDisplay) pendingValueDisplay.value = formatMoney(pendingValue);
                                     setDiscountStatus('saved', 'Salvo');
+                                    updatePaymentPlan();
                                     window.setTimeout(() => {{
                                         if (requestId === discountRequestId) {{
                                             setDiscountStatus('idle', '');

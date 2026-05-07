@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import timedelta
+from decimal import Decimal
 from typing import Any
 
 from django.contrib.auth import get_user_model
@@ -21,7 +22,7 @@ from apps.core.templatetags.table_tags import TableColumn, render_table
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.iam.utils import get_or_create_director_role
 from apps.workshops.models.workshops import Workshop
-from apps.workorder.models import WorkOrder, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
 
 
 def create_workshop(**kwargs):
@@ -1171,6 +1172,26 @@ class DashboardMetricsTests(TestCase):
             is_paid=is_paid,
         )
 
+    def _create_workorder_payment(
+        self,
+        *,
+        workshop: Workshop,
+        amount: str,
+        due_date,
+        workorder: WorkOrder | None = None,
+    ) -> WorkOrderPaymentMethod:
+        if workorder is None:
+            budget = Budget.objects.create(workshop=workshop, entry_date=due_date)
+            workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.DRAFT)
+
+        return WorkOrderPaymentMethod.objects.create(
+            workorder=workorder,
+            first_installment_amount=Money(amount, "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=due_date,
+        )
+
     def test_dashboard_counts_open_budgets_from_all_open_statuses_even_from_previous_months(self):
         today = timezone.localdate()
         previous_month_date = today - timedelta(days=40)
@@ -1242,4 +1263,39 @@ class DashboardMetricsTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["total_os_a_receber_em_execucao"], 150)
+        self.assertContains(response, "R$ 150,00")
+
+    def test_dashboard_total_vendido_sums_workorder_payments_for_selected_month(self):
+        today = timezone.localdate()
+        previous_month_date = today - timedelta(days=40)
+
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.DRAFT)
+
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("500.00", "BRL"),
+            due_date=today,
+            is_paid=True,
+        )
+
+        self._create_workorder_payment(workshop=self.workshop, workorder=workorder, amount="100.00", due_date=today)
+        self._create_workorder_payment(workshop=self.workshop, workorder=workorder, amount="50.00", due_date=today)
+        self._create_workorder_payment(workshop=self.workshop, workorder=workorder, amount="25.00", due_date=previous_month_date)
+
+        other_workshop = Workshop.objects.create(
+            account=self.account,
+            name="Oficina Externa Pagamentos",
+            cnpj="11.222.333/0001-77",
+            phone="+5511777777777",
+            address="Rua Externa, 789",
+        )
+        self._create_workorder_payment(workshop=other_workshop, amount="300.00", due_date=today)
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["total_vendido_ate_a_data"], Decimal("150.00"))
         self.assertContains(response, "R$ 150,00")

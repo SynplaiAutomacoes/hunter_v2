@@ -17,7 +17,7 @@ from django.views.generic import TemplateView
 
 from apps.budget.models import Budget, BudgetStatus, BudgetType
 from apps.finance.models.financial_movement import FinancialMovement
-from apps.workorder.models import WorkOrder, WorkOrderStatus
+from apps.workorder.models import WorkOrderPaymentMethod, WorkOrderStatus
 import calendar
 from apps.core.favorites import FavoritePageLimitError, InvalidFavoritePageError, reorder_favorite_pages, toggle_favorite_page
 from apps.core.navigation import build_favoritable_page
@@ -218,24 +218,10 @@ def metricas_dashboard(request) -> dict[str, Any]:
     faturamento_result = FinancialMovement.objects.filter(workshop=workshop, is_paid=True, direction=FinancialMovement.MovementDirection.CREDIT, due_date__month=mes_selecionado, due_date__year=ano_selecionado, workorder__isnull=False).aggregate(total=Sum("amount"))["total"]
     faturamento_total = float(Decimal(str(getattr(faturamento_result, "amount", faturamento_result) or "0.00")))
 
-    movements_os = FinancialMovement.objects.filter(
-        workshop=workshop, 
-        is_paid=True, 
-        direction=FinancialMovement.MovementDirection.CREDIT, 
-        due_date__month=mes_selecionado, 
-        due_date__year=ano_selecionado, 
-        workorder__isnull=False
-    ).select_related("workorder").prefetch_related("workorder__payments")
-
-    for movement in movements_os:
-        amount_total = float(Decimal(str(getattr(movement.amount, "amount", movement.amount) or "0.00")))
-        total_paid = sum(
-            (float(Decimal(str(getattr(payment.total_paid, "amount", payment.total_paid) or "0.00"))) 
-             for payment in movement.workorder.payments.all()),
-            0.0
-        )
-        if amount_total > total_paid:
-            faturamento_total -= (amount_total - total_paid)
+    total_vendido_ate_a_data = sum(
+        (payment.total_paid.amount for payment in WorkOrderPaymentMethod.objects.filter(workorder__workshop=workshop, due_date__month=mes_selecionado, due_date__year=ano_selecionado).select_related("workorder")),
+        Decimal("0.00"),
+    )
     dias_transcorridos = FinancialMovement.objects.filter(workshop=workshop, direction=FinancialMovement.MovementDirection.CREDIT, due_date__month=mes_selecionado, due_date__year=ano_selecionado, workorder__isnull=False).values("due_date").distinct().count()
 
     _, dias_no_mes = calendar.monthrange(ano_selecionado, mes_selecionado)
@@ -254,21 +240,7 @@ def metricas_dashboard(request) -> dict[str, Any]:
     qtd_orcamentos_criados = orcamentos_base.count()
     qtd_orcamentos_aprovados = orcamentos_base.filter(status=BudgetStatus.APPROVED).count()
 
-    workorders_em_execucao = WorkOrder.objects.filter(
-        workshop=workshop,
-        status=WorkOrderStatus.DRAFT
-    ).select_related("budget").prefetch_related(
-        "items",
-        "items__kit_overrides",
-        "items__kit__kit_products",
-        "items__kit__kit_services"
-    )
-
-    budgets_aguardando_base = Budget.objects.filter(
-        workshop=workshop,
-        budget_type=BudgetType.SALE,
-        status__in=OPEN_BUDGET_STATUSES
-    ).prefetch_related("items", "items__kit_overrides", "items__kit__kit_products", "items__kit__kit_services")
+    budgets_aguardando_base = Budget.objects.filter(workshop=workshop, budget_type=BudgetType.SALE, status__in=OPEN_BUDGET_STATUSES).prefetch_related("items", "items__kit_overrides", "items__kit__kit_products", "items__kit__kit_services")
 
     orcamentos_reprovados = Budget.objects.filter(workshop=workshop, status=BudgetStatus.REJECTED, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado)
 
@@ -276,7 +248,6 @@ def metricas_dashboard(request) -> dict[str, Any]:
     qtd_carros_mes: int = Budget.objects.filter(workshop=workshop, status__in=[BudgetStatus.APPROVED], entry_date__month=mes_selecionado, entry_date__year=ano_selecionado).exclude(reference_budget__isnull=False).count()
     ticket_medio = faturamento_total / qtd_carros_mes if qtd_carros_mes > 0 else 0
     projecao = ((faturamento_total / dias_transcorridos) * dias_faltantes) + faturamento_total if dias_transcorridos > 0 else faturamento_total
-    total_vendido_ate_a_data = faturamento_total
     rentabilidade_acumulada_mes = sum(rentabilidades) / len(rentabilidades) if rentabilidades else 0
     indice_retorno_em_garantia_mes = (qtd_garantias_mes / qtd_veiculos_mes) * 100 if qtd_veiculos_mes > 0 else 0
     taxa_aprovacao = (qtd_orcamentos_aprovados / qtd_orcamentos_criados) * 100 if qtd_orcamentos_criados > 0 else 0
@@ -284,17 +255,24 @@ def metricas_dashboard(request) -> dict[str, Any]:
     # Financeiro (R$)
 
     ## Geral
-    total_valor_os_geral = sum((wo.total_budget_value.amount for wo in workorders_em_execucao), Decimal("0.00"))
-    total_pago_os_geral_result = FinancialMovement.objects.filter(workshop=workshop, workorder__in=workorders_em_execucao, is_paid=True, direction=FinancialMovement.MovementDirection.CREDIT).aggregate(total=Sum("amount"))["total"]
-    total_pago_os_geral = getattr(total_pago_os_geral_result, "amount", total_pago_os_geral_result) or Decimal("0.00")
-    total_geral_os_a_receber_em_execucao = total_valor_os_geral - total_pago_os_geral
+    total_geral_os_a_receber_em_execucao_result = FinancialMovement.objects.filter(
+        workshop=workshop,
+        direction=FinancialMovement.MovementDirection.CREDIT,
+        is_paid=False,
+        workorder__status=WorkOrderStatus.DRAFT,
+    ).aggregate(total=Sum("amount"))["total"]
+    total_geral_os_a_receber_em_execucao = getattr(total_geral_os_a_receber_em_execucao_result, "amount", total_geral_os_a_receber_em_execucao_result) or Decimal("0.00")
 
     ## Mensal
-    workorders_mensal = workorders_em_execucao.filter(criado_em__month=mes_selecionado, criado_em__year=ano_selecionado)
-    total_valor_os_mensal = sum((wo.total_budget_value.amount for wo in workorders_mensal), Decimal("0.00"))
-    total_pago_os_mensal_result = FinancialMovement.objects.filter(workshop=workshop, workorder__in=workorders_mensal, is_paid=True, direction=FinancialMovement.MovementDirection.CREDIT).aggregate(total=Sum("amount"))["total"]
-    total_pago_os_mensal = getattr(total_pago_os_mensal_result, "amount", total_pago_os_mensal_result) or Decimal("0.00")
-    total_mensal_os_a_receber_em_execucao = total_valor_os_mensal - total_pago_os_mensal
+    total_mensal_os_a_receber_em_execucao_result = FinancialMovement.objects.filter(
+        workshop=workshop,
+        direction=FinancialMovement.MovementDirection.CREDIT,
+        is_paid=False,
+        workorder__status=WorkOrderStatus.DRAFT,
+        due_date__month=mes_selecionado,
+        due_date__year=ano_selecionado,
+    ).aggregate(total=Sum("amount"))["total"]
+    total_mensal_os_a_receber_em_execucao = getattr(total_mensal_os_a_receber_em_execucao_result, "amount", total_mensal_os_a_receber_em_execucao_result) or Decimal("0.00")
 
     total_meses_anteriores_os_a_receber_em_execucao = total_geral_os_a_receber_em_execucao - total_mensal_os_a_receber_em_execucao
 
@@ -318,6 +296,8 @@ def metricas_dashboard(request) -> dict[str, Any]:
         "rentabilidade_acumulada_mes": rentabilidade_acumulada_mes,
         "indice_retorno_em_garantia_mes": indice_retorno_em_garantia_mes,
         "taxa_aprovacao": taxa_aprovacao,
+        "total_os_a_receber_em_execucao": total_geral_os_a_receber_em_execucao,
+        "total_orcamentos_aguardando_aprovacao": total_geral_orcamentos_aguardando_aprovacao,
         "total_mensal_os_a_receber_em_execucao": total_mensal_os_a_receber_em_execucao,
         "total_geral_os_a_receber_em_execucao": total_geral_os_a_receber_em_execucao,
         "total_meses_anteriores_os_a_receber_em_execucao": total_meses_anteriores_os_a_receber_em_execucao,
