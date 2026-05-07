@@ -343,23 +343,17 @@ class AppointmentForm(CoreModelForm):
                         if (!input || value === null || value === undefined || value === '') return;
 
                         const normalizedValue = options.uppercase ? String(value).toUpperCase() : String(value);
-                        input.value = normalizedValue;
 
                         const widgetContainer = input.closest('[x-data]');
-                        if (widgetContainer && window.Alpine) {
-                            try {
-                                const widgetData = Alpine.$data(widgetContainer);
-                                if (widgetData && Object.prototype.hasOwnProperty.call(widgetData, 'value')) {
-                                    widgetData.value = normalizedValue;
-                                    if (typeof widgetData.updateLabelFromValue === 'function') {
-                                        widgetData.updateLabelFromValue();
-                                    }
-                                }
-                            } catch (syncError) {
-                                console.warn('Erro ao sincronizar campo com select customizado:', syncError);
-                            }
+                        if (widgetContainer) {
+                            widgetContainer.dispatchEvent(new CustomEvent('searchable-set-value', {
+                                detail: { value: normalizedValue },
+                                bubbles: true,
+                            }));
+                            return;
                         }
 
+                        input.value = normalizedValue;
                         input.dispatchEvent(new Event('input', { bubbles: true }));
                         input.dispatchEvent(new Event('change', { bubbles: true }));
                     }
