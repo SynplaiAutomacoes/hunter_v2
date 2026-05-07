@@ -1,310 +1,303 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
-import unicodedata
-from typing import Any, Sequence
+from typing import Sequence
 
-from django.db.models import Q
 from djmoney.money import Money
 
 from apps.finance.models import FinancialGroup
+from apps.finance.models.financial_group import DreType
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.workshops.models.workshops import Workshop
 
 
-_ZERO_MONEY = Money("0.00", "BRL")
+# ---------------------------------------------------------------------------
+# Constantes
+# ---------------------------------------------------------------------------
 
+_ZERO = Money("0.00", "BRL")
+
+# Chaves de componente usadas no template (row.component)
+COMP_GROSS_REVENUE = "gross_revenue"
+COMP_COGS = "cogs"
+COMP_GROSS_PROFIT = "gross_profit"
+COMP_FINANCIAL_REVENUE = "financial_revenue"
+COMP_FINANCIAL_EXPENSE = "financial_expense"
+COMP_OPERATING_RESULT = "operating_result"
+
+_VALID_TIPO_DATA = {"PG", "NPG", "A"}
+
+
+# ---------------------------------------------------------------------------
+# Resultado público
+# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class DreCalculationResult:
-    rows: list[dict[str, object]]
-    summary_cards: list[dict[str, object]]
+    rows: list[dict]
+    summary_cards: list[dict]
 
 
-_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS = "gross_revenue"
-_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS = "cogs"
-_ROW_COMPONENT_RECEITA_BRUTA_DE_VENDAS = "receita_bruta_de_vendas"
-_ROW_COMPONENT_RECEITAS_FINANCEIRAS = "financial_revenue"
-_ROW_COMPONENT_DESPESAS_FINANCEIRAS = "financial_expense"
-_ROW_COMPONENT_RESULTADO_OPERACIONAL = "resultado_operacional"
-_SOURCE_ROW_COMPONENTS = (
-    _ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS, _ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS,
-    _ROW_COMPONENT_RECEITAS_FINANCEIRAS, _ROW_COMPONENT_DESPESAS_FINANCEIRAS,
-)
-_VALID_TIPO_DATA_VALUES = {"PG", "NPG", "A"}
+# ---------------------------------------------------------------------------
+# Ponto de entrada
+# ---------------------------------------------------------------------------
 
+def build_dre_calculation(
+    *,
+    workshops: Sequence[Workshop],
+    start_date: date | None,
+    end_date: date | None,
+    tipo_data: str = "A",
+    selected_financial_groups: list[FinancialGroup] | None = None,
+) -> DreCalculationResult:
+    """Calcula a DRE e retorna as linhas e cards de resumo."""
 
-def build_dre_calculation(*, workshops: Sequence[Workshop], start_date: date | None, end_date: date | None, tipo_data: str = "A", selected_financial_groups: list[FinancialGroup] | None = None) -> DreCalculationResult:
     if not workshops or start_date is None or end_date is None or start_date > end_date:
-        return DreCalculationResult(rows=_build_rows(), summary_cards=_build_summary_cards())
+        return _empty_result()
 
-    tipo_data = str(tipo_data or "A").strip().upper()
-    if tipo_data not in _VALID_TIPO_DATA_VALUES:
-        tipo_data = "A"
+    tipo_data = _normalize_tipo_data(tipo_data)
+    include_workshop_ref = len(list(workshops)) > 1
 
-    queryset = FinancialMovement.objects.filter(workshop__in=workshops, due_date__gte=start_date, due_date__lte=end_date)
+    movements = _fetch_movements(
+        workshops=workshops,
+        start_date=start_date,
+        end_date=end_date,
+        tipo_data=tipo_data,
+    )
+
+    # --- Classifica movimentações por seção ---
+    gross_revenue_mvs  = [m for m in movements if m.workorder_id is not None]
+    cogs_mvs           = [m for m in movements if m.workorder_id is None and _resolve_dre_type(m) == DreType.COGS]
+    fin_revenue_mvs    = [m for m in movements if m.workorder_id is None and _resolve_dre_type(m) == DreType.FINANCIAL_REVENUE]
+    fin_expense_mvs    = [m for m in movements if m.workorder_id is None and _resolve_dre_type(m) == DreType.FINANCIAL_EXPENSE]
+    print(f"gross_revenue_mvs: {gross_revenue_mvs}")
+    print(f"cogs_mvs: {cogs_mvs}")
+    print(f"fin_revenue_mvs: {fin_revenue_mvs}")
+    print(f"fin_expense_mvs: {fin_expense_mvs}")
+
+    # --- Calcula totais ---
+    gross_revenue  = _sum_movements(gross_revenue_mvs)
+    cogs           = _sum_movements(cogs_mvs)
+    gross_profit   = gross_revenue + cogs          # cogs já vem negativo (DEBIT)
+    fin_revenue    = _sum_movements(fin_revenue_mvs)
+    fin_expense    = _sum_movements(fin_expense_mvs)
+    op_result      = gross_profit + fin_revenue + fin_expense
+
+    # --- Monta detalhes de cada seção ---
+    def details(mvs: list[FinancialMovement]) -> list[dict]:
+        return [_build_detail(m, include_workshop_ref) for m in mvs]
+
+    rows = [
+        _row(
+            label="Receita Bruta de Vendas e Serviços",
+            amount=gross_revenue,
+            tone="positive",
+            component=COMP_GROSS_REVENUE,
+            detail_kind="financial_entries",
+            is_expandable=True,
+            details=details(gross_revenue_mvs),
+        ),
+        _row(
+            label="Custos Mercadorias Vendidas",
+            amount=cogs,
+            tone="negative",
+            component=COMP_COGS,
+            detail_kind="financial_entries",
+            is_expandable=True,
+            details=details(cogs_mvs),
+        ),
+        _row(
+            label="(=) Receita Bruta de Vendas",
+            amount=gross_profit,
+            tone="highlight",
+            component=COMP_GROSS_PROFIT,
+            formula="Receita Bruta de Vendas e Serviços + Custos Mercadorias Vendidas",
+        ),
+        _row(
+            label="Receitas Financeiras",
+            amount=fin_revenue,
+            tone="positive",
+            component=COMP_FINANCIAL_REVENUE,
+            detail_kind="financial_entries",
+            is_expandable=True,
+            details=details(fin_revenue_mvs),
+        ),
+        _row(
+            label="Despesas Financeiras",
+            amount=fin_expense,
+            tone="negative",
+            component=COMP_FINANCIAL_EXPENSE,
+            detail_kind="financial_entries",
+            is_expandable=True,
+            details=details(fin_expense_mvs),
+        ),
+        _row(
+            label="(=) Resultado Operacional",
+            amount=op_result,
+            tone="result",
+            component=COMP_OPERATING_RESULT,
+            formula="Receita Bruta de Vendas + Receitas Financeiras + Despesas Financeiras",
+        ),
+    ]
+
+    summary_cards = [
+        {"label": "Receita Bruta de Vendas", "amount": gross_profit, "accent": "text-sky-700"},
+        {"label": "Resultado Operacional",   "amount": op_result,    "accent": "text-amber-700"},
+    ]
+
+    return DreCalculationResult(rows=rows, summary_cards=summary_cards)
+
+# ---------------------------------------------------------------------------
+
+def _resolve_dre_type(m: FinancialMovement) -> str | None:
+    """Sobe na hierarquia do budget_plan até encontrar um dre_type."""
+    group = getattr(m, "budget_plan", None)
+    while group is not None:
+        if group.dre_type:
+            return group.dre_type
+        group = group.parent if group.parent_id else None
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Cálculo monetário
+# ---------------------------------------------------------------------------
+
+def _sum_movements(movements: list[FinancialMovement]) -> Money:
+    """Soma amounts respeitando a direção (CREDIT soma, DEBIT subtrai)."""
+    total = _ZERO
+    for m in movements:
+        amount = m.amount
+        if not isinstance(amount, Money):
+            continue
+        if m.direction == FinancialMovement.MovementDirection.DEBIT:
+            total -= amount
+        else:
+            total += amount
+    return total
+
+
+# ---------------------------------------------------------------------------
+# Busca de movimentações
+# ---------------------------------------------------------------------------
+
+def _fetch_movements(*, workshops: Sequence[Workshop], start_date: date, end_date: date, tipo_data: str) -> list[FinancialMovement]:
+    qs = FinancialMovement.objects.filter(
+        workshop__in=workshops,
+        due_date__gte=start_date,
+        due_date__lte=end_date,
+    )
+
+    for i in qs:
+        print(f"i: {i} | budget_plan: {i.budget_plan if i.budget_plan else None} | dre_type: {i.budget_plan.dre_type if i.budget_plan and i.budget_plan.dre_type else None}")
 
     if tipo_data == "PG":
-        queryset = queryset.filter(is_paid=True)
+        qs = qs.filter(is_paid=True)
     elif tipo_data == "NPG":
-        queryset = queryset.filter(is_paid=False)
+        qs = qs.filter(is_paid=False)
 
-    financial_movements = list(queryset.select_related("payment_method", "source", "workshop", "workorder", "budget_plan", "budget_plan__parent", "budget_plan__parent__parent").order_by("due_date", "criado_em", "pk"))
-
-    movements_by_topic: dict[str, list[FinancialMovement]] = {
-        component: []
-        for component in _SOURCE_ROW_COMPONENTS
-    }
-
-    for movement in financial_movements:
-        component: str | None = None
-
-        budget_plan = getattr(movement, "budget_plan", None)
-
-        while budget_plan is not None:
-            dre_type = getattr(budget_plan, "dre_type", None)
-
-            if dre_type:
-                component = dre_type
-                break
-
-            budget_plan = getattr(budget_plan, "parent", None)
-
-        if component is None:
-            movement_kind = getattr(movement, "movement_kind", None)
-
-            if movement_kind == FinancialMovement.MovementKind.WORKORDER_PAREN:
-                component = _ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS
-            elif getattr(movement, "workorder", None) is not None:
-                component = _ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS
-
-        if component is None:
-            continue
-
-        movements_by_topic[component].append(movement)
-
-    all_amounts: dict[str, Money] = {}
-
-    for component in _SOURCE_ROW_COMPONENTS:
-        total = _ZERO_MONEY
-
-        for movement in movements_by_topic.get(component, []):
-            amount = getattr(movement, "amount", None)
-
-            if not isinstance(amount, Money):
-                continue
-
-            if movement.direction == FinancialMovement.MovementDirection.DEBIT:
-                total -= amount
-            else:
-                total += amount
-
-        all_amounts[component] = total
-
-    visible_components = {str(component) for component in _SOURCE_ROW_COMPONENTS}
-
-    if selected_financial_groups:
-        visible_components = set()
-
-        for group in selected_financial_groups:
-            current_group = group
-
-            while current_group is not None:
-                if current_group.dre_type:
-                    visible_components.add(current_group.dre_type)
-                    break
-
-                current_group = current_group.parent
-
-    visible_amounts = {key: amount if key in visible_components else _ZERO_MONEY for key, amount in all_amounts.items()}
-    receita_bruta_de_vendas = visible_amounts[_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS] + visible_amounts[_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS]
-    resultado_operacional = receita_bruta_de_vendas + visible_amounts[_ROW_COMPONENT_RECEITAS_FINANCEIRAS] + visible_amounts[_ROW_COMPONENT_DESPESAS_FINANCEIRAS]
-
-    row_details: dict[str, list[dict[str, object]]] = {}
-
-    for component in _SOURCE_ROW_COMPONENTS:
-        if component not in visible_components:
-            continue
-
-        topic_movements = movements_by_topic.get(component, [])
-
-        if not topic_movements:
-            continue
-
-        row_details[component] = [
-            _build_financial_movement_detail(
-                movement=movement,
-                include_workshop_reference=len(workshops) > 1,
-            )
-            for movement in topic_movements
-        ]
-
-    rows = _build_rows(
-        receita_bruta_vendas_e_servicos=visible_amounts[_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS],
-        custos_mercadorias_vendidas=visible_amounts[_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS],
-        receita_bruta_de_vendas=receita_bruta_de_vendas,
-        receitas_financeiras=visible_amounts[_ROW_COMPONENT_RECEITAS_FINANCEIRAS],
-        despesas_financeiras=visible_amounts[_ROW_COMPONENT_DESPESAS_FINANCEIRAS],
-        resultado_operacional=resultado_operacional,
-        row_details=row_details,
-    )
-
-    return DreCalculationResult(
-        rows=rows,
-        summary_cards=_build_summary_cards(
-            receita_bruta_de_vendas=receita_bruta_de_vendas,
-            resultado_operacional=resultado_operacional,
-        ),
+    return list(
+        qs.select_related(
+            "payment_method",
+            "source",
+            "workshop",
+            "workorder",
+            "workorder__budget",
+            "workorder__budget__customer",
+            "budget_plan",
+            "budget_plan__parent",
+            "budget_plan__parent__parent",
+        ).order_by("due_date", "criado_em", "pk")
     )
 
 
-def _build_rows(*, receita_bruta_vendas_e_servicos: Money = _ZERO_MONEY, custos_mercadorias_vendidas: Money = _ZERO_MONEY, receita_bruta_de_vendas: Money = _ZERO_MONEY, receitas_financeiras: Money = _ZERO_MONEY, despesas_financeiras: Money = _ZERO_MONEY, resultado_operacional: Money = _ZERO_MONEY, row_details: dict[str, list[dict[str, object]]] | None = None) -> list[dict[str, object]]:
-    details = row_details or {}
+# ---------------------------------------------------------------------------
+# Construtores de detalhe e linha
+# ---------------------------------------------------------------------------
 
-    return [
-        {
-            "label": "Receita Bruta de Vendas e Serviços",
-            "amount": receita_bruta_vendas_e_servicos,
-            "tone": "positive",
-            "component": _ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS,
-            "detail_kind": "financial_entries",
-            "is_expandable": True,
-            "details": details.get(
-                _ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS,
-                [],
-            ),
-        },
-        {
-            "label": "Custos Mercadorias Vendidas",
-            "amount": custos_mercadorias_vendidas,
-            "tone": "negative",
-            "component": _ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS,
-            "detail_kind": "financial_entries",
-            "is_expandable": True,
-            "details": details.get(
-                _ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS,
-                [],
-            ),
-        },
-        {
-            "label": "(=) Receita Bruta de Vendas",
-            "amount": receita_bruta_de_vendas,
-            "tone": "highlight",
-            "formula": (
-                "Receita Bruta de Vendas e Serviços + "
-                "Custos Mercadorias Vendidas"
-            ),
-            "component": _ROW_COMPONENT_RECEITA_BRUTA_DE_VENDAS,
-            "detail_kind": "components",
-            "details": details.get(
-                _ROW_COMPONENT_RECEITA_BRUTA_DE_VENDAS,
-                [],
-            ),
-        },
-        {
-            "label": "Receitas Financeiras",
-            "amount": receitas_financeiras,
-            "tone": "positive",
-            "component": _ROW_COMPONENT_RECEITAS_FINANCEIRAS,
-            "detail_kind": "financial_entries",
-            "is_expandable": True,
-            "details": details.get(
-                _ROW_COMPONENT_RECEITAS_FINANCEIRAS,
-                [],
-            ),
-        },
-        {
-            "label": "Despesas Financeiras",
-            "amount": despesas_financeiras,
-            "tone": "negative",
-            "component": _ROW_COMPONENT_DESPESAS_FINANCEIRAS,
-            "detail_kind": "financial_entries",
-            "is_expandable": True,
-            "details": details.get(
-                _ROW_COMPONENT_DESPESAS_FINANCEIRAS,
-                [],
-            ),
-        },
-        {
-            "label": "(=) Resultado Operacional",
-            "amount": resultado_operacional,
-            "tone": "result",
-            "formula": (
-                "Receita Bruta de Vendas + "
-                "Receitas Financeiras + "
-                "Despesas Financeiras"
-            ),
-            "component": _ROW_COMPONENT_RESULTADO_OPERACIONAL,
-            "detail_kind": "components",
-            "details": details.get(
-                _ROW_COMPONENT_RESULTADO_OPERACIONAL,
-                [],
-            ),
-        },
-    ]
-
-
-def _build_summary_cards(*, receita_bruta_de_vendas: Money = _ZERO_MONEY, resultado_operacional: Money = _ZERO_MONEY) -> list[dict[str, object]]:
-    return [
-        {"label": "Receita Bruta de Vendas", "amount": receita_bruta_de_vendas, "accent": "text-sky-700"},
-        {"label": "Resultado Operacional", "amount": resultado_operacional, "accent": "text-amber-700"},
-    ]
-
-
-def _build_financial_movement_detail(*, movement: FinancialMovement, include_workshop_reference: bool) -> dict[str, object]:
-    description = str(getattr(movement, "description", "") or "").strip()
-
-    if description:
-        summary = description
-    else:
-        source = getattr(movement, "source", None)
-        summary = str(source.name) if source is not None else "-"
+def _build_detail(m: FinancialMovement, include_workshop_ref: bool) -> dict:
+    """Monta o dicionário de detalhe de uma movimentação para o template."""
+    summary = str(m.description or "").strip() or _agent_label(m)
 
     reference_parts: list[str] = []
+    if include_workshop_ref and m.workshop_id:
+        reference_parts.append(f"Filial: {m.workshop.name}")
+    if m.source_id:
+        reference_parts.append(f"Origem: {m.source.name}")
+    if m.nf_number:
+        reference_parts.append(f"NF: {m.nf_number}")
+    if m.payment_method_id:
+        reference_parts.append(f"Pagamento: {m.payment_method}")
 
-    if include_workshop_reference:
-        workshop = getattr(movement, "workshop", None)
-        workshop_name = getattr(workshop, "name", None)
-
-        if workshop_name:
-            reference_parts.append(f"Filial: {workshop_name}")
-
-    source = getattr(movement, "source", None)
-    source_name = getattr(source, "name", None)
-
-    if source_name:
-        reference_parts.append(f"Origem: {source_name}")
-
-    nf_number = str(getattr(movement, "nf_number", "") or "").strip()
-
-    if nf_number:
-        reference_parts.append(f"NF: {nf_number}")
-
-    payment_method = getattr(movement, "payment_method", None)
-
-    if payment_method is not None:
-        reference_parts.append(f"Pagamento: {payment_method}")
-
-    if movement.due_date is not None:
-        payment_date = movement.due_date
-    else:
-        workorder = getattr(movement, "workorder", None)
-        workorder_created_at = getattr(workorder, "criado_em", None)
-
-        if workorder_created_at is not None:
-            payment_date = workorder_created_at.date()
-        else:
-            created_at = getattr(movement, "criado_em", None)
-            payment_date = created_at.date() if created_at is not None else None
-
-    created_at = getattr(movement, "criado_em", None)
+    created_at = getattr(m, "criado_em", None)
 
     return {
-        "movement": movement,
+        "movement": m,
         "summary": summary,
         "reference": " | ".join(reference_parts) or "-",
-        "entry_date": created_at.date() if created_at is not None else None,
-        "payment_date": payment_date,
-        "amount": movement.amount,
+        "entry_date": created_at.date() if created_at else None,
+        "payment_date": m.due_date,
+        "amount": m.amount,
     }
+
+
+def _agent_label(m: FinancialMovement) -> str:
+    if m.workorder_id:
+        budget = getattr(getattr(m, "workorder", None), "budget", None)
+        customer = getattr(budget, "customer", None)
+        pk = getattr(budget, "pk", "-")
+        name = getattr(customer, "name", "-") or "-"
+        return f"O.S #{pk} - {name}"
+    if m.collaborator_id:
+        return str(m.collaborator.name)
+    if m.supplier_id:
+        return str(m.supplier.name)
+    if m.source_id:
+        return str(m.source.name)
+    return "-"
+
+
+def _row(
+    *,
+    label: str,
+    amount: Money,
+    tone: str,
+    component: str,
+    detail_kind: str = "components",
+    formula: str | None = None,
+    is_expandable: bool = False,
+    details: list[dict] | None = None,
+) -> dict:
+    return {
+        "label": label,
+        "amount": amount,
+        "tone": tone,
+        "component": component,
+        "detail_kind": detail_kind,
+        "formula": formula,
+        "is_expandable": is_expandable,
+        "details": details or [],
+    }
+
+
+def _empty_result() -> DreCalculationResult:
+    return DreCalculationResult(
+        rows=[
+            _row(label="Receita Bruta de Vendas e Serviços", amount=_ZERO, tone="positive",  component=COMP_GROSS_REVENUE,     detail_kind="financial_entries", is_expandable=True),
+            _row(label="Custos Mercadorias Vendidas",         amount=_ZERO, tone="negative",  component=COMP_COGS,              detail_kind="financial_entries", is_expandable=True),
+            _row(label="(=) Receita Bruta de Vendas",         amount=_ZERO, tone="highlight", component=COMP_GROSS_PROFIT,      formula="Receita Bruta de Vendas e Serviços + Custos Mercadorias Vendidas"),
+            _row(label="Receitas Financeiras",                amount=_ZERO, tone="positive",  component=COMP_FINANCIAL_REVENUE, detail_kind="financial_entries", is_expandable=True),
+            _row(label="Despesas Financeiras",                amount=_ZERO, tone="negative",  component=COMP_FINANCIAL_EXPENSE, detail_kind="financial_entries", is_expandable=True),
+            _row(label="(=) Resultado Operacional",           amount=_ZERO, tone="result",    component=COMP_OPERATING_RESULT,  formula="Receita Bruta de Vendas + Receitas Financeiras + Despesas Financeiras"),
+        ],
+        summary_cards=[
+            {"label": "Receita Bruta de Vendas", "amount": _ZERO, "accent": "text-sky-700"},
+            {"label": "Resultado Operacional",   "amount": _ZERO, "accent": "text-amber-700"},
+        ],
+    )
+
+
+def _normalize_tipo_data(value: str) -> str:
+    normalized = str(value or "A").strip().upper()
+    return normalized if normalized in _VALID_TIPO_DATA else "A"
