@@ -221,24 +221,6 @@ def metricas_dashboard(request) -> dict[str, Any]:
 
     pagamentos_total_vendido = list(WorkOrderPaymentMethod.objects.filter(workorder__workshop=workshop, due_date__month=mes_selecionado, due_date__year=ano_selecionado).select_related("workorder").order_by("due_date", "pk"))
     total_vendido_ate_a_data = sum((payment.total_paid.amount for payment in pagamentos_total_vendido), Decimal("0.00"))
-    logger.info(
-        "Dashboard total vendido calculado",
-        extra={
-            "workshop_id": workshop.pk,
-            "mes": mes_selecionado,
-            "ano": ano_selecionado,
-            "total_vendido": str(total_vendido_ate_a_data),
-            "pagamentos": [
-                {
-                    "payment_id": payment.pk,
-                    "workorder_id": payment.workorder.pk,
-                    "due_date": payment.due_date.isoformat() if payment.due_date else None,
-                    "total_paid": str(payment.total_paid.amount),
-                }
-                for payment in pagamentos_total_vendido
-            ],
-        },
-    )
     dias_transcorridos = FinancialMovement.objects.filter(workshop=workshop, direction=FinancialMovement.MovementDirection.CREDIT, due_date__month=mes_selecionado, due_date__year=ano_selecionado, workorder__isnull=False).values("due_date").distinct().count()
 
     _, dias_no_mes = calendar.monthrange(ano_selecionado, mes_selecionado)
