@@ -22,8 +22,8 @@ from apps.finance.models.payment_method import PaymentMethod
 
 
 class WorkOrderStatus(models.TextChoices):
-    DRAFT = "draft", "Em Aberto"
-    APPROVED = "approved", "Aprovado"
+    DRAFT = "draft", "Aprovado"
+    APPROVED = "approved", "Veículo Entregue"
     REJECTED = "rejected", "Rejeitado"
     CANCELLED = "cancelled", "Cancelado"
 
@@ -496,7 +496,7 @@ class WorkOrder(TimeStampedModel):
         verbose_name_plural = "Ordens de Serviço"
 
     def __str__(self):
-        return f"OS #{self.id}"
+        return f"OS #{self.id} | Budget #{self.budget.id}"
 
 
 class WorkOrderPaymentMethod(TimeStampedModel):

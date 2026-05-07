@@ -2032,6 +2032,24 @@ class BudgetStep6FormTests(TestCase):
         self.assertIn("signatureBlocked: false", html)
         self.assertIn(f"onclick=\"updateBudgetStatus({budget.pk}, 'approve')\"", html)
 
+    def test_step6_blocks_only_approval_when_review_dates_are_missing(self) -> None:
+        workshop = create_workshop(suffix=70)
+        budget = create_budget(workshop=workshop)
+        budget.customer_agreed_departure_at = timezone.now()
+        budget.service_expected_completion_at = budget.customer_agreed_departure_at + timedelta(days=1)
+        budget.save(update_fields=["customer_agreed_departure_at", "service_expected_completion_at"])
+
+        request = RequestFactory().get("/")
+        request.user = User.objects.create_user(username="budget-step6-user-70", password="123")
+        form = BudgetStep6Form(instance=budget, workshop=workshop, request=request)
+        html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form, "csrf_token": "token"}))
+
+        self.assertIn(Budget.STEP6_DATE_ORDER_ERROR_MESSAGE, html)
+        self.assertIn("showBlockedStep6Action", html)
+        self.assertIn(f"onclick=\"updateBudgetStatus({budget.pk}, 'cancel')\"", html)
+        self.assertIn(f"onclick=\"updateBudgetStatus({budget.pk}, 'reject')\"", html)
+        self.assertIn("signatureBlocked: false", html)
+
     def test_step6_service_table_keeps_kit_services_out_of_direct_service_rows(self) -> None:
         workshop = create_workshop(suffix=66)
         budget = create_budget(workshop=workshop)
@@ -2105,19 +2123,43 @@ class BudgetStep6WorkflowTests(TestCase):
         self.assertIsNotNone(self.budget.customer_agreed_departure_at)
         self.assertIsNotNone(self.budget.service_expected_completion_at)
 
-    def test_update_budget_status_blocks_cancel_when_step6_dates_are_missing(self) -> None:
+    def test_update_budget_status_allows_cancel_when_step6_dates_are_missing(self) -> None:
         self.budget.customer_agreed_departure_at = None
         self.budget.service_expected_completion_at = None
         self.budget.save(update_fields=["customer_agreed_departure_at", "service_expected_completion_at"])
 
         response = self.client.post(reverse("budget:update_budget_status", args=[self.budget.pk, "cancel"]))
 
+        self.assertEqual(response.status_code, 200)
+        self.assertJSONEqual(response.content, {"success": True})
+        self.budget.refresh_from_db()
+        self.assertEqual(self.budget.status, BudgetStatus.CANCELLED)
+
+    def test_update_budget_status_allows_reject_when_step6_dates_are_missing(self) -> None:
+        self.budget.customer_agreed_departure_at = None
+        self.budget.service_expected_completion_at = None
+        self.budget.save(update_fields=["customer_agreed_departure_at", "service_expected_completion_at"])
+
+        response = self.client.post(reverse("budget:update_budget_status", args=[self.budget.pk, "reject"]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertJSONEqual(response.content, {"success": True})
+        self.budget.refresh_from_db()
+        self.assertEqual(self.budget.status, BudgetStatus.REJECTED)
+
+    def test_update_budget_status_blocks_approve_when_step6_dates_are_missing(self) -> None:
+        self.budget.customer_agreed_departure_at = None
+        self.budget.service_expected_completion_at = None
+        self.budget.save(update_fields=["customer_agreed_departure_at", "service_expected_completion_at"])
+
+        response = self.client.post(reverse("budget:update_budget_status", args=[self.budget.pk, "approve"]))
+
         self.assertEqual(response.status_code, 400)
         self.assertJSONEqual(
             response.content,
             {
                 "success": False,
-                "error": f"{Budget.CUSTOMER_AGREED_DEPARTURE_REQUIRED_MESSAGE} {Budget.SERVICE_EXPECTED_COMPLETION_REQUIRED_MESSAGE}",
+                "error": f"Nao e possivel aprovar. {Budget.CUSTOMER_AGREED_DEPARTURE_REQUIRED_MESSAGE} {Budget.SERVICE_EXPECTED_COMPLETION_REQUIRED_MESSAGE}",
             },
         )
 
@@ -2197,6 +2239,29 @@ class BudgetProductIssueTests(TestCase):
         send_signature_mock.return_value = SignatureDeliveryResult(
             envelope_id="env-68",
             document_id="doc-68",
+            provider="supersign",
+            raw_response={"ok": True},
+        )
+
+        toast_type, toast_message, redirect_url = trigger_signature_send_if_needed(request=RequestFactory().post("/"), budget=budget)
+
+        budget.refresh_from_db()
+        self.assertEqual(toast_type, "success")
+        self.assertEqual(toast_message, "Orçamento enviado para assinatura do cliente.")
+        self.assertEqual(redirect_url, reverse("budget:budget_list"))
+        self.assertEqual(budget.signature_request_status, SignatureStatus.SENT)
+
+    @patch("apps.budget.views.workflow_views.send_budget_for_signature")
+    def test_trigger_signature_send_if_needed_allows_missing_step6_dates(self, send_signature_mock) -> None:
+        workshop = create_workshop(suffix=71)
+        budget = create_budget(workshop=workshop)
+        budget.customer_agreed_departure_at = None
+        budget.service_expected_completion_at = None
+        budget.save(update_fields=["customer_agreed_departure_at", "service_expected_completion_at"])
+
+        send_signature_mock.return_value = SignatureDeliveryResult(
+            envelope_id="env-71",
+            document_id="doc-71",
             provider="supersign",
             raw_response={"ok": True},
         )

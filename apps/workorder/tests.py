@@ -277,9 +277,9 @@ class WorkOrderListFiltersTests(TestCase):
         response = self.client.get(reverse("workorder:workorder_list"), {"status": WorkOrderStatus.APPROVED, "data_inicial": selected_date, "data_final": selected_date})
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["selected_status_report"], {"value": WorkOrderStatus.APPROVED, "label": "Aprovado", "count": 1, "badge_class": "badge-success min-w-sm"})
+        self.assertEqual(response.context["selected_status_report"], {"value": WorkOrderStatus.APPROVED, "label": "Veículo Entregue", "count": 1, "badge_class": "badge-success min-w-sm"})
         self.assertContains(response, "Relatorio do status")
-        self.assertContains(response, "Aprovado")
+        self.assertContains(response, "Veículo Entregue")
         self.assertContains(response, "O.S. com este status")
         self.assertContains(response, "Imprimir relatorio em PDF")
         self.assertContains(response, f"url: '{reverse('workorder:status_report_pdf_preview')}?status={WorkOrderStatus.APPROVED}")
@@ -346,7 +346,7 @@ class WorkOrderListFiltersTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'id="workorder-table-content"')
         self.assertContains(response, "Relatorio do status")
-        self.assertContains(response, "Aprovado")
+        self.assertContains(response, "Veículo Entregue")
         self.assertContains(response, "Imprimir relatorio em PDF")
 
 
@@ -392,7 +392,7 @@ class WorkOrderStatusReportPdfTests(TestCase):
         self.assertContains(response, "<!DOCTYPE html>", html=False)
         self.assertContains(response, "Relat&oacute;rio de Ordens de Servi&ccedil;o por Status", html=False)
         self.assertContains(response, workshop.name)
-        self.assertContains(response, "Aprovado")
+        self.assertContains(response, "Veículo Entregue")
         self.assertContains(response, f"#{approved_workorder.pk}")
         self.assertContains(response, customer.name)
         self.assertContains(response, vehicle.plate)
@@ -1850,6 +1850,15 @@ class AddPaymentMethodViewTests(TestCase):
             product=self.workorder.items.first().product,
             quantity=1,
         )
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
+        WorkOrderPaymentMethod.objects.create(
+            workorder=self.workorder,
+            payment_method=payment_method,
+            first_installment_amount=Money("40.00", "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 24),
+        )
 
         response = self.client.post(
             reverse("workorder:update_discount", args=[self.workorder.pk]),
@@ -1868,6 +1877,9 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(self.workorder.discount_value, Money("10.00", "BRL"))
         self.assertEqual(self.budget.discount_value, Money("10.00", "BRL"))
         self.assertEqual(self.budget.discount_percentage, Decimal("0.100000"))
+        self.assertEqual(payload["total_budget_value"], "90.00")
+        self.assertEqual(payload["paid_value"], "40.00")
+        self.assertEqual(payload["pending_value"], "50.00")
 
     def test_payment_form_uses_pending_balance_after_discount(self) -> None:
         self.workorder.discount_value = Money("10.00", "BRL")

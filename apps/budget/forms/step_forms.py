@@ -1767,7 +1767,7 @@ class BudgetStep4Form(CoreModelForm):
                                 hx-get="{reverse("budget:import_items_search_modal", kwargs={"pk": budget.pk})}"
                                 hx-target="#modal-container"
                                 onclick="form_modal.showModal()">
-                                Trazer itens de outro orçamento
+                                Importar de outro orçamento
                             </button>
                         </div>
                     '''),

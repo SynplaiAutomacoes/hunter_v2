@@ -557,7 +557,9 @@ class UpdateWorkOrderDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View)
                 "ok": True,
                 "discount_value": str(workorder.discount_value),
                 "discount_percentage": str(workorder.discount_percentage),
-                "total_budget_value": str(workorder.total_budget_value),
+                "total_budget_value": str(workorder.total_budget_value.amount),
+                "paid_value": str(sum((payment.total_paid.amount for payment in workorder.payments.all()), start=Decimal("0.00"))),
+                "pending_value": str(max(Decimal("0.00"), workorder.total_budget_value.amount - sum((payment.total_paid.amount for payment in workorder.payments.all()), start=Decimal("0.00")))),
             }
         )
 
@@ -1064,9 +1066,9 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 response["HX-Trigger"] = json.dumps({"showToast": {"message": str(exc), "type": "error"}})
                 return response
             except Exception:
-                logger.exception("Falha ao aprovar ordem de servico", extra={"workorder_id": workorder.pk})
+                logger.exception("Falha ao concluir entrega da ordem de servico", extra={"workorder_id": workorder.pk})
                 response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder))
-                response["HX-Trigger"] = json.dumps({"showToast": {"message": "Erro interno ao aprovar ordem de serviço.", "type": "error"}})
+                response["HX-Trigger"] = json.dumps({"showToast": {"message": "Erro interno ao concluir a entrega da ordem de serviço.", "type": "error"}})
                 return response
 
             return HttpResponse(headers={"HX-Refresh": "true"})
