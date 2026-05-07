@@ -9,7 +9,7 @@ from django.db.models import Q
 
 from apps.finance.models import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
-from apps.workorder.models import WorkOrderPaymentMethod
+from apps.workorder.models import WorkOrderPaymentMethod, WorkOrder
 from apps.workshops.models.workshops import Workshop
 
 
@@ -78,21 +78,38 @@ def build_dre_calculation(
     def maquininha_tax_details(mvs: list[FinancialMovement]) -> list[dict]:
         return [_build_maquininha_detail(m, include_workshop_ref) for m in mvs]
 
+    def workorder_cost_details(wos: list[WorkOrder]) -> list[dict]:
+        return [_build_workorder_cost_detail(wo, include_workshop_ref) for wo in wos]
+
     # Receita Bruta de Vendas e Serviços
-    pagamentos_ordens_de_servico = WorkOrderPaymentMethod.objects.filter(workorder__workshop__in=workshops).select_related("workorder")
+    pagamentos_ordens_de_servico = WorkOrderPaymentMethod.objects.filter(
+        workorder__workshop__in=workshops
+    ).select_related(
+        "workorder", "workorder__budget", "workorder__budget__customer"
+    ).prefetch_related(
+        "workorder__items__product",
+        "workorder__items__service",
+        "workorder__items__kit",
+        "workorder__items__kit_overrides",
+        "workorder__items__kit__kit_products__product",
+        "workorder__items__kit__kit_services__service",
+    )
     if start_date is not None: pagamentos_ordens_de_servico = pagamentos_ordens_de_servico.filter(due_date__gte=start_date)
     if end_date is not None: pagamentos_ordens_de_servico = pagamentos_ordens_de_servico.filter(due_date__lte=end_date)
 
     total_receita_bruta_de_vendas_e_servicos = sum((payment.total_paid for payment in pagamentos_ordens_de_servico), _ZERO)
-    detail_receita_bruta_de_vendas_e_servicos = workorder_payment_method_details(list(pagamentos_ordens_de_servico)) # + details(gross_revenue_mvs)
+    detail_receita_bruta_de_vendas_e_servicos = workorder_payment_method_details(list(pagamentos_ordens_de_servico))
     # ----------------------------------
 
     # Custo Mercadorias Vendidas
     taxa_maquininha_os = FinancialMovement.objects.filter(workorder_payment__in=pagamentos_ordens_de_servico, description="Pagamento da taxa da maquininha")
     total_taxa_maquininha_os = _sum_movements(list(taxa_maquininha_os))
 
-    total_custos_mercadorias_vendidas = total_taxa_maquininha_os
-    detail_custos_mercadorias_vendidas = maquininha_tax_details(list(taxa_maquininha_os)) # + details(cogs_mvs)
+    workorders = set(payment.workorder for payment in pagamentos_ordens_de_servico if payment.workorder)
+    total_custos_os = sum((wo.total_costs_products_value for wo in workorders), _ZERO)
+
+    total_custos_mercadorias_vendidas = total_taxa_maquininha_os + total_custos_os
+    detail_custos_mercadorias_vendidas = maquininha_tax_details(list(taxa_maquininha_os)) + workorder_cost_details(list(workorders))
     # --------------------------
 
     # Receita Bruta de Vendas
@@ -346,6 +363,28 @@ def _build_wo_pm_detail(payment: WorkOrderPaymentMethod, include_workshop_ref: b
 
 def _build_maquininha_detail(m: FinancialMovement, include_workshop_ref: bool) -> dict:
     return _build_detail(m, include_workshop_ref)
+
+
+def _build_workorder_cost_detail(wo: WorkOrder, include_workshop_ref: bool) -> dict:
+    budget = getattr(wo, "budget", None)
+    customer = getattr(budget, "customer", None)
+    pk = getattr(budget, "pk", "-")
+    name = getattr(customer, "name", "-") or "-"
+    
+    summary = f"Custo - O.S #{pk} - {name}"
+    reference = f"O.S #{pk}"
+    
+    if include_workshop_ref and wo.workshop_id:
+        reference = f"Filial: {wo.workshop.name} | {reference}"
+    
+    return {
+        "movement": None,
+        "summary": summary,
+        "reference": reference,
+        "entry_date": getattr(wo, "criado_em", None),
+        "payment_date": getattr(wo, "criado_em", None),
+        "amount": wo.total_costs_products_value,
+    }
 
 
 def _row(

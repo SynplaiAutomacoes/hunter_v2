@@ -160,7 +160,15 @@
                                                                             <td class="font-semibold text-base-content">{{ detail.summary }}</td>
                                                                             <td class="text-base-content/65">{{ detail.reference }}</td>
                                                                             <td class="text-right font-semibold text-base-content">
-                                                                                {% if detail.movement %}<span class="{{ detail.movement.report_total_display.class }}">{{ detail.movement.report_total_display.text }}</span>{% else %}<span class="text-success font-semibold whitespace-nowrap">+ {{ detail.amount }}</span>{% endif %}
+                                                                                {% if detail.movement %}
+                                                                                    <span class="{{ detail.movement.report_total_display.class }}">{{ detail.movement.report_total_display.text }}</span>
+                                                                                {% else %}
+                                                                                    {% if row.tone == 'negative' %}
+                                                                                        <span class="text-error font-semibold whitespace-nowrap">- {{ detail.amount }}</span>
+                                                                                    {% else %}
+                                                                                        <span class="text-success font-semibold whitespace-nowrap">+ {{ detail.amount }}</span>
+                                                                                    {% endif %}
+                                                                                {% endif %}
                                                                             </td>
                                                                         {% else %}
                                                                             <td>
