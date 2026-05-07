@@ -496,7 +496,7 @@ class WorkOrder(TimeStampedModel):
         verbose_name_plural = "Ordens de Serviço"
 
     def __str__(self):
-        return f"OS #{self.id}"
+        return f"OS #{self.id} | Budget #{self.budget.id}"
 
 
 class WorkOrderPaymentMethod(TimeStampedModel):

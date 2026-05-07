@@ -6,7 +6,9 @@ from decimal import Decimal
 from typing import Iterable
 
 from djmoney.money import Money
+from django.db.models import Q
 
+from apps.core.search import build_text_search_query
 from apps.finance.models.financial_movement import FinancialMovement
 
 
@@ -29,6 +31,7 @@ def build_financial_overview(
     workshop,
     start_date: date | None,
     end_date: date | None,
+    search: str = "",
     direction: str | None = None,
     budget_plan_ids: Iterable[int] | None = None,
     bank_account_id: int | str | None = None,
@@ -54,6 +57,23 @@ def build_financial_overview(
             movements = movements.filter(bank_account__isnull=True)
         else:
             movements = movements.filter(bank_account_id=bank_account_id)
+    if search:
+        search_query = build_text_search_query(
+            search_value=search,
+            lookups=(
+                "description",
+                "items_observation",
+                "financial_observation",
+                "nf_number",
+                "source__name",
+                "supplier__name",
+                "collaborator__name",
+                "budget_plan__name",
+                "bank_account__bank_name",
+            ),
+        )
+        search_query = search_query | Q(workorder__id__icontains=search) if search_query.children else Q(workorder__id__icontains=search)
+        movements = movements.filter(search_query)
 
     movements = movements.only("direction", "amount", "amount_currency", "is_paid", "workorder", "movement_kind")
 
@@ -72,6 +92,23 @@ def build_financial_overview(
                 paid_credit_movements = paid_credit_movements.filter(bank_account__isnull=True)
             else:
                 paid_credit_movements = paid_credit_movements.filter(bank_account_id=bank_account_id)
+        if search:
+            search_query = build_text_search_query(
+                search_value=search,
+                lookups=(
+                    "description",
+                    "items_observation",
+                    "financial_observation",
+                    "nf_number",
+                    "source__name",
+                    "supplier__name",
+                    "collaborator__name",
+                    "budget_plan__name",
+                    "bank_account__bank_name",
+                ),
+            )
+            search_query = search_query | Q(workorder__id__icontains=search) if search_query.children else Q(workorder__id__icontains=search)
+            paid_credit_movements = paid_credit_movements.filter(search_query)
 
         paid_credit_movements = paid_credit_movements.select_related("workorder").prefetch_related("workorder__payments").only("workorder")
 

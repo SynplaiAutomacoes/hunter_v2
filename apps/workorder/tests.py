@@ -1850,6 +1850,15 @@ class AddPaymentMethodViewTests(TestCase):
             product=self.workorder.items.first().product,
             quantity=1,
         )
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
+        WorkOrderPaymentMethod.objects.create(
+            workorder=self.workorder,
+            payment_method=payment_method,
+            first_installment_amount=Money("40.00", "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 24),
+        )
 
         response = self.client.post(
             reverse("workorder:update_discount", args=[self.workorder.pk]),
@@ -1868,6 +1877,9 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(self.workorder.discount_value, Money("10.00", "BRL"))
         self.assertEqual(self.budget.discount_value, Money("10.00", "BRL"))
         self.assertEqual(self.budget.discount_percentage, Decimal("0.100000"))
+        self.assertEqual(payload["total_budget_value"], "90.00")
+        self.assertEqual(payload["paid_value"], "40.00")
+        self.assertEqual(payload["pending_value"], "50.00")
 
     def test_payment_form_uses_pending_balance_after_discount(self) -> None:
         self.workorder.discount_value = Money("10.00", "BRL")

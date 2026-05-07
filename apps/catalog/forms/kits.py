@@ -603,7 +603,7 @@ class KitForm(CoreModelForm):
                                             <tr>
                                                 <th>Serviço</th>
                                                 <th class="text-right">Custo</th>
-                                                <th class="text-right transition-all duration-200" :class="servicePricingColumnClasses('by_duration', 'header')">Valor de venda por duração</th>
+                                                <th class="text-right transition-all duration-200" :class="servicePricingColumnClasses('by_duration', 'header')">Valor de venda por tempo</th>
                                                 <th class="text-right transition-all duration-200" :class="servicePricingColumnClasses('inserted_value', 'header')">Valor de Venda Inserido</th>
                                                 <th class="text-center">Qtd</th>
                                                 <th class="text-center">Duração</th>
@@ -656,7 +656,7 @@ class KitForm(CoreModelForm):
                                             <tr>
                                                 <th colspan="2"></th>
                                                 <th colspan="2" class="pt-3 pb-1 px-0">
-                                                    <div class="text-[11px] font-semibold text-center mb-1 text-base-content/70">Modo de precificação dos serviços</div>
+                                                    <div class="text-[11px] font-semibold text-center mb-1 text-base-content/70">Escolha qual método esse kit será cobrado</div>
                                                     <div class="relative grid grid-cols-2 items-center p-1 rounded-full bg-base-100 border border-base-300 w-full max-w-none mx-auto">
                                                         <div
                                                             class="absolute top-1 bottom-1 left-1 w-[calc(50%-0.25rem)] rounded-full bg-primary transition-transform duration-200"
@@ -668,7 +668,7 @@ class KitForm(CoreModelForm):
                                                             :class="servicePricingMode === 'by_duration' ? 'text-primary-content' : 'text-base-content/70'"
                                                             @click="setServicePricingMode('by_duration')"
                                                         >
-                                                            Valor de venda por duração
+                                                            Valor de venda por tempo
                                                         </button>
                                                         <button
                                                             type="button"
@@ -893,7 +893,7 @@ class KitForm(CoreModelForm):
 
                                         <div class="space-y-2">
                                             <label class="label p-0" for="kit-service-edit-sell-duration">
-                                                <span class="label-text">Valor de venda por duração</span>
+                                                <span class="label-text">Valor de venda por tempo</span>
                                             </label>
                                             <input
                                                 id="kit-service-edit-sell-duration"
@@ -1766,10 +1766,10 @@ class KitForm(CoreModelForm):
             sell_by_duration_value = self._parse_money_value(raw_sell_by_duration)
             if raw_sell_by_duration and sell_by_duration_value is None:
                 logger.warning(
-                    "Valor de venda por duracao invalido para servico no kit",
+                    "Valor de venda por tempo invalido para servico no kit",
                     extra={"kit_id": self.instance.pk, "service_id": sid, "raw_duration_sell_price": raw_sell_by_duration},
                 )
-                self.add_error(None, "Valor de venda por duração inválido para serviço.")
+                self.add_error(None, "Valor de venda por tempo inválido para serviço.")
             service_sell_by_duration[sid] = sell_by_duration_value
 
             raw_sell = str(self.data.get(f"kit_service_sell_{sid}", "") or "").strip()
