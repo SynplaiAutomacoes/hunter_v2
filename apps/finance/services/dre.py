@@ -5,6 +5,7 @@ from datetime import date
 from typing import Sequence
 
 from djmoney.money import Money
+from django.db.models import Q
 
 from apps.finance.models import FinancialGroup
 from apps.finance.models.financial_group import DreType
@@ -67,14 +68,10 @@ def build_dre_calculation(
     )
 
     # --- Classifica movimentações por seção ---
-    gross_revenue_mvs  = [m for m in movements if m.workorder_id is not None]
-    cogs_mvs           = [m for m in movements if m.workorder_id is None and _resolve_dre_type(m) == DreType.COGS]
-    fin_revenue_mvs    = [m for m in movements if m.workorder_id is None and _resolve_dre_type(m) == DreType.FINANCIAL_REVENUE]
-    fin_expense_mvs    = [m for m in movements if m.workorder_id is None and _resolve_dre_type(m) == DreType.FINANCIAL_EXPENSE]
-    print(f"gross_revenue_mvs: {gross_revenue_mvs}")
-    print(f"cogs_mvs: {cogs_mvs}")
-    print(f"fin_revenue_mvs: {fin_revenue_mvs}")
-    print(f"fin_expense_mvs: {fin_expense_mvs}")
+    gross_revenue_mvs  = [m for m in movements if m.workorder is not None]
+    cogs_mvs           = [m for m in movements if m.workorder is None and _resolve_dre_type(m) == DreType.COGS]
+    fin_revenue_mvs    = [m for m in movements if m.workorder is None and _resolve_dre_type(m) == DreType.FINANCIAL_REVENUE]
+    fin_expense_mvs    = [m for m in movements if m.workorder is None and _resolve_dre_type(m) == DreType.FINANCIAL_EXPENSE]
 
     # --- Calcula totais ---
     gross_revenue  = _sum_movements(gross_revenue_mvs)
@@ -168,7 +165,11 @@ def _sum_movements(movements: list[FinancialMovement]) -> Money:
     """Soma amounts respeitando a direção (CREDIT soma, DEBIT subtrai)."""
     total = _ZERO
     for m in movements:
-        amount = m.amount
+        if m.workorder_id and m.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
+            amount = getattr(m.workorder, "total_budget_value", _ZERO)
+        else:
+            amount = m.amount
+
         if not isinstance(amount, Money):
             continue
         if m.direction == FinancialMovement.MovementDirection.DEBIT:
@@ -189,9 +190,6 @@ def _fetch_movements(*, workshops: Sequence[Workshop], start_date: date, end_dat
         due_date__lte=end_date,
     )
 
-    for i in qs:
-        print(f"i: {i} | budget_plan: {i.budget_plan if i.budget_plan else None} | dre_type: {i.budget_plan.dre_type if i.budget_plan and i.budget_plan.dre_type else None}")
-
     if tipo_data == "PG":
         qs = qs.filter(is_paid=True)
     elif tipo_data == "NPG":
@@ -208,6 +206,9 @@ def _fetch_movements(*, workshops: Sequence[Workshop], start_date: date, end_dat
             "budget_plan",
             "budget_plan__parent",
             "budget_plan__parent__parent",
+        ).prefetch_related(
+            "workorder__payments", 
+            "workorder__payments__payment_method",
         ).order_by("due_date", "criado_em", "pk")
     )
 
@@ -218,7 +219,15 @@ def _fetch_movements(*, workshops: Sequence[Workshop], start_date: date, end_dat
 
 def _build_detail(m: FinancialMovement, include_workshop_ref: bool) -> dict:
     """Monta o dicionário de detalhe de uma movimentação para o template."""
-    summary = str(m.description or "").strip() or _agent_label(m)
+    if m.workorder_id and m.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
+        amount = getattr(m.workorder, "total_budget_value", _ZERO)
+        summary = _agent_label(m)
+        payments = list(m.workorder.payments.all()) if hasattr(m.workorder, "payments") else []
+        payment_date = max((p.due_date for p in payments if p.due_date), default=m.due_date)
+    else:
+        amount = m.amount
+        summary = str(m.description or "").strip() or _agent_label(m)
+        payment_date = m.due_date
 
     reference_parts: list[str] = []
     if include_workshop_ref and m.workshop_id:
@@ -227,7 +236,19 @@ def _build_detail(m: FinancialMovement, include_workshop_ref: bool) -> dict:
         reference_parts.append(f"Origem: {m.source.name}")
     if m.nf_number:
         reference_parts.append(f"NF: {m.nf_number}")
-    if m.payment_method_id:
+    
+    if m.workorder_id and m.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
+        payments = list(m.workorder.payments.all()) if hasattr(m.workorder, "payments") else []
+        method_names = []
+        for p in payments:
+            desc = getattr(getattr(p, "payment_method", None), "description", None)
+            if desc and desc not in method_names:
+                method_names.append(str(desc))
+        
+        if method_names:
+            pm_str = method_names[0] if len(method_names) == 1 else "Múltiplos"
+            reference_parts.append(f"Pagamento: {pm_str}")
+    elif m.payment_method_id:
         reference_parts.append(f"Pagamento: {m.payment_method}")
 
     created_at = getattr(m, "criado_em", None)
@@ -237,8 +258,8 @@ def _build_detail(m: FinancialMovement, include_workshop_ref: bool) -> dict:
         "summary": summary,
         "reference": " | ".join(reference_parts) or "-",
         "entry_date": created_at.date() if created_at else None,
-        "payment_date": m.due_date,
-        "amount": m.amount,
+        "payment_date": payment_date,
+        "amount": amount,
     }
 
 
