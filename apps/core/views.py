@@ -25,6 +25,7 @@ from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 external_calls_logger = logging.getLogger("performance.external")
+logger = logging.getLogger(__name__)
 
 
 OPEN_BUDGET_STATUSES: tuple[str, ...] = (
@@ -218,10 +219,8 @@ def metricas_dashboard(request) -> dict[str, Any]:
     faturamento_result = FinancialMovement.objects.filter(workshop=workshop, is_paid=True, direction=FinancialMovement.MovementDirection.CREDIT, due_date__month=mes_selecionado, due_date__year=ano_selecionado, workorder__isnull=False).aggregate(total=Sum("amount"))["total"]
     faturamento_total = float(Decimal(str(getattr(faturamento_result, "amount", faturamento_result) or "0.00")))
 
-    total_vendido_ate_a_data = sum(
-        (payment.total_paid.amount for payment in WorkOrderPaymentMethod.objects.filter(workorder__workshop=workshop, due_date__month=mes_selecionado, due_date__year=ano_selecionado).select_related("workorder")),
-        Decimal("0.00"),
-    )
+    pagamentos_total_vendido = list(WorkOrderPaymentMethod.objects.filter(workorder__workshop=workshop, due_date__month=mes_selecionado, due_date__year=ano_selecionado).select_related("workorder").order_by("due_date", "pk"))
+    total_vendido_ate_a_data = sum((payment.total_paid.amount for payment in pagamentos_total_vendido), Decimal("0.00"))
     dias_transcorridos = FinancialMovement.objects.filter(workshop=workshop, direction=FinancialMovement.MovementDirection.CREDIT, due_date__month=mes_selecionado, due_date__year=ano_selecionado, workorder__isnull=False).values("due_date").distinct().count()
 
     _, dias_no_mes = calendar.monthrange(ano_selecionado, mes_selecionado)
