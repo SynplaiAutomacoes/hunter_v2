@@ -87,8 +87,8 @@ def build_dre_calculation(
     total_taxa_maquininha = _sum_movements(list(taxa_maquininha))
 
     # --- Calcula totais ---
-    gross_revenue  = _sum_movements(gross_revenue_mvs) + Money(total_vendido_ate_a_data, "BRL")
-    cogs           = _sum_movements(cogs_mvs) + total_taxa_maquininha
+    gross_revenue  = _sum_movements(gross_revenue_mvs)
+    cogs           = _sum_movements(cogs_mvs)
     gross_profit   = gross_revenue + cogs
     fin_revenue    = _sum_movements(fin_revenue_mvs)
     fin_expense    = _sum_movements(fin_expense_mvs)
@@ -98,24 +98,36 @@ def build_dre_calculation(
     def details(mvs: list[FinancialMovement]) -> list[dict]:
         return [_build_detail(m, include_workshop_ref) for m in mvs]
 
+    def wo_pm_details(payments: list[WorkOrderPaymentMethod]) -> list[dict]:
+        return [_build_wo_pm_detail(p, include_workshop_ref) for p in payments]
+
+    def maquinha_tax_details(mvs: list[FinancialMovement]) -> list[dict]:
+        return [_build_maquininha_detail(m, include_workshop_ref) for m in mvs]
+
+    wo_pm_details_list = wo_pm_details(list(wo_pm))
+    taxa_mv_details_list = maquinha_tax_details(list(taxa_maquininha))
+
+    gross_revenue_details = details(gross_revenue_mvs) + wo_pm_details_list
+    cogs_details = details(cogs_mvs) + taxa_mv_details_list
+
     rows = [
         _row(
             label="Receita Bruta de Vendas e Serviços",
-            amount=gross_revenue,
+            amount=gross_revenue + Money(total_vendido_ate_a_data, "BRL"),
             tone="positive",
             component=COMP_GROSS_REVENUE,
             detail_kind="financial_entries",
             is_expandable=True,
-            details=details(gross_revenue_mvs),
+            details=gross_revenue_details,
         ),
         _row(
             label="Custos Mercadorias Vendidas",
-            amount=cogs,
+            amount=cogs + total_taxa_maquininha,
             tone="negative",
             component=COMP_COGS,
             detail_kind="financial_entries",
             is_expandable=True,
-            details=details(cogs_mvs),
+            details=cogs_details,
         ),
         _row(
             label="(=) Receita Bruta de Vendas",
@@ -301,6 +313,34 @@ def _agent_label(m: FinancialMovement) -> str:
     if m.source_id:
         return str(m.source.name)
     return "-"
+
+
+def _build_wo_pm_detail(payment: WorkOrderPaymentMethod, include_workshop_ref: bool) -> dict:
+    workorder = payment.workorder
+    budget = getattr(workorder, "budget", None)
+    customer = getattr(budget, "customer", None)
+    pk = getattr(budget, "pk", "-")
+    name = getattr(customer, "name", "-") or "-"
+    
+    summary = f"O.S #{pk} - {name}"
+    payment_method_name = getattr(getattr(payment, "payment_method", None), "description", "-") or "-"
+    reference = f"Pagamento: {payment_method_name}"
+    
+    if include_workshop_ref and workorder and workorder.workshop_id:
+        reference = f"Filial: {workorder.workshop.name} | {reference}"
+    
+    return {
+        "movement": None,
+        "summary": summary,
+        "reference": reference,
+        "entry_date": getattr(payment, "criado_em", None),
+        "payment_date": payment.due_date,
+        "amount": payment.total_paid,
+    }
+
+
+def _build_maquininha_detail(m: FinancialMovement, include_workshop_ref: bool) -> dict:
+    return _build_detail(m, include_workshop_ref)
 
 
 def _row(
