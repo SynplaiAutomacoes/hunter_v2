@@ -256,6 +256,7 @@ class VehicleLookupNormalizationTests(TestCase):
 
     def test_fuel_normalization_maps_alcool_gasolina_to_flex(self) -> None:
         self.assertEqual(normalize_vehicle_fuel_choice("Alcool / Gasolina"), "Flex")
+        self.assertEqual(normalize_vehicle_fuel_choice("Flex"), "Flex")
 
     @patch.dict("os.environ", {"token_vehicle_api": "token-teste"})
     @patch("apps.customer.util.requests.get")
