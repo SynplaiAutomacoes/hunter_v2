@@ -29,10 +29,8 @@ _ROW_COMPONENT_RECEITAS_FINANCEIRAS = "financial_revenue"
 _ROW_COMPONENT_DESPESAS_FINANCEIRAS = "financial_expense"
 _ROW_COMPONENT_RESULTADO_OPERACIONAL = "resultado_operacional"
 _SOURCE_ROW_COMPONENTS = (
-    _ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS,
-    _ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS,
-    _ROW_COMPONENT_RECEITAS_FINANCEIRAS,
-    _ROW_COMPONENT_DESPESAS_FINANCEIRAS,
+    _ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS, _ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS,
+    _ROW_COMPONENT_RECEITAS_FINANCEIRAS, _ROW_COMPONENT_DESPESAS_FINANCEIRAS,
 )
 _VALID_TIPO_DATA_VALUES = {"PG", "NPG", "A"}
 
@@ -45,12 +43,14 @@ def build_dre_calculation(*, workshops: Sequence[Workshop], start_date: date | N
     if tipo_data not in _VALID_TIPO_DATA_VALUES:
         tipo_data = "A"
 
-    financial_movements = _get_financial_movements(
-        workshops=workshops,
-        start_date=start_date,
-        end_date=end_date,
-        tipo_data=tipo_data,
-    )
+    queryset = FinancialMovement.objects.filter(workshop__in=workshops, due_date__gte=start_date, due_date__lte=end_date)
+
+    if tipo_data == "PG":
+        queryset = queryset.filter(is_paid=True)
+    elif tipo_data == "NPG":
+        queryset = queryset.filter(is_paid=False)
+
+    financial_movements = list(queryset.select_related("payment_method", "source", "workshop", "workorder", "budget_plan", "budget_plan__parent", "budget_plan__parent__parent").order_by("due_date", "criado_em", "pk"))
 
     movements_by_topic = _group_financial_movements_by_topic(financial_movements=financial_movements)
 
@@ -76,11 +76,26 @@ def build_dre_calculation(*, workshops: Sequence[Workshop], start_date: date | N
     visible_amounts = {key: amount if key in visible_components else _ZERO_MONEY for key, amount in all_amounts.items()}
     receita_bruta_de_vendas = visible_amounts[_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS] + visible_amounts[_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS]
     resultado_operacional = receita_bruta_de_vendas + visible_amounts[_ROW_COMPONENT_RECEITAS_FINANCEIRAS] + visible_amounts[_ROW_COMPONENT_DESPESAS_FINANCEIRAS]
-    row_details = _build_row_details(
-        movements_by_topic=movements_by_topic,
-        visible_components=visible_components,
-        include_workshop_reference=len(workshops) > 1,
-    )
+
+    row_details: dict[str, list[dict[str, object]]] = {}
+
+    for component in _SOURCE_ROW_COMPONENTS:
+        if component not in visible_components:
+            continue
+
+        topic_movements = movements_by_topic.get(component, [])
+
+        if not topic_movements:
+            continue
+
+        row_details[component] = [
+            _build_financial_movement_detail(
+                movement=movement,
+                include_workshop_reference=len(workshops) > 1,
+            )
+            for movement in topic_movements
+        ]
+
     rows = _build_rows(
         receita_bruta_vendas_e_servicos=visible_amounts[_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS],
         custos_mercadorias_vendidas=visible_amounts[_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS],
@@ -98,21 +113,6 @@ def build_dre_calculation(*, workshops: Sequence[Workshop], start_date: date | N
             resultado_operacional=resultado_operacional,
         ),
     )
-
-
-def _get_financial_movements(*, workshops: Sequence[Workshop], start_date: date, end_date: date, tipo_data: str) -> list[FinancialMovement]:
-    queryset = FinancialMovement.objects.filter(
-        workshop__in=workshops,
-        due_date__gte=start_date,
-        due_date__lte=end_date
-    )
-
-    if tipo_data == "PG":
-        queryset = queryset.filter(is_paid=True)
-    elif tipo_data == "NPG":
-        queryset = queryset.filter(is_paid=False)
-
-    return list(queryset.select_related("payment_method", "source", "workshop", "workorder", "budget_plan", "budget_plan__parent", "budget_plan__parent__parent").order_by("due_date", "criado_em", "pk"))
 
 
 def _group_financial_movements_by_topic(*, financial_movements: list[FinancialMovement]) -> dict[str, list[FinancialMovement]]:
@@ -145,80 +145,93 @@ def _resolve_movement_component(*, movement: FinancialMovement) -> str | None:
     return None
 
 
-def _build_rows(
-    *,
-    receita_bruta_vendas_e_servicos: Money = _ZERO_MONEY,
-    custos_mercadorias_vendidas: Money = _ZERO_MONEY,
-    receita_bruta_de_vendas: Money = _ZERO_MONEY,
-    receitas_financeiras: Money = _ZERO_MONEY,
-    despesas_financeiras: Money = _ZERO_MONEY,
-    resultado_operacional: Money = _ZERO_MONEY,
-    row_details: dict[str, list[dict[str, object]]] | None = None,
-) -> list[dict[str, object]]:
+def _build_rows(*, receita_bruta_vendas_e_servicos: Money = _ZERO_MONEY, custos_mercadorias_vendidas: Money = _ZERO_MONEY, receita_bruta_de_vendas: Money = _ZERO_MONEY, receitas_financeiras: Money = _ZERO_MONEY, despesas_financeiras: Money = _ZERO_MONEY, resultado_operacional: Money = _ZERO_MONEY, row_details: dict[str, list[dict[str, object]]] | None = None) -> list[dict[str, object]]:
     details = row_details or {}
+
     return [
-        _build_row(
-            label="Receita Bruta de Vendas e Serviços",
-            amount=receita_bruta_vendas_e_servicos,
-            tone="positive",
-            component=_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS,
-            detail_kind="financial_entries",
-            is_expandable=True,
-            details=details.get(_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS, []),
-        ),
-        _build_row(
-            label="Custos Mercadorias Vendidas",
-            amount=custos_mercadorias_vendidas,
-            tone="negative",
-            component=_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS,
-            detail_kind="financial_entries",
-            is_expandable=True,
-            details=details.get(_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS, []),
-        ),
-        _build_row(
-            label="(=) Receita Bruta de Vendas",
-            amount=receita_bruta_de_vendas,
-            tone="highlight",
-            formula="(Receita Bruta de Vendas e Serviços + Custos Mercadorias Vendidas)",
-            component=_ROW_COMPONENT_RECEITA_BRUTA_DE_VENDAS,
-            detail_kind="components",
-            details=details.get(_ROW_COMPONENT_RECEITA_BRUTA_DE_VENDAS, []),
-        ),
-        _build_row(
-            label="Receitas Financeiras",
-            amount=receitas_financeiras,
-            tone="positive",
-            component=_ROW_COMPONENT_RECEITAS_FINANCEIRAS,
-            detail_kind="financial_entries",
-            is_expandable=True,
-            details=details.get(_ROW_COMPONENT_RECEITAS_FINANCEIRAS, []),
-        ),
-        _build_row(
-            label="Despesas Financeiras",
-            amount=despesas_financeiras,
-            tone="negative",
-            component=_ROW_COMPONENT_DESPESAS_FINANCEIRAS,
-            detail_kind="financial_entries",
-            is_expandable=True,
-            details=details.get(_ROW_COMPONENT_DESPESAS_FINANCEIRAS, []),
-        ),
-        _build_row(
-            label="(=) Resultado Operacional",
-            amount=resultado_operacional,
-            tone="result",
-            formula="(Receita Bruta de Vendas + Receitas Financeiras + Despesas Financeiras)",
-            component=_ROW_COMPONENT_RESULTADO_OPERACIONAL,
-            detail_kind="components",
-            details=details.get(_ROW_COMPONENT_RESULTADO_OPERACIONAL, []),
-        ),
+        {
+            "label": "Receita Bruta de Vendas e Serviços",
+            "amount": receita_bruta_vendas_e_servicos,
+            "tone": "positive",
+            "component": _ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS,
+            "detail_kind": "financial_entries",
+            "is_expandable": True,
+            "details": details.get(
+                _ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS,
+                [],
+            ),
+        },
+        {
+            "label": "Custos Mercadorias Vendidas",
+            "amount": custos_mercadorias_vendidas,
+            "tone": "negative",
+            "component": _ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS,
+            "detail_kind": "financial_entries",
+            "is_expandable": True,
+            "details": details.get(
+                _ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS,
+                [],
+            ),
+        },
+        {
+            "label": "(=) Receita Bruta de Vendas",
+            "amount": receita_bruta_de_vendas,
+            "tone": "highlight",
+            "formula": (
+                "Receita Bruta de Vendas e Serviços + "
+                "Custos Mercadorias Vendidas"
+            ),
+            "component": _ROW_COMPONENT_RECEITA_BRUTA_DE_VENDAS,
+            "detail_kind": "components",
+            "details": details.get(
+                _ROW_COMPONENT_RECEITA_BRUTA_DE_VENDAS,
+                [],
+            ),
+        },
+        {
+            "label": "Receitas Financeiras",
+            "amount": receitas_financeiras,
+            "tone": "positive",
+            "component": _ROW_COMPONENT_RECEITAS_FINANCEIRAS,
+            "detail_kind": "financial_entries",
+            "is_expandable": True,
+            "details": details.get(
+                _ROW_COMPONENT_RECEITAS_FINANCEIRAS,
+                [],
+            ),
+        },
+        {
+            "label": "Despesas Financeiras",
+            "amount": despesas_financeiras,
+            "tone": "negative",
+            "component": _ROW_COMPONENT_DESPESAS_FINANCEIRAS,
+            "detail_kind": "financial_entries",
+            "is_expandable": True,
+            "details": details.get(
+                _ROW_COMPONENT_DESPESAS_FINANCEIRAS,
+                [],
+            ),
+        },
+        {
+            "label": "(=) Resultado Operacional",
+            "amount": resultado_operacional,
+            "tone": "result",
+            "formula": (
+                "Receita Bruta de Vendas + "
+                "Receitas Financeiras + "
+                "Despesas Financeiras"
+            ),
+            "component": _ROW_COMPONENT_RESULTADO_OPERACIONAL,
+            "detail_kind": "components",
+            "details": details.get(
+                _ROW_COMPONENT_RESULTADO_OPERACIONAL,
+                [],
+            ),
+        },
     ]
 
 
-def _build_summary_cards(
-    *,
-    receita_bruta_de_vendas: Money = _ZERO_MONEY,
-    resultado_operacional: Money = _ZERO_MONEY,
-) -> list[dict[str, object]]:
+def _build_summary_cards(*, receita_bruta_de_vendas: Money = _ZERO_MONEY, resultado_operacional: Money = _ZERO_MONEY) -> list[dict[str, object]]:
     return [
         {"label": "Receita Bruta de Vendas", "amount": receita_bruta_de_vendas, "accent": "text-sky-700"},
         {"label": "Resultado Operacional", "amount": resultado_operacional, "accent": "text-amber-700"},
@@ -245,30 +258,6 @@ def _resolve_visible_components(*, selected_financial_groups: list[FinancialGrou
     # wait actually the filter is to see what to sum. If we return only visible_components,
     # the unselected parts will be zeroed out.
     return visible_components
-
-
-def _normalize_label(value: str) -> str:
-    normalized = unicodedata.normalize("NFKD", value or "")
-    return "".join(character for character in normalized if not unicodedata.combining(character)).casefold().strip()
-
-
-def _build_row_details(
-    *,
-    movements_by_topic: dict[str, list[FinancialMovement]],
-    visible_components: set[str],
-    include_workshop_reference: bool,
-) -> dict[str, list[dict[str, object]]]:
-    details: dict[str, list[dict[str, object]]] = {}
-
-    for component in _SOURCE_ROW_COMPONENTS:
-        if component not in visible_components:
-            continue
-        topic_movements = movements_by_topic.get(component, [])
-        if not topic_movements:
-            continue
-        details[component] = [_build_financial_movement_detail(movement=movement, include_workshop_reference=include_workshop_reference) for movement in topic_movements]
-
-    return details
 
 
 def _build_financial_movement_detail(*, movement: FinancialMovement, include_workshop_reference: bool) -> dict[str, object]:
@@ -326,27 +315,4 @@ def _build_financial_movement_detail(*, movement: FinancialMovement, include_wor
         "entry_date": created_at.date() if created_at is not None else None,
         "payment_date": payment_date,
         "amount": movement.amount,
-    }
-
-
-def _build_row(
-    *,
-    label: str,
-    amount: Money,
-    tone: str,
-    formula: str | None = None,
-    component: str | None = None,
-    detail_kind: str | None = None,
-    is_expandable: bool = False,
-    details: list[dict[str, object]] | None = None,
-) -> dict[str, Any]:
-    return {
-        "label": label,
-        "amount": amount,
-        "tone": tone,
-        "formula": formula,
-        "component": component,
-        "detail_kind": detail_kind,
-        "is_expandable": is_expandable,
-        "details": details or [],
     }
