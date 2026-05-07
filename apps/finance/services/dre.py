@@ -22,11 +22,11 @@ class DreCalculationResult:
     summary_cards: list[dict[str, object]]
 
 
-_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS = "receita_bruta_vendas_e_servicos"
-_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS = "custos_mercadorias_vendidas"
+_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS = "gross_revenue"
+_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS = "cogs"
 _ROW_COMPONENT_RECEITA_BRUTA_DE_VENDAS = "receita_bruta_de_vendas"
-_ROW_COMPONENT_RECEITAS_FINANCEIRAS = "receitas_financeiras"
-_ROW_COMPONENT_DESPESAS_FINANCEIRAS = "despesas_financeiras"
+_ROW_COMPONENT_RECEITAS_FINANCEIRAS = "financial_revenue"
+_ROW_COMPONENT_DESPESAS_FINANCEIRAS = "financial_expense"
 _ROW_COMPONENT_RESULTADO_OPERACIONAL = "resultado_operacional"
 _SOURCE_ROW_COMPONENTS = (
     _ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS,
@@ -35,59 +35,47 @@ _SOURCE_ROW_COMPONENTS = (
     _ROW_COMPONENT_DESPESAS_FINANCEIRAS,
 )
 _VALID_TIPO_DATA_VALUES = {"PG", "NPG", "A"}
-_COMPONENT_GROUP_NAME_ALIASES = {
-    _ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS: {
-        "receitas",
-        "receitas de servicos",
-        "receitas de pecas",
-        "receita bruta de vendas e servicos",
-        "receita bruta de vendas e serviços",
-    },
-    _ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS: {
-        "custos",
-        "custos de pecas",
-        "custos de servicos",
-        "custos mercadorias vendidas",
-    },
-    _ROW_COMPONENT_RECEITAS_FINANCEIRAS: {
-        "receitas financeiras",
-        "receitas outras",
-    },
-    _ROW_COMPONENT_DESPESAS_FINANCEIRAS: {
-        "despesas",
-        "despesas operacionais",
-        "despesas com pessoal",
-        "despesas administrativas",
-        "despesas financeiras",
-        "folha de pagamento",
-    },
-}
 
 
-def build_dre_calculation(
-    *,
-    workshops: Sequence[Workshop],
-    start_date: date | None,
-    end_date: date | None,
-    tipo_data: str = "A",
-    selected_financial_groups: list[FinancialGroup] | None = None,
-) -> DreCalculationResult:
+def build_dre_calculation(*, workshops: Sequence[Workshop], start_date: date | None, end_date: date | None, tipo_data: str = "A", selected_financial_groups: list[FinancialGroup] | None = None) -> DreCalculationResult:
     if not workshops or start_date is None or end_date is None or start_date > end_date:
         return DreCalculationResult(rows=_build_rows(), summary_cards=_build_summary_cards())
+
+    tipo_data = str(tipo_data or "A").strip().upper()
+    if tipo_data not in _VALID_TIPO_DATA_VALUES:
+        tipo_data = "A"
 
     financial_movements = _get_financial_movements(
         workshops=workshops,
         start_date=start_date,
         end_date=end_date,
-        tipo_data=_normalize_tipo_data(tipo_data),
+        tipo_data=tipo_data,
     )
+
     movements_by_topic = _group_financial_movements_by_topic(financial_movements=financial_movements)
-    all_amounts = {component: _sum_movement_amounts(movements_by_topic.get(component, [])) for component in _SOURCE_ROW_COMPONENTS}
+
+    all_amounts: dict[str, Money] = {}
+
+    for component in _SOURCE_ROW_COMPONENTS:
+        total = _ZERO_MONEY
+
+        for movement in movements_by_topic.get(component, []):
+            amount = getattr(movement, "amount", None)
+
+            if not isinstance(amount, Money):
+                continue
+
+            if movement.direction == FinancialMovement.MovementDirection.DEBIT:
+                total -= amount
+            else:
+                total += amount
+
+        all_amounts[component] = total
 
     visible_components = _resolve_visible_components(selected_financial_groups=selected_financial_groups)
     visible_amounts = {key: amount if key in visible_components else _ZERO_MONEY for key, amount in all_amounts.items()}
-    receita_bruta_de_vendas = visible_amounts[_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS] - visible_amounts[_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS]
-    resultado_operacional = visible_amounts[_ROW_COMPONENT_RECEITAS_FINANCEIRAS] - visible_amounts[_ROW_COMPONENT_DESPESAS_FINANCEIRAS]
+    receita_bruta_de_vendas = visible_amounts[_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS] + visible_amounts[_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS]
+    resultado_operacional = receita_bruta_de_vendas + visible_amounts[_ROW_COMPONENT_RECEITAS_FINANCEIRAS] + visible_amounts[_ROW_COMPONENT_DESPESAS_FINANCEIRAS]
     row_details = _build_row_details(
         movements_by_topic=movements_by_topic,
         visible_components=visible_components,
@@ -112,19 +100,12 @@ def build_dre_calculation(
     )
 
 
-def _normalize_tipo_data(tipo_data: str | None) -> str:
-    normalized_tipo_data = str(tipo_data or "A").strip().upper() or "A"
-    if normalized_tipo_data not in _VALID_TIPO_DATA_VALUES:
-        return "A"
-    return normalized_tipo_data
-
-
 def _get_financial_movements(*, workshops: Sequence[Workshop], start_date: date, end_date: date, tipo_data: str) -> list[FinancialMovement]:
-    period_filter = Q(due_date__gte=start_date, due_date__lte=end_date) | Q(due_date__isnull=True, workorder__criado_em__date__gte=start_date, workorder__criado_em__date__lte=end_date) | Q(due_date__isnull=True, workorder__isnull=True, criado_em__date__gte=start_date, criado_em__date__lte=end_date)
-
     queryset = FinancialMovement.objects.filter(
         workshop__in=workshops,
-    ).filter(period_filter)
+        due_date__gte=start_date,
+        due_date__lte=end_date
+    )
 
     if tipo_data == "PG":
         queryset = queryset.filter(is_paid=True)
@@ -146,36 +127,22 @@ def _group_financial_movements_by_topic(*, financial_movements: list[FinancialMo
 
 def _resolve_movement_component(*, movement: FinancialMovement) -> str | None:
     budget_plan = getattr(movement, "budget_plan", None)
-    if budget_plan is None:
-        return _resolve_component_from_movement_kind(movement=movement)
 
-    current_group = budget_plan
-    while current_group is not None:
-        normalized_name = _normalize_label(str(getattr(current_group, "name", "") or ""))
-        for component, aliases in _COMPONENT_GROUP_NAME_ALIASES.items():
-            if normalized_name in aliases:
-                return component
-        current_group = getattr(current_group, "parent", None)
+    while budget_plan is not None:
+        dre_type = getattr(budget_plan, "dre_type", None)
+        if dre_type:
+            return dre_type
+        budget_plan = getattr(budget_plan, "parent", None)
 
-    return _resolve_component_from_movement_kind(movement=movement)
-
-
-def _resolve_component_from_movement_kind(*, movement: FinancialMovement) -> str | None:
     movement_kind = getattr(movement, "movement_kind", None)
+
     if movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
         return _ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS
-    if movement_kind == FinancialMovement.MovementKind.WORKORDER_CARD_FEE:
-        return _ROW_COMPONENT_DESPESAS_FINANCEIRAS
+
+    if getattr(movement, "workorder", None) is not None:
+        return _ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS
+
     return None
-
-
-def _sum_movement_amounts(movements: list[FinancialMovement]) -> Money:
-    total = _ZERO_MONEY
-    for movement in movements:
-        amount = getattr(movement, "amount", None)
-        if isinstance(amount, Money):
-            total += amount
-    return total
 
 
 def _build_rows(
@@ -191,7 +158,7 @@ def _build_rows(
     details = row_details or {}
     return [
         _build_row(
-            label="(+) Receita Bruta de Vendas e Serviços",
+            label="Receita Bruta de Vendas e Serviços",
             amount=receita_bruta_vendas_e_servicos,
             tone="positive",
             component=_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS,
@@ -200,7 +167,7 @@ def _build_rows(
             details=details.get(_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS, []),
         ),
         _build_row(
-            label="(-) Custos Mercadorias Vendidas",
+            label="Custos Mercadorias Vendidas",
             amount=custos_mercadorias_vendidas,
             tone="negative",
             component=_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS,
@@ -212,13 +179,13 @@ def _build_rows(
             label="(=) Receita Bruta de Vendas",
             amount=receita_bruta_de_vendas,
             tone="highlight",
-            formula="(Receita Bruta de Vendas e Serviços - Custos Mercadorias Vendidas)",
+            formula="(Receita Bruta de Vendas e Serviços + Custos Mercadorias Vendidas)",
             component=_ROW_COMPONENT_RECEITA_BRUTA_DE_VENDAS,
             detail_kind="components",
             details=details.get(_ROW_COMPONENT_RECEITA_BRUTA_DE_VENDAS, []),
         ),
         _build_row(
-            label="(+) Receitas Financeiras",
+            label="Receitas Financeiras",
             amount=receitas_financeiras,
             tone="positive",
             component=_ROW_COMPONENT_RECEITAS_FINANCEIRAS,
@@ -227,7 +194,7 @@ def _build_rows(
             details=details.get(_ROW_COMPONENT_RECEITAS_FINANCEIRAS, []),
         ),
         _build_row(
-            label="(-) Despesas Financeiras",
+            label="Despesas Financeiras",
             amount=despesas_financeiras,
             tone="negative",
             component=_ROW_COMPONENT_DESPESAS_FINANCEIRAS,
@@ -239,7 +206,7 @@ def _build_rows(
             label="(=) Resultado Operacional",
             amount=resultado_operacional,
             tone="result",
-            formula="(Receitas Financeiras - Despesas Financeiras)",
+            formula="(Receita Bruta de Vendas + Receitas Financeiras + Despesas Financeiras)",
             component=_ROW_COMPONENT_RESULTADO_OPERACIONAL,
             detail_kind="components",
             details=details.get(_ROW_COMPONENT_RESULTADO_OPERACIONAL, []),
@@ -263,18 +230,20 @@ def _resolve_visible_components(*, selected_financial_groups: list[FinancialGrou
     if not selected_financial_groups:
         return all_components
 
-    selected_names = {_normalize_label(group.name) for group in selected_financial_groups}
     visible_components: set[str] = set()
 
-    for component, aliases in _COMPONENT_GROUP_NAME_ALIASES.items():
-        if aliases & selected_names:
-            visible_components.add(component)
+    for group in selected_financial_groups:
+        current_group = group
+        while current_group is not None:
+            if current_group.dre_type:
+                visible_components.add(current_group.dre_type)
+                break
+            current_group = current_group.parent
 
-    if _COMPONENT_GROUP_NAME_ALIASES[_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS] & selected_names:
-        visible_components.add(_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS)
-    if {"receitas"} & selected_names:
-        visible_components.add(_ROW_COMPONENT_RECEITAS_FINANCEIRAS)
-
+    # Always show all components in DRE to keep the structure intact, 
+    # but the filter above will limit which items appear if needed,
+    # wait actually the filter is to see what to sum. If we return only visible_components,
+    # the unselected parts will be zeroed out.
     return visible_components
 
 
@@ -303,67 +272,61 @@ def _build_row_details(
 
 
 def _build_financial_movement_detail(*, movement: FinancialMovement, include_workshop_reference: bool) -> dict[str, object]:
-    created_at = getattr(movement, "criado_em", None)
-    return {
-        "summary": _build_financial_movement_summary(movement=movement),
-        "reference": _build_financial_movement_reference(movement=movement, include_workshop_reference=include_workshop_reference),
-        "entry_date": created_at.date() if created_at is not None else None,
-        "payment_date": _resolve_effective_movement_date(movement=movement),
-        "amount": movement.amount,
-    }
-
-
-def _build_financial_movement_summary(*, movement: FinancialMovement) -> str:
     description = str(getattr(movement, "description", "") or "").strip()
+
     if description:
-        return description
+        summary = description
+    else:
+        source = getattr(movement, "source", None)
+        summary = str(source.name) if source is not None else "-"
 
-    source = getattr(movement, "source", None)
-    if source is not None:
-        return str(source.name)
-
-    return "-"
-
-
-def _build_financial_movement_reference(*, movement: FinancialMovement, include_workshop_reference: bool) -> str:
     reference_parts: list[str] = []
 
     if include_workshop_reference:
         workshop = getattr(movement, "workshop", None)
         workshop_name = getattr(workshop, "name", None)
+
         if workshop_name:
             reference_parts.append(f"Filial: {workshop_name}")
 
     source = getattr(movement, "source", None)
     source_name = getattr(source, "name", None)
+
     if source_name:
         reference_parts.append(f"Origem: {source_name}")
 
     nf_number = str(getattr(movement, "nf_number", "") or "").strip()
+
     if nf_number:
         reference_parts.append(f"NF: {nf_number}")
 
     payment_method = getattr(movement, "payment_method", None)
+
     if payment_method is not None:
         reference_parts.append(f"Pagamento: {payment_method}")
 
-    return " | ".join(reference_parts) or "-"
-
-
-def _resolve_effective_movement_date(*, movement: FinancialMovement) -> date | None:
     if movement.due_date is not None:
-        return movement.due_date
+        payment_date = movement.due_date
+    else:
+        workorder = getattr(movement, "workorder", None)
+        workorder_created_at = getattr(workorder, "criado_em", None)
 
-    workorder = getattr(movement, "workorder", None)
-    workorder_created_at = getattr(workorder, "criado_em", None)
-    if workorder_created_at is not None:
-        return workorder_created_at.date()
+        if workorder_created_at is not None:
+            payment_date = workorder_created_at.date()
+        else:
+            created_at = getattr(movement, "criado_em", None)
+            payment_date = created_at.date() if created_at is not None else None
 
     created_at = getattr(movement, "criado_em", None)
-    if created_at is not None:
-        return created_at.date()
 
-    return None
+    return {
+        "movement": movement,
+        "summary": summary,
+        "reference": " | ".join(reference_parts) or "-",
+        "entry_date": created_at.date() if created_at is not None else None,
+        "payment_date": payment_date,
+        "amount": movement.amount,
+    }
 
 
 def _build_row(

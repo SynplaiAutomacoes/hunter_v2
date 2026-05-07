@@ -159,7 +159,9 @@
                                                                         {% elif row.detail_kind == 'financial_entries' %}
                                                                             <td class="font-semibold text-base-content">{{ detail.summary }}</td>
                                                                             <td class="text-base-content/65">{{ detail.reference }}</td>
-                                                                            <td class="text-right font-semibold text-base-content">{{ detail.amount }}</td>
+                                                                            <td class="text-right font-semibold text-base-content">
+                                                                                <span class="{{ detail.movement.report_total_display.class }}">{{ detail.movement.report_total_display.text }}</span>
+                                                                            </td>
                                                                         {% else %}
                                                                             <td>
                                                                                 <div class="space-y-1">
