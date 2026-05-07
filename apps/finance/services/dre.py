@@ -52,7 +52,37 @@ def build_dre_calculation(*, workshops: Sequence[Workshop], start_date: date | N
 
     financial_movements = list(queryset.select_related("payment_method", "source", "workshop", "workorder", "budget_plan", "budget_plan__parent", "budget_plan__parent__parent").order_by("due_date", "criado_em", "pk"))
 
-    movements_by_topic = _group_financial_movements_by_topic(financial_movements=financial_movements)
+    movements_by_topic: dict[str, list[FinancialMovement]] = {
+        component: []
+        for component in _SOURCE_ROW_COMPONENTS
+    }
+
+    for movement in financial_movements:
+        component: str | None = None
+
+        budget_plan = getattr(movement, "budget_plan", None)
+
+        while budget_plan is not None:
+            dre_type = getattr(budget_plan, "dre_type", None)
+
+            if dre_type:
+                component = dre_type
+                break
+
+            budget_plan = getattr(budget_plan, "parent", None)
+
+        if component is None:
+            movement_kind = getattr(movement, "movement_kind", None)
+
+            if movement_kind == FinancialMovement.MovementKind.WORKORDER_PAREN:
+                component = _ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS
+            elif getattr(movement, "workorder", None) is not None:
+                component = _ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS
+
+        if component is None:
+            continue
+
+        movements_by_topic[component].append(movement)
 
     all_amounts: dict[str, Money] = {}
 
@@ -72,7 +102,21 @@ def build_dre_calculation(*, workshops: Sequence[Workshop], start_date: date | N
 
         all_amounts[component] = total
 
-    visible_components = _resolve_visible_components(selected_financial_groups=selected_financial_groups)
+    visible_components = {str(component) for component in _SOURCE_ROW_COMPONENTS}
+
+    if selected_financial_groups:
+        visible_components = set()
+
+        for group in selected_financial_groups:
+            current_group = group
+
+            while current_group is not None:
+                if current_group.dre_type:
+                    visible_components.add(current_group.dre_type)
+                    break
+
+                current_group = current_group.parent
+
     visible_amounts = {key: amount if key in visible_components else _ZERO_MONEY for key, amount in all_amounts.items()}
     receita_bruta_de_vendas = visible_amounts[_ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS] + visible_amounts[_ROW_COMPONENT_CUSTOS_MERCADORIAS_VENDIDAS]
     resultado_operacional = receita_bruta_de_vendas + visible_amounts[_ROW_COMPONENT_RECEITAS_FINANCEIRAS] + visible_amounts[_ROW_COMPONENT_DESPESAS_FINANCEIRAS]
@@ -113,36 +157,6 @@ def build_dre_calculation(*, workshops: Sequence[Workshop], start_date: date | N
             resultado_operacional=resultado_operacional,
         ),
     )
-
-
-def _group_financial_movements_by_topic(*, financial_movements: list[FinancialMovement]) -> dict[str, list[FinancialMovement]]:
-    grouped_movements: dict[str, list[FinancialMovement]] = {component: [] for component in _SOURCE_ROW_COMPONENTS}
-    for movement in financial_movements:
-        component = _resolve_movement_component(movement=movement)
-        if component is None:
-            continue
-        grouped_movements[component].append(movement)
-    return grouped_movements
-
-
-def _resolve_movement_component(*, movement: FinancialMovement) -> str | None:
-    budget_plan = getattr(movement, "budget_plan", None)
-
-    while budget_plan is not None:
-        dre_type = getattr(budget_plan, "dre_type", None)
-        if dre_type:
-            return dre_type
-        budget_plan = getattr(budget_plan, "parent", None)
-
-    movement_kind = getattr(movement, "movement_kind", None)
-
-    if movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
-        return _ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS
-
-    if getattr(movement, "workorder", None) is not None:
-        return _ROW_COMPONENT_RECEITA_BRUTA_VENDAS_E_SERVICOS
-
-    return None
 
 
 def _build_rows(*, receita_bruta_vendas_e_servicos: Money = _ZERO_MONEY, custos_mercadorias_vendidas: Money = _ZERO_MONEY, receita_bruta_de_vendas: Money = _ZERO_MONEY, receitas_financeiras: Money = _ZERO_MONEY, despesas_financeiras: Money = _ZERO_MONEY, resultado_operacional: Money = _ZERO_MONEY, row_details: dict[str, list[dict[str, object]]] | None = None) -> list[dict[str, object]]:
@@ -236,28 +250,6 @@ def _build_summary_cards(*, receita_bruta_de_vendas: Money = _ZERO_MONEY, result
         {"label": "Receita Bruta de Vendas", "amount": receita_bruta_de_vendas, "accent": "text-sky-700"},
         {"label": "Resultado Operacional", "amount": resultado_operacional, "accent": "text-amber-700"},
     ]
-
-
-def _resolve_visible_components(*, selected_financial_groups: list[FinancialGroup] | None) -> set[str]:
-    all_components = {str(component) for component in _SOURCE_ROW_COMPONENTS}
-    if not selected_financial_groups:
-        return all_components
-
-    visible_components: set[str] = set()
-
-    for group in selected_financial_groups:
-        current_group = group
-        while current_group is not None:
-            if current_group.dre_type:
-                visible_components.add(current_group.dre_type)
-                break
-            current_group = current_group.parent
-
-    # Always show all components in DRE to keep the structure intact, 
-    # but the filter above will limit which items appear if needed,
-    # wait actually the filter is to see what to sum. If we return only visible_components,
-    # the unselected parts will be zeroed out.
-    return visible_components
 
 
 def _build_financial_movement_detail(*, movement: FinancialMovement, include_workshop_reference: bool) -> dict[str, object]:
