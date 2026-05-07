@@ -555,8 +555,8 @@ class CustomerPlateLookupTests(TestCase):
                 "model": "ARGO",
                 "year_fabrication": "2023",
                 "year_model": "2024",
-                "fuel": "FLEX",
-                "engine": "1.3 FLEX",
+                "fuel": "Alcool / Gasolina",
+                "engine": "1368",
             },
         ):
             response = self.client.get(reverse("customer:check-plate", kwargs={"plate": "ABC1D23"}))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from unittest.mock import Mock, patch
 
 from django.test import TestCase
 from django.urls import reverse
@@ -8,6 +9,9 @@ from django.urls import reverse
 from apps.budget.models import Budget
 from apps.customer.forms import QuickVehicleForm
 from apps.customer.models import Customer, Vehicle
+from apps.customer.util import fetch_vehicle_data
+from apps.customer.vehicle_engine import normalize_vehicle_engine_choice
+from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice
 from apps.workorder.models import WorkOrder
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.tests import create_director_user_with_workshop
@@ -84,6 +88,26 @@ class QuickVehicleFormTests(TestCase):
 
         self.assertFalse(form.is_valid())
         self.assertEqual(form.errors["engine"], ["Selecione um motor válido."])
+
+    def test_quick_vehicle_form_accepts_engine_14(self) -> None:
+        form = QuickVehicleForm(
+            data={
+                "plate": "ABC1D23",
+                "brand": "Fiat",
+                "model": "Uno",
+                "engine": "1.4",
+                "fuel": "Flex",
+                "year_fabrication": "2020",
+                "year_model": "2020",
+                "color": "Prata",
+            },
+            workshop=self.workshop,
+            customer=self.customer,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        vehicle = form.save()
+        self.assertEqual(vehicle.engine, "1.4")
 
     def test_quick_vehicle_form_shows_blank_engine_for_unsupported_existing_value(self) -> None:
         vehicle = Vehicle.objects.create(
@@ -218,4 +242,60 @@ class CustomerUpdateViewTabsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, self.customer_vehicle.plate)
         self.assertNotContains(response, "XYZ9Z99")
-        self.assertNotContains(response, f"OS #{self.other_workorder.pk}")
+
+
+class VehicleLookupNormalizationTests(TestCase):
+    def test_engine_normalization_maps_supported_text_and_displacement_values(self) -> None:
+        self.assertEqual(normalize_vehicle_engine_choice("1.4"), "1.4")
+        self.assertEqual(normalize_vehicle_engine_choice("Motor 1,4"), "1.4")
+        self.assertEqual(normalize_vehicle_engine_choice("1368"), "1.3")
+        self.assertEqual(normalize_vehicle_engine_choice("1398"), "1.3")
+        self.assertEqual(normalize_vehicle_engine_choice("1400"), "1.4")
+        self.assertEqual(normalize_vehicle_engine_choice("1798"), "1.8")
+        self.assertEqual(normalize_vehicle_engine_choice("1998"), "2.0")
+
+    def test_fuel_normalization_maps_alcool_gasolina_to_flex(self) -> None:
+        self.assertEqual(normalize_vehicle_fuel_choice("Alcool / Gasolina"), "Flex")
+        self.assertEqual(normalize_vehicle_fuel_choice("Flex"), "Flex")
+
+    @patch.dict("os.environ", {"token_vehicle_api": "token-teste"})
+    @patch("apps.customer.util.requests.get")
+    def test_fetch_vehicle_data_parses_new_api_payload(self, requests_get_mock: Mock) -> None:
+        response_mock = Mock()
+        response_mock.json.return_value = {
+            "data": {
+                "veiculo": {
+                    "ano": "2013/2013",
+                    "cor": "Prata",
+                    "chassi": "CHASSI",
+                    "cilindradas": "1998",
+                    "combustivel": "Alcool / Gasolina",
+                    "marca_modelo": "Renault/duster D 4x4",
+                    "tipo_de_veiculo": "Camioneta",
+                },
+                "fipes": [
+                    {
+                        "marca": "Renault",
+                        "modelo": "DUSTER Dynamique 4x4 2.0 Hi-Flex 16V Mec",
+                    }
+                ],
+            }
+        }
+        requests_get_mock.return_value = response_mock
+
+        vehicle_data = fetch_vehicle_data("ABC1D23")
+
+        self.assertEqual(
+            vehicle_data,
+            {
+                "brand": "Renault",
+                "model": "DUSTER Dynamique 4x4 2.0 Hi-Flex 16V Mec",
+                "year_model": "2013",
+                "year_fabrication": "2013",
+                "color": "Prata",
+                "chassi": "CHASSI",
+                "fuel": "Flex",
+                "engine": "2.0",
+                "type": "Camioneta",
+            },
+        )

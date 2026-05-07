@@ -13,6 +13,7 @@ urlpatterns = [
     path("<int:pk>/update-collaborators/", views.UpdateWorkOrderCollaboratorsView.as_view(), name="update_collaborators"),
     path("<int:pk>/payment-section/", views.WorkOrderPaymentSectionView.as_view(), name="payment_section"),
     path("<int:pk>/update-discount/", views.UpdateWorkOrderDiscountView.as_view(), name="update_discount"),
+    path("<int:pk>/update-km-final/", views.UpdateWorkOrderKmFinalView.as_view(), name="update_km_final"),
     path("<int:pk>/kit/<int:item_id>/edit/", views.WorkOrderKitEditView.as_view(), name="edit_kit"),
     path("<int:pk>/status/<str:status>/", views.UpdateWorkOrderStatusView.as_view(), name="update_status"),
     # Items
