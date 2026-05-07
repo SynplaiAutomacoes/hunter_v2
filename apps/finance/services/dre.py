@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from typing import Sequence
 
@@ -8,9 +8,8 @@ from djmoney.money import Money
 from django.db.models import Q
 
 from apps.finance.models import FinancialGroup
-from apps.finance.models.financial_group import DreType
 from apps.finance.models.financial_movement import FinancialMovement
-from apps.workorder.models import WorkOrderPaymentMethod
+from apps.workorder.models import WorkOrderPaymentMethod, WorkOrder
 from apps.workshops.models.workshops import Workshop
 
 
@@ -69,94 +68,117 @@ def build_dre_calculation(
         selected_financial_groups=selected_financial_groups,
     )
 
-    # --- Classifica movimentações por seção ---
-    gross_revenue_mvs  = [m for m in movements if m.workorder is not None or _resolve_dre_type(m) == DreType.GROSS_REVENUE]
-    cogs_mvs           = [m for m in movements if m.workorder is None and _resolve_dre_type(m) == DreType.COGS]
-    fin_revenue_mvs    = [m for m in movements if m.workorder is None and _resolve_dre_type(m) == DreType.FINANCIAL_REVENUE]
-    fin_expense_mvs = [m for m in movements if m.workorder is None and _resolve_dre_type(m) == DreType.FINANCIAL_EXPENSE]
-
-    from decimal import Decimal
-    wo_pm = WorkOrderPaymentMethod.objects.filter(workorder__workshop__in=workshops).select_related("workorder")
-    if start_date is not None: wo_pm = wo_pm.filter(due_date__gte=start_date)
-    if end_date is not None: wo_pm = wo_pm.filter(due_date__lte=end_date)
-    total_vendido_ate_a_data = sum(
-        (payment.total_paid.amount for payment in wo_pm),
-        Decimal("0.00"),
-    )
-    taxa_maquininha=FinancialMovement.objects.filter(workorder_payment__in=wo_pm, description="Pagamento da taxa da maquininha")
-    total_taxa_maquininha = _sum_movements(list(taxa_maquininha))
-
-    # --- Calcula totais ---
-    gross_revenue  = _sum_movements(gross_revenue_mvs)
-    cogs           = _sum_movements(cogs_mvs)
-    gross_profit   = gross_revenue + cogs
-    fin_revenue    = _sum_movements(fin_revenue_mvs)
-    fin_expense    = _sum_movements(fin_expense_mvs)
-    op_result      = gross_profit + fin_revenue + fin_expense
-
     # --- Monta detalhes de cada seção ---
     def details(mvs: list[FinancialMovement]) -> list[dict]:
         return [_build_detail(m, include_workshop_ref) for m in mvs]
 
-    def wo_pm_details(payments: list[WorkOrderPaymentMethod]) -> list[dict]:
+    def workorder_payment_method_details(payments: list[WorkOrderPaymentMethod]) -> list[dict]:
         return [_build_wo_pm_detail(p, include_workshop_ref) for p in payments]
 
-    def maquinha_tax_details(mvs: list[FinancialMovement]) -> list[dict]:
+    def maquininha_tax_details(mvs: list[FinancialMovement]) -> list[dict]:
         return [_build_maquininha_detail(m, include_workshop_ref) for m in mvs]
 
-    wo_pm_details_list = wo_pm_details(list(wo_pm))
-    taxa_mv_details_list = maquinha_tax_details(list(taxa_maquininha))
+    def workorder_cost_details(wos: list[WorkOrder]) -> list[dict]:
+        return [_build_workorder_cost_detail(wo, include_workshop_ref) for wo in wos]
 
-    gross_revenue_details = details(gross_revenue_mvs) + wo_pm_details_list
-    cogs_details = details(cogs_mvs) + taxa_mv_details_list
+    # Receita Bruta de Vendas e Serviços
+    pagamentos_ordens_de_servico = WorkOrderPaymentMethod.objects.filter(
+        workorder__workshop__in=workshops
+    ).select_related(
+        "workorder", "workorder__budget", "workorder__budget__customer"
+    ).prefetch_related(
+        "workorder__items__product",
+        "workorder__items__service",
+        "workorder__items__kit",
+        "workorder__items__kit_overrides",
+        "workorder__items__kit__kit_products__product",
+        "workorder__items__kit__kit_services__service",
+    )
+    if start_date is not None: pagamentos_ordens_de_servico = pagamentos_ordens_de_servico.filter(due_date__gte=start_date)
+    if end_date is not None: pagamentos_ordens_de_servico = pagamentos_ordens_de_servico.filter(due_date__lte=end_date)
+
+    total_receita_bruta_de_vendas_e_servicos = sum((payment.total_paid for payment in pagamentos_ordens_de_servico), _ZERO)
+    detail_receita_bruta_de_vendas_e_servicos = workorder_payment_method_details(list(pagamentos_ordens_de_servico))
+    # ----------------------------------
+
+    # Custo Mercadorias Vendidas
+    taxa_maquininha_os = FinancialMovement.objects.filter(workorder_payment__in=pagamentos_ordens_de_servico, description="Pagamento da taxa da maquininha")
+    total_taxa_maquininha_os = _sum_movements(list(taxa_maquininha_os))
+
+    workorders = set(payment.workorder for payment in pagamentos_ordens_de_servico if payment.workorder)
+    total_custos_os = sum((wo.total_costs_products_value for wo in workorders), _ZERO)
+
+    total_custos_mercadorias_vendidas = total_taxa_maquininha_os + total_custos_os
+    detail_custos_mercadorias_vendidas = maquininha_tax_details(list(taxa_maquininha_os)) + workorder_cost_details(list(workorders))
+    # --------------------------
+
+    # Receita Bruta de Vendas
+    total_receita_bruta_de_vendas = total_receita_bruta_de_vendas_e_servicos + total_custos_mercadorias_vendidas
+    # -----------------------
+
+    # Receitas Financeiras
+    fin_revenue_mvs = [m for m in movements if m.workorder is None and m.direction == FinancialMovement.MovementDirection.CREDIT]
+    total_receitas_financeiras = _sum_movements(fin_revenue_mvs)
+    detail_receitas_financeiras = details(fin_revenue_mvs)
+    # -------------------
+
+    # Despesas Financeiras
+    fin_expense_mvs = [m for m in movements if m.workorder is None and m.direction == FinancialMovement.MovementDirection.DEBIT]
+    total_despesas_financeiras = _sum_movements(fin_expense_mvs)
+    detail_despesas_financeiras = details(fin_expense_mvs)
+    # --------------------
+
+    # Resultado Operacional
+    total_resultado_operacional = total_receita_bruta_de_vendas + total_receitas_financeiras + total_despesas_financeiras
+    # ---------------------
 
     rows = [
         _row(
             label="Receita Bruta de Vendas e Serviços",
-            amount=gross_revenue + Money(total_vendido_ate_a_data, "BRL"),
+            amount=total_receita_bruta_de_vendas_e_servicos,
             tone="positive",
             component=COMP_GROSS_REVENUE,
             detail_kind="financial_entries",
             is_expandable=True,
-            details=gross_revenue_details,
+            details=detail_receita_bruta_de_vendas_e_servicos,
         ),
         _row(
             label="Custos Mercadorias Vendidas",
-            amount=cogs + total_taxa_maquininha,
+            amount=total_custos_mercadorias_vendidas,
             tone="negative",
             component=COMP_COGS,
             detail_kind="financial_entries",
             is_expandable=True,
-            details=cogs_details,
+            details=detail_custos_mercadorias_vendidas,
         ),
         _row(
             label="(=) Receita Bruta de Vendas",
-            amount=gross_profit,
+            amount=total_receita_bruta_de_vendas,
             tone="highlight",
             component=COMP_GROSS_PROFIT,
             formula="Receita Bruta de Vendas e Serviços + Custos Mercadorias Vendidas",
         ),
         _row(
             label="Receitas Financeiras",
-            amount=fin_revenue,
+            amount=total_receitas_financeiras,
             tone="positive",
             component=COMP_FINANCIAL_REVENUE,
             detail_kind="financial_entries",
             is_expandable=True,
-            details=details(fin_revenue_mvs),
+            details=detail_receitas_financeiras,
         ),
         _row(
             label="Despesas Financeiras",
-            amount=fin_expense,
+            amount=total_despesas_financeiras,
             tone="negative",
             component=COMP_FINANCIAL_EXPENSE,
             detail_kind="financial_entries",
             is_expandable=True,
-            details=details(fin_expense_mvs),
+            details=detail_despesas_financeiras,
         ),
         _row(
             label="(=) Resultado Operacional",
-            amount=op_result,
+            amount=total_resultado_operacional,
             tone="result",
             component=COMP_OPERATING_RESULT,
             formula="Receita Bruta de Vendas + Receitas Financeiras + Despesas Financeiras",
@@ -164,8 +186,8 @@ def build_dre_calculation(
     ]
 
     summary_cards = [
-        {"label": "Receita Bruta de Vendas", "amount": gross_profit, "accent": "text-sky-700"},
-        {"label": "Resultado Operacional",   "amount": op_result,    "accent": "text-amber-700"},
+        {"label": "Receita Bruta de Vendas", "amount": total_receita_bruta_de_vendas, "accent": "text-sky-700"},
+        {"label": "Resultado Operacional",   "amount": total_resultado_operacional,    "accent": "text-amber-700"},
     ]
 
     return DreCalculationResult(rows=rows, summary_cards=summary_cards)
@@ -341,6 +363,28 @@ def _build_wo_pm_detail(payment: WorkOrderPaymentMethod, include_workshop_ref: b
 
 def _build_maquininha_detail(m: FinancialMovement, include_workshop_ref: bool) -> dict:
     return _build_detail(m, include_workshop_ref)
+
+
+def _build_workorder_cost_detail(wo: WorkOrder, include_workshop_ref: bool) -> dict:
+    budget = getattr(wo, "budget", None)
+    customer = getattr(budget, "customer", None)
+    pk = getattr(budget, "pk", "-")
+    name = getattr(customer, "name", "-") or "-"
+    
+    summary = f"Custo - O.S #{pk} - {name}"
+    reference = f"O.S #{pk}"
+    
+    if include_workshop_ref and wo.workshop_id:
+        reference = f"Filial: {wo.workshop.name} | {reference}"
+    
+    return {
+        "movement": None,
+        "summary": summary,
+        "reference": reference,
+        "entry_date": getattr(wo, "criado_em", None),
+        "payment_date": getattr(wo, "criado_em", None),
+        "amount": wo.total_costs_products_value,
+    }
 
 
 def _row(

@@ -29,11 +29,10 @@ class FinancialGroupForm(CoreModelForm):
 
     class Meta:
         model = FinancialGroup
-        fields = ["parent", "name", "dre_type", "is_active"]
+        fields = ["parent", "name", "is_active"]
         widgets = {
             "name": TextInput(attrs={"placeholder": "Ex: Contas Fixas, Água/Luz/Telefone..."}),
             "is_active": CheckboxInput(),
-            "dre_type": SelectInput(),
         }
 
     def __init__(self, *args: Any, workshop: Workshop | None = None, **kwargs: Any):
@@ -61,7 +60,6 @@ class FinancialGroupForm(CoreModelForm):
             Div(
                 Field("parent", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("name", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("dre_type", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("is_active", wrapper_class="col-span-12 lg:col-span-12"),
                 css_class="grid grid-cols-12 gap-4",
             ),
