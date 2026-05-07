@@ -84,11 +84,12 @@ def build_dre_calculation(
         Decimal("0.00"),
     )
     taxa_maquininha=FinancialMovement.objects.filter(workorder_payment__in=wo_pm, description="Pagamento da taxa da maquininha")
+    total_taxa_maquininha = _sum_movements(list(taxa_maquininha))
 
     # --- Calcula totais ---
-    gross_revenue  = _sum_movements(gross_revenue_mvs)
-    cogs           = _sum_movements(cogs_mvs)
-    gross_profit   = gross_revenue + cogs          # cogs já vem negativo (DEBIT)
+    gross_revenue  = _sum_movements(gross_revenue_mvs) + Money(total_vendido_ate_a_data, "BRL")
+    cogs           = _sum_movements(cogs_mvs) + total_taxa_maquininha
+    gross_profit   = gross_revenue + cogs
     fin_revenue    = _sum_movements(fin_revenue_mvs)
     fin_expense    = _sum_movements(fin_expense_mvs)
     op_result      = gross_profit + fin_revenue + fin_expense
