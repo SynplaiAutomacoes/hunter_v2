@@ -12,9 +12,11 @@
             hx-target="#customer-approvement-section"
             hx-swap="innerHTML"
             class="space-y-3"
+            data-km-autosave-url="{% url 'workorder:update_km_final' workorder.pk %}"
         >
             {% csrf_token %}
             {% crispy approval_form %}
+            <p id="workorder-km-save-status" class="text-sm text-base-content/70 min-h-5" aria-live="polite"></p>
         </form>
     </div>
 
@@ -119,3 +121,99 @@
         </div>
     </div>
 </div>
+
+<script>
+    (function () {
+        const form = document.getElementById('approval-km-form');
+        const kmInput = document.getElementById('id_km_final');
+        const statusEl = document.getElementById('workorder-km-save-status');
+
+        if (!form || !kmInput || !statusEl || kmInput.dataset.kmAutosaveInitialized === 'true') {
+            return;
+        }
+
+        kmInput.dataset.kmAutosaveInitialized = 'true';
+
+        const autosaveUrl = form.dataset.kmAutosaveUrl;
+        const csrfToken = form.querySelector('input[name="csrfmiddlewaretoken"]')?.value || '';
+        let saveTimeout = null;
+        let requestController = null;
+        let lastSavedValue = kmInput.value;
+
+        const setStatus = (message, tone = 'muted') => {
+            statusEl.textContent = message;
+            statusEl.classList.remove('text-base-content/70', 'text-success', 'text-error');
+            if (tone === 'success') {
+                statusEl.classList.add('text-success');
+                return;
+            }
+            if (tone === 'error') {
+                statusEl.classList.add('text-error');
+                return;
+            }
+            statusEl.classList.add('text-base-content/70');
+        };
+
+        const persistKmFinal = async () => {
+            const currentValue = kmInput.value.trim();
+
+            if (!currentValue || currentValue === lastSavedValue) {
+                if (!currentValue) {
+                    setStatus('');
+                    kmInput.setCustomValidity('');
+                }
+                return;
+            }
+
+            if (requestController) {
+                requestController.abort();
+            }
+
+            requestController = new AbortController();
+            setStatus('');
+            kmInput.setCustomValidity('');
+
+            const formData = new FormData();
+            formData.append('csrfmiddlewaretoken', csrfToken);
+            formData.append('km_final', currentValue);
+
+            try {
+                const response = await fetch(autosaveUrl, {
+                    method: 'POST',
+                    body: formData,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    signal: requestController.signal,
+                });
+                const payload = await response.json();
+
+                if (!response.ok || !payload.ok) {
+                    const errorMessage = Array.isArray(payload.errors) && payload.errors.length ? payload.errors[0] : 'Nao foi possivel salvar o KM final.';
+                    kmInput.setCustomValidity(errorMessage);
+                    setStatus(errorMessage, 'error');
+                    return;
+                }
+
+                lastSavedValue = currentValue;
+                kmInput.setCustomValidity('');
+                setStatus('');
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    return;
+                }
+                setStatus('Nao foi possivel salvar o KM final.', 'error');
+            }
+        };
+
+        const schedulePersist = () => {
+            clearTimeout(saveTimeout);
+            setStatus('');
+            saveTimeout = window.setTimeout(persistKmFinal, 500);
+        };
+
+        kmInput.addEventListener('input', schedulePersist);
+        kmInput.addEventListener('blur', () => {
+            clearTimeout(saveTimeout);
+            void persistKmFinal();
+        });
+    })();
+</script>
