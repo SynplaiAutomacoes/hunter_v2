@@ -113,7 +113,7 @@ def build_dre_calculation(
     # --------------------------
 
     # Receita Bruta de Vendas
-    total_receita_bruta_de_vendas = total_receita_bruta_de_vendas_e_servicos + total_custos_mercadorias_vendidas
+    total_receita_bruta_de_vendas = total_receita_bruta_de_vendas_e_servicos - total_custos_mercadorias_vendidas
     # -----------------------
 
     # Receitas Financeiras
@@ -129,7 +129,7 @@ def build_dre_calculation(
     # --------------------
 
     # Resultado Operacional
-    total_resultado_operacional = total_receita_bruta_de_vendas + total_receitas_financeiras + total_despesas_financeiras
+    total_resultado_operacional = total_receitas_financeiras - total_despesas_financeiras
     # ---------------------
 
     rows = [
@@ -156,7 +156,7 @@ def build_dre_calculation(
             amount=total_receita_bruta_de_vendas,
             tone="highlight",
             component=COMP_GROSS_PROFIT,
-            formula="Receita Bruta de Vendas e Serviços + Custos Mercadorias Vendidas",
+            formula="Receita Bruta de Vendas e Serviços - Custos Mercadorias Vendidas",
         ),
         _row(
             label="Receitas Financeiras",
@@ -181,7 +181,7 @@ def build_dre_calculation(
             amount=total_resultado_operacional,
             tone="result",
             component=COMP_OPERATING_RESULT,
-            formula="Receita Bruta de Vendas + Receitas Financeiras + Despesas Financeiras",
+            formula="Receitas Financeiras - Despesas Financeiras",
         ),
     ]
 
