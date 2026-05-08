@@ -506,6 +506,7 @@ class WorkOrderPaymentMethod(TimeStampedModel):
     first_installment_amount = MoneyField(verbose_name="Valor da Primeira Parcela", max_digits=14, decimal_places=2, default=0.00)
     remaining_installments_amount = MoneyField(verbose_name="Valor das Parcelas Restantes", max_digits=14, decimal_places=2, default=0.00)
     due_date = models.DateField(verbose_name="Vencimento", default=timezone.localdate)
+    movement_group = models.ForeignKey("finance.MovementGroup", on_delete=models.SET_NULL, null=True, blank=True, related_name="workorder_payments")
 
     class Meta:
         verbose_name = "Plano de Pagamento"

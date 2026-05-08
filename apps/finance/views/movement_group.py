@@ -2,6 +2,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import render, get_object_or_404
+from django.utils import timezone
 from django.views import View
 from decimal import Decimal
 
@@ -9,20 +10,91 @@ from apps.finance.models import FinancialMovement, MovementGroup
 from apps.finance.forms.movement_group import GroupMovementStep1Form, GroupMovementStep3Form
 from apps.suppliers.models import Supplier
 from apps.collaborators.models import WorkshopCollaborator
+from apps.customer.models import Customer
 from apps.workshops.mixin import WorkshopScopedMixin
+from apps.workorder.models import WorkOrderPaymentMethod
 
 
 class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = MovementGroup
     workshop_permission_codename = "add_financialmovement"
 
+    def _get_unified_movements(self, entity_type, entity_id, filter_direction, filter_start_date, filter_end_date):
+        fm_qs = FinancialMovement.objects.filter(
+            workshop=self.workshop, 
+            movement_kind=FinancialMovement.MovementKind.DEFAULT, 
+            movement_group__isnull=True, 
+            is_paid=False
+        )
+        pm_qs = WorkOrderPaymentMethod.objects.none()
+
+        entity_name = ""
+        if entity_type == "supplier":
+            fm_qs = fm_qs.filter(supplier_id=entity_id)
+            entity_name = Supplier.objects.get(id=entity_id).name
+        elif entity_type == "collaborator":
+            fm_qs = fm_qs.filter(collaborator_id=entity_id)
+            entity_name = str(WorkshopCollaborator.objects.get(id=entity_id))
+        elif entity_type == "customer":
+            fm_qs = fm_qs.filter(workorder__budget__customer_id=entity_id)
+            pm_qs = WorkOrderPaymentMethod.objects.filter(
+                workorder__workshop=self.workshop,
+                workorder__budget__customer_id=entity_id,
+                movement_group__isnull=True
+            )
+            entity_name = Customer.objects.get(id=entity_id).name
+
+        if filter_direction:
+            fm_qs = fm_qs.filter(direction=filter_direction)
+            if filter_direction == "DEBIT":
+                pm_qs = pm_qs.none()
+        
+        if filter_start_date:
+            fm_qs = fm_qs.filter(due_date__gte=filter_start_date)
+            pm_qs = pm_qs.filter(due_date__gte=filter_start_date)
+            
+        if filter_end_date:
+            fm_qs = fm_qs.filter(due_date__lte=filter_end_date)
+            pm_qs = pm_qs.filter(due_date__lte=filter_end_date)
+
+        unified = []
+        for mv in fm_qs:
+            unified.append({
+                "id": f"fm_{mv.id}",
+                "due_date": mv.due_date,
+                "direction": mv.direction,
+                "description": mv.description,
+                "items_observation": mv.items_observation,
+                "payment_method": mv.payment_method,
+                "is_paid": mv.is_paid,
+                "amount": mv.amount,
+                "obj": mv
+            })
+
+        for pm in pm_qs:
+            unified.append({
+                "id": f"pm_{pm.id}",
+                "due_date": pm.due_date,
+                "direction": "CREDIT",
+                "description": f"OS Nº {pm.workorder_id}",
+                "items_observation": "",
+                "payment_method": pm.payment_method,
+                "is_paid": False,
+                "amount": pm.total_paid,
+                "obj": pm
+            })
+
+        unified.sort(key=lambda x: (x["due_date"] or timezone.now().date(), x["id"]))
+        return unified, entity_name
+
     def get(self, request, *args, **kwargs):
         step = request.GET.get("step", "1")
 
         if step == "1":
+            customers = Customer.objects.filter(workshop=self.workshop)
             suppliers = Supplier.objects.filter(workshop=self.workshop, is_active=True)
             collaborators = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True)
-            form = GroupMovementStep1Form(suppliers=suppliers, collaborators=collaborators)
+            form = GroupMovementStep1Form(customers=customers, suppliers=suppliers, collaborators=collaborators)
             return render(request, "finance/reports/partials/group_step1.html", {"form": form})
 
         return HttpResponse("Invalid Step", status=400)
@@ -31,38 +103,22 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
         step = request.POST.get("step")
 
         if step == "1":
+            customers = Customer.objects.filter(workshop=self.workshop)
             suppliers = Supplier.objects.filter(workshop=self.workshop, is_active=True)
             collaborators = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True)
-            form = GroupMovementStep1Form(request.POST, suppliers=suppliers, collaborators=collaborators)
+            form = GroupMovementStep1Form(request.POST, customers=customers, suppliers=suppliers, collaborators=collaborators)
 
             if form.is_valid():
                 entity_val = form.cleaned_data["entity"]
                 entity_type, entity_id = entity_val.split("_")
 
-                # Fetch pending movements for this entity
-                movements = FinancialMovement.objects.filter(workshop=self.workshop, movement_kind=FinancialMovement.MovementKind.DEFAULT, movement_group__isnull=True, is_paid=False)
-
-                if entity_type == "supplier":
-                    movements = movements.filter(supplier_id=entity_id)
-                    entity_name = Supplier.objects.get(id=entity_id).name
-                else:
-                    movements = movements.filter(collaborator_id=entity_id)
-                    entity_name = str(WorkshopCollaborator.objects.get(id=entity_id))
-
-                # Apply filters
                 filter_direction = request.POST.get("filter_direction", "")
                 filter_start_date = request.POST.get("filter_start_date", "")
                 filter_end_date = request.POST.get("filter_end_date", "")
 
-                if filter_direction:
-                    movements = movements.filter(direction=filter_direction)
-                if filter_start_date:
-                    movements = movements.filter(due_date__gte=filter_start_date)
-                if filter_end_date:
-                    movements = movements.filter(due_date__lte=filter_end_date)
-
-                # Ensure ordered for consistent display
-                movements = movements.order_by("due_date", "id")
+                movements, entity_name = self._get_unified_movements(
+                    entity_type, entity_id, filter_direction, filter_start_date, filter_end_date
+                )
 
                 return render(
                     request,
@@ -85,30 +141,18 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
             entity_type = request.POST.get("entity_type")
             entity_id = request.POST.get("entity_id")
 
-            all_movements = FinancialMovement.objects.filter(workshop=self.workshop, movement_kind=FinancialMovement.MovementKind.DEFAULT, movement_group__isnull=True, is_paid=False)
-            if entity_type == "supplier":
-                all_movements = all_movements.filter(supplier_id=entity_id)
-                entity_name = Supplier.objects.get(id=entity_id).name
-            else:
-                all_movements = all_movements.filter(collaborator_id=entity_id)
-                entity_name = str(WorkshopCollaborator.objects.get(id=entity_id))
+            all_movements, entity_name = self._get_unified_movements(entity_type, entity_id, "", "", "")
 
             error = None
             if not movement_ids:
                 error = "Selecione ao menos um lançamento."
             else:
-                selected_movements = FinancialMovement.objects.filter(id__in=movement_ids, workshop=self.workshop)
-                first_mv = selected_movements.first()
-                if first_mv:
-                    first_month_year = (first_mv.due_date.month, first_mv.due_date.year) if first_mv.due_date else None
-                    first_direction = first_mv.direction
+                selected_movements = [mv for mv in all_movements if mv["id"] in movement_ids]
+                if selected_movements:
+                    first_direction = selected_movements[0]["direction"]
 
                     for mv in selected_movements:
-                        mv_month_year = (mv.due_date.month, mv.due_date.year) if mv.due_date else None
-                        if mv_month_year != first_month_year:
-                            error = "Todos os lançamentos selecionados devem ser do mesmo mês e ano."
-                            break
-                        if mv.direction != first_direction:
+                        if mv["direction"] != first_direction:
                             error = "Todos os lançamentos selecionados devem ser do mesmo tipo (Crédito ou Débito)."
                             break
 
@@ -118,7 +162,8 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
             # Step 3 form
             total_amount = Decimal("0.00")
             for mv in selected_movements:
-                total_amount += Decimal(str(mv.amount.amount))
+                val = mv["amount"]
+                total_amount += Decimal(str(val.amount if hasattr(val, "amount") else val))
 
             form = GroupMovementStep3Form()
             return render(request, "finance/reports/partials/group_step3.html", {"form": form, "movement_ids": movement_ids, "entity_type": entity_type, "entity_id": entity_id, "total_amount": total_amount})
@@ -137,19 +182,36 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
                     if entity_type == "supplier":
                         group.supplier_id = entity_id
-                    else:
+                    elif entity_type == "collaborator":
                         group.collaborator_id = entity_id
+                    # We don't save customer_id on group directly right now, unless it's added. Let's just leave it None.
 
                     group.save()
 
-                    movements = FinancialMovement.objects.filter(id__in=movement_ids, workshop=self.workshop)
-                    total_amount = Decimal("0.00")
-                    first_mv = movements.first()
+                    fm_ids = [int(mid.split("_")[1]) for mid in movement_ids if mid.startswith("fm_")]
+                    pm_ids = [int(mid.split("_")[1]) for mid in movement_ids if mid.startswith("pm_")]
 
-                    for mv in movements:
-                        mv.movement_group = group
-                        total_amount += Decimal(str(mv.amount.amount))
-                        mv.save()
+                    total_amount = Decimal("0.00")
+                    first_direction = FinancialMovement.MovementDirection.DEBIT
+                    
+                    if fm_ids:
+                        fms = FinancialMovement.objects.filter(id__in=fm_ids, workshop=self.workshop)
+                        first_mv = fms.first()
+                        if first_mv:
+                            first_direction = first_mv.direction
+                        for mv in fms:
+                            mv.movement_group = group
+                            total_amount += Decimal(str(mv.amount.amount))
+                            mv.save()
+                    
+                    if pm_ids:
+                        pms = WorkOrderPaymentMethod.objects.filter(id__in=pm_ids, workorder__workshop=self.workshop)
+                        if pms:
+                            first_direction = FinancialMovement.MovementDirection.CREDIT
+                        for pm in pms:
+                            pm.movement_group = group
+                            total_amount += Decimal(str(pm.total_paid.amount))
+                            pm.save()
 
                     # Create Parent Movement
                     FinancialMovement.objects.create(
@@ -161,7 +223,7 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                         financial_observation=group.description,
                         due_date=group.due_date,
                         amount=total_amount,
-                        direction=first_mv.direction if first_mv else FinancialMovement.MovementDirection.DEBIT,
+                        direction=first_direction,
                         supplier_id=group.supplier_id,
                         collaborator_id=group.collaborator_id,
                         is_paid=False,
@@ -187,6 +249,8 @@ class GroupMovementDeleteView(LoginRequiredMixin, WorkshopScopedMixin, View):
             # Detach original children so they are not deleted
             children = group.financial_movements.exclude(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT)
             children.update(movement_group=None)
+            
+            group.workorder_payments.update(movement_group=None)
 
             # This will delete the MovementGroup and the GROUP_PARENT FinancialMovement (due to CASCADE)
             group.delete()
