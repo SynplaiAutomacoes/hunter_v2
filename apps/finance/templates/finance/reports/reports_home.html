@@ -116,6 +116,11 @@
                                                     <input type="date" name="data_final" id="reports-filter-data-final" value="{{ request.GET.data_final|default:'' }}" class="input input-bordered w-full" />
                                                 </div>
 
+                                                <div class="sm:col-span-2">
+                                                    <label for="reports-filter-agent" class="mb-1 block text-sm font-medium text-base-content">Agente</label>
+                                                    {% include "widgets/searchable_select.html" with widget=agent_filter_widget.widget %}
+                                                </div>
+
                                                 <div>
                                                     <label for="reports-filter-direction">Tipo de conta</label>
                                                     <select name="direction" id="reports-filter-direction" class="select select-bordered w-full">

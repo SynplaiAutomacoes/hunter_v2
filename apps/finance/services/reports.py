@@ -35,6 +35,7 @@ def build_financial_overview(
     direction: str | None = None,
     budget_plan_ids: Iterable[int] | None = None,
     bank_account_id: int | str | None = None,
+    agent: str | None = None,
 ) -> FinancialOverview:
     total_credits = _ZERO_DECIMAL
     paid_credits = _ZERO_DECIMAL
@@ -57,6 +58,15 @@ def build_financial_overview(
             movements = movements.filter(bank_account__isnull=True)
         else:
             movements = movements.filter(bank_account_id=bank_account_id)
+
+    if agent:
+        if agent.startswith("coll_"):
+            movements = movements.filter(collaborator_id=agent.replace("coll_", ""))
+        elif agent.startswith("supp_"):
+            movements = movements.filter(supplier_id=agent.replace("supp_", ""))
+        elif agent.startswith("wo_"):
+            movements = movements.filter(workorder_id=agent.replace("wo_", ""))
+
     if search:
         search_query = build_text_search_query(
             search_value=search,
@@ -70,6 +80,7 @@ def build_financial_overview(
                 "collaborator__name",
                 "budget_plan__name",
                 "bank_account__bank_name",
+                "workorder__budget__customer__name",
             ),
         )
         search_query = search_query | Q(workorder__id__icontains=search) if search_query.children else Q(workorder__id__icontains=search)
@@ -92,6 +103,15 @@ def build_financial_overview(
                 paid_credit_movements = paid_credit_movements.filter(bank_account__isnull=True)
             else:
                 paid_credit_movements = paid_credit_movements.filter(bank_account_id=bank_account_id)
+
+        if agent:
+            if agent.startswith("coll_"):
+                paid_credit_movements = paid_credit_movements.filter(collaborator_id=agent.replace("coll_", ""))
+            elif agent.startswith("supp_"):
+                paid_credit_movements = paid_credit_movements.filter(supplier_id=agent.replace("supp_", ""))
+            elif agent.startswith("wo_"):
+                paid_credit_movements = paid_credit_movements.filter(workorder_id=agent.replace("wo_", ""))
+
         if search:
             search_query = build_text_search_query(
                 search_value=search,
@@ -105,6 +125,7 @@ def build_financial_overview(
                     "collaborator__name",
                     "budget_plan__name",
                     "bank_account__bank_name",
+                    "workorder__budget__customer__name",
                 ),
             )
             search_query = search_query | Q(workorder__id__icontains=search) if search_query.children else Q(workorder__id__icontains=search)
