@@ -203,6 +203,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
                     "collaborator__name",
                     "budget_plan__name",
                     "bank_account__bank_name",
+                    "workorder__budget__customer__name",
                 ),
             )
             search_query = search_query | Q(workorder__id__icontains=search) if search_query.children else Q(workorder__id__icontains=search)
