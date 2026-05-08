@@ -25,6 +25,34 @@ from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 
+def parse_pk(value):
+    """
+    Converte valores de pk para inteiro seguro.
+
+    Exemplos:
+    "15" -> 15
+    "1.011" -> 1011
+    "1,011" -> 1011
+    None -> None
+    "" -> None
+    """
+    if value is None:
+        return None
+
+    value = str(value).strip()
+
+    if not value:
+        return None
+
+    # remove separadores comuns
+    value = value.replace(".", "").replace(",", "")
+
+    if not value.isdigit():
+        return None
+
+    return int(value)
+
+
 class FinancialMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = FinancialMovement
     template_name = "finance/financial_movement/financial_movement_list.html"
@@ -101,7 +129,8 @@ class FinancialMovementCreateView(PageFavoriteMixin, LoginRequiredMixin, Worksho
         return [self.template_name]
 
     def get_object(self, queryset=None):
-        pk = self.request.GET.get("pk") or self.kwargs.get("pk")
+        raw_pk = self.request.GET.get("pk") or self.kwargs.get("pk")
+        pk = parse_pk(raw_pk)
         if pk:
             return get_object_or_404(FinancialMovement, id=pk, workshop=self.workshop)
         return None
@@ -198,7 +227,7 @@ class FinancialMovementUpdateView(FinancialMovementCreateView):
         return super().dispatch(request, *args, **kwargs)
 
     def get_object(self, queryset=None):
-        pk = self.kwargs.get("pk")
+        pk = parse_pk(self.kwargs.get("pk"))
         if pk:
             return FinancialMovement.objects.get(pk=pk, workshop=self.workshop)
         return super().get_object()
