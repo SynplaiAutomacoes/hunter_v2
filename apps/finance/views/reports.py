@@ -227,9 +227,18 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
     def _get_bank_accounts_queryset(self):
         return BankAccount.objects.filter(workshop=self.workshop).order_by("bank_name", "account_number", "id")
 
-    def _has_active_filters(self) -> bool:
+    def _has_real_filters(self) -> bool:
         filter_params = self._get_filter_params()
-        return bool(filter_params["start_date"] or filter_params["end_date"] or filter_params["budget_plan_ids"] or filter_params["bank_account_id"] is not None or filter_params["direction"] or self._get_search_value())
+        return bool(
+            filter_params["start_date"]
+            or filter_params["end_date"]
+            or filter_params["budget_plan_ids"]
+            or filter_params["bank_account_id"] is not None
+            or filter_params["direction"]
+        )
+
+    def _has_active_filters(self) -> bool:
+        return self._has_real_filters() or bool(self._get_search_value())
 
     def _build_selection_summary_card(self) -> dict[str, object]:
         title = "Créditos e Débitos da Filtragem"
@@ -375,8 +384,17 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         return f"{self.request.path}?{querystring}" if querystring else self.request.path
 
     def _get_financial_movements_page(self) -> tuple[Any, Paginator]:
-        paginator = Paginator(self._get_financial_movements_queryset(), self.MOVEMENTS_PER_PAGE)
-        page_obj = paginator.get_page(self.request.GET.get("page") or "1")
+        queryset = self._get_financial_movements_queryset()
+        page_number = self.request.GET.get("page") or "1"
+        per_page = self.MOVEMENTS_PER_PAGE
+
+        if self._has_real_filters():
+            # Se houver filtros (exceto busca simples), retornamos tudo de uma vez e resetamos a página
+            per_page = max(queryset.count(), 1)
+            page_number = "1"
+
+        paginator = Paginator(queryset, per_page)
+        page_obj = paginator.get_page(page_number)
         return page_obj, paginator
 
     def _get_financial_movement_report_rows(self, *, movements: Any) -> list[dict[str, object]]:
