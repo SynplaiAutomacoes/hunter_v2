@@ -6,14 +6,18 @@ from apps.core.forms import CoreForm, CoreModelForm
 
 
 class GroupMovementStep1Form(CoreForm):
-    entity = forms.ChoiceField(label="Fornecedor ou Colaborador", widget=SearchableSelectInput(), required=True)
+    entity = forms.ChoiceField(label="Cliente, Fornecedor ou Colaborador", widget=SearchableSelectInput(), required=True)
 
     def __init__(self, *args, **kwargs):
+        customers = kwargs.pop("customers", [])
         suppliers = kwargs.pop("suppliers", [])
         collaborators = kwargs.pop("collaborators", [])
         super().__init__(*args, **kwargs)
 
         choices = [("", "---------")]
+
+        for c in customers:
+            choices.append((f"customer_{c.id}", f"Cliente: {c.name}"))
 
         for s in suppliers:
             choices.append((f"supplier_{s.id}", f"Fornecedor: {s.name}"))
