@@ -175,6 +175,16 @@ class CustomerForm(AddressFormMixin, CoreModelForm):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
         self.setup_address_fields()
+
+        initial_customer_type = str(self.data.get("customer_type") or self.initial.get("customer_type") or getattr(self.instance, "customer_type", "PF") or "PF").upper()
+        if initial_customer_type not in {"PF", "PJ"}:
+            initial_customer_type = "PF"
+
+        self.fields["customer_type"].required = False
+        self.fields["customer_type"].initial = initial_customer_type
+        self.initial["customer_type"] = initial_customer_type
+        self.fields["cpf_or_cnpj"].widget.mode = "cnpj" if initial_customer_type == "PJ" else "cpf"
+
         self.helper = FormHelper()
         self.helper.form_method = "post"
 
@@ -185,11 +195,10 @@ class CustomerForm(AddressFormMixin, CoreModelForm):
             Div(
                 HTML("""
                     <div
-                        x-data="{ tipo: $el.dataset.tipo || 'PF' }"
-                        data-tipo="{{ form.initial.customer_type|default_if_none:'PF' }}"
+                        x-data="{ tipo: '$initial_customer_type' }"
                         class="col-span-12 grid grid-cols-1 lg:grid-cols-12 gap-4"
                     >
-                """),
+                """.replace("$initial_customer_type", initial_customer_type)),
                 HTML("""
                     <label class="flex items-center gap-2 cursor-pointer">
                         <input
@@ -218,7 +227,42 @@ class CustomerForm(AddressFormMixin, CoreModelForm):
                 # Linha 1 — Identificação
                 # CPF/CNPJ | Nome | Nome Fantasia (PJ)
                 # ─────────────────────────────
-                Field("cpf_or_cnpj", wrapper_class="col-span-12 lg:col-span-4"),
+                Div(
+                    Field("cpf_or_cnpj", wrapper_class="col-span-12"),
+                    x_init="""
+                                const syncDocumentField = value => {
+                                    const hiddenInput = $el.querySelector('input[type="hidden"][name="cpf_or_cnpj"]');
+                                    const widgetRoot = hiddenInput ? hiddenInput.closest('[x-data]') : null;
+                                    if (!widgetRoot || !window.Alpine) return;
+
+                                    const widget = Alpine.$data(widgetRoot);
+                                    widget.docMode = value === 'PJ' ? 'cnpj' : 'cpf';
+
+                                    let digits = (hiddenInput.value || '').replace(/\D/g, '');
+                                    digits = digits.slice(0, widget.maxDigitsForMode(digits));
+                                    hiddenInput.value = digits;
+
+                                    const displayInput = widgetRoot.querySelector('input[type="text"]');
+                                    if (displayInput) {
+                                        displayInput.value = widget.format(digits);
+                                    }
+                                };
+
+                                $watch('tipo', value => {
+                                    let label = $el.querySelector('label');
+                                    if (label) {
+                                        label.firstChild.textContent = value === 'PJ' ? 'CNPJ ' : 'CPF ';
+                                    }
+                                    syncDocumentField(value);
+                                });
+                                let label = $el.querySelector('label');
+                                if (label) {
+                                    label.firstChild.textContent = tipo === 'PJ' ? 'CNPJ ' : 'CPF ';
+                                }
+                                $nextTick(() => syncDocumentField(tipo));
+                            """,
+                    css_class="col-span-12 lg:col-span-4",
+                ),
                 Div(
                     Field("name", wrapper_class="col-span-12"),
                     x_init="""
