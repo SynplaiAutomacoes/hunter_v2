@@ -172,11 +172,11 @@ CRISPY_ALLOWED_TEMPLATE_PACKS = ("tailwind",)
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "railway",
-        "USER": "postgres",
-        "PASSWORD": "xzNgbrhUfmmpfkoaxaNlcaHajWjpZwlg",
-        "HOST": "hopper.proxy.rlwy.net",
-        "PORT": "22982",
+        "NAME": os.getenv("DB_NAME", "meu_crm"),
+        "USER": os.getenv("DB_USER", "usuario_crm"),
+        "PASSWORD": os.getenv("DB_PASSWORD", "senha_secreta"),
+        "HOST": os.getenv("DB_HOST", "localhost"),
+        "PORT": os.getenv("DB_PORT", "5432"),
     }
 }
 
