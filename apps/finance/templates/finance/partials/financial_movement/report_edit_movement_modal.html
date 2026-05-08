@@ -10,7 +10,7 @@
     @close="$el.remove()"
 >
     <div class="modal-box w-[95vw] max-w-7xl border border-base-300 bg-base-100 shadow-2xl p-6 md:p-12">
-        <div class="flex items-center justify-between mb-8">
+        <div class="flex items-center justify-between mb-4">
             <h3 class="text-2xl font-bold text-base-content flex items-center gap-3">
                 <span class="material-icons text-primary text-2xl">edit</span>
                 Editar Movimentação Financeira
@@ -18,6 +18,11 @@
             <button type="button" class="btn btn-ghost btn-sm btn-circle" @click="$refs.editMovementModal.close()" aria-label="Fechar">
                 <span class="material-icons text-xl">close</span>
             </button>
+        </div>
+
+        <div class="alert alert-warning shadow-lg mb-6">
+            <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+            <span class="text-sm">Atenção: Verifique se todos os campos obrigatórios das demais etapas foram preenchidos antes de salvar.</span>
         </div>
 
         <form

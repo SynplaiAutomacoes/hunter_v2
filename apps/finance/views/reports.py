@@ -11,16 +11,20 @@ from django.shortcuts import render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.generic import DeleteView, TemplateView, UpdateView
-from django.db.models import Q
+from django.db.models import Q, Value
+from django.db.models.functions import Coalesce
+from typing import Any, List, Tuple
 
 from apps.core.search import build_text_search_query
-from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll
+from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
+from apps.core.widgets import SearchableSelectInput
 from apps.finance.forms.emission_ui import format_money
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.services.reports import FinancialOverview, build_financial_overview, build_monthly_financial_overview, build_yearly_financial_overview
+from apps.suppliers.models import Supplier
 from apps.workorder.models import WorkOrder
 from apps.workshops.mixin import WorkshopScopedMixin
 
@@ -115,7 +119,16 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
                 "workorder__budget__customer",
             )
             .prefetch_related("workorder__payments", "workorder__payments__payment_method")
-            .order_by("-criado_em", "-pk")
+            .annotate(
+                agent_name_sort=Coalesce(
+                    "collaborator__name",
+                    "supplier__name",
+                    "workorder__budget__customer__name",
+                    "source__name",
+                    Value(""),
+                )
+            )
+            .order_by("-due_date", "agent_name_sort", "pk")
         )
         return self._apply_report_filters(queryset)
 
@@ -161,6 +174,9 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
     def _get_search_value(self) -> str:
         return str(self.request.GET.get("search") or "").strip()
 
+    def _get_agent_filter(self) -> str:
+        return str(self.request.GET.get("agent") or "").strip()
+
     def _get_filter_params(self) -> dict[str, Any]:
         return {
             "start_date": self._parse_date_param(self.request.GET.get("data_inicial")),
@@ -168,6 +184,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "budget_plan_ids": self._get_selected_financial_group_ids(),
             "bank_account_id": self._get_selected_bank_account_id(),
             "direction": self._get_selected_direction(),
+            "agent": self._get_agent_filter(),
         }
 
     def _apply_report_filters(self, queryset):
@@ -177,6 +194,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         budget_plan_ids = filter_params["budget_plan_ids"]
         bank_account_id = filter_params["bank_account_id"]
         direction = filter_params["direction"]
+        agent = filter_params["agent"]
 
         if start_date is not None:
             queryset = queryset.filter(due_date__gte=start_date)
@@ -188,6 +206,13 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             queryset = queryset.filter(bank_account_id=bank_account_id)
         if direction:
             queryset = queryset.filter(direction=direction)
+        if agent:
+            if agent.startswith("coll_"):
+                queryset = queryset.filter(collaborator_id=agent.replace("coll_", ""))
+            elif agent.startswith("supp_"):
+                queryset = queryset.filter(supplier_id=agent.replace("supp_", ""))
+            elif agent.startswith("wo_"):
+                queryset = queryset.filter(workorder_id=agent.replace("wo_", ""))
 
         search = self._get_search_value()
         if search:
@@ -203,6 +228,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
                     "collaborator__name",
                     "budget_plan__name",
                     "bank_account__bank_name",
+                    "workorder__budget__customer__name",
                 ),
             )
             search_query = search_query | Q(workorder__id__icontains=search) if search_query.children else Q(workorder__id__icontains=search)
@@ -216,9 +242,19 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
     def _get_bank_accounts_queryset(self):
         return BankAccount.objects.filter(workshop=self.workshop).order_by("bank_name", "account_number", "id")
 
-    def _has_active_filters(self) -> bool:
+    def _has_real_filters(self) -> bool:
         filter_params = self._get_filter_params()
-        return bool(filter_params["start_date"] or filter_params["end_date"] or filter_params["budget_plan_ids"] or filter_params["bank_account_id"] is not None or filter_params["direction"] or self._get_search_value())
+        return bool(
+            filter_params["start_date"]
+            or filter_params["end_date"]
+            or filter_params["budget_plan_ids"]
+            or filter_params["bank_account_id"] is not None
+            or filter_params["direction"]
+            or filter_params["agent"]
+        )
+
+    def _has_active_filters(self) -> bool:
+        return self._has_real_filters() or bool(self._get_search_value())
 
     def _build_selection_summary_card(self) -> dict[str, object]:
         title = "Créditos e Débitos da Filtragem"
@@ -364,9 +400,33 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         return f"{self.request.path}?{querystring}" if querystring else self.request.path
 
     def _get_financial_movements_page(self) -> tuple[Any, Paginator]:
-        paginator = Paginator(self._get_financial_movements_queryset(), self.MOVEMENTS_PER_PAGE)
-        page_obj = paginator.get_page(self.request.GET.get("page") or "1")
+        queryset = self._get_financial_movements_queryset()
+        page_number = self.request.GET.get("page") or "1"
+        per_page = self.MOVEMENTS_PER_PAGE
+
+        if self._has_real_filters():
+            # Se houver filtros (exceto busca simples), retornamos tudo de uma vez e resetamos a página
+            per_page = max(queryset.count(), 1)
+            page_number = "1"
+
+        paginator = Paginator(queryset, per_page)
+        page_obj = paginator.get_page(page_number)
         return page_obj, paginator
+
+    def _get_agent_filter_choices(self) -> List[Tuple[str, str]]:
+        collaborators = WorkshopCollaborator.objects.filter(workshop=self.workshop).order_by("name")
+        suppliers = Supplier.objects.filter(workshop=self.workshop).order_by("name")
+        workorders = WorkOrder.objects.filter(workshop=self.workshop).select_related("budget", "budget__customer").order_by("-pk")[:100]
+
+        choices = [("", "Todos os agentes")]
+        for c in collaborators:
+            choices.append((f"coll_{c.pk}", f"Colaborador: {c.name}"))
+        for s in suppliers:
+            choices.append((f"supp_{s.pk}", f"Fornecedor: {s.name}"))
+        for wo in workorders:
+            customer_name = wo.budget.customer.name if wo.budget and wo.budget.customer else "-"
+            choices.append((f"wo_{wo.pk}", f"O.S #{wo.pk} - {customer_name}"))
+        return choices
 
     def _get_financial_movement_report_rows(self, *, movements: Any) -> list[dict[str, object]]:
         return [self._build_financial_movement_row(movement) for movement in movements]
@@ -393,6 +453,15 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         context["selected_financial_group_ids"] = set(filter_params["budget_plan_ids"])
         context["selected_bank_account_id"] = filter_params["bank_account_id"]
         context["selected_direction"] = filter_params["direction"]
+
+        agent_choices = self._get_agent_filter_choices()
+        agent_widget = SearchableSelectInput(choices=agent_choices)
+        context["agent_filter_widget"] = agent_widget.get_context(
+            name="agent",
+            value=filter_params["agent"],
+            attrs={"id": "reports-filter-agent", "class": "w-full"}
+        )
+
         context["has_active_filters"] = self._has_active_filters()
         context["clear_filters_url"] = reverse("finance:reports_home")
         context["page_obj"] = page_obj
