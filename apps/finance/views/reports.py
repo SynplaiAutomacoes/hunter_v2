@@ -11,7 +11,8 @@ from django.shortcuts import render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.generic import DeleteView, TemplateView, UpdateView
-from django.db.models import Q
+from django.db.models import Q, Value
+from django.db.models.functions import Coalesce
 
 from apps.core.search import build_text_search_query
 from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll
@@ -115,7 +116,16 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
                 "workorder__budget__customer",
             )
             .prefetch_related("workorder__payments", "workorder__payments__payment_method")
-            .order_by("-criado_em", "-pk")
+            .annotate(
+                agent_name_sort=Coalesce(
+                    "collaborator__name",
+                    "supplier__name",
+                    "workorder__budget__customer__name",
+                    "source__name",
+                    Value(""),
+                )
+            )
+            .order_by("-due_date", "agent_name_sort", "pk")
         )
         return self._apply_report_filters(queryset)
 
