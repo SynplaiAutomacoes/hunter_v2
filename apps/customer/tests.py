@@ -294,8 +294,48 @@ class VehicleLookupNormalizationTests(TestCase):
                 "year_fabrication": "2013",
                 "color": "Prata",
                 "chassi": "CHASSI",
+                "renavam": None,
                 "fuel": "Flex",
                 "engine": "2.0",
                 "type": "Camioneta",
+            },
+        )
+
+    @patch.dict("os.environ", {"token_vehicle_api": "token-teste"})
+    @patch("apps.customer.util.requests.get")
+    def test_fetch_vehicle_data_parses_flat_data_payload(self, requests_get_mock: Mock) -> None:
+        response_mock = Mock()
+        response_mock.json.return_value = {
+            "data": {
+                "ano": "2018/2019",
+                "cor": "Branca",
+                "chassi": "CHASSI-FLAT",
+                "renavam": "12345678901",
+                "marca": "Volkswagen",
+                "modelo": "Gol",
+            },
+            "extra": {
+                "cilindradas": "1998",
+                "combustivel": "Gasolina / Alcool",
+                "tipo_veiculo": "Automovel",
+            },
+        }
+        requests_get_mock.return_value = response_mock
+
+        vehicle_data = fetch_vehicle_data("ABC1D23")
+
+        self.assertEqual(
+            vehicle_data,
+            {
+                "brand": "Volkswagen",
+                "model": "Gol",
+                "year_model": "2019",
+                "year_fabrication": "2018",
+                "color": "Branca",
+                "chassi": "CHASSI-FLAT",
+                "renavam": "12345678901",
+                "fuel": "Flex",
+                "engine": "2.0",
+                "type": "Automovel",
             },
         )
