@@ -718,6 +718,7 @@ class QuickVehicleForm(CoreModelForm):
                         color: data.color,
                         fuel: data.fuel,
                         chassi: data.chassi,
+                        renavam: data.renavam,
                         engine: data.engine,
                         type: data.type
                     };
