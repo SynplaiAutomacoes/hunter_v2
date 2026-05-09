@@ -17,7 +17,7 @@ from django.views.generic import TemplateView
 
 from apps.budget.models import Budget, BudgetStatus, BudgetType
 from apps.finance.models.financial_movement import FinancialMovement
-from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
+from apps.workorder.models import WorkOrderPaymentMethod, WorkOrderStatus
 import calendar
 from apps.core.favorites import FavoritePageLimitError, InvalidFavoritePageError, reorder_favorite_pages, toggle_favorite_page
 from apps.core.navigation import build_favoritable_page
@@ -216,17 +216,6 @@ def metricas_dashboard(request) -> dict[str, Any]:
             pass
 
     # Auxiliares (valores que não serão retornados no dict, mas que servem para auxílio nas contas das métricas)
-    faturamento_movimentos_mes = FinancialMovement.objects.filter(
-        workshop=workshop,
-        is_paid=True,
-        direction=FinancialMovement.MovementDirection.CREDIT,
-        due_date__month=mes_selecionado,
-        due_date__year=ano_selecionado,
-        workorder__isnull=False,
-    )
-    faturamento_result = faturamento_movimentos_mes.aggregate(total=Sum("amount"))["total"]
-    faturamento_total = getattr(faturamento_result, "amount", faturamento_result) or Decimal("0.00")
-
     pagamentos_total_vendido = list(WorkOrderPaymentMethod.objects.filter(workorder__workshop=workshop, due_date__month=mes_selecionado, due_date__year=ano_selecionado).select_related("workorder").order_by("due_date", "pk"))
     total_vendido_ate_a_data = sum((payment.total_paid.amount for payment in pagamentos_total_vendido), Decimal("0.00"))
     dias_transcorridos = len({payment.due_date for payment in pagamentos_total_vendido})
@@ -252,13 +241,8 @@ def metricas_dashboard(request) -> dict[str, Any]:
     orcamentos_reprovados = Budget.objects.filter(workshop=workshop, status=BudgetStatus.REJECTED, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado)
 
     # Métricas
-    qtd_carros_mes = WorkOrder.objects.filter(
-        workshop=workshop,
-        status=WorkOrderStatus.APPROVED,
-        criado_em__month=mes_selecionado,
-        criado_em__year=ano_selecionado,
-    ).count()
-    ticket_medio = faturamento_total / qtd_carros_mes if qtd_carros_mes > 0 else Decimal("0.00")
+    qtd_carros_mes = len({payment.workorder.pk for payment in pagamentos_total_vendido})
+    ticket_medio = total_vendido_ate_a_data / qtd_carros_mes if qtd_carros_mes > 0 else Decimal("0.00")
     projecao = ((total_vendido_ate_a_data / dias_transcorridos) * dias_faltantes) + total_vendido_ate_a_data if dias_transcorridos > 0 else total_vendido_ate_a_data
     rentabilidade_acumulada_mes = sum(rentabilidades) / len(rentabilidades) if rentabilidades else 0
     indice_retorno_em_garantia_mes = (qtd_garantias_mes / qtd_veiculos_mes) * 100 if qtd_veiculos_mes > 0 else 0
