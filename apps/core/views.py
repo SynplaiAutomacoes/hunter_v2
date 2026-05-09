@@ -216,8 +216,16 @@ def metricas_dashboard(request) -> dict[str, Any]:
             pass
 
     # Auxiliares (valores que não serão retornados no dict, mas que servem para auxílio nas contas das métricas)
-    faturamento_result = FinancialMovement.objects.filter(workshop=workshop, is_paid=True, direction=FinancialMovement.MovementDirection.CREDIT, due_date__month=mes_selecionado, due_date__year=ano_selecionado, workorder__isnull=False).aggregate(total=Sum("amount"))["total"]
-    faturamento_total = float(Decimal(str(getattr(faturamento_result, "amount", faturamento_result) or "0.00")))
+    faturamento_movimentos_mes = FinancialMovement.objects.filter(
+        workshop=workshop,
+        is_paid=True,
+        direction=FinancialMovement.MovementDirection.CREDIT,
+        due_date__month=mes_selecionado,
+        due_date__year=ano_selecionado,
+        workorder__isnull=False,
+    )
+    faturamento_result = faturamento_movimentos_mes.aggregate(total=Sum("amount"))["total"]
+    faturamento_total = getattr(faturamento_result, "amount", faturamento_result) or Decimal("0.00")
 
     pagamentos_total_vendido = list(WorkOrderPaymentMethod.objects.filter(workorder__workshop=workshop, due_date__month=mes_selecionado, due_date__year=ano_selecionado).select_related("workorder").order_by("due_date", "pk"))
     total_vendido_ate_a_data = sum((payment.total_paid.amount for payment in pagamentos_total_vendido), Decimal("0.00"))
@@ -244,8 +252,8 @@ def metricas_dashboard(request) -> dict[str, Any]:
     orcamentos_reprovados = Budget.objects.filter(workshop=workshop, status=BudgetStatus.REJECTED, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado)
 
     # Métricas
-    qtd_carros_mes: int = Budget.objects.filter(workshop=workshop, status__in=[BudgetStatus.APPROVED], entry_date__month=mes_selecionado, entry_date__year=ano_selecionado).exclude(reference_budget__isnull=False).count()
-    ticket_medio = faturamento_total / qtd_carros_mes if qtd_carros_mes > 0 else 0
+    qtd_carros_mes = faturamento_movimentos_mes.values("workorder_id").distinct().count()
+    ticket_medio = faturamento_total / qtd_carros_mes if qtd_carros_mes > 0 else Decimal("0.00")
     projecao = ((faturamento_total / dias_transcorridos) * dias_faltantes) + faturamento_total if dias_transcorridos > 0 else faturamento_total
     rentabilidade_acumulada_mes = sum(rentabilidades) / len(rentabilidades) if rentabilidades else 0
     indice_retorno_em_garantia_mes = (qtd_garantias_mes / qtd_veiculos_mes) * 100 if qtd_veiculos_mes > 0 else 0
