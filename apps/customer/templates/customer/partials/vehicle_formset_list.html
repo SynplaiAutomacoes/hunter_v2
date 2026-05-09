@@ -69,8 +69,8 @@ x-on:vehicle-list:changed.window="totalForms = document.querySelectorAll('.vehic
             const input = container.querySelector(`[name$="${suffix}"]`);
             if (!input) return;
 
-            const widgetContainer = input.closest('[x-data]');
-            if (widgetContainer) {
+            const widgetContainer = input.type === 'hidden' ? input.closest('[x-data]') : null;
+            if (widgetContainer && widgetContainer.querySelector('ul[role="listbox"]')) {
                 widgetContainer.dispatchEvent(new CustomEvent('searchable-set-value', {
                     detail: { value: String(value) },
                     bubbles: true,
