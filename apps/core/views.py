@@ -229,7 +229,7 @@ def metricas_dashboard(request) -> dict[str, Any]:
 
     pagamentos_total_vendido = list(WorkOrderPaymentMethod.objects.filter(workorder__workshop=workshop, due_date__month=mes_selecionado, due_date__year=ano_selecionado).select_related("workorder").order_by("due_date", "pk"))
     total_vendido_ate_a_data = sum((payment.total_paid.amount for payment in pagamentos_total_vendido), Decimal("0.00"))
-    dias_transcorridos = FinancialMovement.objects.filter(workshop=workshop, direction=FinancialMovement.MovementDirection.CREDIT, due_date__month=mes_selecionado, due_date__year=ano_selecionado, workorder__isnull=False).values("due_date").distinct().count()
+    dias_transcorridos = len({payment.due_date for payment in pagamentos_total_vendido})
 
     _, dias_no_mes = calendar.monthrange(ano_selecionado, mes_selecionado)
     dias_faltantes = dias_no_mes
@@ -254,7 +254,7 @@ def metricas_dashboard(request) -> dict[str, Any]:
     # Métricas
     qtd_carros_mes = faturamento_movimentos_mes.values("workorder_id").distinct().count()
     ticket_medio = faturamento_total / qtd_carros_mes if qtd_carros_mes > 0 else Decimal("0.00")
-    projecao = ((faturamento_total / dias_transcorridos) * dias_faltantes) + faturamento_total if dias_transcorridos > 0 else faturamento_total
+    projecao = ((total_vendido_ate_a_data / dias_transcorridos) * dias_faltantes) + total_vendido_ate_a_data if dias_transcorridos > 0 else total_vendido_ate_a_data
     rentabilidade_acumulada_mes = sum(rentabilidades) / len(rentabilidades) if rentabilidades else 0
     indice_retorno_em_garantia_mes = (qtd_garantias_mes / qtd_veiculos_mes) * 100 if qtd_veiculos_mes > 0 else 0
     taxa_aprovacao = (qtd_orcamentos_aprovados / qtd_orcamentos_criados) * 100 if qtd_orcamentos_criados > 0 else 0
