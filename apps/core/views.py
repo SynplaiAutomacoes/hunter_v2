@@ -241,7 +241,16 @@ def metricas_dashboard(request) -> dict[str, Any]:
     orcamentos_reprovados = Budget.objects.filter(workshop=workshop, status=BudgetStatus.REJECTED, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado)
 
     # Métricas
-    qtd_carros_mes = len({payment.workorder.pk for payment in pagamentos_total_vendido})
+    qtd_carros_mes = (
+        Budget.objects.filter(
+            workshop=workshop,
+            status=BudgetStatus.APPROVED,
+            entry_date__month=mes_selecionado,
+            entry_date__year=ano_selecionado,
+        )
+        .exclude(reference_budget__isnull=False)
+        .count()
+    )
     ticket_medio = total_vendido_ate_a_data / qtd_carros_mes if qtd_carros_mes > 0 else Decimal("0.00")
     projecao = ((total_vendido_ate_a_data / dias_transcorridos) * dias_faltantes) + total_vendido_ate_a_data if dias_transcorridos > 0 else total_vendido_ate_a_data
     rentabilidade_acumulada_mes = sum(rentabilidades) / len(rentabilidades) if rentabilidades else 0
