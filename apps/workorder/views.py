@@ -1074,7 +1074,7 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 workorder.save(update_fields=["km_final"])
 
                 approve_workorder_with_stock(workorder=workorder, user=request.user)
-                sync_workorder_collaborator_payrolls(workorder=workorder)
+                sync_workorder_financial_movement(workorder=workorder)
 
                 vehicle = getattr(workorder.budget, "vehicle", None)
                 if vehicle and (vehicle.km is None or km_final > vehicle.km):
