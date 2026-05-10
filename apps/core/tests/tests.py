@@ -1299,3 +1299,21 @@ class DashboardMetricsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["total_vendido_ate_a_data"], Decimal("150.00"))
         self.assertContains(response, "R$ 150,00")
+
+    def test_dashboard_ticket_medio_uses_paid_workorders_in_selected_month(self):
+        today = timezone.localdate()
+
+        self._create_workorder_receivable(
+            workshop=self.workshop,
+            workorder_status=WorkOrderStatus.DRAFT,
+            amount="500.00",
+            due_date=today,
+            is_paid=True,
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["qtd_carros_mes"], 1)
+        self.assertEqual(response.context["ticket_medio"], Decimal("500.00"))
+        self.assertContains(response, "R$ 500,00")

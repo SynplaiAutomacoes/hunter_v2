@@ -21,18 +21,16 @@ class LoginForm(AuthenticationForm):
         super().__init__(request=request, *args, **kwargs)
 
         self.helper = FormHelper()
-        self.helper.form_method = "post"
-        self.helper.attrs = {"class": "grid grid-cols-1 gap-4"}
+        self.helper.form_tag = False
         self.helper.add_input(Submit("submit", "Entrar", css_class="btn btn-primary w-full"))
 
-    def clean_username(self):
-        username = self.cleaned_data.get("username")
+    def clean_username(self) -> str:
+        username = str(self.cleaned_data.get("username") or "").lower()
         if username:
-            username = username.lower()
             # Suporta login por username ou email de forma case-insensitive
             try:
                 user = User.objects.get(Q(username__iexact=username) | Q(email__iexact=username))
-                return user.username
+                return str(getattr(user, "username", ""))
             except (User.DoesNotExist, User.MultipleObjectsReturned):
                 return username
         return username
@@ -44,7 +42,7 @@ class SignUpForm(UserCreationForm):
     email = forms.EmailField(label="E-mail", widget=EmailInput())
     cpf = forms.CharField(label="CPF", widget=CPForCNPJInput(mode="cpf"))
 
-    class Meta(UserCreationForm.Meta):
+    class Meta(UserCreationForm.Meta):  # type: ignore[attr-defined]
         model = User
         fields = ("first_name", "last_name", "username", "email", "cpf", "password1", "password2")
         widgets = {
@@ -59,18 +57,15 @@ class SignUpForm(UserCreationForm):
         self.fields["password2"].widget = PasswordInput()
 
         self.helper = FormHelper()
-        self.helper.form_method = "post"
-        self.helper.attrs = {"class": "grid grid-cols-1 gap-4"}
+        self.helper.form_tag = False
         self.helper.add_input(Submit("submit", "Criar conta", css_class="btn btn-primary w-full"))
 
-    def clean_username(self):
-        username = self.cleaned_data.get("username")
-        if username:
-            return username.lower()
-        return username
+    def clean_username(self) -> str:
+        username = str(self.cleaned_data.get("username") or "")
+        return username.lower()
 
-    def clean_email(self):
-        email = self.cleaned_data.get("email")
+    def clean_email(self) -> str:
+        email = str(self.cleaned_data.get("email") or "")
         if email:
             email = email.lower()
             # Verifica se o e-mail já existe (case-insensitive)

@@ -3124,6 +3124,7 @@ class BudgetDuplicateKitProductTests(TestCase):
 
         self.assertEqual(budget.total_costs_services_value, Money("2050.00", "BRL"))
         self.assertEqual(context["servicos"][0]["service_cost_price"], Money("2050.00", "BRL"))
+        self.assertEqual(context["soma_markup_display"], "1,46 vezes")
 
     def test_budget_duplicate_service_tie_uses_higher_total_source(self) -> None:
         workshop = create_workshop(suffix=923)

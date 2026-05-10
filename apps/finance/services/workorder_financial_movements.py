@@ -31,6 +31,17 @@ def _resolve_fee_amount(*, payment: WorkOrderPaymentMethod) -> Decimal:
     return calculate_payment_method_fee_amount(payment_method=payment_method, base_amount=payment_amount)
 
 
+def resolve_workorder_payroll_reference_date(*, workorder: WorkOrder):
+    latest_payment_date = max((payment.due_date for payment in workorder.payments.all() if payment.due_date), default=None)
+    if latest_payment_date is not None:
+        return latest_payment_date
+
+    if workorder.criado_em is not None:
+        return workorder.criado_em.date()
+
+    return timezone.localdate()
+
+
 def sync_workorder_card_fee_movements(*, workorder: WorkOrder) -> None:
     source = _get_workorder_source(workorder=workorder)
     active_payment_ids: set[int] = set()
@@ -117,5 +128,5 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
         movement.save(update_fields=[*defaults.keys()])
 
     sync_workorder_card_fee_movements(workorder=workorder)
-    sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=defaults["due_date"])
+    sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=resolve_workorder_payroll_reference_date(workorder=workorder))
     return movement

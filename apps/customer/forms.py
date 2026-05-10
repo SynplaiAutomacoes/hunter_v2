@@ -689,8 +689,8 @@ class QuickVehicleForm(CoreModelForm):
                     if (!input || value === null || value === undefined || value === '') return;
 
                     const normalizedValue = String(value);
-                    const widgetContainer = input.closest('[x-data]');
-                    if (widgetContainer && window.Alpine) {
+                    const widgetContainer = input.type === 'hidden' ? input.closest('[x-data]') : null;
+                    if (widgetContainer && widgetContainer.querySelector('ul[role="listbox"]') && window.Alpine) {
                         widgetContainer.dispatchEvent(new CustomEvent('searchable-set-value', {
                             detail: { value: normalizedValue },
                             bubbles: true,
@@ -718,6 +718,7 @@ class QuickVehicleForm(CoreModelForm):
                         color: data.color,
                         fuel: data.fuel,
                         chassi: data.chassi,
+                        renavam: data.renavam,
                         engine: data.engine,
                         type: data.type
                     };
