@@ -108,6 +108,9 @@ O projeto usa `os.getenv(...)` diretamente em `config/settings.py` e em alguns p
 | `PERF_LOGGING_ENABLED` | habilita middleware de performance |
 | `PERF_LOG_QUERIES` | registra queries no log de performance |
 | `PERF_LOG_MIN_MS` | threshold minimo para logar request lenta |
+| `FIPE_SYNC_EVERY_ACCESS` | sincroniza catalogo FIPE em todo acesso relevante de cadastro de veiculo |
+| `FIPE_SYNC_ACCESS_INTERVAL` | sincroniza catalogo FIPE a cada N acessos relevantes quando o modo sempre ativo estiver desligado |
+| `FIPE_FUEL_CACHE_TTL_HOURS` | validade do cache local de combustiveis por modelo |
 
 ### Webmania
 
@@ -183,6 +186,10 @@ BUDGET_SSE_CHECK_INTERVAL_SECONDS=3
 PERF_LOGGING_ENABLED=0
 PERF_LOG_QUERIES=0
 PERF_LOG_MIN_MS=300
+
+FIPE_SYNC_EVERY_ACCESS=0
+FIPE_SYNC_ACCESS_INTERVAL=500
+FIPE_FUEL_CACHE_TTL_HOURS=168
 
 WEBMANIA_AMBIENT=2
 WEBMANIA_API_KEY=

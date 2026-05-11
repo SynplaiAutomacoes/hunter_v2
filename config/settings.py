@@ -40,6 +40,10 @@ PERF_LOGGING_ENABLED = os.getenv("PERF_LOGGING_ENABLED", "0").lower() in ("1", "
 PERF_LOG_QUERIES = os.getenv("PERF_LOG_QUERIES", "0").lower() in ("1", "true", "yes")
 PERF_LOG_MIN_MS = int(os.getenv("PERF_LOG_MIN_MS", "300"))
 
+FIPE_SYNC_EVERY_ACCESS = os.getenv("FIPE_SYNC_EVERY_ACCESS", "0").lower() in ("1", "true", "yes")
+FIPE_SYNC_ACCESS_INTERVAL = int(os.getenv("FIPE_SYNC_ACCESS_INTERVAL", "500"))
+FIPE_FUEL_CACHE_TTL_HOURS = int(os.getenv("FIPE_FUEL_CACHE_TTL_HOURS", "168"))
+
 WEBMANIA_BASE_URL = "https://api.webmania.com.br/2/"
 WEBMANIA_B2B_BASE_URL = "https://webmania.com.br/api"
 WEBMANIA_AMBIENT = os.getenv("WEBMANIA_AMBIENT", "2")  # 1. Prod, 2. Homolog

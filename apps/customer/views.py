@@ -15,6 +15,7 @@ from apps.core.navigation import CREATE_CLIENT_FAVORITE_PAGE
 from apps.core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, BaseModalFormView, PageFavoriteMixin
 from apps.workorder.models import WorkOrder
 from .forms import QuickCustomerForm, QuickVehicleForm
+from .fipe_service import get_brand_options, get_cached_fuel_options_for_model, get_fuel_options_for_model, get_model_options, register_catalog_access_and_maybe_sync
 from .util import fetch_vehicle_data, build_vehicle_saved_trigger, build_customer_saved_trigger
 from .vehicle_engine import normalize_vehicle_engine_choice
 from .vehicle_fuel import normalize_vehicle_fuel_choice
@@ -97,6 +98,12 @@ def _build_customer_history_context(customer: Customer) -> dict[str, Any]:
     return {"customer_history_rows": history_rows}
 
 
+class FipeCatalogAccessMixin:
+    def maybe_register_fipe_catalog_access(self) -> None:
+        if self.request.method == "GET":
+            register_catalog_access_and_maybe_sync()
+
+
 class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = Customer
     template_name = "customer/customer_list.html"
@@ -140,7 +147,7 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
         return context
 
 
-class CustomerCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixin, CreateView):
+class CustomerCreateView(FipeCatalogAccessMixin, PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     model = Customer
     form_class = CustomerForm
     template_name = "customer/customer_create.html"
@@ -153,6 +160,7 @@ class CustomerCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMi
         return kwargs
 
     def get_context_data(self, **kwargs):
+        self.maybe_register_fipe_catalog_access()
         data = super().get_context_data(**kwargs)
         if self.request.POST:
             data["vehicles"] = VehicleFormSet(self.request.POST, prefix="vehicles", form_kwargs={"workshop": self.workshop})
@@ -184,7 +192,43 @@ def api_check_plate(request, plate):
     return JsonResponse({"error": "Veículo não encontrado"}, status=404)
 
 
-class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
+def api_fipe_brands(request):
+    try:
+        register_catalog_access_and_maybe_sync()
+        options = get_brand_options()
+    except Exception:  # noqa: BLE001
+        options = []
+    return JsonResponse([{"id": option.value, "label": option.label} for option in options], safe=False)
+
+
+def api_fipe_models(request):
+    brand_name = str(request.GET.get("brand") or "").strip()
+    if not brand_name:
+        return JsonResponse([], safe=False)
+
+    try:
+        options = get_model_options(brand_name=brand_name)
+    except Exception:  # noqa: BLE001
+        options = []
+    return JsonResponse([{"id": option.value, "label": option.label} for option in options], safe=False)
+
+
+def api_fipe_fuels(request):
+    brand_name = str(request.GET.get("brand") or "").strip()
+    model_name = str(request.GET.get("model") or "").strip()
+    if not brand_name or not model_name:
+        return JsonResponse([], safe=False)
+
+    try:
+        options = get_cached_fuel_options_for_model(brand_name=brand_name, model_name=model_name)
+        if not options:
+            options = get_fuel_options_for_model(brand_name=brand_name, model_name=model_name)
+    except Exception:  # noqa: BLE001
+        options = []
+    return JsonResponse([{"id": option, "label": option} for option in options], safe=False)
+
+
+class CustomerUpdateView(FipeCatalogAccessMixin, LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
     model = Customer
     form_class = CustomerForm
     template_name = "customer/customer_update.html"
@@ -196,6 +240,7 @@ class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         return kwargs
 
     def get_context_data(self, **kwargs):
+        self.maybe_register_fipe_catalog_access()
         data = super().get_context_data(**kwargs)
         if self.request.POST:
             data["vehicles"] = VehicleFormSet(self.request.POST, instance=self.object, prefix="vehicles", form_kwargs={"workshop": self.workshop})
@@ -336,7 +381,7 @@ class QuickCustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModal
         return response
 
 
-class QuickVehicleCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, CreateView):
+class QuickVehicleCreateView(FipeCatalogAccessMixin, LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, CreateView):
     model = Vehicle
     form_class = QuickVehicleForm
 
@@ -350,6 +395,7 @@ class QuickVehicleCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalF
         return kwargs
 
     def get_context_data(self, **kwargs):
+        self.maybe_register_fipe_catalog_access()
         context = super().get_context_data(**kwargs)
         context["customer_id_persist"] = self.request.GET.get("customer_id") or self.request.POST.get("customer_id_persist")
         return context
@@ -367,7 +413,7 @@ class QuickVehicleCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalF
         return response
 
 
-class QuickVehicleUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, UpdateView):
+class QuickVehicleUpdateView(FipeCatalogAccessMixin, LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, UpdateView):
     model = Vehicle
     form_class = QuickVehicleForm
 
@@ -375,6 +421,10 @@ class QuickVehicleUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalF
         kwargs = super().get_form_kwargs()
         kwargs["workshop"] = self.workshop
         return kwargs
+
+    def get_context_data(self, **kwargs):
+        self.maybe_register_fipe_catalog_access()
+        return super().get_context_data(**kwargs)
 
     def form_valid(self, form):
         if not bool(getattr(self.request, "htmx", False)):
