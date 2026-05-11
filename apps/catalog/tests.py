@@ -620,19 +620,22 @@ class KitTests(TestCase):
 
 
 class CatalogFipeServiceTests(TestCase):
-    @override_settings(FIPE_SYNC_EVERY_ACCESS=False, FIPE_SYNC_ACCESS_INTERVAL=2, FIPE_API_TOKEN="token-teste")
+    @override_settings(FIPE_API_TOKEN="token-teste")
     @patch("apps.catalog.fipe_service._start_full_sync_in_background")
-    def test_register_catalog_access_triggers_background_sync_on_interval(self, background_sync_mock: Mock) -> None:
+    def test_register_catalog_access_triggers_background_sync_only_when_catalog_is_empty(self, background_sync_mock: Mock) -> None:
         FipeVehicleBrand.objects.create(name="Ford", external_id="22")
 
         register_catalog_access_and_maybe_sync()
         background_sync_mock.assert_not_called()
+        self.assertFalse(FipeSyncState.objects.filter(scope="kit_vehicle_catalog").exists())
 
+    @override_settings(FIPE_API_TOKEN="token-teste")
+    @patch("apps.catalog.fipe_service._start_full_sync_in_background")
+    def test_register_catalog_access_bootstraps_once_for_empty_catalog(self, background_sync_mock: Mock) -> None:
         register_catalog_access_and_maybe_sync()
 
         background_sync_mock.assert_called_once_with(vehicle_type="carros")
         state = FipeSyncState.objects.get(scope="kit_vehicle_catalog")
-        self.assertEqual(state.access_count, 2)
         self.assertTrue(state.sync_in_progress)
 
     @override_settings(FIPE_DEV_MODE=True)
