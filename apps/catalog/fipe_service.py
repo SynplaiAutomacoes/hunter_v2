@@ -4,8 +4,10 @@ from dataclasses import dataclass
 from datetime import timedelta
 from contextlib import contextmanager
 import logging
+import re
 import threading
 import time
+import unicodedata
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -15,7 +17,7 @@ from django.utils import timezone
 import requests
 
 from apps.catalog.models import FipeModelFuelCache, FipeSyncState, FipeVehicleBrand, FipeVehicleModel, FipeVehicleType
-from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice
+from apps.customer.vehicle_fuel import VehicleFuel, normalize_vehicle_fuel_choice
 
 
 FIPE_SYNC_SCOPE = "kit_vehicle_catalog"
@@ -185,6 +187,10 @@ def get_model_options(*, brand_name: str, vehicle_type: str = FipeVehicleType.CA
 
 
 def get_cached_fuel_options_for_model(*, brand_name: str, model_name: str, vehicle_type: str = FipeVehicleType.CARROS) -> list[str]:
+    inferred_fuel = extract_fuel_from_model_name(model_name)
+    if inferred_fuel:
+        return [inferred_fuel]
+
     model = _get_catalog_model(brand_name=brand_name, model_name=model_name, vehicle_type=vehicle_type)
     if model is None:
         return []
@@ -217,6 +223,14 @@ def _run_full_sync_job(*, vehicle_type: str) -> None:
 
 
 def get_fuel_options_for_model(*, brand_name: str, model_name: str, vehicle_type: str = FipeVehicleType.CARROS, force_refresh: bool = False) -> list[str]:
+    inferred_fuel = extract_fuel_from_model_name(model_name)
+    if inferred_fuel and not force_refresh:
+        logger.info(
+            "FIPE fuel inferred from model name",
+            extra={"vehicle_type": vehicle_type, "brand_name": brand_name, "model_name": model_name, "fuel": inferred_fuel},
+        )
+        return [inferred_fuel]
+
     model = _get_catalog_model(brand_name=brand_name, model_name=model_name, vehicle_type=vehicle_type)
     if model is None:
         logger.warning(
@@ -303,6 +317,30 @@ def _fuel_cache_is_expired(cache: FipeModelFuelCache) -> bool:
     ttl_hours = int(getattr(settings, "FIPE_FUEL_CACHE_TTL_HOURS", 168))
     expires_at = cache.last_synced_at + timedelta(hours=ttl_hours)
     return expires_at <= timezone.now()
+
+
+def extract_fuel_from_model_name(model_name: object) -> str:
+    normalized_model_name = str(model_name or "").strip()
+    if not normalized_model_name:
+        return ""
+
+    normalized_tokens = _normalize_text_for_matching(normalized_model_name)
+    token_set = set(normalized_tokens.split())
+
+    if {"hibrido", "hybrid"} & token_set or "phev" in token_set or "hev" in token_set:
+        return VehicleFuel.HIBRIDO
+    if {"eletrico", "electric", "etech", "ev"} & token_set:
+        return VehicleFuel.ELETRICO
+    if "flex" in token_set or "flexone" in token_set or ("hi" in token_set and "flex" in token_set):
+        return VehicleFuel.FLEX
+    if "diesel" in token_set or {"td", "tdi", "hdi", "dci", "cdi"} & token_set:
+        return VehicleFuel.DIESEL
+    if "gasolina" in token_set:
+        return VehicleFuel.GASOLINA
+    if {"etanol", "alcool", "alcohol"} & token_set:
+        return VehicleFuel.ETANOL
+
+    return ""
 
 
 def _extract_fuel_values(payload: list[dict[str, object]]) -> list[str]:
@@ -458,3 +496,10 @@ def _extract_list_payload(payload: object) -> list[object] | None:
 
 def _build_payload_preview(payload: object) -> str:
     return str(payload)[:500]
+
+
+def _normalize_text_for_matching(value: object) -> str:
+    normalized_value = unicodedata.normalize("NFKD", str(value or "").strip().lower())
+    ascii_value = normalized_value.encode("ascii", "ignore").decode("ascii")
+    cleaned_value = re.sub(r"[^a-z0-9]+", " ", ascii_value)
+    return " ".join(cleaned_value.split()).replace("e tech", "etech")

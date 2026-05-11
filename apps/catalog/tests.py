@@ -14,7 +14,7 @@ from django.utils import timezone
 
 from djmoney.money import Money
 
-from apps.catalog.fipe_service import get_fuel_options_for_model, register_catalog_access_and_maybe_sync
+from apps.catalog.fipe_service import extract_fuel_from_model_name, get_fuel_options_for_model, register_catalog_access_and_maybe_sync
 from apps.catalog.kit_applications import evaluate_kit_vehicle_compatibility
 from apps.catalog.forms.kits import KitForm, QuickProductEditForm
 from apps.catalog.forms.products import ProductForm
@@ -706,6 +706,23 @@ class CatalogFipeServiceTests(TestCase):
 
     @override_settings(FIPE_API_TOKEN="token-teste")
     @patch("apps.catalog.fipe_service.requests.get")
+    def test_get_fuel_options_for_model_prefers_inference_from_model_name(self, requests_get_mock: Mock) -> None:
+        FipeVehicleBrand.objects.create(name="Ford", external_id="22")
+
+        fuel_values = get_fuel_options_for_model(brand_name="Ford", model_name="Ka 1.0 Flex")
+
+        self.assertEqual(fuel_values, ["Flex"])
+        requests_get_mock.assert_not_called()
+
+    def test_extract_fuel_from_model_name_detects_common_patterns(self) -> None:
+        self.assertEqual(extract_fuel_from_model_name("DUSTER Dynamique 4x4 2.0 Hi-Flex 16V Mec"), "Flex")
+        self.assertEqual(extract_fuel_from_model_name("Commander Overl. 2.2 TD 4x4 Diesel Aut"), "Diesel")
+        self.assertEqual(extract_fuel_from_model_name("ZOE Intense (Eletrico)"), "Elétrico")
+        self.assertEqual(extract_fuel_from_model_name("Accord Sedan 2.0 TB 16V Aut. (Hibrido)"), "Híbrido")
+        self.assertEqual(extract_fuel_from_model_name("Civic Touring 1.5 Turbo"), "")
+
+    @override_settings(FIPE_API_TOKEN="token-teste")
+    @patch("apps.catalog.fipe_service.requests.get")
     def test_get_fuel_options_logs_normalization_warning_for_unknown_fuel(self, requests_get_mock: Mock) -> None:
         brand = FipeVehicleBrand.objects.create(name="Ford", external_id="22")
         FipeVehicleModel.objects.create(brand=brand, vehicle_type=brand.vehicle_type, name="Ka", external_id="664")
@@ -797,6 +814,14 @@ class CatalogFipeApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), [{"id": "Gasolina", "label": "Gasolina"}, {"id": "Flex", "label": "Flex"}])
+
+    @patch("apps.catalog.views.kits.get_fuel_options_for_model")
+    def test_fipe_fuels_endpoint_returns_inferred_fuel_without_fipe_fallback(self, get_fuel_options_mock: Mock) -> None:
+        response = self.client.get(reverse("catalog:fipe-fuels"), {"brand": "Jeep", "model": "Commander 2.2 TD 4x4 Diesel Aut"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), [{"id": "Diesel", "label": "Diesel"}])
+        get_fuel_options_mock.assert_not_called()
 
     def test_service_money_fields_work_with_only_including_currency_fields(self):
         """Regressão: `djmoney` precisa do campo `*_currency` junto com o valor.
