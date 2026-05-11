@@ -438,7 +438,7 @@ class EmissionStep1Form(CoreForm):
         def _label_from_instance(workorder: WorkOrder) -> str:
             customer = getattr(getattr(workorder, "budget", None), "customer", None)
             customer_name = customer.name if customer else "Cliente nao informado"
-            return f"Ordem de Servico - {customer_name} - #{workorder.pk}"
+            return f"Ordem de Servico {workorder.get_id} - {customer_name}"
 
         field.label_from_instance = _label_from_instance
         field.widget = SearchableSelectInput(choices=list(field.choices))

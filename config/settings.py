@@ -72,6 +72,8 @@ STORAGE_BUCKET = os.getenv("BUCKET", "")
 STORAGE_ENDPOINT = os.getenv("ENDPOINT", "")
 STORAGE_REGION = os.getenv("REGION", "auto")
 
+WHATSAPP_API_URL = os.getenv("WHATSAPP_API_URL", "https://whatsapp-hunter.up.railway.app")
+
 if not DEBUG:
     SECURE_SSL_REDIRECT = os.getenv("DJANGO_SECURE_SSL_REDIRECT", "1").lower() in ("1", "true", "yes")
     SESSION_COOKIE_SECURE = True
@@ -172,6 +174,7 @@ WSGI_APPLICATION = "config.wsgi.application"
 CRISPY_TEMPLATE_PACK = "tailwind"
 CRISPY_ALLOWED_TEMPLATE_PACKS = ("tailwind",)
 
+WHATSAPP_API_URL = os.getenv("WHATSAPP_API_URL", "https://whatsapp-hunter.up.railway.app")
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
@@ -284,6 +287,11 @@ LOGGING = {
             "propagate": False,
         },
         "apps.catalog.forms.kits": {
+            "handlers": ["console"],
+            "level": DJANGO_LOG_LEVEL,
+            "propagate": False,
+        },
+        "apps.accounts.views": {
             "handlers": ["console"],
             "level": DJANGO_LOG_LEVEL,
             "propagate": False,

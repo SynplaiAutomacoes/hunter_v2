@@ -1,10 +1,10 @@
 from django import forms
 from django.contrib.auth import get_user_model, authenticate
-from django.contrib.auth.forms import AuthenticationForm, UserCreationForm, UsernameField
+from django.contrib.auth.forms import AuthenticationForm, SetPasswordForm, UserCreationForm, UsernameField
 from django.db.models import Q
 
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import Submit
+from crispy_forms.layout import Layout, Submit
 
 from apps.core.widgets import EmailInput, TextInput, CPForCNPJInput, PasswordInput
 
@@ -76,3 +76,64 @@ class SignUpForm(UserCreationForm):
                 raise forms.ValidationError("Este e-mail já está em uso.")
             return email
         return email
+
+
+class UserIdentificationForm(forms.Form):
+    identifier = forms.CharField(
+        label="Usuário ou E-mail",
+        widget=TextInput(attrs={"placeholder": "Digite seu usuário ou e-mail"}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = None
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+
+    def clean_identifier(self):
+        identifier = str(self.cleaned_data.get("identifier") or "").strip().lower()
+        if not identifier:
+            raise forms.ValidationError("Informe seu usuário ou e-mail.")
+
+        try:
+            self.user = User.objects.get(Q(username__iexact=identifier) | Q(email__iexact=identifier))
+        except User.DoesNotExist:
+            raise forms.ValidationError("Usuário não encontrado.")
+        except User.MultipleObjectsReturned:
+            raise forms.ValidationError("Identificação ambígua. Use o e-mail.")
+
+        return identifier
+
+
+class CodeVerificationForm(forms.Form):
+    code = forms.CharField(
+        label="Código de verificação",
+        widget=TextInput(
+            attrs={
+                "placeholder": "XXXXXX",
+                "maxlength": 6,
+                "class": "tracking-widest text-center text-2xl font-mono",
+            }
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.token = None
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+
+    def clean_code(self):
+        code = str(self.cleaned_data.get("code") or "").strip().upper()
+        if not code or len(code) != 6:
+            raise forms.ValidationError("Código inválido.")
+        return code
+
+
+class PasswordResetForm(SetPasswordForm):
+    def __init__(self, user, *args, **kwargs):
+        super().__init__(user, *args, **kwargs)
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.fields["new_password1"].widget = PasswordInput(attrs={"placeholder": "Nova senha"})
+        self.fields["new_password2"].widget = PasswordInput(attrs={"placeholder": "Confirmar senha"})
