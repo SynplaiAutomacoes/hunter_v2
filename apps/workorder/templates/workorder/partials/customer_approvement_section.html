@@ -105,7 +105,7 @@
                 hx-target="#customer-approvement-section"
                 hx-swap="innerHTML">
                 {% csrf_token %}
-                <button type="submit" class="btn btn-error" {% if workorder.status == 'cancelled' %}disabled{% endif %}>Cancelar</button>
+                <button type="submit" class="btn btn-error" {% if workorder.status == 'cancelled' or workorder.status == 'approved' %}disabled{% endif %} {% if workorder.status == 'approved' %}title="Reabra a O.S. para estornar os lançamentos antes de cancelar."{% endif %}>Cancelar</button>
             </form>
 
             <button
@@ -124,9 +124,35 @@
                 hx-target="#customer-approvement-section"
                 hx-swap="innerHTML">
                 {% csrf_token %}
-                <button type="submit" class="btn btn-warning" {% if workorder.status == 'rejected' %}disabled{% endif %}>Rejeitar</button>
+                <button type="submit" class="btn btn-warning" {% if workorder.status == 'rejected' or workorder.status == 'approved' %}disabled{% endif %} {% if workorder.status == 'approved' %}title="Reabra a O.S. para estornar os lançamentos antes de rejeitar."{% endif %}>Rejeitar</button>
             </form>
+
+            {% if workorder.status == 'approved' and can_reopen_workorder %}
+            <button type="button" class="btn btn-outline" id="toggle-reopen-workorder-form">Reabrir O.S.</button>
+            {% endif %}
         </div>
+
+        {% if workorder.status == 'approved' and can_reopen_workorder %}
+        <form
+            id="reopen-workorder-form"
+            method="post"
+            hx-post="{% url 'workorder:reopen' workorder.pk %}"
+            hx-target="#customer-approvement-section"
+            hx-swap="innerHTML"
+            class="mt-4 space-y-4 rounded-xl border border-warning/40 bg-warning/10 p-4 {% if not reopen_form.errors %}hidden{% endif %}"
+        >
+            {% csrf_token %}
+            <div class="space-y-1 text-sm text-base-content/80">
+                <p class="font-semibold text-base-content">Reabrir O.S.</p>
+                <p>Ao reabrir, o sistema vai estornar os movimentos financeiros e de estoque vinculados a esta entrega e voltar a O.S. para rascunho.</p>
+            </div>
+            {% crispy reopen_form %}
+            <div class="flex flex-wrap gap-3">
+                <button type="submit" class="btn btn-warning">Confirmar reabertura</button>
+                <button type="button" class="btn btn-ghost" id="cancel-reopen-workorder-form">Fechar</button>
+            </div>
+        </form>
+        {% endif %}
     </div>
 </div>
 
@@ -138,6 +164,9 @@
         const deliveryButton = document.getElementById('workorder-delivery-button');
         const unsignedReasonWrapper = document.getElementById('unsigned-delivery-reason-wrapper');
         const unsignedReasonInput = document.getElementById('id_unsigned_delivery_reason');
+        const reopenForm = document.getElementById('reopen-workorder-form');
+        const reopenToggleButton = document.getElementById('toggle-reopen-workorder-form');
+        const reopenCancelButton = document.getElementById('cancel-reopen-workorder-form');
 
         if (!form || !kmInput || !statusEl || kmInput.dataset.kmAutosaveInitialized === 'true') {
             return;
@@ -274,6 +303,19 @@
 
                 unsignedReasonInput.setCustomValidity('');
                 form.requestSubmit();
+            });
+        }
+
+        if (reopenToggleButton && reopenForm) {
+            reopenToggleButton.addEventListener('click', () => {
+                reopenForm.classList.remove('hidden');
+                reopenForm.querySelector('textarea')?.focus();
+            });
+        }
+
+        if (reopenCancelButton && reopenForm) {
+            reopenCancelButton.addEventListener('click', () => {
+                reopenForm.classList.add('hidden');
             });
         }
     })();

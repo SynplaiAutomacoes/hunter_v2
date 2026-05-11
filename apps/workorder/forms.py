@@ -717,6 +717,32 @@ class WorkOrderCustomerApprovalForm(CoreForm):
         return reason
 
 
+class WorkOrderReopenForm(CoreForm):
+    reopen_reason = forms.CharField(
+        label="Justificativa da reabertura",
+        required=True,
+        widget=forms.Textarea(attrs={"rows": 4, "placeholder": "Explique por que esta O.S. precisa ser reaberta e quais estornos foram autorizados."}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        self.workorder = kwargs.pop("workorder", None)
+        super().__init__(*args, **kwargs)
+        self.fields["reopen_reason"].error_messages["required"] = "Informe a justificativa para reabrir a O.S."
+
+        if self.workorder and self.workorder.reopen_reason and not self.is_bound:
+            self.fields["reopen_reason"].initial = self.workorder.reopen_reason
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(Field("reopen_reason"))
+
+    def clean_reopen_reason(self) -> str:
+        reason = str(self.cleaned_data.get("reopen_reason") or "").strip()
+        if not reason:
+            raise ValidationError("Informe a justificativa para reabrir a O.S.")
+        return reason
+
+
 class WorkOrderItemEditForm(CoreModelForm):
     class Meta:
         model = WorkOrderItem

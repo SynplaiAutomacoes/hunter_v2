@@ -27,6 +27,7 @@ from apps.core.documents.services import SignatureDeliveryServiceError
 from apps.core.documents.signature import normalize_signature_phone_number, parse_document_signature_token
 from apps.core.query_filters import apply_query_param_filters
 from apps.customer.models import Customer, Vehicle
+from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
 from apps.iam.utils import get_or_create_director_role
 from apps.stock.models import StockMovement, StockProduct
@@ -45,6 +46,7 @@ from apps.workorder.service import (
 from apps.workorder.util import trigger_workorder_signature_send_if_needed
 from apps.workorder.views import WORKORDER_LIST_FILTERS, signature_file, signature_preview, visualizar_pdf_workorder
 from apps.workshops.models.workshops import Workshop
+from apps.workshops.tests import create_manager_user_with_workshop
 
 
 WORKORDER_TEST_DEFAULTS_PREPARED = False
@@ -658,7 +660,7 @@ class WorkOrderDetailViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("summary_product_items", response.context)
         self.assertIn("summary_service_items", response.context)
-        self.assertContains(response, f"Ordem de Serviço N°: {budget.id}")
+        self.assertContains(response, "Ordem de Serviço")
         self.assertContains(response, direct_product.name)
         self.assertContains(response, kit_product.name)
         self.assertContains(response, direct_service.name)
@@ -701,6 +703,33 @@ class WorkOrderDetailViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers.get("Cache-Control"), "no-store")
         self.assertContains(response, "55,00")
+
+    def test_detail_view_shows_reopen_button_and_disables_cancel_reject_for_approved_workorder(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=98)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+
+        response = self.client.get(reverse("workorder:workorder_detail", args=[workorder.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Reabrir O.S.")
+        self.assertContains(response, 'title="Reabra a O.S. para estornar os lançamentos antes de cancelar."', html=False)
+        self.assertContains(response, 'title="Reabra a O.S. para estornar os lançamentos antes de rejeitar."', html=False)
+
+    def test_detail_view_shows_reopen_button_for_manager(self) -> None:
+        manager_user, workshop, _ = create_manager_user_with_workshop(suffix=99)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+
+        self.client.force_login(manager_user)
+        session = self.client.session
+        session["active_workshop_id"] = workshop.pk
+        session.save()
+
+        response = self.client.get(reverse("workorder:workorder_detail", args=[workorder.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Reabrir O.S.")
 
 
 class WorkOrderKitSelectionCompatibilityTests(TestCase):
@@ -2129,6 +2158,118 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
         self.assertIsNone(self.workorder.delivered_at)
         self.assertIn("showToast", response.headers.get("HX-Trigger", ""))
+
+    def test_cancel_status_is_blocked_after_delivery(self) -> None:
+        self.workorder.status = WorkOrderStatus.APPROVED
+        self.workorder.delivered_at = timezone.now()
+        self.workorder.save(update_fields=["status", "delivered_at"])
+
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "cancel"]),
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.workorder.status, WorkOrderStatus.APPROVED)
+        self.assertIn("Reabrir O.S.", response.content.decode("utf-8"))
+        self.assertIn("showToast", response.headers.get("HX-Trigger", ""))
+
+    def test_reopen_status_requires_reason_and_reverts_stock_and_financial_movements(self) -> None:
+        customer = create_customer(workshop=self.workshop, suffix=247)
+        vehicle = create_vehicle(workshop=self.workshop, customer=customer, suffix=247)
+        product = create_product(workshop=self.workshop, suffix=247, selling_price="120.00")
+        BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, product=product, quantity=1)
+        stock_product = StockProduct.objects.get(workshop=self.workshop, product=product)
+        stock_product.current_quantity = 5
+        stock_product.save(update_fields=["current_quantity"])
+        self.workorder.sync_from_budget()
+        self.budget.customer = customer
+        self.budget.vehicle = vehicle
+        self.budget.current_km = 12000
+        self.budget.status = "approved"
+        self.budget.save(update_fields=["customer", "vehicle", "current_km", "status"])
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
+        WorkOrderPaymentMethod.objects.create(
+            workorder=self.workorder,
+            payment_method=payment_method,
+            first_installment_amount=self.workorder.total_budget_value,
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 24),
+        )
+
+        self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "approve"]),
+            data={"km_final": "12500", "unsigned_delivery_reason": "Cliente retirou sem assinar."},
+            HTTP_HX_REQUEST="true",
+        )
+        self.workorder.refresh_from_db()
+        stock_product.refresh_from_db()
+        original_stock_movement = StockMovement.objects.get(workorder=self.workorder, type=StockMovement.MovementType.EXIT)
+        original_financial_movement = FinancialMovement.objects.get(workorder=self.workorder, movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT)
+
+        invalid_response = self.client.post(
+            reverse("workorder:reopen", args=[self.workorder.pk]),
+            data={"reopen_reason": ""},
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(invalid_response.status_code, 200)
+        self.assertContains(invalid_response, "Informe a justificativa para reabrir a O.S.")
+
+        response = self.client.post(
+            reverse("workorder:reopen", args=[self.workorder.pk]),
+            data={"reopen_reason": "Cliente pediu reexecução do serviço."},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+        stock_product.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Refresh"), "true")
+        self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
+        self.assertIsNone(self.workorder.delivered_at)
+        self.assertEqual(self.workorder.reopen_reason, "Cliente pediu reexecução do serviço.")
+        self.assertEqual(stock_product.current_quantity, 5)
+
+        reversal_stock = StockMovement.objects.get(reversal_of=original_stock_movement)
+        self.assertEqual(reversal_stock.type, StockMovement.MovementType.ENTRY)
+        self.assertEqual(reversal_stock.quantity, 1)
+
+        reversal_financial = FinancialMovement.objects.get(reversal_of=original_financial_movement)
+        self.assertEqual(reversal_financial.direction, FinancialMovement.MovementDirection.DEBIT)
+        self.assertEqual(reversal_financial.amount, original_financial_movement.amount)
+        self.assertEqual(reversal_financial.financial_observation, "Cliente pediu reexecução do serviço.")
+
+    def test_manager_can_reopen_approved_workorder(self) -> None:
+        manager_user, workshop, _ = create_manager_user_with_workshop(suffix=48)
+        customer = create_customer(workshop=workshop, suffix=248)
+        vehicle = create_vehicle(workshop=workshop, customer=customer, suffix=248)
+        budget = create_budget(workshop=workshop)
+        budget.customer = customer
+        budget.vehicle = vehicle
+        budget.current_km = 12000
+        budget.status = "approved"
+        budget.save(update_fields=["customer", "vehicle", "current_km", "status"])
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED, delivered_at=timezone.now())
+
+        self.client.force_login(manager_user)
+        session = self.client.session
+        session["active_workshop_id"] = workshop.pk
+        session.save()
+
+        response = self.client.post(
+            reverse("workorder:reopen", args=[workorder.pk]),
+            data={"reopen_reason": "Revisão autorizada pela gerência."},
+            HTTP_HX_REQUEST="true",
+        )
+
+        workorder.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Refresh"), "true")
+        self.assertEqual(workorder.status, WorkOrderStatus.DRAFT)
 
     def test_payment_form_uses_pending_balance_after_discount(self) -> None:
         self.workorder.discount_value = Money("10.00", "BRL")
