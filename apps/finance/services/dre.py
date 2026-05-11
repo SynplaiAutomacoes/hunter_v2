@@ -102,7 +102,9 @@ def build_dre_calculation(
     # ----------------------------------
 
     # Custo Mercadorias Vendidas
-    taxa_maquininha_os = FinancialMovement.objects.filter(workorder_payment__in=pagamentos_ordens_de_servico, description="Pagamento da taxa da maquininha")
+    taxa_maquininha_os = FinancialMovement.objects.filter(
+        workorder_payment__in=pagamentos_ordens_de_servico, description="Pagamento da taxa da maquininha"
+    ).select_related("workorder_payment", "workorder_payment__workorder")
     total_taxa_maquininha_os = _sum_movements(list(taxa_maquininha_os))
 
     workorders = set(payment.workorder for payment in pagamentos_ordens_de_servico if payment.workorder)
@@ -291,7 +293,7 @@ def _build_detail(m: FinancialMovement, include_workshop_ref: bool) -> dict:
     if include_workshop_ref and m.workshop_id:
         reference_parts.append(f"Filial: {m.workshop.name}")
     if m.source_id:
-        reference_parts.append(f"Origem: {m.source.name}")
+        reference_parts.append(f"O.S #{m.workorder.budget.pk}")
     if m.nf_number:
         reference_parts.append(f"NF: {m.nf_number}")
     
@@ -311,8 +313,15 @@ def _build_detail(m: FinancialMovement, include_workshop_ref: bool) -> dict:
 
     created_at = getattr(m, "criado_em", None)
 
+    workorder_id = None
+    if m.workorder_id:
+        workorder_id = m.workorder_id
+    elif hasattr(m, "workorder_payment") and m.workorder_payment and m.workorder_payment.workorder_id:
+        workorder_id = m.workorder_payment.workorder_id
+
     return {
         "movement": m,
+        "workorder_id": workorder_id,
         "summary": summary,
         "reference": " | ".join(reference_parts) or "-",
         "entry_date": created_at.date() if created_at else None,
@@ -353,6 +362,7 @@ def _build_wo_pm_detail(payment: WorkOrderPaymentMethod, include_workshop_ref: b
     
     return {
         "movement": None,
+        "workorder_id": workorder.pk if workorder else None,
         "summary": summary,
         "reference": reference,
         "entry_date": getattr(payment, "criado_em", None),
@@ -379,6 +389,7 @@ def _build_workorder_cost_detail(wo: WorkOrder, include_workshop_ref: bool) -> d
     
     return {
         "movement": None,
+        "workorder_id": wo.pk,
         "summary": summary,
         "reference": reference,
         "entry_date": getattr(wo, "criado_em", None),
