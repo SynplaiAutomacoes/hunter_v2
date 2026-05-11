@@ -442,9 +442,9 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         context["top_summary_cards"] = [
             self._build_summary_card(title="Créditos e Débitos deste Mês", overview=monthly_overview),
             self._build_summary_card(title=f"Balanço Geral {reference_date.year}", overview=yearly_overview),
-            self._build_selection_summary_card(),
             self._build_collaborator_payroll_summary_card(),
         ]
+        context["selection_summary"] = self._build_selection_summary_card()
         context["financial_movement_report_rows"] = self._get_financial_movement_report_rows(movements=page_obj.object_list)
         context["collaborator_payroll_rows"] = self._build_collaborator_payroll_rows()
         context["financial_group_filters"] = self._get_financial_groups_queryset()

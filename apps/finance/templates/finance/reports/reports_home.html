@@ -446,6 +446,48 @@
                                             {% endif %}
                                         {% endfor %}
                                     </tbody>
+                                    {% if has_active_filters and selection_summary and not selection_summary.is_placeholder %}
+                                        <tfoot class="bg-base-200/30 border-t-2 border-base-300">
+                                            <!-- Seção de Decomposição (Créditos/Débitos) -->
+                                            <tr>
+                                                <td colspan="8" class="hidden md:table-cell"></td> <!-- Espaçador para telas grandes -->
+                                                <td colspan="2" class="p-4">
+                                                    <div class="flex flex-col gap-2 min-w-[250px]">
+                                                        <span class="text-xs uppercase tracking-wider font-bold text-base-content/50 mb-1">
+                                                            Resumo da Seleção
+                                                        </span>
+
+                                                        <div class="space-y-1.5">
+                                                            {% for row in selection_summary.rows %}
+                                                                <div class="flex justify-between items-center gap-4">
+                                                                    <span class="text-sm text-base-content/70">{{ row.label }}:</span>
+                                                                    <span class="{% if row.small %}text-xs{% else %}text-sm font-bold{% endif %}
+                                                                        {% if row.tone == 'credit' %}text-success{% elif row.tone == 'debit' %}text-error{% endif %}">
+                                                                        {{ row.value }}
+                                                                    </span>
+                                                                </div>
+                                                            {% endfor %}
+                                                        </div>
+
+                                                        <!-- Divisor Visual -->
+                                                        <div class="border-t border-base-300 my-2"></div>
+
+                                                        <!-- Seção de Resultados Finais -->
+                                                        <div class="space-y-2">
+                                                            {% for result in selection_summary.results %}
+                                                                <div class="gap-2 flex justify-between items-center p-2 rounded-lg {% if result.tone == 'credit' %}bg-success/10{% elif result.tone == 'debit' %}bg-error/10{% else %}bg-base-300/50{% endif %}">
+                                                                    <span class="text-sm font-bold">{{ result.label }}:</span>
+                                                                    <span class="text-base font-black {% if result.tone == 'credit' %}text-success{% elif result.tone == 'debit' %}text-error{% endif %}">
+                                                                        {{ result.value }}
+                                                                    </span>
+                                                                </div>
+                                                            {% endfor %}
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        </tfoot>
+                                    {% endif %}
                                 </table>
                             </div>
                         </div>
