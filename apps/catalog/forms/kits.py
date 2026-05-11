@@ -493,7 +493,14 @@ class KitForm(CoreModelForm):
                                                         <span class="label-text">Motor</span>
                                                     </label>
                                                     <input type="hidden" name="kit_application_engine" :value="application.engine">
-                                                    <select class="input-theme w-full" x-model="application.engine" :disabled="!application.model || application.engineLocked">
+                                                    <input
+                                                        x-show="application.engineLocked"
+                                                        type="text"
+                                                        class="input-theme w-full"
+                                                        :value="application.engine || ''"
+                                                        disabled
+                                                    />
+                                                    <select x-show="!application.engineLocked" class="input-theme w-full" x-model="application.engine" :disabled="!application.model">
                                                         <option value="">Selecione...</option>
                                                         <template x-for="option in application.engineOptions" :key="`engine-${{index}}-${{option.id}}`">
                                                             <option :value="option.id" x-text="option.label"></option>
