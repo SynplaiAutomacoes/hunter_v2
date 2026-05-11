@@ -264,7 +264,7 @@ class CustomerUpdateViewTabsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, self.customer_vehicle.plate)
         self.assertContains(response, f"Orçamento #{self.budget_without_os.pk}")
-        self.assertContains(response, f"OS #{self.workorder.pk}")
+        self.assertContains(response, f"OS #{self.workorder.budget_id}")
         self.assertContains(response, "open-pdf-modal")
         self.assertContains(response, "downloadUrl")
 
@@ -273,7 +273,7 @@ class CustomerUpdateViewTabsTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, f"Orçamento #{self.workorder.budget.pk}")
-        self.assertContains(response, f"OS #{self.workorder.pk}")
+        self.assertContains(response, f"OS #{self.workorder.budget_id}")
 
     def test_customer_update_history_tab_context_is_scoped_to_current_customer(self) -> None:
         response = self.client.get(reverse("customer:customer_update", kwargs={"pk": self.customer.pk}))

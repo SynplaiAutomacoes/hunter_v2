@@ -213,7 +213,7 @@ def _build_workorder_pdf_file_response(*, workorder: WorkOrder, download: bool, 
     filename_suffix = "assinado" if use_signed_name else "base"
     document = DocumentPayload(
         content=pdf_bytes,
-        filename=f"ordem_servico_{workorder.id}_{filename_suffix}.pdf",
+        filename=f"ordem_servico_{workorder.public_number}_{filename_suffix}.pdf",
     )
     return build_pdf_http_response(document=document, download=download)
 

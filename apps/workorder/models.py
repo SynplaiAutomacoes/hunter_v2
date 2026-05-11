@@ -49,7 +49,12 @@ class WorkOrder(TimeStampedModel):
     signature_external_id = models.CharField(max_length=255, blank=True, null=True)
     signature_document_id = models.CharField(max_length=255, blank=True, null=True)
     signature_sent_at = models.DateTimeField(blank=True, null=True)
+    delivered_at = models.DateTimeField(verbose_name="Data da Entrega", blank=True, null=True)
     km_final = models.PositiveIntegerField(verbose_name="KM Final", null=True, blank=True)
+
+    @property
+    def public_number(self) -> int:
+        return self.budget_id
 
     @property
     def workorder_status_badge(self):
@@ -226,6 +231,10 @@ class WorkOrder(TimeStampedModel):
     def mark_signature_approved(self) -> None:
         self.status = WorkOrderStatus.APPROVED
         self.signature_request_status = WorkOrderSignatureStatus.APPROVED
+        if self.delivered_at is None:
+            self.delivered_at = timezone.now()
+            self.save(update_fields=["status", "signature_request_status", "delivered_at"])
+            return
         self.save(update_fields=["status", "signature_request_status"])
 
     @property
@@ -496,7 +505,7 @@ class WorkOrder(TimeStampedModel):
         verbose_name_plural = "Ordens de Serviço"
 
     def __str__(self):
-        return f"OS #{self.id} | Budget #{self.budget.id}"
+        return f"OS #{self.public_number} | WorkOrder #{self.id}"
 
 
 class WorkOrderPaymentMethod(TimeStampedModel):

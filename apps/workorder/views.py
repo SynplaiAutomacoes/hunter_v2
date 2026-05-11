@@ -15,6 +15,7 @@ from django.db.models import Prefetch
 from django.http import Http404, HttpResponse, JsonResponse
 from django.urls import reverse
 from django.shortcuts import get_object_or_404, render
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.utils.html import escape
 from django.views import View
@@ -78,6 +79,21 @@ from apps.workshops.util.workshops import get_active_workshop_or_404
 logger = logging.getLogger(__name__)
 THOUSAND_SEPARATED_INT_PATTERN = re.compile(r"^\d{1,3}(?:[\s.,]\d{3})+$")
 MAX_WORKORDER_ATTACHMENT_SIZE_BYTES = 200 * 1024 * 1024
+SIGNED_PDF_VARIANT = "signed"
+BASE_PDF_VARIANT = "base"
+
+
+def _get_requested_pdf_variant(request) -> str:
+    requested_variant = str(request.GET.get("variant") or "").strip().lower()
+    if requested_variant == BASE_PDF_VARIANT:
+        return BASE_PDF_VARIANT
+    if requested_variant == SIGNED_PDF_VARIANT:
+        return SIGNED_PDF_VARIANT
+    return SIGNED_PDF_VARIANT
+
+
+def _can_use_signed_workorder_pdf(workorder: WorkOrder) -> bool:
+    return bool(workorder.signature_document_id or workorder.signature_external_id) and workorder.signature_request_status in {WorkOrderSignatureStatus.SENT, WorkOrderSignatureStatus.APPROVED}
 
 
 WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
@@ -1074,6 +1090,9 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 workorder.save(update_fields=["km_final"])
 
                 approve_workorder_with_stock(workorder=workorder, user=request.user)
+                if workorder.delivered_at is None:
+                    workorder.delivered_at = timezone.now()
+                    workorder.save(update_fields=["delivered_at"])
                 sync_workorder_financial_movement(workorder=workorder)
 
                 vehicle = getattr(workorder.budget, "vehicle", None)
@@ -1101,10 +1120,11 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 @xframe_options_exempt
 def visualizar_pdf_workorder(request, pk):
     workshop = get_active_workshop_or_404(request)
-    workorder = get_object_or_404(WorkOrder.objects.select_related("workshop"), pk=pk, workshop=workshop)
+    workorder = get_object_or_404(WorkOrder.objects.select_related("workshop", "budget"), pk=pk, workshop=workshop)
     should_download = request.GET.get("download") == "1"
+    requested_variant = _get_requested_pdf_variant(request)
 
-    if (workorder.signature_document_id or workorder.signature_external_id) and workorder.signature_request_status in {WorkOrderSignatureStatus.SENT, WorkOrderSignatureStatus.APPROVED}:
+    if requested_variant == SIGNED_PDF_VARIANT and _can_use_signed_workorder_pdf(workorder):
         try:
             signed_pdf = download_signed_document_content(
                 document_id=workorder.signature_document_id,
@@ -1130,7 +1150,7 @@ def visualizar_pdf_workorder(request, pk):
         document = render_workorder_pdf_document(
             workorder=workorder,
             request=request,
-            filename=f"ordem_servico_{workorder.id}_base.pdf",
+            filename=f"ordem_servico_{workorder.public_number}_base.pdf",
         )
     except Exception:
         logger.exception("Falha ao gerar PDF base da ordem de servico", extra={"workorder_id": workorder.id})
@@ -1160,7 +1180,7 @@ def signature_file(request, token):
         document = render_workorder_pdf_document(
             workorder=workorder,
             request=request,
-            filename=f"ordem_servico_{workorder.id}.pdf",
+            filename=f"ordem_servico_{workorder.public_number}.pdf",
         )
     except Exception:
         logger.exception("Falha ao gerar PDF via Playwright para assinatura da ordem de servico", extra={"workorder_id": workorder.id})
