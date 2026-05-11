@@ -17,6 +17,9 @@ urlpatterns = [
     # Vehicle
     path("add-vehicle-form/", views.AddVehicleFormView.as_view(), name="add-vehicle-form"),
     path("check-plate/<str:plate>/", views.api_check_plate, name="check-plate"),
+    path("vehicle-catalog/brands/", views.api_vehicle_catalog_brands, name="vehicle-catalog-brands"),
+    path("vehicle-catalog/models/", views.api_vehicle_catalog_models, name="vehicle-catalog-models"),
+    path("vehicle-catalog/fuels/", views.api_vehicle_catalog_fuels, name="vehicle-catalog-fuels"),
     # Quick Forms
     path("quick-create/", views.QuickCustomerCreateView.as_view(), name="quick_create"),
     path("quick-update/<int:pk>/", views.QuickCustomerUpdateView.as_view(), name="quick_update"),
