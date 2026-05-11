@@ -152,7 +152,7 @@ def build_dre_calculation(
             details=detail_custos_mercadorias_vendidas,
         ),
         _row(
-            label="(=) Receita Bruta de Vendas",
+            label="(=) Receita Líquida",
             amount=total_receita_bruta_de_vendas,
             tone="highlight",
             component=COMP_GROSS_PROFIT,
