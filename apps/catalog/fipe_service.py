@@ -2,20 +2,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
+from contextlib import contextmanager
 import logging
+import re
 import threading
 import time
+import unicodedata
 from urllib.parse import urlencode
 
 from django.conf import settings
 from django.db import close_old_connections
-from django.db import transaction
 from django.utils import timezone
 
 import requests
 
 from apps.catalog.models import FipeModelFuelCache, FipeSyncState, FipeVehicleBrand, FipeVehicleModel, FipeVehicleType
-from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice
+from apps.customer.vehicle_fuel import VehicleFuel, normalize_vehicle_fuel_choice
 
 
 FIPE_SYNC_SCOPE = "kit_vehicle_catalog"
@@ -30,6 +32,8 @@ FUEL_ID_MAP = {
     "6": "Híbrido",
     "7": "Gás Natural",
 }
+_SCOPE_LOCKS: dict[str, threading.Lock] = {}
+_SCOPE_LOCKS_GUARD = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -48,33 +52,29 @@ def has_fipe_api_token() -> bool:
 
 def register_catalog_access_and_maybe_sync(*, vehicle_type: str = FipeVehicleType.CARROS) -> None:
     if is_dev_mode():
-        logger.info("FIPE dev mode enabled; skipping full sync scheduling", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
+        logger.info("FIPE dev mode enabled; skipping catalog bootstrap", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
         return
 
     if not has_fipe_api_token():
-        logger.warning("FIPE token not configured; skipping full sync scheduling", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
+        logger.warning("FIPE token not configured; skipping catalog bootstrap", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
         return
 
-    sync_every_access = bool(getattr(settings, "FIPE_SYNC_EVERY_ACCESS", False))
-    access_interval = int(getattr(settings, "FIPE_SYNC_ACCESS_INTERVAL", 500))
-    catalog_is_empty = not FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, is_active=True).exists()
-
-    with transaction.atomic():
-        state, _ = FipeSyncState.objects.select_for_update().get_or_create(scope=FIPE_SYNC_SCOPE)
-        state.access_count += 1
-
-        should_sync = catalog_is_empty or sync_every_access or (access_interval > 0 and state.access_count % access_interval == 0)
-        if should_sync and not state.sync_in_progress:
-            state.sync_in_progress = True
-            state.last_sync_started_at = timezone.now()
-            state.last_sync_error = ""
-        else:
-            should_sync = False
-
-        state.save(update_fields=["access_count", "sync_in_progress", "last_sync_started_at", "last_sync_error", "atualizado_em"])
-
-    if not should_sync:
+    if FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, is_active=True).exists():
         return
+
+    with _scoped_lock(f"bootstrap:{vehicle_type}"):
+        if FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, is_active=True).exists():
+            return
+
+        state, _ = FipeSyncState.objects.get_or_create(scope=FIPE_SYNC_SCOPE)
+        if state.sync_in_progress:
+            logger.info("FIPE catalog bootstrap already in progress", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
+            return
+
+        state.sync_in_progress = True
+        state.last_sync_started_at = timezone.now()
+        state.last_sync_error = ""
+        state.save(update_fields=["sync_in_progress", "last_sync_started_at", "last_sync_error", "atualizado_em"])
 
     _start_full_sync_in_background(vehicle_type=vehicle_type)
 
@@ -86,7 +86,8 @@ def sync_all_brands_and_models(*, vehicle_type: str = FipeVehicleType.CARROS) ->
 
 
 def sync_brands(*, vehicle_type: str = FipeVehicleType.CARROS) -> list[FipeVehicleBrand]:
-    payload = _request_json(vehicle_type)
+    with _scoped_lock(f"brands:{vehicle_type}"):
+        payload = _request_json(vehicle_type)
     seen_external_ids: set[str] = set()
     synced_brands: list[FipeVehicleBrand] = []
     skipped_entries = 0
@@ -123,7 +124,8 @@ def sync_brands(*, vehicle_type: str = FipeVehicleType.CARROS) -> list[FipeVehic
 
 
 def sync_models_for_brand(*, brand: FipeVehicleBrand) -> list[FipeVehicleModel]:
-    payload = _request_json(f"{brand.vehicle_type}/{brand.external_id}")
+    with _scoped_lock(f"models:{brand.vehicle_type}:{brand.external_id}"):
+        payload = _request_json(f"{brand.vehicle_type}/{brand.external_id}")
     seen_external_ids: set[str] = set()
     synced_models: list[FipeVehicleModel] = []
     skipped_entries = 0
@@ -185,6 +187,10 @@ def get_model_options(*, brand_name: str, vehicle_type: str = FipeVehicleType.CA
 
 
 def get_cached_fuel_options_for_model(*, brand_name: str, model_name: str, vehicle_type: str = FipeVehicleType.CARROS) -> list[str]:
+    inferred_fuel = extract_fuel_from_model_name(model_name)
+    if inferred_fuel:
+        return [inferred_fuel]
+
     model = _get_catalog_model(brand_name=brand_name, model_name=model_name, vehicle_type=vehicle_type)
     if model is None:
         return []
@@ -217,6 +223,14 @@ def _run_full_sync_job(*, vehicle_type: str) -> None:
 
 
 def get_fuel_options_for_model(*, brand_name: str, model_name: str, vehicle_type: str = FipeVehicleType.CARROS, force_refresh: bool = False) -> list[str]:
+    inferred_fuel = extract_fuel_from_model_name(model_name)
+    if inferred_fuel and not force_refresh:
+        logger.info(
+            "FIPE fuel inferred from model name",
+            extra={"vehicle_type": vehicle_type, "brand_name": brand_name, "model_name": model_name, "fuel": inferred_fuel},
+        )
+        return [inferred_fuel]
+
     model = _get_catalog_model(brand_name=brand_name, model_name=model_name, vehicle_type=vehicle_type)
     if model is None:
         logger.warning(
@@ -233,31 +247,51 @@ def get_fuel_options_for_model(*, brand_name: str, model_name: str, vehicle_type
         )
         return [str(value) for value in cache.fuel_values if str(value).strip()]
 
-    logger.info(
-        "FIPE fuel cache miss",
-        extra={"vehicle_type": vehicle_type, "brand_name": brand_name, "model_name": model_name, "force_refresh": force_refresh},
-    )
-    payload = _request_json(f"{vehicle_type}/{model.brand.external_id}/{model.external_id}")
-    fuel_values = _extract_fuel_values(payload)
+    with _scoped_lock(f"fuels:{vehicle_type}:{model.brand.external_id}:{model.external_id}"):
+        cache = FipeModelFuelCache.objects.filter(vehicle_type=vehicle_type, model=model).first()
+        if cache is not None and not force_refresh and not _fuel_cache_is_expired(cache):
+            logger.info(
+                "FIPE fuel cache hit after lock",
+                extra={"vehicle_type": vehicle_type, "brand_name": brand_name, "model_name": model_name, "fuel_count": len(cache.fuel_values)},
+            )
+            return [str(value) for value in cache.fuel_values if str(value).strip()]
 
-    if cache is None:
-        cache = FipeModelFuelCache(model=model, vehicle_type=vehicle_type)
+        logger.info(
+            "FIPE fuel cache miss",
+            extra={"vehicle_type": vehicle_type, "brand_name": brand_name, "model_name": model_name, "force_refresh": force_refresh},
+        )
+        payload = _request_json(f"{vehicle_type}/{model.brand.external_id}/{model.external_id}")
+        fuel_values = _extract_fuel_values(payload)
 
-    cache.fuel_values = fuel_values
-    cache.source_year_count = len(payload)
-    cache.last_synced_at = timezone.now()
-    cache.save()
-    logger.info(
-        "FIPE fuel cache updated",
-        extra={
-            "vehicle_type": vehicle_type,
-            "brand_name": brand_name,
-            "model_name": model_name,
-            "source_year_count": len(payload),
-            "fuel_count": len(fuel_values),
-        },
-    )
-    return fuel_values
+        if cache is None:
+            cache = FipeModelFuelCache(model=model, vehicle_type=vehicle_type)
+
+        cache.fuel_values = fuel_values
+        cache.source_year_count = len(payload)
+        cache.last_synced_at = timezone.now()
+        cache.save()
+        logger.info(
+            "FIPE fuel cache updated",
+            extra={
+                "vehicle_type": vehicle_type,
+                "brand_name": brand_name,
+                "model_name": model_name,
+                "source_year_count": len(payload),
+                "fuel_count": len(fuel_values),
+            },
+        )
+        return fuel_values
+
+
+@contextmanager
+def _scoped_lock(scope: str):
+    with _SCOPE_LOCKS_GUARD:
+        lock = _SCOPE_LOCKS.setdefault(scope, threading.Lock())
+    lock.acquire()
+    try:
+        yield
+    finally:
+        lock.release()
 
 
 def _get_catalog_model(*, brand_name: str, model_name: str, vehicle_type: str) -> FipeVehicleModel | None:
@@ -283,6 +317,30 @@ def _fuel_cache_is_expired(cache: FipeModelFuelCache) -> bool:
     ttl_hours = int(getattr(settings, "FIPE_FUEL_CACHE_TTL_HOURS", 168))
     expires_at = cache.last_synced_at + timedelta(hours=ttl_hours)
     return expires_at <= timezone.now()
+
+
+def extract_fuel_from_model_name(model_name: object) -> str:
+    normalized_model_name = str(model_name or "").strip()
+    if not normalized_model_name:
+        return ""
+
+    normalized_tokens = _normalize_text_for_matching(normalized_model_name)
+    token_set = set(normalized_tokens.split())
+
+    if {"hibrido", "hybrid", "phev", "hev", "e-tech", "etech"} & token_set:
+        return VehicleFuel.HIBRIDO
+    if {"eletrico", "electric", "ev"} & token_set:
+        return VehicleFuel.ELETRICO
+    if "flex" in token_set or "flexone" in token_set or ("hi" in token_set and "flex" in token_set):
+        return VehicleFuel.FLEX
+    if "diesel" in token_set or {"tdi", "hdi", "dci", "cdi"} & token_set or _contains_standalone_td(normalized_tokens):
+        return VehicleFuel.DIESEL
+    if "gasolina" in token_set:
+        return VehicleFuel.GASOLINA
+    if {"etanol", "alcool", "alcohol"} & token_set:
+        return VehicleFuel.ETANOL
+
+    return ""
 
 
 def _extract_fuel_values(payload: list[dict[str, object]]) -> list[str]:
@@ -438,3 +496,15 @@ def _extract_list_payload(payload: object) -> list[object] | None:
 
 def _build_payload_preview(payload: object) -> str:
     return str(payload)[:500]
+
+
+def _normalize_text_for_matching(value: object) -> str:
+    normalized_value = unicodedata.normalize("NFKD", str(value or "").strip().lower())
+    ascii_value = normalized_value.encode("ascii", "ignore").decode("ascii")
+    hyphen_safe_value = ascii_value.replace("e-tech", "etech")
+    cleaned_value = re.sub(r"[^a-z0-9]+", " ", hyphen_safe_value)
+    return " ".join(cleaned_value.split())
+
+
+def _contains_standalone_td(normalized_tokens: str) -> bool:
+    return bool(re.search(r"(?:^|\s)td(?:\s|$)", normalized_tokens))
