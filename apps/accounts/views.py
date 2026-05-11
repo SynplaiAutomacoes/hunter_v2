@@ -1,12 +1,10 @@
 import logging
 import re
 
-from django.conf import settings
 from django.contrib.auth.views import LoginView, LogoutView
 from django.db import transaction
 from django.http import JsonResponse
 from django.urls import reverse_lazy
-from django.utils import timezone
 from django.views import View
 from django.views.generic import FormView
 from django_htmx.http import HttpResponseClientRedirect
@@ -15,7 +13,6 @@ from apps.accounts.models import Account, PasswordResetToken
 from apps.core.services import get_whatsapp_service
 
 from .forms import (
-    CodeVerificationForm,
     PasswordResetForm,
     SignUpForm,
     UserIdentificationForm,
@@ -23,6 +20,86 @@ from .forms import (
 from .forms import LoginForm
 
 logger = logging.getLogger(__name__)
+
+
+def _mensagem(tipo: str, user, code: str) -> str:
+    nome = user.first_name or user.username
+
+    mensagens = {
+        "password_reset": {
+            "titulo": "Código de Recuperação de Senha",
+            "texto": "Seu código de verificação é",
+            "expira": "15 minutos",
+        },
+        "login_code": {
+            "titulo": "Código de Login",
+            "texto": "Seu código de acesso é",
+            "expira": "5 minutos",
+        },
+    }
+
+    data = mensagens[tipo]
+
+    return f"""*{data["titulo"]}*
+
+Olá {nome}!
+
+🔒 {data["texto"]}: *{code}*
+
+Este código expira em {data["expira"]}.
+
+Se você não solicitou esta ação, ignore esta mensagem.
+
+Equipe Hunter"""
+
+
+def _mask_phone(phone: str) -> str:
+    if not phone or len(phone) < 4:
+        return phone
+    return phone[:2] + "*" * (len(phone) - 4) + phone[-2:]
+
+
+def _normalize_phone(phone: str) -> str:
+    digits = re.sub(r'\D', '', phone)
+    if not digits.startswith('55') and len(digits) >= 10:
+        return '55' + digits
+    return digits
+
+
+def _get_user_phone(user) -> str | None:
+    if user.phone:
+        return user.phone
+    try:
+        collaborator = getattr(user, 'workshop_collaborator', None)
+        if collaborator and collaborator.phone:
+            return str(collaborator.phone)
+    except Exception:
+        pass
+    return None
+
+
+def _send_whatsapp(user, code: str, tipo: str, phone: str | None = None) -> bool:
+    if not phone:
+        phone = _get_user_phone(user)
+
+    if not phone:
+        logger.warning(f"User {user.id} has no phone number configured")
+        return False
+
+    normalized_phone = _normalize_phone(phone)
+
+    try:
+        message = _mensagem(tipo=tipo, user=user, code=code)
+
+        whatsapp_service = get_whatsapp_service()
+        whatsapp_service.send_text(normalized_phone, message)
+
+        logger.info(f"WhatsApp message sent to {normalized_phone}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to send WhatsApp message: {e}")
+        return False
 
 
 class UserLoginView(LoginView):
@@ -86,7 +163,7 @@ class PasswordResetWizardView(View):
                 user = form.user
                 logger.info(f"User validated: {user.username}")
 
-                phone = self._get_user_phone(user)
+                phone = _get_user_phone(user)
                 if not phone:
                     logger.warning(f"User {user.id} has no phone number in User or WorkshopCollaborator")
                     return JsonResponse(
@@ -99,9 +176,9 @@ class PasswordResetWizardView(View):
                     )
 
                 token = PasswordResetToken.create_token(user)
-                logger.info(f"Token created for user {user.id}, token id: {token.id}")
+                logger.info(f"Token created for user {user.id}, token id: {token.pk}")
 
-                sent = self._send_reset_via_whatsapp(user, token.code, phone)
+                sent = _send_whatsapp(tipo="password_reset", user=user, code=token.code, phone=phone)
                 if not sent:
                     logger.error(f"Failed to send WhatsApp to user {user.id}")
                     return JsonResponse(
@@ -114,12 +191,12 @@ class PasswordResetWizardView(View):
                     )
 
                 request.session["password_reset_user_id"] = user.id
-                request.session["password_reset_token_id"] = token.id
+                request.session["password_reset_token_id"] = token.pk
                 return JsonResponse(
                     {
                         "success": True,
                         "step": 2,
-                        "phone": self._mask_phone(phone),
+                        "phone": _mask_phone(phone),
                         "message": "Código enviado via WhatsApp!",
                     }
                 )
@@ -147,7 +224,7 @@ class PasswordResetWizardView(View):
                 )
 
             if not token.is_valid():
-                logger.warning(f"Step 2 - Token expired for user {token.user_id}")
+                logger.warning(f"Step 2 - Token expired for user {token.user.pk}")
                 token.used = True
                 token.save()
                 return JsonResponse(
@@ -166,7 +243,7 @@ class PasswordResetWizardView(View):
                     status=400,
                 )
 
-            logger.info(f"Step 2 - Code verified successfully for user {token.user_id}")
+            logger.info(f"Step 2 - Code verified successfully for user {token.user.pk}")
             return JsonResponse({"success": True, "step": 3, "message": "Código validado!"})
 
         elif step == "3":
@@ -218,57 +295,6 @@ class PasswordResetWizardView(View):
         logger.warning(f"Invalid step received: {step}")
         return JsonResponse({"error": "Step inválido"}, status=400)
 
-    def _mask_phone(self, phone: str) -> str:
-        if not phone or len(phone) < 4:
-            return phone
-        return phone[:2] + "*" * (len(phone) - 4) + phone[-2:]
-
-    def _normalize_phone(self, phone: str) -> str:
-        digits = re.sub(r'\D', '', phone)
-        if not digits.startswith('55') and len(digits) >= 10:
-            return '55' + digits
-        return digits
-
-    def _get_user_phone(self, user) -> str | None:
-        if user.phone:
-            return user.phone
-        try:
-            collaborator = user.workshop_collaborator
-            if collaborator and collaborator.phone:
-                return str(collaborator.phone)
-        except Exception:
-            pass
-        return None
-
-    def _send_reset_via_whatsapp(self, user, code: str, phone: str | None = None) -> bool:
-        if not phone:
-            phone = self._get_user_phone(user)
-        if not phone:
-            logger.warning(f"User {user.id} has no phone number configured")
-            return False
-
-        normalized_phone = self._normalize_phone(phone)
-        message = f"""*Código de Recuperação de Senha - Hunter*
-
-Olá {user.first_name or user.username}!
-
-Seu código de verificação é: *{code}*
-
-Este código expira em 15 minutos.
-
-Se você não solicitou esta recuperação, ignore esta mensagem.
-
-Equipe Hunter"""
-
-        try:
-            whatsapp_service = get_whatsapp_service()
-            whatsapp_service.send_text(normalized_phone, message)
-            logger.info(f"WhatsApp code sent to {normalized_phone}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send WhatsApp message: {e}")
-            return False
-
 
 class PasswordResetResendView(View):
     def post(self, request):
@@ -293,66 +319,152 @@ class PasswordResetResendView(View):
 
         logger.info(f"Resend - Creating new token for user {user_id}")
         token = PasswordResetToken.create_token(user)
-        request.session["password_reset_token_id"] = token.id
+        request.session["password_reset_token_id"] = token.pk
 
-        phone = self._get_user_phone(user)
-        self._send_reset_via_whatsapp(user, token.code, phone)
+        phone = _get_user_phone(user)
+        _send_whatsapp(tipo="password_reset", user=user, code=token.code, phone=phone)
 
         return JsonResponse(
             {
                 "success": True,
-                "phone": self._mask_phone(phone) if phone else "",
+                "phone": _mask_phone(phone) if phone else "",
                 "message": "Novo código enviado!",
             }
         )
 
-    def _get_user_phone(self, user) -> str | None:
-        if user.phone:
-            return user.phone
+
+class LoginCodeWizardView(View):
+    def post(self, request):
+        if request.POST:
+            post_data = request.POST
+        else:
+            import json
+            try:
+                post_data = json.loads(request.body)
+            except Exception:
+                from urllib.parse import parse_qs
+                parsed = parse_qs(request.body.decode('utf-8'))
+                post_data = {k: v[0] if len(v) == 1 else v for k, v in parsed.items()}
+
+        step = post_data.get("step", "1")
+        identifier = post_data.get("identifier", "")
+        code = post_data.get("code", "")
+
+        logger.info(f"Login code request | Step: {step}, Identifier: {identifier}, Code: {code}")
+
+        if step == "1":
+            logger.info("Processing login code step 1 - User identification")
+            form = UserIdentificationForm(data=post_data)
+            if form.is_valid():
+                user = form.user
+                logger.info(f"User validated for login code: {user.username}")
+
+                phone = _get_user_phone(user)
+                if not phone:
+                    return JsonResponse(
+                        {"success": False, "step": 1, "error": "Conta sem número de WhatsApp cadastrado."},
+                        status=400,
+                    )
+
+                from apps.accounts.models import LoginCodeToken
+                try:
+                    token = LoginCodeToken.create_token(user)
+                except ValueError as e:
+                    return JsonResponse({"success": False, "step": 1, "error": str(e)}, status=400)
+
+                sent = _send_whatsapp(tipo="login_code", user=user, code=token.code, phone=phone)
+                if not sent:
+                    return JsonResponse(
+                        {"success": False, "step": 1, "error": "Erro ao enviar código via WhatsApp. Tente novamente."},
+                        status=500,
+                    )
+
+                request.session["login_code_user_id"] = user.id
+                request.session["login_code_token_id"] = token.pk
+                return JsonResponse(
+                    {
+                        "success": True,
+                        "step": 2,
+                        "phone": _mask_phone(phone),
+                        "message": "Código enviado via WhatsApp!",
+                    }
+                )
+            return JsonResponse({"success": False, "step": 1, "errors": form.errors}, status=400)
+
+        elif step == "2":
+            logger.info("Processing login code step 2 - Code verification")
+            token_id = request.session.get("login_code_token_id")
+            if not token_id:
+                return JsonResponse({"success": False, "step": 1, "error": "Sessão expirada."}, status=400)
+            
+            from apps.accounts.models import LoginCodeToken
+            try:
+                token = LoginCodeToken.objects.get(id=token_id)
+            except LoginCodeToken.DoesNotExist:
+                return JsonResponse({"success": False, "step": 1, "error": "Token inválido."}, status=400)
+
+            if token.used:
+                return JsonResponse({"success": False, "step": 1, "error": "Token já utilizado ou invalidado."}, status=400)
+
+            if not token.is_valid():
+                return JsonResponse({"success": False, "step": 1, "error": "Código expirado ou bloqueado por tentativas. Solicite um novo."}, status=400)
+
+            if code.upper() != token.code.upper():
+                token.attempts += 1
+                token.save(update_fields=["attempts"])
+                if token.attempts >= 3:
+                    token.used = True
+                    token.save(update_fields=["used"])
+                    return JsonResponse({"success": False, "step": 1, "error": "Limite de tentativas excedido. Solicite novo código."}, status=400)
+                
+                return JsonResponse({"success": False, "step": 2, "error": f"Código incorreto. Tentativas restantes: {3 - token.attempts}"}, status=400)
+
+            # Success
+            token.used = True
+            token.save(update_fields=["used"])
+            
+            from django.contrib.auth import login
+            user = token.user
+            login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+            
+            logger.info(f"User {user.id} logged in via WhatsApp code.")
+            
+            request.session.pop("login_code_user_id", None)
+            request.session.pop("login_code_token_id", None)
+
+            return JsonResponse({"success": True, "step": 3, "redirect_url": str(reverse_lazy("core:dashboard"))})
+
+        return JsonResponse({"error": "Step inválido"}, status=400)
+
+
+class LoginCodeResendView(View):
+    def post(self, request):
+        user_id = request.session.get("login_code_user_id")
+        if not user_id:
+            return JsonResponse({"success": False, "error": "Sessão expirada."}, status=400)
+
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
         try:
-            collaborator = user.workshop_collaborator
-            if collaborator and collaborator.phone:
-                return str(collaborator.phone)
-        except Exception:
-            pass
-        return None
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return JsonResponse({"success": False, "error": "Usuário não encontrado."}, status=400)
 
-    def _mask_phone(self, phone: str) -> str:
-        if not phone or len(phone) < 4:
-            return phone
-        return phone[:2] + "*" * (len(phone) - 4) + phone[-2:]
-
-    def _normalize_phone(self, phone: str) -> str:
-        digits = re.sub(r'\D', '', phone)
-        if not digits.startswith('55') and len(digits) >= 10:
-            return '55' + digits
-        return digits
-
-    def _send_reset_via_whatsapp(self, user, code: str, phone: str | None = None) -> bool:
-        if not phone:
-            phone = self._get_user_phone(user)
-        if not phone:
-            logger.warning(f"User {user.id} has no phone number configured")
-            return False
-
-        normalized_phone = self._normalize_phone(phone)
-        message = f"""*Codigo de Recuperação de Senha - Hunter*
-
-Olá {user.first_name or user.username}!
-
-Seu código de verificação e: *{code}*
-
-Este código expira em 15 minutos.
-
-Se você não solicitou esta recuperação, ignore esta mensagem.
-
-Equipe Hunter"""
-
+        from apps.accounts.models import LoginCodeToken
         try:
-            whatsapp_service = get_whatsapp_service()
-            whatsapp_service.send_text(normalized_phone, message)
-            logger.info(f"WhatsApp code sent to {normalized_phone}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send WhatsApp message: {e}")
-            return False
+            token = LoginCodeToken.create_token(user)
+        except ValueError as e:
+            return JsonResponse({"success": False, "error": str(e)}, status=400)
+            
+        request.session["login_code_token_id"] = token.pk
+
+        phone = _get_user_phone(user)
+        _send_whatsapp(tipo="login_code", user=user, code=token.code, phone=phone)
+
+        return JsonResponse(
+            {
+                "success": True,
+                "phone": _mask_phone(phone) if phone else "",
+                "message": "Novo código enviado!",
+            }
+        )

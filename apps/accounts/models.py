@@ -103,6 +103,50 @@ class PasswordResetToken(TimeStampedModel):
         return not self.used and timezone.now() < self.expires_at
 
 
+class LoginCodeToken(TimeStampedModel):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="login_code_tokens",
+    )
+    code = models.CharField(max_length=6, db_index=True)
+    used = models.BooleanField(default=False)
+    attempts = models.PositiveIntegerField(default=0)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        verbose_name = "Token de login por código"
+        verbose_name_plural = "Tokens de login por código"
+
+    def __str__(self) -> str:
+        return f"Token de login para {self.user.username}"
+
+    @classmethod
+    def generate_code(cls) -> str:
+        alphabet = string.ascii_letters + string.digits
+        return "".join(secrets.choice(alphabet) for _ in range(6))
+
+    @classmethod
+    def create_token(cls, user: User, expires_in_minutes: int = 5) -> LoginCodeToken:
+        # Invalidate previous unused codes
+        cls.objects.filter(user=user, used=False).update(used=True)
+        
+        last_token = cls.objects.filter(user=user).order_by('-criado_em').first()
+        if last_token and (timezone.now() - last_token.criado_em).total_seconds() < 60:
+            raise ValueError("Aguarde 1 minuto antes de solicitar um novo código.")
+            
+        code = cls.generate_code()
+        expires_at = timezone.now() + timedelta(minutes=expires_in_minutes)
+        return cls.objects.create(
+            user=user,
+            code=code,
+            expires_at=expires_at,
+        )
+
+    def is_valid(self) -> bool:
+        return not self.used and self.attempts < 3 and timezone.now() < self.expires_at
+
+
 class FavoritePage(TimeStampedModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="favorite_pages")
     url = models.CharField(max_length=500, verbose_name="URL da Página")
@@ -120,4 +164,4 @@ class FavoritePage(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.user_id} - {self.url}"
+        return f"{self.user.pk} - {self.url}"
