@@ -7,22 +7,21 @@
             <p class="text-base-content/70">As contas abaixo já constam como pagas na oficina.</p>
         </div>
 
-        <div class="grid items-start gap-4 lg:grid-cols-1">
-            <div class="card self-start border border-base-300 bg-base-100 shadow-xl max-w-sm">
-                <div class="flex w-full items-center justify-between gap-4 p-6 text-left md:p-8">
-                    <h2 class="text-lg font-semibold text-base-content md:text-xl">
-                        {% if saldo_atual.account_name %}
-                            Saldo da Conta: {{ saldo_atual.account_name }}
-                        {% else %}
-                            Saldo Atual da Oficina
-                        {% endif %}
-                    </h2>
-                </div>
-                <div class="border-t border-base-300 px-6 pb-6 pt-5 md:px-8 md:pb-8">
-                    <div class="flex items-end justify-between gap-4">
-                        <p class="text-base font-semibold {% if saldo_atual.tone == 'neutral' %}text-base-content{% endif %}"{% if saldo_atual.tone == 'credit' %} style="color: #166534;"{% elif saldo_atual.tone == 'debit' %} style="color: #991b1b;"{% endif %}>Balanço de Contas Realizadas</p>
-                        <p class="text-xl font-black md:text-2xl {% if saldo_atual.tone == 'neutral' %}text-base-content{% endif %}"{% if saldo_atual.tone == 'credit' %} style="color: #166534;"{% elif saldo_atual.tone == 'debit' %} style="color: #991b1b;"{% endif %}>{{ saldo_atual.value }}</p>
-                    </div>
+        <div class="card self-start border border-base-300 bg-base-100 shadow-xl max-w-2xl">
+            <div class="flex w-full items-center justify-between gap-4 p-8 text-left">
+                <h2 class="text-xl font-semibold text-base-content md:text-2xl whitespace-nowrap">
+                    {% if saldo_atual.account_name %}
+                        Saldo da Conta: {{ saldo_atual.account_name }}
+                    {% else %}
+                        Saldo Atual da Oficina
+                    {% endif %}
+                </h2>
+            </div>
+
+            <div class="border-t border-base-300 px-8 pb-8 pt-6">
+                <div class="flex items-center justify-between gap-6">
+                    <p class="text-xl font-semibold whitespace-nowrap {% if saldo_atual.tone == 'neutral' %}text-base-content{% endif %}"{% if saldo_atual.tone == 'credit' %} style="color: #166534;"{% elif saldo_atual.tone == 'debit' %} style="color: #991b1b;"{% endif %}>Balanço de Contas Realizadas</p></p>
+                    <p class="text-2xl font-black whitespace-nowrap {% if saldo_atual.tone == 'neutral' %}text-base-content{% endif %}"{% if saldo_atual.tone == 'credit' %} style="color: #166534;"{% elif saldo_atual.tone == 'debit' %} style="color: #991b1b;"{% endif %}>{{ saldo_atual.value }}</p>
                 </div>
             </div>
         </div>

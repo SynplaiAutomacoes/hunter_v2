@@ -157,7 +157,15 @@
                                                                             <td class="{% if detail.is_total %}font-bold text-base-content{% else %}font-semibold text-base-content{% endif %}">{{ detail.summary }}</td>
                                                                             <td class="text-right {% if detail.is_total %}font-bold text-base-content{% else %}font-semibold text-base-content{% endif %}">{{ detail.amount }}</td>
                                                                         {% elif row.detail_kind == 'financial_entries' %}
-                                                                            <td class="font-semibold text-base-content">{{ detail.summary }}</td>
+                                                                            <td class="font-semibold text-base-content">
+                                                                                {% if detail.workorder_id %}
+                                                                                    <a href="{% url 'workorder:workorder_detail' detail.workorder_id %}" class="hover:underline">
+                                                                                        {{ detail.summary }}
+                                                                                    </a>
+                                                                                {% else %}
+                                                                                    {{ detail.summary }}
+                                                                                {% endif %}
+                                                                            </td>
                                                                             <td class="text-base-content/65">{{ detail.reference }}</td>
                                                                             <td class="text-right font-semibold text-base-content">
                                                                                 {% if detail.movement %}
