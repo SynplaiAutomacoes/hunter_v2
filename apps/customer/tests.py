@@ -3,9 +3,11 @@ from __future__ import annotations
 from datetime import date
 from unittest.mock import Mock, patch
 
+from crispy_forms.utils import render_crispy_form
 from django.test import TestCase
 from django.urls import reverse
 
+from apps.catalog.models import FipeModelFuelCache, FipeVehicleBrand, FipeVehicleModel
 from apps.budget.models import Budget
 from apps.customer.forms import QuickVehicleForm
 from apps.customer.models import Customer, Vehicle
@@ -27,6 +29,9 @@ class QuickVehicleFormTests(TestCase):
             email="cliente.veiculo@example.com",
             phone="+5511999999999",
         )
+        self.brand = FipeVehicleBrand.objects.create(name="Jeep", external_id="1")
+        self.model = FipeVehicleModel.objects.create(brand=self.brand, vehicle_type=self.brand.vehicle_type, name="Cherokee Rubicon 4.0 V6 4x4", external_id="10")
+        FipeModelFuelCache.objects.create(model=self.model, vehicle_type=self.model.vehicle_type, fuel_values=["Gasolina"])
 
     def test_quick_vehicle_form_persists_engine_and_fuel(self) -> None:
         form = QuickVehicleForm(
@@ -70,7 +75,7 @@ class QuickVehicleFormTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertEqual(form.errors["fuel"], ["Selecione um combustível válido."])
 
-    def test_quick_vehicle_form_rejects_invalid_engine_choice(self) -> None:
+    def test_quick_vehicle_form_accepts_dynamic_engine_choice(self) -> None:
         form = QuickVehicleForm(
             data={
                 "plate": "ABC1D23",
@@ -86,8 +91,9 @@ class QuickVehicleFormTests(TestCase):
             customer=self.customer,
         )
 
-        self.assertFalse(form.is_valid())
-        self.assertEqual(form.errors["engine"], ["Selecione um motor válido."])
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        vehicle = form.save()
+        self.assertEqual(vehicle.engine, "2.8")
 
     def test_quick_vehicle_form_accepts_engine_14(self) -> None:
         form = QuickVehicleForm(
@@ -109,7 +115,7 @@ class QuickVehicleFormTests(TestCase):
         vehicle = form.save()
         self.assertEqual(vehicle.engine, "1.4")
 
-    def test_quick_vehicle_form_shows_blank_engine_for_unsupported_existing_value(self) -> None:
+    def test_quick_vehicle_form_preserves_existing_dynamic_engine(self) -> None:
         vehicle = Vehicle.objects.create(
             workshop=self.workshop,
             customer=self.customer,
@@ -125,7 +131,40 @@ class QuickVehicleFormTests(TestCase):
 
         form = QuickVehicleForm(instance=vehicle, workshop=self.workshop, customer=self.customer)
 
-        self.assertEqual(form.initial["engine"], "")
+        self.assertEqual(form.initial["engine"], "2.8")
+
+    def test_quick_vehicle_form_renders_local_vehicle_catalog_endpoints(self) -> None:
+        html = render_crispy_form(QuickVehicleForm(workshop=self.workshop, customer=self.customer))
+
+        self.assertIn("/customer/vehicle-catalog/models/", html)
+        self.assertIn("/customer/vehicle-catalog/fuels/", html)
+        self.assertIn("customer-vehicle-catalog-form", html)
+
+
+class VehicleCatalogApiTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=91)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.brand = FipeVehicleBrand.objects.create(name="Jeep", external_id="1")
+        self.model = FipeVehicleModel.objects.create(brand=self.brand, vehicle_type=self.brand.vehicle_type, name="Cherokee Rubicon 4.0 V6 4x4", external_id="10")
+        FipeModelFuelCache.objects.create(model=self.model, vehicle_type=self.model.vehicle_type, fuel_values=["Gasolina", "Gasolina / Alcool"])
+
+    def test_vehicle_catalog_models_endpoint_reads_local_catalog(self) -> None:
+        response = self.client.get(reverse("customer:vehicle-catalog-models"), data={"brand": "Jeep"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), [{"id": "Cherokee Rubicon 4.0 V6 4x4", "label": "Cherokee Rubicon 4.0 V6 4x4"}])
+
+    def test_vehicle_catalog_fuels_endpoint_reads_local_catalog_and_normalizes_values(self) -> None:
+        response = self.client.get(reverse("customer:vehicle-catalog-fuels"), data={"brand": "Jeep", "model": "Cherokee Rubicon 4.0 V6 4x4"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), [{"id": "Gasolina", "label": "Gasolina"}, {"id": "Flex", "label": "Flex"}])
 
 
 class CustomerUpdateViewTabsTests(TestCase):

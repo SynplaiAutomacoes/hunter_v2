@@ -7,12 +7,13 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Div, Field, HTML, Submit, Button
 from django.urls import reverse
 
+from apps.catalog.models import FipeModelFuelCache, FipeVehicleBrand, FipeVehicleModel, FipeVehicleType
 from .models import Customer, Vehicle
 from apps.core.text_normalization import name_case, plate_case, sentence_case
 from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SearchableSelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, NumberInput, PlateInput
 from .cpf_cnpj_validator import is_valid_cpf, is_valid_cnpj
 from .vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
-from .vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
+from .vehicle_fuel import normalize_vehicle_fuel_choice
 from ..core.forms import AddressFormMixin, address_layout
 from ..workshops.models.workshops import Workshop
 from apps.core.forms import CoreModelForm
@@ -25,9 +26,77 @@ def _set_normalized_initial_choice(form: forms.BaseForm, field_name: str, curren
         form.fields[field_name].initial = normalized_value
 
 
-class VehicleInlineForm(CoreModelForm):
+def _with_selected_choice(choices: list[tuple[str, str]], selected_value: object) -> list[tuple[str, str]]:
+    normalized_selected_value = str(selected_value or "").strip()
+    if not normalized_selected_value:
+        return choices
+
+    if any(str(value) == normalized_selected_value for value, _ in choices):
+        return choices
+
+    return [*choices, (normalized_selected_value, normalized_selected_value)]
+
+
+def _vehicle_brand_form_choices() -> list[tuple[str, str]]:
+    return [("", "Selecione"), *[(brand.name, brand.name) for brand in FipeVehicleBrand.objects.filter(vehicle_type=FipeVehicleType.CARROS, is_active=True).order_by("name")]]
+
+
+def _vehicle_model_form_choices(brand_name: object, model_name: object = "") -> list[tuple[str, str]]:
+    normalized_brand_name = str(brand_name or "").strip()
+    choices = [("", "Selecione")]
+    if normalized_brand_name:
+        choices.extend((model.name, model.name) for model in FipeVehicleModel.objects.filter(vehicle_type=FipeVehicleType.CARROS, brand__vehicle_type=FipeVehicleType.CARROS, brand__name__iexact=normalized_brand_name, brand__is_active=True, is_active=True).order_by("name"))
+    return _with_selected_choice(choices, model_name)
+
+
+def _vehicle_fuel_form_choices_from_catalog(brand_name: object, model_name: object, selected_fuel: object = "") -> list[tuple[str, str]]:
+    normalized_brand_name = str(brand_name or "").strip()
+    normalized_model_name = str(model_name or "").strip()
+    choices = [("", "Selecione")]
+
+    if normalized_brand_name and normalized_model_name:
+        model = (
+            FipeVehicleModel.objects.filter(
+                vehicle_type=FipeVehicleType.CARROS,
+                brand__vehicle_type=FipeVehicleType.CARROS,
+                brand__name__iexact=normalized_brand_name,
+                name__iexact=normalized_model_name,
+                brand__is_active=True,
+                is_active=True,
+            )
+            .select_related("brand")
+            .first()
+        )
+        if model is not None:
+            cache = FipeModelFuelCache.objects.filter(vehicle_type=FipeVehicleType.CARROS, model=model).first()
+            if cache is not None:
+                seen_fuels: set[str] = set()
+                for raw_value in cache.fuel_values:
+                    normalized_value = normalize_vehicle_fuel_choice(raw_value) or str(raw_value or "").strip()
+                    if not normalized_value or normalized_value in seen_fuels:
+                        continue
+                    seen_fuels.add(normalized_value)
+                    choices.append((normalized_value, normalized_value))
+
+    return _with_selected_choice(choices, selected_fuel)
+
+
+class VehicleEngineModelValidationBypassMixin:
+    def _post_clean(self) -> None:
+        engine_field = self.instance._meta.get_field("engine")
+        original_choices = engine_field.choices
+        engine_field.choices = None
+        try:
+            super()._post_clean()
+        finally:
+            engine_field.choices = original_choices
+
+
+class VehicleInlineForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
+    brand = forms.CharField(label="Marca", required=False, widget=SearchableSelectInput(choices=_vehicle_brand_form_choices()))
+    model = forms.CharField(label="Modelo", required=False, widget=SearchableSelectInput())
     engine = forms.CharField(label="Motor", required=False, widget=SearchableSelectInput(choices=vehicle_engine_form_choices()))
-    fuel = forms.CharField(label="Combustível", required=False, widget=SearchableSelectInput(choices=vehicle_fuel_form_choices()))
+    fuel = forms.CharField(label="Combustível", required=False, widget=SearchableSelectInput())
 
     class Meta:
         model = Vehicle
@@ -36,8 +105,20 @@ class VehicleInlineForm(CoreModelForm):
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
         super().__init__(*args, **kwargs)
+        brand_value = self.data.get(self.add_prefix("brand")) if self.is_bound else self.initial.get("brand") or getattr(self.instance, "brand", None)
+        model_value = self.data.get(self.add_prefix("model")) if self.is_bound else self.initial.get("model") or getattr(self.instance, "model", None)
+        fuel_value = self.data.get(self.add_prefix("fuel")) if self.is_bound else self.initial.get("fuel") or getattr(self.instance, "fuel", None)
+
+        self.fields["brand"].widget = SearchableSelectInput(choices=_with_selected_choice(_vehicle_brand_form_choices(), brand_value))
+        self.fields["model"].widget = SearchableSelectInput(choices=_vehicle_model_form_choices(brand_value, model_value))
         self.fields["engine"].widget = SearchableSelectInput(choices=vehicle_engine_form_choices())
-        self.fields["fuel"].widget = SearchableSelectInput(choices=vehicle_fuel_form_choices())
+        self.fields["fuel"].widget = SearchableSelectInput(choices=_vehicle_fuel_form_choices_from_catalog(brand_value, model_value, fuel_value))
+
+        self.fields["brand"].widget.attrs.update({"data-catalog-field": "brand"})
+        self.fields["model"].widget.attrs.update({"data-catalog-field": "model"})
+        self.fields["fuel"].widget.attrs.update({"data-catalog-field": "fuel"})
+        self.fields["engine"].widget.attrs.update({"data-catalog-field": "engine"})
+
         if not self.is_bound:
             _set_normalized_initial_choice(self, "engine", self.initial.get("engine") or getattr(self.instance, "engine", None), normalize_vehicle_engine_choice)
             _set_normalized_initial_choice(self, "fuel", self.initial.get("fuel") or getattr(self.instance, "fuel", None), normalize_vehicle_fuel_choice)
@@ -116,12 +197,12 @@ VehicleFormSet = inlineformset_factory(
     can_delete=True,
     widgets={
         "plate": PlateInput(),
-        "brand": TextInput(),
-        "model": TextInput(),
+        "brand": SearchableSelectInput(choices=_vehicle_brand_form_choices()),
+        "model": SearchableSelectInput(),
         "year_fabrication": TextInput(),
         "year_model": TextInput(),
         "color": TextInput(),
-        "fuel": SearchableSelectInput(choices=vehicle_fuel_form_choices()),
+        "fuel": SearchableSelectInput(),
         "engine": SearchableSelectInput(choices=vehicle_engine_form_choices()),
         "type": TextInput(),
         "renavam": TextInput(),
@@ -644,19 +725,21 @@ class QuickCustomerForm(AddressFormMixin, CoreModelForm):
         return sentence_case(value) if value else value
 
 
-class QuickVehicleForm(CoreModelForm):
+class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
+    brand = forms.CharField(label="Marca", required=False, widget=SearchableSelectInput(choices=_vehicle_brand_form_choices()))
+    model = forms.CharField(label="Modelo", required=False, widget=SearchableSelectInput())
     engine = forms.CharField(label="Motor", required=False, widget=SearchableSelectInput(choices=vehicle_engine_form_choices()))
-    fuel = forms.CharField(label="Combustível", required=False, widget=SearchableSelectInput(choices=vehicle_fuel_form_choices()))
+    fuel = forms.CharField(label="Combustível", required=False, widget=SearchableSelectInput())
 
     class Meta:
         model = Vehicle
         fields = ["plate", "brand", "model", "engine", "fuel", "year_fabrication", "year_model", "color"]
         widgets = {
             "plate": PlateInput(),
-            "brand": TextInput(),
-            "model": TextInput(),
+            "brand": SearchableSelectInput(choices=_vehicle_brand_form_choices()),
+            "model": SearchableSelectInput(),
             "engine": SearchableSelectInput(choices=vehicle_engine_form_choices()),
-            "fuel": SearchableSelectInput(choices=vehicle_fuel_form_choices()),
+            "fuel": SearchableSelectInput(),
             "year_fabrication": TextInput(),
             "year_model": TextInput(),
             "color": TextInput(),
@@ -666,8 +749,21 @@ class QuickVehicleForm(CoreModelForm):
         self.workshop = kwargs.pop("workshop", None)
         self.customer = kwargs.pop("customer", None)
         super().__init__(*args, **kwargs)
+
+        brand_value = self.data.get(self.add_prefix("brand")) if self.is_bound else self.initial.get("brand") or getattr(self.instance, "brand", None)
+        model_value = self.data.get(self.add_prefix("model")) if self.is_bound else self.initial.get("model") or getattr(self.instance, "model", None)
+        fuel_value = self.data.get(self.add_prefix("fuel")) if self.is_bound else self.initial.get("fuel") or getattr(self.instance, "fuel", None)
+
+        self.fields["brand"].widget = SearchableSelectInput(choices=_with_selected_choice(_vehicle_brand_form_choices(), brand_value))
+        self.fields["model"].widget = SearchableSelectInput(choices=_vehicle_model_form_choices(brand_value, model_value))
         self.fields["engine"].widget = SearchableSelectInput(choices=vehicle_engine_form_choices())
-        self.fields["fuel"].widget = SearchableSelectInput(choices=vehicle_fuel_form_choices())
+        self.fields["fuel"].widget = SearchableSelectInput(choices=_vehicle_fuel_form_choices_from_catalog(brand_value, model_value, fuel_value))
+
+        self.fields["brand"].widget.attrs.update({"data-catalog-field": "brand"})
+        self.fields["model"].widget.attrs.update({"data-catalog-field": "model"})
+        self.fields["fuel"].widget.attrs.update({"data-catalog-field": "fuel"})
+        self.fields["engine"].widget.attrs.update({"data-catalog-field": "engine"})
+
         if not self.is_bound:
             _set_normalized_initial_choice(self, "engine", self.initial.get("engine") or getattr(self.instance, "engine", None), normalize_vehicle_engine_choice)
             _set_normalized_initial_choice(self, "fuel", self.initial.get("fuel") or getattr(self.instance, "fuel", None), normalize_vehicle_fuel_choice)
@@ -675,81 +771,345 @@ class QuickVehicleForm(CoreModelForm):
         self.helper.form_tag = False
         self.helper.layout = Layout(
             HTML("""<script>
-            document.addEventListener('change', async (e) => {
-                const el = e.target;
-                const isPlateField = el.name && (el.name.endsWith('plate') || el.name === 'plate');
+            (() => {
+                if (window.customerVehicleCatalog) {
+                    return;
+                }
 
-                if (!isPlateField) return;
+                const enginePattern = /(^|[^0-9])(\d[\.,]\d)(?!\d)/;
 
-                const plate = el.value.replace(/[^a-zA-Z0-9]/g, '').trim();
-                if (plate.length < 7) return;
-
-                const container = el.closest('.vehicle-item') || el.closest('form');
-                if (!container) return;
-
-                function syncFieldValue(input, value) {
-                    if (!input || value === null || value === undefined || value === '') return;
-
-                    const normalizedValue = String(value);
-                    const widgetContainer = input.type === 'hidden' ? input.closest('[x-data]') : null;
-                    if (widgetContainer && widgetContainer.querySelector('ul[role="listbox"]') && window.Alpine) {
-                        widgetContainer.dispatchEvent(new CustomEvent('searchable-set-value', {
-                            detail: { value: normalizedValue },
+                const api = {
+                    getField(container, fieldName) {
+                        return container.querySelector(`[name="${fieldName}"], [name$="-${fieldName}"]`);
+                    },
+                    getFieldValue(container, fieldName) {
+                        const input = this.getField(container, fieldName);
+                        return input ? String(input.value || '').trim() : '';
+                    },
+                    getWidgetContainer(input) {
+                        return input && input.type === 'hidden' ? input.closest('[x-data]') : null;
+                    },
+                    isHydrating(container) {
+                        return !!(container && container.dataset && container.dataset.catalogHydrating === '1');
+                    },
+                    setHydrating(container, isHydrating) {
+                        if (!container || !container.dataset) {
+                            return;
+                        }
+                        container.dataset.catalogHydrating = isHydrating ? '1' : '0';
+                    },
+                    nextRequestId(container, requestType) {
+                        if (!container || !container.dataset) {
+                            return 0;
+                        }
+                        const key = `${requestType}RequestId`;
+                        const nextValue = String((parseInt(container.dataset[key] || '0', 10) || 0) + 1);
+                        container.dataset[key] = nextValue;
+                        return nextValue;
+                    },
+                    isLatestRequest(container, requestType, requestId) {
+                        if (!container || !container.dataset) {
+                            return false;
+                        }
+                        return String(container.dataset[`${requestType}RequestId`] || '') === String(requestId);
+                    },
+                    setSearchableOptions(input, options) {
+                        const widgetContainer = this.getWidgetContainer(input);
+                        if (!widgetContainer) {
+                            return;
+                        }
+                        widgetContainer.dispatchEvent(new CustomEvent('searchable-set-options', {
+                            detail: { options },
                             bubbles: true,
                         }));
+                    },
+                    setSearchableSelection(input, value, label = '', options = [], { silent = false } = {}) {
+                        const widgetContainer = this.getWidgetContainer(input);
+                        if (!widgetContainer) {
+                            this.setFieldValue(input, value, { silent });
+                            return;
+                        }
+                        widgetContainer.dispatchEvent(new CustomEvent('searchable-set-selection', {
+                            detail: { value, label, options, silent },
+                            bubbles: true,
+                        }));
+                    },
+                    setFieldValue(input, value, { silent = false } = {}) {
+                        if (!input) {
+                            return;
+                        }
+
+                        const normalizedValue = value === null || value === undefined ? '' : String(value);
+                        const widgetContainer = this.getWidgetContainer(input);
+                        if (widgetContainer && widgetContainer.querySelector('ul[role="listbox"]') && window.Alpine) {
+                            widgetContainer.dispatchEvent(new CustomEvent('searchable-set-value', {
+                                detail: { value: normalizedValue, silent },
+                                bubbles: true,
+                            }));
+                            return;
+                        }
+
+                        input.value = normalizedValue;
+                        if (!silent) {
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                            input.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
+                    },
+                    normalizeOptions(options, selectedValue = '') {
+                        const seen = new Set();
+                        const normalizedOptions = [];
+
+                        (Array.isArray(options) ? options : []).forEach((option) => {
+                            const value = String(option && option.id !== undefined && option.id !== null ? option.id : option && option.value !== undefined && option.value !== null ? option.value : '').trim();
+                            const label = String(option && option.label !== undefined && option.label !== null ? option.label : value).trim();
+                            if (!value || seen.has(value)) {
+                                return;
+                            }
+                            seen.add(value);
+                            normalizedOptions.push({ id: value, label });
+                        });
+
+                        const normalizedSelectedValue = String(selectedValue || '').trim();
+                        if (normalizedSelectedValue && !seen.has(normalizedSelectedValue)) {
+                            normalizedOptions.push({ id: normalizedSelectedValue, label: normalizedSelectedValue });
+                        }
+
+                        return normalizedOptions;
+                    },
+                    extractEngineFromModelName(modelName) {
+                        const normalizedModelName = String(modelName || '').trim();
+                        if (!normalizedModelName) {
+                            return '';
+                        }
+                        const match = normalizedModelName.match(enginePattern);
+                        return match ? match[2].replace(',', '.') : '';
+                    },
+                    async fetchOptions(url) {
+                        const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                        if (!response.ok) {
+                            throw new Error('Falha ao carregar catálogo de veículos.');
+                        }
+                        const payload = await response.json();
+                        return Array.isArray(payload) ? payload : [];
+                    },
+                    async loadModels(container, { preserveModel = '', preserveFuel = '', preserveEngine = '', silent = false } = {}) {
+                        const brand = this.getFieldValue(container, 'brand');
+                        await this.loadModelsFor(container, { brand, preserveModel, preserveFuel, preserveEngine, silent });
+                    },
+                    async loadModelsFor(container, { brand = '', preserveModel = '', preserveFuel = '', preserveEngine = '', silent = false } = {}) {
+                        const modelInput = this.getField(container, 'model');
+                        const fuelInput = this.getField(container, 'fuel');
+                        const requestId = this.nextRequestId(container, 'model');
+
+                        if (!modelInput || !fuelInput) {
+                            return;
+                        }
+
+                        if (!brand) {
+                            this.setSearchableOptions(modelInput, []);
+                            this.setSearchableOptions(fuelInput, []);
+                            this.setFieldValue(modelInput, '', { silent });
+                            this.setFieldValue(fuelInput, '', { silent });
+                            this.syncEngine(container, preserveEngine, { silent });
+                            return;
+                        }
+
+                        const options = this.normalizeOptions(await this.fetchOptions(`/customer/vehicle-catalog/models/?brand=${encodeURIComponent(brand)}`), preserveModel);
+                        if (!this.isLatestRequest(container, 'model', requestId)) {
+                            return;
+                        }
+                        this.setSearchableSelection(modelInput, preserveModel, preserveModel, options, { silent });
+                        await this.loadFuelsFor(container, { brand, model: preserveModel, preserveFuel, silent });
+                        this.syncEngine(container, preserveEngine, { silent, modelName: preserveModel });
+                    },
+                    async loadFuels(container, { preserveFuel = '', silent = false } = {}) {
+                        const brand = this.getFieldValue(container, 'brand');
+                        const model = this.getFieldValue(container, 'model');
+                        await this.loadFuelsFor(container, { brand, model, preserveFuel, silent });
+                    },
+                    async loadFuelsFor(container, { brand = '', model = '', preserveFuel = '', silent = false } = {}) {
+                        const fuelInput = this.getField(container, 'fuel');
+                        const requestId = this.nextRequestId(container, 'fuel');
+
+                        if (!fuelInput) {
+                            return;
+                        }
+
+                        if (!brand || !model) {
+                            this.setSearchableOptions(fuelInput, []);
+                            this.setFieldValue(fuelInput, '', { silent });
+                            return;
+                        }
+
+                        const options = this.normalizeOptions(await this.fetchOptions(`/customer/vehicle-catalog/fuels/?brand=${encodeURIComponent(brand)}&model=${encodeURIComponent(model)}`), preserveFuel);
+                        if (!this.isLatestRequest(container, 'fuel', requestId)) {
+                            return;
+                        }
+                        this.setSearchableSelection(fuelInput, preserveFuel, preserveFuel, options, { silent });
+                    },
+                    syncEngine(container, fallbackEngine = '', { silent = false, modelName = '' } = {}) {
+                        const engineInput = this.getField(container, 'engine');
+                        if (!engineInput) {
+                            return;
+                        }
+
+                        const detectedEngine = this.extractEngineFromModelName(modelName || this.getFieldValue(container, 'model')) || String(fallbackEngine || '').trim();
+                        this.setSearchableSelection(engineInput, detectedEngine, detectedEngine, detectedEngine ? [{ id: detectedEngine, label: detectedEngine }] : [], { silent });
+                    },
+                    async hydrateContainer(container) {
+                        const brand = this.getFieldValue(container, 'brand');
+                        const model = this.getFieldValue(container, 'model');
+                        const fuel = this.getFieldValue(container, 'fuel');
+                        const engine = this.getFieldValue(container, 'engine');
+
+                        if (!brand) {
+                            return;
+                        }
+
+                        await this.loadModels(container, {
+                            preserveModel: model,
+                            preserveFuel: fuel,
+                            preserveEngine: engine,
+                        });
+                    },
+                    fillTextFields(container, fieldsMap) {
+                        Object.entries(fieldsMap).forEach(([fieldName, fieldValue]) => {
+                            if (!fieldValue) {
+                                return;
+                            }
+                            const input = this.getField(container, fieldName);
+                            if (input) {
+                                this.setFieldValue(input, fieldValue);
+                            }
+                        });
+                    },
+                    async fillFromPlate(container, data) {
+                        this.setHydrating(container, true);
+                        try {
+                            const brand = String(data.brand || '').trim();
+                            const model = String(data.model || '').trim();
+                            const fuel = String(data.fuel || '').trim();
+                            const engine = String(data.engine || '').trim();
+                            const brandInput = this.getField(container, 'brand');
+
+                            this.setSearchableSelection(brandInput, brand, brand, brand ? [{ id: brand, label: brand }] : [], { silent: true });
+
+                            const modelOptions = brand ? this.normalizeOptions(await this.fetchOptions(`/customer/vehicle-catalog/models/?brand=${encodeURIComponent(brand)}`), model) : this.normalizeOptions([], model);
+                            const modelInput = this.getField(container, 'model');
+                            if (modelInput) {
+                                this.setSearchableSelection(modelInput, model, model, modelOptions, { silent: true });
+                            }
+
+                            const fuelOptions = brand && model ? this.normalizeOptions(await this.fetchOptions(`/customer/vehicle-catalog/fuels/?brand=${encodeURIComponent(brand)}&model=${encodeURIComponent(model)}`), fuel) : this.normalizeOptions([], fuel);
+                            const fuelInput = this.getField(container, 'fuel');
+                            if (fuelInput) {
+                                this.setSearchableSelection(fuelInput, fuel, fuel, fuelOptions, { silent: true });
+                            }
+
+                            this.syncEngine(container, engine, { silent: true, modelName: model });
+
+                            this.fillTextFields(container, {
+                                year_fabrication: data.year_fabrication,
+                                year_model: data.year_model,
+                                color: data.color,
+                                chassi: data.chassi,
+                                renavam: data.renavam,
+                                type: data.type,
+                            });
+                        } finally {
+                            this.setHydrating(container, false);
+                        }
+                    },
+                };
+
+                document.addEventListener('searchable-change', async (event) => {
+                    const fieldName = event.detail && event.detail.name ? String(event.detail.name) : '';
+                    if (!fieldName) {
                         return;
                     }
 
-                    input.value = normalizedValue;
-                    input.dispatchEvent(new Event('input', { bubbles: true }));
-                    input.dispatchEvent(new Event('change', { bubbles: true }));
-                }
-
-                try {
-                    el.classList.add('loading-api');
-
-                    const response = await fetch(`/customer/check-plate/${plate}/`);
-                    if (!response.ok) throw new Error('Placa não encontrada');
-
-                    const data = await response.json();
-                    const fieldsMap = {
-                        brand: data.brand,
-                        model: data.model,
-                        year_fabrication: data.year_fabrication,
-                        year_model: data.year_model,
-                        color: data.color,
-                        fuel: data.fuel,
-                        chassi: data.chassi,
-                        renavam: data.renavam,
-                        engine: data.engine,
-                        type: data.type
-                    };
-
-                    Object.keys(fieldsMap).forEach((key) => {
-                        const input = container.querySelector(`[name$="${key}"]`);
-                        if (input && fieldsMap[key]) {
-                            syncFieldValue(input, fieldsMap[key]);
-                        }
-                    });
-
-                    const missingFields = [];
-                    if (!data.engine) missingFields.push('Motor');
-                    if (!data.fuel) missingFields.push('Combustível');
-
-                    if (missingFields.length > 0) {
-                        document.body.dispatchEvent(new CustomEvent('showToast', {
-                            detail: {
-                                message: `Campos não disponíveis: ${missingFields.join(', ')}`,
-                                type: 'warning'
-                            }
-                        }));
+                    const container = event.target.closest('.vehicle-item') || event.target.closest('.customer-vehicle-catalog-form') || event.target.closest('form');
+                    if (!container || api.isHydrating(container)) {
+                        return;
                     }
-                } catch (err) {
-                    console.warn('Erro ao buscar placa:', err);
-                } finally {
-                    el.classList.remove('loading-api');
-                }
-            });
+
+                    try {
+                        if (fieldName.endsWith('brand')) {
+                            await api.loadModels(container);
+                            return;
+                        }
+                        if (fieldName.endsWith('model')) {
+                            await api.loadFuels(container);
+                            api.syncEngine(container);
+                        }
+                    } catch (error) {
+                        console.warn('Erro ao carregar catálogo local de veículos:', error);
+                    }
+                });
+
+                document.addEventListener('change', async (event) => {
+                    const element = event.target;
+                    const isPlateField = element.name && (element.name.endsWith('plate') || element.name === 'plate' || element.name.endsWith('-plate'));
+                    if (!isPlateField) {
+                        return;
+                    }
+
+                    const plate = String(element.value || '').replace(/[^a-zA-Z0-9]/g, '').trim();
+                    if (plate.length < 7) {
+                        return;
+                    }
+
+                    const container = element.closest('.vehicle-item') || element.closest('.customer-vehicle-catalog-form') || element.closest('form');
+                    if (!container) {
+                        return;
+                    }
+
+                    try {
+                        element.classList.add('loading-api');
+                        const response = await fetch(`/customer/check-plate/${plate}/`);
+                        if (!response.ok) {
+                            throw new Error('Placa não encontrada');
+                        }
+
+                        const data = await response.json();
+                        await api.fillFromPlate(container, data);
+
+                        const missingFields = [];
+                        if (!data.engine) missingFields.push('Motor');
+                        if (!data.fuel) missingFields.push('Combustível');
+
+                        if (missingFields.length > 0) {
+                            document.body.dispatchEvent(new CustomEvent('showToast', {
+                                detail: {
+                                    message: `Campos não disponíveis: ${missingFields.join(', ')}`,
+                                    type: 'warning'
+                                }
+                            }));
+                        }
+                    } catch (error) {
+                        console.warn('Erro ao buscar placa:', error);
+                    } finally {
+                        element.classList.remove('loading-api');
+                    }
+                });
+
+                const hydrateAll = (root = document) => {
+                    root.querySelectorAll('.vehicle-item, .customer-vehicle-catalog-form').forEach((container) => {
+                        api.hydrateContainer(container).catch((error) => {
+                            console.warn('Erro ao hidratar catálogo local de veículos:', error);
+                        });
+                    });
+                };
+
+                document.addEventListener('DOMContentLoaded', () => hydrateAll());
+                document.body.addEventListener('htmx:afterSwap', (event) => {
+                    if (event.detail && event.detail.target) {
+                        hydrateAll(event.detail.target);
+                    }
+                });
+
+                window.customerVehicleCatalog = api;
+            })();
             </script>"""),
             Div(
                 Field("plate", wrapper_class="col-span-12 lg:col-span-4"),
@@ -760,7 +1120,7 @@ class QuickVehicleForm(CoreModelForm):
                 Field("year_fabrication", wrapper_class="col-span-12 lg:col-span-2"),
                 Field("year_model", wrapper_class="col-span-12 lg:col-span-2"),
                 Field("color", wrapper_class="col-span-12 lg:col-span-2"),
-                css_class="grid grid-cols-12 gap-2",
+                css_class="customer-vehicle-catalog-form grid grid-cols-12 gap-2",
             ),
         )
 

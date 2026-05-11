@@ -5,9 +5,63 @@
         label: '',
         search: '',
         allowedValues: null,
+        dynamicOptions: [],
         init() {
             this.updateLabelFromValue();
             this.$watch('value', () => this.updateLabelFromValue());
+        },
+        normalizeOptions(options) {
+            const seen = new Set();
+            return (Array.isArray(options) ? options : []).reduce((result, option) => {
+                const value = String(option && option.value !== undefined && option.value !== null ? option.value : option && option.id !== undefined && option.id !== null ? option.id : '').trim();
+                const label = String(option && option.label !== undefined && option.label !== null ? option.label : value).trim();
+                if (!value || seen.has(value)) {
+                    return result;
+                }
+                seen.add(value);
+                result.push({ value, label, searchText: label.toLowerCase() });
+                return result;
+            }, []);
+        },
+        setOptions(options) {
+            const normalizedOptions = this.normalizeOptions(options);
+            const staticValues = this.$refs.options
+                ? Array.from(this.$refs.options.querySelectorAll('li[data-static-option][data-value]')).map((option) => option.dataset.value)
+                : [];
+            this.dynamicOptions = normalizedOptions.filter((option) => !staticValues.includes(option.value));
+            this.updateLabelFromValue();
+        },
+        setSelection(payload) {
+            const detail = payload || {};
+            this.setOptions(detail.options || []);
+            this.value = detail.value === null || detail.value === undefined ? '' : String(detail.value);
+
+            const explicitLabel = detail.label === null || detail.label === undefined ? '' : String(detail.label).trim();
+            if (explicitLabel) {
+                this.label = explicitLabel;
+                if (!this.open) {
+                    this.search = '';
+                }
+            } else {
+                this.updateLabelFromValue();
+            }
+
+            if (!detail.silent) {
+                this.dispatchEvents();
+            }
+        },
+        findOptionByValue(nextValue) {
+            if (!nextValue) {
+                return null;
+            }
+            const normalizedValue = String(nextValue);
+            const staticOption = this.$refs.options
+                ? this.$refs.options.querySelector(`li[data-static-option][data-value='${normalizedValue}']`)
+                : null;
+            if (staticOption) {
+                return { value: staticOption.dataset.value || '', label: staticOption.dataset.label || staticOption.dataset.value || '' };
+            }
+            return this.dynamicOptions.find((option) => option.value === normalizedValue) || null;
         },
         updateLabelFromValue() {
             if (!this.value) {
@@ -16,19 +70,21 @@
                 return;
             }
             this.$nextTick(() => {
-                const selectedEl = this.$refs.options.querySelector(`[data-value='${this.value}']`);
-                if (selectedEl) {
-                    this.label = selectedEl.dataset.label;
+                const selectedOption = this.findOptionByValue(this.value);
+                if (selectedOption) {
+                    this.label = selectedOption.label;
                     if (!this.open) {
                         this.search = '';
                     }
                 }
             });
         },
-        setValue(nextValue) {
+        setValue(nextValue, shouldDispatch = true) {
             this.value = nextValue === null || nextValue === undefined ? '' : String(nextValue);
             this.updateLabelFromValue();
-            this.dispatchEvents();
+            if (shouldDispatch) {
+                this.dispatchEvents();
+            }
         },
         dispatchEvents() {
             this.$nextTick(() => {
@@ -82,7 +138,9 @@
     }"
     class="relative"
     @click.outside="closeDropdown()"
-    @searchable-set-value="setValue($event.detail ? $event.detail.value : '')">
+    @searchable-set-value="setValue($event.detail ? $event.detail.value : '', !($event.detail && $event.detail.silent))"
+    @searchable-set-options="setOptions($event.detail ? $event.detail.options : [])"
+    @searchable-set-selection="setSelection($event.detail)">
 
     <input
         x-ref="hiddenInput"
@@ -148,6 +206,7 @@
                             data-value="{{ option.value }}"
                             data-label="{{ option.label }}"
                             data-search-text="{{ option.label|lower }}"
+                            data-static-option="true"
                             class="relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group">
                             <span class="block truncate" :class="{'font-bold': value == '{{ option.value }}'}">
                                 {{ option.label }}
@@ -156,6 +215,17 @@
                     {% endif %}
                 {% endfor %}
             {% endfor %}
+            <template x-for="option in dynamicOptions" :key="`dynamic-${option.value}`">
+                <li
+                    x-show="(!allowedValues || allowedValues.includes(option.value)) && (!search || option.searchText.includes(search.toLowerCase()))"
+                    @click="select($el)"
+                    :data-value="option.value"
+                    :data-label="option.label"
+                    :data-search-text="option.searchText"
+                    class="relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group">
+                    <span class="block truncate" :class="{'font-bold': value == option.value}" x-text="option.label"></span>
+                </li>
+            </template>
             <li x-show="search && $refs.options.querySelectorAll('li[data-value]:not([style*=\'display: none\'])').length === 0"
                 class="py-2 pl-3 text-gray-500 italic">
                 Nenhum resultado encontrado...
