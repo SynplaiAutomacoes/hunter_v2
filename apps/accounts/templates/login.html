@@ -1,4 +1,5 @@
 {% extends '_accounts_base.html' %}
+{% load static %}
 
 {% block accounts_left_text %}
 Bem-vindo de volta. Faça login para continuar.
@@ -6,6 +7,13 @@ Bem-vindo de volta. Faça login para continuar.
 
 {% block accounts_title %}Entrar{% endblock %}
 {% block accounts_subtitle %}Use seu usuário e senha.{% endblock %}
+
+{% block accounts_actions %}
+{% include 'partials/password_reset_modal.html' %}
+<button type="button" class="btn btn-link btn-sm mt-2 w-full" onclick="openPasswordResetModal()">
+  Esqueci minha senha
+</button>
+{% endblock %}
 
 {% block accounts_bottom_text %}
 <span class="opacity-70">Ainda não tem conta?</span>

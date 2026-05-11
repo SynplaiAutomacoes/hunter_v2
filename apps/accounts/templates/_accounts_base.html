@@ -27,6 +27,8 @@
                         {% crispy form %}
                     </form>
 
+                    {% block accounts_actions %}{% endblock %}
+
                     <div class="mt-4 text-sm">
                         {% block accounts_bottom_text %}{% endblock %}
                     </div>
