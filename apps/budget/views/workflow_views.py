@@ -738,13 +738,12 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
         }
 
         if status not in status_map:
-            error_message = "Status invalido"
+            error_message = "Status inválido"
             messages.error(request, error_message)
             return JsonResponse({"success": False, "error": error_message}, status=400)
 
         if status == "cancel" and has_active_workorder:
-            error_message = "Ja foi gerada uma ordem de servico para este orçamento. Cancele a ordem de servico primeiro para depois cancelar o orçamento."
-            messages.error(request, error_message)
+            error_message = "Já foi gerada uma ordem de serviço para este orçamento. Cancele a ordem de serviço primeiro para depois cancelar o orçamento."
             return JsonResponse({"success": False, "error": error_message}, status=400)
 
         # Validação de Aprovação

@@ -17,7 +17,7 @@ from apps.core.utils import alert_confirm_layout
 from apps.core.text_normalization import sentence_case
 from apps.core.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, TextInput
 from apps.finance.models.payment_method import PaymentMethod
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderPaymentMethod
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderSignatureStatus
 from apps.core.forms import CoreForm, CoreModelForm
 
 
@@ -641,6 +641,7 @@ class WorkOrderAttachmentForm(CoreModelForm):
 
     def __init__(self, *args, **kwargs):
         self.workorder = kwargs.pop("workorder", None)
+        self.require_unsigned_delivery_reason = kwargs.pop("require_unsigned_delivery_reason", True)
         super().__init__(*args, **kwargs)
 
         self.fields["file_upload"].label = None
@@ -653,9 +654,15 @@ class WorkOrderAttachmentForm(CoreModelForm):
 class WorkOrderCustomerApprovalForm(CoreForm):
     km_initial = forms.IntegerField(label="KM inicial", required=False, widget=NumberInput(attrs={"readonly": "readonly"}))
     km_final = forms.IntegerField(label="KM final", required=True, min_value=0, widget=NumberInput())
+    unsigned_delivery_reason = forms.CharField(
+        label="Justificativa da entrega sem assinatura",
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 4, "placeholder": "Explique por que o veículo está sendo entregue sem a assinatura da O.S."}),
+    )
 
     def __init__(self, *args, **kwargs):
         self.workorder = kwargs.pop("workorder", None)
+        self.require_unsigned_delivery_reason = kwargs.pop("require_unsigned_delivery_reason", True)
         super().__init__(*args, **kwargs)
 
         km_initial_value = 0
@@ -666,9 +673,15 @@ class WorkOrderCustomerApprovalForm(CoreForm):
         self.fields["km_initial"].disabled = True
 
         self.fields["km_final"].error_messages["required"] = "Preencha o KM final para concluir a entrega do veículo."
+        self.fields["unsigned_delivery_reason"].error_messages["required"] = "Informe a justificativa para entregar o veículo sem a assinatura da O.S."
 
         if self.workorder and self.workorder.km_final is not None and not self.is_bound:
             self.fields["km_final"].initial = self.workorder.km_final
+        if self.workorder and self.workorder.unsigned_delivery_reason and not self.is_bound:
+            self.fields["unsigned_delivery_reason"].initial = self.workorder.unsigned_delivery_reason
+
+        unsigned_delivery_is_required = bool(self.require_unsigned_delivery_reason and self.workorder and self.workorder.signature_request_status != WorkOrderSignatureStatus.APPROVED)
+        self.fields["unsigned_delivery_reason"].required = unsigned_delivery_is_required
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -678,6 +691,11 @@ class WorkOrderCustomerApprovalForm(CoreForm):
                 Field("km_initial", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("km_final", wrapper_class="col-span-12 lg:col-span-6"),
                 css_class="grid grid-cols-12 gap-4",
+            ),
+            Div(
+                Field("unsigned_delivery_reason"),
+                css_id="unsigned-delivery-reason-wrapper",
+                css_class="mt-4",
             ),
         )
 
@@ -691,6 +709,12 @@ class WorkOrderCustomerApprovalForm(CoreForm):
             raise ValidationError(f"O KM final não pode ser menor que o KM inicial ({km_initial:,}).".replace(",", "."))
 
         return km_final
+
+    def clean_unsigned_delivery_reason(self) -> str:
+        reason = str(self.cleaned_data.get("unsigned_delivery_reason") or "").strip()
+        if self.require_unsigned_delivery_reason and self.workorder and self.workorder.signature_request_status != WorkOrderSignatureStatus.APPROVED and not reason:
+            raise ValidationError("Informe a justificativa para entregar o veículo sem a assinatura da O.S.")
+        return reason
 
 
 class WorkOrderItemEditForm(CoreModelForm):
