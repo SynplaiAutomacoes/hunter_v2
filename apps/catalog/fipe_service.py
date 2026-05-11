@@ -327,13 +327,13 @@ def extract_fuel_from_model_name(model_name: object) -> str:
     normalized_tokens = _normalize_text_for_matching(normalized_model_name)
     token_set = set(normalized_tokens.split())
 
-    if {"hibrido", "hybrid"} & token_set or "phev" in token_set or "hev" in token_set:
+    if {"hibrido", "hybrid", "phev", "hev", "e-tech", "etech"} & token_set:
         return VehicleFuel.HIBRIDO
-    if {"eletrico", "electric", "etech", "ev"} & token_set:
+    if {"eletrico", "electric", "ev"} & token_set:
         return VehicleFuel.ELETRICO
     if "flex" in token_set or "flexone" in token_set or ("hi" in token_set and "flex" in token_set):
         return VehicleFuel.FLEX
-    if "diesel" in token_set or {"td", "tdi", "hdi", "dci", "cdi"} & token_set:
+    if "diesel" in token_set or {"tdi", "hdi", "dci", "cdi"} & token_set or _contains_standalone_td(normalized_tokens):
         return VehicleFuel.DIESEL
     if "gasolina" in token_set:
         return VehicleFuel.GASOLINA
@@ -501,5 +501,10 @@ def _build_payload_preview(payload: object) -> str:
 def _normalize_text_for_matching(value: object) -> str:
     normalized_value = unicodedata.normalize("NFKD", str(value or "").strip().lower())
     ascii_value = normalized_value.encode("ascii", "ignore").decode("ascii")
-    cleaned_value = re.sub(r"[^a-z0-9]+", " ", ascii_value)
-    return " ".join(cleaned_value.split()).replace("e tech", "etech")
+    hyphen_safe_value = ascii_value.replace("e-tech", "etech")
+    cleaned_value = re.sub(r"[^a-z0-9]+", " ", hyphen_safe_value)
+    return " ".join(cleaned_value.split())
+
+
+def _contains_standalone_td(normalized_tokens: str) -> bool:
+    return bool(re.search(r"(?:^|\s)td(?:\s|$)", normalized_tokens))

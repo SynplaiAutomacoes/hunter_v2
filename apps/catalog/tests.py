@@ -719,6 +719,8 @@ class CatalogFipeServiceTests(TestCase):
         self.assertEqual(extract_fuel_from_model_name("Commander Overl. 2.2 TD 4x4 Diesel Aut"), "Diesel")
         self.assertEqual(extract_fuel_from_model_name("ZOE Intense (Eletrico)"), "Elétrico")
         self.assertEqual(extract_fuel_from_model_name("Accord Sedan 2.0 TB 16V Aut. (Hibrido)"), "Híbrido")
+        self.assertEqual(extract_fuel_from_model_name("Megane E-Tech"), "Híbrido")
+        self.assertEqual(extract_fuel_from_model_name("Peugeot 3008 1.6 THP"), "")
         self.assertEqual(extract_fuel_from_model_name("Civic Touring 1.5 Turbo"), "")
 
     @override_settings(FIPE_API_TOKEN="token-teste")
