@@ -116,6 +116,10 @@ class WorkOrder(TimeStampedModel):
         return salario_mecanicos / horas_uteis_mes
 
     @property
+    def get_id(self) -> int:
+        return self.budget.pk
+
+    @property
     def total_labor_cost_value(self) -> Money:
         duracao_em_horas = Decimal(self._raw_labor_duration().total_seconds()) / Decimal(3600)
         return self.mechanic_hour_cost_value * duracao_em_horas

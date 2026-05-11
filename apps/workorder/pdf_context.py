@@ -74,7 +74,7 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, observacao: str | None 
     ]
 
     budget_proxy = WorkOrderPdfBudgetProxy(
-        id=workorder.id,
+        id=workorder.get_id,
         workshop=workorder.workshop,
         created=workorder.criado_em,
         criado_em=workorder.criado_em,
