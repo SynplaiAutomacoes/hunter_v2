@@ -12,11 +12,11 @@ from django.utils import timezone
 
 import requests
 
-from .models import FipeModelFuelCache, FipeSyncState, FipeVehicleBrand, FipeVehicleModel, FipeVehicleType
-from .vehicle_fuel import normalize_vehicle_fuel_choice
+from apps.catalog.models import FipeModelFuelCache, FipeSyncState, FipeVehicleBrand, FipeVehicleModel, FipeVehicleType
+from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice
 
 
-FIPE_SYNC_SCOPE = "vehicle_catalog"
+FIPE_SYNC_SCOPE = "kit_vehicle_catalog"
 FIPE_API_BASE_URL = "http://api.fipeapi.com.br/v1"
 logger = logging.getLogger(__name__)
 FUEL_ID_MAP = {
@@ -34,59 +34,6 @@ FUEL_ID_MAP = {
 class FipeOption:
     value: str
     label: str
-
-
-def get_brand_form_choices(*, vehicle_type: str = FipeVehicleType.CARROS, current_value: str | None = None) -> list[tuple[str, str]]:
-    options = [("", "Selecione")]
-    brand_names = list(FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, is_active=True).order_by("name").values_list("name", flat=True))
-
-    if current_value and current_value not in brand_names:
-        brand_names.insert(0, current_value)
-
-    options.extend((name, name) for name in brand_names)
-    return options
-
-
-def get_model_form_choices(*, brand_name: str | None = None, vehicle_type: str = FipeVehicleType.CARROS, current_value: str | None = None) -> list[tuple[str, str]]:
-    options = [("", "Selecione")]
-    model_names: list[str] = []
-
-    if brand_name:
-        brand = FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, name=brand_name, is_active=True).first()
-        if brand is not None:
-            model_names = list(brand.models.filter(vehicle_type=vehicle_type, is_active=True).order_by("name").values_list("name", flat=True))
-
-    if current_value and current_value not in model_names:
-        model_names.insert(0, current_value)
-
-    options.extend((name, name) for name in model_names)
-    return options
-
-
-def get_fuel_form_choices(*, brand_name: str | None = None, model_name: str | None = None, vehicle_type: str = FipeVehicleType.CARROS, current_value: str | None = None) -> list[tuple[str, str]]:
-    options = [("", "Selecione")]
-    fuel_values: list[str] = []
-
-    if brand_name and model_name:
-        fuel_values = get_cached_fuel_options_for_model(brand_name=brand_name, model_name=model_name, vehicle_type=vehicle_type)
-
-    if current_value and current_value not in fuel_values:
-        fuel_values.insert(0, current_value)
-
-    options.extend((value, value) for value in fuel_values)
-    return options
-
-
-def get_cached_fuel_options_for_model(*, brand_name: str, model_name: str, vehicle_type: str = FipeVehicleType.CARROS) -> list[str]:
-    model = _get_catalog_model(brand_name=brand_name, model_name=model_name, vehicle_type=vehicle_type)
-    if model is None:
-        return []
-
-    cache = FipeModelFuelCache.objects.filter(vehicle_type=vehicle_type, model=model).first()
-    if cache is None:
-        return []
-
-    return [str(value) for value in cache.fuel_values if str(value).strip()]
 
 
 def register_catalog_access_and_maybe_sync(*, vehicle_type: str = FipeVehicleType.CARROS) -> None:
@@ -224,6 +171,18 @@ def get_model_options(*, brand_name: str, vehicle_type: str = FipeVehicleType.CA
         sync_models_for_brand(brand=brand)
 
     return [FipeOption(value=model.name, label=model.name) for model in brand.models.filter(vehicle_type=vehicle_type, is_active=True).order_by("name")]
+
+
+def get_cached_fuel_options_for_model(*, brand_name: str, model_name: str, vehicle_type: str = FipeVehicleType.CARROS) -> list[str]:
+    model = _get_catalog_model(brand_name=brand_name, model_name=model_name, vehicle_type=vehicle_type)
+    if model is None:
+        return []
+
+    cache = FipeModelFuelCache.objects.filter(vehicle_type=vehicle_type, model=model).first()
+    if cache is None:
+        return []
+
+    return [str(value) for value in cache.fuel_values if str(value).strip()]
 
 
 def get_fuel_options_for_model(*, brand_name: str, model_name: str, vehicle_type: str = FipeVehicleType.CARROS, force_refresh: bool = False) -> list[str]:
@@ -417,7 +376,7 @@ def _mask_url_for_log(url: str) -> str:
     if "apikey=" not in url:
         return url
 
-    prefix, _, suffix = url.partition("apikey=")
+    _, _, suffix = url.partition("apikey=")
     token = suffix.split("&", 1)[0]
     masked_token = f"{token[:4]}..." if token else "***"
     return url.replace(token, masked_token, 1)
@@ -444,5 +403,4 @@ def _extract_list_payload(payload: object) -> list[object] | None:
 
 
 def _build_payload_preview(payload: object) -> str:
-    preview = str(payload)
-    return preview[:500]
+    return str(payload)[:500]
