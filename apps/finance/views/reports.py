@@ -196,8 +196,13 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         direction = filter_params["direction"]
         agent = filter_params["agent"]
 
+        today = timezone.localdate()
+
         if start_date is not None:
             queryset = queryset.filter(due_date__gte=start_date)
+        elif not filter_params["bank_account_id"] and not direction and not agent and not self._get_search_value():
+            queryset = queryset.filter(due_date=today)
+
         if end_date is not None:
             queryset = queryset.filter(due_date__lte=end_date)
         if budget_plan_ids:
