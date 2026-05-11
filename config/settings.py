@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 import os
 from pathlib import Path
+import sys
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -39,6 +40,11 @@ BUDGET_SSE_CHECK_INTERVAL_SECONDS = float(os.getenv("BUDGET_SSE_CHECK_INTERVAL_S
 PERF_LOGGING_ENABLED = os.getenv("PERF_LOGGING_ENABLED", "0").lower() in ("1", "true", "yes")
 PERF_LOG_QUERIES = os.getenv("PERF_LOG_QUERIES", "0").lower() in ("1", "true", "yes")
 PERF_LOG_MIN_MS = int(os.getenv("PERF_LOG_MIN_MS", "300"))
+
+FIPE_SYNC_EVERY_ACCESS = os.getenv("FIPE_SYNC_EVERY_ACCESS", "0").lower() in ("1", "true", "yes")
+FIPE_SYNC_ACCESS_INTERVAL = int(os.getenv("FIPE_SYNC_ACCESS_INTERVAL", "500"))
+FIPE_FUEL_CACHE_TTL_HOURS = int(os.getenv("FIPE_FUEL_CACHE_TTL_HOURS", "168"))
+FIPE_API_TOKEN = os.getenv("FIPE_API_TOKEN", os.getenv("token_vehicle_api", ""))
 
 WEBMANIA_BASE_URL = "https://api.webmania.com.br/2/"
 WEBMANIA_B2B_BASE_URL = "https://webmania.com.br/api"
@@ -258,10 +264,7 @@ LOGGING = {
         },
     },
     "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-            "formatter": "standard",
-        },
+        "console": {"class": "logging.StreamHandler", "formatter": "standard", "stream": sys.stdout},
     },
     "loggers": {
         "apps.budget.views.item_views": {

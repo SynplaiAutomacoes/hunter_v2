@@ -4,11 +4,13 @@ from datetime import date
 from unittest.mock import Mock, patch
 
 from django.test import TestCase
+from django.test.utils import override_settings
 from django.urls import reverse
 
 from apps.budget.models import Budget
+from apps.customer.fipe_service import get_fuel_options_for_model, register_catalog_access_and_maybe_sync
 from apps.customer.forms import QuickVehicleForm
-from apps.customer.models import Customer, Vehicle
+from apps.customer.models import Customer, FipeModelFuelCache, FipeSyncState, FipeVehicleBrand, FipeVehicleModel, Vehicle
 from apps.customer.util import fetch_vehicle_data
 from apps.customer.vehicle_engine import normalize_vehicle_engine_choice
 from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice
@@ -126,6 +128,170 @@ class QuickVehicleFormTests(TestCase):
         form = QuickVehicleForm(instance=vehicle, workshop=self.workshop, customer=self.customer)
 
         self.assertEqual(form.initial["engine"], "")
+
+    def test_quick_vehicle_form_loads_brand_and_model_choices_from_fipe_catalog(self) -> None:
+        FipeVehicleBrand.objects.create(name="Jeep", external_id="1")
+        brand = FipeVehicleBrand.objects.get(name="Jeep")
+        FipeVehicleModel.objects.create(brand=brand, vehicle_type=brand.vehicle_type, name="Renegade", external_id="10")
+
+        form = QuickVehicleForm(
+            data={
+                "plate": "ABC1D23",
+                "brand": "Jeep",
+                "model": "Renegade",
+                "engine": "2.0",
+                "fuel": "Diesel",
+                "year_fabrication": "2020",
+                "year_model": "2020",
+                "color": "Prata",
+            },
+            workshop=self.workshop,
+            customer=self.customer,
+        )
+
+        brand_choices = [choice[0] for choice in form.fields["brand"].widget.choices]
+        model_choices = [choice[0] for choice in form.fields["model"].widget.choices]
+
+        self.assertIn("Jeep", brand_choices)
+        self.assertIn("Renegade", model_choices)
+
+
+class FipeCatalogServiceTests(TestCase):
+    @override_settings(FIPE_SYNC_EVERY_ACCESS=False, FIPE_SYNC_ACCESS_INTERVAL=2)
+    @patch("apps.customer.fipe_service.sync_all_brands_and_models")
+    def test_register_catalog_access_triggers_sync_on_interval(self, sync_mock: Mock) -> None:
+        FipeVehicleBrand.objects.create(name="Ford", external_id="22")
+
+        register_catalog_access_and_maybe_sync()
+        sync_mock.assert_not_called()
+
+        register_catalog_access_and_maybe_sync()
+
+        sync_mock.assert_called_once_with(vehicle_type="carros")
+        state = FipeSyncState.objects.get(scope="vehicle_catalog")
+        self.assertEqual(state.access_count, 2)
+        self.assertFalse(state.sync_in_progress)
+
+    @patch("apps.customer.fipe_service.requests.get")
+    def test_get_fuel_options_for_model_populates_and_reuses_cache(self, requests_get_mock: Mock) -> None:
+        brand = FipeVehicleBrand.objects.create(name="Ford", external_id="22")
+        model = FipeVehicleModel.objects.create(brand=brand, vehicle_type=brand.vehicle_type, name="Ka", external_id="664")
+
+        response_mock = Mock()
+        response_mock.json.return_value = [
+            {"id_modelo_ano": "1986-1", "name": "1986 Gasolina"},
+            {"id_modelo_ano": "1987-5", "name": "1987 Flex"},
+            {"id_modelo_ano": "1988-5", "name": "1988 Flex"},
+        ]
+        requests_get_mock.return_value = response_mock
+
+        with patch.dict("os.environ", {"token_vehicle_api": "token-teste"}):
+            fuel_values = get_fuel_options_for_model(brand_name="Ford", model_name="Ka")
+
+        self.assertEqual(fuel_values, ["Gasolina", "Flex"])
+        cache = FipeModelFuelCache.objects.get(model=model)
+        self.assertEqual(cache.fuel_values, ["Gasolina", "Flex"])
+
+        requests_get_mock.reset_mock()
+        with patch.dict("os.environ", {"token_vehicle_api": "token-teste"}):
+            cached_values = get_fuel_options_for_model(brand_name="Ford", model_name="Ka")
+
+        self.assertEqual(cached_values, ["Gasolina", "Flex"])
+        requests_get_mock.assert_not_called()
+
+    @patch("apps.customer.fipe_service.requests.get")
+    def test_get_fuel_options_logs_normalization_warning_for_unknown_fuel(self, requests_get_mock: Mock) -> None:
+        brand = FipeVehicleBrand.objects.create(name="Ford", external_id="22")
+        FipeVehicleModel.objects.create(brand=brand, vehicle_type=brand.vehicle_type, name="Ka", external_id="664")
+
+        response_mock = Mock()
+        response_mock.json.return_value = [{"id_modelo_ano": "1986-99", "name": "1986 Combustivel X"}]
+        requests_get_mock.return_value = response_mock
+
+        with patch.dict("os.environ", {"token_vehicle_api": "token-teste"}):
+            with self.assertLogs("apps.customer.fipe_service", level="WARNING") as captured_logs:
+                fuel_values = get_fuel_options_for_model(brand_name="Ford", model_name="Ka", force_refresh=True)
+
+        self.assertEqual(fuel_values, [])
+        self.assertTrue(any("could not be normalized" in message for message in captured_logs.output))
+
+    @patch("apps.customer.fipe_service.requests.get")
+    def test_get_fuel_options_logs_request_failure(self, requests_get_mock: Mock) -> None:
+        brand = FipeVehicleBrand.objects.create(name="Ford", external_id="22")
+        FipeVehicleModel.objects.create(brand=brand, vehicle_type=brand.vehicle_type, name="Ka", external_id="664")
+
+        requests_get_mock.side_effect = RuntimeError("falha externa")
+
+        with patch.dict("os.environ", {"token_vehicle_api": "token-teste"}):
+            with self.assertLogs("apps.customer.fipe_service", level="ERROR") as captured_logs:
+                with self.assertRaises(RuntimeError):
+                    get_fuel_options_for_model(brand_name="Ford", model_name="Ka", force_refresh=True)
+
+        self.assertTrue(any("FIPE request failed" in message for message in captured_logs.output))
+
+    @patch("apps.customer.fipe_service.requests.get")
+    def test_get_fuel_options_accepts_dict_payload_with_data_key(self, requests_get_mock: Mock) -> None:
+        brand = FipeVehicleBrand.objects.create(name="Ford", external_id="22")
+        FipeVehicleModel.objects.create(brand=brand, vehicle_type=brand.vehicle_type, name="Ka", external_id="664")
+
+        response_mock = Mock()
+        response_mock.json.return_value = {
+            "data": [
+                {"id_modelo_ano": "1986-1", "name": "1986 Gasolina"},
+                {"id_modelo_ano": "1987-5", "name": "1987 Flex"},
+            ]
+        }
+        requests_get_mock.return_value = response_mock
+
+        with patch.dict("os.environ", {"token_vehicle_api": "token-teste"}):
+            with self.assertLogs("apps.customer.fipe_service", level="WARNING") as captured_logs:
+                fuel_values = get_fuel_options_for_model(brand_name="Ford", model_name="Ka", force_refresh=True)
+
+        self.assertEqual(fuel_values, ["Gasolina", "Flex"])
+        self.assertTrue(any("fallback list extraction" in message for message in captured_logs.output))
+
+    @patch("apps.customer.fipe_service.requests.get")
+    def test_get_fuel_options_logs_invalid_payload_preview(self, requests_get_mock: Mock) -> None:
+        brand = FipeVehicleBrand.objects.create(name="Ford", external_id="22")
+        FipeVehicleModel.objects.create(brand=brand, vehicle_type=brand.vehicle_type, name="Ka", external_id="664")
+
+        response_mock = Mock()
+        response_mock.json.return_value = {"message": "token invalido", "success": False}
+        requests_get_mock.return_value = response_mock
+
+        with patch.dict("os.environ", {"token_vehicle_api": "token-teste"}):
+            with self.assertLogs("apps.customer.fipe_service", level="ERROR") as captured_logs:
+                with self.assertRaises(ValueError):
+                    get_fuel_options_for_model(brand_name="Ford", model_name="Ka", force_refresh=True)
+
+        self.assertTrue(any("payload_preview" in message for message in captured_logs.output))
+        self.assertTrue(any("token invalido" in message for message in captured_logs.output))
+
+
+class CustomerFipeApiTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=71)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.brand = FipeVehicleBrand.objects.create(name="Ford", external_id="22")
+        self.model = FipeVehicleModel.objects.create(brand=self.brand, vehicle_type=self.brand.vehicle_type, name="Ka", external_id="664")
+        FipeModelFuelCache.objects.create(model=self.model, vehicle_type=self.model.vehicle_type, fuel_values=["Gasolina", "Flex"])
+
+    def test_fipe_models_endpoint_returns_local_models(self) -> None:
+        response = self.client.get(reverse("customer:fipe-models"), {"brand": "Ford"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), [{"id": "Ka", "label": "Ka"}])
+
+    def test_fipe_fuels_endpoint_returns_cached_fuels(self) -> None:
+        response = self.client.get(reverse("customer:fipe-fuels"), {"brand": "Ford", "model": "Ka"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), [{"id": "Gasolina", "label": "Gasolina"}, {"id": "Flex", "label": "Flex"}])
 
 
 class CustomerUpdateViewTabsTests(TestCase):

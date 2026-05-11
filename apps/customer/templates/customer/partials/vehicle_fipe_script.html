@@ -1,0 +1,219 @@
+<script>
+    if (!window.customerVehicleFipe) {
+        window.customerVehicleFipe = {
+            getInput(container, suffix) {
+                return container ? container.querySelector(`[name$="-${suffix}"], [name="${suffix}"]`) : null;
+            },
+
+            getWidgetContainer(input) {
+                return input && input.type === 'hidden' ? input.closest('[x-data]') : null;
+            },
+
+            getWidgetData(input) {
+                const container = this.getWidgetContainer(input);
+                if (!container || !window.Alpine) {
+                    return null;
+                }
+                return Alpine.$data(container);
+            },
+
+            setInputValue(input, value) {
+                if (!input || value === null || value === undefined || value === '') return;
+
+                const normalizedValue = String(value);
+                const widgetContainer = this.getWidgetContainer(input);
+                if (widgetContainer && widgetContainer.querySelector('ul[role="listbox"]')) {
+                    widgetContainer.dispatchEvent(new CustomEvent('searchable-set-value', {
+                        detail: { value: normalizedValue },
+                        bubbles: true,
+                    }));
+                    return;
+                }
+
+                input.value = normalizedValue;
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+            },
+
+            clearInput(input) {
+                if (!input) return;
+
+                const widgetData = this.getWidgetData(input);
+                if (widgetData && widgetData.clear) {
+                    widgetData.clear();
+                    return;
+                }
+
+                input.value = '';
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+            },
+
+            replaceOptions(input, options) {
+                const widgetContainer = this.getWidgetContainer(input);
+                const widgetData = this.getWidgetData(input);
+                const optionsUl = widgetContainer ? widgetContainer.querySelector('ul[role="listbox"]') : null;
+                if (!widgetContainer || !widgetData || !optionsUl) {
+                    return false;
+                }
+
+                widgetData.clear();
+                optionsUl.querySelectorAll('li[data-value]').forEach((li) => li.remove());
+
+                options.forEach((option) => {
+                    const li = document.createElement('li');
+                    li.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white transition-colors group';
+                    li.setAttribute('data-value', String(option.id));
+                    li.setAttribute('data-label', option.label);
+                    li.setAttribute('data-search-text', String(option.label).toLowerCase());
+                    li.setAttribute('x-show', '!search || $el.dataset.searchText.includes(search.toLowerCase())');
+                    li.innerHTML = `<span class="block truncate">${option.label}</span>`;
+                    li.addEventListener('click', () => widgetData.select(li));
+                    optionsUl.appendChild(li);
+                });
+
+                if (window.Alpine && Alpine.initTree) {
+                    Alpine.initTree(optionsUl);
+                }
+
+                return true;
+            },
+
+            async fetchOptions(url) {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error('Falha ao carregar opções FIPE');
+                }
+                return response.json();
+            },
+
+            async loadModels(container, brandValue, selectedModel = '') {
+                const modelInput = this.getInput(container, 'model');
+                const fuelInput = this.getInput(container, 'fuel');
+                if (!modelInput) return;
+
+                if (!brandValue) {
+                    this.replaceOptions(modelInput, []);
+                    this.clearInput(modelInput);
+                    if (fuelInput) {
+                        this.replaceOptions(fuelInput, []);
+                        this.clearInput(fuelInput);
+                    }
+                    return;
+                }
+
+                const options = await this.fetchOptions(`/customer/fipe/models/?brand=${encodeURIComponent(brandValue)}`);
+                this.replaceOptions(modelInput, options);
+                if (fuelInput) {
+                    this.replaceOptions(fuelInput, []);
+                    this.clearInput(fuelInput);
+                }
+                if (selectedModel) {
+                    const hasOption = options.some((option) => String(option.id) === String(selectedModel));
+                    if (!hasOption) {
+                        options.push({ id: selectedModel, label: selectedModel });
+                        this.replaceOptions(modelInput, options);
+                    }
+                    this.setInputValue(modelInput, selectedModel);
+                }
+            },
+
+            async loadFuels(container, brandValue, modelValue, selectedFuel = '') {
+                const fuelInput = this.getInput(container, 'fuel');
+                if (!fuelInput) return;
+
+                if (!brandValue || !modelValue) {
+                    this.replaceOptions(fuelInput, []);
+                    this.clearInput(fuelInput);
+                    return;
+                }
+
+                const options = await this.fetchOptions(`/customer/fipe/fuels/?brand=${encodeURIComponent(brandValue)}&model=${encodeURIComponent(modelValue)}`);
+                this.replaceOptions(fuelInput, options);
+                if (selectedFuel) {
+                    const hasOption = options.some((option) => String(option.id) === String(selectedFuel));
+                    if (!hasOption) {
+                        options.push({ id: selectedFuel, label: selectedFuel });
+                        this.replaceOptions(fuelInput, options);
+                    }
+                    this.setInputValue(fuelInput, selectedFuel);
+                }
+            },
+
+            async syncPlate(container, plateInput) {
+                const plate = plateInput.value.replace(/[^a-zA-Z0-9]/g, '').trim();
+                if (plate.length < 7) return;
+
+                try {
+                    plateInput.classList.add('loading-api');
+
+                    const response = await fetch(`/customer/check-plate/${plate}/`);
+                    if (!response.ok) throw new Error('Placa não encontrada');
+
+                    const data = await response.json();
+
+                    if (data.brand) {
+                        this.setInputValue(this.getInput(container, 'brand'), data.brand);
+                    }
+                    await this.loadModels(container, data.brand || '', data.model || '');
+                    await this.loadFuels(container, data.brand || '', data.model || '', data.fuel || '');
+
+                    ['year_fabrication', 'year_model', 'color', 'chassi', 'renavam', 'engine', 'type'].forEach((fieldName) => {
+                        this.setInputValue(this.getInput(container, fieldName), data[fieldName]);
+                    });
+
+                    const missingFields = [];
+                    if (!data.engine) missingFields.push('Motor');
+                    if (!data.fuel) missingFields.push('Combustível');
+
+                    if (missingFields.length > 0) {
+                        document.body.dispatchEvent(new CustomEvent('showToast', {
+                            detail: {
+                                message: `Campos não disponíveis: ${missingFields.join(', ')}`,
+                                type: 'warning'
+                            }
+                        }));
+                    }
+                } catch (error) {
+                    console.warn('Erro ao buscar placa:', error);
+                } finally {
+                    plateInput.classList.remove('loading-api');
+                }
+            },
+
+            bind() {
+                if (this._bound) return;
+                this._bound = true;
+
+                document.addEventListener('change', async (event) => {
+                    const element = event.target;
+                    if (!element || !element.name) return;
+
+                    const container = element.closest('.vehicle-item') || element.closest('form');
+                    if (!container) return;
+
+                    try {
+                        if (element.name.endsWith('brand') || element.name.includes('-brand')) {
+                            await this.loadModels(container, element.value || '');
+                            return;
+                        }
+
+                        if (element.name.endsWith('model') || element.name.includes('-model')) {
+                            const brandInput = this.getInput(container, 'brand');
+                            await this.loadFuels(container, brandInput ? brandInput.value : '', element.value || '');
+                            return;
+                        }
+
+                        if (element.name.endsWith('plate') || element.name.includes('-plate')) {
+                            await this.syncPlate(container, element);
+                        }
+                    } catch (error) {
+                        console.warn('Erro ao sincronizar catálogo FIPE:', error);
+                    }
+                });
+            }
+        };
+    }
+
+    window.customerVehicleFipe.bind();
+</script>
