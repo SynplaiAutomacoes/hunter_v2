@@ -15,8 +15,9 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from djmoney.money import Money
 
 from apps.catalog.forms.equivalent_products import EquivalentProductsFormMixin
+from apps.catalog.fipe_service import get_brand_options
 from apps.catalog.kit_applications import normalize_vehicle_text
-from apps.catalog.models import FipeVehicleBrand, FipeVehicleType
+from apps.catalog.models import FipeVehicleType
 from apps.catalog.models.kits import Kit, KitApplication, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -423,7 +424,7 @@ class KitForm(CoreModelForm):
         products_json = json.dumps(initial_products)
         services_json = json.dumps(initial_services)
         applications_json = json.dumps(self._build_initial_applications())
-        brand_options_json = json.dumps([{"id": brand_name, "label": brand_name} for brand_name in FipeVehicleBrand.objects.filter(vehicle_type=FipeVehicleType.CARROS, is_active=True).order_by("name").values_list("name", flat=True)])
+        brand_options_json = json.dumps([{"id": option.value, "label": option.label} for option in get_brand_options(vehicle_type=FipeVehicleType.CARROS)])
         engine_select_html = self._build_application_select_html(field_name="kit_application_engine", target_expression="application.engine")
 
         return Layout(

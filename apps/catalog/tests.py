@@ -616,20 +616,60 @@ class KitTests(TestCase):
 
 
 class CatalogFipeServiceTests(TestCase):
-    @override_settings(FIPE_SYNC_EVERY_ACCESS=False, FIPE_SYNC_ACCESS_INTERVAL=2)
-    @patch("apps.catalog.fipe_service.sync_all_brands_and_models")
-    def test_register_catalog_access_triggers_sync_on_interval(self, sync_mock: Mock) -> None:
+    @override_settings(FIPE_SYNC_EVERY_ACCESS=False, FIPE_SYNC_ACCESS_INTERVAL=2, FIPE_API_TOKEN="token-teste")
+    @patch("apps.catalog.fipe_service._start_full_sync_in_background")
+    def test_register_catalog_access_triggers_background_sync_on_interval(self, background_sync_mock: Mock) -> None:
         FipeVehicleBrand.objects.create(name="Ford", external_id="22")
 
         register_catalog_access_and_maybe_sync()
-        sync_mock.assert_not_called()
+        background_sync_mock.assert_not_called()
 
         register_catalog_access_and_maybe_sync()
 
-        sync_mock.assert_called_once_with(vehicle_type="carros")
+        background_sync_mock.assert_called_once_with(vehicle_type="carros")
         state = FipeSyncState.objects.get(scope="kit_vehicle_catalog")
         self.assertEqual(state.access_count, 2)
-        self.assertFalse(state.sync_in_progress)
+        self.assertTrue(state.sync_in_progress)
+
+    @override_settings(FIPE_DEV_MODE=True)
+    @patch("apps.catalog.fipe_service._start_full_sync_in_background")
+    def test_register_catalog_access_skips_full_sync_in_dev_mode(self, background_sync_mock: Mock) -> None:
+        register_catalog_access_and_maybe_sync()
+
+        background_sync_mock.assert_not_called()
+        self.assertFalse(FipeSyncState.objects.filter(scope="kit_vehicle_catalog").exists())
+
+    @override_settings(FIPE_API_TOKEN="token-teste", FIPE_DEV_MODE=True)
+    @patch("apps.catalog.fipe_service.requests.get")
+    def test_get_brand_options_syncs_only_brands_when_catalog_is_empty(self, requests_get_mock: Mock) -> None:
+        response_mock = Mock()
+        response_mock.json.return_value = [{"id": "22", "name": "Ford"}]
+        requests_get_mock.return_value = response_mock
+
+        from apps.catalog.fipe_service import get_brand_options
+
+        brand_options = get_brand_options()
+
+        self.assertEqual([option.value for option in brand_options], ["Ford"])
+        requests_get_mock.assert_called_once()
+        self.assertIn("/v1/carros?apikey=", requests_get_mock.call_args.args[0])
+
+    @override_settings(FIPE_API_TOKEN="token-teste", FIPE_DEV_MODE=True)
+    @patch("apps.catalog.fipe_service.requests.get")
+    def test_get_model_options_syncs_only_selected_brand_when_models_are_missing(self, requests_get_mock: Mock) -> None:
+        brand = FipeVehicleBrand.objects.create(name="Ford", external_id="22")
+
+        response_mock = Mock()
+        response_mock.json.return_value = [{"id_modelo": "664", "name": "Ka"}]
+        requests_get_mock.return_value = response_mock
+
+        from apps.catalog.fipe_service import get_model_options
+
+        model_options = get_model_options(brand_name=brand.name)
+
+        self.assertEqual([option.value for option in model_options], ["Ka"])
+        requests_get_mock.assert_called_once()
+        self.assertIn("/v1/carros/22?apikey=", requests_get_mock.call_args.args[0])
 
     @override_settings(FIPE_API_TOKEN="token-teste")
     @patch("apps.catalog.fipe_service.requests.get")
