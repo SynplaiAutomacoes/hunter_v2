@@ -49,6 +49,21 @@ x-on:vehicle-list:changed.window="totalForms = document.querySelectorAll('.vehic
                     }
                     container.dataset.catalogHydrating = isHydrating ? '1' : '0';
                 },
+                nextRequestId(container, requestType) {
+                    if (!container || !container.dataset) {
+                        return 0;
+                    }
+                    const key = `${requestType}RequestId`;
+                    const nextValue = String((parseInt(container.dataset[key] || '0', 10) || 0) + 1);
+                    container.dataset[key] = nextValue;
+                    return nextValue;
+                },
+                isLatestRequest(container, requestType, requestId) {
+                    if (!container || !container.dataset) {
+                        return false;
+                    }
+                    return String(container.dataset[`${requestType}RequestId`] || '') === String(requestId);
+                },
                 setSearchableOptions(input, options) {
                     const widgetContainer = this.getWidgetContainer(input);
                     if (!widgetContainer) {
@@ -59,7 +74,18 @@ x-on:vehicle-list:changed.window="totalForms = document.querySelectorAll('.vehic
                         bubbles: true,
                     }));
                 },
-                setFieldValue(input, value) {
+                setSearchableSelection(input, value, label = '', options = [], { silent = false } = {}) {
+                    const widgetContainer = this.getWidgetContainer(input);
+                    if (!widgetContainer) {
+                        this.setFieldValue(input, value, { silent });
+                        return;
+                    }
+                    widgetContainer.dispatchEvent(new CustomEvent('searchable-set-selection', {
+                        detail: { value, label, options, silent },
+                        bubbles: true,
+                    }));
+                },
+                setFieldValue(input, value, { silent = false } = {}) {
                     if (!input) {
                         return;
                     }
@@ -68,15 +94,17 @@ x-on:vehicle-list:changed.window="totalForms = document.querySelectorAll('.vehic
                     const widgetContainer = this.getWidgetContainer(input);
                     if (widgetContainer && widgetContainer.querySelector('ul[role="listbox"]') && window.Alpine) {
                         widgetContainer.dispatchEvent(new CustomEvent('searchable-set-value', {
-                            detail: { value: normalizedValue },
+                            detail: { value: normalizedValue, silent },
                             bubbles: true,
                         }));
                         return;
                     }
 
                     input.value = normalizedValue;
-                    input.dispatchEvent(new Event('input', { bubbles: true }));
-                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                    if (!silent) {
+                        input.dispatchEvent(new Event('input', { bubbles: true }));
+                        input.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
                 },
                 normalizeOptions(options, selectedValue = '') {
                     const seen = new Set();
@@ -115,10 +143,14 @@ x-on:vehicle-list:changed.window="totalForms = document.querySelectorAll('.vehic
                     const payload = await response.json();
                     return Array.isArray(payload) ? payload : [];
                 },
-                async loadModels(container, { preserveModel = '', preserveFuel = '', preserveEngine = '' } = {}) {
+                async loadModels(container, { preserveModel = '', preserveFuel = '', preserveEngine = '', silent = false } = {}) {
                     const brand = this.getFieldValue(container, 'brand');
+                    await this.loadModelsFor(container, { brand, preserveModel, preserveFuel, preserveEngine, silent });
+                },
+                async loadModelsFor(container, { brand = '', preserveModel = '', preserveFuel = '', preserveEngine = '', silent = false } = {}) {
                     const modelInput = this.getField(container, 'model');
                     const fuelInput = this.getField(container, 'fuel');
+                    const requestId = this.nextRequestId(container, 'model');
 
                     if (!modelInput || !fuelInput) {
                         return;
@@ -127,22 +159,28 @@ x-on:vehicle-list:changed.window="totalForms = document.querySelectorAll('.vehic
                     if (!brand) {
                         this.setSearchableOptions(modelInput, []);
                         this.setSearchableOptions(fuelInput, []);
-                        this.setFieldValue(modelInput, '');
-                        this.setFieldValue(fuelInput, '');
-                        this.syncEngine(container, preserveEngine);
+                        this.setFieldValue(modelInput, '', { silent });
+                        this.setFieldValue(fuelInput, '', { silent });
+                        this.syncEngine(container, preserveEngine, { silent });
                         return;
                     }
 
                     const options = this.normalizeOptions(await this.fetchOptions(`/customer/vehicle-catalog/models/?brand=${encodeURIComponent(brand)}`), preserveModel);
-                    this.setSearchableOptions(modelInput, options);
-                    this.setFieldValue(modelInput, preserveModel);
-                    await this.loadFuels(container, { preserveFuel });
-                    this.syncEngine(container, preserveEngine);
+                    if (!this.isLatestRequest(container, 'model', requestId)) {
+                        return;
+                    }
+                    this.setSearchableSelection(modelInput, preserveModel, preserveModel, options, { silent });
+                    await this.loadFuelsFor(container, { brand, model: preserveModel, preserveFuel, silent });
+                    this.syncEngine(container, preserveEngine, { silent, modelName: preserveModel });
                 },
-                async loadFuels(container, { preserveFuel = '' } = {}) {
+                async loadFuels(container, { preserveFuel = '', silent = false } = {}) {
                     const brand = this.getFieldValue(container, 'brand');
                     const model = this.getFieldValue(container, 'model');
+                    await this.loadFuelsFor(container, { brand, model, preserveFuel, silent });
+                },
+                async loadFuelsFor(container, { brand = '', model = '', preserveFuel = '', silent = false } = {}) {
                     const fuelInput = this.getField(container, 'fuel');
+                    const requestId = this.nextRequestId(container, 'fuel');
 
                     if (!fuelInput) {
                         return;
@@ -150,23 +188,24 @@ x-on:vehicle-list:changed.window="totalForms = document.querySelectorAll('.vehic
 
                     if (!brand || !model) {
                         this.setSearchableOptions(fuelInput, []);
-                        this.setFieldValue(fuelInput, '');
+                        this.setFieldValue(fuelInput, '', { silent });
                         return;
                     }
 
                     const options = this.normalizeOptions(await this.fetchOptions(`/customer/vehicle-catalog/fuels/?brand=${encodeURIComponent(brand)}&model=${encodeURIComponent(model)}`), preserveFuel);
-                    this.setSearchableOptions(fuelInput, options);
-                    this.setFieldValue(fuelInput, preserveFuel);
+                    if (!this.isLatestRequest(container, 'fuel', requestId)) {
+                        return;
+                    }
+                    this.setSearchableSelection(fuelInput, preserveFuel, preserveFuel, options, { silent });
                 },
-                syncEngine(container, fallbackEngine = '') {
+                syncEngine(container, fallbackEngine = '', { silent = false, modelName = '' } = {}) {
                     const engineInput = this.getField(container, 'engine');
                     if (!engineInput) {
                         return;
                     }
 
-                    const detectedEngine = this.extractEngineFromModelName(this.getFieldValue(container, 'model')) || String(fallbackEngine || '').trim();
-                    this.setSearchableOptions(engineInput, detectedEngine ? [{ id: detectedEngine, label: detectedEngine }] : []);
-                    this.setFieldValue(engineInput, detectedEngine);
+                    const detectedEngine = this.extractEngineFromModelName(modelName || this.getFieldValue(container, 'model')) || String(fallbackEngine || '').trim();
+                    this.setSearchableSelection(engineInput, detectedEngine, detectedEngine, detectedEngine ? [{ id: detectedEngine, label: detectedEngine }] : [], { silent });
                 },
                 async hydrateContainer(container) {
                     const brand = this.getFieldValue(container, 'brand');
@@ -198,25 +237,27 @@ x-on:vehicle-list:changed.window="totalForms = document.querySelectorAll('.vehic
                 async fillFromPlate(container, data) {
                     this.setHydrating(container, true);
                     try {
+                        const brand = String(data.brand || '').trim();
+                        const model = String(data.model || '').trim();
+                        const fuel = String(data.fuel || '').trim();
+                        const engine = String(data.engine || '').trim();
                         const brandInput = this.getField(container, 'brand');
-                        this.setSearchableOptions(brandInput, data.brand ? [{ id: data.brand, label: data.brand }] : []);
-                        this.setFieldValue(brandInput, data.brand || '');
-                        await this.loadModels(container, {
-                            preserveModel: data.model || '',
-                            preserveFuel: data.fuel || '',
-                            preserveEngine: data.engine || '',
-                        });
 
+                        this.setSearchableSelection(brandInput, brand, brand, brand ? [{ id: brand, label: brand }] : [], { silent: true });
+
+                        const modelOptions = brand ? this.normalizeOptions(await this.fetchOptions(`/customer/vehicle-catalog/models/?brand=${encodeURIComponent(brand)}`), model) : this.normalizeOptions([], model);
                         const modelInput = this.getField(container, 'model');
+                        if (modelInput) {
+                            this.setSearchableSelection(modelInput, model, model, modelOptions, { silent: true });
+                        }
+
+                        const fuelOptions = brand && model ? this.normalizeOptions(await this.fetchOptions(`/customer/vehicle-catalog/fuels/?brand=${encodeURIComponent(brand)}&model=${encodeURIComponent(model)}`), fuel) : this.normalizeOptions([], fuel);
                         const fuelInput = this.getField(container, 'fuel');
-                        if (modelInput && data.model) {
-                            this.setSearchableOptions(modelInput, [{ id: data.model, label: data.model }]);
-                            this.setFieldValue(modelInput, data.model);
+                        if (fuelInput) {
+                            this.setSearchableSelection(fuelInput, fuel, fuel, fuelOptions, { silent: true });
                         }
-                        if (fuelInput && data.fuel) {
-                            this.setSearchableOptions(fuelInput, [{ id: data.fuel, label: data.fuel }]);
-                            this.setFieldValue(fuelInput, data.fuel);
-                        }
+
+                        this.syncEngine(container, engine, { silent: true, modelName: model });
 
                         this.fillTextFields(container, {
                             year_fabrication: data.year_fabrication,

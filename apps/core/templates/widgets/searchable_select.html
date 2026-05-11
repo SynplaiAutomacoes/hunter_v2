@@ -31,6 +31,25 @@
             this.dynamicOptions = normalizedOptions.filter((option) => !staticValues.includes(option.value));
             this.updateLabelFromValue();
         },
+        setSelection(payload) {
+            const detail = payload || {};
+            this.setOptions(detail.options || []);
+            this.value = detail.value === null || detail.value === undefined ? '' : String(detail.value);
+
+            const explicitLabel = detail.label === null || detail.label === undefined ? '' : String(detail.label).trim();
+            if (explicitLabel) {
+                this.label = explicitLabel;
+                if (!this.open) {
+                    this.search = '';
+                }
+            } else {
+                this.updateLabelFromValue();
+            }
+
+            if (!detail.silent) {
+                this.dispatchEvents();
+            }
+        },
         findOptionByValue(nextValue) {
             if (!nextValue) {
                 return null;
@@ -60,10 +79,12 @@
                 }
             });
         },
-        setValue(nextValue) {
+        setValue(nextValue, shouldDispatch = true) {
             this.value = nextValue === null || nextValue === undefined ? '' : String(nextValue);
             this.updateLabelFromValue();
-            this.dispatchEvents();
+            if (shouldDispatch) {
+                this.dispatchEvents();
+            }
         },
         dispatchEvents() {
             this.$nextTick(() => {
@@ -117,8 +138,9 @@
     }"
     class="relative"
     @click.outside="closeDropdown()"
-    @searchable-set-value="setValue($event.detail ? $event.detail.value : '')"
-    @searchable-set-options="setOptions($event.detail ? $event.detail.options : [])">
+    @searchable-set-value="setValue($event.detail ? $event.detail.value : '', !($event.detail && $event.detail.silent))"
+    @searchable-set-options="setOptions($event.detail ? $event.detail.options : [])"
+    @searchable-set-selection="setSelection($event.detail)">
 
     <input
         x-ref="hiddenInput"
