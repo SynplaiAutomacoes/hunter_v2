@@ -13,6 +13,8 @@
             hx-swap="innerHTML"
             class="space-y-3"
             data-km-autosave-url="{% url 'workorder:update_km_final' workorder.pk %}"
+            data-signature-approved="{% if workorder.is_customer_signature_approved %}true{% else %}false{% endif %}"
+            data-has-unsigned-reason-error="{% if approval_form.unsigned_delivery_reason.errors %}true{% else %}false{% endif %}"
         >
             {% csrf_token %}
             {% crispy approval_form %}
@@ -107,8 +109,8 @@
             </form>
 
             <button
-                type="submit"
-                form="approval-km-form"
+                type="button"
+                id="workorder-delivery-button"
                 class="btn btn-success {% if workorder.has_completion_blockers %}btn-disabled cursor-not-allowed{% endif %}"
                 {% if workorder.status == 'approved' or workorder.has_completion_blockers %}disabled{% endif %}
                 {% if workorder.has_completion_blockers %}title="{{ workorder.completion_blockers_display }}"{% endif %}
@@ -133,6 +135,9 @@
         const form = document.getElementById('approval-km-form');
         const kmInput = document.getElementById('id_km_final');
         const statusEl = document.getElementById('workorder-km-save-status');
+        const deliveryButton = document.getElementById('workorder-delivery-button');
+        const unsignedReasonWrapper = document.getElementById('unsigned-delivery-reason-wrapper');
+        const unsignedReasonInput = document.getElementById('id_unsigned_delivery_reason');
 
         if (!form || !kmInput || !statusEl || kmInput.dataset.kmAutosaveInitialized === 'true') {
             return;
@@ -141,10 +146,28 @@
         kmInput.dataset.kmAutosaveInitialized = 'true';
 
         const autosaveUrl = form.dataset.kmAutosaveUrl;
+        const signatureApproved = form.dataset.signatureApproved === 'true';
+        const hasUnsignedReasonError = form.dataset.hasUnsignedReasonError === 'true';
         const csrfToken = form.querySelector('input[name="csrfmiddlewaretoken"]')?.value || '';
         let saveTimeout = null;
         let requestController = null;
         let lastSavedValue = kmInput.value;
+
+        const showUnsignedReasonField = () => {
+            if (!unsignedReasonWrapper || !unsignedReasonInput) {
+                return;
+            }
+            unsignedReasonWrapper.classList.remove('hidden');
+            unsignedReasonInput.required = true;
+            unsignedReasonInput.focus();
+        };
+
+        if (!signatureApproved && unsignedReasonWrapper && unsignedReasonInput) {
+            if (!unsignedReasonInput.value.trim() && !hasUnsignedReasonError) {
+                unsignedReasonWrapper.classList.add('hidden');
+                unsignedReasonInput.required = false;
+            }
+        }
 
         const setStatus = (message, tone = 'muted') => {
             statusEl.textContent = message;
@@ -221,5 +244,37 @@
             clearTimeout(saveTimeout);
             void persistKmFinal();
         });
+
+        if (deliveryButton) {
+            deliveryButton.addEventListener('click', () => {
+                if (signatureApproved) {
+                    form.requestSubmit();
+                    return;
+                }
+
+                if (deliveryButton.dataset.signatureWarningConfirmed !== 'true') {
+                    if (!window.confirm('A O.S. ainda não foi assinada pelo cliente. Se continuar, será obrigatório informar a justificativa da entrega sem assinatura.')) {
+                        return;
+                    }
+                    deliveryButton.dataset.signatureWarningConfirmed = 'true';
+                }
+
+                showUnsignedReasonField();
+
+                if (!unsignedReasonInput) {
+                    form.requestSubmit();
+                    return;
+                }
+
+                if (!unsignedReasonInput.value.trim()) {
+                    unsignedReasonInput.setCustomValidity('Informe a justificativa para entregar o veículo sem a assinatura da O.S.');
+                    unsignedReasonInput.reportValidity();
+                    return;
+                }
+
+                unsignedReasonInput.setCustomValidity('');
+                form.requestSubmit();
+            });
+        }
     })();
 </script>

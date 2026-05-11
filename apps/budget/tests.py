@@ -2147,7 +2147,7 @@ class BudgetStep6WorkflowTests(TestCase):
             response.content,
             {
                 "success": False,
-                "error": "Ja foi gerada uma ordem de servico para este orçamento. Cancele a ordem de servico primeiro para depois cancelar o orçamento.",
+                "error": "Já foi gerada uma ordem de serviço para este orçamento. Cancele a ordem de serviço primeiro para depois cancelar o orçamento.",
             },
         )
         self.budget.refresh_from_db()

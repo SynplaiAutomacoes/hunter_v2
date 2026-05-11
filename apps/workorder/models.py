@@ -50,6 +50,7 @@ class WorkOrder(TimeStampedModel):
     signature_document_id = models.CharField(max_length=255, blank=True, null=True)
     signature_sent_at = models.DateTimeField(blank=True, null=True)
     delivered_at = models.DateTimeField(verbose_name="Data da Entrega", blank=True, null=True)
+    unsigned_delivery_reason = models.TextField(verbose_name="Justificativa da entrega sem assinatura", blank=True)
     km_final = models.PositiveIntegerField(verbose_name="KM Final", null=True, blank=True)
 
     @property
@@ -220,6 +221,10 @@ class WorkOrder(TimeStampedModel):
     @property
     def has_signature_blockers(self) -> bool:
         return bool(self.signature_blockers)
+
+    @property
+    def is_customer_signature_approved(self) -> bool:
+        return self.signature_request_status == WorkOrderSignatureStatus.APPROVED
 
     @property
     def signature_blockers_display(self) -> str:

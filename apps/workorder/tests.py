@@ -30,7 +30,7 @@ from apps.customer.models import Customer, Vehicle
 from apps.finance.models.payment_method import PaymentMethod
 from apps.iam.utils import get_or_create_director_role
 from apps.stock.models import StockMovement, StockProduct
-from apps.workorder.forms import WorkOrderPaymentForm
+from apps.workorder.forms import WorkOrderCustomerApprovalForm, WorkOrderPaymentForm
 from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock
 from apps.workorder.documents.provider import build_workorder_pdf_render_request
 from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
@@ -2007,7 +2007,10 @@ class AddPaymentMethodViewTests(TestCase):
 
         response = self.client.post(
             reverse("workorder:update_status", args=[self.workorder.pk, "approve"]),
-            data={"km_final": "12500"},
+            data={
+                "km_final": "12500",
+                "unsigned_delivery_reason": "Cliente retirou presencialmente e autorizou verbalmente.",
+            },
             HTTP_HX_REQUEST="true",
         )
 
@@ -2017,6 +2020,88 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(response.headers.get("HX-Refresh"), "true")
         self.assertEqual(self.workorder.status, WorkOrderStatus.APPROVED)
         self.assertIsNotNone(self.workorder.delivered_at)
+        self.assertEqual(self.workorder.unsigned_delivery_reason, "Cliente retirou presencialmente e autorizou verbalmente.")
+
+    def test_approve_status_requires_reason_when_signature_is_pending(self) -> None:
+        customer = create_customer(workshop=self.workshop, suffix=245)
+        vehicle = create_vehicle(workshop=self.workshop, customer=customer, suffix=245)
+        product = create_product(workshop=self.workshop, suffix=245)
+        BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, product=product, quantity=1)
+        stock_product = StockProduct.objects.get(workshop=self.workshop, product=product)
+        stock_product.current_quantity = 5
+        stock_product.save(update_fields=["current_quantity"])
+        self.workorder.sync_from_budget()
+        self.budget.customer = customer
+        self.budget.vehicle = vehicle
+        self.budget.current_km = 12000
+        self.budget.save(update_fields=["customer", "vehicle", "current_km"])
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
+        WorkOrderPaymentMethod.objects.create(
+            workorder=self.workorder,
+            payment_method=payment_method,
+            first_installment_amount=self.workorder.total_budget_value,
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 24),
+        )
+
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "approve"]),
+            data={"km_final": "12500", "unsigned_delivery_reason": ""},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
+        self.assertContains(response, "Informe a justificativa para entregar o veículo sem a assinatura da O.S.")
+
+    def test_approval_form_does_not_require_reason_when_signature_is_approved(self) -> None:
+        self.workorder.signature_request_status = WorkOrderSignatureStatus.APPROVED
+        self.workorder.save(update_fields=["signature_request_status"])
+
+        form = WorkOrderCustomerApprovalForm(data={"km_final": "12500", "unsigned_delivery_reason": ""}, workorder=self.workorder)
+
+        self.assertTrue(form.is_valid())
+
+    def test_approve_status_allows_delivery_without_reason_when_signature_is_approved(self) -> None:
+        customer = create_customer(workshop=self.workshop, suffix=246)
+        vehicle = create_vehicle(workshop=self.workshop, customer=customer, suffix=246)
+        product = create_product(workshop=self.workshop, suffix=246)
+        BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, product=product, quantity=1)
+        stock_product = StockProduct.objects.get(workshop=self.workshop, product=product)
+        stock_product.current_quantity = 5
+        stock_product.save(update_fields=["current_quantity"])
+        self.workorder.sync_from_budget()
+        self.workorder.signature_request_status = WorkOrderSignatureStatus.APPROVED
+        self.workorder.save(update_fields=["signature_request_status"])
+        self.budget.customer = customer
+        self.budget.vehicle = vehicle
+        self.budget.current_km = 12000
+        self.budget.save(update_fields=["customer", "vehicle", "current_km"])
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
+        WorkOrderPaymentMethod.objects.create(
+            workorder=self.workorder,
+            payment_method=payment_method,
+            first_installment_amount=self.workorder.total_budget_value,
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 24),
+        )
+
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "approve"]),
+            data={"km_final": "12500", "unsigned_delivery_reason": ""},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Refresh"), "true")
+        self.assertEqual(self.workorder.status, WorkOrderStatus.APPROVED)
+        self.assertEqual(self.workorder.unsigned_delivery_reason, "")
 
     def test_approve_status_blocks_delivery_when_payment_is_pending(self) -> None:
         customer = create_customer(workshop=self.workshop, suffix=244)
