@@ -1112,15 +1112,22 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
             })();
             </script>"""),
             Div(
-                Field("plate", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("brand", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("model", wrapper_class="col-span-12 lg:col-span-4"),
-                Field("engine", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("fuel", wrapper_class="col-span-12 lg:col-span-3"),
-                Field("year_fabrication", wrapper_class="col-span-12 lg:col-span-2"),
-                Field("year_model", wrapper_class="col-span-12 lg:col-span-2"),
-                Field("color", wrapper_class="col-span-12 lg:col-span-2"),
-                css_class="customer-vehicle-catalog-form grid grid-cols-12 gap-2",
+                HTML(
+                    """
+                    <div class="col-span-12 rounded-2xl border border-base-300/80 bg-base-200/30 px-4 py-3 text-sm text-base-content/70">
+                        Preencha os dados principais do veículo para vincular ao cliente. Marca, modelo, motor e combustível usam o catálogo local para evitar inconsistências.
+                    </div>
+                    """
+                ),
+                Field("plate", wrapper_class="col-span-12 md:col-span-6 xl:col-span-3"),
+                Field("brand", wrapper_class="col-span-12 md:col-span-6 xl:col-span-3"),
+                Field("model", wrapper_class="col-span-12 xl:col-span-6"),
+                Field("engine", wrapper_class="col-span-12 md:col-span-6 xl:col-span-3"),
+                Field("fuel", wrapper_class="col-span-12 md:col-span-6 xl:col-span-3"),
+                Field("year_fabrication", wrapper_class="col-span-12 sm:col-span-6 xl:col-span-2"),
+                Field("year_model", wrapper_class="col-span-12 sm:col-span-6 xl:col-span-2"),
+                Field("color", wrapper_class="col-span-12 md:col-span-6 xl:col-span-2"),
+                css_class="customer-vehicle-catalog-form grid grid-cols-12 gap-x-4 gap-y-3 items-start",
             ),
         )
 

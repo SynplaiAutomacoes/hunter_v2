@@ -1078,6 +1078,11 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return HttpResponse(status=400)
 
         if next_status == WorkOrderStatus.APPROVED:
+            if workorder.has_completion_blockers:
+                response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder))
+                response["HX-Trigger"] = json.dumps({"showToast": {"message": workorder.completion_blockers_display, "type": "error"}})
+                return response
+
             approval_form = WorkOrderCustomerApprovalForm(request.POST, workorder=workorder)
             if not approval_form.is_valid():
                 context = _build_customer_approvement_context(workorder)

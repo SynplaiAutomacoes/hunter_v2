@@ -1648,6 +1648,15 @@ class WorkOrderSignatureWorkflowRuleTests(TestCase):
         stock_product = StockProduct.objects.get(workshop=workshop, product=product)
         stock_product.current_quantity = 3
         stock_product.save(update_fields=["current_quantity"])
+        payment_method = PaymentMethod.objects.create(workshop=workshop, description="Pix", installments_count=1)
+        WorkOrderPaymentMethod.objects.create(
+            workorder=workorder,
+            payment_method=payment_method,
+            first_installment_amount=workorder.total_budget_value,
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 20),
+        )
 
         send_signature_mock.return_value = SignatureDeliveryResult(
             envelope_id="env-15",
@@ -1662,6 +1671,22 @@ class WorkOrderSignatureWorkflowRuleTests(TestCase):
         self.assertEqual(toast_type, "success")
         self.assertEqual(toast_message, "Ordem de serviço enviada para assinatura do cliente.")
         self.assertEqual(workorder.signature_request_status, WorkOrderSignatureStatus.SENT)
+
+    @patch("apps.workorder.util.send_workorder_for_signature")
+    def test_signature_send_blocks_when_payment_is_pending(self, send_signature_mock) -> None:
+        workshop = create_workshop(suffix=16)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=16, selling_price="100.00")
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.sync_from_budget()
+
+        toast_type, toast_message = trigger_workorder_signature_send_if_needed(workorder=workorder)
+
+        self.assertEqual(toast_type, "error")
+        self.assertIn("Receba o pagamento integral da ordem de serviço", toast_message)
+        send_signature_mock.assert_not_called()
 
 
 class WorkOrderPaymentFormTests(TestCase):
@@ -1970,6 +1995,15 @@ class AddPaymentMethodViewTests(TestCase):
         self.budget.vehicle = vehicle
         self.budget.current_km = 12000
         self.budget.save(update_fields=["customer", "vehicle", "current_km"])
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
+        WorkOrderPaymentMethod.objects.create(
+            workorder=self.workorder,
+            payment_method=payment_method,
+            first_installment_amount=self.workorder.total_budget_value,
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 24),
+        )
 
         response = self.client.post(
             reverse("workorder:update_status", args=[self.workorder.pk, "approve"]),
@@ -1983,6 +2017,33 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(response.headers.get("HX-Refresh"), "true")
         self.assertEqual(self.workorder.status, WorkOrderStatus.APPROVED)
         self.assertIsNotNone(self.workorder.delivered_at)
+
+    def test_approve_status_blocks_delivery_when_payment_is_pending(self) -> None:
+        customer = create_customer(workshop=self.workshop, suffix=244)
+        vehicle = create_vehicle(workshop=self.workshop, customer=customer, suffix=244)
+        product = create_product(workshop=self.workshop, suffix=244, selling_price="120.00")
+        BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, product=product, quantity=1)
+        stock_product = StockProduct.objects.get(workshop=self.workshop, product=product)
+        stock_product.current_quantity = 5
+        stock_product.save(update_fields=["current_quantity"])
+        self.workorder.sync_from_budget()
+        self.budget.customer = customer
+        self.budget.vehicle = vehicle
+        self.budget.current_km = 12000
+        self.budget.save(update_fields=["customer", "vehicle", "current_km"])
+
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "approve"]),
+            data={"km_final": "12500"},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
+        self.assertIsNone(self.workorder.delivered_at)
+        self.assertIn("showToast", response.headers.get("HX-Trigger", ""))
 
     def test_payment_form_uses_pending_balance_after_discount(self) -> None:
         self.workorder.discount_value = Money("10.00", "BRL")

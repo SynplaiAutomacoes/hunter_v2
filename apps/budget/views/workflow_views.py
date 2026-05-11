@@ -33,6 +33,7 @@ from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, 
 from apps.core.text_normalization import sentence_case
 from apps.scheduling.models import Appointment
 from apps.workorder.discount_sync import sync_budget_discount_to_workorder
+from apps.workorder.models import WorkOrderStatus
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
@@ -727,6 +728,7 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id, status):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        has_active_workorder = budget.workorders.exclude(status=WorkOrderStatus.CANCELLED).exists()
 
         # Mapa de status
         status_map = {
@@ -737,6 +739,11 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         if status not in status_map:
             error_message = "Status invalido"
+            messages.error(request, error_message)
+            return JsonResponse({"success": False, "error": error_message}, status=400)
+
+        if status == "cancel" and has_active_workorder:
+            error_message = "Ja foi gerada uma ordem de servico para este orçamento. Cancele a ordem de servico primeiro para depois cancelar o orçamento."
             messages.error(request, error_message)
             return JsonResponse({"success": False, "error": error_message}, status=400)
 

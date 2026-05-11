@@ -400,6 +400,7 @@ class QuickCustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModal
 class QuickVehicleCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, CreateView):
     model = Vehicle
     form_class = QuickVehicleForm
+    template_name = "customer/partials/quick_vehicle_modal_form.html"
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -431,6 +432,7 @@ class QuickVehicleCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalF
 class QuickVehicleUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, UpdateView):
     model = Vehicle
     form_class = QuickVehicleForm
+    template_name = "customer/partials/quick_vehicle_modal_form.html"
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
