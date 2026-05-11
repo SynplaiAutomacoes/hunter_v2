@@ -12,6 +12,7 @@ from apps.finance.models.bank_account import BankAccount
 
 def _format_money_for_report(value: Any) -> str:
     from decimal import Decimal
+
     amount: Decimal
     if hasattr(value, "amount"):
         amount = value.amount
@@ -40,6 +41,7 @@ class FinancialMovement(TimeStampedModel):
     movement_kind = models.CharField(max_length=50, choices=MovementKind.choices, default=MovementKind.DEFAULT)
     workorder = models.ForeignKey("workorder.WorkOrder", on_delete=models.SET_NULL, null=True, blank=True, related_name="financial_movements")
     workorder_payment = models.ForeignKey("workorder.WorkOrderPaymentMethod", on_delete=models.CASCADE, null=True, blank=True, related_name="financial_movements")
+    reversal_of = models.OneToOneField("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="reversal_entry")
     movement_group = models.ForeignKey("finance.MovementGroup", on_delete=models.CASCADE, null=True, blank=True, related_name="financial_movements")
 
     # Origem

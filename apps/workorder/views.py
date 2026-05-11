@@ -53,8 +53,10 @@ from apps.workorder.forms import (
     WorkOrderKitProductEditRowForm,
     WorkOrderKitServiceEditRowForm,
     WorkOrderPaymentForm,
+    WorkOrderReopenForm,
 )
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
+from apps.workorder.reopening import WorkOrderReopenError, reopen_workorder
 
 from apps.workorder.util import (
     _get_workorder_for_workshop,
@@ -68,6 +70,7 @@ from apps.workorder.util import (
     _get_workorder_workshop_cost,
     _build_customer_approvement_context,
     _build_workorder_pdf_file_response,
+    can_reopen_workorder,
     trigger_workorder_signature_send_if_needed,
     _normalize_active_tab,
     _normalize_selected_item_ids,
@@ -486,7 +489,7 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         context = super().get_context_data(**kwargs)
         context["payment_form"] = WorkOrderPaymentForm(workorder=self.object)
         context["collaborator_form"] = WorkOrderCollaboratorForm(instance=self.object, workorder=self.object)
-        context.update(_build_customer_approvement_context(self.object))
+        context.update(_build_customer_approvement_context(self.object, request=self.request))
         context.update(_build_edit_items_context(self.object))
         return context
 
@@ -996,7 +999,7 @@ class UploadAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         attachment = None
         if not uploaded_files:
-            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder))
+            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
             response["HX-Trigger"] = json.dumps({"showToast": {"message": "Selecione pelo menos um arquivo para enviar.", "type": "error"}})
             return response
 
@@ -1005,7 +1008,7 @@ class UploadAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 if int(getattr(uploaded_file, "size", 0) or 0) > MAX_WORKORDER_ATTACHMENT_SIZE_BYTES:
                     raise ValidationError(f"Arquivo '{uploaded_file.name}' excede o tamanho máximo de 200MB.")
         except ValidationError as exc:
-            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder))
+            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
             response["HX-Trigger"] = json.dumps({"showToast": {"message": str(exc), "type": "error"}})
             return response
 
@@ -1026,11 +1029,11 @@ class UploadAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     )
         except Exception:
             logger.exception("Falha ao salvar anexos da ordem de servico", extra={"workorder_id": workorder.pk})
-            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder))
+            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
             response["HX-Trigger"] = json.dumps({"showToast": {"message": "Não foi possível salvar os anexos. Tente novamente.", "type": "error"}})
             return response
 
-        context = _build_customer_approvement_context(workorder, attachment)
+        context = _build_customer_approvement_context(workorder, attachment, request=request)
         context_response = render(request, "workorder/partials/customer_approvement_section.html", context)
         context_response["HX-Trigger"] = json.dumps({"showToast": {"message": f"{len(uploaded_files)} arquivo(s) salvo(s) com sucesso.", "type": "success"}})
 
@@ -1056,7 +1059,7 @@ class DeleteAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
             workorder = attachment.workorder
             attachment.delete()
 
-        context = _build_customer_approvement_context(workorder)
+        context = _build_customer_approvement_context(workorder, request=request)
         return render(request, "workorder/partials/customer_approvement_section.html", context)
 
 
@@ -1077,15 +1080,20 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if next_status is None:
             return HttpResponse(status=400)
 
+        if workorder.status == WorkOrderStatus.APPROVED and next_status in {WorkOrderStatus.REJECTED, WorkOrderStatus.CANCELLED}:
+            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": "Use a ação Reabrir O.S. para estornar a entrega antes de alterar o status.", "type": "error"}})
+            return response
+
         if next_status == WorkOrderStatus.APPROVED:
             if workorder.has_completion_blockers:
-                response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder))
+                response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
                 response["HX-Trigger"] = json.dumps({"showToast": {"message": workorder.completion_blockers_display, "type": "error"}})
                 return response
 
             approval_form = WorkOrderCustomerApprovalForm(request.POST, workorder=workorder)
             if not approval_form.is_valid():
-                context = _build_customer_approvement_context(workorder)
+                context = _build_customer_approvement_context(workorder, request=request)
                 context["approval_form"] = approval_form
                 return render(request, "workorder/partials/customer_approvement_section.html", context)
 
@@ -1107,12 +1115,12 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     vehicle.km = km_final
                     vehicle.save(update_fields=["km"])
             except WorkOrderApprovalError as exc:
-                response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder))
+                response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
                 response["HX-Trigger"] = json.dumps({"showToast": {"message": str(exc), "type": "error"}})
                 return response
             except Exception:
                 logger.exception("Falha ao concluir entrega da ordem de servico", extra={"workorder_id": workorder.pk})
-                response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder))
+                response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
                 response["HX-Trigger"] = json.dumps({"showToast": {"message": "Erro interno ao concluir a entrega da ordem de serviço.", "type": "error"}})
                 return response
 
@@ -1120,6 +1128,33 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         workorder.status = next_status
         workorder.save(update_fields=["status"])
+
+        return HttpResponse(headers={"HX-Refresh": "true"})
+
+
+class ReopenWorkOrderView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkOrder
+    workshop_permission_codename = "change_workorder"
+
+    def post(self, request, pk):
+        workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not can_reopen_workorder(request=request, workorder=workorder):
+            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": "Somente Diretor ou Gerente pode reabrir uma O.S. entregue.", "type": "error"}})
+            return response
+
+        reopen_form = WorkOrderReopenForm(request.POST, workorder=workorder)
+        if not reopen_form.is_valid():
+            context = _build_customer_approvement_context(workorder, request=request)
+            context["reopen_form"] = reopen_form
+            return render(request, "workorder/partials/customer_approvement_section.html", context)
+
+        try:
+            reopen_workorder(workorder=workorder, user=request.user, reason=reopen_form.cleaned_data["reopen_reason"])
+        except WorkOrderReopenError as exc:
+            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": str(exc), "type": "error"}})
+            return response
 
         return HttpResponse(headers={"HX-Refresh": "true"})
 
