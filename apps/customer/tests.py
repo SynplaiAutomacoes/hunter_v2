@@ -248,6 +248,8 @@ class VehicleLookupNormalizationTests(TestCase):
     def test_engine_normalization_maps_supported_text_and_displacement_values(self) -> None:
         self.assertEqual(normalize_vehicle_engine_choice("1.4"), "1.4")
         self.assertEqual(normalize_vehicle_engine_choice("Motor 1,4"), "1.4")
+        self.assertEqual(normalize_vehicle_engine_choice("Jeep Commander Limited 5.7 326cv 5p"), "5.7")
+        self.assertEqual(normalize_vehicle_engine_choice("Jeep Cherokee Country 4.0 V6 4x4"), "4.0")
         self.assertEqual(normalize_vehicle_engine_choice("1368"), "1.3")
         self.assertEqual(normalize_vehicle_engine_choice("1398"), "1.3")
         self.assertEqual(normalize_vehicle_engine_choice("1400"), "1.4")

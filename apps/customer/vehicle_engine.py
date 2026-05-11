@@ -14,7 +14,7 @@ class VehicleEngine(models.TextChoices):
     ENGINE_18 = "1.8", "1.8"
 
 
-ENGINE_PATTERN = re.compile(r"(1[\.,](?:3|4|8)|2[\.,](?:0|2|4))")
+ENGINE_PATTERN = re.compile(r"(?<!\d)(\d[\.,]\d)(?!\d)")
 
 
 def vehicle_engine_form_choices() -> list[tuple[str, str]]:

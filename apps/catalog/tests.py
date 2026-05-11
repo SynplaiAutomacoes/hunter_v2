@@ -538,10 +538,10 @@ class KitTests(TestCase):
         self.assertEqual(application.engine, "2.0")
         self.assertEqual(application.fuel, "Flex")
 
-    def test_kit_form_rejects_invalid_application_engine_choice(self):
+    def test_kit_form_accepts_dynamic_application_engine_choice(self):
         form = KitForm(
             data={
-                "name": "Kit Motor Invalido",
+                "name": "Kit Motor Dinamico",
                 "description": "",
                 "is_active": "on",
                 **self.build_application_payload(engine="2.8"),
@@ -549,8 +549,12 @@ class KitTests(TestCase):
             workshop=self.workshop,
         )
 
-        self.assertFalse(form.is_valid())
-        self.assertIn("Selecione um motor válido em todas as aplicações do kit.", form.non_field_errors())
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        form.instance.workshop = self.workshop
+        kit = form.save()
+
+        application = KitApplication.objects.get(kit=kit)
+        self.assertEqual(application.engine, "2.8")
 
     def test_kit_form_rejects_invalid_application_fuel_choice(self):
         form = KitForm(
@@ -566,7 +570,7 @@ class KitTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("Selecione um combustível válido em todas as aplicações do kit.", form.non_field_errors())
 
-    def test_kit_form_shows_blank_engine_and_fuel_for_unsupported_existing_application_values(self):
+    def test_kit_form_preserves_dynamic_engine_and_blanks_unsupported_fuel_for_existing_application(self):
         kit = Kit.objects.create(workshop=self.workshop, name="Kit Legado", description="", is_active=True)
         KitApplication.objects.create(kit=kit, brand="Jeep", model="Renegade", engine="2.8", fuel="GNV", year_start=2020, year_end=2021)
 
@@ -578,7 +582,7 @@ class KitTests(TestCase):
                 {
                     "brand": "Jeep",
                     "model": "Renegade",
-                    "engine": "",
+                    "engine": "2.8",
                     "fuel": "",
                     "year_start": "2020",
                     "year_end": "2021",
@@ -859,7 +863,10 @@ class KitFormPageTests(TestCase):
         self.assertContains(response, "Editar serviço do kit")
         self.assertContains(response, "Selecione um item para editar.", html=False)
         self.assertContains(response, '@kit-service-updated.window="applyUpdatedService($event.detail)"', html=False)
-        self.assertContains(response, "application.engine = &quot;2.0&quot;; open = false", html=False)
+        self.assertContains(response, "baseEngineOptions:", html=False)
+        self.assertContains(response, "syncApplicationEngineFromModel(index);", html=False)
+        self.assertContains(response, 'name="kit_application_engine"', html=False)
+        self.assertContains(response, "application.engineLocked", html=False)
         self.assertContains(response, 'name="kit_application_fuel"', html=False)
         self.assertContains(response, "onApplicationBrandChange(index)", html=False)
         self.assertContains(response, "/catalog/fipe/fuels/", html=False)
