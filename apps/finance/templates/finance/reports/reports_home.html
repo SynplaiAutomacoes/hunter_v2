@@ -275,65 +275,78 @@
                     </div>
                 </div>
 
-                <div class="rounded-xl border border-base-300 bg-base-100 p-4 md:p-5">
-                    <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div class="rounded-xl border border-base-300 bg-base-100" x-data="{ payrollOpen: false }">
+                    <button type="button" class="flex w-full items-center justify-between gap-4 p-4 text-left md:p-5" @click="payrollOpen = !payrollOpen" :aria-expanded="payrollOpen.toString()">
                         <div>
                             <h2 class="text-lg font-semibold text-base-content">Folha consolidada por colaborador</h2>
                             <p class="text-sm text-base-content/65">Resumo da competencia atual com acesso rapido ao historico e ao holerite.</p>
                         </div>
-                    </div>
+                        <span class="material-icons text-base-content/55 transition-transform duration-200" :class="payrollOpen ? 'rotate-180' : ''">expand_more</span>
+                    </button>
 
-                    {% if collaborator_payroll_rows %}
-                        <div class="overflow-x-auto">
-                            <table class="table table-sm md:table-md">
-                                <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
-                                    <tr>
-                                        <th>Colaborador</th>
-                                        <th>Vencimento</th>
-                                        <th>Status</th>
-                                        <th>Salario</th>
-                                        <th>VT</th>
-                                        <th>Beneficios</th>
-                                        <th>Comissoes</th>
-                                        <th>Total</th>
-                                        <th class="text-right">Acoes</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for row in collaborator_payroll_rows %}
+                    <div
+                        x-cloak
+                        x-show="payrollOpen"
+                        x-transition:enter="transition duration-300 ease-out"
+                        x-transition:enter-start="opacity-0 -translate-y-1"
+                        x-transition:enter-end="opacity-100 translate-y-0"
+                        x-transition:leave="transition duration-200 ease-in"
+                        x-transition:leave-start="opacity-100 translate-y-0"
+                        x-transition:leave-end="opacity-0 -translate-y-1"
+                        class="border-t border-base-300 px-4 pb-4 pt-1 md:px-5 md:pb-5"
+                    >
+                        {% if collaborator_payroll_rows %}
+                            <div class="overflow-x-auto">
+                                <table class="table table-sm md:table-md">
+                                    <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
                                         <tr>
-                                            <td>{{ row.collaborator_name }}</td>
-                                            <td>{{ row.due_date|date:"d/m/Y" }}</td>
-                                            <td>
-                                                <span class="badge {% if row.status == 'PAID' %}badge-success{% else %}badge-warning{% endif %}">{{ row.status_label }}</span>
-                                            </td>
-                                            <td>{{ row.salary_amount }}</td>
-                                            <td>{{ row.transport_allowance_amount }}</td>
-                                            <td>{{ row.benefits_amount }}</td>
-                                            <td>{{ row.commission_amount }}</td>
-                                            <td class="font-semibold">{{ row.total_amount }}</td>
-                                            <td>
-                                                <div class="flex justify-end gap-2">
-                                                    <a href="{{ row.history_url }}" class="btn btn-ghost btn-xs">Historico</a>
-                                                    <button
-                                                        type="button"
-                                                        class="btn btn-primary btn-xs"
-                                                        onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Holerite do colaborador', url: '{{ row.receipt_url }}' } }))"
-                                                    >
-                                                        Holerite
-                                                    </button>
-                                                </div>
-                                            </td>
+                                            <th>Colaborador</th>
+                                            <th>Vencimento</th>
+                                            <th>Status</th>
+                                            <th>Salario</th>
+                                            <th>VT</th>
+                                            <th>Beneficios</th>
+                                            <th>Comissoes</th>
+                                            <th>Total</th>
+                                            <th class="text-right">Acoes</th>
                                         </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    {% else %}
-                        <div class="rounded-xl border border-dashed border-base-300 px-6 py-8 text-center text-sm text-base-content/60">
-                            Nenhuma folha consolidada encontrada para a competencia atual.
-                        </div>
-                    {% endif %}
+                                    </thead>
+                                    <tbody>
+                                        {% for row in collaborator_payroll_rows %}
+                                            <tr>
+                                                <td>{{ row.collaborator_name }}</td>
+                                                <td>{{ row.due_date|date:"d/m/Y" }}</td>
+                                                <td>
+                                                    <span class="badge {% if row.status == 'PAID' %}badge-success{% else %}badge-warning{% endif %}">{{ row.status_label }}</span>
+                                                </td>
+                                                <td>{{ row.salary_amount }}</td>
+                                                <td>{{ row.transport_allowance_amount }}</td>
+                                                <td>{{ row.benefits_amount }}</td>
+                                                <td>{{ row.commission_amount }}</td>
+                                                <td class="font-semibold">{{ row.total_amount }}</td>
+                                                <td>
+                                                    <div class="flex justify-end gap-2">
+                                                        <a href="{{ row.history_url }}" class="btn btn-ghost btn-xs">Historico</a>
+                                                        <button
+                                                            type="button"
+                                                            class="btn btn-primary btn-xs"
+                                                            onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Holerite do colaborador', url: '{{ row.receipt_url }}' } }))"
+                                                        >
+                                                            Holerite
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="rounded-xl border border-dashed border-base-300 px-6 py-8 text-center text-sm text-base-content/60">
+                                Nenhuma folha consolidada encontrada para a competencia atual.
+                            </div>
+                        {% endif %}
+                    </div>
                 </div>
 
                 <div id="financial-reports-movements-section">

@@ -126,6 +126,23 @@ def _is_workorder_commission_paid(*, workorder: WorkOrder) -> bool:
     return bool(parent_movement and parent_movement.is_paid)
 
 
+def _build_commission_payroll_item_description(*, entry: CollaboratorCommissionEntry) -> str:
+    return f"{entry.percentage * Decimal('100'):.2f}% sobre {entry.base_amount}"
+
+
+def _rebuild_payroll_commission_items(*, payroll: CollaboratorPayroll, commission_entries: list[CollaboratorCommissionEntry]) -> None:
+    payroll.items.filter(item_type=CollaboratorPayrollItem.ItemType.COMMISSION).delete()
+
+    for entry in commission_entries:
+        CollaboratorPayrollItem.objects.create(
+            payroll=payroll,
+            item_type=CollaboratorPayrollItem.ItemType.COMMISSION,
+            title=f"Comissão OS #{entry.workorder.pk}",
+            description=_build_commission_payroll_item_description(entry=entry),
+            amount=entry.commission_amount,
+        )
+
+
 def get_or_create_collaborator_financial_group(*, collaborator: WorkshopCollaborator) -> FinancialGroup:
     expense_group = FinancialGroup.objects.filter(workshop=collaborator.workshop, parent__isnull=True, name__iexact="Despesas").order_by("id").first()
     if expense_group is None:
@@ -166,7 +183,7 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
             continue
 
         active_workorder_ids.add(workorder.pk)
-        base_amount = Decimal(str(workorder.total_budget_value.amount or ZERO))
+        base_amount = Decimal(str(workorder.total_services_value.amount or ZERO))
         commission_amount = _quantize(base_amount * percentage)
         status = CollaboratorCommissionEntry.Status.PAID if _is_workorder_commission_paid(workorder=workorder) else CollaboratorCommissionEntry.Status.FORECAST
         paid_at = timezone.localdate() if status == CollaboratorCommissionEntry.Status.PAID else None
@@ -218,6 +235,58 @@ def _create_or_update_financial_movement(*, payroll: CollaboratorPayroll) -> Fin
         payroll.financial_movement = movement
         payroll.save(update_fields=["financial_movement"])
     return movement
+
+
+@transaction.atomic
+def recalculate_historical_commissions(*, workshop: Workshop | None = None, dry_run: bool = False) -> dict[str, int]:
+    entry_queryset = CollaboratorCommissionEntry.objects.select_related("workorder", "payroll")
+    if workshop is not None:
+        entry_queryset = entry_queryset.filter(workshop=workshop)
+
+    updated_entries = 0
+    touched_payroll_ids: set[int] = set()
+
+    for entry in entry_queryset.order_by("id"):
+        base_amount = Money(_quantize(Decimal(str(entry.workorder.total_services_value.amount or ZERO))), "BRL")
+        commission_amount = Money(_quantize(Decimal(str(base_amount.amount or ZERO)) * Decimal(str(entry.percentage or ZERO))), "BRL")
+        should_update_entry = entry.base_amount != base_amount or entry.commission_amount != commission_amount
+        if should_update_entry:
+            updated_entries += 1
+            if not dry_run:
+                entry.base_amount = base_amount
+                entry.commission_amount = commission_amount
+                entry.save(update_fields=["base_amount", "commission_amount"])
+
+        if entry.payroll_id is not None and should_update_entry:
+            touched_payroll_ids.add(entry.payroll_id)
+
+    updated_payrolls = 0
+    if touched_payroll_ids:
+        payrolls = CollaboratorPayroll.objects.filter(pk__in=touched_payroll_ids).select_related("financial_movement").prefetch_related("items", "commission_entries__workorder")
+        for payroll in payrolls:
+            commission_entries = list(payroll.commission_entries.select_related("workorder").order_by("id"))
+            commission_total = Money(
+                _quantize(sum((Decimal(str(entry.commission_amount.amount or ZERO)) for entry in commission_entries), start=ZERO)),
+                "BRL",
+            )
+            total_amount = Money(
+                _quantize(Decimal(str(payroll.salary_amount.amount or ZERO)) + Decimal(str(payroll.transport_allowance_amount.amount or ZERO)) + Decimal(str(payroll.benefits_amount.amount or ZERO)) + Decimal(str(commission_total.amount or ZERO))),
+                "BRL",
+            )
+            should_update_payroll = payroll.commission_amount != commission_total or payroll.total_amount != total_amount
+            if should_update_payroll:
+                updated_payrolls += 1
+                if not dry_run:
+                    payroll.commission_amount = commission_total
+                    payroll.total_amount = total_amount
+                    payroll.save(update_fields=["commission_amount", "total_amount"])
+                    _rebuild_payroll_commission_items(payroll=payroll, commission_entries=commission_entries)
+                    _create_or_update_financial_movement(payroll=payroll)
+
+    return {
+        "updated_entries": updated_entries,
+        "updated_payrolls": updated_payrolls,
+    }
 
 
 @transaction.atomic
@@ -281,13 +350,7 @@ def sync_collaborator_payroll(*, collaborator: WorkshopCollaborator, reference_d
     for entry in commission_entries:
         entry.payroll = payroll
         entry.save(update_fields=["payroll"])
-        CollaboratorPayrollItem.objects.create(
-            payroll=payroll,
-            item_type=CollaboratorPayrollItem.ItemType.COMMISSION,
-            title=f"Comissão OS #{entry.workorder.pk}",
-            description=f"{entry.percentage * Decimal('100'):.2f}% sobre {entry.base_amount}",
-            amount=entry.commission_amount,
-        )
+    _rebuild_payroll_commission_items(payroll=payroll, commission_entries=commission_entries)
 
     _create_or_update_financial_movement(payroll=payroll)
     return payroll
