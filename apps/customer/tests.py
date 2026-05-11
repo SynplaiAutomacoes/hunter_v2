@@ -199,6 +199,74 @@ class FipeCatalogServiceTests(TestCase):
         self.assertEqual(cached_values, ["Gasolina", "Flex"])
         requests_get_mock.assert_not_called()
 
+    @patch("apps.customer.fipe_service.requests.get")
+    def test_get_fuel_options_logs_normalization_warning_for_unknown_fuel(self, requests_get_mock: Mock) -> None:
+        brand = FipeVehicleBrand.objects.create(name="Ford", external_id="22")
+        FipeVehicleModel.objects.create(brand=brand, vehicle_type=brand.vehicle_type, name="Ka", external_id="664")
+
+        response_mock = Mock()
+        response_mock.json.return_value = [{"id_modelo_ano": "1986-99", "name": "1986 Combustivel X"}]
+        requests_get_mock.return_value = response_mock
+
+        with patch.dict("os.environ", {"token_vehicle_api": "token-teste"}):
+            with self.assertLogs("apps.customer.fipe_service", level="WARNING") as captured_logs:
+                fuel_values = get_fuel_options_for_model(brand_name="Ford", model_name="Ka", force_refresh=True)
+
+        self.assertEqual(fuel_values, [])
+        self.assertTrue(any("could not be normalized" in message for message in captured_logs.output))
+
+    @patch("apps.customer.fipe_service.requests.get")
+    def test_get_fuel_options_logs_request_failure(self, requests_get_mock: Mock) -> None:
+        brand = FipeVehicleBrand.objects.create(name="Ford", external_id="22")
+        FipeVehicleModel.objects.create(brand=brand, vehicle_type=brand.vehicle_type, name="Ka", external_id="664")
+
+        requests_get_mock.side_effect = RuntimeError("falha externa")
+
+        with patch.dict("os.environ", {"token_vehicle_api": "token-teste"}):
+            with self.assertLogs("apps.customer.fipe_service", level="ERROR") as captured_logs:
+                with self.assertRaises(RuntimeError):
+                    get_fuel_options_for_model(brand_name="Ford", model_name="Ka", force_refresh=True)
+
+        self.assertTrue(any("FIPE request failed" in message for message in captured_logs.output))
+
+    @patch("apps.customer.fipe_service.requests.get")
+    def test_get_fuel_options_accepts_dict_payload_with_data_key(self, requests_get_mock: Mock) -> None:
+        brand = FipeVehicleBrand.objects.create(name="Ford", external_id="22")
+        FipeVehicleModel.objects.create(brand=brand, vehicle_type=brand.vehicle_type, name="Ka", external_id="664")
+
+        response_mock = Mock()
+        response_mock.json.return_value = {
+            "data": [
+                {"id_modelo_ano": "1986-1", "name": "1986 Gasolina"},
+                {"id_modelo_ano": "1987-5", "name": "1987 Flex"},
+            ]
+        }
+        requests_get_mock.return_value = response_mock
+
+        with patch.dict("os.environ", {"token_vehicle_api": "token-teste"}):
+            with self.assertLogs("apps.customer.fipe_service", level="WARNING") as captured_logs:
+                fuel_values = get_fuel_options_for_model(brand_name="Ford", model_name="Ka", force_refresh=True)
+
+        self.assertEqual(fuel_values, ["Gasolina", "Flex"])
+        self.assertTrue(any("fallback list extraction" in message for message in captured_logs.output))
+
+    @patch("apps.customer.fipe_service.requests.get")
+    def test_get_fuel_options_logs_invalid_payload_preview(self, requests_get_mock: Mock) -> None:
+        brand = FipeVehicleBrand.objects.create(name="Ford", external_id="22")
+        FipeVehicleModel.objects.create(brand=brand, vehicle_type=brand.vehicle_type, name="Ka", external_id="664")
+
+        response_mock = Mock()
+        response_mock.json.return_value = {"message": "token invalido", "success": False}
+        requests_get_mock.return_value = response_mock
+
+        with patch.dict("os.environ", {"token_vehicle_api": "token-teste"}):
+            with self.assertLogs("apps.customer.fipe_service", level="ERROR") as captured_logs:
+                with self.assertRaises(ValueError):
+                    get_fuel_options_for_model(brand_name="Ford", model_name="Ka", force_refresh=True)
+
+        self.assertTrue(any("payload_preview" in message for message in captured_logs.output))
+        self.assertTrue(any("token invalido" in message for message in captured_logs.output))
+
 
 class CustomerFipeApiTests(TestCase):
     def setUp(self) -> None:
