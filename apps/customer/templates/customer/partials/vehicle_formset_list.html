@@ -40,6 +40,15 @@ x-on:vehicle-list:changed.window="totalForms = document.querySelectorAll('.vehic
                 getWidgetContainer(input) {
                     return input && input.type === 'hidden' ? input.closest('[x-data]') : null;
                 },
+                isHydrating(container) {
+                    return !!(container && container.dataset && container.dataset.catalogHydrating === '1');
+                },
+                setHydrating(container, isHydrating) {
+                    if (!container || !container.dataset) {
+                        return;
+                    }
+                    container.dataset.catalogHydrating = isHydrating ? '1' : '0';
+                },
                 setSearchableOptions(input, options) {
                     const widgetContainer = this.getWidgetContainer(input);
                     if (!widgetContainer) {
@@ -187,23 +196,39 @@ x-on:vehicle-list:changed.window="totalForms = document.querySelectorAll('.vehic
                     });
                 },
                 async fillFromPlate(container, data) {
-                    const brandInput = this.getField(container, 'brand');
-                    this.setSearchableOptions(brandInput, data.brand ? [{ id: data.brand, label: data.brand }] : []);
-                    this.setFieldValue(brandInput, data.brand || '');
-                    await this.loadModels(container, {
-                        preserveModel: data.model || '',
-                        preserveFuel: data.fuel || '',
-                        preserveEngine: data.engine || '',
-                    });
+                    this.setHydrating(container, true);
+                    try {
+                        const brandInput = this.getField(container, 'brand');
+                        this.setSearchableOptions(brandInput, data.brand ? [{ id: data.brand, label: data.brand }] : []);
+                        this.setFieldValue(brandInput, data.brand || '');
+                        await this.loadModels(container, {
+                            preserveModel: data.model || '',
+                            preserveFuel: data.fuel || '',
+                            preserveEngine: data.engine || '',
+                        });
 
-                    this.fillTextFields(container, {
-                        year_fabrication: data.year_fabrication,
-                        year_model: data.year_model,
-                        color: data.color,
-                        chassi: data.chassi,
-                        renavam: data.renavam,
-                        type: data.type,
-                    });
+                        const modelInput = this.getField(container, 'model');
+                        const fuelInput = this.getField(container, 'fuel');
+                        if (modelInput && data.model) {
+                            this.setSearchableOptions(modelInput, [{ id: data.model, label: data.model }]);
+                            this.setFieldValue(modelInput, data.model);
+                        }
+                        if (fuelInput && data.fuel) {
+                            this.setSearchableOptions(fuelInput, [{ id: data.fuel, label: data.fuel }]);
+                            this.setFieldValue(fuelInput, data.fuel);
+                        }
+
+                        this.fillTextFields(container, {
+                            year_fabrication: data.year_fabrication,
+                            year_model: data.year_model,
+                            color: data.color,
+                            chassi: data.chassi,
+                            renavam: data.renavam,
+                            type: data.type,
+                        });
+                    } finally {
+                        this.setHydrating(container, false);
+                    }
                 },
             };
 
@@ -214,7 +239,7 @@ x-on:vehicle-list:changed.window="totalForms = document.querySelectorAll('.vehic
                 }
 
                 const container = event.target.closest('.vehicle-item') || event.target.closest('.customer-vehicle-catalog-form') || event.target.closest('form');
-                if (!container) {
+                if (!container || api.isHydrating(container)) {
                     return;
                 }
 
