@@ -476,6 +476,18 @@ class KitForm(CoreModelForm):
                                                         </template>
                                                     </select>
                                                 </div>
+                                                <div class="lg:col-span-1">
+                                                    <label class="label p-0 mb-1">
+                                                        <span class="label-text">Ano inicial</span>
+                                                    </label>
+                                                    <input type="number" name="kit_application_year_start" class="input-theme w-full" min="1900" max="2100" x-model="application.year_start" placeholder="2015" />
+                                                </div>
+                                                <div class="lg:col-span-1">
+                                                    <label class="label p-0 mb-1">
+                                                        <span class="label-text">Ano final</span>
+                                                    </label>
+                                                    <input type="number" name="kit_application_year_end" class="input-theme w-full" min="1900" max="2100" x-model="application.year_end" placeholder="2021" />
+                                                </div>
                                                 <div class="lg:col-span-2">
                                                     <label class="label p-0 mb-1">
                                                         <span class="label-text">Motor</span>
@@ -492,18 +504,6 @@ class KitForm(CoreModelForm):
                                                             <option :value="option.id" x-text="option.label"></option>
                                                         </template>
                                                     </select>
-                                                </div>
-                                                <div class="lg:col-span-1">
-                                                    <label class="label p-0 mb-1">
-                                                        <span class="label-text">Ano inicial</span>
-                                                    </label>
-                                                    <input type="number" name="kit_application_year_start" class="input-theme w-full" min="1900" max="2100" x-model="application.year_start" placeholder="2015" />
-                                                </div>
-                                                <div class="lg:col-span-1">
-                                                    <label class="label p-0 mb-1">
-                                                        <span class="label-text">Ano final</span>
-                                                    </label>
-                                                    <input type="number" name="kit_application_year_end" class="input-theme w-full" min="1900" max="2100" x-model="application.year_end" placeholder="2021" />
                                                 </div>
                                                 <div class="lg:col-span-1 flex justify-end lg:pt-7">
                                                     <button type="button" class="btn btn-ghost btn-sm text-error" @click="removeApplication(index)">
