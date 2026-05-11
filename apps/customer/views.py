@@ -69,17 +69,17 @@ def _build_customer_budget_history_entry(budget: Budget) -> dict[str, Any]:
 
 
 def _build_customer_workorder_history_entry(workorder: WorkOrder) -> dict[str, Any]:
-    pdf_url = reverse("workorder:visualizar_pdf", kwargs={"pk": workorder.pk})
+    pdf_url = f"{reverse('workorder:visualizar_pdf', kwargs={'pk': workorder.pk})}?variant=signed"
     return {
         "date": workorder.criado_em,
         "type_label": "OS",
-        "document_number": workorder.pk,
+        "document_number": workorder.get_id,
         "vehicle_label": _build_customer_history_vehicle_label(workorder.budget.vehicle),
         "total_value": workorder.total_budget_value,
         "status_badge": workorder.workorder_status_badge,
-        "pdf_title": f"OS #{workorder.pk}",
+        "pdf_title": f"OS #{workorder.get_id}",
         "pdf_url": pdf_url,
-        "pdf_download_url": f"{pdf_url}?download=1",
+        "pdf_download_url": f"{pdf_url}&download=1",
     }
 
 
@@ -400,6 +400,7 @@ class QuickCustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModal
 class QuickVehicleCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, CreateView):
     model = Vehicle
     form_class = QuickVehicleForm
+    template_name = "customer/partials/quick_vehicle_modal_form.html"
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -431,6 +432,7 @@ class QuickVehicleCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalF
 class QuickVehicleUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, UpdateView):
     model = Vehicle
     form_class = QuickVehicleForm
+    template_name = "customer/partials/quick_vehicle_modal_form.html"
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()

@@ -658,6 +658,7 @@ class WorkOrderDetailViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("summary_product_items", response.context)
         self.assertIn("summary_service_items", response.context)
+        self.assertContains(response, f"Ordem de Serviço N°: {budget.id}")
         self.assertContains(response, direct_product.name)
         self.assertContains(response, kit_product.name)
         self.assertContains(response, direct_service.name)
@@ -1325,7 +1326,7 @@ class WorkOrderPdfParityTests(TestCase):
         self.assertEqual(workorder_render_request.template_name, "workorder/partials/pdf/visualizarPDF.html")
         self.assertEqual(workorder_render_request.filename, filename)
         self.assertEqual(workorder_render_request.context["workorder"], workorder)
-        self.assertEqual(workorder_render_request.context["budget"].id, workorder.id)
+        self.assertEqual(workorder_render_request.context["budget"].id, workorder.get_id)
         self.assertEqual(workorder_render_request.context["budget"].resolved_discount_value, workorder.pricing_snapshot.resolved_discount_value)
         self.assertEqual(workorder_render_request.context["pages"][0]["produtos"][0]["unit_price"], Money("50.00", "BRL"))
         self.assertEqual(workorder_render_request.context["pages"][0]["produtos"][0]["total_price"], Money("50.00", "BRL"))
@@ -1337,12 +1338,36 @@ class WorkOrderPdfParityTests(TestCase):
 
         render_request = build_workorder_pdf_render_request(workorder=workorder)
 
-        self.assertEqual(render_request.filename, f"ordem_servico_{workorder.id}.pdf")
+        self.assertEqual(render_request.filename, f"ordem_servico_{workorder.get_id}.pdf")
 
 
 class WorkOrderInternalPdfTests(TestCase):
     def setUp(self) -> None:
         self.factory = RequestFactory()
+
+    @patch("apps.workorder.views.get_active_workshop_or_404")
+    @patch("apps.workorder.views.render_workorder_pdf_document")
+    @patch("apps.workorder.views.download_signed_document_content")
+    def test_visualizar_pdf_workorder_variant_base_skips_signed_download(self, download_signed_mock, render_document_mock, active_workshop_mock) -> None:
+        workshop = create_workshop(suffix=86)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.signature_request_status = WorkOrderSignatureStatus.APPROVED
+        workorder.signature_external_id = "env-86"
+        workorder.signature_document_id = "doc-86"
+        workorder.save(update_fields=["signature_request_status", "signature_external_id", "signature_document_id"])
+
+        active_workshop_mock.return_value = workshop
+        render_document_mock.return_value = DocumentPayload(
+            content=b"%PDF-base",
+            filename=f"ordem_servico_{workorder.get_id}_base.pdf",
+        )
+
+        response = visualizar_pdf_workorder(self.factory.get("/", {"variant": "base", "download": "1"}), workorder.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"%PDF-base")
+        download_signed_mock.assert_not_called()
 
     @patch("apps.workorder.views.get_active_workshop_or_404")
     @patch("apps.workorder.views.download_signed_document_content")
@@ -1381,7 +1406,7 @@ class WorkOrderInternalPdfTests(TestCase):
         download_signed_mock.side_effect = SignatureDeliveryServiceError("erro")
         render_document_mock.return_value = DocumentPayload(
             content=b"%PDF-base",
-            filename=f"ordem_servico_{workorder.id}_base.pdf",
+            filename=f"ordem_servico_{workorder.get_id}_base.pdf",
         )
 
         response = visualizar_pdf_workorder(self.factory.get("/"), workorder.id)
@@ -1410,7 +1435,7 @@ class WorkOrderInternalPdfTests(TestCase):
 
         render_document_mock.return_value = DocumentPayload(
             content=b"%PDF-workorder",
-            filename=f"ordem_servico_{workorder.id}.pdf",
+            filename=f"ordem_servico_{workorder.get_id}.pdf",
         )
 
         response = signature_file(self.factory.get("/"), token)
@@ -1443,9 +1468,9 @@ class WorkOrderSignatureDeliveryTests(TestCase):
 
         self.assertEqual(result.envelope_id, "env-83")
         _, kwargs = send_document_mock.call_args
-        self.assertEqual(kwargs["file_name"], f"ordem_servico-{workorder.id}.pdf")
+        self.assertEqual(kwargs["file_name"], f"ordem_servico-{workorder.get_id}.pdf")
         self.assertEqual(kwargs["document_ref_id"], f"workorder-{workorder.id}")
-        self.assertEqual(kwargs["title"], f"Ordem de servico #{workorder.id}")
+        self.assertEqual(kwargs["title"], f"Ordem de servico #{workorder.get_id}")
         self.assertEqual(kwargs["message"], "Segue ordem de servico para assinatura.")
         self.assertEqual(kwargs["signatory"]["id"], f"customer-{workorder.id}")
         self.assertEqual(kwargs["signatory"]["authMethod"], "WHATSAPP")
@@ -1623,6 +1648,15 @@ class WorkOrderSignatureWorkflowRuleTests(TestCase):
         stock_product = StockProduct.objects.get(workshop=workshop, product=product)
         stock_product.current_quantity = 3
         stock_product.save(update_fields=["current_quantity"])
+        payment_method = PaymentMethod.objects.create(workshop=workshop, description="Pix", installments_count=1)
+        WorkOrderPaymentMethod.objects.create(
+            workorder=workorder,
+            payment_method=payment_method,
+            first_installment_amount=workorder.total_budget_value,
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 20),
+        )
 
         send_signature_mock.return_value = SignatureDeliveryResult(
             envelope_id="env-15",
@@ -1637,6 +1671,22 @@ class WorkOrderSignatureWorkflowRuleTests(TestCase):
         self.assertEqual(toast_type, "success")
         self.assertEqual(toast_message, "Ordem de serviço enviada para assinatura do cliente.")
         self.assertEqual(workorder.signature_request_status, WorkOrderSignatureStatus.SENT)
+
+    @patch("apps.workorder.util.send_workorder_for_signature")
+    def test_signature_send_blocks_when_payment_is_pending(self, send_signature_mock) -> None:
+        workshop = create_workshop(suffix=16)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=16, selling_price="100.00")
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.sync_from_budget()
+
+        toast_type, toast_message = trigger_workorder_signature_send_if_needed(workorder=workorder)
+
+        self.assertEqual(toast_type, "error")
+        self.assertIn("Receba o pagamento integral da ordem de serviço", toast_message)
+        send_signature_mock.assert_not_called()
 
 
 class WorkOrderPaymentFormTests(TestCase):
@@ -1905,6 +1955,7 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(payload["km_final"], 12550)
         self.assertEqual(self.workorder.km_final, 12550)
         self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
+        self.assertIsNone(self.workorder.delivered_at)
         self.assertIsNone(vehicle.km)
 
     def test_update_km_final_rejects_value_lower_than_initial_km(self) -> None:
@@ -1930,6 +1981,69 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertIn("KM inicial (12.000)", payload["errors"][0])
         self.assertIsNone(self.workorder.km_final)
         self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
+
+    def test_approve_status_persists_delivered_at(self) -> None:
+        customer = create_customer(workshop=self.workshop, suffix=243)
+        vehicle = create_vehicle(workshop=self.workshop, customer=customer, suffix=243)
+        product = create_product(workshop=self.workshop, suffix=243)
+        BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, product=product, quantity=1)
+        stock_product = StockProduct.objects.get(workshop=self.workshop, product=product)
+        stock_product.current_quantity = 5
+        stock_product.save(update_fields=["current_quantity"])
+        self.workorder.sync_from_budget()
+        self.budget.customer = customer
+        self.budget.vehicle = vehicle
+        self.budget.current_km = 12000
+        self.budget.save(update_fields=["customer", "vehicle", "current_km"])
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
+        WorkOrderPaymentMethod.objects.create(
+            workorder=self.workorder,
+            payment_method=payment_method,
+            first_installment_amount=self.workorder.total_budget_value,
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 24),
+        )
+
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "approve"]),
+            data={"km_final": "12500"},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Refresh"), "true")
+        self.assertEqual(self.workorder.status, WorkOrderStatus.APPROVED)
+        self.assertIsNotNone(self.workorder.delivered_at)
+
+    def test_approve_status_blocks_delivery_when_payment_is_pending(self) -> None:
+        customer = create_customer(workshop=self.workshop, suffix=244)
+        vehicle = create_vehicle(workshop=self.workshop, customer=customer, suffix=244)
+        product = create_product(workshop=self.workshop, suffix=244, selling_price="120.00")
+        BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, product=product, quantity=1)
+        stock_product = StockProduct.objects.get(workshop=self.workshop, product=product)
+        stock_product.current_quantity = 5
+        stock_product.save(update_fields=["current_quantity"])
+        self.workorder.sync_from_budget()
+        self.budget.customer = customer
+        self.budget.vehicle = vehicle
+        self.budget.current_km = 12000
+        self.budget.save(update_fields=["customer", "vehicle", "current_km"])
+
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "approve"]),
+            data={"km_final": "12500"},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
+        self.assertIsNone(self.workorder.delivered_at)
+        self.assertIn("showToast", response.headers.get("HX-Trigger", ""))
 
     def test_payment_form_uses_pending_balance_after_discount(self) -> None:
         self.workorder.discount_value = Money("10.00", "BRL")

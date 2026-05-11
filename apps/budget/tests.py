@@ -53,7 +53,7 @@ from apps.collaborators.models import WorkshopMember
 from apps.collaborators.services import freeze_existing_pricing_history, sync_current_month_salary_costs
 from apps.iam.utils import get_or_create_director_role
 from apps.stock.models import StockProduct
-from apps.workorder.models import WorkOrder
+from apps.workorder.models import WorkOrder, WorkOrderStatus
 from apps.budget.views.pdf_views import signature_file, signature_preview, visualizar_pdf_assinatura
 from apps.budget.views.workflow_views import BUDGET_LIST_FILTERS, trigger_signature_send_if_needed
 from apps.workshops.models.workshops import Workshop
@@ -2127,6 +2127,36 @@ class BudgetStep6WorkflowTests(TestCase):
         self.budget.customer_agreed_departure_at = None
         self.budget.service_expected_completion_at = None
         self.budget.save(update_fields=["customer_agreed_departure_at", "service_expected_completion_at"])
+
+        response = self.client.post(reverse("budget:update_budget_status", args=[self.budget.pk, "cancel"]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertJSONEqual(response.content, {"success": True})
+        self.budget.refresh_from_db()
+        self.assertEqual(self.budget.status, BudgetStatus.CANCELLED)
+
+    def test_update_budget_status_blocks_cancel_when_active_workorder_exists(self) -> None:
+        self.budget.status = BudgetStatus.APPROVED
+        self.budget.save(update_fields=["status"])
+        WorkOrder.objects.create(workshop=self.workshop, budget=self.budget, status=WorkOrderStatus.DRAFT)
+
+        response = self.client.post(reverse("budget:update_budget_status", args=[self.budget.pk, "cancel"]))
+
+        self.assertEqual(response.status_code, 400)
+        self.assertJSONEqual(
+            response.content,
+            {
+                "success": False,
+                "error": "Ja foi gerada uma ordem de servico para este orçamento. Cancele a ordem de servico primeiro para depois cancelar o orçamento.",
+            },
+        )
+        self.budget.refresh_from_db()
+        self.assertEqual(self.budget.status, BudgetStatus.APPROVED)
+
+    def test_update_budget_status_allows_cancel_when_only_cancelled_workorder_exists(self) -> None:
+        self.budget.status = BudgetStatus.APPROVED
+        self.budget.save(update_fields=["status"])
+        self.budget.workorders.update(status=WorkOrderStatus.CANCELLED)
 
         response = self.client.post(reverse("budget:update_budget_status", args=[self.budget.pk, "cancel"]))
 

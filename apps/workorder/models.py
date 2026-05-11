@@ -49,7 +49,12 @@ class WorkOrder(TimeStampedModel):
     signature_external_id = models.CharField(max_length=255, blank=True, null=True)
     signature_document_id = models.CharField(max_length=255, blank=True, null=True)
     signature_sent_at = models.DateTimeField(blank=True, null=True)
+    delivered_at = models.DateTimeField(verbose_name="Data da Entrega", blank=True, null=True)
     km_final = models.PositiveIntegerField(verbose_name="KM Final", null=True, blank=True)
+
+    @property
+    def public_number(self) -> int:
+        return self.get_id
 
     @property
     def workorder_status_badge(self):
@@ -79,6 +84,16 @@ class WorkOrder(TimeStampedModel):
             )
             .all()
         )
+
+    def _iter_payments(self) -> Iterable["WorkOrderPaymentMethod"]:
+        if not self.pk:
+            return ()
+
+        prefetched_payments = getattr(self, "_prefetched_objects_cache", {}).get("payments")
+        if prefetched_payments is not None:
+            return prefetched_payments
+
+        return self.payments.all()
 
     def _raw_labor_duration(self) -> timedelta:
         total = timedelta(0)
@@ -172,8 +187,31 @@ class WorkOrder(TimeStampedModel):
         return self.product_issue_summary.has_invalid_ncm_issues
 
     @property
+    def paid_value(self) -> Money:
+        paid_amount = sum((payment.total_paid.amount for payment in self._iter_payments()), start=Decimal("0.00"))
+        return Money(paid_amount, "BRL")
+
+    @property
+    def pending_payment_value(self) -> Money:
+        pending_amount = max(Decimal("0.00"), self.total_budget_value.amount - self.paid_value.amount)
+        return Money(pending_amount, "BRL")
+
+    @property
+    def is_fully_paid(self) -> bool:
+        return self.pending_payment_value.amount <= Decimal("0.00")
+
+    @property
+    def payment_block_reason(self) -> str | None:
+        if self.is_fully_paid:
+            return None
+        return "Receba o pagamento integral da ordem de serviço antes de enviar para assinatura ou entregar o veículo."
+
+    @property
     def signature_blockers(self) -> list[str]:
         blockers: list[str] = []
+        payment_reason = self.payment_block_reason
+        if payment_reason:
+            blockers.append(payment_reason)
         stock_reason = self.product_issue_summary.stock_block_reason()
         if stock_reason:
             blockers.append(stock_reason)
@@ -228,8 +266,15 @@ class WorkOrder(TimeStampedModel):
         self.save(update_fields=["signature_token_version", "signature_token_active"])
 
     def mark_signature_approved(self) -> None:
-        self.status = WorkOrderStatus.APPROVED
         self.signature_request_status = WorkOrderSignatureStatus.APPROVED
+        if not self.is_fully_paid:
+            self.save(update_fields=["signature_request_status"])
+            return
+        self.status = WorkOrderStatus.APPROVED
+        if self.delivered_at is None:
+            self.delivered_at = timezone.now()
+            self.save(update_fields=["status", "signature_request_status", "delivered_at"])
+            return
         self.save(update_fields=["status", "signature_request_status"])
 
     @property
@@ -500,7 +545,7 @@ class WorkOrder(TimeStampedModel):
         verbose_name_plural = "Ordens de Serviço"
 
     def __str__(self):
-        return f"OS #{self.id} | Budget #{self.budget.id}"
+        return f"OS #{self.get_id} | WorkOrder #{self.id}"
 
 
 class WorkOrderPaymentMethod(TimeStampedModel):

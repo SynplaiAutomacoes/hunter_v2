@@ -167,6 +167,33 @@ class VehicleCatalogApiTests(TestCase):
         self.assertEqual(response.json(), [{"id": "Gasolina", "label": "Gasolina"}, {"id": "Flex", "label": "Flex"}])
 
 
+class QuickVehicleModalViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=92)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.customer = Customer.objects.create(
+            workshop=self.workshop,
+            name="Cliente Modal Veiculo",
+            cpf_or_cnpj="987.654.321-00",
+            email="modal.veiculo@example.com",
+            phone="+5511999999998",
+        )
+
+    def test_quick_vehicle_create_uses_vehicle_specific_modal_layout(self) -> None:
+        response = self.client.get(reverse("customer:vehicle_quick_create"), {"customer_id": self.customer.pk}, HTTP_HX_REQUEST="true")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Cadastro rápido de veículo")
+        self.assertContains(response, "max-w-5xl")
+        self.assertContains(response, "Salvar veículo")
+        self.assertContains(response, "customer-vehicle-catalog-form")
+
+
 class CustomerUpdateViewTabsTests(TestCase):
     def setUp(self) -> None:
         self.user, self.workshop = create_director_user_with_workshop(suffix=61)
@@ -264,7 +291,7 @@ class CustomerUpdateViewTabsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, self.customer_vehicle.plate)
         self.assertContains(response, f"Orçamento #{self.budget_without_os.pk}")
-        self.assertContains(response, f"OS #{self.workorder.pk}")
+        self.assertContains(response, f"OS #{self.workorder.budget_id}")
         self.assertContains(response, "open-pdf-modal")
         self.assertContains(response, "downloadUrl")
 
@@ -273,7 +300,7 @@ class CustomerUpdateViewTabsTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, f"Orçamento #{self.workorder.budget.pk}")
-        self.assertContains(response, f"OS #{self.workorder.pk}")
+        self.assertContains(response, f"OS #{self.workorder.budget_id}")
 
     def test_customer_update_history_tab_context_is_scoped_to_current_customer(self) -> None:
         response = self.client.get(reverse("customer:customer_update", kwargs={"pk": self.customer.pk}))
