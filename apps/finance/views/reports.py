@@ -106,6 +106,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
     def _get_financial_movements_queryset(self):
         queryset = (
             FinancialMovement.objects.filter(workshop=self.workshop)
+            .filter(due_date__isnull=False)
             .filter(Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT))
             .select_related(
                 "source",
