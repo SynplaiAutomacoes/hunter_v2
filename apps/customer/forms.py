@@ -726,7 +726,7 @@ class QuickCustomerForm(AddressFormMixin, CoreModelForm):
 
 
 class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
-    brand = forms.CharField(label="Marca", required=False, widget=SearchableSelectInput(choices=_vehicle_brand_form_choices()))
+    brand = forms.CharField(label="Marca", required=False, widget=SearchableSelectInput(choices=[]))
     model = forms.CharField(label="Modelo", required=False, widget=SearchableSelectInput())
     engine = forms.CharField(label="Motor", required=False, widget=SearchableSelectInput(choices=vehicle_engine_form_choices()))
     fuel = forms.CharField(label="Combustível", required=False, widget=SearchableSelectInput())
@@ -736,7 +736,7 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
         fields = ["plate", "brand", "model", "engine", "fuel", "year_fabrication", "year_model", "color"]
         widgets = {
             "plate": PlateInput(),
-            "brand": SearchableSelectInput(choices=_vehicle_brand_form_choices()),
+            "brand": SearchableSelectInput(choices=[]),
             "model": SearchableSelectInput(),
             "engine": SearchableSelectInput(choices=vehicle_engine_form_choices()),
             "fuel": SearchableSelectInput(),
