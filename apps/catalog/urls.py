@@ -41,6 +41,9 @@ from apps.catalog.views.kits import (
     KitServiceLocalUpdateView,
     ProductQuickUpdateView,
     ServiceQuickUpdateView,
+    api_fipe_brands,
+    api_fipe_fuels,
+    api_fipe_models,
 )
 
 app_name = "catalog"
@@ -78,6 +81,9 @@ urlpatterns = [
     path("kits/<int:pk>/services/<int:service_id>/local-update/", KitServiceLocalUpdateView.as_view(), name="kits_service_local_update"),
     path("kits/products/search/", KitProductSearchView.as_view(), name="kits_product_search"),
     path("kits/services/search/", KitServiceSearchView.as_view(), name="kits_service_search"),
+    path("fipe/brands/", api_fipe_brands, name="fipe-brands"),
+    path("fipe/models/", api_fipe_models, name="fipe-models"),
+    path("fipe/fuels/", api_fipe_fuels, name="fipe-fuels"),
     path("products/<int:product_id>/kits/", KitsByProductHXView.as_view(), name="kits-by-product-hx"),
     path("products/<int:product_id>/kits/assign/", ProductKitsAssignHXView.as_view(), name="product-kits-assign-hx"),
     path("products/<int:product_id>/kits/<int:kit_id>/unassign/", ProductKitUnassignHXView.as_view(), name="product-kit-unassign-hx"),

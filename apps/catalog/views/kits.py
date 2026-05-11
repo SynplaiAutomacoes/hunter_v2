@@ -15,6 +15,7 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from djmoney.money import Money
 
+from apps.catalog.fipe_service import get_brand_options, get_cached_fuel_options_for_model, get_fuel_options_for_model, get_model_options, register_catalog_access_and_maybe_sync
 from apps.catalog.forms.kits import KitForm, QuickProductEditForm, QuickServiceEditForm
 from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
@@ -45,6 +46,48 @@ def _selected_kit_ids_from_values(raw_values: list[str]) -> list[int]:
         selected_kit_ids.append(int(cleaned_id))
 
     return list(dict.fromkeys(selected_kit_ids))
+
+
+def api_fipe_brands(request):
+    try:
+        register_catalog_access_and_maybe_sync()
+        options = get_brand_options()
+    except Exception:  # noqa: BLE001
+        options = []
+    return JsonResponse([{"id": option.value, "label": option.label} for option in options], safe=False)
+
+
+def api_fipe_models(request):
+    brand_name = str(request.GET.get("brand") or "").strip()
+    if not brand_name:
+        return JsonResponse([], safe=False)
+
+    try:
+        options = get_model_options(brand_name=brand_name)
+    except Exception:  # noqa: BLE001
+        options = []
+    return JsonResponse([{"id": option.value, "label": option.label} for option in options], safe=False)
+
+
+def api_fipe_fuels(request):
+    brand_name = str(request.GET.get("brand") or "").strip()
+    model_name = str(request.GET.get("model") or "").strip()
+    if not brand_name or not model_name:
+        return JsonResponse([], safe=False)
+
+    try:
+        options = get_cached_fuel_options_for_model(brand_name=brand_name, model_name=model_name)
+        if not options:
+            options = get_fuel_options_for_model(brand_name=brand_name, model_name=model_name)
+    except Exception:  # noqa: BLE001
+        options = []
+    return JsonResponse([{"id": option, "label": option} for option in options], safe=False)
+
+
+class FipeCatalogAccessMixin:
+    def maybe_register_fipe_catalog_access(self) -> None:
+        if self.request.method == "GET":
+            register_catalog_access_and_maybe_sync()
 
 
 class KitListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -90,7 +133,7 @@ class KitListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseM
         return context
 
 
-class KitCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixin, CreateView):
+class KitCreateView(FipeCatalogAccessMixin, PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixin, CreateView):
     model = Kit
     form_class = KitForm
     template_name = "kits/kits_create.html"
@@ -101,6 +144,10 @@ class KitCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixin, 
         kwargs = super().get_form_kwargs()
         kwargs["workshop"] = self.workshop
         return kwargs
+
+    def get_context_data(self, **kwargs):
+        self.maybe_register_fipe_catalog_access()
+        return super().get_context_data(**kwargs)
 
     def form_valid(self, form):
         form.instance.workshop = self.workshop
@@ -131,7 +178,7 @@ class KitCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixin, 
         return super().form_invalid(form)
 
 
-class KitUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
+class KitUpdateView(FipeCatalogAccessMixin, LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
     model = Kit
     form_class = KitForm
     template_name = "kits/kits_update.html"
@@ -141,6 +188,10 @@ class KitUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         kwargs = super().get_form_kwargs()
         kwargs["workshop"] = self.workshop
         return kwargs
+
+    def get_context_data(self, **kwargs):
+        self.maybe_register_fipe_catalog_access()
+        return super().get_context_data(**kwargs)
 
     def form_valid(self, form):
         try:

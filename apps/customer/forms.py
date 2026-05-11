@@ -8,7 +8,6 @@ from crispy_forms.layout import Layout, Div, Field, HTML, Submit, Button
 from django.urls import reverse
 
 from .models import Customer, Vehicle
-from .fipe_service import get_brand_form_choices, get_fuel_form_choices, get_model_form_choices
 from apps.core.text_normalization import name_case, plate_case, sentence_case
 from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SearchableSelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, NumberInput, PlateInput
 from .cpf_cnpj_validator import is_valid_cpf, is_valid_cnpj
@@ -26,26 +25,6 @@ def _set_normalized_initial_choice(form: forms.BaseForm, field_name: str, curren
         form.fields[field_name].initial = normalized_value
 
 
-def _get_current_field_value(form: forms.BaseForm, field_name: str) -> str:
-    instance = getattr(form, "instance", None)
-    raw_value = form.data.get(form.add_prefix(field_name)) if form.is_bound else form.initial.get(field_name) or getattr(instance, field_name, "")
-    return str(raw_value or "").strip()
-
-
-def _configure_vehicle_catalog_fields(form: forms.BaseForm) -> None:
-    brand_value = _get_current_field_value(form, "brand")
-    model_value = _get_current_field_value(form, "model")
-    fuel_value = _get_current_field_value(form, "fuel")
-
-    form.fields["brand"].widget = SearchableSelectInput(choices=get_brand_form_choices(current_value=brand_value))
-    form.fields["model"].widget = SearchableSelectInput(choices=get_model_form_choices(brand_name=brand_value, current_value=model_value))
-    form.fields["fuel"].widget = SearchableSelectInput(choices=get_fuel_form_choices(brand_name=brand_value, model_name=model_value, current_value=fuel_value))
-
-
-def _canonicalize_catalog_name(value: object) -> str:
-    return sentence_case(str(value or "").strip()) if str(value or "").strip() else ""
-
-
 class VehicleInlineForm(CoreModelForm):
     engine = forms.CharField(label="Motor", required=False, widget=SearchableSelectInput(choices=vehicle_engine_form_choices()))
     fuel = forms.CharField(label="Combustível", required=False, widget=SearchableSelectInput(choices=vehicle_fuel_form_choices()))
@@ -57,11 +36,9 @@ class VehicleInlineForm(CoreModelForm):
     def __init__(self, *args, **kwargs):
         self.workshop = kwargs.pop("workshop", None)
         super().__init__(*args, **kwargs)
-        _configure_vehicle_catalog_fields(self)
         self.fields["engine"].widget = SearchableSelectInput(choices=vehicle_engine_form_choices())
+        self.fields["fuel"].widget = SearchableSelectInput(choices=vehicle_fuel_form_choices())
         if not self.is_bound:
-            self.initial["brand"] = _get_current_field_value(self, "brand")
-            self.initial["model"] = _get_current_field_value(self, "model")
             _set_normalized_initial_choice(self, "engine", self.initial.get("engine") or getattr(self.instance, "engine", None), normalize_vehicle_engine_choice)
             _set_normalized_initial_choice(self, "fuel", self.initial.get("fuel") or getattr(self.instance, "fuel", None), normalize_vehicle_fuel_choice)
 
@@ -94,12 +71,6 @@ class VehicleInlineForm(CoreModelForm):
         if engine and not normalized_engine:
             raise forms.ValidationError("Selecione um motor válido.")
         return normalized_engine
-
-    def clean_brand(self):
-        return _canonicalize_catalog_name(self.cleaned_data.get("brand"))
-
-    def clean_model(self):
-        return _canonicalize_catalog_name(self.cleaned_data.get("model"))
 
 
 class VehicleInlineFormSet(BaseInlineFormSet):
@@ -145,8 +116,8 @@ VehicleFormSet = inlineformset_factory(
     can_delete=True,
     widgets={
         "plate": PlateInput(),
-        "brand": SearchableSelectInput(),
-        "model": SearchableSelectInput(),
+        "brand": TextInput(),
+        "model": TextInput(),
         "year_fabrication": TextInput(),
         "year_model": TextInput(),
         "color": TextInput(),
@@ -682,8 +653,8 @@ class QuickVehicleForm(CoreModelForm):
         fields = ["plate", "brand", "model", "engine", "fuel", "year_fabrication", "year_model", "color"]
         widgets = {
             "plate": PlateInput(),
-            "brand": SearchableSelectInput(),
-            "model": SearchableSelectInput(),
+            "brand": TextInput(),
+            "model": TextInput(),
             "engine": SearchableSelectInput(choices=vehicle_engine_form_choices()),
             "fuel": SearchableSelectInput(choices=vehicle_fuel_form_choices()),
             "year_fabrication": TextInput(),
@@ -695,17 +666,91 @@ class QuickVehicleForm(CoreModelForm):
         self.workshop = kwargs.pop("workshop", None)
         self.customer = kwargs.pop("customer", None)
         super().__init__(*args, **kwargs)
-        _configure_vehicle_catalog_fields(self)
         self.fields["engine"].widget = SearchableSelectInput(choices=vehicle_engine_form_choices())
+        self.fields["fuel"].widget = SearchableSelectInput(choices=vehicle_fuel_form_choices())
         if not self.is_bound:
-            self.initial["brand"] = _get_current_field_value(self, "brand")
-            self.initial["model"] = _get_current_field_value(self, "model")
             _set_normalized_initial_choice(self, "engine", self.initial.get("engine") or getattr(self.instance, "engine", None), normalize_vehicle_engine_choice)
             _set_normalized_initial_choice(self, "fuel", self.initial.get("fuel") or getattr(self.instance, "fuel", None), normalize_vehicle_fuel_choice)
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
-            HTML('{% include "customer/partials/vehicle_fipe_script.html" %}'),
+            HTML("""<script>
+            document.addEventListener('change', async (e) => {
+                const el = e.target;
+                const isPlateField = el.name && (el.name.endsWith('plate') || el.name === 'plate');
+
+                if (!isPlateField) return;
+
+                const plate = el.value.replace(/[^a-zA-Z0-9]/g, '').trim();
+                if (plate.length < 7) return;
+
+                const container = el.closest('.vehicle-item') || el.closest('form');
+                if (!container) return;
+
+                function syncFieldValue(input, value) {
+                    if (!input || value === null || value === undefined || value === '') return;
+
+                    const normalizedValue = String(value);
+                    const widgetContainer = input.type === 'hidden' ? input.closest('[x-data]') : null;
+                    if (widgetContainer && widgetContainer.querySelector('ul[role="listbox"]') && window.Alpine) {
+                        widgetContainer.dispatchEvent(new CustomEvent('searchable-set-value', {
+                            detail: { value: normalizedValue },
+                            bubbles: true,
+                        }));
+                        return;
+                    }
+
+                    input.value = normalizedValue;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+
+                try {
+                    el.classList.add('loading-api');
+
+                    const response = await fetch(`/customer/check-plate/${plate}/`);
+                    if (!response.ok) throw new Error('Placa não encontrada');
+
+                    const data = await response.json();
+                    const fieldsMap = {
+                        brand: data.brand,
+                        model: data.model,
+                        year_fabrication: data.year_fabrication,
+                        year_model: data.year_model,
+                        color: data.color,
+                        fuel: data.fuel,
+                        chassi: data.chassi,
+                        renavam: data.renavam,
+                        engine: data.engine,
+                        type: data.type
+                    };
+
+                    Object.keys(fieldsMap).forEach((key) => {
+                        const input = container.querySelector(`[name$="${key}"]`);
+                        if (input && fieldsMap[key]) {
+                            syncFieldValue(input, fieldsMap[key]);
+                        }
+                    });
+
+                    const missingFields = [];
+                    if (!data.engine) missingFields.push('Motor');
+                    if (!data.fuel) missingFields.push('Combustível');
+
+                    if (missingFields.length > 0) {
+                        document.body.dispatchEvent(new CustomEvent('showToast', {
+                            detail: {
+                                message: `Campos não disponíveis: ${missingFields.join(', ')}`,
+                                type: 'warning'
+                            }
+                        }));
+                    }
+                } catch (err) {
+                    console.warn('Erro ao buscar placa:', err);
+                } finally {
+                    el.classList.remove('loading-api');
+                }
+            });
+            </script>"""),
             Div(
                 Field("plate", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("brand", wrapper_class="col-span-12 lg:col-span-4"),
@@ -748,12 +793,6 @@ class QuickVehicleForm(CoreModelForm):
         if engine and not normalized_engine:
             raise forms.ValidationError("Selecione um motor válido.")
         return normalized_engine
-
-    def clean_brand(self):
-        return _canonicalize_catalog_name(self.cleaned_data.get("brand"))
-
-    def clean_model(self):
-        return _canonicalize_catalog_name(self.cleaned_data.get("model"))
 
     def save(self, commit=True):
         instance = super().save(commit=False)

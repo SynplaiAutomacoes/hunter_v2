@@ -3,20 +3,22 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 import logging
+import threading
 import time
 from urllib.parse import urlencode
 
 from django.conf import settings
+from django.db import close_old_connections
 from django.db import transaction
 from django.utils import timezone
 
 import requests
 
-from .models import FipeModelFuelCache, FipeSyncState, FipeVehicleBrand, FipeVehicleModel, FipeVehicleType
-from .vehicle_fuel import normalize_vehicle_fuel_choice
+from apps.catalog.models import FipeModelFuelCache, FipeSyncState, FipeVehicleBrand, FipeVehicleModel, FipeVehicleType
+from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice
 
 
-FIPE_SYNC_SCOPE = "vehicle_catalog"
+FIPE_SYNC_SCOPE = "kit_vehicle_catalog"
 FIPE_API_BASE_URL = "http://api.fipeapi.com.br/v1"
 logger = logging.getLogger(__name__)
 FUEL_ID_MAP = {
@@ -36,60 +38,23 @@ class FipeOption:
     label: str
 
 
-def get_brand_form_choices(*, vehicle_type: str = FipeVehicleType.CARROS, current_value: str | None = None) -> list[tuple[str, str]]:
-    options = [("", "Selecione")]
-    brand_names = list(FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, is_active=True).order_by("name").values_list("name", flat=True))
-
-    if current_value and current_value not in brand_names:
-        brand_names.insert(0, current_value)
-
-    options.extend((name, name) for name in brand_names)
-    return options
+def is_dev_mode() -> bool:
+    return bool(getattr(settings, "FIPE_DEV_MODE", False))
 
 
-def get_model_form_choices(*, brand_name: str | None = None, vehicle_type: str = FipeVehicleType.CARROS, current_value: str | None = None) -> list[tuple[str, str]]:
-    options = [("", "Selecione")]
-    model_names: list[str] = []
-
-    if brand_name:
-        brand = FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, name=brand_name, is_active=True).first()
-        if brand is not None:
-            model_names = list(brand.models.filter(vehicle_type=vehicle_type, is_active=True).order_by("name").values_list("name", flat=True))
-
-    if current_value and current_value not in model_names:
-        model_names.insert(0, current_value)
-
-    options.extend((name, name) for name in model_names)
-    return options
-
-
-def get_fuel_form_choices(*, brand_name: str | None = None, model_name: str | None = None, vehicle_type: str = FipeVehicleType.CARROS, current_value: str | None = None) -> list[tuple[str, str]]:
-    options = [("", "Selecione")]
-    fuel_values: list[str] = []
-
-    if brand_name and model_name:
-        fuel_values = get_cached_fuel_options_for_model(brand_name=brand_name, model_name=model_name, vehicle_type=vehicle_type)
-
-    if current_value and current_value not in fuel_values:
-        fuel_values.insert(0, current_value)
-
-    options.extend((value, value) for value in fuel_values)
-    return options
-
-
-def get_cached_fuel_options_for_model(*, brand_name: str, model_name: str, vehicle_type: str = FipeVehicleType.CARROS) -> list[str]:
-    model = _get_catalog_model(brand_name=brand_name, model_name=model_name, vehicle_type=vehicle_type)
-    if model is None:
-        return []
-
-    cache = FipeModelFuelCache.objects.filter(vehicle_type=vehicle_type, model=model).first()
-    if cache is None:
-        return []
-
-    return [str(value) for value in cache.fuel_values if str(value).strip()]
+def has_fipe_api_token() -> bool:
+    return bool(str(getattr(settings, "FIPE_API_TOKEN", "") or "").strip())
 
 
 def register_catalog_access_and_maybe_sync(*, vehicle_type: str = FipeVehicleType.CARROS) -> None:
+    if is_dev_mode():
+        logger.info("FIPE dev mode enabled; skipping full sync scheduling", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
+        return
+
+    if not has_fipe_api_token():
+        logger.warning("FIPE token not configured; skipping full sync scheduling", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
+        return
+
     sync_every_access = bool(getattr(settings, "FIPE_SYNC_EVERY_ACCESS", False))
     access_interval = int(getattr(settings, "FIPE_SYNC_ACCESS_INTERVAL", 500))
     catalog_is_empty = not FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, is_active=True).exists()
@@ -111,14 +76,7 @@ def register_catalog_access_and_maybe_sync(*, vehicle_type: str = FipeVehicleTyp
     if not should_sync:
         return
 
-    try:
-        logger.info("FIPE full sync started", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
-        sync_all_brands_and_models(vehicle_type=vehicle_type)
-        FipeSyncState.objects.filter(scope=FIPE_SYNC_SCOPE).update(sync_in_progress=False, last_full_sync_at=timezone.now(), last_sync_error="")
-        logger.info("FIPE full sync finished", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
-    except Exception as exc:  # noqa: BLE001
-        FipeSyncState.objects.filter(scope=FIPE_SYNC_SCOPE).update(sync_in_progress=False, last_sync_error=str(exc))
-        logger.exception("FIPE full sync failed", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
+    _start_full_sync_in_background(vehicle_type=vehicle_type)
 
 
 def sync_all_brands_and_models(*, vehicle_type: str = FipeVehicleType.CARROS) -> None:
@@ -205,8 +163,8 @@ def sync_models_for_brand(*, brand: FipeVehicleBrand) -> list[FipeVehicleModel]:
 
 
 def get_brand_options(*, vehicle_type: str = FipeVehicleType.CARROS) -> list[FipeOption]:
-    if not FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, is_active=True).exists():
-        sync_all_brands_and_models(vehicle_type=vehicle_type)
+    if not FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, is_active=True).exists() and has_fipe_api_token():
+        sync_brands(vehicle_type=vehicle_type)
 
     return [FipeOption(value=brand.name, label=brand.name) for brand in FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, is_active=True).order_by("name")]
 
@@ -214,16 +172,48 @@ def get_brand_options(*, vehicle_type: str = FipeVehicleType.CARROS) -> list[Fip
 def get_model_options(*, brand_name: str, vehicle_type: str = FipeVehicleType.CARROS) -> list[FipeOption]:
     brand = FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, name=brand_name, is_active=True).first()
     if brand is None:
-        if not FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, is_active=True).exists():
-            sync_all_brands_and_models(vehicle_type=vehicle_type)
+        if not FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, is_active=True).exists() and has_fipe_api_token():
+            sync_brands(vehicle_type=vehicle_type)
             brand = FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, name=brand_name, is_active=True).first()
         if brand is None:
             return []
 
-    if not brand.models.filter(vehicle_type=vehicle_type, is_active=True).exists():
+    if not brand.models.filter(vehicle_type=vehicle_type, is_active=True).exists() and has_fipe_api_token():
         sync_models_for_brand(brand=brand)
 
     return [FipeOption(value=model.name, label=model.name) for model in brand.models.filter(vehicle_type=vehicle_type, is_active=True).order_by("name")]
+
+
+def get_cached_fuel_options_for_model(*, brand_name: str, model_name: str, vehicle_type: str = FipeVehicleType.CARROS) -> list[str]:
+    model = _get_catalog_model(brand_name=brand_name, model_name=model_name, vehicle_type=vehicle_type)
+    if model is None:
+        return []
+
+    cache = FipeModelFuelCache.objects.filter(vehicle_type=vehicle_type, model=model).first()
+    if cache is None:
+        return []
+
+    return [str(value) for value in cache.fuel_values if str(value).strip()]
+
+
+def _start_full_sync_in_background(*, vehicle_type: str) -> None:
+    logger.info("FIPE full sync scheduled in background", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
+    sync_thread = threading.Thread(target=_run_full_sync_job, kwargs={"vehicle_type": vehicle_type}, daemon=True, name=f"fipe-sync-{vehicle_type}")
+    sync_thread.start()
+
+
+def _run_full_sync_job(*, vehicle_type: str) -> None:
+    close_old_connections()
+    try:
+        logger.info("FIPE full sync started", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
+        sync_all_brands_and_models(vehicle_type=vehicle_type)
+        FipeSyncState.objects.filter(scope=FIPE_SYNC_SCOPE).update(sync_in_progress=False, last_full_sync_at=timezone.now(), last_sync_error="")
+        logger.info("FIPE full sync finished", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
+    except Exception as exc:  # noqa: BLE001
+        FipeSyncState.objects.filter(scope=FIPE_SYNC_SCOPE).update(sync_in_progress=False, last_sync_error=str(exc))
+        logger.exception("FIPE full sync failed", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
+    finally:
+        close_old_connections()
 
 
 def get_fuel_options_for_model(*, brand_name: str, model_name: str, vehicle_type: str = FipeVehicleType.CARROS, force_refresh: bool = False) -> list[str]:
@@ -278,6 +268,9 @@ def _get_catalog_model(*, brand_name: str, model_name: str, vehicle_type: str) -
     model = brand.models.filter(vehicle_type=vehicle_type, name=model_name, is_active=True).first()
     if model is not None:
         return model
+
+    if not has_fipe_api_token():
+        return None
 
     sync_models_for_brand(brand=brand)
     return brand.models.filter(vehicle_type=vehicle_type, name=model_name, is_active=True).first()
@@ -417,7 +410,7 @@ def _mask_url_for_log(url: str) -> str:
     if "apikey=" not in url:
         return url
 
-    prefix, _, suffix = url.partition("apikey=")
+    _, _, suffix = url.partition("apikey=")
     token = suffix.split("&", 1)[0]
     masked_token = f"{token[:4]}..." if token else "***"
     return url.replace(token, masked_token, 1)
@@ -444,5 +437,4 @@ def _extract_list_payload(payload: object) -> list[object] | None:
 
 
 def _build_payload_preview(payload: object) -> str:
-    preview = str(payload)
-    return preview[:500]
+    return str(payload)[:500]

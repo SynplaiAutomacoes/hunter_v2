@@ -18,5 +18,67 @@ x-on:vehicle-list:changed.window="totalForms = document.querySelectorAll('.vehic
             {% include "customer/partials/vehicle_form_line.html" with v_form=v_form %}
         {% endfor %}
     </div>
-    {% include "customer/partials/vehicle_fipe_script.html" %}
+    <script>
+        document.addEventListener('change', async (e) => {
+            if (e.target.name && e.target.name.includes('-plate')) {
+                const plate = e.target.value.replace(/[^a-zA-Z0-9]/g, '').trim();
+                if (plate.length < 7) return;
+
+                const row = e.target.closest('.vehicle-item');
+
+                try {
+                    const response = await fetch(`/customer/check-plate/${plate}/`);
+                    if (!response.ok) throw new Error('Não encontrado');
+
+                    const data = await response.json();
+
+                    fillField(row, '-brand', data.brand);
+                    fillField(row, '-model', data.model);
+                    fillField(row, '-year_fabrication', data.year_fabrication);
+                    fillField(row, '-year_model', data.year_model);
+                    fillField(row, '-color', data.color);
+                    fillField(row, '-fuel', data.fuel);
+                    fillField(row, '-chassi', data.chassi);
+                    fillField(row, '-renavam', data.renavam);
+                    fillField(row, '-engine', data.engine);
+                    fillField(row, '-type', data.type);
+
+                    const missingFields = [];
+                    if (!data.engine) missingFields.push('Motor');
+                    if (!data.fuel) missingFields.push('Combustível');
+
+                    if (missingFields.length > 0) {
+                        document.body.dispatchEvent(new CustomEvent('showToast', {
+                            detail: {
+                                message: `Campos não disponíveis: ${missingFields.join(', ')}`,
+                                type: 'warning'
+                            }
+                        }));
+                    }
+
+                } catch (err) {
+                    console.error("Erro ao buscar placa:", err);
+                }
+            }
+        });
+
+        function fillField(container, suffix, value) {
+            if (!value) return;
+            const input = container.querySelector(`[name$="${suffix}"]`);
+            if (!input) return;
+
+            const widgetContainer = input.type === 'hidden' ? input.closest('[x-data]') : null;
+            if (widgetContainer && widgetContainer.querySelector('ul[role="listbox"]')) {
+                widgetContainer.dispatchEvent(new CustomEvent('searchable-set-value', {
+                    detail: { value: String(value) },
+                    bubbles: true,
+                }));
+                return;
+            }
+
+            input.value = value;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+    </script>
 </div>

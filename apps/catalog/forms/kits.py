@@ -15,7 +15,9 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from djmoney.money import Money
 
 from apps.catalog.forms.equivalent_products import EquivalentProductsFormMixin
+from apps.catalog.fipe_service import get_brand_options
 from apps.catalog.kit_applications import normalize_vehicle_text
+from apps.catalog.models import FipeVehicleType
 from apps.catalog.models.kits import Kit, KitApplication, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -422,8 +424,8 @@ class KitForm(CoreModelForm):
         products_json = json.dumps(initial_products)
         services_json = json.dumps(initial_services)
         applications_json = json.dumps(self._build_initial_applications())
+        brand_options_json = json.dumps([{"id": option.value, "label": option.label} for option in get_brand_options(vehicle_type=FipeVehicleType.CARROS)])
         engine_select_html = self._build_application_select_html(field_name="kit_application_engine", target_expression="application.engine")
-        fuel_select_html = self._build_application_select_html(field_name="kit_application_fuel", target_expression="application.fuel")
 
         return Layout(
             Div(
@@ -456,13 +458,23 @@ class KitForm(CoreModelForm):
                                                     <label class="label p-0 mb-1">
                                                         <span class="label-text">Marca</span>
                                                     </label>
-                                                    <input type="text" name="kit_application_brand" class="input-theme w-full" x-model="application.brand" placeholder="Ex: Jeep" />
+                                                    <select name="kit_application_brand" class="input-theme w-full" x-model="application.brand" @change="onApplicationBrandChange(index)">
+                                                        <option value="">Selecione...</option>
+                                                        <template x-for="option in brandOptions" :key="`brand-${{option.id}}`">
+                                                            <option :value="option.id" x-text="option.label"></option>
+                                                        </template>
+                                                    </select>
                                                 </div>
                                                 <div class="lg:col-span-3">
                                                     <label class="label p-0 mb-1">
                                                         <span class="label-text">Modelo</span>
                                                     </label>
-                                                    <input type="text" name="kit_application_model" class="input-theme w-full" x-model="application.model" placeholder="Ex: Renegade" />
+                                                    <select name="kit_application_model" class="input-theme w-full" x-model="application.model" @change="onApplicationModelChange(index)" :disabled="!application.brand || application.loadingModels">
+                                                        <option value="" x-text="application.loadingModels ? 'Carregando...' : 'Selecione...' "></option>
+                                                        <template x-for="option in application.modelOptions" :key="`model-${{index}}-${{option.id}}`">
+                                                            <option :value="option.id" x-text="option.label"></option>
+                                                        </template>
+                                                    </select>
                                                 </div>
                                                 <div class="lg:col-span-2">
                                                     <label class="label p-0 mb-1">
@@ -474,7 +486,12 @@ class KitForm(CoreModelForm):
                                                     <label class="label p-0 mb-1">
                                                         <span class="label-text">Combustível</span>
                                                     </label>
-                                                    {fuel_select_html}
+                                                    <select name="kit_application_fuel" class="input-theme w-full" x-model="application.fuel" :disabled="!application.model || application.loadingFuels">
+                                                        <option value="" x-text="application.loadingFuels ? 'Carregando...' : 'Selecione...' "></option>
+                                                        <template x-for="option in application.fuelOptions" :key="`fuel-${{index}}-${{option.id}}`">
+                                                            <option :value="option.id" x-text="option.label"></option>
+                                                        </template>
+                                                    </select>
                                                 </div>
                                                 <div class="lg:col-span-1">
                                                     <label class="label p-0 mb-1">
@@ -937,6 +954,7 @@ class KitForm(CoreModelForm):
                                     selectedProducts: {products_json},
                                     selectedServices: {services_json},
                                     applications: {applications_json},
+                                    brandOptions: {brand_options_json},
                                     modalSelectedProducts: [],
                                     modalSelectedServices: [],
                                     serviceEditForm: {{
@@ -956,8 +974,106 @@ class KitForm(CoreModelForm):
                                     totalDurationDisplay: '00:00',
 
                                     init() {{
+                                        this.applications = this.applications.map((application) => this.normalizeApplicationState(application));
                                         this.refreshTotalDurationDisplay();
                                         this.resetEditModalContent();
+                                        this.initializeApplications();
+                                    }},
+                                    normalizeApplicationState(application = {{}}) {{
+                                        return {{
+                                            brand: application.brand || '',
+                                            model: application.model || '',
+                                            engine: application.engine || '',
+                                            fuel: application.fuel || '',
+                                            year_start: application.year_start || '',
+                                            year_end: application.year_end || '',
+                                            modelOptions: Array.isArray(application.modelOptions) ? application.modelOptions : [],
+                                            fuelOptions: Array.isArray(application.fuelOptions) ? application.fuelOptions : [],
+                                            loadingModels: false,
+                                            loadingFuels: false,
+                                        }};
+                                    }},
+                                    async initializeApplications() {{
+                                        await Promise.all(this.applications.map((_, index) => this.hydrateApplication(index)));
+                                    }},
+                                    async fetchCatalogOptions(url) {{
+                                        const response = await fetch(url, {{ headers: {{ 'X-Requested-With': 'XMLHttpRequest' }} }});
+                                        if (!response.ok) {{
+                                            throw new Error('Falha ao carregar opções da FIPE.');
+                                        }}
+                                        const payload = await response.json();
+                                        return Array.isArray(payload) ? payload : [];
+                                    }},
+                                    ensureSelectedOption(options, selectedValue) {{
+                                        if (!selectedValue) return options;
+                                        const hasOption = options.some((option) => String(option.id) === String(selectedValue));
+                                        return hasOption ? options : [...options, {{ id: selectedValue, label: selectedValue }}];
+                                    }},
+                                    async hydrateApplication(index) {{
+                                        const application = this.applications[index];
+                                        if (!application) return;
+                                        if (application.brand) {{
+                                            await this.loadApplicationModels(index, {{ preserveModel: true, preserveFuel: true }});
+                                        }}
+                                        if (application.brand && application.model) {{
+                                            await this.loadApplicationFuels(index, {{ preserveFuel: true }});
+                                        }}
+                                    }},
+                                    async loadApplicationModels(index, {{ preserveModel = false, preserveFuel = false }} = {{}}) {{
+                                        const application = this.applications[index];
+                                        if (!application) return;
+
+                                        if (!application.brand) {{
+                                            application.modelOptions = [];
+                                            application.fuelOptions = [];
+                                            application.model = '';
+                                            application.fuel = '';
+                                            return;
+                                        }}
+
+                                        application.loadingModels = true;
+                                        try {{
+                                            let options = await this.fetchCatalogOptions(`/catalog/fipe/models/?brand=${{encodeURIComponent(application.brand)}}`);
+                                            options = this.ensureSelectedOption(options, preserveModel ? application.model : '');
+                                            application.modelOptions = options;
+                                            if (!preserveModel) {{
+                                                application.model = '';
+                                            }}
+                                            if (!preserveFuel) {{
+                                                application.fuel = '';
+                                            }}
+                                            application.fuelOptions = [];
+                                        }} catch (error) {{
+                                            console.error('Erro ao carregar modelos da FIPE:', error);
+                                            this.showToast('Nao foi possivel carregar os modelos da FIPE.', 'error');
+                                        }} finally {{
+                                            application.loadingModels = false;
+                                        }}
+                                    }},
+                                    async loadApplicationFuels(index, {{ preserveFuel = false }} = {{}}) {{
+                                        const application = this.applications[index];
+                                        if (!application) return;
+
+                                        if (!application.brand || !application.model) {{
+                                            application.fuelOptions = [];
+                                            application.fuel = '';
+                                            return;
+                                        }}
+
+                                        application.loadingFuels = true;
+                                        try {{
+                                            let options = await this.fetchCatalogOptions(`/catalog/fipe/fuels/?brand=${{encodeURIComponent(application.brand)}}&model=${{encodeURIComponent(application.model)}}`);
+                                            options = this.ensureSelectedOption(options, preserveFuel ? application.fuel : '');
+                                            application.fuelOptions = options;
+                                            if (!preserveFuel) {{
+                                                application.fuel = '';
+                                            }}
+                                        }} catch (error) {{
+                                            console.error('Erro ao carregar combustíveis da FIPE:', error);
+                                            this.showToast('Nao foi possivel carregar os combustíveis da FIPE.', 'error');
+                                        }} finally {{
+                                            application.loadingFuels = false;
+                                        }}
                                     }},
 
                                     buildSearchUrl(baseUrl, paramName, query) {{
@@ -1350,20 +1466,26 @@ class KitForm(CoreModelForm):
                                         this.totalDurationDisplay = this.formatSecondsToHHMM(totalSeconds);
                                     }},
                                     buildEmptyApplication() {{
-                                        return {{
+                                        return this.normalizeApplicationState({{
                                             brand: '',
                                             model: '',
                                             engine: '',
                                             fuel: '',
                                             year_start: '',
                                             year_end: '',
-                                        }};
+                                        }});
                                     }},
                                     addApplication() {{
                                         this.applications.push(this.buildEmptyApplication());
                                     }},
                                     removeApplication(index) {{
                                         this.applications.splice(index, 1);
+                                    }},
+                                    async onApplicationBrandChange(index) {{
+                                        await this.loadApplicationModels(index);
+                                    }},
+                                    async onApplicationModelChange(index) {{
+                                        await this.loadApplicationFuels(index);
                                     }},
                                     formatApplicationPreview(application) {{
                                         const vehicle = [application.brand, application.model].filter(Boolean).join(' ').trim();

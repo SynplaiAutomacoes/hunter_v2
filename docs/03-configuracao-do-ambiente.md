@@ -111,6 +111,7 @@ O projeto usa `os.getenv(...)` diretamente em `config/settings.py` e em alguns p
 | `FIPE_SYNC_EVERY_ACCESS` | sincroniza catalogo FIPE em todo acesso relevante de cadastro de veiculo |
 | `FIPE_SYNC_ACCESS_INTERVAL` | sincroniza catalogo FIPE a cada N acessos relevantes quando o modo sempre ativo estiver desligado |
 | `FIPE_FUEL_CACHE_TTL_HOURS` | validade do cache local de combustiveis por modelo |
+| `FIPE_DEV_MODE` | em ambiente local/desenvolvimento evita sync completo e atualiza apenas a marca selecionada sob demanda |
 | `FIPE_API_TOKEN` | token dedicado para chamadas da API FIPE |
 
 ### Webmania
@@ -191,6 +192,7 @@ PERF_LOG_MIN_MS=300
 FIPE_SYNC_EVERY_ACCESS=0
 FIPE_SYNC_ACCESS_INTERVAL=500
 FIPE_FUEL_CACHE_TTL_HOURS=168
+FIPE_DEV_MODE=0
 FIPE_API_TOKEN=
 
 WEBMANIA_AMBIENT=2
