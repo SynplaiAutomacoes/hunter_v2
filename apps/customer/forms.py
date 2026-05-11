@@ -93,9 +93,9 @@ class VehicleEngineModelValidationBypassMixin:
 
 
 class VehicleInlineForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
-    brand = forms.CharField(label="Marca", required=False, widget=SearchableSelectInput(choices=_vehicle_brand_form_choices()))
+    brand = forms.CharField(label="Marca", required=False, widget=SearchableSelectInput(choices=[]))
     model = forms.CharField(label="Modelo", required=False, widget=SearchableSelectInput())
-    engine = forms.CharField(label="Motor", required=False, widget=SearchableSelectInput(choices=vehicle_engine_form_choices()))
+    engine = forms.CharField(label="Motor", required=False, widget=SearchableSelectInput(choices=[]))
     fuel = forms.CharField(label="Combustível", required=False, widget=SearchableSelectInput())
 
     class Meta:
@@ -109,10 +109,10 @@ class VehicleInlineForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
         model_value = self.data.get(self.add_prefix("model")) if self.is_bound else self.initial.get("model") or getattr(self.instance, "model", None)
         fuel_value = self.data.get(self.add_prefix("fuel")) if self.is_bound else self.initial.get("fuel") or getattr(self.instance, "fuel", None)
 
-        self.fields["brand"].widget = SearchableSelectInput(choices=_with_selected_choice(_vehicle_brand_form_choices(), brand_value))
-        self.fields["model"].widget = SearchableSelectInput(choices=_vehicle_model_form_choices(brand_value, model_value))
-        self.fields["engine"].widget = SearchableSelectInput(choices=vehicle_engine_form_choices())
-        self.fields["fuel"].widget = SearchableSelectInput(choices=_vehicle_fuel_form_choices_from_catalog(brand_value, model_value, fuel_value))
+        self.fields["brand"].widget.choices = _with_selected_choice(_vehicle_brand_form_choices(), brand_value)
+        self.fields["model"].widget.choices = _vehicle_model_form_choices(brand_name=brand_value, model_name=model_value)
+        self.fields["fuel"].widget.choices = _vehicle_fuel_form_choices_from_catalog(brand_value, model_value, fuel_value)
+        self.fields["engine"].widget.choices = vehicle_engine_form_choices()
 
         self.fields["brand"].widget.attrs.update({"data-catalog-field": "brand"})
         self.fields["model"].widget.attrs.update({"data-catalog-field": "model"})
@@ -197,13 +197,13 @@ VehicleFormSet = inlineformset_factory(
     can_delete=True,
     widgets={
         "plate": PlateInput(),
-        "brand": SearchableSelectInput(choices=_vehicle_brand_form_choices()),
+        "brand": SearchableSelectInput(choices=[]),
         "model": SearchableSelectInput(),
         "year_fabrication": TextInput(),
         "year_model": TextInput(),
         "color": TextInput(),
         "fuel": SearchableSelectInput(),
-        "engine": SearchableSelectInput(choices=vehicle_engine_form_choices()),
+        "engine": SearchableSelectInput(choices=[]),
         "type": TextInput(),
         "renavam": TextInput(),
         "chassi": TextInput(),

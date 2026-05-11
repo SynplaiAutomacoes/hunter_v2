@@ -106,6 +106,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
     def _get_financial_movements_queryset(self):
         queryset = (
             FinancialMovement.objects.filter(workshop=self.workshop)
+            .filter(due_date__isnull=False)
             .filter(Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT))
             .select_related(
                 "source",
@@ -196,8 +197,13 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         direction = filter_params["direction"]
         agent = filter_params["agent"]
 
+        today = timezone.localdate()
+
         if start_date is not None:
             queryset = queryset.filter(due_date__gte=start_date)
+        elif not filter_params["bank_account_id"] and not direction and not agent and not self._get_search_value():
+            queryset = queryset.filter(due_date=today)
+
         if end_date is not None:
             queryset = queryset.filter(due_date__lte=end_date)
         if budget_plan_ids:
@@ -442,9 +448,9 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         context["top_summary_cards"] = [
             self._build_summary_card(title="Créditos e Débitos deste Mês", overview=monthly_overview),
             self._build_summary_card(title=f"Balanço Geral {reference_date.year}", overview=yearly_overview),
-            self._build_selection_summary_card(),
             self._build_collaborator_payroll_summary_card(),
         ]
+        context["selection_summary"] = self._build_selection_summary_card()
         context["financial_movement_report_rows"] = self._get_financial_movement_report_rows(movements=page_obj.object_list)
         context["collaborator_payroll_rows"] = self._build_collaborator_payroll_rows()
         context["financial_group_filters"] = self._get_financial_groups_queryset()

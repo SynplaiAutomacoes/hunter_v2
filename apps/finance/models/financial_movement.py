@@ -63,6 +63,32 @@ class FinancialMovement(TimeStampedModel):
     attachment = models.FileField(upload_to="financial/attachments/", null=True, blank=True, verbose_name="Anexo")
     financial_observation = models.TextField(verbose_name="Observação Financeira", blank=True, null=True)
 
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if not self.budget_plan:
+            self._auto_assign_budget_plan()
+
+        super().save(*args, **kwargs)
+
+    def _auto_assign_budget_plan(self) -> None:
+        """
+        Lógica interna para atribuir automaticamente o Plano Orçamentário (FinancialGroup)
+        baseado na descrição ou na presença de uma Ordem de Serviço.
+        """
+        # Regra 1: Taxa da Maquininha
+        if self.description == "Pagamento da taxa da maquininha":
+            target_group = FinancialGroup.objects.filter(workshop=self.workshop, name__iexact="Taxa de Maquininhas").first()
+            if target_group:
+                self.budget_plan = target_group
+                return
+
+        # Regra 2: Movimentação vinculada a uma Ordem de Serviço
+        if self.workorder:
+            target_group = FinancialGroup.objects.filter(workshop=self.workshop, name__iexact="Vendas").first()
+            if target_group:
+                self.budget_plan = target_group
+                return
+        return
+
     @staticmethod
     def _format_report_money(value: object) -> str:
         return _format_money_for_report(value)
