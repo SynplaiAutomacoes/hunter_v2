@@ -97,14 +97,14 @@ def send_workorder_for_signature(*, workorder) -> SignatureDeliveryResult:
     )
 
     pdf_bytes = _build_workorder_pdf_bytes(workorder=workorder)
-    file_name = f"ordem_servico-{workorder.public_number}.pdf"
+    file_name = f"ordem_servico-{workorder.get_id}.pdf"
 
     try:
         result = send_document_for_signature(
             pdf_bytes=pdf_bytes,
             file_name=file_name,
             document_ref_id=f"workorder-{workorder.id}",
-            title=f"Ordem de servico #{workorder.public_number}",
+            title=f"Ordem de servico #{workorder.get_id}",
             message="Segue ordem de servico para assinatura.",
             signatory=signatory,
             observers=observers,

@@ -1326,7 +1326,7 @@ class WorkOrderPdfParityTests(TestCase):
         self.assertEqual(workorder_render_request.template_name, "workorder/partials/pdf/visualizarPDF.html")
         self.assertEqual(workorder_render_request.filename, filename)
         self.assertEqual(workorder_render_request.context["workorder"], workorder)
-        self.assertEqual(workorder_render_request.context["budget"].id, workorder.public_number)
+        self.assertEqual(workorder_render_request.context["budget"].id, workorder.get_id)
         self.assertEqual(workorder_render_request.context["budget"].resolved_discount_value, workorder.pricing_snapshot.resolved_discount_value)
         self.assertEqual(workorder_render_request.context["pages"][0]["produtos"][0]["unit_price"], Money("50.00", "BRL"))
         self.assertEqual(workorder_render_request.context["pages"][0]["produtos"][0]["total_price"], Money("50.00", "BRL"))
@@ -1338,7 +1338,7 @@ class WorkOrderPdfParityTests(TestCase):
 
         render_request = build_workorder_pdf_render_request(workorder=workorder)
 
-        self.assertEqual(render_request.filename, f"ordem_servico_{workorder.public_number}.pdf")
+        self.assertEqual(render_request.filename, f"ordem_servico_{workorder.get_id}.pdf")
 
 
 class WorkOrderInternalPdfTests(TestCase):
@@ -1360,7 +1360,7 @@ class WorkOrderInternalPdfTests(TestCase):
         active_workshop_mock.return_value = workshop
         render_document_mock.return_value = DocumentPayload(
             content=b"%PDF-base",
-            filename=f"ordem_servico_{workorder.public_number}_base.pdf",
+            filename=f"ordem_servico_{workorder.get_id}_base.pdf",
         )
 
         response = visualizar_pdf_workorder(self.factory.get("/", {"variant": "base", "download": "1"}), workorder.id)
@@ -1406,7 +1406,7 @@ class WorkOrderInternalPdfTests(TestCase):
         download_signed_mock.side_effect = SignatureDeliveryServiceError("erro")
         render_document_mock.return_value = DocumentPayload(
             content=b"%PDF-base",
-            filename=f"ordem_servico_{workorder.public_number}_base.pdf",
+            filename=f"ordem_servico_{workorder.get_id}_base.pdf",
         )
 
         response = visualizar_pdf_workorder(self.factory.get("/"), workorder.id)
@@ -1435,7 +1435,7 @@ class WorkOrderInternalPdfTests(TestCase):
 
         render_document_mock.return_value = DocumentPayload(
             content=b"%PDF-workorder",
-            filename=f"ordem_servico_{workorder.public_number}.pdf",
+            filename=f"ordem_servico_{workorder.get_id}.pdf",
         )
 
         response = signature_file(self.factory.get("/"), token)
@@ -1468,9 +1468,9 @@ class WorkOrderSignatureDeliveryTests(TestCase):
 
         self.assertEqual(result.envelope_id, "env-83")
         _, kwargs = send_document_mock.call_args
-        self.assertEqual(kwargs["file_name"], f"ordem_servico-{workorder.public_number}.pdf")
+        self.assertEqual(kwargs["file_name"], f"ordem_servico-{workorder.get_id}.pdf")
         self.assertEqual(kwargs["document_ref_id"], f"workorder-{workorder.id}")
-        self.assertEqual(kwargs["title"], f"Ordem de servico #{workorder.public_number}")
+        self.assertEqual(kwargs["title"], f"Ordem de servico #{workorder.get_id}")
         self.assertEqual(kwargs["message"], "Segue ordem de servico para assinatura.")
         self.assertEqual(kwargs["signatory"]["id"], f"customer-{workorder.id}")
         self.assertEqual(kwargs["signatory"]["authMethod"], "WHATSAPP")

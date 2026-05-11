@@ -1145,7 +1145,7 @@ def visualizar_pdf_workorder(request, pk):
             logger.warning(
                 "Falha ao carregar PDF assinado da ordem de servico; retornando PDF base",
                 extra={
-                    "workorder_id": workorder.id,
+                    "workorder_id": workorder.get_id,
                     "document_id": workorder.signature_document_id,
                     "envelope_id": workorder.signature_external_id,
                 },
@@ -1155,10 +1155,10 @@ def visualizar_pdf_workorder(request, pk):
         document = render_workorder_pdf_document(
             workorder=workorder,
             request=request,
-            filename=f"ordem_servico_{workorder.public_number}_base.pdf",
+            filename=f"ordem_servico_{workorder.get_id}_base.pdf",
         )
     except Exception:
-        logger.exception("Falha ao gerar PDF base da ordem de servico", extra={"workorder_id": workorder.id})
+        logger.exception("Falha ao gerar PDF base da ordem de servico", extra={"workorder_id": workorder.get_id})
         return HttpResponse("Erro ao gerar PDF", status=500)
 
     return build_pdf_http_response(document=document, download=should_download)
@@ -1185,10 +1185,10 @@ def signature_file(request, token):
         document = render_workorder_pdf_document(
             workorder=workorder,
             request=request,
-            filename=f"ordem_servico_{workorder.public_number}.pdf",
+            filename=f"ordem_servico_{workorder.get_id}.pdf",
         )
     except Exception:
-        logger.exception("Falha ao gerar PDF via Playwright para assinatura da ordem de servico", extra={"workorder_id": workorder.id})
+        logger.exception("Falha ao gerar PDF via Playwright para assinatura da ordem de servico", extra={"workorder_id": workorder.get_id})
         return HttpResponse("Erro ao gerar arquivo de assinatura", status=500)
 
     return build_pdf_http_response(document=document, download=False)

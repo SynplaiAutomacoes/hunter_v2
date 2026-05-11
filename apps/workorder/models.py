@@ -54,7 +54,7 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def public_number(self) -> int:
-        return self.budget_id
+        return self.get_id
 
     @property
     def workorder_status_badge(self):
@@ -129,6 +129,10 @@ class WorkOrder(TimeStampedModel):
             return Money(0, "BRL")
 
         return salario_mecanicos / horas_uteis_mes
+
+    @property
+    def get_id(self) -> int:
+        return self.budget.pk
 
     @property
     def total_labor_cost_value(self) -> Money:
@@ -541,7 +545,7 @@ class WorkOrder(TimeStampedModel):
         verbose_name_plural = "Ordens de Serviço"
 
     def __str__(self):
-        return f"OS #{self.public_number} | WorkOrder #{self.id}"
+        return f"OS #{self.get_id} | WorkOrder #{self.id}"
 
 
 class WorkOrderPaymentMethod(TimeStampedModel):
