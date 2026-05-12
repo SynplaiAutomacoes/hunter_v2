@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 def _log_request_context(request, scope: str, **extra) -> None:
-    logger.warning(
+    logger.debug(
         "[SCHED_DEBUG] %s method=%s path=%s htmx=%s HX-Request=%s HX-Target=%s HX-Current-URL=%s extra=%s",
         scope,
         request.method,
@@ -50,15 +50,21 @@ def _parse_request_datetime(raw_value: str | None) -> datetime | None:
 
     dt = parse_datetime(value)
     if dt is None:
+        parsed_date = parse_date(value)
+        if parsed_date:
+            naive = datetime.combine(parsed_date, time.min)
+            aware = timezone.make_aware(naive, timezone.get_current_timezone())
+            logger.debug("[SCHED_DEBUG] parse_date raw=%s -> aware_local=%s", value, aware.isoformat())
+            return aware
         return None
 
     if timezone.is_naive(dt):
         aware = timezone.make_aware(dt, timezone.get_current_timezone())
-        logger.warning("[SCHED_DEBUG] parse_datetime naive raw=%s -> aware_local=%s", value, aware.isoformat())
+        logger.debug("[SCHED_DEBUG] parse_datetime naive raw=%s -> aware_local=%s", value, aware.isoformat())
         return aware
 
     localized = timezone.localtime(dt)
-    logger.warning("[SCHED_DEBUG] parse_datetime aware raw=%s -> local=%s", value, localized.isoformat())
+    logger.debug("[SCHED_DEBUG] parse_datetime aware raw=%s -> local=%s", value, localized.isoformat())
     return localized
 
 
@@ -73,7 +79,7 @@ def _parse_wall_datetime(raw_value: str | None) -> datetime | None:
 
     try:
         parsed = datetime.strptime(normalized, "%Y-%m-%dT%H:%M")
-        logger.warning("[SCHED_DEBUG] parse_wall raw=%s -> parsed=%s", value, parsed.isoformat())
+        logger.debug("[SCHED_DEBUG] parse_wall raw=%s -> parsed=%s", value, parsed.isoformat())
         return parsed
     except ValueError:
         return None
@@ -91,7 +97,7 @@ def _parse_request_timestamp(raw_value: str | None) -> datetime | None:
 
     utc_dt = datetime.fromtimestamp(milliseconds / 1000, tz=UTC)
     localized = timezone.localtime(utc_dt)
-    logger.warning("[SCHED_DEBUG] parse_ts raw=%s -> utc=%s local=%s", value, utc_dt.isoformat(), localized.isoformat())
+    logger.debug("[SCHED_DEBUG] parse_ts raw=%s -> utc=%s local=%s", value, utc_dt.isoformat(), localized.isoformat())
     return localized
 
 

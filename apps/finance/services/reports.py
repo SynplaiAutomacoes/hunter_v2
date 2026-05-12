@@ -36,6 +36,8 @@ def build_financial_overview(
     budget_plan_ids: Iterable[int] | None = None,
     bank_account_id: int | str | None = None,
     agent: str | None = None,
+    opened_by_id: int | str | None = None,
+    payment_method_id: int | str | None = None,
 ) -> FinancialOverview:
     total_credits = _ZERO_DECIMAL
     paid_credits = _ZERO_DECIMAL
@@ -58,6 +60,11 @@ def build_financial_overview(
             movements = movements.filter(bank_account__isnull=True)
         else:
             movements = movements.filter(bank_account_id=bank_account_id)
+
+    if opened_by_id is not None:
+        movements = movements.filter(user_id=opened_by_id)
+    if payment_method_id is not None:
+        movements = movements.filter(payment_method_id=payment_method_id)
 
     if agent:
         if agent.startswith("coll_"):
@@ -111,6 +118,11 @@ def build_financial_overview(
                 paid_credit_movements = paid_credit_movements.filter(supplier_id=agent.replace("supp_", ""))
             elif agent.startswith("wo_"):
                 paid_credit_movements = paid_credit_movements.filter(workorder_id=agent.replace("wo_", ""))
+
+        if opened_by_id is not None:
+            paid_credit_movements = paid_credit_movements.filter(user_id=opened_by_id)
+        if payment_method_id is not None:
+            paid_credit_movements = paid_credit_movements.filter(payment_method_id=payment_method_id)
 
         if search:
             search_query = build_text_search_query(

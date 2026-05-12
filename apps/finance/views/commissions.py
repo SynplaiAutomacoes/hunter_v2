@@ -91,7 +91,7 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
                     "workorder__budget__notes",
                 ),
             )
-            workorder_query = Q(workorder__id__icontains=search)
+            workorder_query = Q(workorder__id__icontains=search) | Q(workorder__budget__id__icontains=search)
             queryset = queryset.filter(search_query | workorder_query if search_query.children else workorder_query)
 
         return queryset
@@ -143,14 +143,14 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
             rows.append(
                 {
                     "collaborator_name": entry.collaborator.name,
-                    "workorder_id": entry.workorder_id,
+                    "workorder_id": entry.workorder.budget_id,
                     "workorder_url": reverse("workorder:workorder_detail", kwargs={"pk": entry.workorder_id}),
                     "customer_name": customer.name if customer is not None else "-",
                     "description": self._resolve_workorder_description(entry),
                     "reference": f"{entry.reference_month:02d}/{entry.reference_year}",
                     "applied_at": entry.criado_em.date() if entry.criado_em else None,
                     "percentage": f"{(entry.percentage * Decimal('100')).quantize(Decimal('0.01'))}%",
-                    "base_amount": entry.base_amount,
+                    "base_amount": entry.workorder.total_services_value,
                     "commission_amount": entry.commission_amount,
                     "status": entry.status,
                     "status_label": entry.get_status_display(),

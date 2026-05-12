@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 
 import requests
@@ -6,6 +7,9 @@ import requests
 from apps.customer.vehicle_engine import normalize_vehicle_engine_choice
 from apps.customer.models import Vehicle, Customer
 from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice
+
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_vehicle_years(raw_year: object) -> tuple[str | None, str | None]:
@@ -35,62 +39,85 @@ def _extract_brand_and_model(raw_brand_model: object, fipe_entry: dict[str, obje
     return brand or value, model
 
 
+def _first_present(*values: object) -> object:
+    for value in values:
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _mask_plate_api_url(url: str) -> str:
+    parts = url.rstrip("/").split("/")
+    if not parts:
+        return url
+
+    parts[-1] = "***"
+    return "/".join(parts)
+
+
+def _build_payload_preview(payload: object) -> str:
+    return str(payload)[:1000]
+
+
 def fetch_vehicle_data(plate):
     token = os.getenv("token_vehicle_api")
     url = f"https://wdapi2.com.br/consulta/{plate}/{token}"
 
     try:
+        logger.info("Plate API request started", extra={"plate": plate, "url": _mask_plate_api_url(url)})
         response = requests.get(url, timeout=10)
+        logger.info("Plate API request finished", extra={"plate": plate, "status_code": response.status_code})
         response.raise_for_status()
         data = response.json()
+        logger.info(
+            "Plate API response payload | plate=%s payload_type=%s payload_preview=%s",
+            plate,
+            type(data).__name__,
+            _build_payload_preview(data),
+            extra={"plate": plate, "payload_type": type(data).__name__, "payload_preview": _build_payload_preview(data)},
+        )
 
         payload = data.get("data") if isinstance(data, dict) else None
-        vehicle_data = payload.get("veiculo") if isinstance(payload, dict) else None
-        fipes = payload.get("fipes") if isinstance(payload, dict) else None
+        payload_data = payload if isinstance(payload, dict) else {}
+        vehicle_data = payload_data.get("veiculo") if isinstance(payload_data.get("veiculo"), dict) else payload_data
+        root_data = data if isinstance(data, dict) else {}
+        extra = root_data.get("extra") or payload_data.get("extra")
+        extra_data = extra if isinstance(extra, dict) else {}
+
+        fipes = payload_data.get("fipes") or root_data.get("fipes")
         fipe_entry = fipes[0] if isinstance(fipes, list) and fipes and isinstance(fipes[0], dict) else {}
 
-        year_fabrication, year_model = _parse_vehicle_years(vehicle_data.get("ano") if isinstance(vehicle_data, dict) else data.get("ano") or data.get("anoModelo"))
-        brand, model = _extract_brand_and_model(vehicle_data.get("marca_modelo") if isinstance(vehicle_data, dict) else data.get("MODELO") or data.get("modelo"), fipe_entry)
+        year_fabrication, year_model = _parse_vehicle_years(_first_present(vehicle_data.get("ano"), root_data.get("ano"), root_data.get("anoModelo")))
+        brand, model = _extract_brand_and_model(_first_present(vehicle_data.get("marca_modelo"), root_data.get("marca_modelo")), fipe_entry)
 
-        raw_engine = None
-        raw_fuel = None
-        raw_type = None
-        raw_color = None
-        raw_chassi = None
-        if isinstance(vehicle_data, dict):
-            raw_engine = vehicle_data.get("cilindradas") or vehicle_data.get("motor") or vehicle_data.get("potencia")
-            raw_fuel = vehicle_data.get("combustivel")
-            raw_type = vehicle_data.get("tipo_de_veiculo") or vehicle_data.get("tipo_veiculo")
-            raw_color = vehicle_data.get("cor")
-            raw_chassi = vehicle_data.get("chassi")
+        raw_engine = _first_present(vehicle_data.get("cilindradas"), vehicle_data.get("motor"), vehicle_data.get("potencia"), root_data.get("cilindradas"), root_data.get("motor"), root_data.get("potencia"), extra_data.get("cilindradas"), extra_data.get("motor"), extra_data.get("potencia"))
+        raw_fuel = _first_present(vehicle_data.get("combustivel"), root_data.get("combustivel"), extra_data.get("combustivel"))
+        raw_type = _first_present(vehicle_data.get("tipo_de_veiculo"), vehicle_data.get("tipo_veiculo"), root_data.get("tipo_de_veiculo"), root_data.get("tipo_veiculo"), extra_data.get("tipo_de_veiculo"), extra_data.get("tipo_veiculo"))
+        raw_color = _first_present(vehicle_data.get("cor"), root_data.get("cor"))
+        raw_chassi = _first_present(vehicle_data.get("chassi"), root_data.get("chassi"))
+        raw_renavam = _first_present(vehicle_data.get("renavam"), root_data.get("renavam"))
 
         vehicle_info = {
-            "brand": brand or data.get("MARCA") or data.get("marca"),
-            "model": model or data.get("MODELO") or data.get("modelo"),
-            "year_model": year_model or data.get("anoModelo"),
-            "year_fabrication": year_fabrication or data.get("ano"),
-            "color": raw_color or data.get("cor"),
-            "chassi": raw_chassi or data.get("chassi"),
+            "brand": brand or vehicle_data.get("MARCA") or vehicle_data.get("marca") or root_data.get("MARCA") or root_data.get("marca"),
+            "model": model or vehicle_data.get("MODELO") or vehicle_data.get("modelo") or root_data.get("MODELO") or root_data.get("modelo"),
+            "year_model": year_model or vehicle_data.get("anoModelo") or root_data.get("anoModelo"),
+            "year_fabrication": year_fabrication or vehicle_data.get("ano") or root_data.get("ano"),
+            "color": raw_color,
+            "chassi": raw_chassi,
+            "renavam": raw_renavam,
             "fuel": raw_fuel,
             "engine": raw_engine,
             "type": raw_type,
         }
 
-        extra = data.get("extra")
-        if isinstance(extra, dict):
-            vehicle_info.update(
-                {
-                    "fuel": vehicle_info.get("fuel") or extra.get("combustivel"),
-                    "engine": vehicle_info.get("engine") or extra.get("cilindradas"),
-                    "type": vehicle_info.get("type") or extra.get("tipo_veiculo"),
-                    "year_fabrication": extra.get("ano_fabricacao", vehicle_info["year_fabrication"]),
-                }
-            )
+        if extra_data:
+            vehicle_info.update({"year_fabrication": extra_data.get("ano_fabricacao", vehicle_info["year_fabrication"])})
 
         vehicle_info["engine"] = normalize_vehicle_engine_choice(vehicle_info.get("engine"))
         vehicle_info["fuel"] = normalize_vehicle_fuel_choice(vehicle_info.get("fuel"))
         return vehicle_info
     except (requests.RequestException, ValueError):
+        logger.exception("Plate API request failed", extra={"plate": plate, "url": _mask_plate_api_url(url)})
         return None
 
 

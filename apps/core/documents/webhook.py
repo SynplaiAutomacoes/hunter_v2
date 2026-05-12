@@ -11,6 +11,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 
 from apps.budget.models import Budget, BudgetStatus, SignatureStatus
+from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
 from apps.workorder.models import WorkOrder
 
 
@@ -143,6 +144,7 @@ def process_supersign_webhook_payload(*, payload: dict[str, Any]) -> HttpRespons
 
         if workorder is not None:
             workorder.mark_signature_approved()
+            sync_workorder_financial_movement(workorder=workorder)
             logger.info("Workorder marcada como assinatura aprovada por webhook", extra={"workorder_id": workorder.pk, "envelope_id": envelope_id})
     except Exception:
         logger.exception(

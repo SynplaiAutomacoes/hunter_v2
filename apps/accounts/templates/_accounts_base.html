@@ -22,7 +22,14 @@
 
             <div class="mt-6 card bg-base-100">
                 <div class="card-body">
-                    {% crispy form %}
+                    {% block accounts_form %}
+                    <form method="post" class="grid grid-cols-1 gap-4">
+                        {% csrf_token %}
+                        {% crispy form %}
+                    </form>
+                    {% endblock %}
+
+                    {% block accounts_actions %}{% endblock %}
 
                     <div class="mt-4 text-sm">
                         {% block accounts_bottom_text %}{% endblock %}

@@ -27,10 +27,11 @@ from apps.core.documents.services import SignatureDeliveryServiceError
 from apps.core.documents.signature import normalize_signature_phone_number, parse_document_signature_token
 from apps.core.query_filters import apply_query_param_filters
 from apps.customer.models import Customer, Vehicle
+from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
 from apps.iam.utils import get_or_create_director_role
 from apps.stock.models import StockMovement, StockProduct
-from apps.workorder.forms import WorkOrderPaymentForm
+from apps.workorder.forms import WorkOrderCustomerApprovalForm, WorkOrderPaymentForm
 from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock
 from apps.workorder.documents.provider import build_workorder_pdf_render_request
 from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
@@ -45,6 +46,7 @@ from apps.workorder.service import (
 from apps.workorder.util import trigger_workorder_signature_send_if_needed
 from apps.workorder.views import WORKORDER_LIST_FILTERS, signature_file, signature_preview, visualizar_pdf_workorder
 from apps.workshops.models.workshops import Workshop
+from apps.workshops.tests import create_manager_user_with_workshop
 
 
 WORKORDER_TEST_DEFAULTS_PREPARED = False
@@ -154,7 +156,7 @@ class WorkOrderListFiltersTests(TestCase):
         matching_budget.vehicle = matching_vehicle
         matching_budget.save(update_fields=["customer", "vehicle"])
         matching_workorder = WorkOrder.objects.create(workshop=workshop, budget=matching_budget, status=WorkOrderStatus.APPROVED)
-        matching_created_at = timezone.now() - timedelta(days=3)
+        matching_created_at = (timezone.now() - timedelta(days=3)).replace(hour=12, minute=0, second=0, microsecond=0)
         WorkOrder.objects.filter(pk=matching_workorder.pk).update(criado_em=matching_created_at)
 
         other_customer = create_customer(workshop=workshop, suffix=71)
@@ -265,7 +267,7 @@ class WorkOrderListFiltersTests(TestCase):
     def test_workorder_list_shows_status_report_for_selected_status(self) -> None:
         workshop = self._login_with_active_workshop(suffix=75)
         in_range_workorder = WorkOrder.objects.create(workshop=workshop, budget=create_budget(workshop=workshop), status=WorkOrderStatus.APPROVED)
-        matching_created_at = timezone.now() - timedelta(days=2)
+        matching_created_at = (timezone.now() - timedelta(days=2)).replace(hour=12, minute=0, second=0, microsecond=0)
         WorkOrder.objects.filter(pk=in_range_workorder.pk).update(criado_em=matching_created_at)
         out_of_range_workorder = WorkOrder.objects.create(workshop=workshop, budget=create_budget(workshop=workshop), status=WorkOrderStatus.APPROVED)
         WorkOrder.objects.filter(pk=out_of_range_workorder.pk).update(criado_em=timezone.now() - timedelta(days=10))
@@ -277,15 +279,32 @@ class WorkOrderListFiltersTests(TestCase):
         response = self.client.get(reverse("workorder:workorder_list"), {"status": WorkOrderStatus.APPROVED, "data_inicial": selected_date, "data_final": selected_date})
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["selected_status_report"], {"value": WorkOrderStatus.APPROVED, "label": "Veículo Entregue", "count": 1, "badge_class": "badge-success min-w-sm"})
-        self.assertContains(response, "Relatorio do status")
+        self.assertEqual(response.context["selection_report"]["count"], 1)
+        self.assertContains(response, "Resumo da selecao")
         self.assertContains(response, "Veículo Entregue")
-        self.assertContains(response, "O.S. com este status")
-        self.assertContains(response, "Imprimir relatorio em PDF")
+        self.assertContains(response, "Valor total")
+        self.assertContains(response, "Imprimir selecao em PDF")
         self.assertContains(response, f"url: '{reverse('workorder:status_report_pdf_preview')}?status={WorkOrderStatus.APPROVED}")
         self.assertContains(response, f"downloadUrl: '{reverse('workorder:status_report_pdf')}?download=1&status={WorkOrderStatus.APPROVED}")
         self.assertContains(response, f"data_inicial={selected_date}")
         self.assertContains(response, f"data_final={selected_date}")
+
+    def test_workorder_list_supports_multiple_statuses(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=51)
+        approved_workorder = WorkOrder.objects.create(workshop=workshop, budget=create_budget(workshop=workshop), status=WorkOrderStatus.APPROVED)
+        draft_workorder = WorkOrder.objects.create(workshop=workshop, budget=create_budget(workshop=workshop), status=WorkOrderStatus.DRAFT)
+        rejected_workorder = WorkOrder.objects.create(workshop=workshop, budget=create_budget(workshop=workshop), status=WorkOrderStatus.REJECTED)
+
+        params = QueryDict(mutable=True)
+        params.setlist("status", [WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT])
+
+        response = self.client.get(reverse("workorder:workorder_list"), params)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertQuerySetEqual(response.context["workorder"].order_by("pk"), [approved_workorder, draft_workorder], transform=lambda obj: obj)
+        self.assertNotIn(rejected_workorder, response.context["workorder"])
+        self.assertEqual(response.context["selection_report"]["count"], 2)
+        self.assertEqual(len(response.context["selection_report"]["badges"]), 2)
 
     def test_workorder_status_report_counts_only_selected_status(self) -> None:
         workshop = self._login_with_active_workshop(suffix=76)
@@ -305,7 +324,7 @@ class WorkOrderListFiltersTests(TestCase):
         other_budget.save(update_fields=["customer", "vehicle"])
 
         matching_workorder = WorkOrder.objects.create(workshop=workshop, budget=matching_budget, status=WorkOrderStatus.APPROVED)
-        matching_created_at = timezone.now() - timedelta(days=3)
+        matching_created_at = (timezone.now() - timedelta(days=3)).replace(hour=12, minute=0, second=0, microsecond=0)
         WorkOrder.objects.filter(pk=matching_workorder.pk).update(criado_em=matching_created_at)
         other_workorder = WorkOrder.objects.create(workshop=workshop, budget=other_budget, status=WorkOrderStatus.APPROVED)
         WorkOrder.objects.filter(pk=other_workorder.pk).update(criado_em=matching_created_at)
@@ -323,7 +342,7 @@ class WorkOrderListFiltersTests(TestCase):
         self.assertQuerySetEqual(response.context["workorder"].order_by("pk"), [matching_workorder], transform=lambda obj: obj)
         self.assertNotIn(other_workorder, response.context["workorder"])
         self.assertNotIn(out_of_range_workorder, response.context["workorder"])
-        self.assertEqual(response.context["selected_status_report"]["count"], 2)
+        self.assertEqual(response.context["selection_report"]["count"], 1)
 
     def test_workorder_list_hides_status_report_without_valid_status(self) -> None:
         workshop = self._login_with_active_workshop(suffix=78)
@@ -332,9 +351,9 @@ class WorkOrderListFiltersTests(TestCase):
         response = self.client.get(reverse("workorder:workorder_list"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertIsNone(response.context["selected_status_report"])
-        self.assertNotContains(response, "Relatorio do status")
-        self.assertNotContains(response, "Imprimir relatorio em PDF")
+        self.assertIsNone(response.context["selection_report"])
+        self.assertNotContains(response, "Resumo da selecao")
+        self.assertNotContains(response, "Imprimir selecao em PDF")
 
     def test_workorder_list_htmx_partial_keeps_status_report_in_table_content(self) -> None:
         workshop = self._login_with_active_workshop(suffix=79)
@@ -345,9 +364,9 @@ class WorkOrderListFiltersTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'id="workorder-table-content"')
-        self.assertContains(response, "Relatorio do status")
+        self.assertContains(response, "Resumo da selecao")
         self.assertContains(response, "Veículo Entregue")
-        self.assertContains(response, "Imprimir relatorio em PDF")
+        self.assertContains(response, "Imprimir selecao em PDF")
 
 
 class WorkOrderStatusReportPdfTests(TestCase):
@@ -371,7 +390,7 @@ class WorkOrderStatusReportPdfTests(TestCase):
         budget.save(update_fields=["customer", "vehicle"])
 
         approved_workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED)
-        matching_created_at = timezone.now() - timedelta(days=4)
+        matching_created_at = (timezone.now() - timedelta(days=4)).replace(hour=12, minute=0, second=0, microsecond=0)
         WorkOrder.objects.filter(pk=approved_workorder.pk).update(criado_em=matching_created_at)
 
         other_customer = create_customer(workshop=workshop, suffix=911)
@@ -390,10 +409,10 @@ class WorkOrderStatusReportPdfTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "<!DOCTYPE html>", html=False)
-        self.assertContains(response, "Relat&oacute;rio de Ordens de Servi&ccedil;o por Status", html=False)
+        self.assertContains(response, "Relatorio de Ordens de Servico Filtradas")
         self.assertContains(response, workshop.name)
         self.assertContains(response, "Veículo Entregue")
-        self.assertContains(response, f"#{approved_workorder.pk}")
+        self.assertContains(response, str(approved_workorder.pk))
         self.assertContains(response, customer.name)
         self.assertContains(response, vehicle.plate)
         self.assertNotContains(response, f"#{out_of_range_workorder.pk}")
@@ -413,7 +432,7 @@ class WorkOrderStatusReportPdfTests(TestCase):
         self.assertContains(response, f"#{workorder.pk}")
 
     @patch("apps.workorder.views.render_workorder_status_report_pdf_document")
-    def test_status_report_pdf_view_returns_attachment_and_ignores_other_filters(self, render_document_mock) -> None:
+    def test_status_report_pdf_view_returns_attachment_with_filtered_selection(self, render_document_mock) -> None:
         workshop = self._login_with_active_workshop(suffix=92)
 
         matching_customer = create_customer(workshop=workshop, suffix=92)
@@ -431,7 +450,7 @@ class WorkOrderStatusReportPdfTests(TestCase):
         other_budget.save(update_fields=["customer", "vehicle"])
 
         matching_workorder = WorkOrder.objects.create(workshop=workshop, budget=matching_budget, status=WorkOrderStatus.APPROVED)
-        matching_created_at = timezone.now() - timedelta(days=5)
+        matching_created_at = (timezone.now() - timedelta(days=5)).replace(hour=12, minute=0, second=0, microsecond=0)
         WorkOrder.objects.filter(pk=matching_workorder.pk).update(criado_em=matching_created_at)
         other_workorder = WorkOrder.objects.create(workshop=workshop, budget=other_budget, status=WorkOrderStatus.APPROVED)
         WorkOrder.objects.filter(pk=other_workorder.pk).update(criado_em=matching_created_at)
@@ -439,7 +458,7 @@ class WorkOrderStatusReportPdfTests(TestCase):
         WorkOrder.objects.filter(pk=out_of_range_workorder.pk).update(criado_em=timezone.now() - timedelta(days=16))
         WorkOrder.objects.create(workshop=workshop, budget=create_budget(workshop=workshop), status=WorkOrderStatus.DRAFT)
 
-        render_document_mock.return_value = DocumentPayload(content=b"%PDF-status-report", filename="relatorio_ordens_servico_por_status_approved.pdf")
+        render_document_mock.return_value = DocumentPayload(content=b"%PDF-status-report", filename="relatorio_ordens_servico_filtradas.pdf")
         selected_date = matching_created_at.date().isoformat()
 
         response = self.client.get(
@@ -449,13 +468,14 @@ class WorkOrderStatusReportPdfTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"%PDF-status-report")
-        self.assertIn('attachment; filename="relatorio_ordens_servico_por_status_approved.pdf"', response["Content-Disposition"])
+        self.assertIn('attachment; filename="relatorio_ordens_servico_filtradas.pdf"', response["Content-Disposition"])
 
         context = render_document_mock.call_args.kwargs["context"]
-        self.assertEqual(context["selected_status_report"]["count"], 2)
-        self.assertCountEqual(context["report_workorders"], [matching_workorder, other_workorder])
+        self.assertEqual(context["selection_report"]["count"], 1)
+        self.assertCountEqual(context["report_workorders"], [matching_workorder])
+        self.assertNotIn(other_workorder, context["report_workorders"])
         self.assertNotIn(out_of_range_workorder, context["report_workorders"])
-        self.assertEqual(context["status_report_pdf_title"], "Relatorio de Ordens de Servico por Status")
+        self.assertEqual(context["status_report_pdf_title"], "Relatorio de Ordens de Servico Filtradas")
         self.assertEqual(context["status_report_period_label"], f"{matching_created_at.strftime('%d/%m/%Y')} a {matching_created_at.strftime('%d/%m/%Y')}")
 
     def test_status_report_pdf_views_return_404_without_valid_status(self) -> None:
@@ -658,6 +678,7 @@ class WorkOrderDetailViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("summary_product_items", response.context)
         self.assertIn("summary_service_items", response.context)
+        self.assertContains(response, "Ordem de Serviço")
         self.assertContains(response, direct_product.name)
         self.assertContains(response, kit_product.name)
         self.assertContains(response, direct_service.name)
@@ -700,6 +721,33 @@ class WorkOrderDetailViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers.get("Cache-Control"), "no-store")
         self.assertContains(response, "55,00")
+
+    def test_detail_view_shows_reopen_button_and_disables_cancel_reject_for_approved_workorder(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=98)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+
+        response = self.client.get(reverse("workorder:workorder_detail", args=[workorder.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Reabrir O.S.")
+        self.assertContains(response, 'title="Reabra a O.S. para estornar os lançamentos antes de cancelar."', html=False)
+        self.assertContains(response, 'title="Reabra a O.S. para estornar os lançamentos antes de rejeitar."', html=False)
+
+    def test_detail_view_shows_reopen_button_for_manager(self) -> None:
+        manager_user, workshop, _ = create_manager_user_with_workshop(suffix=99)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+
+        self.client.force_login(manager_user)
+        session = self.client.session
+        session["active_workshop_id"] = workshop.pk
+        session.save()
+
+        response = self.client.get(reverse("workorder:workorder_detail", args=[workorder.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Reabrir O.S.")
 
 
 class WorkOrderKitSelectionCompatibilityTests(TestCase):
@@ -1325,7 +1373,7 @@ class WorkOrderPdfParityTests(TestCase):
         self.assertEqual(workorder_render_request.template_name, "workorder/partials/pdf/visualizarPDF.html")
         self.assertEqual(workorder_render_request.filename, filename)
         self.assertEqual(workorder_render_request.context["workorder"], workorder)
-        self.assertEqual(workorder_render_request.context["budget"].id, workorder.id)
+        self.assertEqual(workorder_render_request.context["budget"].id, workorder.get_id)
         self.assertEqual(workorder_render_request.context["budget"].resolved_discount_value, workorder.pricing_snapshot.resolved_discount_value)
         self.assertEqual(workorder_render_request.context["pages"][0]["produtos"][0]["unit_price"], Money("50.00", "BRL"))
         self.assertEqual(workorder_render_request.context["pages"][0]["produtos"][0]["total_price"], Money("50.00", "BRL"))
@@ -1337,12 +1385,36 @@ class WorkOrderPdfParityTests(TestCase):
 
         render_request = build_workorder_pdf_render_request(workorder=workorder)
 
-        self.assertEqual(render_request.filename, f"ordem_servico_{workorder.id}.pdf")
+        self.assertEqual(render_request.filename, f"ordem_servico_{workorder.get_id}.pdf")
 
 
 class WorkOrderInternalPdfTests(TestCase):
     def setUp(self) -> None:
         self.factory = RequestFactory()
+
+    @patch("apps.workorder.views.get_active_workshop_or_404")
+    @patch("apps.workorder.views.render_workorder_pdf_document")
+    @patch("apps.workorder.views.download_signed_document_content")
+    def test_visualizar_pdf_workorder_variant_base_skips_signed_download(self, download_signed_mock, render_document_mock, active_workshop_mock) -> None:
+        workshop = create_workshop(suffix=86)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.signature_request_status = WorkOrderSignatureStatus.APPROVED
+        workorder.signature_external_id = "env-86"
+        workorder.signature_document_id = "doc-86"
+        workorder.save(update_fields=["signature_request_status", "signature_external_id", "signature_document_id"])
+
+        active_workshop_mock.return_value = workshop
+        render_document_mock.return_value = DocumentPayload(
+            content=b"%PDF-base",
+            filename=f"ordem_servico_{workorder.get_id}_base.pdf",
+        )
+
+        response = visualizar_pdf_workorder(self.factory.get("/", {"variant": "base", "download": "1"}), workorder.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"%PDF-base")
+        download_signed_mock.assert_not_called()
 
     @patch("apps.workorder.views.get_active_workshop_or_404")
     @patch("apps.workorder.views.download_signed_document_content")
@@ -1381,7 +1453,7 @@ class WorkOrderInternalPdfTests(TestCase):
         download_signed_mock.side_effect = SignatureDeliveryServiceError("erro")
         render_document_mock.return_value = DocumentPayload(
             content=b"%PDF-base",
-            filename=f"ordem_servico_{workorder.id}_base.pdf",
+            filename=f"ordem_servico_{workorder.get_id}_base.pdf",
         )
 
         response = visualizar_pdf_workorder(self.factory.get("/"), workorder.id)
@@ -1410,7 +1482,7 @@ class WorkOrderInternalPdfTests(TestCase):
 
         render_document_mock.return_value = DocumentPayload(
             content=b"%PDF-workorder",
-            filename=f"ordem_servico_{workorder.id}.pdf",
+            filename=f"ordem_servico_{workorder.get_id}.pdf",
         )
 
         response = signature_file(self.factory.get("/"), token)
@@ -1443,9 +1515,9 @@ class WorkOrderSignatureDeliveryTests(TestCase):
 
         self.assertEqual(result.envelope_id, "env-83")
         _, kwargs = send_document_mock.call_args
-        self.assertEqual(kwargs["file_name"], f"ordem_servico-{workorder.id}.pdf")
+        self.assertEqual(kwargs["file_name"], f"ordem_servico-{workorder.get_id}.pdf")
         self.assertEqual(kwargs["document_ref_id"], f"workorder-{workorder.id}")
-        self.assertEqual(kwargs["title"], f"Ordem de servico #{workorder.id}")
+        self.assertEqual(kwargs["title"], f"Ordem de servico #{workorder.get_id}")
         self.assertEqual(kwargs["message"], "Segue ordem de servico para assinatura.")
         self.assertEqual(kwargs["signatory"]["id"], f"customer-{workorder.id}")
         self.assertEqual(kwargs["signatory"]["authMethod"], "WHATSAPP")
@@ -1623,6 +1695,15 @@ class WorkOrderSignatureWorkflowRuleTests(TestCase):
         stock_product = StockProduct.objects.get(workshop=workshop, product=product)
         stock_product.current_quantity = 3
         stock_product.save(update_fields=["current_quantity"])
+        payment_method = PaymentMethod.objects.create(workshop=workshop, description="Pix", installments_count=1)
+        WorkOrderPaymentMethod.objects.create(
+            workorder=workorder,
+            payment_method=payment_method,
+            first_installment_amount=workorder.total_budget_value,
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 20),
+        )
 
         send_signature_mock.return_value = SignatureDeliveryResult(
             envelope_id="env-15",
@@ -1637,6 +1718,22 @@ class WorkOrderSignatureWorkflowRuleTests(TestCase):
         self.assertEqual(toast_type, "success")
         self.assertEqual(toast_message, "Ordem de serviço enviada para assinatura do cliente.")
         self.assertEqual(workorder.signature_request_status, WorkOrderSignatureStatus.SENT)
+
+    @patch("apps.workorder.util.send_workorder_for_signature")
+    def test_signature_send_blocks_when_payment_is_pending(self, send_signature_mock) -> None:
+        workshop = create_workshop(suffix=16)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=16, selling_price="100.00")
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.sync_from_budget()
+
+        toast_type, toast_message = trigger_workorder_signature_send_if_needed(workorder=workorder)
+
+        self.assertEqual(toast_type, "error")
+        self.assertIn("Receba o pagamento integral da ordem de serviço", toast_message)
+        send_signature_mock.assert_not_called()
 
 
 class WorkOrderPaymentFormTests(TestCase):
@@ -1905,6 +2002,7 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(payload["km_final"], 12550)
         self.assertEqual(self.workorder.km_final, 12550)
         self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
+        self.assertIsNone(self.workorder.delivered_at)
         self.assertIsNone(vehicle.km)
 
     def test_update_km_final_rejects_value_lower_than_initial_km(self) -> None:
@@ -1930,6 +2028,266 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertIn("KM inicial (12.000)", payload["errors"][0])
         self.assertIsNone(self.workorder.km_final)
         self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
+
+    def test_approve_status_persists_delivered_at(self) -> None:
+        customer = create_customer(workshop=self.workshop, suffix=243)
+        vehicle = create_vehicle(workshop=self.workshop, customer=customer, suffix=243)
+        product = create_product(workshop=self.workshop, suffix=243)
+        BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, product=product, quantity=1)
+        stock_product = StockProduct.objects.get(workshop=self.workshop, product=product)
+        stock_product.current_quantity = 5
+        stock_product.save(update_fields=["current_quantity"])
+        self.workorder.sync_from_budget()
+        self.budget.customer = customer
+        self.budget.vehicle = vehicle
+        self.budget.current_km = 12000
+        self.budget.save(update_fields=["customer", "vehicle", "current_km"])
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
+        WorkOrderPaymentMethod.objects.create(
+            workorder=self.workorder,
+            payment_method=payment_method,
+            first_installment_amount=self.workorder.total_budget_value,
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 24),
+        )
+
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "approve"]),
+            data={
+                "km_final": "12500",
+                "unsigned_delivery_reason": "Cliente retirou presencialmente e autorizou verbalmente.",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Refresh"), "true")
+        self.assertEqual(self.workorder.status, WorkOrderStatus.APPROVED)
+        self.assertIsNotNone(self.workorder.delivered_at)
+        self.assertEqual(self.workorder.unsigned_delivery_reason, "Cliente retirou presencialmente e autorizou verbalmente.")
+
+    def test_approve_status_requires_reason_when_signature_is_pending(self) -> None:
+        customer = create_customer(workshop=self.workshop, suffix=245)
+        vehicle = create_vehicle(workshop=self.workshop, customer=customer, suffix=245)
+        product = create_product(workshop=self.workshop, suffix=245)
+        BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, product=product, quantity=1)
+        stock_product = StockProduct.objects.get(workshop=self.workshop, product=product)
+        stock_product.current_quantity = 5
+        stock_product.save(update_fields=["current_quantity"])
+        self.workorder.sync_from_budget()
+        self.budget.customer = customer
+        self.budget.vehicle = vehicle
+        self.budget.current_km = 12000
+        self.budget.save(update_fields=["customer", "vehicle", "current_km"])
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
+        WorkOrderPaymentMethod.objects.create(
+            workorder=self.workorder,
+            payment_method=payment_method,
+            first_installment_amount=self.workorder.total_budget_value,
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 24),
+        )
+
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "approve"]),
+            data={"km_final": "12500", "unsigned_delivery_reason": ""},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
+        self.assertContains(response, "Informe a justificativa para entregar o veículo sem a assinatura da O.S.")
+
+    def test_approval_form_does_not_require_reason_when_signature_is_approved(self) -> None:
+        self.workorder.signature_request_status = WorkOrderSignatureStatus.APPROVED
+        self.workorder.save(update_fields=["signature_request_status"])
+
+        form = WorkOrderCustomerApprovalForm(data={"km_final": "12500", "unsigned_delivery_reason": ""}, workorder=self.workorder)
+
+        self.assertTrue(form.is_valid())
+
+    def test_approve_status_allows_delivery_without_reason_when_signature_is_approved(self) -> None:
+        customer = create_customer(workshop=self.workshop, suffix=246)
+        vehicle = create_vehicle(workshop=self.workshop, customer=customer, suffix=246)
+        product = create_product(workshop=self.workshop, suffix=246)
+        BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, product=product, quantity=1)
+        stock_product = StockProduct.objects.get(workshop=self.workshop, product=product)
+        stock_product.current_quantity = 5
+        stock_product.save(update_fields=["current_quantity"])
+        self.workorder.sync_from_budget()
+        self.workorder.signature_request_status = WorkOrderSignatureStatus.APPROVED
+        self.workorder.save(update_fields=["signature_request_status"])
+        self.budget.customer = customer
+        self.budget.vehicle = vehicle
+        self.budget.current_km = 12000
+        self.budget.save(update_fields=["customer", "vehicle", "current_km"])
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
+        WorkOrderPaymentMethod.objects.create(
+            workorder=self.workorder,
+            payment_method=payment_method,
+            first_installment_amount=self.workorder.total_budget_value,
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 24),
+        )
+
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "approve"]),
+            data={"km_final": "12500", "unsigned_delivery_reason": ""},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Refresh"), "true")
+        self.assertEqual(self.workorder.status, WorkOrderStatus.APPROVED)
+        self.assertEqual(self.workorder.unsigned_delivery_reason, "")
+
+    def test_approve_status_blocks_delivery_when_payment_is_pending(self) -> None:
+        customer = create_customer(workshop=self.workshop, suffix=244)
+        vehicle = create_vehicle(workshop=self.workshop, customer=customer, suffix=244)
+        product = create_product(workshop=self.workshop, suffix=244, selling_price="120.00")
+        BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, product=product, quantity=1)
+        stock_product = StockProduct.objects.get(workshop=self.workshop, product=product)
+        stock_product.current_quantity = 5
+        stock_product.save(update_fields=["current_quantity"])
+        self.workorder.sync_from_budget()
+        self.budget.customer = customer
+        self.budget.vehicle = vehicle
+        self.budget.current_km = 12000
+        self.budget.save(update_fields=["customer", "vehicle", "current_km"])
+
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "approve"]),
+            data={"km_final": "12500"},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
+        self.assertIsNone(self.workorder.delivered_at)
+        self.assertIn("showToast", response.headers.get("HX-Trigger", ""))
+
+    def test_cancel_status_is_blocked_after_delivery(self) -> None:
+        self.workorder.status = WorkOrderStatus.APPROVED
+        self.workorder.delivered_at = timezone.now()
+        self.workorder.save(update_fields=["status", "delivered_at"])
+
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "cancel"]),
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.workorder.status, WorkOrderStatus.APPROVED)
+        self.assertIn("Reabrir O.S.", response.content.decode("utf-8"))
+        self.assertIn("showToast", response.headers.get("HX-Trigger", ""))
+
+    def test_reopen_status_requires_reason_and_reverts_stock_and_financial_movements(self) -> None:
+        customer = create_customer(workshop=self.workshop, suffix=247)
+        vehicle = create_vehicle(workshop=self.workshop, customer=customer, suffix=247)
+        product = create_product(workshop=self.workshop, suffix=247, selling_price="120.00")
+        BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, product=product, quantity=1)
+        stock_product = StockProduct.objects.get(workshop=self.workshop, product=product)
+        stock_product.current_quantity = 5
+        stock_product.save(update_fields=["current_quantity"])
+        self.workorder.sync_from_budget()
+        self.budget.customer = customer
+        self.budget.vehicle = vehicle
+        self.budget.current_km = 12000
+        self.budget.status = "approved"
+        self.budget.save(update_fields=["customer", "vehicle", "current_km", "status"])
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
+        WorkOrderPaymentMethod.objects.create(
+            workorder=self.workorder,
+            payment_method=payment_method,
+            first_installment_amount=self.workorder.total_budget_value,
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 24),
+        )
+
+        self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "approve"]),
+            data={"km_final": "12500", "unsigned_delivery_reason": "Cliente retirou sem assinar."},
+            HTTP_HX_REQUEST="true",
+        )
+        self.workorder.refresh_from_db()
+        stock_product.refresh_from_db()
+        original_stock_movement = StockMovement.objects.get(workorder=self.workorder, type=StockMovement.MovementType.EXIT)
+        original_financial_movement = FinancialMovement.objects.get(workorder=self.workorder, movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT)
+
+        invalid_response = self.client.post(
+            reverse("workorder:reopen", args=[self.workorder.pk]),
+            data={"reopen_reason": ""},
+            HTTP_HX_REQUEST="true",
+        )
+        self.assertEqual(invalid_response.status_code, 200)
+        self.assertContains(invalid_response, "Informe a justificativa para reabrir a O.S.")
+
+        response = self.client.post(
+            reverse("workorder:reopen", args=[self.workorder.pk]),
+            data={"reopen_reason": "Cliente pediu reexecução do serviço."},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+        stock_product.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Refresh"), "true")
+        self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
+        self.assertIsNone(self.workorder.delivered_at)
+        self.assertEqual(self.workorder.reopen_reason, "Cliente pediu reexecução do serviço.")
+        self.assertEqual(stock_product.current_quantity, 5)
+
+        reversal_stock = StockMovement.objects.get(reversal_of=original_stock_movement)
+        self.assertEqual(reversal_stock.type, StockMovement.MovementType.ENTRY)
+        self.assertEqual(reversal_stock.quantity, 1)
+
+        reversal_financial = FinancialMovement.objects.get(reversal_of=original_financial_movement)
+        self.assertEqual(reversal_financial.direction, FinancialMovement.MovementDirection.DEBIT)
+        self.assertEqual(reversal_financial.amount, original_financial_movement.amount)
+        self.assertEqual(reversal_financial.financial_observation, "Cliente pediu reexecução do serviço.")
+
+    def test_manager_can_reopen_approved_workorder(self) -> None:
+        manager_user, workshop, _ = create_manager_user_with_workshop(suffix=48)
+        customer = create_customer(workshop=workshop, suffix=248)
+        vehicle = create_vehicle(workshop=workshop, customer=customer, suffix=248)
+        budget = create_budget(workshop=workshop)
+        budget.customer = customer
+        budget.vehicle = vehicle
+        budget.current_km = 12000
+        budget.status = "approved"
+        budget.save(update_fields=["customer", "vehicle", "current_km", "status"])
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED, delivered_at=timezone.now())
+
+        self.client.force_login(manager_user)
+        session = self.client.session
+        session["active_workshop_id"] = workshop.pk
+        session.save()
+
+        response = self.client.post(
+            reverse("workorder:reopen", args=[workorder.pk]),
+            data={"reopen_reason": "Revisão autorizada pela gerência."},
+            HTTP_HX_REQUEST="true",
+        )
+
+        workorder.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Refresh"), "true")
+        self.assertEqual(workorder.status, WorkOrderStatus.DRAFT)
 
     def test_payment_form_uses_pending_balance_after_discount(self) -> None:
         self.workorder.discount_value = Money("10.00", "BRL")

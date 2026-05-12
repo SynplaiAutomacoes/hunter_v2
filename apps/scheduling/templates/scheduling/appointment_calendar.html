@@ -308,9 +308,9 @@
                     return;
                 }
                 const params = new URLSearchParams();
-                params.set('starts_at', startValue);
+                params.set('starts_at', normalizeCalendarDateTime(startValue));
                 if (endValue) {
-                    params.set('ends_at', endValue);
+                    params.set('ends_at', normalizeCalendarDateTime(endValue));
                 }
                 openModalFromUrl(`{{ create_url }}?${params.toString()}`);
             }
@@ -326,6 +326,20 @@
                 const hours = String(date.getHours()).padStart(2, '0');
                 const minutes = String(date.getMinutes()).padStart(2, '0');
                 return `${year}-${month}-${day}T${hours}:${minutes}`;
+            }
+
+            function normalizeCalendarDateTime(value) {
+                if (!value) return '';
+
+                if (value instanceof Date) {
+                    return formatWallDateTime(value);
+                }
+
+                const text = String(value);
+                if (text.includes('T') && text.length >= 16) {
+                    return text.slice(0, 16);
+                }
+                return text;
             }
 
             const calendar = new FullCalendar.Calendar(calendarEl, {
@@ -396,9 +410,9 @@
 
             function persistMove(info) {
                 const formData = new FormData();
-                formData.append('starts_at', info.event.startStr || '');
+                formData.append('starts_at', normalizeCalendarDateTime(info.event.start || info.event.startStr || ''));
                 if (info.event.endStr) {
-                    formData.append('ends_at', info.event.endStr);
+                    formData.append('ends_at', normalizeCalendarDateTime(info.event.end || info.event.endStr));
                 } else {
                     const plusOneHour = new Date(info.event.start.getTime() + (60 * 60 * 1000));
                     formData.append('ends_at', formatWallDateTime(plusOneHour));

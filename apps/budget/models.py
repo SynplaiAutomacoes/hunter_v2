@@ -658,10 +658,10 @@ class Budget(TimeStampedModel):
 
     @property
     def type_budget_badge(self):
-        if self.is_warranty_budget:
+        if self.is_warranty_budget or self.budget_type == BudgetType.WARRANTY:
             return {"text": "Garantia", "class": "badge-error"}
 
-        if self.budget_type == "courtesy":
+        if self.budget_type == BudgetType.COURTESY:
             return {"text": "Cortesia", "class": "badge-info"}
 
         return {"text": "Venda", "class": "badge-success"}

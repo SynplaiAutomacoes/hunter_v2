@@ -70,6 +70,8 @@ class StockMovement(TimeStampedModel):
     type = models.CharField(max_length=10, choices=MovementType.choices, verbose_name="Tipo")
     supplier = models.ForeignKey(Supplier, on_delete=models.SET_NULL, verbose_name="Fornecedor", null=True, blank=True, related_name="movements")
     transcation_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, related_name="movements", null=True)
+    workorder = models.ForeignKey("workorder.WorkOrder", on_delete=models.SET_NULL, null=True, blank=True, related_name="stock_movements")
+    reversal_of = models.OneToOneField("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="reversal_entry")
     quantity = models.IntegerField(default=1, verbose_name="Quantidade")
     status = models.CharField(max_length=10, choices=MovementStatus.choices, verbose_name="Status", default=MovementStatus.WAITING)
 
@@ -207,7 +209,7 @@ class StockTransfer(TimeStampedModel):
     operation_type = models.CharField(max_length=30, verbose_name="Selecione o Tipo de Operação", choices=OperationType.choices, default=OperationType.TRANSFER)
     reason = models.TextField(verbose_name="Motivo da Baixa", blank=True, null=True)
     source_workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina de Origem", on_delete=models.CASCADE, related_name="stock_transfers_sent", blank=True, null=True)
-    destination_workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina de Destino",on_delete=models.CASCADE, related_name="stock_transfers_received", null=True, blank=True)
+    destination_workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina de Destino", on_delete=models.CASCADE, related_name="stock_transfers_received", null=True, blank=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, verbose_name="Aberto por", on_delete=models.SET_NULL, null=True)
     current_step = models.PositiveIntegerField(default=1)
     items_data = models.JSONField(default=list)

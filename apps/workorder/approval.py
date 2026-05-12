@@ -70,6 +70,7 @@ def approve_workorder_with_stock(*, workorder: WorkOrder, user: object | None = 
                 StockMovement.objects.create(
                     workshop=workorder.workshop,
                     stock_product=stock_entry,
+                    workorder=workorder,
                     type=StockMovement.MovementType.EXIT,
                     quantity=required_quantity,
                     status=StockMovement.MovementStatus.APPROVED,

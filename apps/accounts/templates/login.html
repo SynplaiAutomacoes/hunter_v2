@@ -1,11 +1,250 @@
 {% extends '_accounts_base.html' %}
+{% load static %}
 
 {% block accounts_left_text %}
 Bem-vindo de volta. Faça login para continuar.
 {% endblock %}
 
 {% block accounts_title %}Entrar{% endblock %}
-{% block accounts_subtitle %}Use seu usuário e senha.{% endblock %}
+{% block accounts_subtitle %}
+<span id="login-subtitle">Use seu usuário e senha.</span>
+{% endblock %}
+
+{% block accounts_form %}
+<div role="tablist" class="tabs tabs-bordered mb-6">
+    <a id="tab-password" role="tab" class="tab tab-active" onclick="switchLoginTab('password')">Login com senha</a>
+    <a id="tab-code" role="tab" class="tab" onclick="switchLoginTab('code')">Login com código</a>
+</div>
+
+<!-- Login com Senha -->
+<div id="login-password-container">
+    <form method="post" class="grid grid-cols-1 gap-4">
+        {% csrf_token %}
+        {% if form.non_field_errors %}
+            <div class="alert alert-error shadow-sm mb-4">
+                <div class="flex flex-col">
+                    {% for error in form.non_field_errors %}
+                        <span class="text-sm font-semibold">{{ error }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endif %}
+        {% for field in form %}
+            <div class="form-control w-full">
+                <label class="label">
+                    <span class="label-text font-semibold">{{ field.label }}</span>
+                </label>
+                {{ field }}
+                {% if field.errors %}
+                    <label class="label">
+                        <span class="label-text-alt text-error">{{ field.errors|striptags }}</span>
+                    </label>
+                {% endif %}
+            </div>
+        {% endfor %}
+        <button type="submit" class="btn btn-primary w-full mt-4">Entrar</button>
+    </form>
+</div>
+
+<!-- Login com Código -->
+<div id="login-code-container" class="hidden">
+    <!-- Step 1: Identificação -->
+    <div id="code-step-1">
+        <div class="form-control w-full">
+            <label class="label">
+                <span class="label-text font-semibold">Usuário</span>
+            </label>
+            <input type="text" id="login-identifier" class="input input-bordered w-full" placeholder="user123">
+            <label class="label hidden" id="identifier-error-label">
+                <span class="label-text-alt text-error" id="identifier-error-msg"></span>
+            </label>
+        </div>
+        <button type="button" onclick="requestCode()" id="btn-request-code" class="btn btn-primary w-full mt-4">
+            Enviar código via WhatsApp
+        </button>
+    </div>
+
+    <!-- Step 2: Verificação -->
+    <div id="code-step-2" class="hidden">
+        <p class="text-sm mb-4">Enviamos um código para o WhatsApp final <span id="masked-phone" class="font-bold"></span>.</p>
+        <div class="form-control w-full text-center">
+            <label class="label">
+                <span class="label-text font-semibold">Código</span>
+            </label>
+            <input type="text" id="login-code" maxlength="6" class="input input-bordered w-full text-center tracking-[0.5em] text-2xl font-mono" placeholder="XXXXXX">
+            <label class="label hidden" id="code-error-label">
+                <span class="label-text-alt text-error" id="code-error-msg"></span>
+            </label>
+        </div>
+        <button type="button" onclick="verifyCode()" id="btn-verify-code" class="btn btn-primary w-full mt-4">
+            Validar e entrar
+        </button>
+        <div class="mt-4 text-center">
+            <button type="button" onclick="resendCode()" id="btn-resend-code" class="btn btn-ghost btn-sm">
+                Não recebeu? Reenviar código
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    function switchLoginTab(type) {
+        const passwordTab = document.getElementById('tab-password');
+        const codeTab = document.getElementById('tab-code');
+        const passwordContainer = document.getElementById('login-password-container');
+        const codeContainer = document.getElementById('login-code-container');
+        const subtitle = document.getElementById('login-subtitle');
+
+        if (type === 'password') {
+            passwordTab.classList.add('tab-active');
+            codeTab.classList.remove('tab-active');
+            passwordContainer.classList.remove('hidden');
+            codeContainer.classList.add('hidden');
+            subtitle.innerText = 'Use seu usuário e senha.';
+        } else {
+            codeTab.classList.add('tab-active');
+            passwordTab.classList.remove('tab-active');
+            codeContainer.classList.remove('hidden');
+            passwordContainer.classList.add('hidden');
+            subtitle.innerText = 'Entre rapidamente com seu WhatsApp.';
+        }
+    }
+
+    async function requestCode() {
+        const identifier = document.getElementById('login-identifier').value;
+        const btn = document.getElementById('btn-request-code');
+        const errorLabel = document.getElementById('identifier-error-label');
+        const errorMsg = document.getElementById('identifier-error-msg');
+
+        if (!identifier) {
+            errorLabel.classList.remove('hidden');
+            errorMsg.innerText = 'Informe seu usuário';
+            return;
+        }
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="loading loading-spinner"></span> Enviando...';
+        errorLabel.classList.add('hidden');
+
+        try {
+            const response = await fetch('{% url "accounts:login_code" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                body: new URLSearchParams({
+                    'step': '1',
+                    'identifier': identifier
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                document.getElementById('code-step-1').classList.add('hidden');
+                document.getElementById('code-step-2').classList.remove('hidden');
+                document.getElementById('masked-phone').innerText = data.phone;
+            } else {
+                errorLabel.classList.remove('hidden');
+                errorMsg.innerText = data.error || 'Usuário não encontrado ou erro ao enviar código.';
+            }
+        } catch (e) {
+            errorLabel.classList.remove('hidden');
+            errorMsg.innerText = 'Ocorreu um erro. Tente novamente mais tarde.';
+        } finally {
+            btn.disabled = false;
+            btn.innerText = 'Enviar código via WhatsApp';
+        }
+    }
+
+    async function verifyCode() {
+        const code = document.getElementById('login-code').value;
+        const btn = document.getElementById('btn-verify-code');
+        const errorLabel = document.getElementById('code-error-label');
+        const errorMsg = document.getElementById('code-error-msg');
+
+        if (!code) {
+            errorLabel.classList.remove('hidden');
+            errorMsg.innerText = 'Informe o código recebido.';
+            return;
+        }
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="loading loading-spinner"></span> Validando...';
+        errorLabel.classList.add('hidden');
+
+        try {
+            const response = await fetch('{% url "accounts:login_code" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                body: new URLSearchParams({
+                    'step': '2',
+                    'code': code
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                window.location.href = data.redirect_url;
+            } else {
+                errorLabel.classList.remove('hidden');
+                errorMsg.innerText = data.error || 'Código inválido ou expirado.';
+            }
+        } catch (e) {
+            errorLabel.classList.remove('hidden');
+            errorMsg.innerText = 'Ocorreu um erro na validação.';
+        } finally {
+            btn.disabled = false;
+            btn.innerText = 'Validar e entrar';
+        }
+    }
+
+    async function resendCode() {
+        const btn = document.getElementById('btn-resend-code');
+        const errorLabel = document.getElementById('code-error-label');
+        const errorMsg = document.getElementById('code-error-msg');
+
+        btn.disabled = true;
+        btn.innerText = 'Enviando...';
+
+        try {
+            const response = await fetch('{% url "accounts:login_code_resend" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                }
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                alert('Um novo código foi enviado!');
+            } else {
+                errorLabel.classList.remove('hidden');
+                errorMsg.innerText = data.error || 'Erro ao reenviar código.';
+            }
+        } catch (e) {
+            alert('Erro ao reenviar código.');
+        } finally {
+            btn.disabled = false;
+            btn.innerText = 'Não recebeu? Reenviar código';
+        }
+    }
+</script>
+{% endblock %}
+
+{% block accounts_actions %}
+{% include 'partials/password_reset_modal.html' %}
+<button type="button" class="link link-primary mt-2 w-full" onclick="openPasswordResetModal()">
+  Esqueci minha senha
+</button>
+{% endblock %}
 
 {% block accounts_bottom_text %}
 <span class="opacity-70">Ainda não tem conta?</span>
