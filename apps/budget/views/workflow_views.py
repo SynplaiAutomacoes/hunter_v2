@@ -843,6 +843,12 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 return JsonResponse({"success": False, "error": error_message}, status=500)
 
         else:
+            if status == "cancel":
+                cancellation_reason = request.POST.get("cancellation_reason")
+                if not cancellation_reason:
+                    return JsonResponse({"success": False, "error": "O motivo do cancelamento é obrigatório."}, status=400)
+                budget.cancellation_reason = cancellation_reason
+
             budget.status = status_map[status]
             budget.save()
 

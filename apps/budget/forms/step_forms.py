@@ -2814,6 +2814,17 @@ class BudgetStep6Form(CoreModelForm):
         base_pdf_download_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?download=1&variant=base"
 
         saved_observation = budget.pdf_observation or ""
+        
+        cancellation_reason_html = ""
+        if budget.cancellation_reason:
+            cancellation_reason_html = f"""
+            <div class="alert alert-error shadow-sm mb-4 bg-opacity-20 border-error">
+                <div class="flex flex-col gap-1 text-error">
+                    <span class="text-gray-900 font-bold text-sm uppercase tracking-wider">Motivo do Cancelamento</span>
+                    <span class="text-gray-900 text-base">{budget.cancellation_reason}</span>
+                </div>
+            </div>
+            """
 
         # Render das linhas (mantido)
         rows = _render_budget_items_rows(budget, step6=True)
@@ -2834,6 +2845,22 @@ class BudgetStep6Form(CoreModelForm):
             </style>
             """),
             alert_confirm_layout(),
+            # =========================
+            # MODAL DE CANCELAMENTO
+            # =========================
+            HTML("""
+            <dialog id="cancelBudgetModal" class="modal">
+              <div class="modal-box">
+                <h3 class="font-bold text-lg">Cancelar Orçamento</h3>
+                <p class="py-4">Por favor, informe o motivo do cancelamento:</p>
+                <textarea id="cancellation-reason-input" class="textarea textarea-bordered w-full" rows="3" placeholder="Motivo do cancelamento..."></textarea>
+                <div class="modal-action">
+                  <button type="button" class="btn" onclick="document.getElementById('cancelBudgetModal').close()">Voltar</button>
+                  <button type="button" class="btn btn-error" id="confirm-cancel-btn">Confirmar Cancelamento</button>
+                </div>
+              </div>
+            </dialog>
+            """),
             # =========================
             # SCRIPTS (mantidos do código original)
             # =========================
@@ -2929,12 +2956,42 @@ class BudgetStep6Form(CoreModelForm):
                     }
 
                 async function updateBudgetStatus(budgetId, status) {
+                    if (status === 'cancel') {
+                        const modal = document.getElementById('cancelBudgetModal');
+                        const input = document.getElementById('cancellation-reason-input');
+                        const confirmBtn = document.getElementById('confirm-cancel-btn');
+
+                        input.value = '';
+                        modal.showModal();
+
+                        confirmBtn.onclick = async () => {
+                            const reason = input.value.trim();
+                            if (!reason) {
+                                document.body.dispatchEvent(new CustomEvent('showToast', {
+                                    detail: { type: 'error', message: 'O motivo do cancelamento é obrigatório.' },
+                                }));
+                                return;
+                            }
+                            modal.close();
+                            
+                            const formData = new FormData();
+                            formData.append('cancellation_reason', reason);
+                            executeStatusUpdate(budgetId, status, formData);
+                        };
+                        return;
+                    }
+
                     const confirmed = await customConfirm("Você tem certeza que deseja alterar o status deste orçamento?");
                     if (!confirmed) return;
+                    
+                    executeStatusUpdate(budgetId, status);
+                }
 
+                async function executeStatusUpdate(budgetId, status, body = null) {
                     const response = await fetch(`/budget/update-status/${budgetId}/${status}`, {
                         method: 'POST',
-                        headers: { 'X-CSRFToken': '{{ csrf_token }}', 'X-Requested-With': 'XMLHttpRequest' }
+                        headers: { 'X-CSRFToken': '{{ csrf_token }}', 'X-Requested-With': 'XMLHttpRequest' },
+                        body: body
                     });
 
                     const payload = await response.json().catch(() => ({}));
@@ -3219,6 +3276,7 @@ class BudgetStep6Form(CoreModelForm):
                     ),
                     # -------- APROVAÇÃO --------
                     Div(
+                        HTML(cancellation_reason_html),
                         HTML('<h4 class="font-bold text-lg mb-2 border-b">Aprovação</h4>'),
                         HTML(f"""
                         <div class="grid grid-cols-12 gap-3">
