@@ -1,6 +1,22 @@
 {% load crispy_forms_tags %}
 
 <div class="card-body">
+    {% if workorder.status == 'cancelled' and workorder.cancellation_reason %}
+    <div class="alert alert-error shadow-sm mb-6 bg-opacity-20 border-error">
+        <div class="flex flex-col gap-1 text-error">
+            <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Motivo do Cancelamento</span>
+            <span class="text-lg text-gray-900">{{ workorder.cancellation_reason }}</span>
+        </div>
+    </div>
+    {% elif workorder.status == 'rejected' and workorder.rejection_reason %}
+    <div class="alert alert-warning shadow-sm mb-6 bg-opacity-20 border-warning">
+        <div class="flex flex-col gap-1 text-warning">
+            <span class="font-bold text-gray-900 text-base uppercase tracking-wider">Motivo da Reprovação</span>
+            <span class="text-lg text-gray-900 ">{{ workorder.rejection_reason }}</span>
+        </div>
+    </div>
+    {% endif %}
+
     <h3 class="font-bold text-2xl pb-2 mb-4">Entrega do Veículo e Encerramento da O.S.</h3>
 
     <div class="mt-2 pb-4 border-b border-base-300">
@@ -113,7 +129,7 @@
         <h4 class="font-bold text-xl mb-2 border-b">Atualizar Status da Ordem de Serviço</h4>
 
         <div class="flex flex-wrap gap-3">
-            <button type="button" class="btn btn-error" id="toggle-cancel-workorder-form" {% if workorder.is_status_locked %}disabled title="Reabra a O.S. antes de alterar o status."{% endif %}>Cancelar</button>
+            <button type="button" class="btn btn-error" onclick="cancelWorkOrderModal.showModal()" {% if workorder.is_status_locked %}disabled title="Reabra a O.S. antes de alterar o status."{% endif %}>Cancelar</button>
 
             <span
                 id="workorder-delivery-button-tooltip"
@@ -134,7 +150,7 @@
                 </button>
             </span>
 
-            <button type="button" class="btn btn-warning" id="toggle-reject-workorder-form" {% if workorder.is_status_locked %}disabled title="Reabra a O.S. antes de alterar o status."{% endif %}>Reprovar</button>
+            <button type="button" class="btn btn-warning" onclick="rejectWorkOrderModal.showModal()" {% if workorder.is_status_locked %}disabled title="Reabra a O.S. antes de alterar o status."{% endif %}>Reprovar</button>
 
             {% if workorder.can_reopen %}
             <button type="button" class="btn btn-outline" id="toggle-reopen-workorder-form" data-can-reopen-workorder="{% if can_reopen_workorder %}true{% else %}false{% endif %}">Reabrir O.S.</button>
@@ -155,45 +171,49 @@
         </div>
         {% endif %}
 
-        <form
-            id="cancel-workorder-form"
-            method="post"
-            hx-post="{% url 'workorder:update_status' workorder.pk 'cancel' %}"
-            hx-target="#customer-approvement-section"
-            hx-swap="innerHTML"
-            class="mt-4 space-y-4 rounded-xl border border-error/40 bg-error/10 p-4 {% if not cancel_form.errors %}hidden{% endif %}"
-        >
-            {% csrf_token %}
-            <div class="space-y-1 text-sm text-base-content/80">
-                <p class="font-semibold text-base-content">Cancelar O.S.</p>
-                <p>Informe a justificativa do cancelamento antes de concluir esta ação.</p>
+        <dialog id="cancelWorkOrderModal" class="modal">
+            <div class="modal-box">
+                <h3 class="font-bold text-lg text-error">Cancelar Ordem de Serviço</h3>
+                <p class="py-4 text-base-content/70">Informe a justificativa do cancelamento antes de concluir esta ação. Esta ação é irreversível.</p>
+                <form
+                    id="cancel-workorder-form"
+                    method="post"
+                    hx-post="{% url 'workorder:update_status' workorder.pk 'cancel' %}"
+                    hx-target="#customer-approvement-section"
+                    hx-swap="innerHTML"
+                    onsubmit="cancelWorkOrderModal.close()"
+                >
+                    {% csrf_token %}
+                    {% crispy cancel_form %}
+                    <div class="modal-action">
+                        <button type="submit" class="btn btn-error">Confirmar cancelamento</button>
+                        <button type="button" class="btn btn-ghost" onclick="cancelWorkOrderModal.close()">Fechar</button>
+                    </div>
+                </form>
             </div>
-            {% crispy cancel_form %}
-            <div class="flex flex-wrap gap-3">
-                <button type="submit" class="btn btn-error">Confirmar cancelamento</button>
-                <button type="button" class="btn btn-ghost" id="cancel-cancel-workorder-form">Fechar</button>
-            </div>
-        </form>
+        </dialog>
 
-        <form
-            id="reject-workorder-form"
-            method="post"
-            hx-post="{% url 'workorder:update_status' workorder.pk 'reject' %}"
-            hx-target="#customer-approvement-section"
-            hx-swap="innerHTML"
-            class="mt-4 space-y-4 rounded-xl border border-warning/40 bg-warning/10 p-4 {% if not reject_form.errors %}hidden{% endif %}"
-        >
-            {% csrf_token %}
-            <div class="space-y-1 text-sm text-base-content/80">
-                <p class="font-semibold text-base-content">Reprovar O.S.</p>
-                <p>Informe a justificativa da reprovação antes de concluir esta ação.</p>
+        <dialog id="rejectWorkOrderModal" class="modal">
+            <div class="modal-box">
+                <h3 class="font-bold text-lg text-warning">Reprovar Ordem de Serviço</h3>
+                <p class="py-4 text-base-content/70">Informe a justificativa da reprovação antes de concluir esta ação.</p>
+                <form
+                    id="reject-workorder-form"
+                    method="post"
+                    hx-post="{% url 'workorder:update_status' workorder.pk 'reject' %}"
+                    hx-target="#customer-approvement-section"
+                    hx-swap="innerHTML"
+                    onsubmit="rejectWorkOrderModal.close()"
+                >
+                    {% csrf_token %}
+                    {% crispy reject_form %}
+                    <div class="modal-action">
+                        <button type="submit" class="btn btn-warning">Confirmar reprovação</button>
+                        <button type="button" class="btn btn-ghost" onclick="rejectWorkOrderModal.close()">Fechar</button>
+                    </div>
+                </form>
             </div>
-            {% crispy reject_form %}
-            <div class="flex flex-wrap gap-3">
-                <button type="submit" class="btn btn-warning">Confirmar reprovação</button>
-                <button type="button" class="btn btn-ghost" id="cancel-reject-workorder-form">Fechar</button>
-            </div>
-        </form>
+        </dialog>
 
         {% if workorder.can_reopen and can_reopen_workorder %}
         <form
@@ -229,11 +249,7 @@
         const unsignedReasonWrapper = document.getElementById('unsigned-delivery-reason-wrapper');
         const unsignedReasonInput = document.getElementById('id_unsigned_delivery_reason');
         const cancelForm = document.getElementById('cancel-workorder-form');
-        const cancelToggleButton = document.getElementById('toggle-cancel-workorder-form');
-        const cancelCloseButton = document.getElementById('cancel-cancel-workorder-form');
         const rejectForm = document.getElementById('reject-workorder-form');
-        const rejectToggleButton = document.getElementById('toggle-reject-workorder-form');
-        const rejectCloseButton = document.getElementById('cancel-reject-workorder-form');
         const reopenForm = document.getElementById('reopen-workorder-form');
         const reopenToggleButton = document.getElementById('toggle-reopen-workorder-form');
         const reopenCancelButton = document.getElementById('cancel-reopen-workorder-form');
@@ -352,7 +368,7 @@
         };
 
         const hideStatusForms = (...formsToKeep) => {
-            [cancelForm, rejectForm, reopenForm].forEach((currentForm) => {
+            [reopenForm].forEach((currentForm) => {
                 if (!currentForm || formsToKeep.includes(currentForm)) {
                     return;
                 }
@@ -462,34 +478,6 @@
             });
         }
 
-        if (cancelToggleButton && cancelForm) {
-            cancelToggleButton.addEventListener('click', () => {
-                hideStatusForms(cancelForm);
-                cancelForm.classList.remove('hidden');
-                cancelForm.querySelector('textarea')?.focus();
-            });
-        }
-
-        if (cancelCloseButton && cancelForm) {
-            cancelCloseButton.addEventListener('click', () => {
-                cancelForm.classList.add('hidden');
-            });
-        }
-
-        if (rejectToggleButton && rejectForm) {
-            rejectToggleButton.addEventListener('click', () => {
-                hideStatusForms(rejectForm);
-                rejectForm.classList.remove('hidden');
-                rejectForm.querySelector('textarea')?.focus();
-            });
-        }
-
-        if (rejectCloseButton && rejectForm) {
-            rejectCloseButton.addEventListener('click', () => {
-                rejectForm.classList.add('hidden');
-            });
-        }
-
         if (reopenToggleButton && reopenForm) {
             reopenToggleButton.addEventListener('click', () => {
                 if (reopenToggleButton.dataset.canReopenWorkorder !== 'true') {
@@ -522,5 +510,13 @@
                 reopenForm.classList.add('hidden');
             });
         }
+
+        // Auto-open modal if there are errors
+        {% if cancel_form.errors %}
+        cancelWorkOrderModal.showModal();
+        {% endif %}
+        {% if reject_form.errors %}
+        rejectWorkOrderModal.showModal();
+        {% endif %}
     })();
 </script>
