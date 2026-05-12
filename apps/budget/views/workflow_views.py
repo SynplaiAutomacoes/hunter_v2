@@ -828,6 +828,10 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
             error_message = "Já foi gerada uma ordem de serviço para este orçamento. Cancele a ordem de serviço primeiro para depois cancelar o orçamento."
             return JsonResponse({"success": False, "error": error_message}, status=400)
 
+        if status == "reject" and has_active_workorder:
+            error_message = "Não é possível reprovar um orçamento após a abertura da O.S. Cancele a ordem de serviço primeiro ou siga com o cancelamento do orçamento."
+            return JsonResponse({"success": False, "error": error_message}, status=400)
+
         # Validação de Aprovação
         if status == "approve":
             try:

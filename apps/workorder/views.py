@@ -54,6 +54,7 @@ from apps.workorder.forms import (
     WorkOrderKitServiceEditRowForm,
     WorkOrderPaymentForm,
     WorkOrderReopenForm,
+    WorkOrderStatusReasonForm,
 )
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
 from apps.workorder.reopening import WorkOrderReopenError, reopen_workorder
@@ -603,6 +604,8 @@ class UpdateWorkOrderDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View)
                 "total_budget_value": str(workorder.total_budget_value.amount),
                 "paid_value": str(sum((payment.total_paid.amount for payment in workorder.payments.all()), start=Decimal("0.00"))),
                 "pending_value": str(max(Decimal("0.00"), workorder.total_budget_value.amount - sum((payment.total_paid.amount for payment in workorder.payments.all()), start=Decimal("0.00")))),
+                "has_completion_blockers": workorder.has_completion_blockers,
+                "completion_blockers_display": workorder.completion_blockers_display,
             }
         )
 
@@ -990,11 +993,16 @@ class AddPaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
         else:
             payment_form = form
 
-        context = {
-            "workorder": workorder,
-            "payment_form": payment_form,
-        }
-        return render(request, "workorder/partials/payment_section.html", context)
+        context = _build_edit_items_context(workorder)
+        context.update(_build_customer_approvement_context(workorder, request=request))
+        context.update(
+            {
+                "workorder": workorder,
+                "payment_form": payment_form,
+                "collaborator_form": WorkOrderCollaboratorForm(workorder=workorder),
+            }
+        )
+        return render(request, "workorder/partials/payment_section_response.html", context)
 
 
 class DeletePaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -1008,9 +1016,17 @@ class DeletePaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
         payment.delete()
         sync_workorder_financial_movement(workorder=workorder)
 
-        context = {"workorder": workorder, "payment_form": WorkOrderPaymentForm(workorder=workorder)}
+        context = _build_edit_items_context(workorder)
+        context.update(_build_customer_approvement_context(workorder, request=request))
+        context.update(
+            {
+                "workorder": workorder,
+                "payment_form": WorkOrderPaymentForm(workorder=workorder),
+                "collaborator_form": WorkOrderCollaboratorForm(workorder=workorder),
+            }
+        )
 
-        return render(request, "workorder/partials/payment_section.html", context)
+        return render(request, "workorder/partials/payment_section_response.html", context)
 
 
 class UploadAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -1150,8 +1166,24 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             return HttpResponse(headers={"HX-Refresh": "true"})
 
+        reason_form = WorkOrderStatusReasonForm(request.POST, workorder=workorder, action=status)
+        if not reason_form.is_valid():
+            context = _build_customer_approvement_context(workorder, request=request)
+            if next_status == WorkOrderStatus.CANCELLED:
+                context["cancel_form"] = reason_form
+            elif next_status == WorkOrderStatus.REJECTED:
+                context["reject_form"] = reason_form
+            return render(request, "workorder/partials/customer_approvement_section.html", context)
+
         workorder.status = next_status
-        workorder.save(update_fields=["status"])
+        if next_status == WorkOrderStatus.CANCELLED:
+            workorder.cancellation_reason = reason_form.cleaned_data["status_reason"]
+            workorder.rejection_reason = ""
+            workorder.save(update_fields=["status", "cancellation_reason", "rejection_reason"])
+        else:
+            workorder.rejection_reason = reason_form.cleaned_data["status_reason"]
+            workorder.cancellation_reason = ""
+            workorder.save(update_fields=["status", "rejection_reason", "cancellation_reason"])
 
         return HttpResponse(headers={"HX-Refresh": "true"})
 
