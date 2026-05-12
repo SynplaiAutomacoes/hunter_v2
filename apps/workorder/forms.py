@@ -93,20 +93,30 @@ class WorkOrderPaymentForm(CoreModelForm):
         self.fields["first_installment_amount"].required = not self.is_first_payment
         self.fields["due_date"].required = False
 
-        if self.is_first_payment:
-            self.fields["first_installment_amount"].disabled = True
-            self.fields["first_installment_amount"].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
-        else:
-            self.fields["entry_amount"].disabled = True
-            self.fields["entry_amount"].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
-
         total_os = self.workorder.total_budget_value.amount if self.workorder else MONEY_ZERO
         paid_amount = self._get_paid_amount() if self.workorder else MONEY_ZERO
         pending_amount = total_os - paid_amount
+        payment_has_paid_value = paid_amount > MONEY_ZERO
+        payment_is_fully_paid = pending_amount <= MONEY_ZERO
         pending_amount_display = pending_amount if pending_amount > MONEY_ZERO else MONEY_ZERO
         base_total = self.workorder.total_base_value if self.workorder else Money(MONEY_ZERO, "BRL")
         discount_value = Money(MONEY_ZERO, "BRL")
         discount_percentage = Decimal("0.00")
+
+        blocked_value_attrs = {"readonly": True, "class": "cursor-not-allowed opacity-75"}
+        fully_paid_value_attrs = {**blocked_value_attrs, "disabled": True, "title": "OS paga por completo"}
+        discount_locked_attrs = {"readonly": True, "disabled": True, "title": "OS já tem valor pago", "class": "font-semibold text-lg cursor-not-allowed bg-base-200/70 text-base-content/60 border-base-300"}
+
+        if payment_is_fully_paid:
+            for field_name in ["entry_amount", "first_installment_amount", "payment_method", "due_date"]:
+                self.fields[field_name].disabled = True
+                self.fields[field_name].widget.attrs.update(fully_paid_value_attrs)
+        elif self.is_first_payment:
+            self.fields["first_installment_amount"].disabled = True
+            self.fields["first_installment_amount"].widget.attrs.update(blocked_value_attrs)
+        else:
+            self.fields["entry_amount"].disabled = True
+            self.fields["entry_amount"].widget.attrs.update(blocked_value_attrs)
 
         if self.workorder:
             discount_value, discount_percentage = resolve_discount_fields(
@@ -114,6 +124,11 @@ class WorkOrderPaymentForm(CoreModelForm):
                 discount_value=self.workorder.discount_value,
                 discount_percentage=self.workorder.discount_percentage,
             )
+
+        if payment_has_paid_value:
+            for field_name in ["discount_value", "discount_percentage"]:
+                self.fields[field_name].disabled = True
+                self.fields[field_name].widget.attrs.update(discount_locked_attrs)
 
         resume_values = {
             "total_value": Money(total_os, "BRL"),
@@ -136,8 +151,9 @@ class WorkOrderPaymentForm(CoreModelForm):
         for field in ["total_value", "paid_value", "pending_value"]:
             self.fields[field].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
 
-        self.fields["discount_value"].widget.attrs.update({"class": "font-semibold text-lg"})
-        self.fields["discount_percentage"].widget.attrs.update({"class": "font-semibold text-lg"})
+        if not payment_has_paid_value:
+            self.fields["discount_value"].widget.attrs.update({"class": "font-semibold text-lg"})
+            self.fields["discount_percentage"].widget.attrs.update({"class": "font-semibold text-lg"})
         self.initial["discount_value"] = discount_value
         self.initial["discount_percentage"] = discount_percentage
 
@@ -145,66 +161,90 @@ class WorkOrderPaymentForm(CoreModelForm):
             self.initial["due_date"] = ""
 
         pending_amount_js = format(pending_amount, "f")
-        pending_amount_display_text = _format_brl_amount(pending_amount_display)
         today_iso = timezone.localdate().isoformat()
-        active_amount_label = "entrada" if self.is_first_payment else "a ser pago"
         is_first_payment_js = "true" if self.is_first_payment else "false"
+        payment_success_container_class = "col-span-12 mb-4" if payment_is_fully_paid else "hidden col-span-12 mb-4"
+        discount_locked_js = "true" if payment_has_paid_value else "false"
+        discount_lock_notice = """
+                    <div class="mb-4 rounded-2xl border border-base-300 bg-base-200/60 p-4 text-sm text-base-content/80" title="OS já tem valor pago">
+                        <div class="flex items-start gap-3">
+                            <span class="material-icons mt-0.5 text-base-content/50">lock</span>
+                            <div class="space-y-1">
+                                <p class="font-semibold text-base-content">Descontos indisponíveis</p>
+                                <p>Esta OS já possui valor pago. Para desbloquear os cards de desconto, nenhum pagamento deve ocorrer ou ter ocorrido nesta OS.</p>
+                            </div>
+                        </div>
+                    </div>
+        """ if payment_has_paid_value else ""
+        discount_card_class = "border-base-300 bg-base-100 shadow-sm" if payment_has_paid_value else "border-base-300 bg-base-100/90 shadow-sm"
+        discount_title_attr = ' title="OS já tem valor pago"' if payment_has_paid_value else ""
+        discount_badge = '<span class="badge badge-neutral badge-sm badge-outline">Indisponível</span>' if payment_has_paid_value else ""
+        discount_value_icon = "lock" if payment_has_paid_value else "payments"
+        discount_percentage_icon = "lock" if payment_has_paid_value else "percent"
+        discount_icon_class = "text-base-content/40" if payment_has_paid_value else "text-base-content/40"
+        discount_value_hint = "Indisponível porque a OS já tem valor pago." if payment_has_paid_value else "O percentual acompanha automaticamente."
+        discount_percentage_hint = "Indisponível porque a OS já tem valor pago." if payment_has_paid_value else "O valor em reais acompanha instantaneamente."
 
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
             alert_confirm_layout(title="Deseja remover este registro?"),
             HTML(f"""
-                <div id="payment-warning-workorder-js" class="hidden col-span-12 mb-4">
-                    <div class="alert alert-error shadow-lg border-2 border-error">
-                        <span class="material-icons">error_outline</span>
+                <div id="payment-success-workorder-js" class="{payment_success_container_class}">
+                    <div class="alert alert-success shadow-lg border-2 border-success">
+                        <span class="material-icons">check_circle</span>
                         <div>
-                             <h3 class="font-bold text-sm">Valor Não Permitido</h3>
-                             <div class="text-xs payment-warning-message">
-                                O valor {active_amount_label} não pode exceder o saldo disponível de <strong>R$ {pending_amount_display_text}</strong>.
-                             </div>
-                         </div>
-                     </div>
+                            <h3 class="font-bold text-sm">Ordem de Serviço completamente paga</h3>
+                            <div class="text-xs">A ordem de serviço foi paga completamente.</div>
+                        </div>
+                    </div>
                 </div>
             """),
             Div(
                 HTML(
-                    """
+                    f"""
+                    {discount_lock_notice}
                     <div class="grid grid-cols-1 gap-3 mb-5 xl:grid-cols-2">
                     """
                 ),
                 Div(
                     HTML(
-                        """
-                        <div class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
+                        f"""
+                        <div class="h-full rounded-[1.5rem] border p-4 {discount_card_class}"{discount_title_attr}>
                             <div class="mb-3 flex items-center justify-between gap-3">
                                 <div>
-                                    <p class="text-sm font-bold text-base-content">Desconto em valor</p>
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <p class="text-sm font-bold text-base-content">Desconto em valor</p>
+                                        {discount_badge}
+                                    </div>
                                     <p class="text-xs text-base-content/60">Use quando a negociação foi fechada em valor exato.</p>
                                 </div>
-                                <span class="material-icons text-base-content/40">payments</span>
+                                <span class="material-icons {discount_icon_class}">{discount_value_icon}</span>
                             </div>
                         """
                     ),
                     Field("discount_value", wrapper_class="mb-0"),
-                    HTML('<p class="mt-2 text-xs text-base-content/55">O percentual acompanha automaticamente.</p></div>'),
+                    HTML(f'<p class="mt-2 text-xs text-base-content/55">{discount_value_hint}</p></div>'),
                     css_class="h-full",
                 ),
                 Div(
                     HTML(
-                        """
-                        <div class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
+                        f"""
+                        <div class="h-full rounded-[1.5rem] border p-4 {discount_card_class}"{discount_title_attr}>
                             <div class="mb-3 flex items-center justify-between gap-3">
                                 <div>
-                                    <p class="text-sm font-bold text-base-content">Desconto em percentual</p>
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <p class="text-sm font-bold text-base-content">Desconto em percentual</p>
+                                        {discount_badge}
+                                    </div>
                                     <p class="text-xs text-base-content/60">Ideal para manter a mesma política comercial em diferentes totais.</p>
                                 </div>
-                                <span class="material-icons text-base-content/40">percent</span>
+                                <span class="material-icons {discount_icon_class}">{discount_percentage_icon}</span>
                             </div>
                         """
                     ),
                     Field("discount_percentage", wrapper_class="mb-0"),
-                    HTML('<p class="mt-2 text-xs text-base-content/55">O valor em reais acompanha instantaneamente.</p></div>'),
+                    HTML(f'<p class="mt-2 text-xs text-base-content/55">{discount_percentage_hint}</p></div>'),
                     css_class="h-full",
                 ),
                 HTML("</div>"),
@@ -223,7 +263,22 @@ class WorkOrderPaymentForm(CoreModelForm):
                 Field("due_date", wrapper_class="col-span-12 lg:col-span-3"),
                 css_class="grid grid-cols-12 gap-4 mb-2 mt-4",
             ),
-            Div(Submit("submit", "Salvar Plano de Pagamento", css_class="btn-form-save btn-primary"), css_class="flex justify-end mt-4"),
+            Div(
+                HTML("""
+                    <div id="payment-warning-workorder-js" class="hidden w-full lg:max-w-2xl lg:mr-auto">
+                        <div class="alert alert-error shadow-sm border-2 border-error payment-warning-card">
+                            <span class="material-icons payment-warning-icon">error_outline</span>
+                            <div>
+                                <h3 class="font-bold text-sm payment-warning-title">Valor Não Permitido</h3>
+                                <div class="text-xs payment-warning-message">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                """),
+                Submit("submit", "Salvar Plano de Pagamento", css_class="btn-form-save btn-primary self-end lg:shrink-0"),
+                css_class="mt-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-end",
+            ),
             HTML(f"""
             <script>
                 (function() {{
@@ -263,6 +318,7 @@ class WorkOrderPaymentForm(CoreModelForm):
                         const pendingValueHidden = document.getElementById('id_pending_value_0');
                         const pendingValueDisplay = document.getElementById('id_pending_value_0_display');
                         const discountPersistUrl = '{reverse("workorder:update_discount", args=[self.workorder.pk]) if self.workorder else ""}';
+                        const discountLocked = {discount_locked_js};
                         let discountTimeout = null;
                         let discountRequestController = null;
                         let discountRequestId = 0;
@@ -351,7 +407,7 @@ class WorkOrderPaymentForm(CoreModelForm):
                             }}
                         }};
                         const sendDiscountRequest = () => {{
-                            if (!discountPersistUrl || !discountMoneyHidden || !discountPercentageHidden) {{
+                            if (discountLocked || !discountPersistUrl || !discountMoneyHidden || !discountPercentageHidden) {{
                                 return;
                             }}
 
@@ -444,7 +500,7 @@ class WorkOrderPaymentForm(CoreModelForm):
                             if (pendingValue <= 0) {{
                                 btnSave.disabled = true;
                                 btnSave.classList.add('btn-disabled', 'opacity-50');
-                                toggleWarning(true, 'A ordem de serviço não possui saldo pendente para um novo plano de pagamento.');
+                                toggleWarning(false, '');
                                 return;
                             }}
 
@@ -478,7 +534,7 @@ class WorkOrderPaymentForm(CoreModelForm):
                             }});
                         }}
 
-                        if (discountMoneyDisplay && discountMoneyDisplay.dataset.discountSyncBound !== 'true') {{
+                        if (!discountLocked && discountMoneyDisplay && discountMoneyDisplay.dataset.discountSyncBound !== 'true') {{
                             const handleMoneyInput = () => {{
                                 window.setTimeout(() => {{
                                     syncFromValue(false);
@@ -496,7 +552,7 @@ class WorkOrderPaymentForm(CoreModelForm):
                             discountMoneyDisplay.dataset.discountSyncBound = 'true';
                         }}
 
-                        if (discountPercentageDisplay && discountPercentageDisplay.dataset.discountSyncBound !== 'true') {{
+                        if (!discountLocked && discountPercentageDisplay && discountPercentageDisplay.dataset.discountSyncBound !== 'true') {{
                             const handlePercentageInput = () => {{
                                 window.setTimeout(() => {{
                                     syncFromPercentage();
