@@ -2290,7 +2290,7 @@ class AddPaymentMethodViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
-        self.assertContains(response, "Informe a justificativa para rejeitar a O.S.")
+        self.assertContains(response, "Informe a justificativa para reprovar a O.S.")
 
     def test_reject_status_persists_reason(self) -> None:
         response = self.client.post(

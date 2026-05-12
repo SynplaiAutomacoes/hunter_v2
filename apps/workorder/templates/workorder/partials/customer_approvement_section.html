@@ -134,7 +134,7 @@
                 </button>
             </span>
 
-            <button type="button" class="btn btn-warning" id="toggle-reject-workorder-form" {% if workorder.is_status_locked %}disabled title="Reabra a O.S. antes de alterar o status."{% endif %}>Rejeitar</button>
+            <button type="button" class="btn btn-warning" id="toggle-reject-workorder-form" {% if workorder.is_status_locked %}disabled title="Reabra a O.S. antes de alterar o status."{% endif %}>Reprovar</button>
 
             {% if workorder.can_reopen %}
             <button type="button" class="btn btn-outline" id="toggle-reopen-workorder-form" data-can-reopen-workorder="{% if can_reopen_workorder %}true{% else %}false{% endif %}">Reabrir O.S.</button>
@@ -185,12 +185,12 @@
         >
             {% csrf_token %}
             <div class="space-y-1 text-sm text-base-content/80">
-                <p class="font-semibold text-base-content">Rejeitar O.S.</p>
-                <p>Informe a justificativa da rejeição antes de concluir esta ação.</p>
+                <p class="font-semibold text-base-content">Reprovar O.S.</p>
+                <p>Informe a justificativa da reprovação antes de concluir esta ação.</p>
             </div>
             {% crispy reject_form %}
             <div class="flex flex-wrap gap-3">
-                <button type="submit" class="btn btn-warning">Confirmar rejeição</button>
+                <button type="submit" class="btn btn-warning">Confirmar reprovação</button>
                 <button type="button" class="btn btn-ghost" id="cancel-reject-workorder-form">Fechar</button>
             </div>
         </form>
