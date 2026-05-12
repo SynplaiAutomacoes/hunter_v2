@@ -496,7 +496,7 @@ class WorkOrderPaymentForm(CoreModelForm):
                             discountMoneyDisplay.dataset.discountSyncBound = 'true';
                         }}
 
-                        if (discountPercentageHidden && discountPercentageHidden.dataset.discountSyncBound !== 'true') {{
+                        if (discountPercentageDisplay && discountPercentageDisplay.dataset.discountSyncBound !== 'true') {{
                             const handlePercentageInput = () => {{
                                 window.setTimeout(() => {{
                                     syncFromPercentage();
@@ -509,9 +509,12 @@ class WorkOrderPaymentForm(CoreModelForm):
                                     persistDiscountNow();
                                 }}, 0);
                             }};
-                            discountPercentageHidden.addEventListener('widget:formatted-change', handlePercentageInput);
-                            discountPercentageHidden.addEventListener('blur', handlePercentageBlur);
-                            discountPercentageHidden.dataset.discountSyncBound = 'true';
+                            discountPercentageDisplay.addEventListener('input', handlePercentageInput);
+                            discountPercentageDisplay.addEventListener('blur', handlePercentageBlur);
+                            if (discountPercentageHidden) {{
+                                discountPercentageHidden.addEventListener('widget:formatted-change', handlePercentageInput);
+                            }}
+                            discountPercentageDisplay.dataset.discountSyncBound = 'true';
                         }}
 
                         if (discountPercentageHidden && parseDotDecimal(discountPercentageHidden.value) > 0) {{
