@@ -1,6 +1,30 @@
 <div
     class="flex w-full items-center gap-2 sm:w-auto"
-    x-data="{ controlsFormId: '{{ table_id }}-controls-form' }"
+    x-data="{
+        controlsFormId: '{{ table_id }}-controls-form',
+        closeOnBackdrop(event) {
+            if (event.target !== event.currentTarget) {
+                return;
+            }
+
+            const selectedText = window.getSelection ? window.getSelection().toString().trim() : '';
+            if (selectedText) {
+                return;
+            }
+
+            const activeElement = document.activeElement;
+            const isTextField = activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA');
+            if (isTextField) {
+                const selectionStart = typeof activeElement.selectionStart === 'number' ? activeElement.selectionStart : null;
+                const selectionEnd = typeof activeElement.selectionEnd === 'number' ? activeElement.selectionEnd : null;
+                if (selectionStart !== null && selectionEnd !== null && selectionStart !== selectionEnd) {
+                    return;
+                }
+            }
+
+            this.$refs.filterModal.close();
+        }
+    }"
     @htmx:before-request.window="if ($event.detail && $event.detail.elt && $event.detail.elt.id === controlsFormId && $refs.filterModal?.open) $refs.filterModal.close()"
 >
     <button
@@ -34,7 +58,7 @@
         id="{{ table_id }}-filter-modal"
         class="modal"
         x-ref="filterModal"
-        @click="if ($event.target === $el) $el.close()"
+        @click="closeOnBackdrop($event)"
     >
         <div class="modal-box w-11/12 max-w-2xl border border-base-300 bg-base-100 shadow-2xl">
             <h3 class="text-base font-semibold text-base-content">{{ filter_panel_title }}</h3>

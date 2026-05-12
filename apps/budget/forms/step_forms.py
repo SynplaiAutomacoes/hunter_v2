@@ -23,6 +23,7 @@ from apps.core.text_normalization import sentence_case
 from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.customer.models import Customer, Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
+from apps.workorder.models import WorkOrderStatus
 
 from .shared import MAX_BUDGET_IMAGES, _get_budget_with_prefetched_items, _render_budget_items_rows, _validate_uploaded_files, _validate_uploaded_images
 from .widgets import MultipleFileField, MultipleFileInput
@@ -2793,6 +2794,11 @@ class BudgetStep6Form(CoreModelForm):
         action_blockers = list(budget.step6_action_blockers)
         action_blockers_display = " ".join(action_blockers)
         action_blocked_reason_json = escape(json.dumps(action_blockers_display))
+        has_active_workorder = budget.workorders.exclude(status=WorkOrderStatus.CANCELLED).exists()
+        cancel_workorder_block_message = "Não é possível cancelar um orçamento enquanto existir uma O.S. ativa vinculada. Cancele a O.S. primeiro para depois cancelar o orçamento."
+        cancel_workorder_blocked_reason_json = escape(json.dumps(cancel_workorder_block_message))
+        reject_workorder_block_message = "Não é possível reprovar um orçamento após a abertura da O.S. Cancele a ordem de serviço primeiro ou siga com o cancelamento do orçamento."
+        reject_workorder_blocked_reason_json = escape(json.dumps(reject_workorder_block_message))
         approval_blockers = list(budget.approval_blockers)
         approval_blockers_display = " ".join(approval_blockers)
         approval_blocked_reason_json = escape(json.dumps(approval_blockers_display))
@@ -2803,8 +2809,24 @@ class BudgetStep6Form(CoreModelForm):
         blocked_approval_action_attrs = f'''onclick="showBlockedStep6Action({approval_blocked_reason_json})" aria-disabled="true" title="{escape(approval_blockers_display)}"''' if approval_blockers else ""
         approval_button_class = "btn-success" if not approval_blockers else "opacity-60 cursor-not-allowed"
         approval_button_attrs = blocked_approval_action_attrs if approval_blockers else f'''onclick="updateBudgetStatus({budget.pk}, 'approve')"'''
-        cancel_button_attrs = blocked_step6_action_attrs if action_blockers else f'''onclick="updateBudgetStatus({budget.pk}, 'cancel')"'''
-        reject_button_attrs = blocked_step6_action_attrs if action_blockers else f'''onclick="updateBudgetStatus({budget.pk}, 'reject')"'''
+        if action_blockers:
+            cancel_button_attrs = blocked_step6_action_attrs
+            cancel_button_class = step6_action_button_state_class
+        elif has_active_workorder:
+            cancel_button_attrs = f'''onclick="showBlockedStep6Action({cancel_workorder_blocked_reason_json})" aria-disabled="true" title="{escape(cancel_workorder_block_message)}"'''
+            cancel_button_class = "opacity-60 cursor-not-allowed"
+        else:
+            cancel_button_attrs = f'''onclick="updateBudgetStatus({budget.pk}, 'cancel')"'''
+            cancel_button_class = ""
+        if action_blockers:
+            reject_button_attrs = blocked_step6_action_attrs
+            reject_button_class = step6_action_button_state_class
+        elif has_active_workorder:
+            reject_button_attrs = f'''onclick="showBlockedStep6Action({reject_workorder_blocked_reason_json})" aria-disabled="true" title="{escape(reject_workorder_block_message)}"'''
+            reject_button_class = "opacity-60 cursor-not-allowed"
+        else:
+            reject_button_attrs = f'''onclick="updateBudgetStatus({budget.pk}, 'reject')"'''
+            reject_button_class = ""
         signature_blocked_json = "true" if signature_blockers else "false"
         signature_blocked_reason_json = escape(json.dumps(signature_blockers_display))
         can_toggle_signed_pdf = budget.signature_request_status in {SignatureStatus.SENT, SignatureStatus.APPROVED} and bool(budget.signature_external_id or budget.signature_document_id)
@@ -3281,7 +3303,7 @@ class BudgetStep6Form(CoreModelForm):
                         HTML(f"""
                         <div class="grid grid-cols-12 gap-3">
                             <button type="button"
-                                class="btn btn-error col-span-4 {step6_action_button_state_class}"
+                                class="btn btn-error col-span-4 {cancel_button_class}"
                                 {cancel_button_attrs}>
                                 Cancelar
                             </button>
@@ -3293,7 +3315,7 @@ class BudgetStep6Form(CoreModelForm):
                             </button>
 
                             <button type="button"
-                                class="btn btn-warning col-span-4 {step6_action_button_state_class}"
+                                class="btn btn-warning col-span-4 {reject_button_class}"
                                 {reject_button_attrs}>
                                 Reprovar
                             </button>

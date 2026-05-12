@@ -93,20 +93,28 @@ class WorkOrderPaymentForm(CoreModelForm):
         self.fields["first_installment_amount"].required = not self.is_first_payment
         self.fields["due_date"].required = False
 
-        if self.is_first_payment:
-            self.fields["first_installment_amount"].disabled = True
-            self.fields["first_installment_amount"].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
-        else:
-            self.fields["entry_amount"].disabled = True
-            self.fields["entry_amount"].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
-
         total_os = self.workorder.total_budget_value.amount if self.workorder else MONEY_ZERO
         paid_amount = self._get_paid_amount() if self.workorder else MONEY_ZERO
         pending_amount = total_os - paid_amount
+        payment_is_fully_paid = pending_amount <= MONEY_ZERO
         pending_amount_display = pending_amount if pending_amount > MONEY_ZERO else MONEY_ZERO
         base_total = self.workorder.total_base_value if self.workorder else Money(MONEY_ZERO, "BRL")
         discount_value = Money(MONEY_ZERO, "BRL")
         discount_percentage = Decimal("0.00")
+
+        blocked_value_attrs = {"readonly": True, "class": "cursor-not-allowed opacity-75"}
+        fully_paid_value_attrs = {**blocked_value_attrs, "disabled": True, "title": "OS paga por completo"}
+
+        if payment_is_fully_paid:
+            for field_name in ["entry_amount", "first_installment_amount", "payment_method", "due_date"]:
+                self.fields[field_name].disabled = True
+                self.fields[field_name].widget.attrs.update(fully_paid_value_attrs)
+        elif self.is_first_payment:
+            self.fields["first_installment_amount"].disabled = True
+            self.fields["first_installment_amount"].widget.attrs.update(blocked_value_attrs)
+        else:
+            self.fields["entry_amount"].disabled = True
+            self.fields["entry_amount"].widget.attrs.update(blocked_value_attrs)
 
         if self.workorder:
             discount_value, discount_percentage = resolve_discount_fields(
@@ -145,26 +153,23 @@ class WorkOrderPaymentForm(CoreModelForm):
             self.initial["due_date"] = ""
 
         pending_amount_js = format(pending_amount, "f")
-        pending_amount_display_text = _format_brl_amount(pending_amount_display)
         today_iso = timezone.localdate().isoformat()
-        active_amount_label = "entrada" if self.is_first_payment else "a ser pago"
         is_first_payment_js = "true" if self.is_first_payment else "false"
+        payment_success_container_class = "col-span-12 mb-4" if payment_is_fully_paid else "hidden col-span-12 mb-4"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
             alert_confirm_layout(title="Deseja remover este registro?"),
             HTML(f"""
-                <div id="payment-warning-workorder-js" class="hidden col-span-12 mb-4">
-                    <div class="alert alert-error shadow-lg border-2 border-error">
-                        <span class="material-icons">error_outline</span>
+                <div id="payment-success-workorder-js" class="{payment_success_container_class}">
+                    <div class="alert alert-success shadow-lg border-2 border-success">
+                        <span class="material-icons">check_circle</span>
                         <div>
-                             <h3 class="font-bold text-sm">Valor Não Permitido</h3>
-                             <div class="text-xs payment-warning-message">
-                                O valor {active_amount_label} não pode exceder o saldo disponível de <strong>R$ {pending_amount_display_text}</strong>.
-                             </div>
-                         </div>
-                     </div>
+                            <h3 class="font-bold text-sm">Ordem de Serviço completamente paga</h3>
+                            <div class="text-xs">A ordem de serviço foi paga completamente.</div>
+                        </div>
+                    </div>
                 </div>
             """),
             Div(
@@ -223,7 +228,22 @@ class WorkOrderPaymentForm(CoreModelForm):
                 Field("due_date", wrapper_class="col-span-12 lg:col-span-3"),
                 css_class="grid grid-cols-12 gap-4 mb-2 mt-4",
             ),
-            Div(Submit("submit", "Salvar Plano de Pagamento", css_class="btn-form-save btn-primary"), css_class="flex justify-end mt-4"),
+            Div(
+                HTML("""
+                    <div id="payment-warning-workorder-js" class="hidden w-full lg:max-w-2xl lg:mr-auto">
+                        <div class="alert alert-error shadow-sm border-2 border-error payment-warning-card">
+                            <span class="material-icons payment-warning-icon">error_outline</span>
+                            <div>
+                                <h3 class="font-bold text-sm payment-warning-title">Valor Não Permitido</h3>
+                                <div class="text-xs payment-warning-message">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                """),
+                Submit("submit", "Salvar Plano de Pagamento", css_class="btn-form-save btn-primary self-end lg:shrink-0"),
+                css_class="mt-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-end",
+            ),
             HTML(f"""
             <script>
                 (function() {{
@@ -397,6 +417,12 @@ class WorkOrderPaymentForm(CoreModelForm):
                                     if (paidValueDisplay) paidValueDisplay.value = formatMoney(paidValue);
                                     if (pendingValueHidden) pendingValueHidden.value = pendingValue.toFixed(2);
                                     if (pendingValueDisplay) pendingValueDisplay.value = formatMoney(pendingValue);
+                                    if (typeof window.updateWorkorderDeliveryButtonState === 'function') {{
+                                        window.updateWorkorderDeliveryButtonState({{
+                                            hasCompletionBlockers: Boolean(data.has_completion_blockers),
+                                            completionBlockersDisplay: data.completion_blockers_display || '',
+                                        }});
+                                    }}
                                     setDiscountStatus('saved', 'Salvo');
                                     updatePaymentPlan();
                                     window.setTimeout(() => {{
@@ -438,7 +464,7 @@ class WorkOrderPaymentForm(CoreModelForm):
                             if (pendingValue <= 0) {{
                                 btnSave.disabled = true;
                                 btnSave.classList.add('btn-disabled', 'opacity-50');
-                                toggleWarning(true, 'A ordem de serviço não possui saldo pendente para um novo plano de pagamento.');
+                                toggleWarning(false, '');
                                 return;
                             }}
 
@@ -490,7 +516,7 @@ class WorkOrderPaymentForm(CoreModelForm):
                             discountMoneyDisplay.dataset.discountSyncBound = 'true';
                         }}
 
-                        if (discountPercentageHidden && discountPercentageHidden.dataset.discountSyncBound !== 'true') {{
+                        if (discountPercentageDisplay && discountPercentageDisplay.dataset.discountSyncBound !== 'true') {{
                             const handlePercentageInput = () => {{
                                 window.setTimeout(() => {{
                                     syncFromPercentage();
@@ -503,9 +529,12 @@ class WorkOrderPaymentForm(CoreModelForm):
                                     persistDiscountNow();
                                 }}, 0);
                             }};
-                            discountPercentageHidden.addEventListener('widget:formatted-change', handlePercentageInput);
-                            discountPercentageHidden.addEventListener('blur', handlePercentageBlur);
-                            discountPercentageHidden.dataset.discountSyncBound = 'true';
+                            discountPercentageDisplay.addEventListener('input', handlePercentageInput);
+                            discountPercentageDisplay.addEventListener('blur', handlePercentageBlur);
+                            if (discountPercentageHidden) {{
+                                discountPercentageHidden.addEventListener('widget:formatted-change', handlePercentageInput);
+                            }}
+                            discountPercentageDisplay.dataset.discountSyncBound = 'true';
                         }}
 
                         if (discountPercentageHidden && parseDotDecimal(discountPercentageHidden.value) > 0) {{
@@ -671,6 +700,7 @@ class WorkOrderCustomerApprovalForm(CoreForm):
 
         self.fields["km_initial"].initial = km_initial_value
         self.fields["km_initial"].disabled = True
+        self.fields["km_final"].widget.attrs["min"] = km_initial_value
 
         self.fields["km_final"].error_messages["required"] = "Preencha o KM final para concluir a entrega do veículo."
         self.fields["unsigned_delivery_reason"].error_messages["required"] = "Informe a justificativa para entregar o veículo sem a assinatura da O.S."
@@ -740,6 +770,53 @@ class WorkOrderReopenForm(CoreForm):
         reason = str(self.cleaned_data.get("reopen_reason") or "").strip()
         if not reason:
             raise ValidationError("Informe a justificativa para reabrir a O.S.")
+        return reason
+
+
+class WorkOrderStatusReasonForm(CoreForm):
+    status_reason = forms.CharField(label="Justificativa", required=True, widget=forms.Textarea(attrs={"rows": 4}))
+
+    def __init__(self, *args, **kwargs):
+        self.workorder = kwargs.pop("workorder", None)
+        self.action = str(kwargs.pop("action", "")).strip().lower()
+        super().__init__(*args, **kwargs)
+
+        config = self._get_action_config()
+        self.fields["status_reason"].label = config["label"]
+        self.fields["status_reason"].widget.attrs["placeholder"] = config["placeholder"]
+        self.fields["status_reason"].error_messages["required"] = config["required_message"]
+
+        initial_value = ""
+        if self.workorder and not self.is_bound:
+            initial_value = str(getattr(self.workorder, config["field_name"] or "", "") or "")
+        if initial_value:
+            self.fields["status_reason"].initial = initial_value
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(Field("status_reason"))
+
+    def _get_action_config(self) -> dict[str, str]:
+        config_map = {
+            "cancel": {
+                "field_name": "cancellation_reason",
+                "label": "Justificativa do cancelamento",
+                "placeholder": "Explique por que esta O.S. está sendo cancelada.",
+                "required_message": "Informe a justificativa para cancelar a O.S.",
+            },
+            "reject": {
+                "field_name": "rejection_reason",
+                "label": "Justificativa da rejeição",
+                "placeholder": "Explique por que esta O.S. está sendo rejeitada.",
+                "required_message": "Informe a justificativa para rejeitar a O.S.",
+            },
+        }
+        return config_map.get(self.action, config_map["reject"])
+
+    def clean_status_reason(self) -> str:
+        reason = str(self.cleaned_data.get("status_reason") or "").strip()
+        if not reason:
+            raise ValidationError(self._get_action_config()["required_message"])
         return reason
 
 

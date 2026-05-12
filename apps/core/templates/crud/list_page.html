@@ -32,29 +32,12 @@
                     wrapper.addEventListener('htmx:configRequest', function (event) {
                         if (!event.detail || event.detail.elt !== wrapper) return;
 
-                        const parameters = event.detail.parameters || {};
                         const searchParams = new URLSearchParams(window.location.search);
+                        const baseUrl = wrapper.getAttribute('hx-get') || window.location.pathname;
+                        const queryString = searchParams.toString();
 
-                        searchParams.forEach((value, key) => {
-                            if (!Object.prototype.hasOwnProperty.call(parameters, key)) {
-                                parameters[key] = value;
-                                return;
-                            }
-
-                            const currentValue = parameters[key];
-                            if (Array.isArray(currentValue)) {
-                                if (!currentValue.includes(value)) {
-                                    parameters[key] = [...currentValue, value];
-                                }
-                                return;
-                            }
-
-                            if (currentValue !== value) {
-                                parameters[key] = [currentValue, value];
-                            }
-                        });
-
-                        event.detail.parameters = parameters;
+                        event.detail.path = queryString ? `${baseUrl}?${queryString}` : baseUrl;
+                        event.detail.parameters = {};
                     });
                 })();
             </script>

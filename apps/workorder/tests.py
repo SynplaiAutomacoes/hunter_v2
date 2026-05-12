@@ -6,6 +6,7 @@ from decimal import Decimal
 from urllib.parse import urlparse
 from unittest.mock import patch
 
+from django.contrib.auth.models import Permission
 from apps.accounts.models import Account, User
 from django.db import connection
 from django.http import Http404, HttpResponse, QueryDict
@@ -29,12 +30,13 @@ from apps.core.query_filters import apply_query_param_filters
 from apps.customer.models import Customer, Vehicle
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
+from apps.iam.models import WorkshopRole
 from apps.iam.utils import get_or_create_director_role
 from apps.stock.models import StockMovement, StockProduct
-from apps.workorder.forms import WorkOrderCustomerApprovalForm, WorkOrderPaymentForm
+from apps.workorder.forms import WorkOrderCustomerApprovalForm, WorkOrderPaymentForm, WorkOrderStatusReasonForm
 from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock
 from apps.workorder.documents.provider import build_workorder_pdf_render_request
-from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderHistory, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
 from apps.workorder.service import (
     WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
     WORKORDER_SIGNATURE_TOKEN_SALT,
@@ -731,8 +733,39 @@ class WorkOrderDetailViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Reabrir O.S.")
-        self.assertContains(response, 'title="Reabra a O.S. para estornar os lançamentos antes de cancelar."', html=False)
-        self.assertContains(response, 'title="Reabra a O.S. para estornar os lançamentos antes de rejeitar."', html=False)
+        self.assertContains(response, 'title="Reabra a O.S. antes de alterar o status."', html=False)
+        html = response.content.decode("utf-8")
+        self.assertRegex(html, r'id="toggle-cancel-workorder-form"[\s\S]*?disabled')
+        self.assertRegex(html, r'id="workorder-delivery-button"[\s\S]*?disabled')
+        self.assertRegex(html, r'id="toggle-reject-workorder-form"[\s\S]*?disabled')
+
+    def test_detail_view_shows_reopen_button_and_disables_status_buttons_for_cancelled_workorder(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=81)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.CANCELLED)
+
+        response = self.client.get(reverse("workorder:workorder_detail", args=[workorder.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Reabrir O.S.")
+        html = response.content.decode("utf-8")
+        self.assertRegex(html, r'id="toggle-cancel-workorder-form"[\s\S]*?disabled')
+        self.assertRegex(html, r'id="workorder-delivery-button"[\s\S]*?disabled')
+        self.assertRegex(html, r'id="toggle-reject-workorder-form"[\s\S]*?disabled')
+
+    def test_detail_view_shows_reopen_button_and_disables_status_buttons_for_rejected_workorder(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=82)
+        budget = create_budget(workshop=workshop)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.REJECTED)
+
+        response = self.client.get(reverse("workorder:workorder_detail", args=[workorder.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Reabrir O.S.")
+        html = response.content.decode("utf-8")
+        self.assertRegex(html, r'id="toggle-cancel-workorder-form"[\s\S]*?disabled')
+        self.assertRegex(html, r'id="workorder-delivery-button"[\s\S]*?disabled')
+        self.assertRegex(html, r'id="toggle-reject-workorder-form"[\s\S]*?disabled')
 
     def test_detail_view_shows_reopen_button_for_manager(self) -> None:
         manager_user, workshop, _ = create_manager_user_with_workshop(suffix=99)
@@ -1904,6 +1937,8 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertContains(response, "Pago")
         self.assertContains(response, "alert_confirm_modal")
         self.assertContains(response, 'data-confirm="Deseja remover esta forma de pagamento?"', html=False)
+        self.assertContains(response, 'id="resume-section" hx-swap-oob="innerHTML"', html=False)
+        self.assertContains(response, 'id="customer-approvement-section" hx-swap-oob="innerHTML"', html=False)
 
         payment = WorkOrderPaymentMethod.objects.get(workorder=self.workorder)
         self.assertEqual(payment.installments_count, 4)
@@ -1939,6 +1974,38 @@ class AddPaymentMethodViewTests(TestCase):
         last_payment = WorkOrderPaymentMethod.objects.filter(workorder=self.workorder).order_by("-pk").first()
         self.assertIsNotNone(last_payment)
         self.assertEqual(last_payment.first_installment_amount, Money("20.00", "BRL"))
+
+    def test_payment_section_shows_success_when_workorder_is_fully_paid(self) -> None:
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
+        WorkOrderPaymentMethod.objects.create(
+            workorder=self.workorder,
+            payment_method=payment_method,
+            first_installment_amount=self.workorder.total_budget_value,
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 24),
+        )
+
+        response = self.client.get(reverse("workorder:payment_section", args=[self.workorder.pk]), HTTP_HX_REQUEST="true")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Ordem de Serviço completamente paga")
+        self.assertContains(response, "A ordem de serviço foi paga completamente.")
+        self.assertContains(response, "alert-success")
+        self.assertContains(response, "check_circle")
+        self.assertContains(response, 'title="OS paga por completo"', html=False)
+
+        html = response.content.decode()
+        self.assertRegex(html, r'id="id_entry_amount_0_display"[\s\S]*?disabled[\s\S]*?>')
+        self.assertRegex(html, r'id="id_first_installment_amount_0_display"[\s\S]*?disabled[\s\S]*?>')
+        self.assertRegex(html, r'id="id_payment_method"[\s\S]*?disabled[\s\S]*?>')
+        self.assertRegex(html, r'placeholder="Digite para buscar\.\.\."[\s\S]*?title="OS paga por completo"[\s\S]*?disabled[\s\S]*?>')
+        self.assertRegex(html, r'id="id_due_date"[\s\S]*?title="OS paga por completo"[\s\S]*?disabled[\s\S]*?>')
+        self.assertGreaterEqual(html.count('title="OS paga por completo"'), 8)
+        self.assertLess(html.index('id="payment-success-workorder-js"'), html.index('id="id_entry_amount_0_display"'))
+        self.assertLess(html.index('id="id_due_date"'), html.index('id="payment-warning-workorder-js"'))
+        self.assertLess(html.index('id="payment-warning-workorder-js"'), html.index("Salvar Plano de Pagamento"))
+        self.assertIn('id="payment-warning-workorder-js" class="hidden', html)
 
     def test_update_discount_syncs_budget_and_rerenders_payment_section(self) -> None:
         BudgetItem.objects.create(
@@ -1977,6 +2044,8 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(payload["total_budget_value"], "90.00")
         self.assertEqual(payload["paid_value"], "40.00")
         self.assertEqual(payload["pending_value"], "50.00")
+        self.assertTrue(payload["has_completion_blockers"])
+        self.assertIn("Receba o pagamento integral", payload["completion_blockers_display"])
 
     def test_update_km_final_persists_value_without_changing_status(self) -> None:
         customer = create_customer(workshop=self.workshop, suffix=241)
@@ -2177,6 +2246,138 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertIsNone(self.workorder.delivered_at)
         self.assertIn("showToast", response.headers.get("HX-Trigger", ""))
 
+    def test_status_reason_form_requires_reason_for_cancel(self) -> None:
+        form = WorkOrderStatusReasonForm(data={"status_reason": "   "}, workorder=self.workorder, action="cancel")
+
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors["status_reason"], ["Informe a justificativa para cancelar a O.S."])
+
+    def test_cancel_status_requires_reason(self) -> None:
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "cancel"]),
+            data={"status_reason": ""},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
+        self.assertContains(response, "Informe a justificativa para cancelar a O.S.")
+
+    def test_cancel_status_persists_reason(self) -> None:
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "cancel"]),
+            data={"status_reason": "Cliente desistiu do serviço antes da execução."},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Refresh"), "true")
+        self.assertEqual(self.workorder.status, WorkOrderStatus.CANCELLED)
+        self.assertEqual(self.workorder.cancellation_reason, "Cliente desistiu do serviço antes da execução.")
+
+    def test_reject_status_requires_reason(self) -> None:
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "reject"]),
+            data={"status_reason": ""},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
+        self.assertContains(response, "Informe a justificativa para rejeitar a O.S.")
+
+    def test_reject_status_persists_reason(self) -> None:
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "reject"]),
+            data={"status_reason": "Serviço recusado após análise técnica."},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Refresh"), "true")
+        self.assertEqual(self.workorder.status, WorkOrderStatus.REJECTED)
+        self.assertEqual(self.workorder.rejection_reason, "Serviço recusado após análise técnica.")
+
+    def test_reject_status_is_blocked_after_cancellation(self) -> None:
+        self.workorder.status = WorkOrderStatus.CANCELLED
+        self.workorder.cancellation_reason = "Cliente desistiu."
+        self.workorder.save(update_fields=["status", "cancellation_reason"])
+
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "reject"]),
+            data={"status_reason": "Tentativa posterior."},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.workorder.status, WorkOrderStatus.CANCELLED)
+        self.assertIn("Reabrir O.S.", response.content.decode("utf-8"))
+        self.assertIn("showToast", response.headers.get("HX-Trigger", ""))
+
+    def test_approve_status_is_blocked_after_cancellation(self) -> None:
+        self.workorder.status = WorkOrderStatus.CANCELLED
+        self.workorder.cancellation_reason = "Cliente desistiu."
+        self.workorder.save(update_fields=["status", "cancellation_reason"])
+
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "approve"]),
+            data={"km_final": "12500"},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.workorder.status, WorkOrderStatus.CANCELLED)
+        self.assertIsNone(self.workorder.delivered_at)
+        self.assertIn("showToast", response.headers.get("HX-Trigger", ""))
+
+    def test_cancel_status_is_blocked_after_rejection(self) -> None:
+        self.workorder.status = WorkOrderStatus.REJECTED
+        self.workorder.rejection_reason = "Cliente rejeitou."
+        self.workorder.save(update_fields=["status", "rejection_reason"])
+
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "cancel"]),
+            data={"status_reason": "Tentativa posterior."},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.workorder.status, WorkOrderStatus.REJECTED)
+        self.assertIn("Reabrir O.S.", response.content.decode("utf-8"))
+        self.assertIn("showToast", response.headers.get("HX-Trigger", ""))
+
+    def test_approve_status_is_blocked_after_rejection(self) -> None:
+        self.workorder.status = WorkOrderStatus.REJECTED
+        self.workorder.rejection_reason = "Cliente rejeitou."
+        self.workorder.save(update_fields=["status", "rejection_reason"])
+
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "approve"]),
+            data={"km_final": "12500"},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.workorder.status, WorkOrderStatus.REJECTED)
+        self.assertIsNone(self.workorder.delivered_at)
+        self.assertIn("showToast", response.headers.get("HX-Trigger", ""))
+
     def test_cancel_status_is_blocked_after_delivery(self) -> None:
         self.workorder.status = WorkOrderStatus.APPROVED
         self.workorder.delivered_at = timezone.now()
@@ -2192,6 +2393,42 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.workorder.status, WorkOrderStatus.APPROVED)
         self.assertIn("Reabrir O.S.", response.content.decode("utf-8"))
+        self.assertIn("showToast", response.headers.get("HX-Trigger", ""))
+
+    def test_reject_status_is_blocked_after_delivery(self) -> None:
+        self.workorder.status = WorkOrderStatus.APPROVED
+        self.workorder.delivered_at = timezone.now()
+        self.workorder.save(update_fields=["status", "delivered_at"])
+
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "reject"]),
+            data={"status_reason": "Tentativa posterior."},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.workorder.status, WorkOrderStatus.APPROVED)
+        self.assertIn("showToast", response.headers.get("HX-Trigger", ""))
+
+    def test_approve_status_is_blocked_after_delivery(self) -> None:
+        delivered_at = timezone.now()
+        self.workorder.status = WorkOrderStatus.APPROVED
+        self.workorder.delivered_at = delivered_at
+        self.workorder.save(update_fields=["status", "delivered_at"])
+
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "approve"]),
+            data={"km_final": "12500"},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.workorder.status, WorkOrderStatus.APPROVED)
+        self.assertEqual(self.workorder.delivered_at, delivered_at)
         self.assertIn("showToast", response.headers.get("HX-Trigger", ""))
 
     def test_reopen_status_requires_reason_and_reverts_stock_and_financial_movements(self) -> None:
@@ -2252,6 +2489,9 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(self.workorder.reopen_reason, "Cliente pediu reexecução do serviço.")
         self.assertEqual(stock_product.current_quantity, 5)
 
+        history_entry = WorkOrderHistory.objects.get(workorder=self.workorder, action=WorkOrderHistory.Action.REOPENED)
+        self.assertEqual(history_entry.reason, "Cliente pediu reexecução do serviço.")
+
         reversal_stock = StockMovement.objects.get(reversal_of=original_stock_movement)
         self.assertEqual(reversal_stock.type, StockMovement.MovementType.ENTRY)
         self.assertEqual(reversal_stock.quantity, 1)
@@ -2260,6 +2500,51 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(reversal_financial.direction, FinancialMovement.MovementDirection.DEBIT)
         self.assertEqual(reversal_financial.amount, original_financial_movement.amount)
         self.assertEqual(reversal_financial.financial_observation, "Cliente pediu reexecução do serviço.")
+
+        detail_response = self.client.get(reverse("workorder:workorder_detail", args=[self.workorder.pk]))
+        self.assertContains(detail_response, "Histórico da OS")
+        self.assertContains(detail_response, "Cliente pediu reexecução do serviço.")
+        self.assertContains(detail_response, timezone.localtime(history_entry.criado_em).strftime("%d/%m/%Y %H:%M"))
+
+    def test_reopen_status_allows_cancelled_workorder(self) -> None:
+        self.workorder.status = WorkOrderStatus.CANCELLED
+        self.workorder.cancellation_reason = "Cliente desistiu do serviço."
+        self.workorder.save(update_fields=["status", "cancellation_reason"])
+
+        response = self.client.post(
+            reverse("workorder:reopen", args=[self.workorder.pk]),
+            data={"reopen_reason": "Cliente retomou o serviço."},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Refresh"), "true")
+        self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
+        self.assertEqual(self.workorder.reopen_reason, "Cliente retomou o serviço.")
+        history_entry = WorkOrderHistory.objects.get(workorder=self.workorder, action=WorkOrderHistory.Action.REOPENED)
+        self.assertEqual(history_entry.reason, "Cliente retomou o serviço.")
+
+    def test_reopen_status_allows_rejected_workorder(self) -> None:
+        self.workorder.status = WorkOrderStatus.REJECTED
+        self.workorder.rejection_reason = "Cliente rejeitou o serviço."
+        self.workorder.save(update_fields=["status", "rejection_reason"])
+
+        response = self.client.post(
+            reverse("workorder:reopen", args=[self.workorder.pk]),
+            data={"reopen_reason": "Cliente aprovou nova análise."},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Refresh"), "true")
+        self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
+        self.assertEqual(self.workorder.reopen_reason, "Cliente aprovou nova análise.")
+        history_entry = WorkOrderHistory.objects.get(workorder=self.workorder, action=WorkOrderHistory.Action.REOPENED)
+        self.assertEqual(history_entry.reason, "Cliente aprovou nova análise.")
 
     def test_manager_can_reopen_approved_workorder(self) -> None:
         manager_user, workshop, _ = create_manager_user_with_workshop(suffix=48)
@@ -2281,6 +2566,49 @@ class AddPaymentMethodViewTests(TestCase):
         response = self.client.post(
             reverse("workorder:reopen", args=[workorder.pk]),
             data={"reopen_reason": "Revisão autorizada pela gerência."},
+            HTTP_HX_REQUEST="true",
+        )
+
+        workorder.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Refresh"), "true")
+        self.assertEqual(workorder.status, WorkOrderStatus.DRAFT)
+
+    def test_user_with_reopen_workorder_permission_can_reopen_approved_workorder(self) -> None:
+        user = User.objects.create_user(username="workorder-perm-reopen", password="123", cpf="12345678123")
+        account = Account.objects.create(name="Conta Permissao Reabertura", owner=user)
+        user.account = account
+        user.save(update_fields=["account"])
+
+        workshop = Workshop.objects.create(
+            account=account,
+            name="Oficina Permissao Reabertura",
+            cnpj="11.555.666/0001-48",
+            phone="+5511966666666",
+            address="Rua Permissao Reabertura, 48",
+        )
+        role = WorkshopRole.objects.create(account=account, name="Consultor")
+        role.permissions.add(Permission.objects.get(content_type__app_label="workorder", codename="reopen_workorder"))
+        WorkshopMember.objects.create(user=user, workshop=workshop, role=role, is_active=True)
+
+        customer = create_customer(workshop=workshop, suffix=348)
+        vehicle = create_vehicle(workshop=workshop, customer=customer, suffix=348)
+        budget = create_budget(workshop=workshop)
+        budget.customer = customer
+        budget.vehicle = vehicle
+        budget.current_km = 12000
+        budget.status = "approved"
+        budget.save(update_fields=["customer", "vehicle", "current_km", "status"])
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED, delivered_at=timezone.now())
+
+        self.client.force_login(user)
+        session = self.client.session
+        session["active_workshop_id"] = workshop.pk
+        session.save()
+
+        response = self.client.post(
+            reverse("workorder:reopen", args=[workorder.pk]),
+            data={"reopen_reason": "Reabertura autorizada pela permissão da função."},
             HTTP_HX_REQUEST="true",
         )
 

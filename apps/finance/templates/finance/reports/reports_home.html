@@ -141,6 +141,15 @@
                                                 </div>
 
                                                 <div>
+                                                    <label for="reports-filter-paid-status">Pagamento</label>
+                                                    <select name="paid_status" id="reports-filter-paid-status" class="select select-bordered w-full">
+                                                        {% for value, label in paid_status_filter_choices %}
+                                                            <option value="{{ value }}" {% if selected_paid_status == value %}selected{% endif %}>{{ label }}</option>
+                                                        {% endfor %}
+                                                    </select>
+                                                </div>
+
+                                                <div>
                                                     <label for="reports-filter-bank-account">Conta bancária</label>
                                                     <select name="bank_account" id="reports-filter-bank-account" class="select select-bordered w-full">
                                                         <option value="">Todas</option>

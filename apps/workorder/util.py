@@ -15,8 +15,8 @@ from apps.budget.fields import DurationField
 from apps.core.documents.contract import DocumentPayload
 from apps.core.documents.http import build_pdf_http_response
 from apps.core.documents.signature import SignatureTokenError, parse_document_signature_token
-from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderCustomerApprovalForm, WorkOrderPaymentForm, WorkOrderReopenForm
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderSignatureStatus
+from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderCustomerApprovalForm, WorkOrderPaymentForm, WorkOrderReopenForm, WorkOrderStatusReasonForm
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus
 from apps.workorder.service import (
     WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
     WORKORDER_SIGNATURE_TOKEN_SALT,
@@ -24,7 +24,7 @@ from apps.workorder.service import (
     send_workorder_for_signature,
 )
 from apps.workshops.models.workshop_costs import WorkshopCost
-from apps.workshops.util.workshops import is_workshop_director, is_workshop_manager
+from apps.workshops.util.workshops import has_workshop_perm
 
 logger = logging.getLogger(__name__)
 THOUSAND_SEPARATED_INT_PATTERN = re.compile(r"^\d{1,3}(?:[\s.,]\d{3})+$")
@@ -201,7 +201,14 @@ def _get_workorder_workshop_cost(workorder: WorkOrder, workshop):
 
 
 def can_reopen_workorder(*, request, workorder: WorkOrder) -> bool:
-    return is_workshop_director(user=request.user, workshop=workorder.workshop, request=request) or is_workshop_manager(user=request.user, workshop=workorder.workshop, request=request)
+    return has_workshop_perm(
+        user=request.user,
+        workshop=workorder.workshop,
+        app_label="workorder",
+        model="workorder",
+        codename="reopen_workorder",
+        request=request,
+    )
 
 
 def _build_customer_approvement_context(workorder: WorkOrder, attachment: WorkOrderAttachment | None = None, request=None) -> dict[str, object]:
@@ -210,8 +217,11 @@ def _build_customer_approvement_context(workorder: WorkOrder, attachment: WorkOr
         "workorder": workorder,
         "attachment_form": WorkOrderAttachmentForm(workorder=workorder, instance=latest_attachment),
         "approval_form": WorkOrderCustomerApprovalForm(workorder=workorder),
+        "cancel_form": WorkOrderStatusReasonForm(workorder=workorder, action="cancel"),
+        "reject_form": WorkOrderStatusReasonForm(workorder=workorder, action="reject"),
         "reopen_form": WorkOrderReopenForm(workorder=workorder),
         "can_reopen_workorder": bool(request and can_reopen_workorder(request=request, workorder=workorder)),
+        "workorder_history": WorkOrderHistory.objects.filter(workorder=workorder).select_related("user"),
         "attachments": workorder.attachments.order_by("-criado_em"),
     }
 
