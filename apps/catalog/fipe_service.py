@@ -165,8 +165,12 @@ def sync_models_for_brand(*, brand: FipeVehicleBrand) -> list[FipeVehicleModel]:
 
 
 def get_brand_options(*, vehicle_type: str = FipeVehicleType.CARROS) -> list[FipeOption]:
-    if not FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, is_active=True).exists() and has_fipe_api_token():
-        sync_brands(vehicle_type=vehicle_type)
+    active_brands = FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, is_active=True)
+    if not active_brands.exists() and has_fipe_api_token():
+        try:
+            sync_brands(vehicle_type=vehicle_type)
+        except Exception:  # noqa: BLE001
+            logger.exception("FIPE brand sync failed while loading brand options", extra={"vehicle_type": vehicle_type})
 
     return [FipeOption(value=brand.name, label=brand.name) for brand in FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, is_active=True).order_by("name")]
 
@@ -175,13 +179,25 @@ def get_model_options(*, brand_name: str, vehicle_type: str = FipeVehicleType.CA
     brand = FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, name=brand_name, is_active=True).first()
     if brand is None:
         if not FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, is_active=True).exists() and has_fipe_api_token():
-            sync_brands(vehicle_type=vehicle_type)
+            try:
+                sync_brands(vehicle_type=vehicle_type)
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "FIPE brand sync failed while loading model options",
+                    extra={"vehicle_type": vehicle_type, "brand_name": brand_name},
+                )
             brand = FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, name=brand_name, is_active=True).first()
         if brand is None:
             return []
 
     if not brand.models.filter(vehicle_type=vehicle_type, is_active=True).exists() and has_fipe_api_token():
-        sync_models_for_brand(brand=brand)
+        try:
+            sync_models_for_brand(brand=brand)
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "FIPE model sync failed while loading model options",
+                extra={"vehicle_type": vehicle_type, "brand_name": brand_name, "brand_external_id": brand.external_id},
+            )
 
     return [FipeOption(value=model.name, label=model.name) for model in brand.models.filter(vehicle_type=vehicle_type, is_active=True).order_by("name")]
 
