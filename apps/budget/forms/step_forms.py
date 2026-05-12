@@ -2794,10 +2794,9 @@ class BudgetStep6Form(CoreModelForm):
         action_blockers = list(budget.step6_action_blockers)
         action_blockers_display = " ".join(action_blockers)
         action_blocked_reason_json = escape(json.dumps(action_blockers_display))
-        is_budget_approved = budget.status == BudgetStatus.APPROVED
         has_active_workorder = budget.workorders.exclude(status=WorkOrderStatus.CANCELLED).exists()
-        cancel_approved_block_message = "Não é possível cancelar um orçamento após a aprovação. Cancele a O.S. primeiro ou reavalie o fluxo antes de alterar o orçamento."
-        cancel_approved_blocked_reason_json = escape(json.dumps(cancel_approved_block_message))
+        cancel_workorder_block_message = "Não é possível cancelar um orçamento enquanto existir uma O.S. ativa vinculada. Cancele a O.S. primeiro para depois cancelar o orçamento."
+        cancel_workorder_blocked_reason_json = escape(json.dumps(cancel_workorder_block_message))
         reject_workorder_block_message = "Não é possível reprovar um orçamento após a abertura da O.S. Cancele a ordem de serviço primeiro ou siga com o cancelamento do orçamento."
         reject_workorder_blocked_reason_json = escape(json.dumps(reject_workorder_block_message))
         approval_blockers = list(budget.approval_blockers)
@@ -2813,8 +2812,8 @@ class BudgetStep6Form(CoreModelForm):
         if action_blockers:
             cancel_button_attrs = blocked_step6_action_attrs
             cancel_button_class = step6_action_button_state_class
-        elif is_budget_approved:
-            cancel_button_attrs = f'''onclick="showBlockedStep6Action({cancel_approved_blocked_reason_json})" aria-disabled="true" title="{escape(cancel_approved_block_message)}"'''
+        elif has_active_workorder:
+            cancel_button_attrs = f'''onclick="showBlockedStep6Action({cancel_workorder_blocked_reason_json})" aria-disabled="true" title="{escape(cancel_workorder_block_message)}"'''
             cancel_button_class = "opacity-60 cursor-not-allowed"
         else:
             cancel_button_attrs = f'''onclick="updateBudgetStatus({budget.pk}, 'cancel')"'''
