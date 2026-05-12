@@ -93,20 +93,28 @@ class WorkOrderPaymentForm(CoreModelForm):
         self.fields["first_installment_amount"].required = not self.is_first_payment
         self.fields["due_date"].required = False
 
-        if self.is_first_payment:
-            self.fields["first_installment_amount"].disabled = True
-            self.fields["first_installment_amount"].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
-        else:
-            self.fields["entry_amount"].disabled = True
-            self.fields["entry_amount"].widget.attrs.update({"readonly": True, "class": "cursor-not-allowed opacity-75"})
-
         total_os = self.workorder.total_budget_value.amount if self.workorder else MONEY_ZERO
         paid_amount = self._get_paid_amount() if self.workorder else MONEY_ZERO
         pending_amount = total_os - paid_amount
+        payment_is_fully_paid = pending_amount <= MONEY_ZERO
         pending_amount_display = pending_amount if pending_amount > MONEY_ZERO else MONEY_ZERO
         base_total = self.workorder.total_base_value if self.workorder else Money(MONEY_ZERO, "BRL")
         discount_value = Money(MONEY_ZERO, "BRL")
         discount_percentage = Decimal("0.00")
+
+        blocked_value_attrs = {"readonly": True, "class": "cursor-not-allowed opacity-75"}
+        fully_paid_value_attrs = {**blocked_value_attrs, "disabled": True, "title": "OS paga por completo"}
+
+        if payment_is_fully_paid:
+            for field_name in ["entry_amount", "first_installment_amount", "payment_method", "due_date"]:
+                self.fields[field_name].disabled = True
+                self.fields[field_name].widget.attrs.update(fully_paid_value_attrs)
+        elif self.is_first_payment:
+            self.fields["first_installment_amount"].disabled = True
+            self.fields["first_installment_amount"].widget.attrs.update(blocked_value_attrs)
+        else:
+            self.fields["entry_amount"].disabled = True
+            self.fields["entry_amount"].widget.attrs.update(blocked_value_attrs)
 
         if self.workorder:
             discount_value, discount_percentage = resolve_discount_fields(
@@ -145,26 +153,29 @@ class WorkOrderPaymentForm(CoreModelForm):
             self.initial["due_date"] = ""
 
         pending_amount_js = format(pending_amount, "f")
-        pending_amount_display_text = _format_brl_amount(pending_amount_display)
         today_iso = timezone.localdate().isoformat()
-        active_amount_label = "entrada" if self.is_first_payment else "a ser pago"
         is_first_payment_js = "true" if self.is_first_payment else "false"
+        payment_status_container_class = "col-span-12 mb-4" if payment_is_fully_paid else "hidden col-span-12 mb-4"
+        payment_status_card_class = "alert-success border-success" if payment_is_fully_paid else "alert-error border-error"
+        payment_status_icon = "check_circle" if payment_is_fully_paid else "error_outline"
+        payment_status_title = "Ordem de Serviço completamente paga" if payment_is_fully_paid else ""
+        payment_status_message = "A ordem de serviço foi paga completamente." if payment_is_fully_paid else ""
 
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
             alert_confirm_layout(title="Deseja remover este registro?"),
             HTML(f"""
-                <div id="payment-warning-workorder-js" class="hidden col-span-12 mb-4">
-                    <div class="alert alert-error shadow-lg border-2 border-error">
-                        <span class="material-icons">error_outline</span>
+                <div id="payment-warning-workorder-js" class="{payment_status_container_class}">
+                    <div class="alert shadow-lg border-2 payment-warning-card {payment_status_card_class}">
+                        <span class="material-icons payment-warning-icon">{payment_status_icon}</span>
                         <div>
-                             <h3 class="font-bold text-sm">Valor Não Permitido</h3>
+                             <h3 class="font-bold text-sm payment-warning-title">{payment_status_title}</h3>
                              <div class="text-xs payment-warning-message">
-                                O valor {active_amount_label} não pode exceder o saldo disponível de <strong>R$ {pending_amount_display_text}</strong>.
+                                {payment_status_message}
                              </div>
-                         </div>
-                     </div>
+                          </div>
+                      </div>
                 </div>
             """),
             Div(
@@ -245,6 +256,9 @@ class WorkOrderPaymentForm(CoreModelForm):
                         const dueDateInput = document.getElementById('id_due_date');
                         const btnSave = formElement ? formElement.querySelector('.btn-form-save') : null;
                         const warningDiv = document.getElementById('payment-warning-workorder-js');
+                        const warningCard = warningDiv ? warningDiv.querySelector('.payment-warning-card') : null;
+                        const warningIcon = warningDiv ? warningDiv.querySelector('.payment-warning-icon') : null;
+                        const warningTitle = warningDiv ? warningDiv.querySelector('.payment-warning-title') : null;
                         const warningMessage = warningDiv ? warningDiv.querySelector('.payment-warning-message') : null;
                         let pendingValue = parseFloat('{pending_amount_js}') || 0;
                         const todayValue = '{today_iso}';
@@ -273,11 +287,15 @@ class WorkOrderPaymentForm(CoreModelForm):
 
                         paymentForm.dataset.paymentInitialized = 'true';
 
-                        const toggleWarning = (show, message) => {{
-                            if (!warningDiv || !warningMessage) {{
+                        const toggleWarning = (show, message, title = 'Valor Não Permitido', type = 'error') => {{
+                            if (!warningDiv || !warningMessage || !warningTitle || !warningCard || !warningIcon) {{
                                 return;
                             }}
                             warningDiv.classList.toggle('hidden', !show);
+                            warningCard.classList.remove('alert-error', 'border-error', 'alert-success', 'border-success');
+                            warningCard.classList.add(type === 'success' ? 'alert-success' : 'alert-error', type === 'success' ? 'border-success' : 'border-error');
+                            warningIcon.textContent = type === 'success' ? 'check_circle' : 'error_outline';
+                            warningTitle.textContent = show ? title : '';
                             warningMessage.textContent = message || '';
                         }};
                         const updateDueDate = (force) => {{
@@ -444,14 +462,14 @@ class WorkOrderPaymentForm(CoreModelForm):
                             if (pendingValue <= 0) {{
                                 btnSave.disabled = true;
                                 btnSave.classList.add('btn-disabled', 'opacity-50');
-                                toggleWarning(true, 'A ordem de serviço não possui saldo pendente para um novo plano de pagamento.');
+                                toggleWarning(true, 'A ordem de serviço foi paga completamente.', 'Ordem de Serviço completamente paga', 'success');
                                 return;
                             }}
 
                             if (activeAmount > (pendingValue + 0.001)) {{
                                 btnSave.disabled = true;
                                 btnSave.classList.add('btn-disabled', 'opacity-50');
-                                toggleWarning(true, amountErrorMessage);
+                                toggleWarning(true, amountErrorMessage, 'Valor Não Permitido', 'error');
                                 return;
                             }}
 

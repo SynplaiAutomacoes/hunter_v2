@@ -1944,6 +1944,34 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertIsNotNone(last_payment)
         self.assertEqual(last_payment.first_installment_amount, Money("20.00", "BRL"))
 
+    def test_payment_section_shows_success_when_workorder_is_fully_paid(self) -> None:
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
+        WorkOrderPaymentMethod.objects.create(
+            workorder=self.workorder,
+            payment_method=payment_method,
+            first_installment_amount=self.workorder.total_budget_value,
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 24),
+        )
+
+        response = self.client.get(reverse("workorder:payment_section", args=[self.workorder.pk]), HTTP_HX_REQUEST="true")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Ordem de Serviço completamente paga")
+        self.assertContains(response, "A ordem de serviço foi paga completamente.")
+        self.assertContains(response, "alert-success")
+        self.assertContains(response, "check_circle")
+        self.assertContains(response, 'title="OS paga por completo"', html=False)
+
+        html = response.content.decode()
+        self.assertRegex(html, r'id="id_entry_amount_0_display"[\s\S]*?disabled[\s\S]*?>')
+        self.assertRegex(html, r'id="id_first_installment_amount_0_display"[\s\S]*?disabled[\s\S]*?>')
+        self.assertRegex(html, r'id="id_payment_method"[\s\S]*?disabled[\s\S]*?>')
+        self.assertRegex(html, r'placeholder="Digite para buscar\.\.\."[\s\S]*?title="OS paga por completo"[\s\S]*?disabled[\s\S]*?>')
+        self.assertRegex(html, r'id="id_due_date"[\s\S]*?title="OS paga por completo"[\s\S]*?disabled[\s\S]*?>')
+        self.assertGreaterEqual(html.count('title="OS paga por completo"'), 8)
+
     def test_update_discount_syncs_budget_and_rerenders_payment_section(self) -> None:
         BudgetItem.objects.create(
             workshop=self.workshop,
