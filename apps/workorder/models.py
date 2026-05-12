@@ -28,6 +28,15 @@ class WorkOrderStatus(models.TextChoices):
     CANCELLED = "cancelled", "Cancelado"
 
 
+WORKORDER_REOPENABLE_STATUSES = frozenset(
+    {
+        WorkOrderStatus.APPROVED,
+        WorkOrderStatus.REJECTED,
+        WorkOrderStatus.CANCELLED,
+    }
+)
+
+
 class WorkOrderSignatureStatus(models.TextChoices):
     NOT_SENT = "not_sent", "Não Enviado"
     SENDING = "sending", "Enviando"
@@ -231,7 +240,11 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def can_reopen(self) -> bool:
-        return self.status == WorkOrderStatus.APPROVED
+        return self.status in WORKORDER_REOPENABLE_STATUSES
+
+    @property
+    def is_status_locked(self) -> bool:
+        return self.status in WORKORDER_REOPENABLE_STATUSES
 
     @property
     def signature_blockers_display(self) -> str:
