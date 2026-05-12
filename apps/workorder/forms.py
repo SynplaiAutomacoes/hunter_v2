@@ -700,6 +700,7 @@ class WorkOrderCustomerApprovalForm(CoreForm):
 
         self.fields["km_initial"].initial = km_initial_value
         self.fields["km_initial"].disabled = True
+        self.fields["km_final"].widget.attrs["min"] = km_initial_value
 
         self.fields["km_final"].error_messages["required"] = "Preencha o KM final para concluir a entrega do veículo."
         self.fields["unsigned_delivery_reason"].error_messages["required"] = "Informe a justificativa para entregar o veículo sem a assinatura da O.S."
