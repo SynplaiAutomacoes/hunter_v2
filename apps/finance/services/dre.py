@@ -34,6 +34,7 @@ _VALID_TIPO_DATA = {"PG", "NPG", "A"}
 # Resultado público
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class DreCalculationResult:
     rows: list[dict]
@@ -43,6 +44,7 @@ class DreCalculationResult:
 # ---------------------------------------------------------------------------
 # Ponto de entrada
 # ---------------------------------------------------------------------------
+
 
 def build_dre_calculation(
     *,
@@ -82,29 +84,29 @@ def build_dre_calculation(
         return [_build_workorder_cost_detail(wo, include_workshop_ref) for wo in wos]
 
     # Receita Bruta de Vendas e Serviços
-    pagamentos_ordens_de_servico = WorkOrderPaymentMethod.objects.filter(
-        workorder__workshop__in=workshops
-    ).select_related(
-        "workorder", "workorder__budget", "workorder__budget__customer"
-    ).prefetch_related(
-        "workorder__items__product",
-        "workorder__items__service",
-        "workorder__items__kit",
-        "workorder__items__kit_overrides",
-        "workorder__items__kit__kit_products__product",
-        "workorder__items__kit__kit_services__service",
+    pagamentos_ordens_de_servico = (
+        WorkOrderPaymentMethod.objects.filter(workorder__workshop__in=workshops)
+        .select_related("workorder", "workorder__budget", "workorder__budget__customer")
+        .prefetch_related(
+            "workorder__items__product",
+            "workorder__items__service",
+            "workorder__items__kit",
+            "workorder__items__kit_overrides",
+            "workorder__items__kit__kit_products__product",
+            "workorder__items__kit__kit_services__service",
+        )
     )
-    if start_date is not None: pagamentos_ordens_de_servico = pagamentos_ordens_de_servico.filter(due_date__gte=start_date)
-    if end_date is not None: pagamentos_ordens_de_servico = pagamentos_ordens_de_servico.filter(due_date__lte=end_date)
+    if start_date is not None:
+        pagamentos_ordens_de_servico = pagamentos_ordens_de_servico.filter(due_date__gte=start_date)
+    if end_date is not None:
+        pagamentos_ordens_de_servico = pagamentos_ordens_de_servico.filter(due_date__lte=end_date)
 
     total_receita_bruta_de_vendas_e_servicos = sum((payment.total_paid for payment in pagamentos_ordens_de_servico), _ZERO)
     detail_receita_bruta_de_vendas_e_servicos = workorder_payment_method_details(list(pagamentos_ordens_de_servico))
     # ----------------------------------
 
     # Custo Mercadorias Vendidas
-    taxa_maquininha_os = FinancialMovement.objects.filter(
-        workorder_payment__in=pagamentos_ordens_de_servico, description="Pagamento da taxa da maquininha"
-    ).select_related("workorder_payment", "workorder_payment__workorder")
+    taxa_maquininha_os = FinancialMovement.objects.filter(workorder_payment__in=pagamentos_ordens_de_servico, description="Pagamento da taxa da maquininha").select_related("workorder_payment", "workorder_payment__workorder")
     total_taxa_maquininha_os = _sum_movements(list(taxa_maquininha_os))
 
     workorders = set(payment.workorder for payment in pagamentos_ordens_de_servico if payment.workorder)
@@ -189,12 +191,14 @@ def build_dre_calculation(
 
     summary_cards = [
         {"label": "Receita Bruta de Vendas", "amount": total_receita_bruta_de_vendas, "accent": "text-sky-700"},
-        {"label": "Resultado Operacional",   "amount": total_resultado_operacional,    "accent": "text-amber-700"},
+        {"label": "Resultado Operacional", "amount": total_resultado_operacional, "accent": "text-amber-700"},
     ]
 
     return DreCalculationResult(rows=rows, summary_cards=summary_cards)
 
+
 # ---------------------------------------------------------------------------
+
 
 def _resolve_dre_type(m: FinancialMovement) -> str | None:
     """Sobe na hierarquia do budget_plan até encontrar um dre_type."""
@@ -209,6 +213,7 @@ def _resolve_dre_type(m: FinancialMovement) -> str | None:
 # ---------------------------------------------------------------------------
 # Cálculo monetário
 # ---------------------------------------------------------------------------
+
 
 def _sum_movements(movements: list[FinancialMovement]) -> Money:
     """Soma amounts respeitando a direção (CREDIT soma, DEBIT subtrai)."""
@@ -233,7 +238,6 @@ def _sum_movements(movements: list[FinancialMovement]) -> Money:
 # ---------------------------------------------------------------------------
 
 
-
 def _fetch_movements(*, workshops: Sequence[Workshop], start_date: date | None, end_date: date | None, tipo_data: str, selected_financial_groups: list[FinancialGroup] | None = None) -> list[FinancialMovement]:
     qs = FinancialMovement.objects.filter(workshop__in=workshops)
 
@@ -241,14 +245,12 @@ def _fetch_movements(*, workshops: Sequence[Workshop], start_date: date | None, 
         qs = qs.filter(due_date__gte=start_date)
     if end_date is not None:
         qs = qs.filter(due_date__lte=end_date)
-        
+
     if selected_financial_groups:
         budget_plan_ids = [g.pk for g in selected_financial_groups]
         qs = qs.filter(budget_plan_id__in=budget_plan_ids)
 
-    qs = qs.filter(
-        Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT)
-    )
+    qs = qs.filter(Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT))
 
     if tipo_data == "PG":
         qs = qs.filter(is_paid=True)
@@ -266,10 +268,12 @@ def _fetch_movements(*, workshops: Sequence[Workshop], start_date: date | None, 
             "budget_plan",
             "budget_plan__parent",
             "budget_plan__parent__parent",
-        ).prefetch_related(
-            "workorder__payments", 
+        )
+        .prefetch_related(
+            "workorder__payments",
             "workorder__payments__payment_method",
-        ).order_by("due_date", "criado_em", "pk")
+        )
+        .order_by("due_date", "criado_em", "pk")
     )
 
 
@@ -277,12 +281,16 @@ def _fetch_movements(*, workshops: Sequence[Workshop], start_date: date | None, 
 # Construtores de detalhe e linha
 # ---------------------------------------------------------------------------
 
+
 def _build_detail(m: FinancialMovement, include_workshop_ref: bool) -> dict:
     """Monta o dicionário de detalhe de uma movimentação para o template."""
+    workorder = getattr(m, "workorder", None)
+    budget = getattr(workorder, "budget", None)
+
     if m.workorder_id and m.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
-        amount = getattr(m.workorder, "total_budget_value", _ZERO)
+        amount = getattr(workorder, "total_budget_value", _ZERO)
         summary = _agent_label(m)
-        payments = list(m.workorder.payments.all()) if hasattr(m.workorder, "payments") else []
+        payments = list(workorder.payments.all()) if hasattr(workorder, "payments") else []
         payment_date = max((p.due_date for p in payments if p.due_date), default=m.due_date)
     else:
         amount = m.amount
@@ -292,19 +300,19 @@ def _build_detail(m: FinancialMovement, include_workshop_ref: bool) -> dict:
     reference_parts: list[str] = []
     if include_workshop_ref and m.workshop_id:
         reference_parts.append(f"Filial: {m.workshop.name}")
-    if m.source_id:
-        reference_parts.append(f"O.S #{m.workorder.budget.pk}")
+    if m.workorder_id:
+        reference_parts.append(f"O.S #{getattr(budget, 'pk', workorder.pk if workorder else '-')}")
     if m.nf_number:
         reference_parts.append(f"NF: {m.nf_number}")
-    
+
     if m.workorder_id and m.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
-        payments = list(m.workorder.payments.all()) if hasattr(m.workorder, "payments") else []
+        payments = list(workorder.payments.all()) if hasattr(workorder, "payments") else []
         method_names = []
         for p in payments:
             desc = getattr(getattr(p, "payment_method", None), "description", None)
             if desc and desc not in method_names:
                 method_names.append(str(desc))
-        
+
         if method_names:
             pm_str = method_names[0] if len(method_names) == 1 else "Múltiplos"
             reference_parts.append(f"Pagamento: {pm_str}")
@@ -352,14 +360,14 @@ def _build_wo_pm_detail(payment: WorkOrderPaymentMethod, include_workshop_ref: b
     customer = getattr(budget, "customer", None)
     pk = getattr(budget, "pk", "-")
     name = getattr(customer, "name", "-") or "-"
-    
+
     summary = f"O.S #{pk} - {name}"
     payment_method_name = getattr(getattr(payment, "payment_method", None), "description", "-") or "-"
     reference = f"Pagamento: {payment_method_name}"
-    
+
     if include_workshop_ref and workorder and workorder.workshop_id:
         reference = f"Filial: {workorder.workshop.name} | {reference}"
-    
+
     return {
         "movement": None,
         "workorder_id": workorder.pk if workorder else None,
@@ -380,13 +388,13 @@ def _build_workorder_cost_detail(wo: WorkOrder, include_workshop_ref: bool) -> d
     customer = getattr(budget, "customer", None)
     pk = getattr(budget, "pk", "-")
     name = getattr(customer, "name", "-") or "-"
-    
+
     summary = f"Custo - O.S #{pk} - {name}"
     reference = f"O.S #{pk}"
-    
+
     if include_workshop_ref and wo.workshop_id:
         reference = f"Filial: {wo.workshop.name} | {reference}"
-    
+
     return {
         "movement": None,
         "workorder_id": wo.pk,
@@ -424,16 +432,16 @@ def _row(
 def _empty_result() -> DreCalculationResult:
     return DreCalculationResult(
         rows=[
-            _row(label="Receita Bruta de Vendas e Serviços", amount=_ZERO, tone="positive",  component=COMP_GROSS_REVENUE,     detail_kind="financial_entries", is_expandable=True),
-            _row(label="Custos Mercadorias Vendidas",         amount=_ZERO, tone="negative",  component=COMP_COGS,              detail_kind="financial_entries", is_expandable=True),
-            _row(label="(=) Receita Bruta de Vendas",         amount=_ZERO, tone="highlight", component=COMP_GROSS_PROFIT,      formula="Receita Bruta de Vendas e Serviços + Custos Mercadorias Vendidas"),
-            _row(label="Receitas Financeiras",                amount=_ZERO, tone="positive",  component=COMP_FINANCIAL_REVENUE, detail_kind="financial_entries", is_expandable=True),
-            _row(label="Despesas Financeiras",                amount=_ZERO, tone="negative",  component=COMP_FINANCIAL_EXPENSE, detail_kind="financial_entries", is_expandable=True),
-            _row(label="(=) Resultado Operacional",           amount=_ZERO, tone="result",    component=COMP_OPERATING_RESULT,  formula="Receita Bruta de Vendas + Receitas Financeiras + Despesas Financeiras"),
+            _row(label="Receita Bruta de Vendas e Serviços", amount=_ZERO, tone="positive", component=COMP_GROSS_REVENUE, detail_kind="financial_entries", is_expandable=True),
+            _row(label="Custos Mercadorias Vendidas", amount=_ZERO, tone="negative", component=COMP_COGS, detail_kind="financial_entries", is_expandable=True),
+            _row(label="(=) Receita Bruta de Vendas", amount=_ZERO, tone="highlight", component=COMP_GROSS_PROFIT, formula="Receita Bruta de Vendas e Serviços + Custos Mercadorias Vendidas"),
+            _row(label="Receitas Financeiras", amount=_ZERO, tone="positive", component=COMP_FINANCIAL_REVENUE, detail_kind="financial_entries", is_expandable=True),
+            _row(label="Despesas Financeiras", amount=_ZERO, tone="negative", component=COMP_FINANCIAL_EXPENSE, detail_kind="financial_entries", is_expandable=True),
+            _row(label="(=) Resultado Operacional", amount=_ZERO, tone="result", component=COMP_OPERATING_RESULT, formula="Receita Bruta de Vendas + Receitas Financeiras + Despesas Financeiras"),
         ],
         summary_cards=[
             {"label": "Receita Bruta de Vendas", "amount": _ZERO, "accent": "text-sky-700"},
-            {"label": "Resultado Operacional",   "amount": _ZERO, "accent": "text-amber-700"},
+            {"label": "Resultado Operacional", "amount": _ZERO, "accent": "text-amber-700"},
         ],
     )
 
