@@ -1,10 +1,11 @@
-<div>
+<div{% if widget.attrs.title %} title="{{ widget.attrs.title }}"{% endif %}>
     <input
         type="{{ widget.type }}"
         name="{{ widget.name }}"
         id="{{ widget.attrs.id }}"
         value="{{ widget.value|default_if_none:'' }}"
         class="input-theme {{ widget.attrs.class }}"
+        {% if widget.attrs.title %}title="{{ widget.attrs.title }}"{% endif %}
         {% if widget.attrs.required %}required{% endif %}
         {% if widget.attrs.disabled %}disabled{% endif %}
         {% if widget.attrs.readonly %}readonly{% endif %}

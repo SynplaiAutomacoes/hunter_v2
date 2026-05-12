@@ -575,6 +575,9 @@ class UpdateWorkOrderDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View)
     def post(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
 
+        if workorder.paid_value.amount > Decimal("0.00"):
+            return JsonResponse({"ok": False, "error": "OS já tem valor pago."}, status=400)
+
         try:
             raw_discount_value = request.POST.get("discount_value_0", "0").replace(",", ".") or "0"
             raw_discount_percentage = request.POST.get("discount_percentage", "0").replace(",", ".") or "0"
