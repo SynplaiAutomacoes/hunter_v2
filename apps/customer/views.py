@@ -18,7 +18,7 @@ from apps.workorder.models import WorkOrder
 from .forms import QuickCustomerForm, QuickVehicleForm
 from .util import fetch_vehicle_data, build_vehicle_saved_trigger, build_customer_saved_trigger
 from .vehicle_engine import normalize_vehicle_engine_choice
-from .vehicle_fuel import normalize_vehicle_fuel_choice
+from .vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
 from ..core.tables import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
 from .forms import CustomerForm, VehicleFormSet
@@ -211,8 +211,18 @@ def api_vehicle_catalog_models(request):
 def api_vehicle_catalog_fuels(request):
     brand_name = str(request.GET.get("brand") or "").strip()
     model_name = str(request.GET.get("model") or "").strip()
+    fallback_options = [{"id": value, "label": label} for value, label in vehicle_fuel_form_choices() if value]
+
+    def _build_empty_response() -> JsonResponse:
+        return JsonResponse(
+            {
+                "options": fallback_options,
+                "warning": "Nao foi achado nenhum registro de combustivel para este veiculo. Exibindo todas as opcoes disponiveis.",
+            }
+        )
+
     if not brand_name or not model_name:
-        return JsonResponse([], safe=False)
+        return JsonResponse({"options": []})
 
     model = (
         FipeVehicleModel.objects.filter(
@@ -227,11 +237,11 @@ def api_vehicle_catalog_fuels(request):
         .first()
     )
     if model is None:
-        return JsonResponse([], safe=False)
+        return _build_empty_response()
 
     cache = FipeModelFuelCache.objects.filter(vehicle_type=FipeVehicleType.CARROS, model=model).first()
     if cache is None:
-        return JsonResponse([], safe=False)
+        return _build_empty_response()
 
     seen_fuels: set[str] = set()
     options: list[dict[str, str]] = []
@@ -242,7 +252,10 @@ def api_vehicle_catalog_fuels(request):
         seen_fuels.add(normalized_value)
         options.append({"id": normalized_value, "label": normalized_value})
 
-    return JsonResponse(options, safe=False)
+    if not options:
+        return _build_empty_response()
+
+    return JsonResponse({"options": options})
 
 
 class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):

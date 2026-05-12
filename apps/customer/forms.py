@@ -892,6 +892,29 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                         const payload = await response.json();
                         return Array.isArray(payload) ? payload : [];
                     },
+                    async fetchFuelOptions(url) {
+                        const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                        if (!response.ok) {
+                            throw new Error('Falha ao carregar catálogo de veículos.');
+                        }
+                        const payload = await response.json();
+                        if (Array.isArray(payload)) {
+                            return { options: payload, warning: '' };
+                        }
+                        return {
+                            options: Array.isArray(payload && payload.options) ? payload.options : [],
+                            warning: String(payload && payload.warning ? payload.warning : '').trim(),
+                        };
+                    },
+                    showToast(message, type = 'warning') {
+                        const normalizedMessage = String(message || '').trim();
+                        if (!normalizedMessage) {
+                            return;
+                        }
+                        document.body.dispatchEvent(new CustomEvent('showToast', {
+                            detail: { message: normalizedMessage, type }
+                        }));
+                    },
                     async loadModels(container, { preserveModel = '', preserveFuel = '', preserveEngine = '', silent = false } = {}) {
                         const brand = this.getFieldValue(container, 'brand');
                         await this.loadModelsFor(container, { brand, preserveModel, preserveFuel, preserveEngine, silent });
@@ -941,9 +964,13 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                             return;
                         }
 
-                        const options = this.normalizeOptions(await this.fetchOptions(`/customer/vehicle-catalog/fuels/?brand=${encodeURIComponent(brand)}&model=${encodeURIComponent(model)}`), preserveFuel);
+                        const fuelPayload = await this.fetchFuelOptions(`/customer/vehicle-catalog/fuels/?brand=${encodeURIComponent(brand)}&model=${encodeURIComponent(model)}`);
+                        const options = this.normalizeOptions(fuelPayload.options, preserveFuel);
                         if (!this.isLatestRequest(container, 'fuel', requestId)) {
                             return;
+                        }
+                        if (fuelPayload.warning) {
+                            this.showToast(fuelPayload.warning);
                         }
                         this.setSearchableSelection(fuelInput, preserveFuel, preserveFuel, options, { silent });
                     },
@@ -1000,10 +1027,14 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                                 this.setSearchableSelection(modelInput, model, model, modelOptions, { silent: true });
                             }
 
-                            const fuelOptions = brand && model ? this.normalizeOptions(await this.fetchOptions(`/customer/vehicle-catalog/fuels/?brand=${encodeURIComponent(brand)}&model=${encodeURIComponent(model)}`), fuel) : this.normalizeOptions([], fuel);
+                            const fuelPayload = brand && model ? await this.fetchFuelOptions(`/customer/vehicle-catalog/fuels/?brand=${encodeURIComponent(brand)}&model=${encodeURIComponent(model)}`) : { options: [], warning: '' };
+                            const fuelOptions = this.normalizeOptions(fuelPayload.options, fuel);
                             const fuelInput = this.getField(container, 'fuel');
                             if (fuelInput) {
                                 this.setSearchableSelection(fuelInput, fuel, fuel, fuelOptions, { silent: true });
+                            }
+                            if (fuelPayload.warning) {
+                                this.showToast(fuelPayload.warning);
                             }
 
                             this.syncEngine(container, engine, { silent: true, modelName: model });
