@@ -6,6 +6,7 @@ from decimal import Decimal
 from urllib.parse import urlparse
 from unittest.mock import patch
 
+from django.contrib.auth.models import Permission
 from apps.accounts.models import Account, User
 from django.db import connection
 from django.http import Http404, HttpResponse, QueryDict
@@ -29,12 +30,13 @@ from apps.core.query_filters import apply_query_param_filters
 from apps.customer.models import Customer, Vehicle
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
+from apps.iam.models import WorkshopRole
 from apps.iam.utils import get_or_create_director_role
 from apps.stock.models import StockMovement, StockProduct
 from apps.workorder.forms import WorkOrderCustomerApprovalForm, WorkOrderPaymentForm, WorkOrderStatusReasonForm
 from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock
 from apps.workorder.documents.provider import build_workorder_pdf_render_request
-from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderHistory, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
 from apps.workorder.service import (
     WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
     WORKORDER_SIGNATURE_TOKEN_SALT,
@@ -2316,6 +2318,9 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(self.workorder.reopen_reason, "Cliente pediu reexecução do serviço.")
         self.assertEqual(stock_product.current_quantity, 5)
 
+        history_entry = WorkOrderHistory.objects.get(workorder=self.workorder, action=WorkOrderHistory.Action.REOPENED)
+        self.assertEqual(history_entry.reason, "Cliente pediu reexecução do serviço.")
+
         reversal_stock = StockMovement.objects.get(reversal_of=original_stock_movement)
         self.assertEqual(reversal_stock.type, StockMovement.MovementType.ENTRY)
         self.assertEqual(reversal_stock.quantity, 1)
@@ -2324,6 +2329,11 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(reversal_financial.direction, FinancialMovement.MovementDirection.DEBIT)
         self.assertEqual(reversal_financial.amount, original_financial_movement.amount)
         self.assertEqual(reversal_financial.financial_observation, "Cliente pediu reexecução do serviço.")
+
+        detail_response = self.client.get(reverse("workorder:workorder_detail", args=[self.workorder.pk]))
+        self.assertContains(detail_response, "Histórico da OS")
+        self.assertContains(detail_response, "Cliente pediu reexecução do serviço.")
+        self.assertContains(detail_response, history_entry.criado_em.strftime("%d/%m/%Y %H:%M"))
 
     def test_manager_can_reopen_approved_workorder(self) -> None:
         manager_user, workshop, _ = create_manager_user_with_workshop(suffix=48)
@@ -2345,6 +2355,49 @@ class AddPaymentMethodViewTests(TestCase):
         response = self.client.post(
             reverse("workorder:reopen", args=[workorder.pk]),
             data={"reopen_reason": "Revisão autorizada pela gerência."},
+            HTTP_HX_REQUEST="true",
+        )
+
+        workorder.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Refresh"), "true")
+        self.assertEqual(workorder.status, WorkOrderStatus.DRAFT)
+
+    def test_user_with_reopen_workorder_permission_can_reopen_approved_workorder(self) -> None:
+        user = User.objects.create_user(username="workorder-perm-reopen", password="123", cpf="12345678123")
+        account = Account.objects.create(name="Conta Permissao Reabertura", owner=user)
+        user.account = account
+        user.save(update_fields=["account"])
+
+        workshop = Workshop.objects.create(
+            account=account,
+            name="Oficina Permissao Reabertura",
+            cnpj="11.555.666/0001-48",
+            phone="+5511966666666",
+            address="Rua Permissao Reabertura, 48",
+        )
+        role = WorkshopRole.objects.create(account=account, name="Consultor")
+        role.permissions.add(Permission.objects.get(content_type__app_label="workorder", codename="reopen_workorder"))
+        WorkshopMember.objects.create(user=user, workshop=workshop, role=role, is_active=True)
+
+        customer = create_customer(workshop=workshop, suffix=348)
+        vehicle = create_vehicle(workshop=workshop, customer=customer, suffix=348)
+        budget = create_budget(workshop=workshop)
+        budget.customer = customer
+        budget.vehicle = vehicle
+        budget.current_km = 12000
+        budget.status = "approved"
+        budget.save(update_fields=["customer", "vehicle", "current_km", "status"])
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED, delivered_at=timezone.now())
+
+        self.client.force_login(user)
+        session = self.client.session
+        session["active_workshop_id"] = workshop.pk
+        session.save()
+
+        response = self.client.post(
+            reverse("workorder:reopen", args=[workorder.pk]),
+            data={"reopen_reason": "Reabertura autorizada pela permissão da função."},
             HTTP_HX_REQUEST="true",
         )
 
