@@ -30,12 +30,7 @@ def render_workorder_pdf_document(*, workorder: WorkOrder, request=None, filenam
 
 
 def build_workorder_status_report_pdf_render_request(*, context: dict[str, object], request=None, filename: str | None = None) -> DocumentRenderRequest:
-    selected_status_report = context.get("selected_status_report")
-    status_value = "status"
-    if isinstance(selected_status_report, dict):
-        status_value = str(selected_status_report.get("value") or status_value)
-
-    resolved_filename = filename or f"relatorio_ordens_servico_por_status_{status_value}.pdf"
+    resolved_filename = filename or "relatorio_ordens_servico_filtradas.pdf"
     render_context = dict(context)
     render_context["request"] = request
 

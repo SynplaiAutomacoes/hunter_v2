@@ -6,8 +6,8 @@
 {% block crud_header_actions %}
     <dialog id="statusReportPdfModal"
             class="modal"
-            x-data="{ url: '', downloadUrl: '', title: 'Relatório de Ordens de Serviço por Status' }"
-            @open-pdf-modal.window="url = $event.detail.url; downloadUrl = $event.detail.downloadUrl || ''; title = $event.detail.title || 'Relatório de Ordens de Serviço por Status'; $el.showModal()">
+            x-data="{ url: '', downloadUrl: '', title: 'Relatorio de Ordens de Servico Filtradas' }"
+            @open-pdf-modal.window="url = $event.detail.url; downloadUrl = $event.detail.downloadUrl || ''; title = $event.detail.title || 'Relatorio de Ordens de Servico Filtradas'; $el.showModal()">
         <div class="modal-box flex h-[90vh] w-full max-w-5xl flex-col p-0">
             <div class="flex items-center justify-between border-b bg-base-200 px-6 py-4">
                 <h3 class="flex items-center gap-2 text-xl font-bold">

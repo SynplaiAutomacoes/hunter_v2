@@ -156,7 +156,7 @@ class WorkOrderListFiltersTests(TestCase):
         matching_budget.vehicle = matching_vehicle
         matching_budget.save(update_fields=["customer", "vehicle"])
         matching_workorder = WorkOrder.objects.create(workshop=workshop, budget=matching_budget, status=WorkOrderStatus.APPROVED)
-        matching_created_at = timezone.now() - timedelta(days=3)
+        matching_created_at = (timezone.now() - timedelta(days=3)).replace(hour=12, minute=0, second=0, microsecond=0)
         WorkOrder.objects.filter(pk=matching_workorder.pk).update(criado_em=matching_created_at)
 
         other_customer = create_customer(workshop=workshop, suffix=71)
@@ -267,7 +267,7 @@ class WorkOrderListFiltersTests(TestCase):
     def test_workorder_list_shows_status_report_for_selected_status(self) -> None:
         workshop = self._login_with_active_workshop(suffix=75)
         in_range_workorder = WorkOrder.objects.create(workshop=workshop, budget=create_budget(workshop=workshop), status=WorkOrderStatus.APPROVED)
-        matching_created_at = timezone.now() - timedelta(days=2)
+        matching_created_at = (timezone.now() - timedelta(days=2)).replace(hour=12, minute=0, second=0, microsecond=0)
         WorkOrder.objects.filter(pk=in_range_workorder.pk).update(criado_em=matching_created_at)
         out_of_range_workorder = WorkOrder.objects.create(workshop=workshop, budget=create_budget(workshop=workshop), status=WorkOrderStatus.APPROVED)
         WorkOrder.objects.filter(pk=out_of_range_workorder.pk).update(criado_em=timezone.now() - timedelta(days=10))
@@ -279,15 +279,32 @@ class WorkOrderListFiltersTests(TestCase):
         response = self.client.get(reverse("workorder:workorder_list"), {"status": WorkOrderStatus.APPROVED, "data_inicial": selected_date, "data_final": selected_date})
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["selected_status_report"], {"value": WorkOrderStatus.APPROVED, "label": "Veículo Entregue", "count": 1, "badge_class": "badge-success min-w-sm"})
-        self.assertContains(response, "Relatorio do status")
+        self.assertEqual(response.context["selection_report"]["count"], 1)
+        self.assertContains(response, "Resumo da selecao")
         self.assertContains(response, "Veículo Entregue")
-        self.assertContains(response, "O.S. com este status")
-        self.assertContains(response, "Imprimir relatorio em PDF")
+        self.assertContains(response, "Valor total")
+        self.assertContains(response, "Imprimir selecao em PDF")
         self.assertContains(response, f"url: '{reverse('workorder:status_report_pdf_preview')}?status={WorkOrderStatus.APPROVED}")
         self.assertContains(response, f"downloadUrl: '{reverse('workorder:status_report_pdf')}?download=1&status={WorkOrderStatus.APPROVED}")
         self.assertContains(response, f"data_inicial={selected_date}")
         self.assertContains(response, f"data_final={selected_date}")
+
+    def test_workorder_list_supports_multiple_statuses(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=51)
+        approved_workorder = WorkOrder.objects.create(workshop=workshop, budget=create_budget(workshop=workshop), status=WorkOrderStatus.APPROVED)
+        draft_workorder = WorkOrder.objects.create(workshop=workshop, budget=create_budget(workshop=workshop), status=WorkOrderStatus.DRAFT)
+        rejected_workorder = WorkOrder.objects.create(workshop=workshop, budget=create_budget(workshop=workshop), status=WorkOrderStatus.REJECTED)
+
+        params = QueryDict(mutable=True)
+        params.setlist("status", [WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT])
+
+        response = self.client.get(reverse("workorder:workorder_list"), params)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertQuerySetEqual(response.context["workorder"].order_by("pk"), [approved_workorder, draft_workorder], transform=lambda obj: obj)
+        self.assertNotIn(rejected_workorder, response.context["workorder"])
+        self.assertEqual(response.context["selection_report"]["count"], 2)
+        self.assertEqual(len(response.context["selection_report"]["badges"]), 2)
 
     def test_workorder_status_report_counts_only_selected_status(self) -> None:
         workshop = self._login_with_active_workshop(suffix=76)
@@ -307,7 +324,7 @@ class WorkOrderListFiltersTests(TestCase):
         other_budget.save(update_fields=["customer", "vehicle"])
 
         matching_workorder = WorkOrder.objects.create(workshop=workshop, budget=matching_budget, status=WorkOrderStatus.APPROVED)
-        matching_created_at = timezone.now() - timedelta(days=3)
+        matching_created_at = (timezone.now() - timedelta(days=3)).replace(hour=12, minute=0, second=0, microsecond=0)
         WorkOrder.objects.filter(pk=matching_workorder.pk).update(criado_em=matching_created_at)
         other_workorder = WorkOrder.objects.create(workshop=workshop, budget=other_budget, status=WorkOrderStatus.APPROVED)
         WorkOrder.objects.filter(pk=other_workorder.pk).update(criado_em=matching_created_at)
@@ -325,7 +342,7 @@ class WorkOrderListFiltersTests(TestCase):
         self.assertQuerySetEqual(response.context["workorder"].order_by("pk"), [matching_workorder], transform=lambda obj: obj)
         self.assertNotIn(other_workorder, response.context["workorder"])
         self.assertNotIn(out_of_range_workorder, response.context["workorder"])
-        self.assertEqual(response.context["selected_status_report"]["count"], 2)
+        self.assertEqual(response.context["selection_report"]["count"], 1)
 
     def test_workorder_list_hides_status_report_without_valid_status(self) -> None:
         workshop = self._login_with_active_workshop(suffix=78)
@@ -334,9 +351,9 @@ class WorkOrderListFiltersTests(TestCase):
         response = self.client.get(reverse("workorder:workorder_list"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertIsNone(response.context["selected_status_report"])
-        self.assertNotContains(response, "Relatorio do status")
-        self.assertNotContains(response, "Imprimir relatorio em PDF")
+        self.assertIsNone(response.context["selection_report"])
+        self.assertNotContains(response, "Resumo da selecao")
+        self.assertNotContains(response, "Imprimir selecao em PDF")
 
     def test_workorder_list_htmx_partial_keeps_status_report_in_table_content(self) -> None:
         workshop = self._login_with_active_workshop(suffix=79)
@@ -347,9 +364,9 @@ class WorkOrderListFiltersTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'id="workorder-table-content"')
-        self.assertContains(response, "Relatorio do status")
+        self.assertContains(response, "Resumo da selecao")
         self.assertContains(response, "Veículo Entregue")
-        self.assertContains(response, "Imprimir relatorio em PDF")
+        self.assertContains(response, "Imprimir selecao em PDF")
 
 
 class WorkOrderStatusReportPdfTests(TestCase):
@@ -373,7 +390,7 @@ class WorkOrderStatusReportPdfTests(TestCase):
         budget.save(update_fields=["customer", "vehicle"])
 
         approved_workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED)
-        matching_created_at = timezone.now() - timedelta(days=4)
+        matching_created_at = (timezone.now() - timedelta(days=4)).replace(hour=12, minute=0, second=0, microsecond=0)
         WorkOrder.objects.filter(pk=approved_workorder.pk).update(criado_em=matching_created_at)
 
         other_customer = create_customer(workshop=workshop, suffix=911)
@@ -392,10 +409,10 @@ class WorkOrderStatusReportPdfTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "<!DOCTYPE html>", html=False)
-        self.assertContains(response, "Relat&oacute;rio de Ordens de Servi&ccedil;o por Status", html=False)
+        self.assertContains(response, "Relatorio de Ordens de Servico Filtradas")
         self.assertContains(response, workshop.name)
         self.assertContains(response, "Veículo Entregue")
-        self.assertContains(response, f"#{approved_workorder.pk}")
+        self.assertContains(response, str(approved_workorder.pk))
         self.assertContains(response, customer.name)
         self.assertContains(response, vehicle.plate)
         self.assertNotContains(response, f"#{out_of_range_workorder.pk}")
@@ -415,7 +432,7 @@ class WorkOrderStatusReportPdfTests(TestCase):
         self.assertContains(response, f"#{workorder.pk}")
 
     @patch("apps.workorder.views.render_workorder_status_report_pdf_document")
-    def test_status_report_pdf_view_returns_attachment_and_ignores_other_filters(self, render_document_mock) -> None:
+    def test_status_report_pdf_view_returns_attachment_with_filtered_selection(self, render_document_mock) -> None:
         workshop = self._login_with_active_workshop(suffix=92)
 
         matching_customer = create_customer(workshop=workshop, suffix=92)
@@ -433,7 +450,7 @@ class WorkOrderStatusReportPdfTests(TestCase):
         other_budget.save(update_fields=["customer", "vehicle"])
 
         matching_workorder = WorkOrder.objects.create(workshop=workshop, budget=matching_budget, status=WorkOrderStatus.APPROVED)
-        matching_created_at = timezone.now() - timedelta(days=5)
+        matching_created_at = (timezone.now() - timedelta(days=5)).replace(hour=12, minute=0, second=0, microsecond=0)
         WorkOrder.objects.filter(pk=matching_workorder.pk).update(criado_em=matching_created_at)
         other_workorder = WorkOrder.objects.create(workshop=workshop, budget=other_budget, status=WorkOrderStatus.APPROVED)
         WorkOrder.objects.filter(pk=other_workorder.pk).update(criado_em=matching_created_at)
@@ -441,7 +458,7 @@ class WorkOrderStatusReportPdfTests(TestCase):
         WorkOrder.objects.filter(pk=out_of_range_workorder.pk).update(criado_em=timezone.now() - timedelta(days=16))
         WorkOrder.objects.create(workshop=workshop, budget=create_budget(workshop=workshop), status=WorkOrderStatus.DRAFT)
 
-        render_document_mock.return_value = DocumentPayload(content=b"%PDF-status-report", filename="relatorio_ordens_servico_por_status_approved.pdf")
+        render_document_mock.return_value = DocumentPayload(content=b"%PDF-status-report", filename="relatorio_ordens_servico_filtradas.pdf")
         selected_date = matching_created_at.date().isoformat()
 
         response = self.client.get(
@@ -451,13 +468,14 @@ class WorkOrderStatusReportPdfTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"%PDF-status-report")
-        self.assertIn('attachment; filename="relatorio_ordens_servico_por_status_approved.pdf"', response["Content-Disposition"])
+        self.assertIn('attachment; filename="relatorio_ordens_servico_filtradas.pdf"', response["Content-Disposition"])
 
         context = render_document_mock.call_args.kwargs["context"]
-        self.assertEqual(context["selected_status_report"]["count"], 2)
-        self.assertCountEqual(context["report_workorders"], [matching_workorder, other_workorder])
+        self.assertEqual(context["selection_report"]["count"], 1)
+        self.assertCountEqual(context["report_workorders"], [matching_workorder])
+        self.assertNotIn(other_workorder, context["report_workorders"])
         self.assertNotIn(out_of_range_workorder, context["report_workorders"])
-        self.assertEqual(context["status_report_pdf_title"], "Relatorio de Ordens de Servico por Status")
+        self.assertEqual(context["status_report_pdf_title"], "Relatorio de Ordens de Servico Filtradas")
         self.assertEqual(context["status_report_period_label"], f"{matching_created_at.strftime('%d/%m/%Y')} a {matching_created_at.strftime('%d/%m/%Y')}")
 
     def test_status_report_pdf_views_return_404_without_valid_status(self) -> None:

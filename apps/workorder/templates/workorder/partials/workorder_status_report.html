@@ -1,18 +1,31 @@
-{% if selected_status_report %}
-    <div class="mb-4 flex flex-col gap-3 rounded-box border border-base-300 bg-base-200/40 p-4 sm:flex-row sm:items-center sm:justify-between">
+{% load format_tags %}
+
+{% if selection_report %}
+    <div class="mb-4 flex flex-col gap-4 rounded-box border border-base-300 bg-base-200/40 p-4">
         <div>
-            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-base-content/60">Relatorio do status</p>
-            <p class="mt-1 text-sm text-base-content/70">Total de O.S. cadastradas com o status selecionado.</p>
-            {% if status_report_period_label != 'Todo o periodo' %}
-                <p class="mt-2 text-xs text-base-content/60">Periodo: {{ status_report_period_label }}</p>
+            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-base-content/60">Resumo da selecao</p>
+            <p class="mt-1 text-sm text-base-content/70">Confira o total da listagem filtrada antes de imprimir o PDF.</p>
+            {% if selection_report.filters_summary %}
+                <p class="mt-2 text-xs text-base-content/60">{{ selection_report.filters_summary }}</p>
             {% endif %}
         </div>
 
-        <div class="flex items-center gap-3 rounded-box bg-base-100 px-4 py-3 shadow-sm">
-            <span class="badge {{ selected_status_report.badge_class|cut:' min-w-sm' }} font-semibold uppercase">{{ selected_status_report.label }}</span>
-            <div class="text-right">
-                <p class="text-2xl font-semibold leading-none text-base-content">{{ selected_status_report.count }}</p>
-                <p class="text-xs uppercase tracking-wide text-base-content/60">O.S. com este status</p>
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex flex-wrap gap-2">
+                {% for badge in selection_report.badges %}
+                    <span class="badge {{ badge.class|cut:' min-w-sm' }} font-semibold uppercase">{{ badge.text }}</span>
+                {% endfor %}
+            </div>
+
+            <div class="flex flex-col gap-3 sm:flex-row">
+                <div class="rounded-box bg-base-100 px-4 py-3 shadow-sm sm:min-w-48">
+                    <p class="text-2xl font-semibold leading-none text-base-content">{{ selection_report.count }}</p>
+                    <p class="text-xs uppercase tracking-wide text-base-content/60">O.S. selecionadas</p>
+                </div>
+                <div class="rounded-box bg-base-100 px-4 py-3 shadow-sm sm:min-w-48">
+                    <p class="text-2xl font-semibold leading-none text-base-content">{{ selection_report.total_value|money_br }}</p>
+                    <p class="text-xs uppercase tracking-wide text-base-content/60">Valor total</p>
+                </div>
             </div>
         </div>
     </div>
