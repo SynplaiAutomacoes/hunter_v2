@@ -499,7 +499,7 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         today = timezone.now()
         if not WorkshopCost.objects.filter(workshop=self.workshop, month=today.month, year=today.year).exists():
             messages.warning(request, "Cadastre um custo mensal da oficina para este mês antes de prosseguir.")
-            return redirect("budget:budget_list")
+            return redirect("workshops:workshop_cost_list")
 
         requested_step = request.GET.get("step")
         budget_pk = request.GET.get("pk")
