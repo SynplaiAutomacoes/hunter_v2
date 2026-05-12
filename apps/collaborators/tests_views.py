@@ -164,6 +164,39 @@ class CollaboratorUpdateViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("transportTotalDisplay: 'R$ 88,00'", content)
 
+    def test_update_view_does_not_render_automatic_blank_benefit_row(self) -> None:
+        collaborator = create_collaborator(workshop=self.workshop, suffix=20)
+
+        response = self.client.get(reverse("collaborators:collaborator_update", args=[collaborator.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="benefits-TOTAL_FORMS" value="0"', html=False)
+        self.assertNotContains(response, 'name="benefits-0-name"', html=False)
+
+    def test_update_view_saves_single_dynamic_benefit(self) -> None:
+        collaborator = create_collaborator(workshop=self.workshop, suffix=21)
+        payload = self._build_update_payload(collaborator=collaborator)
+        payload.update(
+            {
+                "benefits-TOTAL_FORMS": "1",
+                "benefits-INITIAL_FORMS": "0",
+                "benefits-0-name": "vale alimentacao",
+                "benefits-0-description": "beneficio teste",
+                "benefits-0-monthly_amount_0": "120.00",
+                "benefits-0-monthly_amount_1": "BRL",
+                "benefits-0-is_active": "on",
+            }
+        )
+
+        response = self.client.post(reverse("collaborators:collaborator_update", args=[collaborator.pk]), payload)
+
+        self.assertEqual(response.status_code, 302, msg=str(response.context["benefit_formset"].errors) if hasattr(response, "context") and response.context else "")
+        benefits = CollaboratorBenefit.objects.filter(collaborator=collaborator)
+        self.assertEqual(benefits.count(), 1)
+        benefit = benefits.get()
+        self.assertEqual(benefit.name, "Vale alimentacao")
+        self.assertEqual(benefit.monthly_amount, Money("120.00", "BRL"))
+
     def test_update_view_respects_historico_tab_query_param(self) -> None:
         collaborator = create_collaborator(workshop=self.workshop, suffix=13)
 

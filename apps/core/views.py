@@ -9,7 +9,7 @@ from typing import Any
 from django.db.models import Sum
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseForbidden
 from django.template.response import TemplateResponse
 import requests
 from django.views import View
@@ -311,3 +311,8 @@ def metricas_dashboard(request) -> dict[str, Any]:
         "total_meses_anteriores_orcamentos_aguardando_aprovacao": total_meses_anteriores_orcamentos_aguardando_aprovacao,
         "total_orcamentos_reprovados": total_orcamentos_reprovados,
     }
+
+
+def permission_denied(request, exception=None):
+    """Handler customizado para erros 403 (Permission Denied)."""
+    return TemplateResponse(request, "403.html", status=403)
