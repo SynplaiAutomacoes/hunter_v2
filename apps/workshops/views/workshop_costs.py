@@ -176,3 +176,12 @@ class WorkshopCostCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         response_form = WorkshopCostForm(instance=instance, workshop=self.workshop)
 
         return render(request, "workshop_costs/partials/workshop_cost_calculation_results.html", {"form": response_form})
+
+
+class WorkshopCostSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, ListView):
+    model = WorkshopCost
+    template_name = "workshop_costs/partials/copy_selection_modal.html"
+    context_object_name = "workshop_costs"
+
+    def get_queryset(self):
+        return super().get_queryset().order_by("-year", "-month")
