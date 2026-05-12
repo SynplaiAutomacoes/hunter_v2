@@ -1971,14 +1971,12 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertRegex(html, r'placeholder="Digite para buscar\.\.\."[\s\S]*?title="OS paga por completo"[\s\S]*?disabled[\s\S]*?>')
         self.assertRegex(html, r'id="id_due_date"[\s\S]*?title="OS paga por completo"[\s\S]*?disabled[\s\S]*?>')
         self.assertGreaterEqual(html.count('title="OS paga por completo"'), 8)
+        self.assertLess(html.index('id="payment-success-workorder-js"'), html.index('id="id_entry_amount_0_display"'))
+        self.assertLess(html.index('id="id_due_date"'), html.index('id="payment-warning-workorder-js"'))
+        self.assertLess(html.index('id="payment-warning-workorder-js"'), html.index("Salvar Plano de Pagamento"))
+        self.assertIn('id="payment-warning-workorder-js" class="hidden', html)
 
-    def test_update_discount_syncs_budget_and_rerenders_payment_section(self) -> None:
-        BudgetItem.objects.create(
-            workshop=self.workshop,
-            budget=self.budget,
-            product=self.workorder.items.first().product,
-            quantity=1,
-        )
+    def test_payment_section_locks_discount_fields_when_workorder_has_paid_value(self) -> None:
         payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
         WorkOrderPaymentMethod.objects.create(
             workorder=self.workorder,
@@ -1987,6 +1985,30 @@ class AddPaymentMethodViewTests(TestCase):
             remaining_installments_amount=Money("0.00", "BRL"),
             installments_count=1,
             due_date=date(2026, 3, 24),
+        )
+
+        response = self.client.get(reverse("workorder:payment_section", args=[self.workorder.pk]), HTTP_HX_REQUEST="true")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Descontos indisponíveis")
+        self.assertContains(response, "Indisponível")
+        self.assertContains(response, "OS já tem valor pago.")
+        self.assertContains(response, "Para desbloquear os cards de desconto, nenhum pagamento deve ocorrer ou ter ocorrido nesta OS.")
+        self.assertContains(response, 'title="OS já tem valor pago"', html=False)
+        self.assertContains(response, "lock")
+
+        html = response.content.decode()
+        self.assertRegex(html, r'id="id_discount_value_0_display"[\s\S]*?disabled[\s\S]*?>')
+        self.assertRegex(html, r'id="id_discount_value_0_display"[\s\S]*?title="OS já tem valor pago"[\s\S]*?>')
+        self.assertRegex(html, r'id="id_discount_percentage_display"[\s\S]*?disabled[\s\S]*?>')
+        self.assertRegex(html, r'id="id_discount_percentage_display"[\s\S]*?title="OS já tem valor pago"[\s\S]*?>')
+
+    def test_update_discount_syncs_budget_and_rerenders_payment_section(self) -> None:
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            product=self.workorder.items.first().product,
+            quantity=1,
         )
 
         response = self.client.post(
@@ -2007,10 +2029,36 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(self.budget.discount_value, Money("10.00", "BRL"))
         self.assertEqual(self.budget.discount_percentage, Decimal("0.100000"))
         self.assertEqual(payload["total_budget_value"], "90.00")
-        self.assertEqual(payload["paid_value"], "40.00")
-        self.assertEqual(payload["pending_value"], "50.00")
+        self.assertEqual(payload["paid_value"], "0.00")
+        self.assertEqual(payload["pending_value"], "90.00")
         self.assertTrue(payload["has_completion_blockers"])
         self.assertIn("Receba o pagamento integral", payload["completion_blockers_display"])
+
+    def test_update_discount_rejects_when_workorder_has_paid_value(self) -> None:
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
+        WorkOrderPaymentMethod.objects.create(
+            workorder=self.workorder,
+            payment_method=payment_method,
+            first_installment_amount=Money("40.00", "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 24),
+        )
+
+        response = self.client.post(
+            reverse("workorder:update_discount", args=[self.workorder.pk]),
+            data={"discount_percentage": "0.10", "discount_value_0": "0.00"},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+        payload = json.loads(response.content)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"], "OS já tem valor pago.")
+        self.assertEqual(self.workorder.discount_value, Money("0.00", "BRL"))
+        self.assertEqual(self.workorder.discount_percentage, Decimal("0.00"))
 
     def test_update_km_final_persists_value_without_changing_status(self) -> None:
         customer = create_customer(workshop=self.workshop, suffix=241)
