@@ -99,14 +99,7 @@
         <h4 class="font-bold text-xl mb-2 border-b">Atualizar Status da Ordem de Serviço</h4>
 
         <div class="flex flex-wrap gap-3">
-            <form
-                method="post"
-                hx-post="{% url 'workorder:update_status' workorder.pk 'cancel' %}"
-                hx-target="#customer-approvement-section"
-                hx-swap="innerHTML">
-                {% csrf_token %}
-                <button type="submit" class="btn btn-error" {% if workorder.status == 'cancelled' or workorder.status == 'approved' %}disabled{% endif %} {% if workorder.status == 'approved' %}title="Reabra a O.S. para estornar os lançamentos antes de cancelar."{% endif %}>Cancelar</button>
-            </form>
+            <button type="button" class="btn btn-error" id="toggle-cancel-workorder-form" {% if workorder.status == 'cancelled' or workorder.status == 'approved' %}disabled{% endif %} {% if workorder.status == 'approved' %}title="Reabra a O.S. para estornar os lançamentos antes de cancelar."{% endif %}>Cancelar</button>
 
             <button
                 type="button"
@@ -119,19 +112,52 @@
                 Entregar veículo
             </button>
 
-            <form
-                method="post"
-                hx-post="{% url 'workorder:update_status' workorder.pk 'reject' %}"
-                hx-target="#customer-approvement-section"
-                hx-swap="innerHTML">
-                {% csrf_token %}
-                <button type="submit" class="btn btn-warning" {% if workorder.status == 'rejected' or workorder.status == 'approved' %}disabled{% endif %} {% if workorder.status == 'approved' %}title="Reabra a O.S. para estornar os lançamentos antes de rejeitar."{% endif %}>Rejeitar</button>
-            </form>
+            <button type="button" class="btn btn-warning" id="toggle-reject-workorder-form" {% if workorder.status == 'rejected' or workorder.status == 'approved' %}disabled{% endif %} {% if workorder.status == 'approved' %}title="Reabra a O.S. para estornar os lançamentos antes de rejeitar."{% endif %}>Rejeitar</button>
 
             {% if workorder.status == 'approved' and can_reopen_workorder %}
             <button type="button" class="btn btn-outline" id="toggle-reopen-workorder-form">Reabrir O.S.</button>
             {% endif %}
         </div>
+
+        <form
+            id="cancel-workorder-form"
+            method="post"
+            hx-post="{% url 'workorder:update_status' workorder.pk 'cancel' %}"
+            hx-target="#customer-approvement-section"
+            hx-swap="innerHTML"
+            class="mt-4 space-y-4 rounded-xl border border-error/40 bg-error/10 p-4 {% if not cancel_form.errors %}hidden{% endif %}"
+        >
+            {% csrf_token %}
+            <div class="space-y-1 text-sm text-base-content/80">
+                <p class="font-semibold text-base-content">Cancelar O.S.</p>
+                <p>Informe a justificativa do cancelamento antes de concluir esta ação.</p>
+            </div>
+            {% crispy cancel_form %}
+            <div class="flex flex-wrap gap-3">
+                <button type="submit" class="btn btn-error">Confirmar cancelamento</button>
+                <button type="button" class="btn btn-ghost" id="cancel-cancel-workorder-form">Fechar</button>
+            </div>
+        </form>
+
+        <form
+            id="reject-workorder-form"
+            method="post"
+            hx-post="{% url 'workorder:update_status' workorder.pk 'reject' %}"
+            hx-target="#customer-approvement-section"
+            hx-swap="innerHTML"
+            class="mt-4 space-y-4 rounded-xl border border-warning/40 bg-warning/10 p-4 {% if not reject_form.errors %}hidden{% endif %}"
+        >
+            {% csrf_token %}
+            <div class="space-y-1 text-sm text-base-content/80">
+                <p class="font-semibold text-base-content">Rejeitar O.S.</p>
+                <p>Informe a justificativa da rejeição antes de concluir esta ação.</p>
+            </div>
+            {% crispy reject_form %}
+            <div class="flex flex-wrap gap-3">
+                <button type="submit" class="btn btn-warning">Confirmar rejeição</button>
+                <button type="button" class="btn btn-ghost" id="cancel-reject-workorder-form">Fechar</button>
+            </div>
+        </form>
 
         {% if workorder.status == 'approved' and can_reopen_workorder %}
         <form
@@ -165,6 +191,12 @@
         const deliveryButton = document.getElementById('workorder-delivery-button');
         const unsignedReasonWrapper = document.getElementById('unsigned-delivery-reason-wrapper');
         const unsignedReasonInput = document.getElementById('id_unsigned_delivery_reason');
+        const cancelForm = document.getElementById('cancel-workorder-form');
+        const cancelToggleButton = document.getElementById('toggle-cancel-workorder-form');
+        const cancelCloseButton = document.getElementById('cancel-cancel-workorder-form');
+        const rejectForm = document.getElementById('reject-workorder-form');
+        const rejectToggleButton = document.getElementById('toggle-reject-workorder-form');
+        const rejectCloseButton = document.getElementById('cancel-reject-workorder-form');
         const reopenForm = document.getElementById('reopen-workorder-form');
         const reopenToggleButton = document.getElementById('toggle-reopen-workorder-form');
         const reopenCancelButton = document.getElementById('cancel-reopen-workorder-form');
@@ -240,6 +272,15 @@
             currentDeliveryButton.removeAttribute('title');
         };
 
+        const hideStatusForms = (...formsToKeep) => {
+            [cancelForm, rejectForm, reopenForm].forEach((currentForm) => {
+                if (!currentForm || formsToKeep.includes(currentForm)) {
+                    return;
+                }
+                currentForm.classList.add('hidden');
+            });
+        };
+
         const persistKmFinal = async () => {
             const currentValue = kmInput.value.trim();
 
@@ -304,6 +345,7 @@
 
         if (deliveryButton) {
             deliveryButton.addEventListener('click', () => {
+                hideStatusForms();
                 if (signatureApproved) {
                     form.requestSubmit();
                     return;
@@ -334,8 +376,37 @@
             });
         }
 
+        if (cancelToggleButton && cancelForm) {
+            cancelToggleButton.addEventListener('click', () => {
+                hideStatusForms(cancelForm);
+                cancelForm.classList.remove('hidden');
+                cancelForm.querySelector('textarea')?.focus();
+            });
+        }
+
+        if (cancelCloseButton && cancelForm) {
+            cancelCloseButton.addEventListener('click', () => {
+                cancelForm.classList.add('hidden');
+            });
+        }
+
+        if (rejectToggleButton && rejectForm) {
+            rejectToggleButton.addEventListener('click', () => {
+                hideStatusForms(rejectForm);
+                rejectForm.classList.remove('hidden');
+                rejectForm.querySelector('textarea')?.focus();
+            });
+        }
+
+        if (rejectCloseButton && rejectForm) {
+            rejectCloseButton.addEventListener('click', () => {
+                rejectForm.classList.add('hidden');
+            });
+        }
+
         if (reopenToggleButton && reopenForm) {
             reopenToggleButton.addEventListener('click', () => {
+                hideStatusForms(reopenForm);
                 reopenForm.classList.remove('hidden');
                 reopenForm.querySelector('textarea')?.focus();
             });

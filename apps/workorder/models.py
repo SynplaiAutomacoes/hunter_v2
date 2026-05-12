@@ -51,6 +51,8 @@ class WorkOrder(TimeStampedModel):
     signature_sent_at = models.DateTimeField(blank=True, null=True)
     delivered_at = models.DateTimeField(verbose_name="Data da Entrega", blank=True, null=True)
     unsigned_delivery_reason = models.TextField(verbose_name="Justificativa da entrega sem assinatura", blank=True)
+    cancellation_reason = models.TextField(verbose_name="Justificativa do cancelamento", blank=True)
+    rejection_reason = models.TextField(verbose_name="Justificativa da rejeicao", blank=True)
     reopen_reason = models.TextField(verbose_name="Justificativa da reabertura", blank=True)
     km_final = models.PositiveIntegerField(verbose_name="KM Final", null=True, blank=True)
 

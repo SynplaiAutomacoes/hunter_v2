@@ -749,6 +749,53 @@ class WorkOrderReopenForm(CoreForm):
         return reason
 
 
+class WorkOrderStatusReasonForm(CoreForm):
+    status_reason = forms.CharField(label="Justificativa", required=True, widget=forms.Textarea(attrs={"rows": 4}))
+
+    def __init__(self, *args, **kwargs):
+        self.workorder = kwargs.pop("workorder", None)
+        self.action = str(kwargs.pop("action", "")).strip().lower()
+        super().__init__(*args, **kwargs)
+
+        config = self._get_action_config()
+        self.fields["status_reason"].label = config["label"]
+        self.fields["status_reason"].widget.attrs["placeholder"] = config["placeholder"]
+        self.fields["status_reason"].error_messages["required"] = config["required_message"]
+
+        initial_value = ""
+        if self.workorder and not self.is_bound:
+            initial_value = str(getattr(self.workorder, config["field_name"] or "", "") or "")
+        if initial_value:
+            self.fields["status_reason"].initial = initial_value
+
+        self.helper = FormHelper()
+        self.helper.form_tag = False
+        self.helper.layout = Layout(Field("status_reason"))
+
+    def _get_action_config(self) -> dict[str, str]:
+        config_map = {
+            "cancel": {
+                "field_name": "cancellation_reason",
+                "label": "Justificativa do cancelamento",
+                "placeholder": "Explique por que esta O.S. está sendo cancelada.",
+                "required_message": "Informe a justificativa para cancelar a O.S.",
+            },
+            "reject": {
+                "field_name": "rejection_reason",
+                "label": "Justificativa da rejeição",
+                "placeholder": "Explique por que esta O.S. está sendo rejeitada.",
+                "required_message": "Informe a justificativa para rejeitar a O.S.",
+            },
+        }
+        return config_map.get(self.action, config_map["reject"])
+
+    def clean_status_reason(self) -> str:
+        reason = str(self.cleaned_data.get("status_reason") or "").strip()
+        if not reason:
+            raise ValidationError(self._get_action_config()["required_message"])
+        return reason
+
+
 class WorkOrderItemEditForm(CoreModelForm):
     class Meta:
         model = WorkOrderItem

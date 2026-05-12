@@ -31,7 +31,7 @@ from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
 from apps.iam.utils import get_or_create_director_role
 from apps.stock.models import StockMovement, StockProduct
-from apps.workorder.forms import WorkOrderCustomerApprovalForm, WorkOrderPaymentForm
+from apps.workorder.forms import WorkOrderCustomerApprovalForm, WorkOrderPaymentForm, WorkOrderStatusReasonForm
 from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock
 from apps.workorder.documents.provider import build_workorder_pdf_render_request
 from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
@@ -2180,6 +2180,66 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
         self.assertIsNone(self.workorder.delivered_at)
         self.assertIn("showToast", response.headers.get("HX-Trigger", ""))
+
+    def test_status_reason_form_requires_reason_for_cancel(self) -> None:
+        form = WorkOrderStatusReasonForm(data={"status_reason": "   "}, workorder=self.workorder, action="cancel")
+
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors["status_reason"], ["Informe a justificativa para cancelar a O.S."])
+
+    def test_cancel_status_requires_reason(self) -> None:
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "cancel"]),
+            data={"status_reason": ""},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
+        self.assertContains(response, "Informe a justificativa para cancelar a O.S.")
+
+    def test_cancel_status_persists_reason(self) -> None:
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "cancel"]),
+            data={"status_reason": "Cliente desistiu do serviço antes da execução."},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Refresh"), "true")
+        self.assertEqual(self.workorder.status, WorkOrderStatus.CANCELLED)
+        self.assertEqual(self.workorder.cancellation_reason, "Cliente desistiu do serviço antes da execução.")
+
+    def test_reject_status_requires_reason(self) -> None:
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "reject"]),
+            data={"status_reason": ""},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
+        self.assertContains(response, "Informe a justificativa para rejeitar a O.S.")
+
+    def test_reject_status_persists_reason(self) -> None:
+        response = self.client.post(
+            reverse("workorder:update_status", args=[self.workorder.pk, "reject"]),
+            data={"status_reason": "Serviço recusado após análise técnica."},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Refresh"), "true")
+        self.assertEqual(self.workorder.status, WorkOrderStatus.REJECTED)
+        self.assertEqual(self.workorder.rejection_reason, "Serviço recusado após análise técnica.")
 
     def test_cancel_status_is_blocked_after_delivery(self) -> None:
         self.workorder.status = WorkOrderStatus.APPROVED
