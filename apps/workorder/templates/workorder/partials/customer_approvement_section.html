@@ -128,8 +128,8 @@
 
             <button type="button" class="btn btn-warning" id="toggle-reject-workorder-form" {% if workorder.status == 'rejected' or workorder.status == 'approved' %}disabled{% endif %} {% if workorder.status == 'approved' %}title="Reabra a O.S. para estornar os lançamentos antes de rejeitar."{% endif %}>Rejeitar</button>
 
-            {% if workorder.status == 'approved' and can_reopen_workorder %}
-            <button type="button" class="btn btn-outline" id="toggle-reopen-workorder-form">Reabrir O.S.</button>
+            {% if workorder.status == 'approved' %}
+            <button type="button" class="btn btn-outline" id="toggle-reopen-workorder-form" data-can-reopen-workorder="{% if can_reopen_workorder %}true{% else %}false{% endif %}">Reabrir O.S.</button>
             {% endif %}
         </div>
 
@@ -420,9 +420,28 @@
 
         if (reopenToggleButton && reopenForm) {
             reopenToggleButton.addEventListener('click', () => {
+                if (reopenToggleButton.dataset.canReopenWorkorder !== 'true') {
+                    document.body.dispatchEvent(new CustomEvent('showToast', {
+                        detail: {
+                            message: 'Você não tem permissão para reabrir a OS. Contacte o administrador do sistema.',
+                            type: 'error'
+                        }
+                    }));
+                    return;
+                }
+
                 hideStatusForms(reopenForm);
                 reopenForm.classList.remove('hidden');
                 reopenForm.querySelector('textarea')?.focus();
+            });
+        } else if (reopenToggleButton) {
+            reopenToggleButton.addEventListener('click', () => {
+                document.body.dispatchEvent(new CustomEvent('showToast', {
+                    detail: {
+                        message: 'Você não tem permissão para reabrir a OS. Contacte o administrador do sistema.',
+                        type: 'error'
+                    }
+                }));
             });
         }
 
