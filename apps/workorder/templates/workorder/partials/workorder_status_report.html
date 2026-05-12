@@ -11,9 +11,9 @@
         </div>
 
         <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div class="flex flex-wrap gap-2">
+            <div class="flex flex-wrap gap-2 select-none" onmousedown="return false;" onselectstart="return false;" draggable="false">
                 {% for badge in selection_report.badges %}
-                    <span class="badge {{ badge.class|cut:' min-w-sm' }} font-semibold uppercase">{{ badge.text }}</span>
+                    <span class="badge {{ badge.class|cut:' min-w-sm' }} select-none font-semibold uppercase" draggable="false">{{ badge.text }}</span>
                 {% endfor %}
             </div>
 
