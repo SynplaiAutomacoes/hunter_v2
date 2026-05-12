@@ -113,22 +113,22 @@
         <h4 class="font-bold text-xl mb-2 border-b">Atualizar Status da Ordem de Serviço</h4>
 
         <div class="flex flex-wrap gap-3">
-            <button type="button" class="btn btn-error" id="toggle-cancel-workorder-form" {% if workorder.status == 'cancelled' or workorder.status == 'approved' %}disabled{% endif %} {% if workorder.status == 'approved' %}title="Reabra a O.S. para estornar os lançamentos antes de cancelar."{% endif %}>Cancelar</button>
+            <button type="button" class="btn btn-error" id="toggle-cancel-workorder-form" {% if workorder.is_status_locked %}disabled title="Reabra a O.S. antes de alterar o status."{% endif %}>Cancelar</button>
 
             <button
                 type="button"
                 id="workorder-delivery-button"
-                class="btn btn-success {% if workorder.has_completion_blockers %}btn-disabled cursor-not-allowed{% endif %}"
-                data-status-approved="{% if workorder.status == 'approved' %}true{% else %}false{% endif %}"
-                {% if workorder.status == 'approved' or workorder.has_completion_blockers %}disabled{% endif %}
-                {% if workorder.has_completion_blockers %}title="{{ workorder.completion_blockers_display }}"{% endif %}
+                class="btn btn-success {% if workorder.is_status_locked or workorder.has_completion_blockers %}btn-disabled cursor-not-allowed{% endif %}"
+                data-status-locked="{% if workorder.is_status_locked %}true{% else %}false{% endif %}"
+                {% if workorder.is_status_locked or workorder.has_completion_blockers %}disabled{% endif %}
+                {% if workorder.is_status_locked %}title="Reabra a O.S. antes de alterar o status."{% elif workorder.has_completion_blockers %}title="{{ workorder.completion_blockers_display }}"{% endif %}
             >
                 Entregar veículo
             </button>
 
-            <button type="button" class="btn btn-warning" id="toggle-reject-workorder-form" {% if workorder.status == 'rejected' or workorder.status == 'approved' %}disabled{% endif %} {% if workorder.status == 'approved' %}title="Reabra a O.S. para estornar os lançamentos antes de rejeitar."{% endif %}>Rejeitar</button>
+            <button type="button" class="btn btn-warning" id="toggle-reject-workorder-form" {% if workorder.is_status_locked %}disabled title="Reabra a O.S. antes de alterar o status."{% endif %}>Rejeitar</button>
 
-            {% if workorder.status == 'approved' %}
+            {% if workorder.can_reopen %}
             <button type="button" class="btn btn-outline" id="toggle-reopen-workorder-form" data-can-reopen-workorder="{% if can_reopen_workorder %}true{% else %}false{% endif %}">Reabrir O.S.</button>
             {% endif %}
         </div>
@@ -187,7 +187,7 @@
             </div>
         </form>
 
-        {% if workorder.status == 'approved' and can_reopen_workorder %}
+        {% if workorder.can_reopen and can_reopen_workorder %}
         <form
             id="reopen-workorder-form"
             method="post"
@@ -279,9 +279,9 @@
                 return;
             }
 
-            if (currentDeliveryButton.dataset.statusApproved === 'true') {
+            if (currentDeliveryButton.dataset.statusLocked === 'true') {
                 currentDeliveryButton.disabled = true;
-                currentDeliveryButton.classList.remove('btn-disabled', 'cursor-not-allowed');
+                currentDeliveryButton.classList.add('btn-disabled', 'cursor-not-allowed');
                 return;
             }
 
