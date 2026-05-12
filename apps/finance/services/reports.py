@@ -33,6 +33,7 @@ def build_financial_overview(
     end_date: date | None,
     search: str = "",
     direction: str | None = None,
+    paid_status: str | None = None,
     budget_plan_ids: Iterable[int] | None = None,
     bank_account_id: int | str | None = None,
     agent: str | None = None,
@@ -45,6 +46,19 @@ def build_financial_overview(
     paid_debits = _ZERO_DECIMAL
 
     normalized_budget_plan_ids = [int(value) for value in budget_plan_ids or []]
+
+    def _matches_workorder_paid_status(*, movement: FinancialMovement) -> bool:
+        if paid_status not in {"paid", "unpaid"}:
+            return True
+
+        workorder = getattr(movement, "workorder", None)
+        if workorder is None:
+            return False
+
+        total_paid = sum((Decimal(getattr(getattr(payment, "total_paid", None), "amount", _ZERO_DECIMAL) or _ZERO_DECIMAL) for payment in workorder.payments.all()), start=_ZERO_DECIMAL)
+        total_amount = Decimal(getattr(getattr(workorder, "total_budget_value", None), "amount", _ZERO_DECIMAL) or _ZERO_DECIMAL)
+        is_paid_workorder = total_paid >= total_amount > _ZERO_DECIMAL
+        return is_paid_workorder if paid_status == "paid" else not is_paid_workorder
 
     movements = FinancialMovement.objects.filter(workshop=workshop)
     if start_date is not None:
@@ -65,6 +79,10 @@ def build_financial_overview(
         movements = movements.filter(user_id=opened_by_id)
     if payment_method_id is not None:
         movements = movements.filter(payment_method_id=payment_method_id)
+    if paid_status in {"paid", "unpaid"}:
+        matched_ids = list(movements.exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False).filter(is_paid=paid_status == "paid").values_list("pk", flat=True))
+        matched_ids.extend(movement.pk for movement in movements.filter(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False).select_related("workorder").prefetch_related("workorder__payments") if _matches_workorder_paid_status(movement=movement))
+        movements = movements.filter(pk__in=matched_ids)
 
     if agent:
         if agent.startswith("coll_"):
@@ -143,7 +161,13 @@ def build_financial_overview(
             search_query = search_query | Q(workorder__id__icontains=search) if search_query.children else Q(workorder__id__icontains=search)
             paid_credit_movements = paid_credit_movements.filter(search_query)
 
-        paid_credit_movements = paid_credit_movements.select_related("workorder").prefetch_related("workorder__payments").only("workorder")
+        if paid_status in {"paid", "unpaid"}:
+            paid_credit_movements = [movement for movement in paid_credit_movements.select_related("workorder").prefetch_related("workorder__payments") if _matches_workorder_paid_status(movement=movement)]
+        else:
+            paid_credit_movements = paid_credit_movements.select_related("workorder").prefetch_related("workorder__payments")
+
+        if not isinstance(paid_credit_movements, list):
+            paid_credit_movements = paid_credit_movements.only("workorder")
 
     for movement in movements:
         amount = Decimal(getattr(getattr(movement, "amount", None), "amount", _ZERO_DECIMAL) or _ZERO_DECIMAL)

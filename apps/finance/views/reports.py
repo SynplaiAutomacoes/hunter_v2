@@ -13,7 +13,7 @@ from django.utils import timezone
 from django.views.generic import DeleteView, TemplateView, UpdateView
 from django.db.models import Q, Value
 from django.db.models.functions import Coalesce
-from typing import Any, List, Tuple
+from typing import List, Tuple
 
 from apps.core.search import build_text_search_query
 from apps.accounts.models import User
@@ -40,6 +40,11 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         ("", "Todos"),
         (FinancialMovement.MovementDirection.CREDIT, "Contas a receber"),
         (FinancialMovement.MovementDirection.DEBIT, "Contas a pagar"),
+    )
+    FILTER_PAID_STATUS_CHOICES = (
+        ("", "Todos"),
+        ("paid", "Pagos"),
+        ("unpaid", "Não pagos"),
     )
 
     @staticmethod
@@ -177,6 +182,13 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
     def _get_search_value(self) -> str:
         return str(self.request.GET.get("search") or "").strip()
 
+    def _get_paid_status_filter(self) -> str:
+        selected_paid_status = str(self.request.GET.get("paid_status") or "").strip()
+        allowed_statuses = {choice[0] for choice in self.FILTER_PAID_STATUS_CHOICES if choice[0]}
+        if selected_paid_status not in allowed_statuses:
+            return ""
+        return selected_paid_status
+
     def _get_agent_filter(self) -> str:
         return str(self.request.GET.get("agent") or "").strip()
 
@@ -205,10 +217,37 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "budget_plan_ids": self._get_selected_financial_group_ids(),
             "bank_account_id": self._get_selected_bank_account_id(),
             "direction": self._get_selected_direction(),
+            "paid_status": self._get_paid_status_filter(),
             "agent": self._get_agent_filter(),
             "opened_by_id": self._get_opened_by_filter(),
             "payment_method_id": self._get_payment_method_filter(),
         }
+
+    def _matches_workorder_paid_status(self, *, movement: FinancialMovement, paid_status: str) -> bool:
+        workorder = getattr(movement, "workorder", None)
+        if workorder is None:
+            return False
+
+        total_paid = sum((self._resolve_money_amount(payment.total_paid) for payment in workorder.payments.all()), start=Decimal("0.00"))
+        total_amount = self._resolve_money_amount(workorder.total_budget_value)
+        is_paid = total_paid >= total_amount > Decimal("0.00")
+
+        if paid_status == "paid":
+            return is_paid
+        if paid_status == "unpaid":
+            return not is_paid
+        return True
+
+    def _apply_paid_status_filter(self, queryset, paid_status: str):
+        if not paid_status:
+            return queryset
+
+        matched_ids = list(queryset.exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False).filter(is_paid=paid_status == "paid").values_list("pk", flat=True))
+
+        workorder_parent_movements = queryset.filter(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False).select_related("workorder").prefetch_related("workorder__payments")
+        matched_ids.extend(movement.pk for movement in workorder_parent_movements if self._matches_workorder_paid_status(movement=movement, paid_status=paid_status))
+
+        return queryset.filter(pk__in=matched_ids)
 
     def _apply_report_filters(self, queryset):
         filter_params = self._get_filter_params()
@@ -217,6 +256,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         budget_plan_ids = filter_params["budget_plan_ids"]
         bank_account_id = filter_params["bank_account_id"]
         direction = filter_params["direction"]
+        paid_status = filter_params["paid_status"]
         agent = filter_params["agent"]
         opened_by_id = filter_params["opened_by_id"]
         payment_method_id = filter_params["payment_method_id"]
@@ -225,7 +265,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
 
         if start_date is not None:
             queryset = queryset.filter(due_date__gte=start_date)
-        elif not filter_params["bank_account_id"] and not direction and not agent and not opened_by_id and not payment_method_id and not self._get_search_value():
+        elif not filter_params["bank_account_id"] and not direction and not paid_status and not agent and not opened_by_id and not payment_method_id and not self._get_search_value():
             queryset = queryset.filter(due_date=today)
 
         if end_date is not None:
@@ -247,6 +287,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             queryset = queryset.filter(user_id=opened_by_id)
         if payment_method_id is not None:
             queryset = queryset.filter(payment_method_id=payment_method_id)
+        queryset = self._apply_paid_status_filter(queryset, paid_status)
 
         search = self._get_search_value()
         if search:
@@ -284,6 +325,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             or filter_params["budget_plan_ids"]
             or filter_params["bank_account_id"] is not None
             or filter_params["direction"]
+            or filter_params["paid_status"]
             or filter_params["agent"]
             or filter_params["opened_by_id"] is not None
             or filter_params["payment_method_id"] is not None
@@ -502,33 +544,23 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         context["financial_group_filters"] = self._get_financial_groups_queryset()
         context["bank_account_filters"] = self._get_bank_accounts_queryset()
         context["direction_filter_choices"] = self.FILTER_DIRECTION_CHOICES
+        context["paid_status_filter_choices"] = self.FILTER_PAID_STATUS_CHOICES
         context["selected_financial_group_ids"] = set(filter_params["budget_plan_ids"])
         context["selected_bank_account_id"] = filter_params["bank_account_id"]
         context["selected_direction"] = filter_params["direction"]
+        context["selected_paid_status"] = filter_params["paid_status"]
 
         agent_choices = self._get_agent_filter_choices()
         agent_widget = SearchableSelectInput(choices=agent_choices)
-        context["agent_filter_widget"] = agent_widget.get_context(
-            name="agent",
-            value=filter_params["agent"],
-            attrs={"id": "reports-filter-agent", "class": "w-full"}
-        )
+        context["agent_filter_widget"] = agent_widget.get_context(name="agent", value=filter_params["agent"], attrs={"id": "reports-filter-agent", "class": "w-full"})
 
         opened_by_choices = self._get_opened_by_filter_choices()
         opened_by_widget = SearchableSelectInput(choices=opened_by_choices)
-        context["opened_by_filter_widget"] = opened_by_widget.get_context(
-            name="opened_by",
-            value=str(filter_params["opened_by_id"]) if filter_params["opened_by_id"] is not None else "",
-            attrs={"id": "reports-filter-opened-by", "class": "w-full"}
-        )
+        context["opened_by_filter_widget"] = opened_by_widget.get_context(name="opened_by", value=str(filter_params["opened_by_id"]) if filter_params["opened_by_id"] is not None else "", attrs={"id": "reports-filter-opened-by", "class": "w-full"})
 
         payment_method_choices = self._get_payment_method_filter_choices()
         payment_method_widget = SearchableSelectInput(choices=payment_method_choices)
-        context["payment_method_filter_widget"] = payment_method_widget.get_context(
-            name="payment_method",
-            value=str(filter_params["payment_method_id"]) if filter_params["payment_method_id"] is not None else "",
-            attrs={"id": "reports-filter-payment-method", "class": "w-full"}
-        )
+        context["payment_method_filter_widget"] = payment_method_widget.get_context(name="payment_method", value=str(filter_params["payment_method_id"]) if filter_params["payment_method_id"] is not None else "", attrs={"id": "reports-filter-payment-method", "class": "w-full"})
 
         context["has_active_filters"] = self._has_active_filters()
         context["clear_filters_url"] = reverse("finance:reports_home")
