@@ -555,6 +555,9 @@ class WorkOrder(TimeStampedModel):
     class Meta:
         verbose_name = "Ordem de Serviço"
         verbose_name_plural = "Ordens de Serviço"
+        permissions = [
+            ("reopen_workorder", "Can Reopen Ordem de Serviço"),
+        ]
 
     def __str__(self):
         return f"OS #{self.get_id} | WorkOrder #{self.id}"
@@ -975,3 +978,21 @@ class WorkOrderKitItemOverride(TimeStampedModel):
         if self.service:
             return f"Override O.S.: {self.service.name} - WorkOrder #{self.workorder_item.workorder_id}"
         return f"Override O.S. #{self.id}"
+
+
+class WorkOrderHistory(TimeStampedModel):
+    class Action(models.TextChoices):
+        REOPENED = "reopened", "O.S. reaberta"
+
+    workorder = models.ForeignKey("workorder.WorkOrder", on_delete=models.CASCADE, related_name="history_entries")
+    user = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, related_name="workorder_history_entries", null=True, blank=True)
+    action = models.CharField(verbose_name="Ação", max_length=30, choices=Action.choices)
+    reason = models.TextField(verbose_name="Justificativa", blank=True)
+
+    class Meta:
+        verbose_name = "Histórico da O.S."
+        verbose_name_plural = "Histórico das O.S."
+        ordering = ["-criado_em", "-pk"]
+
+    def __str__(self) -> str:
+        return f"{self.get_action_display()} - O.S. #{self.workorder.get_id}"

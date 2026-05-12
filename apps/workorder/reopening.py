@@ -6,7 +6,7 @@ from django.utils import timezone
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.stock.models import StockMovement
-from apps.workorder.models import WorkOrder, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderHistory, WorkOrderStatus
 
 
 class WorkOrderReopenError(Exception):
@@ -98,6 +98,13 @@ def reopen_workorder(*, workorder: WorkOrder, user, reason: str) -> None:
                 bank_account=movement.bank_account,
                 financial_observation=reason,
             )
+
+        WorkOrderHistory.objects.create(
+            workorder=locked_workorder,
+            user=user,
+            action=WorkOrderHistory.Action.REOPENED,
+            reason=reason,
+        )
 
         locked_workorder.status = WorkOrderStatus.DRAFT
         locked_workorder.delivered_at = None

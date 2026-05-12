@@ -1196,7 +1196,7 @@ class ReopenWorkOrderView(LoginRequiredMixin, WorkshopScopedMixin, View):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
         if not can_reopen_workorder(request=request, workorder=workorder):
             response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
-            response["HX-Trigger"] = json.dumps({"showToast": {"message": "Somente Diretor ou Gerente pode reabrir uma O.S. entregue.", "type": "error"}})
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": "Você não tem permissão para reabrir esta O.S.", "type": "error"}})
             return response
 
         reopen_form = WorkOrderReopenForm(request.POST, workorder=workorder)
