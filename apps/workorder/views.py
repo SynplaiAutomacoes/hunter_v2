@@ -332,7 +332,7 @@ class WorkOrderStatusReportDataMixin:
             TableColumn("Cliente", attr="budget.customer", search_by="budget__customer__name"),
             TableColumn("Criado em", attr="criado_em"),
             TableColumn("Veículo", attr="budget.vehicle", search_by=("budget__vehicle__plate", "budget__vehicle__model", "budget__vehicle__brand")),
-            TableColumn("Valor Total", attr="total_budget_value", searchable=False),
+            TableColumn("Valor Total", attr="display_total_budget_value", searchable=False),
             TableColumn("Status", attr="workorder_status_badge", search_by="status", format="status_badge"),
         ]
 
@@ -405,7 +405,7 @@ class WorkOrderStatusReportDataMixin:
             return None
 
         report_items = self._get_selection_report_items()
-        total_value = sum((workorder.total_budget_value.amount for workorder in report_items), Decimal("0.00"))
+        total_value = sum((workorder.display_total_budget_value.amount for workorder in report_items), Decimal("0.00"))
 
         return {
             "count": len(report_items),
@@ -602,11 +602,11 @@ class UpdateWorkOrderDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View)
         return JsonResponse(
             {
                 "ok": True,
-                "discount_value": str(workorder.discount_value),
-                "discount_percentage": str(workorder.discount_percentage),
-                "total_budget_value": str(workorder.total_budget_value.amount),
+                "discount_value": str(workorder.display_resolved_discount_value),
+                "discount_percentage": str((workorder.display_resolved_discount_percentage / Decimal("100")).quantize(Decimal("0.000001"))),
+                "total_budget_value": str(workorder.display_total_budget_value.amount),
                 "paid_value": str(sum((payment.total_paid.amount for payment in workorder.payments.all()), start=Decimal("0.00"))),
-                "pending_value": str(max(Decimal("0.00"), workorder.total_budget_value.amount - sum((payment.total_paid.amount for payment in workorder.payments.all()), start=Decimal("0.00")))),
+                "pending_value": str(max(Decimal("0.00"), workorder.accounting_total_budget_value.amount - sum((payment.total_paid.amount for payment in workorder.payments.all()), start=Decimal("0.00")))),
                 "has_completion_blockers": workorder.has_completion_blockers,
                 "completion_blockers_display": workorder.completion_blockers_display,
             }

@@ -16,6 +16,10 @@ _ZERO_DECIMAL = Decimal("0.00")
 _CURRENCY = "BRL"
 
 
+def _resolve_workorder_accounting_total_amount(workorder) -> Decimal:
+    return Decimal(str(getattr(getattr(workorder, "accounting_total_budget_value", None), "amount", _ZERO_DECIMAL) or _ZERO_DECIMAL))
+
+
 @dataclass(frozen=True)
 class FinancialOverview:
     total_credits: Money
@@ -56,7 +60,9 @@ def build_financial_overview(
             return False
 
         total_paid = sum((Decimal(getattr(getattr(payment, "total_paid", None), "amount", _ZERO_DECIMAL) or _ZERO_DECIMAL) for payment in workorder.payments.all()), start=_ZERO_DECIMAL)
-        total_amount = Decimal(getattr(getattr(workorder, "total_budget_value", None), "amount", _ZERO_DECIMAL) or _ZERO_DECIMAL)
+        total_amount = _resolve_workorder_accounting_total_amount(workorder)
+        if total_amount <= _ZERO_DECIMAL:
+            return False
         is_paid_workorder = total_paid >= total_amount > _ZERO_DECIMAL
         return is_paid_workorder if paid_status == "paid" else not is_paid_workorder
 
@@ -171,6 +177,8 @@ def build_financial_overview(
 
     for movement in movements:
         amount = Decimal(getattr(getattr(movement, "amount", None), "amount", _ZERO_DECIMAL) or _ZERO_DECIMAL)
+        if movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT and getattr(movement, "workorder", None) is not None:
+            amount = _resolve_workorder_accounting_total_amount(movement.workorder)
         if movement.direction == FinancialMovement.MovementDirection.CREDIT:
             total_credits += amount
             if movement.is_paid and movement.movement_kind != FinancialMovement.MovementKind.WORKORDER_PARENT:

@@ -220,7 +220,7 @@ def _sum_movements(movements: list[FinancialMovement]) -> Money:
     total = _ZERO
     for m in movements:
         if m.workorder_id and m.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
-            amount = getattr(m.workorder, "total_budget_value", _ZERO)
+            amount = getattr(m.workorder, "accounting_total_budget_value", _ZERO)
         else:
             amount = m.amount
 
@@ -288,7 +288,7 @@ def _build_detail(m: FinancialMovement, include_workshop_ref: bool) -> dict:
     budget = getattr(workorder, "budget", None)
 
     if m.workorder_id and m.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
-        amount = getattr(workorder, "total_budget_value", _ZERO)
+        amount = getattr(workorder, "accounting_total_budget_value", _ZERO)
         summary = _agent_label(m)
         payments = list(workorder.payments.all()) if hasattr(workorder, "payments") else []
         payment_date = max((p.due_date for p in payments if p.due_date), default=m.due_date)

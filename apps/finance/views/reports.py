@@ -60,6 +60,10 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
     def _resolve_money_amount(value: object) -> Decimal:
         return Decimal(str(getattr(value, "amount", value) or 0))
 
+    @classmethod
+    def _resolve_workorder_accounting_total_amount(cls, workorder: object) -> Decimal:
+        return cls._resolve_money_amount(getattr(workorder, "accounting_total_budget_value", 0))
+
     @staticmethod
     def _resolve_paid_status(*, total_paid: Decimal, total_amount: Decimal) -> dict[str, str]:
         label = {"label": "Parcial", "icon": "schedule", "class": "text-warning"}
@@ -229,7 +233,9 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             return False
 
         total_paid = sum((self._resolve_money_amount(payment.total_paid) for payment in workorder.payments.all()), start=Decimal("0.00"))
-        total_amount = self._resolve_money_amount(workorder.total_budget_value)
+        total_amount = self._resolve_workorder_accounting_total_amount(workorder)
+        if total_amount <= Decimal("0.00"):
+            return False
         is_paid = total_paid >= total_amount > Decimal("0.00")
 
         if paid_status == "paid":
@@ -419,8 +425,8 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             is_workorder = True
 
         if workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
-            total_amount = self._resolve_money_amount(workorder.total_budget_value)
-            paid_status: str | dict[str, str] = self._resolve_paid_status(total_paid=total_paid, total_amount=self._resolve_money_amount(workorder.total_budget_value))
+            total_amount = self._resolve_workorder_accounting_total_amount(workorder)
+            paid_status: str | dict[str, str] = self._resolve_paid_status(total_paid=total_paid, total_amount=total_amount)
             due_date = latest_payment_date
             description = self._resolve_workorder_description(workorder)
             payment_type = self._resolve_payment_method_summary(payments)

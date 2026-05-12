@@ -39,6 +39,7 @@ class WorkOrderPdfBudgetProxy:
 def build_workorder_pdf_context(*, workorder: WorkOrder, observacao: str | None = None, request=None) -> dict[str, Any]:
     snapshot = workorder.pricing_snapshot
     resolved_observation = observacao if observacao is not None else workorder.budget.pdf_observation
+    is_warranty_workorder = workorder.is_warranty_workorder
 
     produtos = [
         {
@@ -49,12 +50,12 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, observacao: str | None 
             "application": line.application or "-",
             "code": line.code or "-",
             "location": line.location or "-",
-            "unit_price": line.unit_price,
-            "adjusted_unit_price": line.adjusted_unit_price,
+            "unit_price": (line.cost_total / line.quantity if is_warranty_workorder and line.quantity else line.unit_price),
+            "adjusted_unit_price": (line.cost_total / line.quantity if is_warranty_workorder and line.quantity else line.adjusted_unit_price),
             "shipping": line.shipping,
-            "total_price": line.total_price,
+            "total_price": (line.cost_total + line.shipping if is_warranty_workorder else line.total_price),
             "product_cost_price": line.cost_total,
-            "profit_value": line.profit_value,
+            "profit_value": (Money(0, "BRL") if is_warranty_workorder else line.profit_value),
             "show_kit_duplicate_warning": line.show_kit_duplicate_warning,
         }
         for line in snapshot.product_lines
@@ -65,10 +66,10 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, observacao: str | None 
             "id": line.entity_id,
             "description": line.description,
             "quantity": line.quantity,
-            "unit_price": line.adjusted_unit_price,
-            "total_price": line.total_price,
+            "unit_price": (line.cost_total / line.quantity if is_warranty_workorder and line.quantity else line.adjusted_unit_price),
+            "total_price": (line.cost_total if is_warranty_workorder else line.total_price),
             "service_cost_price": line.cost_total,
-            "profit_value": line.profit_value,
+            "profit_value": (Money(0, "BRL") if is_warranty_workorder else line.profit_value),
             "duration_display": line.duration_display,
         }
         for line in snapshot.service_lines
@@ -83,8 +84,8 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, observacao: str | None 
         vehicle=workorder.budget.vehicle,
         problem_description=workorder.budget.problem_description,
         pdf_observation=resolved_observation,
-        resolved_discount_value=snapshot.resolved_discount_value,
-        total_budget_value=workorder.total_budget_value,
+        resolved_discount_value=workorder.display_resolved_discount_value,
+        total_budget_value=workorder.display_total_budget_value,
         budget_status=WorkOrderStatus(workorder.status).label,
         delivered_at=workorder.delivered_at,
     )
@@ -95,13 +96,13 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, observacao: str | None 
         "produtos": produtos,
         "servicos": servicos,
         "pages": _build_pdf_pages(produtos, servicos),
-        "total_produtos": workorder.get_total_products_by_slider,
-        "total_servicos": workorder.get_total_services_by_slider,
-        "desconto": snapshot.resolved_discount_value,
-        "total_geral": workorder.total_budget_value,
+        "total_produtos": workorder.display_total_products_by_slider,
+        "total_servicos": workorder.display_total_services_by_slider,
+        "desconto": workorder.display_resolved_discount_value,
+        "total_geral": workorder.display_total_budget_value,
         "observacao": resolved_observation,
-        "total_profit_product_value": sum((line.profit_value for line in snapshot.product_lines), Money(0, "BRL")),
-        "total_profit_service_value": sum((line.profit_value for line in snapshot.service_lines), Money(0, "BRL")),
+        "total_profit_product_value": (Money(0, "BRL") if is_warranty_workorder else sum((line.profit_value for line in snapshot.product_lines), Money(0, "BRL"))),
+        "total_profit_service_value": (Money(0, "BRL") if is_warranty_workorder else sum((line.profit_value for line in snapshot.service_lines), Money(0, "BRL"))),
         "workshop_logo_data_uri": build_workshop_logo_data_uri(workshop=workorder.workshop),
         "request": request,
     }

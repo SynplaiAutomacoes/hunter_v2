@@ -281,7 +281,7 @@ class BudgetStatusReportDataMixin:
             TableColumn("Vinculado à", attr="reference_budget_id", search_by="reference_budget__id"),
             TableColumn(str(Budget.budget_type.field.verbose_name), attr="type_budget_badge", searchable=False, format="status_badge"),
             TableColumn(str(Budget.entry_date.field.verbose_name), attr=Budget.entry_date.field.name, search_by="entry_date"),
-            TableColumn("Valor Total", attr="total_budget_value", searchable=False),
+            TableColumn("Valor Total", attr="display_total_budget_value", searchable=False),
             TableColumn(str(Budget.status.field.verbose_name), attr="budget_status_badge", search_by="status", format="status_badge"),
         ]
 
@@ -348,7 +348,7 @@ class BudgetStatusReportDataMixin:
             return None
 
         report_items = self._get_selection_report_items()
-        total_value = sum((budget.total_budget_value.amount for budget in report_items), Decimal("0.00"))
+        total_value = sum((budget.display_total_budget_value.amount for budget in report_items), Decimal("0.00"))
 
         return {
             "count": len(report_items),

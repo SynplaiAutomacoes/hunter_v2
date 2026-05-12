@@ -125,7 +125,7 @@
                             <td class="px-3 py-3">{{ budget.vehicle|default:"-" }}</td>
                             <td class="px-3 py-3">{{ budget.collaborator_name|default:"-" }}</td>
                             <td class="px-3 py-3 text-gray-600">{{ budget.criado_em|date:"d/m/Y"|default:"-" }}</td>
-                            <td class="px-3 py-3 text-right font-semibold">{{ budget.total_budget_value }}</td>
+                            <td class="px-3 py-3 text-right font-semibold">{{ budget.display_total_budget_value }}</td>
                             <td class="px-3 py-3 font-semibold">{{ budget.budget_status_badge.text }}</td>
                         </tr>
                     {% empty %}

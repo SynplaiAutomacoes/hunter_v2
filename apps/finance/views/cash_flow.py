@@ -164,7 +164,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             payment_type = self._resolve_payment_method_summary(paid_payments)
 
             details = []
-            remaining_amount = self._resolve_money_amount(workorder.total_budget_value)
+            remaining_amount = self._resolve_money_amount(workorder.accounting_total_budget_value)
             for payment in paid_payments:
                 payment_amount = self._resolve_money_amount(payment.total_paid)
                 remaining_amount = max(Decimal("0.00"), remaining_amount - payment_amount)

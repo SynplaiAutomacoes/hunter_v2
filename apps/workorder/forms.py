@@ -93,7 +93,7 @@ class WorkOrderPaymentForm(CoreModelForm):
         self.fields["first_installment_amount"].required = not self.is_first_payment
         self.fields["due_date"].required = False
 
-        total_os = self.workorder.total_budget_value.amount if self.workorder else MONEY_ZERO
+        total_os = self.workorder.accounting_total_budget_value.amount if self.workorder else MONEY_ZERO
         paid_amount = self._get_paid_amount() if self.workorder else MONEY_ZERO
         pending_amount = total_os - paid_amount
         payment_has_paid_value = paid_amount > MONEY_ZERO
@@ -120,7 +120,7 @@ class WorkOrderPaymentForm(CoreModelForm):
 
         if self.workorder:
             discount_value, discount_percentage = resolve_discount_fields(
-                total_base_value=self.workorder.total_base_value,
+                total_base_value=self.workorder.display_total_base_value,
                 discount_value=self.workorder.discount_value,
                 discount_percentage=self.workorder.discount_percentage,
             )
@@ -131,7 +131,7 @@ class WorkOrderPaymentForm(CoreModelForm):
                 self.fields[field_name].widget.attrs.update(discount_locked_attrs)
 
         resume_values = {
-            "total_value": Money(total_os, "BRL"),
+            "total_value": self.workorder.display_total_budget_value if self.workorder else Money(total_os, "BRL"),
             "paid_value": Money(paid_amount, "BRL"),
             "pending_value": Money(pending_amount_display, "BRL"),
         }
@@ -154,8 +154,8 @@ class WorkOrderPaymentForm(CoreModelForm):
         if not payment_has_paid_value:
             self.fields["discount_value"].widget.attrs.update({"class": "font-semibold text-lg"})
             self.fields["discount_percentage"].widget.attrs.update({"class": "font-semibold text-lg"})
-        self.initial["discount_value"] = discount_value
-        self.initial["discount_percentage"] = discount_percentage
+        self.initial["discount_value"] = self.workorder.display_resolved_discount_value if self.workorder else discount_value
+        self.initial["discount_percentage"] = (self.workorder.display_resolved_discount_percentage / Decimal("100")) if self.workorder else discount_percentage
 
         if not self.is_bound and not self.initial.get("due_date"):
             self.initial["due_date"] = ""
@@ -165,7 +165,8 @@ class WorkOrderPaymentForm(CoreModelForm):
         is_first_payment_js = "true" if self.is_first_payment else "false"
         payment_success_container_class = "col-span-12 mb-4" if payment_is_fully_paid else "hidden col-span-12 mb-4"
         discount_locked_js = "true" if payment_has_paid_value else "false"
-        discount_lock_notice = """
+        discount_lock_notice = (
+            """
                     <div class="mb-4 rounded-2xl border border-base-300 bg-base-200/60 p-4 text-sm text-base-content/80" title="OS já tem valor pago">
                         <div class="flex items-start gap-3">
                             <span class="material-icons mt-0.5 text-base-content/50">lock</span>
@@ -175,7 +176,10 @@ class WorkOrderPaymentForm(CoreModelForm):
                             </div>
                         </div>
                     </div>
-        """ if payment_has_paid_value else ""
+        """
+            if payment_has_paid_value
+            else ""
+        )
         discount_card_class = "border-base-300 bg-base-100 shadow-sm" if payment_has_paid_value else "border-base-300 bg-base-100/90 shadow-sm"
         discount_title_attr = ' title="OS já tem valor pago"' if payment_has_paid_value else ""
         discount_badge = '<span class="badge badge-neutral badge-sm badge-outline">Indisponível</span>' if payment_has_paid_value else ""
@@ -644,7 +648,7 @@ class WorkOrderPaymentForm(CoreModelForm):
             due_date = timezone.localdate()
             cleaned_data["due_date"] = due_date
 
-        total_os = self.workorder.total_budget_value.amount
+        total_os = self.workorder.accounting_total_budget_value.amount
         paid_amount = self._get_paid_amount()
         pending_amount = total_os - paid_amount
 

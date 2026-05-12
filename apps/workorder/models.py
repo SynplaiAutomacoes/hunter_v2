@@ -11,7 +11,7 @@ from django.utils import timezone
 from djmoney.models.fields import MoneyField
 from djmoney.money import Money
 
-from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot
+from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, resolve_discount_fields
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -196,8 +196,18 @@ class WorkOrder(TimeStampedModel):
         return Money(paid_amount, "BRL")
 
     @property
+    def is_warranty_workorder(self) -> bool:
+        return bool(getattr(self.budget, "is_warranty_budget", False) or getattr(self.budget, "budget_type", "") == "warranty")
+
+    @property
+    def accounting_total_budget_value(self) -> Money:
+        if self.is_warranty_workorder:
+            return Money(0, "BRL")
+        return self.total_budget_value
+
+    @property
     def pending_payment_value(self) -> Money:
-        pending_amount = max(Decimal("0.00"), self.total_budget_value.amount - self.paid_value.amount)
+        pending_amount = max(Decimal("0.00"), self.accounting_total_budget_value.amount - self.paid_value.amount)
         return Money(pending_amount, "BRL")
 
     @property
@@ -294,12 +304,61 @@ class WorkOrder(TimeStampedModel):
         return self.pricing_snapshot.total_products_shipping
 
     @property
+    def display_total_products_by_slider(self) -> Money:
+        if self.is_warranty_workorder:
+            return self.total_costs_products_value + self.total_products_shipping
+        return self.get_total_products_by_slider
+
+    @property
+    def display_total_services_by_slider(self) -> Money:
+        if self.is_warranty_workorder:
+            return self.total_costs_services_value
+        return self.get_total_services_by_slider
+
+    @property
+    def display_total_base_value(self) -> Money:
+        if self.is_warranty_workorder:
+            return self.display_total_products_by_slider + self.display_total_services_by_slider
+        return self.total_base_value
+
+    @property
+    def display_resolved_discount_value(self) -> Money:
+        if not self.is_warranty_workorder:
+            return self.discount_value
+
+        resolved_discount_value, _ = resolve_discount_fields(
+            total_base_value=self.display_total_base_value,
+            discount_value=self.discount_value,
+            discount_percentage=self.discount_percentage,
+        )
+        return resolved_discount_value
+
+    @property
+    def display_resolved_discount_percentage(self) -> Decimal:
+        if not self.is_warranty_workorder:
+            return self.resolved_discount_percentage
+
+        _, resolved_discount_percentage = resolve_discount_fields(
+            total_base_value=self.display_total_base_value,
+            discount_value=self.discount_value,
+            discount_percentage=self.discount_percentage,
+        )
+        return (resolved_discount_percentage * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    @property
+    def display_total_budget_value(self) -> Money:
+        if self.is_warranty_workorder:
+            return self.display_total_base_value - self.display_resolved_discount_value
+        return self.total_budget_value
+
+    @property
     def resolved_discount_percentage(self) -> Decimal:
         return (Decimal(self.discount_percentage or 0) * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     @property
     def discount_percentage_display(self) -> str:
-        return f"{self.resolved_discount_percentage:.2f}%".replace(".", ",")
+        percentage = self.display_resolved_discount_percentage if self.is_warranty_workorder else self.resolved_discount_percentage
+        return f"{percentage:.2f}%".replace(".", ",")
 
     @property
     def total_costs_products_value(self) -> Money:
@@ -351,6 +410,9 @@ class WorkOrder(TimeStampedModel):
         return f"{ts // 3600:02d}h {(ts % 3600) // 60:02d}m"
 
     def calculate_pricing_methods(self):
+        if self.is_warranty_workorder:
+            return self._build_warranty_pricing_data()
+
         fallback_data = self._build_pricing_fallback_data()
         pricing_context = self.budget.get_frozen_pricing_context()
         salario_mecanicos = pricing_context.productive_salary_total
@@ -431,6 +493,9 @@ class WorkOrder(TimeStampedModel):
         return data_trad if rentabilidade_trad > rentabilidade_hun else data_hun
 
     def _build_pricing_fallback_data(self) -> dict[str, Any]:
+        if self.is_warranty_workorder:
+            return self._build_warranty_pricing_data()
+
         custo_pecas = self.total_costs_products_value
         custo_frete_pecas = self.total_products_shipping
         custo_servico_terceiro = self.total_third_party_services_cost
@@ -464,6 +529,26 @@ class WorkOrder(TimeStampedModel):
             "rentabilidade": rentabilidade,
             "mlo": Decimal("0.00"),
             "valor_orcamento": valor_orcamento,
+        }
+
+    def _build_warranty_pricing_data(self) -> dict[str, Any]:
+        zerado = Money(0, "BRL")
+        return {
+            "method_name": "Garantia",
+            "custo_pecas": self.total_costs_products_value,
+            "custo_frete_pecas": self.total_products_shipping,
+            "custo_servico_terceiro": self.total_third_party_services_cost,
+            "custo_hora_mecanico": zerado,
+            "custo_total_mao_obra": self.total_labor_cost_value,
+            "duracao_total": self.total_duration_display,
+            "lucro_operacional": zerado,
+            "mlr": Decimal("0.00"),
+            "venda_pecas": zerado,
+            "venda_servico_terceiro": zerado,
+            "venda_mao_obra": zerado,
+            "rentabilidade": Decimal("0.00"),
+            "mlo": Decimal("0.00"),
+            "valor_orcamento": self.display_total_budget_value,
         }
 
     @property

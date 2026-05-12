@@ -127,8 +127,12 @@ class FinancialMovement(TimeStampedModel):
             sign = "-"
             text_class = "text-error"
 
+        amount = self.amount
+        if self.movement_kind == self.MovementKind.WORKORDER_PARENT and getattr(self, "workorder", None) is not None:
+            amount = getattr(self.workorder, "accounting_total_budget_value", self.amount)
+
         return {
-            "text": f"{sign} {self._format_report_money(self.amount)}",
+            "text": f"{sign} {self._format_report_money(amount)}",
             "class": f"{text_class} font-semibold whitespace-nowrap",
         }
 

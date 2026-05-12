@@ -75,7 +75,7 @@ def _build_customer_workorder_history_entry(workorder: WorkOrder) -> dict[str, A
         "type_label": "OS",
         "document_number": workorder.get_id,
         "vehicle_label": _build_customer_history_vehicle_label(workorder.budget.vehicle),
-        "total_value": workorder.total_budget_value,
+        "total_value": workorder.display_total_budget_value,
         "status_badge": workorder.workorder_status_badge,
         "pdf_title": f"OS #{workorder.get_id}",
         "pdf_url": pdf_url,

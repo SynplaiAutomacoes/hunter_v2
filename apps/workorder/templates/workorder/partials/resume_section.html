@@ -220,15 +220,15 @@
                     <p class="text-sm whitespace-pre-wrap break-words">{{ workorder.budget.pdf_observation|default:"Nenhuma observação." }}</p>
                 </div>
                 <div class="min-w-0 space-y-1">
-                    <p class="flex justify-between"><span>Total de Produtos:</span> <span>{{workorder.get_total_products_by_slider}}</span></p>
-                    <p class="flex justify-between"><span>Total de Serviços:</span> <span>{{workorder.get_total_services_by_slider}}</span></p>
+                    <p class="flex justify-between"><span>Total de Produtos:</span> <span>{{ workorder.display_total_products_by_slider }}</span></p>
+                    <p class="flex justify-between"><span>Total de Serviços:</span> <span>{{ workorder.display_total_services_by_slider }}</span></p>
                     <p class="flex justify-between font-medium">
                         <span>Desconto ({{ workorder.discount_percentage_display }}):</span>
-                        <span class="text-red-600">- {{ workorder.discount_value }}</span>
+                        <span class="text-red-600">- {{ workorder.display_resolved_discount_value }}</span>
                     </p>
                     <p class="flex justify-between font-bold text-lg mt-2 pt-2 border-t border-gray-300">
                         <span>TOTAL GERAL:</span>
-                        <span>{{workorder.total_budget_value}}</span>
+                        <span>{{ workorder.display_total_budget_value }}</span>
                     </p>
                 </div>
             </div>
