@@ -110,21 +110,9 @@ BUDGET_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
     ),
 )
 
-BUDGET_STATUS_REPORT_FILTERS: tuple[QueryParamFilter, ...] = (
-    QueryParamFilter(
-        param_name="data_inicial",
-        lookup="criado_em__date",
-        kind="date_gte",
-    ),
-    QueryParamFilter(
-        param_name="data_final",
-        lookup="criado_em__date",
-        kind="date_lte",
-    ),
-)
-
 BUDGET_STATUS_CHOICES = tuple((status.value, str(status.label)) for status in BudgetStatus)
 BUDGET_TYPE_CHOICES = tuple((choice.value, str(choice.label)) for choice in BudgetType)
+BUDGET_FILTER_PARAM_NAMES = ("client", "vehicle", "collaborator", "status", "data_inicial", "data_final", "budget_type")
 BUDGET_STATUS_BADGE_CLASSES = {
     BudgetStatus.DRAFT: "badge-neutral min-w-sm",
     BudgetStatus.WAITING_CLIENT: "badge-warning min-w-sm",
@@ -136,7 +124,12 @@ BUDGET_STATUS_BADGE_CLASSES = {
     BudgetStatus.REJECTED: "badge-error min-w-sm",
     BudgetStatus.CANCELLED: "badge-error min-w-sm",
 }
-BUDGET_STATUS_REPORT_PDF_TITLE = "Relatorio de Orcamentos por Status"
+BUDGET_TYPE_BADGE_CLASSES = {
+    BudgetType.SALE: "badge-success min-w-sm",
+    BudgetType.COURTESY: "badge-info min-w-sm",
+    BudgetType.WARRANTY: "badge-error min-w-sm",
+}
+BUDGET_STATUS_REPORT_PDF_TITLE = "Relatorio de Orcamentos Filtrados"
 
 
 def _parse_report_date_param(raw_value: str | None) -> date | None:
@@ -180,14 +173,63 @@ class BudgetStatusReportDataMixin:
     request: HttpRequest
     workshop: Workshop
 
-    def _get_selected_status(self) -> str:
-        return str(self.request.GET.get("status") or "").strip()
+    def _get_selected_status_values(self) -> list[str]:
+        return [str(status) for status in self._get_selected_status_choices()]
 
-    def _get_selected_status_choice(self) -> BudgetStatus | None:
-        try:
-            return BudgetStatus(self._get_selected_status())
-        except ValueError:
-            return None
+    def _get_selected_status_choices(self) -> list[BudgetStatus]:
+        cached = getattr(self, "_selected_status_choices_cache", None)
+        if cached is not None:
+            return cached
+
+        selected_status_choices: list[BudgetStatus] = []
+        seen_statuses: set[BudgetStatus] = set()
+        for raw_value in self.request.GET.getlist("status"):
+            value = str(raw_value or "").strip()
+            if not value:
+                continue
+
+            try:
+                status_choice = BudgetStatus(value)
+            except ValueError:
+                continue
+
+            if status_choice in seen_statuses:
+                continue
+
+            seen_statuses.add(status_choice)
+            selected_status_choices.append(status_choice)
+
+        self._selected_status_choices_cache = selected_status_choices
+        return selected_status_choices
+
+    def _get_selected_budget_type_values(self) -> list[str]:
+        return [str(budget_type) for budget_type in self._get_selected_budget_type_choices()]
+
+    def _get_selected_budget_type_choices(self) -> list[BudgetType]:
+        cached = getattr(self, "_selected_budget_type_choices_cache", None)
+        if cached is not None:
+            return cached
+
+        selected_budget_type_choices: list[BudgetType] = []
+        seen_budget_types: set[BudgetType] = set()
+        for raw_value in self.request.GET.getlist("budget_type"):
+            value = str(raw_value or "").strip()
+            if not value:
+                continue
+
+            try:
+                budget_type_choice = BudgetType(value)
+            except ValueError:
+                continue
+
+            if budget_type_choice in seen_budget_types:
+                continue
+
+            seen_budget_types.add(budget_type_choice)
+            selected_budget_type_choices.append(budget_type_choice)
+
+        self._selected_budget_type_choices_cache = selected_budget_type_choices
+        return selected_budget_type_choices
 
     def _get_report_start_date(self) -> date | None:
         return _parse_report_date_param(self.request.GET.get("data_inicial"))
@@ -199,20 +241,18 @@ class BudgetStatusReportDataMixin:
         return _build_period_label(start_date=self._get_report_start_date(), end_date=self._get_report_end_date())
 
     def _get_status_report_querystring(self) -> str:
-        selected_status_choice = self._get_selected_status_choice()
-        if selected_status_choice is None:
+        if self._get_selection_report() is None:
             return ""
 
-        query_params = {"status": str(selected_status_choice)}
+        query_params: dict[str, str | list[str]] = {}
+        for param_name in BUDGET_FILTER_PARAM_NAMES:
+            values = [str(raw_value).strip() for raw_value in self.request.GET.getlist(param_name) if str(raw_value).strip()]
+            if not values:
+                continue
 
-        raw_start_date = str(self.request.GET.get("data_inicial") or "").strip()
-        raw_end_date = str(self.request.GET.get("data_final") or "").strip()
-        if raw_start_date:
-            query_params["data_inicial"] = raw_start_date
-        if raw_end_date:
-            query_params["data_final"] = raw_end_date
+            query_params[param_name] = values if len(values) > 1 else values[0]
 
-        return urlencode(query_params)
+        return urlencode(query_params, doseq=True)
 
     def _get_budget_base_queryset(self):
         return (
@@ -245,37 +285,88 @@ class BudgetStatusReportDataMixin:
             TableColumn(str(Budget.status.field.verbose_name), attr="budget_status_badge", search_by="status", format="status_badge"),
         ]
 
-    def _get_selected_status_report_queryset(self):
-        selected_status_choice = self._get_selected_status_choice()
-        if selected_status_choice is None:
-            return self._get_budget_base_queryset().none()
-        return apply_query_param_filters(
-            self._get_budget_base_queryset().filter(status=selected_status_choice),
-            params=self.request.GET,
-            filter_configs=BUDGET_STATUS_REPORT_FILTERS,
-        ).order_by("-criado_em")
+    def _get_filtered_budget_queryset(self):
+        queryset = self._get_budget_base_queryset()
 
-    def _get_selected_status_report(self) -> dict[str, object] | None:
-        selected_status_choice = self._get_selected_status_choice()
-        if selected_status_choice is None:
+        selected_status_choices = self._get_selected_status_choices()
+        if BudgetStatus.CANCELLED not in selected_status_choices:
+            queryset = queryset.exclude(status=BudgetStatus.CANCELLED)
+
+        queryset = apply_query_param_filters(
+            queryset,
+            params=self.request.GET,
+            filter_configs=BUDGET_LIST_FILTERS,
+        )
+
+        return queryset.order_by("-criado_em")
+
+    def _get_selection_report_items(self) -> list[Budget]:
+        cached = getattr(self, "_selection_report_items_cache", None)
+        if cached is not None:
+            return cached
+
+        items = list(self._get_filtered_budget_queryset())
+        self._selection_report_items_cache = items
+        return items
+
+    def _build_selection_badges(self) -> list[dict[str, str]]:
+        badges = [{"text": str(status_choice.label), "class": BUDGET_STATUS_BADGE_CLASSES.get(status_choice, "badge-neutral min-w-sm")} for status_choice in self._get_selected_status_choices()]
+        badges.extend({"text": str(budget_type_choice.label), "class": BUDGET_TYPE_BADGE_CLASSES.get(budget_type_choice, "badge-neutral min-w-sm")} for budget_type_choice in self._get_selected_budget_type_choices())
+        return badges
+
+    def _build_selection_report_filters_summary(self) -> str:
+        filter_labels: list[str] = []
+
+        selected_status_labels = [str(status_choice.label) for status_choice in self._get_selected_status_choices()]
+        if selected_status_labels:
+            filter_labels.append(f"Status: {', '.join(selected_status_labels)}")
+
+        selected_budget_type_labels = [str(budget_type_choice.label) for budget_type_choice in self._get_selected_budget_type_choices()]
+        if selected_budget_type_labels:
+            filter_labels.append(f"Tipo: {', '.join(selected_budget_type_labels)}")
+
+        raw_client = str(self.request.GET.get("client") or "").strip()
+        if raw_client:
+            filter_labels.append(f"Cliente: {raw_client}")
+
+        raw_vehicle = str(self.request.GET.get("vehicle") or "").strip()
+        if raw_vehicle:
+            filter_labels.append(f"Veiculo: {raw_vehicle}")
+
+        raw_collaborator = str(self.request.GET.get("collaborator") or "").strip()
+        if raw_collaborator:
+            filter_labels.append(f"Colaborador: {raw_collaborator}")
+
+        period_label = self._get_status_report_period_label()
+        if period_label != "Todo o periodo":
+            filter_labels.append(f"Periodo: {period_label}")
+
+        return " | ".join(filter_labels)
+
+    def _get_selection_report(self) -> dict[str, object] | None:
+        if not self._get_selected_status_choices() and not self._get_selected_budget_type_choices():
             return None
 
+        report_items = self._get_selection_report_items()
+        total_value = sum((budget.total_budget_value.amount for budget in report_items), Decimal("0.00"))
+
         return {
-            "value": selected_status_choice,
-            "label": str(selected_status_choice.label),
-            "count": self._get_selected_status_report_queryset().count(),
-            "badge_class": BUDGET_STATUS_BADGE_CLASSES.get(selected_status_choice, "badge-neutral"),
+            "count": len(report_items),
+            "total_value": total_value,
+            "badges": self._build_selection_badges(),
+            "filters_summary": self._build_selection_report_filters_summary(),
         }
 
     def _build_status_report_pdf_context(self) -> dict[str, object]:
-        selected_status_report = self._get_selected_status_report()
-        if selected_status_report is None:
+        selection_report = self._get_selection_report()
+        if selection_report is None:
             raise Http404("Status de orcamento invalido")
 
         return {
             "workshop": self.workshop,
-            "report_budgets": list(self._get_selected_status_report_queryset()),
-            "selected_status_report": selected_status_report,
+            "report_budgets": self._get_selection_report_items(),
+            "selection_report": selection_report,
+            "selected_status_report": selection_report,
             "status_report_pdf_title": self.status_report_pdf_title,
             "status_report_period_label": self._get_status_report_period_label(),
             "workshop_logo_data_uri": build_workshop_logo_data_uri(workshop=self.workshop),
@@ -290,19 +381,7 @@ class BudgetListView(LoginRequiredMixin, BudgetStatusReportDataMixin, WorkshopSc
     htmx_template_name = "budget/partials/budget_table.html"
 
     def get_queryset(self):
-        queryset = self._get_budget_base_queryset()
-
-        selected_status = self._get_selected_status()
-        if selected_status != BudgetStatus.CANCELLED:
-            queryset = queryset.exclude(status=BudgetStatus.CANCELLED)
-
-        queryset = apply_query_param_filters(
-            queryset,
-            params=self.request.GET,
-            filter_configs=BUDGET_LIST_FILTERS,
-        )
-
-        return queryset.order_by("-criado_em")
+        return self._get_filtered_budget_queryset()
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -312,7 +391,10 @@ class BudgetListView(LoginRequiredMixin, BudgetStatusReportDataMixin, WorkshopSc
         ]
         context["status_choices"] = BUDGET_STATUS_CHOICES
         context["budget_type_choices"] = BUDGET_TYPE_CHOICES
-        context["selected_status_report"] = self._get_selected_status_report()
+        context["selected_status_values"] = self._get_selected_status_values()
+        context["selected_budget_type_values"] = self._get_selected_budget_type_values()
+        context["selection_report"] = self._get_selection_report()
+        context["selected_status_report"] = context["selection_report"]
         context["status_report_period_label"] = self._get_status_report_period_label()
         context["status_report_querystring"] = self._get_status_report_querystring()
         context["status_report_pdf_title"] = self.status_report_pdf_title

@@ -45,13 +45,15 @@
         />
     </div>
 
-    <div class="sm:col-span-2">
-        <label for="{{ table_id }}-filter-status">Status</label>
-        <select name="status" id="{{ table_id }}-filter-status" class="select select-bordered w-full">
-            <option value="">Todos</option>
+    <fieldset class="sm:col-span-2">
+        <legend class="label-text font-medium">Status</legend>
+        <div class="mt-2 grid gap-2 rounded-box border border-base-300 bg-base-100 p-3 sm:grid-cols-2">
             {% for value, label in status_choices %}
-                <option value="{{ value }}" {% if request.GET.status == value %}selected{% endif %}>{{ label }}</option>
+                <label class="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1 hover:bg-base-200/70">
+                    <input type="checkbox" name="status" value="{{ value }}" class="checkbox checkbox-sm" {% if value in selected_status_values %}checked{% endif %} />
+                    <span class="text-sm text-base-content">{{ label }}</span>
+                </label>
             {% endfor %}
-        </select>
-    </div>
+        </div>
+    </fieldset>
 </div>
