@@ -806,9 +806,9 @@ class WorkOrderStatusReasonForm(CoreForm):
             },
             "reject": {
                 "field_name": "rejection_reason",
-                "label": "Justificativa da rejeição",
-                "placeholder": "Explique por que esta O.S. está sendo rejeitada.",
-                "required_message": "Informe a justificativa para rejeitar a O.S.",
+                "label": "Justificativa da reprovação",
+                "placeholder": "Explique por que esta O.S. está sendo reprovada.",
+                "required_message": "Informe a justificativa para reprovar a O.S.",
             },
         }
         return config_map.get(self.action, config_map["reject"])
