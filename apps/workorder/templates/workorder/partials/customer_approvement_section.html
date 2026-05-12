@@ -18,6 +18,20 @@
         >
             {% csrf_token %}
             {% crispy approval_form %}
+            <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                <div class="form-control">
+                    <label class="label" for="workorder-delivered-at-display">
+                        <span class="label-text font-medium">Data de saída</span>
+                    </label>
+                    <input
+                        id="workorder-delivered-at-display"
+                        type="text"
+                        class="input-theme"
+                        value="{% if workorder.delivered_at %}{{ workorder.delivered_at|date:'d/m/Y H:i' }}{% else %}Sera preenchida ao concluir a entrega.{% endif %}"
+                        readonly
+                    >
+                </div>
+            </div>
             <p id="workorder-km-save-status" class="text-sm text-base-content/70 min-h-5" aria-live="polite"></p>
         </form>
     </div>
