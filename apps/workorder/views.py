@@ -575,9 +575,6 @@ class UpdateWorkOrderDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View)
     def post(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
 
-        if workorder.paid_value.amount > Decimal("0.00"):
-            return JsonResponse({"ok": False, "error": "OS já tem valor pago."}, status=400)
-
         try:
             raw_discount_value = request.POST.get("discount_value_0", "0").replace(",", ".") or "0"
             raw_discount_percentage = request.POST.get("discount_percentage", "0").replace(",", ".") or "0"
@@ -1123,9 +1120,9 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if next_status is None:
             return HttpResponse(status=400)
 
-        if workorder.status == WorkOrderStatus.APPROVED and next_status in {WorkOrderStatus.REJECTED, WorkOrderStatus.CANCELLED}:
+        if workorder.is_status_locked:
             response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
-            response["HX-Trigger"] = json.dumps({"showToast": {"message": "Use a ação Reabrir O.S. para estornar a entrega antes de alterar o status.", "type": "error"}})
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": "Reabra a O.S. antes de alterar o status.", "type": "error"}})
             return response
 
         if next_status == WorkOrderStatus.APPROVED:
@@ -1193,7 +1190,7 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
 class ReopenWorkOrderView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = WorkOrder
-    workshop_permission_codename = "change_workorder"
+    workshop_permission_codename = "reopen_workorder"
 
     def post(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
