@@ -21,12 +21,7 @@ def render_budget_pdf_document(*, budget, request=None, filename: str | None = N
 
 
 def build_budget_status_report_pdf_render_request(*, context: dict[str, object], request=None, filename: str | None = None) -> DocumentRenderRequest:
-    selected_status_report = context.get("selected_status_report")
-    status_value = "status"
-    if isinstance(selected_status_report, dict):
-        status_value = str(selected_status_report.get("value") or status_value)
-
-    resolved_filename = filename or f"relatorio_orcamentos_por_status_{status_value}.pdf"
+    resolved_filename = filename or "relatorio_orcamentos_filtrados.pdf"
     render_context = dict(context)
     render_context["request"] = request
 

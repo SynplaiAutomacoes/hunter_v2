@@ -12,9 +12,10 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Prefetch
-from django.http import Http404, HttpResponse, JsonResponse
+from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.urls import reverse
 from django.shortcuts import get_object_or_404, render
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.utils.html import escape
 from django.views import View
@@ -52,8 +53,10 @@ from apps.workorder.forms import (
     WorkOrderKitProductEditRowForm,
     WorkOrderKitServiceEditRowForm,
     WorkOrderPaymentForm,
+    WorkOrderReopenForm,
 )
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
+from apps.workorder.reopening import WorkOrderReopenError, reopen_workorder
 
 from apps.workorder.util import (
     _get_workorder_for_workshop,
@@ -67,17 +70,34 @@ from apps.workorder.util import (
     _get_workorder_workshop_cost,
     _build_customer_approvement_context,
     _build_workorder_pdf_file_response,
+    can_reopen_workorder,
     trigger_workorder_signature_send_if_needed,
     _normalize_active_tab,
     _normalize_selected_item_ids,
     _get_workorder_from_signature_token,
 )
 from apps.workshops.mixin import WorkshopScopedMixin
+from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 logger = logging.getLogger(__name__)
 THOUSAND_SEPARATED_INT_PATTERN = re.compile(r"^\d{1,3}(?:[\s.,]\d{3})+$")
 MAX_WORKORDER_ATTACHMENT_SIZE_BYTES = 200 * 1024 * 1024
+SIGNED_PDF_VARIANT = "signed"
+BASE_PDF_VARIANT = "base"
+
+
+def _get_requested_pdf_variant(request) -> str:
+    requested_variant = str(request.GET.get("variant") or "").strip().lower()
+    if requested_variant == BASE_PDF_VARIANT:
+        return BASE_PDF_VARIANT
+    if requested_variant == SIGNED_PDF_VARIANT:
+        return SIGNED_PDF_VARIANT
+    return SIGNED_PDF_VARIANT
+
+
+def _can_use_signed_workorder_pdf(workorder: WorkOrder) -> bool:
+    return bool(workorder.signature_document_id or workorder.signature_external_id) and workorder.signature_request_status in {WorkOrderSignatureStatus.SENT, WorkOrderSignatureStatus.APPROVED}
 
 
 WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
@@ -116,26 +136,15 @@ WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
     ),
 )
 
-WORKORDER_STATUS_REPORT_FILTERS: tuple[QueryParamFilter, ...] = (
-    QueryParamFilter(
-        param_name="data_inicial",
-        lookup="criado_em__date",
-        kind="date_gte",
-    ),
-    QueryParamFilter(
-        param_name="data_final",
-        lookup="criado_em__date",
-        kind="date_lte",
-    ),
-)
-
 WORKORDER_STATUS_CHOICES = tuple((status.value, str(status.label)) for status in WorkOrderStatus)
+WORKORDER_FILTER_PARAM_NAMES = ("client", "vehicle", "status", "data_inicial", "data_final")
 WORKORDER_STATUS_BADGE_CLASSES = {
     WorkOrderStatus.DRAFT: "badge-soft badge-ghost min-w-sm",
     WorkOrderStatus.APPROVED: "badge-success min-w-sm",
     WorkOrderStatus.REJECTED: "badge-error min-w-sm",
     WorkOrderStatus.CANCELLED: "badge-warning min-w-sm",
 }
+WORKORDER_STATUS_REPORT_PDF_TITLE = "Relatorio de Ordens de Servico Filtradas"
 KIT_COMPATIBILITY_BADGE_CLASSES = {
     "compatible": "badge-success",
     "partially_compatible": "badge-accent",
@@ -150,7 +159,7 @@ KIT_COMPATIBILITY_SORT_ORDER = {
     "no_applications": 3,
     "incompatible": 4,
 }
-WORKORDER_STATUS_REPORT_PDF_TITLE = "Relatorio de Ordens de Servico por Status"
+WORKORDER_STATUS_REPORT_PDF_TITLE = "Relatorio de Ordens de Servico Filtradas"
 
 
 def _parse_report_date_param(raw_value: str | None) -> date | None:
@@ -261,22 +270,37 @@ def _get_incompatible_workorder_kits(*, workshop, workorder: WorkOrder, selected
 
 class WorkOrderStatusReportDataMixin:
     status_report_pdf_title = WORKORDER_STATUS_REPORT_PDF_TITLE
+    request: HttpRequest
+    workshop: Workshop
 
-    def _get_selected_status(self) -> str:
-        return str(self.request.GET.get("status") or "").strip()
+    def _get_selected_status_values(self) -> list[str]:
+        return [str(status) for status in self._get_selected_status_choices()]
 
-    def _get_selected_status_choice(self) -> WorkOrderStatus | None:
-        cached = getattr(self, "_selected_status_choice_cache", None)
+    def _get_selected_status_choices(self) -> list[WorkOrderStatus]:
+        cached = getattr(self, "_selected_status_choices_cache", None)
         if cached is not None:
             return cached
 
-        try:
-            selected_status_choice = WorkOrderStatus(self._get_selected_status())
-        except ValueError:
-            selected_status_choice = None
+        selected_status_choices: list[WorkOrderStatus] = []
+        seen_statuses: set[WorkOrderStatus] = set()
+        for raw_value in self.request.GET.getlist("status"):
+            value = str(raw_value or "").strip()
+            if not value:
+                continue
 
-        self._selected_status_choice_cache = selected_status_choice
-        return selected_status_choice
+            try:
+                status_choice = WorkOrderStatus(value)
+            except ValueError:
+                continue
+
+            if status_choice in seen_statuses:
+                continue
+
+            seen_statuses.add(status_choice)
+            selected_status_choices.append(status_choice)
+
+        self._selected_status_choices_cache = selected_status_choices
+        return selected_status_choices
 
     def _get_report_start_date(self) -> date | None:
         return _parse_report_date_param(self.request.GET.get("data_inicial"))
@@ -288,20 +312,18 @@ class WorkOrderStatusReportDataMixin:
         return _build_period_label(start_date=self._get_report_start_date(), end_date=self._get_report_end_date())
 
     def _get_status_report_querystring(self) -> str:
-        selected_status_choice = self._get_selected_status_choice()
-        if selected_status_choice is None:
+        if self._get_selection_report() is None:
             return ""
 
-        query_params = {"status": str(selected_status_choice)}
+        query_params: dict[str, str | list[str]] = {}
+        for param_name in WORKORDER_FILTER_PARAM_NAMES:
+            values = [str(raw_value).strip() for raw_value in self.request.GET.getlist(param_name) if str(raw_value).strip()]
+            if not values:
+                continue
 
-        raw_start_date = str(self.request.GET.get("data_inicial") or "").strip()
-        raw_end_date = str(self.request.GET.get("data_final") or "").strip()
-        if raw_start_date:
-            query_params["data_inicial"] = raw_start_date
-        if raw_end_date:
-            query_params["data_final"] = raw_end_date
+            query_params[param_name] = values if len(values) > 1 else values[0]
 
-        return urlencode(query_params)
+        return urlencode(query_params, doseq=True)
 
     def _get_workorder_table_fields(self) -> list[TableColumn]:
         return [
@@ -331,45 +353,76 @@ class WorkOrderStatusReportDataMixin:
             )
         )
 
-    def _get_selected_status_report_queryset(self):
-        cached = getattr(self, "_selected_status_report_queryset_cache", None)
+    def _get_filtered_workorder_queryset(self):
+        queryset = self._get_workorder_base_queryset()
+
+        selected_status_choices = self._get_selected_status_choices()
+        if WorkOrderStatus.CANCELLED not in selected_status_choices:
+            queryset = queryset.exclude(status=WorkOrderStatus.CANCELLED)
+
+        queryset = apply_query_param_filters(
+            queryset,
+            params=self.request.GET,
+            filter_configs=WORKORDER_LIST_FILTERS,
+        )
+
+        return queryset.order_by("-criado_em")
+
+    def _get_selection_report_items(self) -> list[WorkOrder]:
+        cached = getattr(self, "_selection_report_items_cache", None)
         if cached is not None:
             return cached
 
-        selected_status_choice = self._get_selected_status_choice()
-        if selected_status_choice is None:
-            queryset = self._get_workorder_base_queryset().none()
-        else:
-            queryset = apply_query_param_filters(
-                self._get_workorder_base_queryset().filter(status=selected_status_choice),
-                params=self.request.GET,
-                filter_configs=WORKORDER_STATUS_REPORT_FILTERS,
-            ).order_by("-criado_em")
+        items = list(self._get_filtered_workorder_queryset())
+        self._selection_report_items_cache = items
+        return items
 
-        self._selected_status_report_queryset_cache = queryset
-        return queryset
+    def _build_selection_report_filters_summary(self) -> str:
+        filter_labels: list[str] = []
 
-    def _get_selected_status_report(self) -> dict[str, object] | None:
-        selected_status_choice = self._get_selected_status_choice()
-        if selected_status_choice is None:
+        selected_status_labels = [str(status_choice.label) for status_choice in self._get_selected_status_choices()]
+        if selected_status_labels:
+            filter_labels.append(f"Status: {', '.join(selected_status_labels)}")
+
+        raw_client = str(self.request.GET.get("client") or "").strip()
+        if raw_client:
+            filter_labels.append(f"Cliente: {raw_client}")
+
+        raw_vehicle = str(self.request.GET.get("vehicle") or "").strip()
+        if raw_vehicle:
+            filter_labels.append(f"Veiculo: {raw_vehicle}")
+
+        period_label = self._get_status_report_period_label()
+        if period_label != "Todo o periodo":
+            filter_labels.append(f"Periodo: {period_label}")
+
+        return " | ".join(filter_labels)
+
+    def _get_selection_report(self) -> dict[str, object] | None:
+        selected_status_choices = self._get_selected_status_choices()
+        if not selected_status_choices:
             return None
 
+        report_items = self._get_selection_report_items()
+        total_value = sum((workorder.total_budget_value.amount for workorder in report_items), Decimal("0.00"))
+
         return {
-            "value": selected_status_choice,
-            "label": str(selected_status_choice.label),
-            "count": self._get_selected_status_report_queryset().count(),
-            "badge_class": WORKORDER_STATUS_BADGE_CLASSES.get(selected_status_choice, "badge-ghost"),
+            "count": len(report_items),
+            "total_value": total_value,
+            "badges": [{"text": str(status_choice.label), "class": WORKORDER_STATUS_BADGE_CLASSES.get(status_choice, "badge-ghost min-w-sm")} for status_choice in selected_status_choices],
+            "filters_summary": self._build_selection_report_filters_summary(),
         }
 
     def _build_status_report_pdf_context(self) -> dict[str, object]:
-        selected_status_report = self._get_selected_status_report()
-        if selected_status_report is None:
+        selection_report = self._get_selection_report()
+        if selection_report is None:
             raise Http404("Status de ordem de servico invalido")
 
         return {
             "workshop": self.workshop,
-            "report_workorders": list(self._get_selected_status_report_queryset()),
-            "selected_status_report": selected_status_report,
+            "report_workorders": self._get_selection_report_items(),
+            "selection_report": selection_report,
+            "selected_status_report": selection_report,
             "status_report_pdf_title": self.status_report_pdf_title,
             "status_report_period_label": self._get_status_report_period_label(),
             "workshop_logo_data_uri": build_workshop_logo_data_uri(workshop=self.workshop),
@@ -384,19 +437,7 @@ class WorkOrderListView(LoginRequiredMixin, WorkOrderStatusReportDataMixin, Work
     htmx_template_name = "workorder/partials/workorder_table.html"
 
     def get_queryset(self):
-        queryset = self._get_workorder_base_queryset()
-
-        selected_status = self._get_selected_status()
-        if selected_status != WorkOrderStatus.CANCELLED:
-            queryset = queryset.exclude(status=WorkOrderStatus.CANCELLED)
-
-        queryset = apply_query_param_filters(
-            queryset,
-            params=self.request.GET,
-            filter_configs=WORKORDER_LIST_FILTERS,
-        )
-
-        return queryset.order_by("-criado_em")
+        return self._get_filtered_workorder_queryset()
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -406,7 +447,9 @@ class WorkOrderListView(LoginRequiredMixin, WorkOrderStatusReportDataMixin, Work
             TableActionDefaults.edit("workorder:workorder_detail"),
         ]
         context["status_choices"] = WORKORDER_STATUS_CHOICES
-        context["selected_status_report"] = self._get_selected_status_report()
+        context["selected_status_values"] = self._get_selected_status_values()
+        context["selection_report"] = self._get_selection_report()
+        context["selected_status_report"] = context["selection_report"]
         context["status_report_period_label"] = self._get_status_report_period_label()
         context["status_report_querystring"] = self._get_status_report_querystring()
         context["status_report_pdf_title"] = self.status_report_pdf_title
@@ -470,7 +513,7 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         context = super().get_context_data(**kwargs)
         context["payment_form"] = WorkOrderPaymentForm(workorder=self.object)
         context["collaborator_form"] = WorkOrderCollaboratorForm(instance=self.object, workorder=self.object)
-        context.update(_build_customer_approvement_context(self.object))
+        context.update(_build_customer_approvement_context(self.object, request=self.request))
         context.update(_build_edit_items_context(self.object))
         return context
 
@@ -570,7 +613,7 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
-        approval_form = WorkOrderCustomerApprovalForm(request.POST, workorder=workorder)
+        approval_form = WorkOrderCustomerApprovalForm(request.POST, workorder=workorder, require_unsigned_delivery_reason=False)
 
         if not approval_form.is_valid():
             km_final_errors = approval_form.errors.get("km_final", [])
@@ -980,7 +1023,7 @@ class UploadAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         attachment = None
         if not uploaded_files:
-            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder))
+            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
             response["HX-Trigger"] = json.dumps({"showToast": {"message": "Selecione pelo menos um arquivo para enviar.", "type": "error"}})
             return response
 
@@ -989,7 +1032,7 @@ class UploadAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 if int(getattr(uploaded_file, "size", 0) or 0) > MAX_WORKORDER_ATTACHMENT_SIZE_BYTES:
                     raise ValidationError(f"Arquivo '{uploaded_file.name}' excede o tamanho máximo de 200MB.")
         except ValidationError as exc:
-            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder))
+            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
             response["HX-Trigger"] = json.dumps({"showToast": {"message": str(exc), "type": "error"}})
             return response
 
@@ -1010,11 +1053,11 @@ class UploadAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     )
         except Exception:
             logger.exception("Falha ao salvar anexos da ordem de servico", extra={"workorder_id": workorder.pk})
-            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder))
+            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
             response["HX-Trigger"] = json.dumps({"showToast": {"message": "Não foi possível salvar os anexos. Tente novamente.", "type": "error"}})
             return response
 
-        context = _build_customer_approvement_context(workorder, attachment)
+        context = _build_customer_approvement_context(workorder, attachment, request=request)
         context_response = render(request, "workorder/partials/customer_approvement_section.html", context)
         context_response["HX-Trigger"] = json.dumps({"showToast": {"message": f"{len(uploaded_files)} arquivo(s) salvo(s) com sucesso.", "type": "success"}})
 
@@ -1040,7 +1083,7 @@ class DeleteAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
             workorder = attachment.workorder
             attachment.delete()
 
-        context = _build_customer_approvement_context(workorder)
+        context = _build_customer_approvement_context(workorder, request=request)
         return render(request, "workorder/partials/customer_approvement_section.html", context)
 
 
@@ -1061,19 +1104,34 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if next_status is None:
             return HttpResponse(status=400)
 
+        if workorder.status == WorkOrderStatus.APPROVED and next_status in {WorkOrderStatus.REJECTED, WorkOrderStatus.CANCELLED}:
+            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": "Use a ação Reabrir O.S. para estornar a entrega antes de alterar o status.", "type": "error"}})
+            return response
+
         if next_status == WorkOrderStatus.APPROVED:
+            if workorder.has_completion_blockers:
+                response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
+                response["HX-Trigger"] = json.dumps({"showToast": {"message": workorder.completion_blockers_display, "type": "error"}})
+                return response
+
             approval_form = WorkOrderCustomerApprovalForm(request.POST, workorder=workorder)
             if not approval_form.is_valid():
-                context = _build_customer_approvement_context(workorder)
+                context = _build_customer_approvement_context(workorder, request=request)
                 context["approval_form"] = approval_form
                 return render(request, "workorder/partials/customer_approvement_section.html", context)
 
             try:
                 km_final = approval_form.cleaned_data["km_final"]
+                unsigned_delivery_reason = approval_form.cleaned_data["unsigned_delivery_reason"]
                 workorder.km_final = km_final
-                workorder.save(update_fields=["km_final"])
+                workorder.unsigned_delivery_reason = unsigned_delivery_reason
+                workorder.save(update_fields=["km_final", "unsigned_delivery_reason"])
 
                 approve_workorder_with_stock(workorder=workorder, user=request.user)
+                if workorder.delivered_at is None:
+                    workorder.delivered_at = timezone.now()
+                    workorder.save(update_fields=["delivered_at"])
                 sync_workorder_financial_movement(workorder=workorder)
 
                 vehicle = getattr(workorder.budget, "vehicle", None)
@@ -1081,12 +1139,12 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     vehicle.km = km_final
                     vehicle.save(update_fields=["km"])
             except WorkOrderApprovalError as exc:
-                response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder))
+                response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
                 response["HX-Trigger"] = json.dumps({"showToast": {"message": str(exc), "type": "error"}})
                 return response
             except Exception:
                 logger.exception("Falha ao concluir entrega da ordem de servico", extra={"workorder_id": workorder.pk})
-                response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder))
+                response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
                 response["HX-Trigger"] = json.dumps({"showToast": {"message": "Erro interno ao concluir a entrega da ordem de serviço.", "type": "error"}})
                 return response
 
@@ -1098,13 +1156,41 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return HttpResponse(headers={"HX-Refresh": "true"})
 
 
+class ReopenWorkOrderView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkOrder
+    workshop_permission_codename = "change_workorder"
+
+    def post(self, request, pk):
+        workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not can_reopen_workorder(request=request, workorder=workorder):
+            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": "Somente Diretor ou Gerente pode reabrir uma O.S. entregue.", "type": "error"}})
+            return response
+
+        reopen_form = WorkOrderReopenForm(request.POST, workorder=workorder)
+        if not reopen_form.is_valid():
+            context = _build_customer_approvement_context(workorder, request=request)
+            context["reopen_form"] = reopen_form
+            return render(request, "workorder/partials/customer_approvement_section.html", context)
+
+        try:
+            reopen_workorder(workorder=workorder, user=request.user, reason=reopen_form.cleaned_data["reopen_reason"])
+        except WorkOrderReopenError as exc:
+            response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": str(exc), "type": "error"}})
+            return response
+
+        return HttpResponse(headers={"HX-Refresh": "true"})
+
+
 @xframe_options_exempt
 def visualizar_pdf_workorder(request, pk):
     workshop = get_active_workshop_or_404(request)
-    workorder = get_object_or_404(WorkOrder.objects.select_related("workshop"), pk=pk, workshop=workshop)
+    workorder = get_object_or_404(WorkOrder.objects.select_related("workshop", "budget"), pk=pk, workshop=workshop)
     should_download = request.GET.get("download") == "1"
+    requested_variant = _get_requested_pdf_variant(request)
 
-    if (workorder.signature_document_id or workorder.signature_external_id) and workorder.signature_request_status in {WorkOrderSignatureStatus.SENT, WorkOrderSignatureStatus.APPROVED}:
+    if requested_variant == SIGNED_PDF_VARIANT and _can_use_signed_workorder_pdf(workorder):
         try:
             signed_pdf = download_signed_document_content(
                 document_id=workorder.signature_document_id,
@@ -1120,7 +1206,7 @@ def visualizar_pdf_workorder(request, pk):
             logger.warning(
                 "Falha ao carregar PDF assinado da ordem de servico; retornando PDF base",
                 extra={
-                    "workorder_id": workorder.id,
+                    "workorder_id": workorder.get_id,
                     "document_id": workorder.signature_document_id,
                     "envelope_id": workorder.signature_external_id,
                 },
@@ -1130,10 +1216,10 @@ def visualizar_pdf_workorder(request, pk):
         document = render_workorder_pdf_document(
             workorder=workorder,
             request=request,
-            filename=f"ordem_servico_{workorder.id}_base.pdf",
+            filename=f"ordem_servico_{workorder.get_id}_base.pdf",
         )
     except Exception:
-        logger.exception("Falha ao gerar PDF base da ordem de servico", extra={"workorder_id": workorder.id})
+        logger.exception("Falha ao gerar PDF base da ordem de servico", extra={"workorder_id": workorder.get_id})
         return HttpResponse("Erro ao gerar PDF", status=500)
 
     return build_pdf_http_response(document=document, download=should_download)
@@ -1160,10 +1246,10 @@ def signature_file(request, token):
         document = render_workorder_pdf_document(
             workorder=workorder,
             request=request,
-            filename=f"ordem_servico_{workorder.id}.pdf",
+            filename=f"ordem_servico_{workorder.get_id}.pdf",
         )
     except Exception:
-        logger.exception("Falha ao gerar PDF via Playwright para assinatura da ordem de servico", extra={"workorder_id": workorder.id})
+        logger.exception("Falha ao gerar PDF via Playwright para assinatura da ordem de servico", extra={"workorder_id": workorder.get_id})
         return HttpResponse("Erro ao gerar arquivo de assinatura", status=500)
 
     return build_pdf_http_response(document=document, download=False)

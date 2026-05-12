@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import secrets
+import string
+from datetime import timedelta
+
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 from localflavor.br.models import BRCPFField
 
 from apps.core.models import TimeStampedModel
@@ -35,8 +40,14 @@ class User(AbstractUser):
         null=True,
         blank=True,
     )
-    is_account_owner = models.BooleanField(default=False)  # Util para constraint
+    is_account_owner = models.BooleanField(default=False)
     cpf = BRCPFField(unique=False, null=False, blank=False)
+    phone = models.CharField(
+        max_length=20,
+        blank=True,
+        verbose_name="Telefone (WhatsApp)",
+        help_text="Número com DDI para envio de mensagens via WhatsApp",
+    )
     workshops = models.ManyToManyField(
         "workshops.Workshop",
         through="collaborators.WorkshopMember",
@@ -56,6 +67,86 @@ class User(AbstractUser):
         ]
 
 
+class PasswordResetToken(TimeStampedModel):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="password_reset_tokens",
+    )
+    code = models.CharField(max_length=6, db_index=True)
+    used = models.BooleanField(default=False)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        verbose_name = "Token de redefinição de senha"
+        verbose_name_plural = "Tokens de redefinição de senha"
+
+    def __str__(self) -> str:
+        return f"Token para {self.user.username}"
+
+    @classmethod
+    def generate_code(cls) -> str:
+        alphabet = string.ascii_letters + string.digits
+        return "".join(secrets.choice(alphabet) for _ in range(6))
+
+    @classmethod
+    def create_token(cls, user: User, expires_in_minutes: int = 15) -> PasswordResetToken:
+        code = cls.generate_code()
+        expires_at = timezone.now() + timedelta(minutes=expires_in_minutes)
+        return cls.objects.create(
+            user=user,
+            code=code,
+            expires_at=expires_at,
+        )
+
+    def is_valid(self) -> bool:
+        return not self.used and timezone.now() < self.expires_at
+
+
+class LoginCodeToken(TimeStampedModel):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="login_code_tokens",
+    )
+    code = models.CharField(max_length=6, db_index=True)
+    used = models.BooleanField(default=False)
+    attempts = models.PositiveIntegerField(default=0)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        verbose_name = "Token de login por código"
+        verbose_name_plural = "Tokens de login por código"
+
+    def __str__(self) -> str:
+        return f"Token de login para {self.user.username}"
+
+    @classmethod
+    def generate_code(cls) -> str:
+        alphabet = string.ascii_letters + string.digits
+        return "".join(secrets.choice(alphabet) for _ in range(6))
+
+    @classmethod
+    def create_token(cls, user: User, expires_in_minutes: int = 5) -> LoginCodeToken:
+        # Invalidate previous unused codes
+        cls.objects.filter(user=user, used=False).update(used=True)
+        
+        last_token = cls.objects.filter(user=user).order_by('-criado_em').first()
+        if last_token and (timezone.now() - last_token.criado_em).total_seconds() < 60:
+            raise ValueError("Aguarde 1 minuto antes de solicitar um novo código.")
+            
+        code = cls.generate_code()
+        expires_at = timezone.now() + timedelta(minutes=expires_in_minutes)
+        return cls.objects.create(
+            user=user,
+            code=code,
+            expires_at=expires_at,
+        )
+
+    def is_valid(self) -> bool:
+        return not self.used and self.attempts < 3 and timezone.now() < self.expires_at
+
+
 class FavoritePage(TimeStampedModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="favorite_pages")
     url = models.CharField(max_length=500, verbose_name="URL da Página")
@@ -73,4 +164,4 @@ class FavoritePage(TimeStampedModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.user_id} - {self.url}"
+        return f"{self.user.pk} - {self.url}"

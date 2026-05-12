@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 import os
 from pathlib import Path
+import sys
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -40,6 +41,12 @@ PERF_LOGGING_ENABLED = os.getenv("PERF_LOGGING_ENABLED", "0").lower() in ("1", "
 PERF_LOG_QUERIES = os.getenv("PERF_LOG_QUERIES", "0").lower() in ("1", "true", "yes")
 PERF_LOG_MIN_MS = int(os.getenv("PERF_LOG_MIN_MS", "300"))
 
+FIPE_SYNC_EVERY_ACCESS = os.getenv("FIPE_SYNC_EVERY_ACCESS", "0").lower() in ("1", "true", "yes") # 0. Desligado, 1. Ligado
+FIPE_SYNC_ACCESS_INTERVAL = int(os.getenv("FIPE_SYNC_ACCESS_INTERVAL", "500"))
+FIPE_FUEL_CACHE_TTL_HOURS = int(os.getenv("FIPE_FUEL_CACHE_TTL_HOURS", "168"))
+FIPE_DEV_MODE = os.getenv("FIPE_DEV_MODE", "0").lower() in ("1", "true", "yes") #  0. Dev, 1. Prod
+FIPE_API_TOKEN = os.getenv("FIPE_API_TOKEN", os.getenv("token_vehicle_api", ""))
+
 WEBMANIA_BASE_URL = "https://api.webmania.com.br/2/"
 WEBMANIA_B2B_BASE_URL = "https://webmania.com.br/api"
 WEBMANIA_AMBIENT = os.getenv("WEBMANIA_AMBIENT", "2")  # 1. Prod, 2. Homolog
@@ -64,6 +71,8 @@ STORAGE_SECRET_ACCESS_KEY = os.getenv("SECRET_ACCESS_KEY", "")
 STORAGE_BUCKET = os.getenv("BUCKET", "")
 STORAGE_ENDPOINT = os.getenv("ENDPOINT", "")
 STORAGE_REGION = os.getenv("REGION", "auto")
+
+WHATSAPP_API_URL = os.getenv("WHATSAPP_API_URL", "https://whatsapp-hunter.up.railway.app")
 
 if not DEBUG:
     SECURE_SSL_REDIRECT = os.getenv("DJANGO_SECURE_SSL_REDIRECT", "1").lower() in ("1", "true", "yes")
@@ -165,6 +174,7 @@ WSGI_APPLICATION = "config.wsgi.application"
 CRISPY_TEMPLATE_PACK = "tailwind"
 CRISPY_ALLOWED_TEMPLATE_PACKS = ("tailwind",)
 
+WHATSAPP_API_URL = os.getenv("WHATSAPP_API_URL", "https://whatsapp-hunter.up.railway.app")
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
@@ -258,10 +268,7 @@ LOGGING = {
         },
     },
     "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-            "formatter": "standard",
-        },
+        "console": {"class": "logging.StreamHandler", "formatter": "standard", "stream": sys.stdout},
     },
     "loggers": {
         "apps.budget.views.item_views": {
@@ -280,6 +287,11 @@ LOGGING = {
             "propagate": False,
         },
         "apps.catalog.forms.kits": {
+            "handlers": ["console"],
+            "level": DJANGO_LOG_LEVEL,
+            "propagate": False,
+        },
+        "apps.accounts.views": {
             "handlers": ["console"],
             "level": DJANGO_LOG_LEVEL,
             "propagate": False,

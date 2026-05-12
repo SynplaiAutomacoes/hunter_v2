@@ -26,7 +26,7 @@ from djmoney.money import Money
 from apps.budget.forms import BudgetStep1Form, BudgetStep4Form, BudgetStep6Form
 from apps.budget.forms.step_forms import BudgetStep3Form
 from apps.budget.forms.shared import _render_budget_items_rows
-from apps.budget.models import Budget, BudgetItem, BudgetKitItemOverride, BudgetStatus, SignatureStatus
+from apps.budget.models import Budget, BudgetItem, BudgetKitItemOverride, BudgetStatus, BudgetType, SignatureStatus
 from apps.budget.pdf_context import build_budget_pdf_context
 from apps.budget.service import (
     BUDGET_SIGNATURE_DOCUMENT_ID_KEY,
@@ -53,7 +53,7 @@ from apps.collaborators.models import WorkshopMember
 from apps.collaborators.services import freeze_existing_pricing_history, sync_current_month_salary_costs
 from apps.iam.utils import get_or_create_director_role
 from apps.stock.models import StockProduct
-from apps.workorder.models import WorkOrder
+from apps.workorder.models import WorkOrder, WorkOrderStatus
 from apps.budget.views.pdf_views import signature_file, signature_preview, visualizar_pdf_assinatura
 from apps.budget.views.workflow_views import BUDGET_LIST_FILTERS, trigger_signature_send_if_needed
 from apps.workshops.models.workshops import Workshop
@@ -701,7 +701,7 @@ class BudgetListFiltersTests(TestCase):
         matching_budget.collaborator = matching_collaborator
         matching_budget.status = BudgetStatus.APPROVED
         matching_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
-        matching_created_at = timezone.now() - timedelta(days=3)
+        matching_created_at = (timezone.now() - timedelta(days=3)).replace(hour=12, minute=0, second=0, microsecond=0)
         Budget.objects.filter(pk=matching_budget.pk).update(criado_em=matching_created_at)
 
         other_customer = create_customer(workshop=workshop, suffix=71)
@@ -831,7 +831,7 @@ class BudgetListFiltersTests(TestCase):
         approved_budget = create_budget(workshop=workshop)
         approved_budget.status = BudgetStatus.APPROVED
         approved_budget.save(update_fields=["status"])
-        matching_created_at = timezone.now() - timedelta(days=2)
+        matching_created_at = (timezone.now() - timedelta(days=2)).replace(hour=12, minute=0, second=0, microsecond=0)
         Budget.objects.filter(pk=approved_budget.pk).update(criado_em=matching_created_at)
         second_approved_budget = create_budget(workshop=workshop)
         second_approved_budget.status = BudgetStatus.APPROVED
@@ -847,16 +847,45 @@ class BudgetListFiltersTests(TestCase):
         response = self.client.get(reverse("budget:budget_list"), {"status": BudgetStatus.APPROVED, "data_inicial": selected_date, "data_final": selected_date})
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["selected_status_report"], {"value": BudgetStatus.APPROVED, "label": "Aprovado", "count": 1, "badge_class": "badge-success min-w-sm"})
-        self.assertContains(response, "Relatorio do status")
+        self.assertEqual(response.context["selection_report"]["count"], 1)
+        self.assertContains(response, "Resumo da selecao")
         self.assertContains(response, "Aprovado")
-        self.assertContains(response, "Orcamentos com este status")
-        self.assertContains(response, "Imprimir relatorio em PDF")
+        self.assertContains(response, "Valor total")
+        self.assertContains(response, "Imprimir selecao em PDF")
         self.assertContains(response, f"{reverse('budget:status_report_pdf_preview')}?status={BudgetStatus.APPROVED}")
         self.assertContains(response, reverse("budget:status_report_pdf"))
         self.assertContains(response, "download=1")
         self.assertContains(response, f"data_inicial={selected_date}")
         self.assertContains(response, f"data_final={selected_date}")
+
+    def test_budget_list_supports_multiple_statuses_and_budget_types(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=51)
+        approved_budget = create_budget(workshop=workshop)
+        approved_budget.status = BudgetStatus.APPROVED
+        approved_budget.budget_type = BudgetType.SALE
+        approved_budget.save(update_fields=["status", "budget_type"])
+
+        draft_budget = create_budget(workshop=workshop)
+        draft_budget.status = BudgetStatus.DRAFT
+        draft_budget.budget_type = BudgetType.WARRANTY
+        draft_budget.save(update_fields=["status", "budget_type"])
+
+        rejected_budget = create_budget(workshop=workshop)
+        rejected_budget.status = BudgetStatus.REJECTED
+        rejected_budget.budget_type = BudgetType.COURTESY
+        rejected_budget.save(update_fields=["status", "budget_type"])
+
+        params = QueryDict(mutable=True)
+        params.setlist("status", [BudgetStatus.APPROVED, BudgetStatus.DRAFT])
+        params.setlist("budget_type", [BudgetType.SALE, BudgetType.WARRANTY])
+
+        response = self.client.get(reverse("budget:budget_list"), params)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertQuerySetEqual(response.context["budget"].order_by("pk"), [approved_budget, draft_budget], transform=lambda obj: obj)
+        self.assertNotIn(rejected_budget, response.context["budget"])
+        self.assertEqual(response.context["selection_report"]["count"], 2)
+        self.assertEqual(len(response.context["selection_report"]["badges"]), 4)
 
     def test_budget_status_report_counts_only_selected_status(self) -> None:
         workshop = self._login_with_active_workshop(suffix=76)
@@ -870,7 +899,7 @@ class BudgetListFiltersTests(TestCase):
         matching_budget.collaborator = matching_collaborator
         matching_budget.status = BudgetStatus.APPROVED
         matching_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
-        matching_created_at = timezone.now() - timedelta(days=3)
+        matching_created_at = (timezone.now() - timedelta(days=3)).replace(hour=12, minute=0, second=0, microsecond=0)
         Budget.objects.filter(pk=matching_budget.pk).update(criado_em=matching_created_at)
 
         other_customer = create_customer(workshop=workshop, suffix=77)
@@ -903,7 +932,7 @@ class BudgetListFiltersTests(TestCase):
         self.assertQuerySetEqual(response.context["budget"].order_by("pk"), [matching_budget], transform=lambda obj: obj)
         self.assertNotIn(other_budget, response.context["budget"])
         self.assertNotIn(out_of_range_budget, response.context["budget"])
-        self.assertEqual(response.context["selected_status_report"]["count"], 2)
+        self.assertEqual(response.context["selection_report"]["count"], 1)
 
     def test_budget_list_hides_status_report_without_valid_status(self) -> None:
         workshop = self._login_with_active_workshop(suffix=78)
@@ -914,9 +943,9 @@ class BudgetListFiltersTests(TestCase):
         response = self.client.get(reverse("budget:budget_list"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertIsNone(response.context["selected_status_report"])
-        self.assertNotContains(response, "Relatorio do status")
-        self.assertNotContains(response, "Imprimir relatorio em PDF")
+        self.assertIsNone(response.context["selection_report"])
+        self.assertNotContains(response, "Resumo da selecao")
+        self.assertNotContains(response, "Imprimir selecao em PDF")
 
     def test_budget_list_htmx_partial_keeps_status_report_in_table_content(self) -> None:
         workshop = self._login_with_active_workshop(suffix=79)
@@ -931,9 +960,9 @@ class BudgetListFiltersTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'id="budget-table-content"')
-        self.assertContains(response, "Relatorio do status")
+        self.assertContains(response, "Resumo da selecao")
         self.assertContains(response, "Aprovado")
-        self.assertContains(response, "Imprimir relatorio em PDF")
+        self.assertContains(response, "Imprimir selecao em PDF")
 
 
 class BudgetStatusReportPdfTests(TestCase):
@@ -958,7 +987,7 @@ class BudgetStatusReportPdfTests(TestCase):
         approved_budget.status = BudgetStatus.APPROVED
         approved_budget.save(update_fields=["customer", "vehicle", "status"])
         approved_budget.collaborators.set([collaborator])
-        matching_created_at = timezone.now() - timedelta(days=4)
+        matching_created_at = (timezone.now() - timedelta(days=4)).replace(hour=12, minute=0, second=0, microsecond=0)
         Budget.objects.filter(pk=approved_budget.pk).update(criado_em=matching_created_at)
 
         other_customer = create_customer(workshop=workshop, suffix=951)
@@ -982,10 +1011,9 @@ class BudgetStatusReportPdfTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "<!DOCTYPE html>", html=False)
-        self.assertContains(response, "Relatorio de Orcamentos por Status")
+        self.assertContains(response, "Relatorio de Orcamentos Filtrados")
         self.assertContains(response, workshop.name)
         self.assertContains(response, "Aprovado")
-        self.assertContains(response, f"#{approved_budget.pk}")
         self.assertContains(response, customer.name)
         self.assertContains(response, vehicle.plate)
         self.assertContains(response, collaborator.name)
@@ -994,7 +1022,7 @@ class BudgetStatusReportPdfTests(TestCase):
         self.assertIsNone(response.headers.get("X-Frame-Options"))
 
     @patch("apps.budget.views.workflow_views.render_budget_status_report_pdf_document")
-    def test_status_report_pdf_view_returns_attachment_and_ignores_other_filters(self, render_document_mock) -> None:
+    def test_status_report_pdf_view_returns_attachment_with_filtered_selection(self, render_document_mock) -> None:
         workshop = self._login_with_active_workshop(suffix=96)
 
         matching_customer = create_customer(workshop=workshop, suffix=96)
@@ -1006,7 +1034,7 @@ class BudgetStatusReportPdfTests(TestCase):
         matching_budget.collaborator = matching_collaborator
         matching_budget.status = BudgetStatus.APPROVED
         matching_budget.save(update_fields=["customer", "vehicle", "collaborator", "status"])
-        matching_created_at = timezone.now() - timedelta(days=5)
+        matching_created_at = (timezone.now() - timedelta(days=5)).replace(hour=12, minute=0, second=0, microsecond=0)
         Budget.objects.filter(pk=matching_budget.pk).update(criado_em=matching_created_at)
 
         other_customer = create_customer(workshop=workshop, suffix=97)
@@ -1029,7 +1057,7 @@ class BudgetStatusReportPdfTests(TestCase):
         draft_budget.status = BudgetStatus.DRAFT
         draft_budget.save(update_fields=["status"])
 
-        render_document_mock.return_value = DocumentPayload(content=b"%PDF-budget-status-report", filename="relatorio_orcamentos_por_status_approved.pdf")
+        render_document_mock.return_value = DocumentPayload(content=b"%PDF-budget-status-report", filename="relatorio_orcamentos_filtrados.pdf")
         selected_date = matching_created_at.date().isoformat()
 
         response = self.client.get(
@@ -1039,13 +1067,14 @@ class BudgetStatusReportPdfTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"%PDF-budget-status-report")
-        self.assertIn('attachment; filename="relatorio_orcamentos_por_status_approved.pdf"', response["Content-Disposition"])
+        self.assertIn('attachment; filename="relatorio_orcamentos_filtrados.pdf"', response["Content-Disposition"])
 
         context = render_document_mock.call_args.kwargs["context"]
-        self.assertEqual(context["selected_status_report"]["count"], 2)
-        self.assertCountEqual(context["report_budgets"], [matching_budget, other_budget])
+        self.assertEqual(context["selection_report"]["count"], 1)
+        self.assertCountEqual(context["report_budgets"], [matching_budget])
+        self.assertNotIn(other_budget, context["report_budgets"])
         self.assertNotIn(out_of_range_budget, context["report_budgets"])
-        self.assertEqual(context["status_report_pdf_title"], "Relatorio de Orcamentos por Status")
+        self.assertEqual(context["status_report_pdf_title"], "Relatorio de Orcamentos Filtrados")
         self.assertEqual(context["status_report_period_label"], f"{matching_created_at.strftime('%d/%m/%Y')} a {matching_created_at.strftime('%d/%m/%Y')}")
 
     def test_status_report_pdf_views_return_404_without_valid_status(self) -> None:
@@ -2127,6 +2156,36 @@ class BudgetStep6WorkflowTests(TestCase):
         self.budget.customer_agreed_departure_at = None
         self.budget.service_expected_completion_at = None
         self.budget.save(update_fields=["customer_agreed_departure_at", "service_expected_completion_at"])
+
+        response = self.client.post(reverse("budget:update_budget_status", args=[self.budget.pk, "cancel"]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertJSONEqual(response.content, {"success": True})
+        self.budget.refresh_from_db()
+        self.assertEqual(self.budget.status, BudgetStatus.CANCELLED)
+
+    def test_update_budget_status_blocks_cancel_when_active_workorder_exists(self) -> None:
+        self.budget.status = BudgetStatus.APPROVED
+        self.budget.save(update_fields=["status"])
+        WorkOrder.objects.create(workshop=self.workshop, budget=self.budget, status=WorkOrderStatus.DRAFT)
+
+        response = self.client.post(reverse("budget:update_budget_status", args=[self.budget.pk, "cancel"]))
+
+        self.assertEqual(response.status_code, 400)
+        self.assertJSONEqual(
+            response.content,
+            {
+                "success": False,
+                "error": "Já foi gerada uma ordem de serviço para este orçamento. Cancele a ordem de serviço primeiro para depois cancelar o orçamento.",
+            },
+        )
+        self.budget.refresh_from_db()
+        self.assertEqual(self.budget.status, BudgetStatus.APPROVED)
+
+    def test_update_budget_status_allows_cancel_when_only_cancelled_workorder_exists(self) -> None:
+        self.budget.status = BudgetStatus.APPROVED
+        self.budget.save(update_fields=["status"])
+        self.budget.workorders.update(status=WorkOrderStatus.CANCELLED)
 
         response = self.client.post(reverse("budget:update_budget_status", args=[self.budget.pk, "cancel"]))
 

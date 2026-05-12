@@ -1,4 +1,4 @@
-{% if selected_status_report %}
+{% if selection_report %}
     {% url 'workorder:status_report_pdf_preview' as status_report_pdf_preview_url %}
     {% url 'workorder:status_report_pdf' as status_report_pdf_url %}
     <div class="mt-4 flex justify-end border-t border-base-300 pt-4">
@@ -6,7 +6,7 @@
                 class="btn btn-primary gap-2"
                 onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { url: '{{ status_report_pdf_preview_url }}?{{ status_report_querystring }}', downloadUrl: '{{ status_report_pdf_url }}?download=1&{{ status_report_querystring }}' } }))">
             <span class="material-icons text-sm">picture_as_pdf</span>
-            Imprimir relatorio em PDF
+            Imprimir selecao em PDF
         </button>
     </div>
 {% endif %}

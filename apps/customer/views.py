@@ -7,6 +7,7 @@ from django.http import HttpResponse, JsonResponse
 from django.urls import reverse, reverse_lazy
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
+from apps.catalog.models import FipeModelFuelCache, FipeVehicleBrand, FipeVehicleModel, FipeVehicleType
 from apps.budget.models import Budget
 from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.search import apply_text_search
@@ -68,17 +69,17 @@ def _build_customer_budget_history_entry(budget: Budget) -> dict[str, Any]:
 
 
 def _build_customer_workorder_history_entry(workorder: WorkOrder) -> dict[str, Any]:
-    pdf_url = reverse("workorder:visualizar_pdf", kwargs={"pk": workorder.pk})
+    pdf_url = f"{reverse('workorder:visualizar_pdf', kwargs={'pk': workorder.pk})}?variant=signed"
     return {
         "date": workorder.criado_em,
         "type_label": "OS",
-        "document_number": workorder.pk,
+        "document_number": workorder.get_id,
         "vehicle_label": _build_customer_history_vehicle_label(workorder.budget.vehicle),
         "total_value": workorder.total_budget_value,
         "status_badge": workorder.workorder_status_badge,
-        "pdf_title": f"OS #{workorder.pk}",
+        "pdf_title": f"OS #{workorder.get_id}",
         "pdf_url": pdf_url,
-        "pdf_download_url": f"{pdf_url}?download=1",
+        "pdf_download_url": f"{pdf_url}&download=1",
     }
 
 
@@ -182,6 +183,66 @@ def api_check_plate(request, plate):
         data["fuel"] = normalize_vehicle_fuel_choice(data.get("fuel"))
         return JsonResponse(data)
     return JsonResponse({"error": "Veículo não encontrado"}, status=404)
+
+
+def api_vehicle_catalog_brands(request):
+    options = [{"id": brand.name, "label": brand.name} for brand in FipeVehicleBrand.objects.filter(vehicle_type=FipeVehicleType.CARROS, is_active=True).order_by("name")]
+    return JsonResponse(options, safe=False)
+
+
+def api_vehicle_catalog_models(request):
+    brand_name = str(request.GET.get("brand") or "").strip()
+    if not brand_name:
+        return JsonResponse([], safe=False)
+
+    options = [
+        {"id": model.name, "label": model.name}
+        for model in FipeVehicleModel.objects.filter(
+            vehicle_type=FipeVehicleType.CARROS,
+            brand__vehicle_type=FipeVehicleType.CARROS,
+            brand__name__iexact=brand_name,
+            brand__is_active=True,
+            is_active=True,
+        ).order_by("name")
+    ]
+    return JsonResponse(options, safe=False)
+
+
+def api_vehicle_catalog_fuels(request):
+    brand_name = str(request.GET.get("brand") or "").strip()
+    model_name = str(request.GET.get("model") or "").strip()
+    if not brand_name or not model_name:
+        return JsonResponse([], safe=False)
+
+    model = (
+        FipeVehicleModel.objects.filter(
+            vehicle_type=FipeVehicleType.CARROS,
+            brand__vehicle_type=FipeVehicleType.CARROS,
+            brand__name__iexact=brand_name,
+            name__iexact=model_name,
+            brand__is_active=True,
+            is_active=True,
+        )
+        .select_related("brand")
+        .first()
+    )
+    if model is None:
+        return JsonResponse([], safe=False)
+
+    cache = FipeModelFuelCache.objects.filter(vehicle_type=FipeVehicleType.CARROS, model=model).first()
+    if cache is None:
+        return JsonResponse([], safe=False)
+
+    seen_fuels: set[str] = set()
+    options: list[dict[str, str]] = []
+    for raw_value in cache.fuel_values:
+        normalized_value = normalize_vehicle_fuel_choice(raw_value) or str(raw_value or "").strip()
+        if not normalized_value or normalized_value in seen_fuels:
+            continue
+        seen_fuels.add(normalized_value)
+        options.append({"id": normalized_value, "label": normalized_value})
+
+    return JsonResponse(options, safe=False)
 
 
 class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
@@ -339,6 +400,7 @@ class QuickCustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModal
 class QuickVehicleCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, CreateView):
     model = Vehicle
     form_class = QuickVehicleForm
+    template_name = "customer/partials/quick_vehicle_modal_form.html"
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -370,6 +432,7 @@ class QuickVehicleCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalF
 class QuickVehicleUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, UpdateView):
     model = Vehicle
     form_class = QuickVehicleForm
+    template_name = "customer/partials/quick_vehicle_modal_form.html"
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()

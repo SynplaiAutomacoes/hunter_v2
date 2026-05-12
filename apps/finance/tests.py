@@ -5203,6 +5203,8 @@ class FinancialReportsHomeViewTests(TestCase):
         *,
         customer_name: str,
         total_value: str,
+        service_total: str | None = None,
+        product_total: str | None = None,
         problem_description: str = "",
         notes: str = "",
         payment_specs: list[dict[str, str]] | None = None,
@@ -5222,17 +5224,28 @@ class FinancialReportsHomeViewTests(TestCase):
         )
         budget.save()
         workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
-        product_group = CatalogGroup.objects.create(workshop=self.workshop, name=f"Grupo Relatorio {workorder.pk}")
-        product = Product.objects.create(
-            workshop=self.workshop,
-            group=product_group,
-            code=f"REL-{workorder.pk}",
-            name=f"Produto Relatorio {workorder.pk}",
-            unit=Product.Unit.UND,
-            cost_price=Money("10.00", "BRL"),
-            selling_price=Money(total_value, "BRL"),
-        )
-        WorkOrderItem.objects.create(workshop=self.workshop, workorder=workorder, product=product, quantity=1)
+        if service_total is not None:
+            service = Service.objects.create(
+                workshop=self.workshop,
+                name=f"Servico Relatorio {workorder.pk}",
+                duration=timedelta(hours=1),
+                suggested_cost=Money("10.00", "BRL"),
+                selling_price=Money(service_total, "BRL"),
+            )
+            WorkOrderItem.objects.create(workshop=self.workshop, workorder=workorder, service=service, quantity=1)
+
+        if product_total is not None or service_total is None:
+            product_group = CatalogGroup.objects.create(workshop=self.workshop, name=f"Grupo Relatorio {workorder.pk}")
+            product = Product.objects.create(
+                workshop=self.workshop,
+                group=product_group,
+                code=f"REL-{workorder.pk}",
+                name=f"Produto Relatorio {workorder.pk}",
+                unit=Product.Unit.UND,
+                cost_price=Money("10.00", "BRL"),
+                selling_price=Money(product_total or total_value, "BRL"),
+            )
+            WorkOrderItem.objects.create(workshop=self.workshop, workorder=workorder, product=product, quantity=1)
 
         for payment_spec in payment_specs or []:
             payment_method, _ = PaymentMethod.objects.get_or_create(
@@ -5370,9 +5383,10 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, "Folhas previstas")
         self.assertContains(response, "R$ 1.100,00")
         self.assertContains(response, "Folha consolidada por colaborador")
-        self.assertContains(response, "Holerite")
+        self.assertContains(response, 'x-data="{ payrollOpen: false }"')
 
     def test_commission_report_view_displays_concluded_workorder_commissions(self) -> None:
+        Budget(workshop=self.workshop, entry_date=timezone.localdate()).save()
         collaborator = self._create_collaborator(suffix=56, name="Tecnico Comissao")
         collaborator.receives_commission = True
         collaborator.commission_percentage = Decimal("0.100000")
@@ -5381,9 +5395,11 @@ class FinancialReportsHomeViewTests(TestCase):
 
         approved_workorder = self._create_report_workorder(
             customer_name="Cliente Aprovado",
-            total_value="200.00",
+            total_value="250.00",
+            service_total="200.00",
+            product_total="50.00",
             problem_description="Troca de oleo",
-            payment_specs=[{"description": "Pix", "amount": "200.00", "due_date": "2026-05-20"}],
+            payment_specs=[{"description": "Pix", "amount": "250.00", "due_date": "2026-05-20"}],
         )
         approved_workorder.collaborators.add(collaborator)
         sync_workorder_financial_movement(workorder=approved_workorder)
@@ -5392,6 +5408,7 @@ class FinancialReportsHomeViewTests(TestCase):
         draft_workorder = self._create_report_workorder(
             customer_name="Cliente Em Aberto",
             total_value="300.00",
+            service_total="300.00",
             problem_description="Alinhamento",
             payment_specs=[{"description": "Pix", "amount": "300.00", "due_date": "2026-05-22"}],
         )
@@ -5404,12 +5421,19 @@ class FinancialReportsHomeViewTests(TestCase):
         response = self.client.get(reverse("finance:commission_report"))
 
         self.assertEqual(response.status_code, 200)
+        self.assertNotEqual(approved_workorder.id, approved_workorder.budget_id)
         self.assertContains(response, "Apuração de Comissões")
+        self.assertContains(response, "Criada em")
+        self.assertContains(response, "Valor Total dos Serviços")
         self.assertContains(response, "Tecnico Comissao")
         self.assertContains(response, "Cliente Aprovado")
         self.assertContains(response, "Troca de oleo")
         self.assertContains(response, "R$ 20,00")
+        self.assertContains(response, f'href="{reverse("workorder:workorder_detail", kwargs={"pk": approved_workorder.pk})}"')
+        self.assertContains(response, f">#{approved_workorder.budget_id}</a>")
+        self.assertNotContains(response, f">#{approved_workorder.id}</a>")
         self.assertNotContains(response, "Cliente Em Aberto")
+        self.assertEqual(response.context["commission_rows"][0]["base_amount"], Money("200.00", "BRL"))
         self.assertEqual(CollaboratorCommissionEntry.objects.filter(workorder=approved_workorder).count(), 1)
         self.assertFalse(CollaboratorCommissionEntry.objects.filter(workorder=draft_workorder).exists())
 

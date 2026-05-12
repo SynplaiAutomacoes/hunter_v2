@@ -33,6 +33,7 @@ class WorkOrderPdfBudgetProxy:
     resolved_discount_value: Money
     total_budget_value: Money
     budget_status: str
+    delivered_at: Any
 
 
 def build_workorder_pdf_context(*, workorder: WorkOrder, observacao: str | None = None, request=None) -> dict[str, Any]:
@@ -74,7 +75,7 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, observacao: str | None 
     ]
 
     budget_proxy = WorkOrderPdfBudgetProxy(
-        id=workorder.id,
+        id=workorder.get_id,
         workshop=workorder.workshop,
         created=workorder.criado_em,
         criado_em=workorder.criado_em,
@@ -85,6 +86,7 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, observacao: str | None 
         resolved_discount_value=snapshot.resolved_discount_value,
         total_budget_value=workorder.total_budget_value,
         budget_status=WorkOrderStatus(workorder.status).label,
+        delivered_at=workorder.delivered_at,
     )
 
     return {

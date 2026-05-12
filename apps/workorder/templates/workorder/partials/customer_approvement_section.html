@@ -13,6 +13,8 @@
             hx-swap="innerHTML"
             class="space-y-3"
             data-km-autosave-url="{% url 'workorder:update_km_final' workorder.pk %}"
+            data-signature-approved="{% if workorder.is_customer_signature_approved %}true{% else %}false{% endif %}"
+            data-has-unsigned-reason-error="{% if approval_form.unsigned_delivery_reason.errors %}true{% else %}false{% endif %}"
         >
             {% csrf_token %}
             {% crispy approval_form %}
@@ -73,11 +75,17 @@
                 <button type="button" class="btn btn-primary"
                     onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {
                         detail: {
-                            url: '{% url 'workorder:visualizar_pdf' workorder.pk %}',
-                            downloadUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?download=1',
+                            url: '{% url 'workorder:visualizar_pdf' workorder.pk %}?variant=signed',
+                            downloadUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?download=1&variant=signed',
                             showSignatureBtn: true,
                             signatureBlocked: {% if workorder.has_signature_blockers %}true{% else %}false{% endif %},
-                            signatureBlockedReason: '{{ workorder.signature_blockers_display|escapejs }}'
+                            signatureBlockedReason: '{{ workorder.signature_blockers_display|escapejs }}',
+                            showPdfVariantToggle: {% if workorder.signature_request_status == 'sent' or workorder.signature_request_status == 'approved' %}{% if workorder.signature_external_id or workorder.signature_document_id %}true{% else %}false{% endif %}{% else %}false{% endif %},
+                            pdfVariant: 'signed',
+                            signedPdfUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?variant=signed',
+                            basePdfUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?variant=base',
+                            signedDownloadUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?download=1&variant=signed',
+                            baseDownloadUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?download=1&variant=base'
                         }
                     }))">
                     <span class="material-icons mr-2">visibility</span>
@@ -97,12 +105,12 @@
                 hx-target="#customer-approvement-section"
                 hx-swap="innerHTML">
                 {% csrf_token %}
-                <button type="submit" class="btn btn-error" {% if workorder.status == 'cancelled' %}disabled{% endif %}>Cancelar</button>
+                <button type="submit" class="btn btn-error" {% if workorder.status == 'cancelled' or workorder.status == 'approved' %}disabled{% endif %} {% if workorder.status == 'approved' %}title="Reabra a O.S. para estornar os lançamentos antes de cancelar."{% endif %}>Cancelar</button>
             </form>
 
             <button
-                type="submit"
-                form="approval-km-form"
+                type="button"
+                id="workorder-delivery-button"
                 class="btn btn-success {% if workorder.has_completion_blockers %}btn-disabled cursor-not-allowed{% endif %}"
                 {% if workorder.status == 'approved' or workorder.has_completion_blockers %}disabled{% endif %}
                 {% if workorder.has_completion_blockers %}title="{{ workorder.completion_blockers_display }}"{% endif %}
@@ -116,9 +124,35 @@
                 hx-target="#customer-approvement-section"
                 hx-swap="innerHTML">
                 {% csrf_token %}
-                <button type="submit" class="btn btn-warning" {% if workorder.status == 'rejected' %}disabled{% endif %}>Rejeitar</button>
+                <button type="submit" class="btn btn-warning" {% if workorder.status == 'rejected' or workorder.status == 'approved' %}disabled{% endif %} {% if workorder.status == 'approved' %}title="Reabra a O.S. para estornar os lançamentos antes de rejeitar."{% endif %}>Rejeitar</button>
             </form>
+
+            {% if workorder.status == 'approved' and can_reopen_workorder %}
+            <button type="button" class="btn btn-outline" id="toggle-reopen-workorder-form">Reabrir O.S.</button>
+            {% endif %}
         </div>
+
+        {% if workorder.status == 'approved' and can_reopen_workorder %}
+        <form
+            id="reopen-workorder-form"
+            method="post"
+            hx-post="{% url 'workorder:reopen' workorder.pk %}"
+            hx-target="#customer-approvement-section"
+            hx-swap="innerHTML"
+            class="mt-4 space-y-4 rounded-xl border border-warning/40 bg-warning/10 p-4 {% if not reopen_form.errors %}hidden{% endif %}"
+        >
+            {% csrf_token %}
+            <div class="space-y-1 text-sm text-base-content/80">
+                <p class="font-semibold text-base-content">Reabrir O.S.</p>
+                <p>Ao reabrir, o sistema vai estornar os movimentos financeiros e de estoque vinculados a esta entrega e voltar a O.S. para rascunho.</p>
+            </div>
+            {% crispy reopen_form %}
+            <div class="flex flex-wrap gap-3">
+                <button type="submit" class="btn btn-warning">Confirmar reabertura</button>
+                <button type="button" class="btn btn-ghost" id="cancel-reopen-workorder-form">Fechar</button>
+            </div>
+        </form>
+        {% endif %}
     </div>
 </div>
 
@@ -127,6 +161,12 @@
         const form = document.getElementById('approval-km-form');
         const kmInput = document.getElementById('id_km_final');
         const statusEl = document.getElementById('workorder-km-save-status');
+        const deliveryButton = document.getElementById('workorder-delivery-button');
+        const unsignedReasonWrapper = document.getElementById('unsigned-delivery-reason-wrapper');
+        const unsignedReasonInput = document.getElementById('id_unsigned_delivery_reason');
+        const reopenForm = document.getElementById('reopen-workorder-form');
+        const reopenToggleButton = document.getElementById('toggle-reopen-workorder-form');
+        const reopenCancelButton = document.getElementById('cancel-reopen-workorder-form');
 
         if (!form || !kmInput || !statusEl || kmInput.dataset.kmAutosaveInitialized === 'true') {
             return;
@@ -135,10 +175,28 @@
         kmInput.dataset.kmAutosaveInitialized = 'true';
 
         const autosaveUrl = form.dataset.kmAutosaveUrl;
+        const signatureApproved = form.dataset.signatureApproved === 'true';
+        const hasUnsignedReasonError = form.dataset.hasUnsignedReasonError === 'true';
         const csrfToken = form.querySelector('input[name="csrfmiddlewaretoken"]')?.value || '';
         let saveTimeout = null;
         let requestController = null;
         let lastSavedValue = kmInput.value;
+
+        const showUnsignedReasonField = () => {
+            if (!unsignedReasonWrapper || !unsignedReasonInput) {
+                return;
+            }
+            unsignedReasonWrapper.classList.remove('hidden');
+            unsignedReasonInput.required = true;
+            unsignedReasonInput.focus();
+        };
+
+        if (!signatureApproved && unsignedReasonWrapper && unsignedReasonInput) {
+            if (!unsignedReasonInput.value.trim() && !hasUnsignedReasonError) {
+                unsignedReasonWrapper.classList.add('hidden');
+                unsignedReasonInput.required = false;
+            }
+        }
 
         const setStatus = (message, tone = 'muted') => {
             statusEl.textContent = message;
@@ -215,5 +273,50 @@
             clearTimeout(saveTimeout);
             void persistKmFinal();
         });
+
+        if (deliveryButton) {
+            deliveryButton.addEventListener('click', () => {
+                if (signatureApproved) {
+                    form.requestSubmit();
+                    return;
+                }
+
+                if (deliveryButton.dataset.signatureWarningConfirmed !== 'true') {
+                    if (!window.confirm('A O.S. ainda não foi assinada pelo cliente. Se continuar, será obrigatório informar a justificativa da entrega sem assinatura.')) {
+                        return;
+                    }
+                    deliveryButton.dataset.signatureWarningConfirmed = 'true';
+                }
+
+                showUnsignedReasonField();
+
+                if (!unsignedReasonInput) {
+                    form.requestSubmit();
+                    return;
+                }
+
+                if (!unsignedReasonInput.value.trim()) {
+                    unsignedReasonInput.setCustomValidity('Informe a justificativa para entregar o veículo sem a assinatura da O.S.');
+                    unsignedReasonInput.reportValidity();
+                    return;
+                }
+
+                unsignedReasonInput.setCustomValidity('');
+                form.requestSubmit();
+            });
+        }
+
+        if (reopenToggleButton && reopenForm) {
+            reopenToggleButton.addEventListener('click', () => {
+                reopenForm.classList.remove('hidden');
+                reopenForm.querySelector('textarea')?.focus();
+            });
+        }
+
+        if (reopenCancelButton && reopenForm) {
+            reopenCancelButton.addEventListener('click', () => {
+                reopenForm.classList.add('hidden');
+            });
+        }
     })();
 </script>

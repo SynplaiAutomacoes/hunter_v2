@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 
 import requests
@@ -6,6 +7,9 @@ import requests
 from apps.customer.vehicle_engine import normalize_vehicle_engine_choice
 from apps.customer.models import Vehicle, Customer
 from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice
+
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_vehicle_years(raw_year: object) -> tuple[str | None, str | None]:
@@ -42,14 +46,36 @@ def _first_present(*values: object) -> object:
     return None
 
 
+def _mask_plate_api_url(url: str) -> str:
+    parts = url.rstrip("/").split("/")
+    if not parts:
+        return url
+
+    parts[-1] = "***"
+    return "/".join(parts)
+
+
+def _build_payload_preview(payload: object) -> str:
+    return str(payload)[:1000]
+
+
 def fetch_vehicle_data(plate):
     token = os.getenv("token_vehicle_api")
     url = f"https://wdapi2.com.br/consulta/{plate}/{token}"
 
     try:
+        logger.info("Plate API request started", extra={"plate": plate, "url": _mask_plate_api_url(url)})
         response = requests.get(url, timeout=10)
+        logger.info("Plate API request finished", extra={"plate": plate, "status_code": response.status_code})
         response.raise_for_status()
         data = response.json()
+        logger.info(
+            "Plate API response payload | plate=%s payload_type=%s payload_preview=%s",
+            plate,
+            type(data).__name__,
+            _build_payload_preview(data),
+            extra={"plate": plate, "payload_type": type(data).__name__, "payload_preview": _build_payload_preview(data)},
+        )
 
         payload = data.get("data") if isinstance(data, dict) else None
         payload_data = payload if isinstance(payload, dict) else {}
@@ -91,6 +117,7 @@ def fetch_vehicle_data(plate):
         vehicle_info["fuel"] = normalize_vehicle_fuel_choice(vehicle_info.get("fuel"))
         return vehicle_info
     except (requests.RequestException, ValueError):
+        logger.exception("Plate API request failed", extra={"plate": plate, "url": _mask_plate_api_url(url)})
         return None
 
 

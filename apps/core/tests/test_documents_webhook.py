@@ -6,7 +6,10 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from apps.budget.models import BudgetItem
 from apps.budget.models import Budget, BudgetStatus, SignatureStatus
+from apps.catalog.models.groups import CatalogGroup
+from apps.catalog.models.products import Product
 from apps.core.documents.webhook import extract_supersign_envelope_id, extract_supersign_event
 from apps.workorder.models import WorkOrder, WorkOrderSignatureStatus, WorkOrderStatus
 from apps.workshops.models.workshops import Workshop
@@ -143,3 +146,36 @@ class SuperSignWebhookViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(budget.status, BudgetStatus.APPROVED)
         self.assertEqual(budget.signature_request_status, SignatureStatus.APPROVED)
+
+    def test_post_marks_signature_approved_without_delivering_unpaid_workorder(self) -> None:
+        workshop = create_workshop(suffix=95)
+        budget = create_budget(workshop=workshop)
+        product = Product.objects.create(
+            workshop=workshop,
+            code="P-WEBHOOK-95",
+            unit=Product.Unit.UND,
+            name="Produto Webhook",
+            ncm="87089990",
+            group=CatalogGroup.objects.create(workshop=workshop, name="Grupo Webhook"),
+            cost_price="10.00",
+            selling_price="80.00",
+        )
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+        workorder.sync_from_budget()
+        workorder.mark_signature_sent("env-791")
+
+        response = self.client.post(
+            reverse("budget:supersign_webhook"),
+            data=json.dumps({"event": "ENVELOPE_COMPLETED", "envelopeId": "env-791"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION="Bearer secret",
+            HTTP_X_ACCOUNT_ID="acc-1",
+        )
+
+        workorder.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(workorder.signature_request_status, WorkOrderSignatureStatus.APPROVED)
+        self.assertEqual(workorder.status, WorkOrderStatus.DRAFT)
+        self.assertIsNone(workorder.delivered_at)
