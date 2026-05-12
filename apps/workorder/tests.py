@@ -1904,6 +1904,8 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertContains(response, "Pago")
         self.assertContains(response, "alert_confirm_modal")
         self.assertContains(response, 'data-confirm="Deseja remover esta forma de pagamento?"', html=False)
+        self.assertContains(response, 'id="resume-section" hx-swap-oob="innerHTML"', html=False)
+        self.assertContains(response, 'id="customer-approvement-section" hx-swap-oob="innerHTML"', html=False)
 
         payment = WorkOrderPaymentMethod.objects.get(workorder=self.workorder)
         self.assertEqual(payment.installments_count, 4)
@@ -1977,6 +1979,8 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(payload["total_budget_value"], "90.00")
         self.assertEqual(payload["paid_value"], "40.00")
         self.assertEqual(payload["pending_value"], "50.00")
+        self.assertTrue(payload["has_completion_blockers"])
+        self.assertIn("Receba o pagamento integral", payload["completion_blockers_display"])
 
     def test_update_km_final_persists_value_without_changing_status(self) -> None:
         customer = create_customer(workshop=self.workshop, suffix=241)

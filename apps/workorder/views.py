@@ -603,6 +603,8 @@ class UpdateWorkOrderDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View)
                 "total_budget_value": str(workorder.total_budget_value.amount),
                 "paid_value": str(sum((payment.total_paid.amount for payment in workorder.payments.all()), start=Decimal("0.00"))),
                 "pending_value": str(max(Decimal("0.00"), workorder.total_budget_value.amount - sum((payment.total_paid.amount for payment in workorder.payments.all()), start=Decimal("0.00")))),
+                "has_completion_blockers": workorder.has_completion_blockers,
+                "completion_blockers_display": workorder.completion_blockers_display,
             }
         )
 
@@ -990,11 +992,16 @@ class AddPaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
         else:
             payment_form = form
 
-        context = {
-            "workorder": workorder,
-            "payment_form": payment_form,
-        }
-        return render(request, "workorder/partials/payment_section.html", context)
+        context = _build_edit_items_context(workorder)
+        context.update(_build_customer_approvement_context(workorder, request=request))
+        context.update(
+            {
+                "workorder": workorder,
+                "payment_form": payment_form,
+                "collaborator_form": WorkOrderCollaboratorForm(workorder=workorder),
+            }
+        )
+        return render(request, "workorder/partials/payment_section_response.html", context)
 
 
 class DeletePaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -1008,9 +1015,17 @@ class DeletePaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
         payment.delete()
         sync_workorder_financial_movement(workorder=workorder)
 
-        context = {"workorder": workorder, "payment_form": WorkOrderPaymentForm(workorder=workorder)}
+        context = _build_edit_items_context(workorder)
+        context.update(_build_customer_approvement_context(workorder, request=request))
+        context.update(
+            {
+                "workorder": workorder,
+                "payment_form": WorkOrderPaymentForm(workorder=workorder),
+                "collaborator_form": WorkOrderCollaboratorForm(workorder=workorder),
+            }
+        )
 
-        return render(request, "workorder/partials/payment_section.html", context)
+        return render(request, "workorder/partials/payment_section_response.html", context)
 
 
 class UploadAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):

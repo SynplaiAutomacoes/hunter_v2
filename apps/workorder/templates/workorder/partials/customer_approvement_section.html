@@ -112,6 +112,7 @@
                 type="button"
                 id="workorder-delivery-button"
                 class="btn btn-success {% if workorder.has_completion_blockers %}btn-disabled cursor-not-allowed{% endif %}"
+                data-status-approved="{% if workorder.status == 'approved' %}true{% else %}false{% endif %}"
                 {% if workorder.status == 'approved' or workorder.has_completion_blockers %}disabled{% endif %}
                 {% if workorder.has_completion_blockers %}title="{{ workorder.completion_blockers_display }}"{% endif %}
             >
@@ -210,6 +211,33 @@
                 return;
             }
             statusEl.classList.add('text-base-content/70');
+        };
+
+        window.updateWorkorderDeliveryButtonState = function (options = {}) {
+            const currentDeliveryButton = document.getElementById('workorder-delivery-button');
+            if (!currentDeliveryButton) {
+                return;
+            }
+
+            if (currentDeliveryButton.dataset.statusApproved === 'true') {
+                currentDeliveryButton.disabled = true;
+                currentDeliveryButton.classList.remove('btn-disabled', 'cursor-not-allowed');
+                return;
+            }
+
+            const hasCompletionBlockers = Boolean(options.hasCompletionBlockers);
+            const completionBlockersDisplay = options.completionBlockersDisplay || '';
+
+            currentDeliveryButton.disabled = hasCompletionBlockers;
+            currentDeliveryButton.classList.toggle('btn-disabled', hasCompletionBlockers);
+            currentDeliveryButton.classList.toggle('cursor-not-allowed', hasCompletionBlockers);
+
+            if (completionBlockersDisplay) {
+                currentDeliveryButton.title = completionBlockersDisplay;
+                return;
+            }
+
+            currentDeliveryButton.removeAttribute('title');
         };
 
         const persistKmFinal = async () => {

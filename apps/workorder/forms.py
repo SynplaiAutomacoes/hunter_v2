@@ -397,6 +397,12 @@ class WorkOrderPaymentForm(CoreModelForm):
                                     if (paidValueDisplay) paidValueDisplay.value = formatMoney(paidValue);
                                     if (pendingValueHidden) pendingValueHidden.value = pendingValue.toFixed(2);
                                     if (pendingValueDisplay) pendingValueDisplay.value = formatMoney(pendingValue);
+                                    if (typeof window.updateWorkorderDeliveryButtonState === 'function') {{
+                                        window.updateWorkorderDeliveryButtonState({{
+                                            hasCompletionBlockers: Boolean(data.has_completion_blockers),
+                                            completionBlockersDisplay: data.completion_blockers_display || '',
+                                        }});
+                                    }}
                                     setDiscountStatus('saved', 'Salvo');
                                     updatePaymentPlan();
                                     window.setTimeout(() => {{
