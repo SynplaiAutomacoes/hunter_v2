@@ -78,25 +78,32 @@
             <!-- Percentages -->
             <div class="card bg-base-100 shadow col-span-1 lg:col-span-2">
                 <div class="card-body">
-                    <h2 class="card-title mb-4">Indicadores de Performance</h2>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-                        <div class="flex flex-col items-center gap-2">
-                            <div class="radial-progress text-success" style="--value:{{ taxa_aprovacao|floatformat:0 }};" role="progressbar">
-                                {{ taxa_aprovacao|floatformat:1 }}%
+                    <h2 class="card-title mb-6">Indicadores de Performance</h2>
+                    <!-- Aumentado o gap e o padding vertical para dar destaque -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-10 py-4">
+                        <div class="flex flex-col items-center gap-4">
+                            <div class="radial-progress text-success border-4 border-success/10"
+                                 style="--value:{{ taxa_aprovacao|floatformat:0 }}; --size:9rem; --thickness: 1rem;"
+                                 role="progressbar">
+                                <span class="text-2xl font-bold text-base-content">{{ taxa_aprovacao|floatformat:1 }}%</span>
                             </div>
-                            <span class="text-sm font-medium">Taxa de Aprovação</span>
+                            <span class="text-lg font-semibold">Taxa de Aprovação</span>
                         </div>
-                        <div class="flex flex-col items-center gap-2">
-                            <div class="radial-progress text-warning" style="--value:{{ rentabilidade_acumulada_mes|floatformat:0 }};" role="progressbar">
-                                {{ rentabilidade_acumulada_mes|floatformat:1 }}%
+                        <div class="flex flex-col items-center gap-4">
+                            <div class="radial-progress text-warning border-4 border-warning/10"
+                                 style="--value:{{ rentabilidade_acumulada_mes|floatformat:0 }}; --size:9rem; --thickness: 1rem;"
+                                 role="progressbar">
+                                <span class="text-2xl font-bold text-base-content">{{ rentabilidade_acumulada_mes|floatformat:1 }}%</span>
                             </div>
-                            <span class="text-sm font-medium">Rentabilidade Acumulada</span>
+                            <span class="text-lg font-semibold">Rentabilidade Acumulada</span>
                         </div>
-                        <div class="flex flex-col items-center gap-2">
-                            <div class="radial-progress text-error" style="--value:{{ indice_retorno_em_garantia_mes|floatformat:0 }};" role="progressbar">
-                                {{ indice_retorno_em_garantia_mes|floatformat:1 }}%
+                        <div class="flex flex-col items-center gap-4">
+                            <div class="radial-progress text-error border-4 border-error/10"
+                                 style="--value:{{ indice_retorno_em_garantia_mes|floatformat:0 }}; --size:9rem; --thickness: 1rem;"
+                                 role="progressbar">
+                                <span class="text-2xl font-bold text-base-content">{{ indice_retorno_em_garantia_mes|floatformat:1 }}%</span>
                             </div>
-                            <span class="text-sm font-medium">Retorno em Garantia</span>
+                            <span class="text-lg font-semibold">Retorno em Garantia</span>
                         </div>
                     </div>
                 </div>
