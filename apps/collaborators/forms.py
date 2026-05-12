@@ -439,6 +439,6 @@ CollaboratorBenefitFormSet = inlineformset_factory(
     form=CollaboratorBenefitInlineForm,
     formset=CollaboratorBenefitInlineFormSet,
     fields=["name", "description", "monthly_amount", "is_active"],
-    extra=1,
+    extra=0,
     can_delete=True,
 )
