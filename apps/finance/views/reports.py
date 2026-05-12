@@ -16,6 +16,7 @@ from django.db.models.functions import Coalesce
 from typing import Any, List, Tuple
 
 from apps.core.search import build_text_search_query
+from apps.accounts.models import User
 from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
 from apps.core.widgets import SearchableSelectInput
@@ -23,6 +24,7 @@ from apps.finance.forms.emission_ui import format_money
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
+from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.reports import FinancialOverview, build_financial_overview, build_monthly_financial_overview, build_yearly_financial_overview
 from apps.suppliers.models import Supplier
 from apps.workorder.models import WorkOrder
@@ -178,6 +180,24 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
     def _get_agent_filter(self) -> str:
         return str(self.request.GET.get("agent") or "").strip()
 
+    def _get_opened_by_filter(self) -> int | None:
+        raw_value = str(self.request.GET.get("opened_by") or "").strip()
+        if not raw_value:
+            return None
+        try:
+            return int(raw_value)
+        except (TypeError, ValueError):
+            return None
+
+    def _get_payment_method_filter(self) -> int | None:
+        raw_value = str(self.request.GET.get("payment_method") or "").strip()
+        if not raw_value:
+            return None
+        try:
+            return int(raw_value)
+        except (TypeError, ValueError):
+            return None
+
     def _get_filter_params(self) -> dict[str, Any]:
         return {
             "start_date": self._parse_date_param(self.request.GET.get("data_inicial")),
@@ -186,6 +206,8 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "bank_account_id": self._get_selected_bank_account_id(),
             "direction": self._get_selected_direction(),
             "agent": self._get_agent_filter(),
+            "opened_by_id": self._get_opened_by_filter(),
+            "payment_method_id": self._get_payment_method_filter(),
         }
 
     def _apply_report_filters(self, queryset):
@@ -196,12 +218,14 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         bank_account_id = filter_params["bank_account_id"]
         direction = filter_params["direction"]
         agent = filter_params["agent"]
+        opened_by_id = filter_params["opened_by_id"]
+        payment_method_id = filter_params["payment_method_id"]
 
         today = timezone.localdate()
 
         if start_date is not None:
             queryset = queryset.filter(due_date__gte=start_date)
-        elif not filter_params["bank_account_id"] and not direction and not agent and not self._get_search_value():
+        elif not filter_params["bank_account_id"] and not direction and not agent and not opened_by_id and not payment_method_id and not self._get_search_value():
             queryset = queryset.filter(due_date=today)
 
         if end_date is not None:
@@ -219,6 +243,10 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
                 queryset = queryset.filter(supplier_id=agent.replace("supp_", ""))
             elif agent.startswith("wo_"):
                 queryset = queryset.filter(workorder_id=agent.replace("wo_", ""))
+        if opened_by_id is not None:
+            queryset = queryset.filter(user_id=opened_by_id)
+        if payment_method_id is not None:
+            queryset = queryset.filter(payment_method_id=payment_method_id)
 
         search = self._get_search_value()
         if search:
@@ -257,6 +285,8 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             or filter_params["bank_account_id"] is not None
             or filter_params["direction"]
             or filter_params["agent"]
+            or filter_params["opened_by_id"] is not None
+            or filter_params["payment_method_id"] is not None
         )
 
     def _has_active_filters(self) -> bool:
@@ -434,6 +464,22 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             choices.append((f"wo_{wo.pk}", f"O.S #{wo.pk} - {customer_name}"))
         return choices
 
+    def _get_opened_by_filter_choices(self) -> List[Tuple[str, str]]:
+        users = User.objects.filter(workshops=self.workshop).order_by("first_name", "last_name", "username")
+        choices = [("", "Todos os usuários")]
+        for u in users:
+            full_name = u.get_full_name().strip()
+            label = full_name if full_name else u.username
+            choices.append((str(u.pk), label))
+        return choices
+
+    def _get_payment_method_filter_choices(self) -> List[Tuple[str, str]]:
+        payment_methods = PaymentMethod.objects.filter(workshop=self.workshop, is_active=True).order_by("description")
+        choices = [("", "Todas as formas")]
+        for pm in payment_methods:
+            choices.append((str(pm.pk), pm.description))
+        return choices
+
     def _get_financial_movement_report_rows(self, *, movements: Any) -> list[dict[str, object]]:
         return [self._build_financial_movement_row(movement) for movement in movements]
 
@@ -466,6 +512,22 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             name="agent",
             value=filter_params["agent"],
             attrs={"id": "reports-filter-agent", "class": "w-full"}
+        )
+
+        opened_by_choices = self._get_opened_by_filter_choices()
+        opened_by_widget = SearchableSelectInput(choices=opened_by_choices)
+        context["opened_by_filter_widget"] = opened_by_widget.get_context(
+            name="opened_by",
+            value=str(filter_params["opened_by_id"]) if filter_params["opened_by_id"] is not None else "",
+            attrs={"id": "reports-filter-opened-by", "class": "w-full"}
+        )
+
+        payment_method_choices = self._get_payment_method_filter_choices()
+        payment_method_widget = SearchableSelectInput(choices=payment_method_choices)
+        context["payment_method_filter_widget"] = payment_method_widget.get_context(
+            name="payment_method",
+            value=str(filter_params["payment_method_id"]) if filter_params["payment_method_id"] is not None else "",
+            attrs={"id": "reports-filter-payment-method", "class": "w-full"}
         )
 
         context["has_active_filters"] = self._has_active_filters()

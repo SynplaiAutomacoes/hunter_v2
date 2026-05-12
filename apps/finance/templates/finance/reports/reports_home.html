@@ -122,6 +122,16 @@
                                                 </div>
 
                                                 <div>
+                                                    <label for="reports-filter-opened-by" class="mb-1 block text-sm font-medium text-base-content">Aberto por</label>
+                                                    {% include "widgets/searchable_select.html" with widget=opened_by_filter_widget.widget %}
+                                                </div>
+
+                                                <div>
+                                                    <label for="reports-filter-payment-method" class="mb-1 block text-sm font-medium text-base-content">Forma de Pagamento</label>
+                                                    {% include "widgets/searchable_select.html" with widget=payment_method_filter_widget.widget %}
+                                                </div>
+
+                                                <div>
                                                     <label for="reports-filter-direction">Tipo de conta</label>
                                                     <select name="direction" id="reports-filter-direction" class="select select-bordered w-full">
                                                         {% for value, label in direction_filter_choices %}
