@@ -288,10 +288,6 @@ class BudgetStatusReportDataMixin:
     def _get_filtered_budget_queryset(self):
         queryset = self._get_budget_base_queryset()
 
-        selected_status_choices = self._get_selected_status_choices()
-        if BudgetStatus.CANCELLED not in selected_status_choices:
-            queryset = queryset.exclude(status=BudgetStatus.CANCELLED)
-
         queryset = apply_query_param_filters(
             queryset,
             params=self.request.GET,
