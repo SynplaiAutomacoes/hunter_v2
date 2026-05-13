@@ -94,12 +94,12 @@ BUDGET_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
     ),
     QueryParamFilter(
         param_name="data_inicial",
-        lookup="criado_em__date",
+        lookup="entry_date",
         kind="date_gte",
     ),
     QueryParamFilter(
         param_name="data_final",
-        lookup="criado_em__date",
+        lookup="entry_date",
         kind="date_lte",
     ),
     QueryParamFilter(
@@ -298,7 +298,7 @@ class BudgetStatusReportDataMixin:
             filter_configs=BUDGET_LIST_FILTERS,
         )
 
-        return queryset.order_by("-criado_em")
+        return queryset.order_by("-entry_date")
 
     def _get_selection_report_items(self) -> list[Budget]:
         cached = getattr(self, "_selection_report_items_cache", None)
