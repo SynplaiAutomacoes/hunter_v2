@@ -240,8 +240,20 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
                 except (BankAccount.DoesNotExist, ValueError):
                     selected_account_name = None
 
-        # Saldo geral ou da conta específica, do inicio até o dia atual
-        general_overview = build_financial_overview(workshop=self.workshop, start_date=self.workshop.criado_em.date() if self.workshop.criado_em else date(2000, 1, 1), end_date=None, bank_account_id=bank_account_id if bank_account_id else None)
+        # Saldo baseado nos filtros aplicados (ou geral se nenhum filtro)
+        # Se não houver data_inicial, mostramos o saldo acumulado até a data final (se houver) ou até hoje.
+        general_overview = build_financial_overview(
+            workshop=self.workshop,
+            start_date=filter_params["start_date"],
+            end_date=filter_params["end_date"],
+            search=filter_params["search"],
+            direction=filter_params["movement_type"],
+            paid_status="paid",  # Cash Flow apenas mostra o que está pago
+            budget_plan_ids=[filter_params["budget_plan_id"]] if filter_params["budget_plan_id"] else None,
+            bank_account_id=bank_account_id if bank_account_id else None,
+            agent=filter_params["agent"],
+            payment_method_id=filter_params["payment_method_id"],
+        )
 
         context["saldo_atual"] = {
             "value": format_money(general_overview.confirmed_result),
