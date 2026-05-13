@@ -330,7 +330,7 @@ class WorkOrderStatusReportDataMixin:
         return [
             TableColumn("ID", attr="budget.id"),
             TableColumn("Cliente", attr="budget.customer", search_by="budget__customer__name"),
-            TableColumn("Criado em", attr="criado_em"),
+            TableColumn("Entregue em", attr="delivered_at"),
             TableColumn("Veículo", attr="budget.vehicle", search_by=("budget__vehicle__plate", "budget__vehicle__model", "budget__vehicle__brand")),
             TableColumn("Valor Total", attr="total_budget_value", searchable=False),
             TableColumn("Status", attr="workorder_status_badge", search_by="status", format="status_badge"),
