@@ -81,6 +81,17 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             return method_names[0]
         return "Múltiplos"
 
+    def _apply_workorder_payment_aware_date_filter(self, queryset, *, lookup: str, value: date):
+        return queryset.filter(
+            Q(**{lookup: value})
+            | Q(
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                workorder__isnull=False,
+                workorder__payments__isnull=False,
+                **{f"workorder__payments__{lookup}": value},
+            )
+        ).distinct()
+
     def _get_financial_movements_queryset(self):
         queryset = (
             FinancialMovement.objects.filter(workshop=self.workshop)
@@ -102,9 +113,9 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 
         # Date Filters
         if filter_params["start_date"]:
-            queryset = queryset.filter(due_date__gte=filter_params["start_date"])
+            queryset = self._apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__gte", value=filter_params["start_date"])
         if filter_params["end_date"]:
-            queryset = queryset.filter(due_date__lte=filter_params["end_date"])
+            queryset = self._apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__lte", value=filter_params["end_date"])
 
         # Agent Filter
         if filter_params["agent"]:
@@ -136,64 +147,51 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 
         return queryset
 
+    def _filter_workorder_payments_for_rows(self, *, payments: list[object], filter_start_date: date | None, filter_end_date: date | None, payment_method_id: str | None) -> list[object]:
+        filtered_payments = []
+        for payment in payments:
+            payment_amount = self._resolve_money_amount(payment.total_paid)
+            if payment.due_date is None or payment_amount <= Decimal("0.00"):
+                continue
+            if filter_start_date and payment.due_date < filter_start_date:
+                continue
+            if filter_end_date and payment.due_date > filter_end_date:
+                continue
+            if payment_method_id and str(payment.payment_method_id) != str(payment_method_id):
+                continue
+            filtered_payments.append(payment)
+        return filtered_payments
+
+    def _build_workorder_payment_row(self, *, movement: FinancialMovement, payment: object) -> dict[str, object]:
+        workorder = movement.workorder
+        customer = getattr(getattr(workorder, "budget", None), "customer", None) if workorder is not None else None
+        payment_method = getattr(payment, "payment_method", None)
+
+        return {
+            "component": f"workorder-payment-{payment.pk}",
+            "is_expandable": False,
+            "type_badge": movement.report_direction_badge,
+            "due_date": payment.due_date,
+            "agent": getattr(customer, "name", "-") or "-",
+            "origin": f"OS #{workorder.pk}" if workorder is not None else "-",
+            "description": self._resolve_workorder_description(workorder) if workorder is not None else movement.report_description_display,
+            "budget_plan": movement.report_budget_plan_display,
+            "account": movement.report_bank_account_display,
+            "payment_type": getattr(payment_method, "description", "-") or "-",
+            "edit_url": reverse("finance:financial_movement_update", kwargs={"pk": movement.pk}),
+            "total": {
+                "text": f"+ {format_money(payment.total_paid)}",
+                "class": "text-success font-semibold whitespace-nowrap",
+            },
+            "details": [],
+        }
+
     def _build_financial_movement_row(self, movement: FinancialMovement, filter_start_date: date | None, filter_end_date: date | None) -> dict[str, object] | None:
         workorder = getattr(movement, "workorder", None)
-        payment_manager = getattr(workorder, "payments", None)
-        payments = list(payment_manager.all()) if payment_manager is not None else []
         customer = getattr(getattr(workorder, "budget", None), "customer", None) if workorder is not None else None
 
         if movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT and workorder is not None:
-            paid_payments = [p for p in payments if p.due_date is not None and getattr(getattr(p, "total_paid", None), "amount", Decimal("0.00")) > 0]
-
-            # Filter payments by Date Period if any filters apply to the movement listing
-            if filter_start_date:
-                paid_payments = [p for p in paid_payments if p.due_date >= filter_start_date]
-            if filter_end_date:
-                paid_payments = [p for p in paid_payments if p.due_date <= filter_end_date]
-
-            if not paid_payments:
-                return None  # Skipped, no paid portion in this timeframe
-
-            latest_payment_date = max((payment.due_date for payment in paid_payments), default=None)
-            total_paid = sum((self._resolve_money_amount(payment.total_paid) for payment in paid_payments), start=Decimal("0.00"))
-
-            due_date = latest_payment_date
-            agent = getattr(customer, "name", "-") or "-"
-            origin = f"OS #{workorder.pk}"
-            description = self._resolve_workorder_description(workorder)
-            payment_type = self._resolve_payment_method_summary(paid_payments)
-
-            details = []
-            remaining_amount = self._resolve_money_amount(workorder.total_budget_value)
-            for payment in paid_payments:
-                payment_amount = self._resolve_money_amount(payment.total_paid)
-                remaining_amount = max(Decimal("0.00"), remaining_amount - payment_amount)
-                details.append(
-                    {
-                        "payment_date": payment.due_date,
-                        "payment_type": getattr(getattr(payment, "payment_method", None), "description", "-") or "-",
-                        "amount": format_money(payment.total_paid),
-                    }
-                )
-
-            return {
-                "component": f"financial-movement-{movement.pk}",
-                "is_expandable": bool(details),
-                "type_badge": movement.report_direction_badge,
-                "due_date": due_date,
-                "agent": agent,
-                "origin": origin,
-                "description": description,
-                "budget_plan": movement.report_budget_plan_display,
-                "account": movement.report_bank_account_display,
-                "payment_type": payment_type,
-                "edit_url": reverse("finance:financial_movement_update", kwargs={"pk": movement.pk}),
-                "total": {
-                    "text": f"+ {format_money(total_paid)}",
-                    "class": "text-success font-semibold whitespace-nowrap",
-                },
-                "details": details,
-            }
+            return None
 
         # Normal payments (Non-Workorder) or just simple ones
         if not movement.is_paid:
@@ -219,6 +217,19 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         filter_params = self._get_filter_params()
         rows = []
         for movement in self._get_financial_movements_queryset():
+            workorder = getattr(movement, "workorder", None)
+            if workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
+                payments = list(getattr(workorder, "payments", []).all())
+                rows.extend(
+                    self._build_workorder_payment_row(movement=movement, payment=payment)
+                    for payment in self._filter_workorder_payments_for_rows(
+                        payments=payments,
+                        filter_start_date=filter_params["start_date"],
+                        filter_end_date=filter_params["end_date"],
+                        payment_method_id=filter_params["payment_method_id"],
+                    )
+                )
+                continue
             row = self._build_financial_movement_row(movement, filter_params["start_date"], filter_params["end_date"])
             if row is not None:
                 rows.append(row)

@@ -11,6 +11,7 @@ from apps.core.forms import CoreModelForm
 
 class PaymentMethodForm(CoreModelForm):
     tax_percentage = forms.DecimalField(
+        label="Taxa (%)",
         required=False,
         max_digits=9,
         decimal_places=6,

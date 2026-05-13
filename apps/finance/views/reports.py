@@ -245,9 +245,25 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         matched_ids = list(queryset.exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False).filter(is_paid=paid_status == "paid").values_list("pk", flat=True))
 
         workorder_parent_movements = queryset.filter(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False).select_related("workorder").prefetch_related("workorder__payments")
-        matched_ids.extend(movement.pk for movement in workorder_parent_movements if self._matches_workorder_paid_status(movement=movement, paid_status=paid_status))
+        for movement in workorder_parent_movements:
+            payments = list(movement.workorder.payments.all())
+            has_payments = any(self._resolve_money_amount(payment.total_paid) > Decimal("0.00") for payment in payments)
+            if paid_status == "paid" and has_payments:
+                matched_ids.append(movement.pk)
+            elif paid_status == "unpaid" and self._matches_workorder_paid_status(movement=movement, paid_status=paid_status):
+                matched_ids.append(movement.pk)
 
         return queryset.filter(pk__in=matched_ids)
+
+    def _apply_workorder_payment_aware_date_filter(self, queryset, *, lookup: str, value: date):
+        return queryset.filter(
+            Q(**{lookup: value})
+            | Q(
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                workorder__isnull=False,
+                **{f"workorder__payments__{lookup}": value},
+            )
+        ).distinct()
 
     def _apply_report_filters(self, queryset):
         filter_params = self._get_filter_params()
@@ -264,12 +280,12 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         today = timezone.localdate()
 
         if start_date is not None:
-            queryset = queryset.filter(due_date__gte=start_date)
+            queryset = self._apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__gte", value=start_date)
         elif not filter_params["bank_account_id"] and not direction and not paid_status and not agent and not opened_by_id and not payment_method_id and not self._get_search_value():
-            queryset = queryset.filter(due_date=today)
+            queryset = self._apply_workorder_payment_aware_date_filter(queryset, lookup="due_date", value=today)
 
         if end_date is not None:
-            queryset = queryset.filter(due_date__lte=end_date)
+            queryset = self._apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__lte", value=end_date)
         if budget_plan_ids:
             queryset = queryset.filter(budget_plan_id__in=budget_plan_ids)
         if bank_account_id is not None:
@@ -286,7 +302,14 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         if opened_by_id is not None:
             queryset = queryset.filter(user_id=opened_by_id)
         if payment_method_id is not None:
-            queryset = queryset.filter(payment_method_id=payment_method_id)
+            queryset = queryset.filter(
+                Q(payment_method_id=payment_method_id)
+                | Q(
+                    movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                    workorder__isnull=False,
+                    workorder__payments__payment_method_id=payment_method_id,
+                )
+            ).distinct()
         queryset = self._apply_paid_status_filter(queryset, paid_status)
 
         search = self._get_search_value()
@@ -310,6 +333,58 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             queryset = queryset.filter(search_query)
 
         return queryset
+
+    def _filter_workorder_payments_for_rows(self, *, payments: list[object], filter_params: dict[str, Any]) -> list[object]:
+        filtered_payments = []
+        start_date = filter_params["start_date"]
+        end_date = filter_params["end_date"]
+        payment_method_id = filter_params["payment_method_id"]
+        paid_status = filter_params["paid_status"]
+
+        if paid_status == "unpaid":
+            return []
+
+        for payment in payments:
+            payment_amount = self._resolve_money_amount(payment.total_paid)
+            if payment_amount <= Decimal("0.00"):
+                continue
+            if start_date is not None and (payment.due_date is None or payment.due_date < start_date):
+                continue
+            if end_date is not None and (payment.due_date is None or payment.due_date > end_date):
+                continue
+            if payment_method_id is not None and payment.payment_method_id != payment_method_id:
+                continue
+            filtered_payments.append(payment)
+
+        return filtered_payments
+
+    def _build_workorder_payment_row(self, *, movement: FinancialMovement, payment: object) -> dict[str, object]:
+        workorder = movement.workorder
+        payment_method = getattr(payment, "payment_method", None)
+        payment_amount = getattr(payment, "total_paid", None)
+
+        return {
+            "component": f"workorder-payment-{payment.pk}",
+            "is_expandable": False,
+            "paid_status": {"icon": "check_circle", "class": "text-success", "label": "Sim"},
+            "type_badge": movement.report_direction_badge,
+            "due_date": payment.due_date,
+            "agent": movement.report_agent_display,
+            "origin": f"OS #{workorder.pk}" if workorder is not None else "-",
+            "description": self._resolve_workorder_description(workorder) if workorder is not None else movement.report_description_display,
+            "budget_plan": movement.report_budget_plan_display,
+            "account": movement.report_bank_account_display,
+            "payment_type": getattr(payment_method, "description", "-") or "-",
+            "edit_url": reverse("finance:financial_movement_update", kwargs={"pk": movement.pk}),
+            "edit_modal_url": reverse("workorder:workorder_detail", kwargs={"pk": movement.workorder_id}),
+            "is_workorder": True,
+            "is_group_parent": False,
+            "total": {
+                "text": f"+ {format_money(payment_amount)}",
+                "class": "text-success font-semibold whitespace-nowrap",
+            },
+            "details": [],
+        }
 
     def _get_financial_groups_queryset(self):
         return FinancialGroup.objects.filter(workshop=self.workshop).order_by("sort_key", "id")
@@ -419,25 +494,10 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             is_workorder = True
 
         if workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
-            total_amount = self._resolve_money_amount(workorder.total_budget_value)
             paid_status: str | dict[str, str] = self._resolve_paid_status(total_paid=total_paid, total_amount=self._resolve_money_amount(workorder.total_budget_value))
             due_date = latest_payment_date
             description = self._resolve_workorder_description(workorder)
             payment_type = self._resolve_payment_method_summary(payments)
-            remaining_amount = total_amount
-            details = []
-            for payment in payments:
-                payment_amount = self._resolve_money_amount(payment.total_paid)
-                remaining_amount = max(Decimal("0.00"), remaining_amount - payment_amount)
-                details.append(
-                    {
-                        "payment_date": payment.due_date,
-                        "payment_type": getattr(getattr(payment, "payment_method", None), "description", "-") or "-",
-                        "amount": format_money(payment.total_paid),
-                        "pending_amount": format_money(remaining_amount),
-                        "pending_class": "text-success" if remaining_amount == Decimal("0.00") else "text-warning",
-                    }
-                )
         elif movement.movement_kind == FinancialMovement.MovementKind.GROUP_PARENT and movement.movement_group_id:
             is_group_parent = True
             children = movement.movement_group.financial_movements.exclude(pk=movement.pk)
@@ -459,6 +519,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "type_badge": movement.report_direction_badge,
             "due_date": due_date,
             "agent": agent,
+            "origin": movement.report_origin_display if not movement.workorder_id else f"OS #{movement.workorder_id}",
             "description": description,
             "budget_plan": movement.report_budget_plan_display,
             "account": movement.report_bank_account_display,
@@ -523,7 +584,18 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         return choices
 
     def _get_financial_movement_report_rows(self, *, movements: Any) -> list[dict[str, object]]:
-        return [self._build_financial_movement_row(movement) for movement in movements]
+        rows: list[dict[str, object]] = []
+        filter_params = self._get_filter_params()
+        for movement in movements:
+            workorder = getattr(movement, "workorder", None)
+            if workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
+                payments = list(workorder.payments.all())
+                payment_rows = [self._build_workorder_payment_row(movement=movement, payment=payment) for payment in self._filter_workorder_payments_for_rows(payments=payments, filter_params=filter_params)]
+                if payment_rows:
+                    rows.extend(payment_rows)
+                    continue
+            rows.append(self._build_financial_movement_row(movement))
+        return rows
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
