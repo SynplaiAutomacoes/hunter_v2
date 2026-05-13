@@ -9,7 +9,7 @@ from typing import Any
 from django.db.models import Sum
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseForbidden
 from django.template.response import TemplateResponse
 import requests
 from django.views import View
@@ -17,7 +17,7 @@ from django.views.generic import TemplateView
 
 from apps.budget.models import Budget, BudgetStatus, BudgetType
 from apps.finance.models.financial_movement import FinancialMovement
-from apps.workorder.models import WorkOrderPaymentMethod, WorkOrderStatus
+from apps.workorder.models import WorkOrderPaymentMethod, WorkOrderStatus, WorkOrder
 import calendar
 from apps.core.favorites import FavoritePageLimitError, InvalidFavoritePageError, reorder_favorite_pages, toggle_favorite_page
 from apps.core.navigation import build_favoritable_page
@@ -241,14 +241,15 @@ def metricas_dashboard(request) -> dict[str, Any]:
     orcamentos_reprovados = Budget.objects.filter(workshop=workshop, status=BudgetStatus.REJECTED, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado)
 
     # Métricas
+    # qtd_carros_mes = (Budget.objects.filter(workshop=workshop, status=BudgetStatus.APPROVED, entry_date__month=mes_selecionado,
+    #                                         entry_date__year=ano_selecionado).exclude(reference_budget__isnull=False).count())
     qtd_carros_mes = (
-        Budget.objects.filter(
+        WorkOrder.objects.filter(
             workshop=workshop,
-            status=BudgetStatus.APPROVED,
-            entry_date__month=mes_selecionado,
-            entry_date__year=ano_selecionado,
+            status=WorkOrderStatus.APPROVED,
+            delivered_at__month=mes_selecionado,
+            delivered_at__year=ano_selecionado,
         )
-        .exclude(reference_budget__isnull=False)
         .count()
     )
     ticket_medio = total_vendido_ate_a_data / qtd_carros_mes if qtd_carros_mes > 0 else Decimal("0.00")
@@ -311,3 +312,8 @@ def metricas_dashboard(request) -> dict[str, Any]:
         "total_meses_anteriores_orcamentos_aguardando_aprovacao": total_meses_anteriores_orcamentos_aguardando_aprovacao,
         "total_orcamentos_reprovados": total_orcamentos_reprovados,
     }
+
+
+def permission_denied(request, exception=None):
+    """Handler customizado para erros 403 (Permission Denied)."""
+    return TemplateResponse(request, "403.html", status=403)

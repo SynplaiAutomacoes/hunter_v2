@@ -127,12 +127,12 @@ WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
     ),
     QueryParamFilter(
         param_name="data_inicial",
-        lookup="criado_em__date",
+        lookup="delivered_at__date",
         kind="date_gte",
     ),
     QueryParamFilter(
         param_name="data_final",
-        lookup="criado_em__date",
+        lookup="delivered_at__date",
         kind="date_lte",
     ),
 )
@@ -330,7 +330,7 @@ class WorkOrderStatusReportDataMixin:
         return [
             TableColumn("ID", attr="budget.id"),
             TableColumn("Cliente", attr="budget.customer", search_by="budget__customer__name"),
-            TableColumn("Criado em", attr="criado_em"),
+            TableColumn("Entregue em", attr="delivered_at"),
             TableColumn("Veículo", attr="budget.vehicle", search_by=("budget__vehicle__plate", "budget__vehicle__model", "budget__vehicle__brand")),
             TableColumn("Valor Total", attr="total_budget_value", searchable=False),
             TableColumn("Status", attr="workorder_status_badge", search_by="status", format="status_badge"),
@@ -357,17 +357,13 @@ class WorkOrderStatusReportDataMixin:
     def _get_filtered_workorder_queryset(self):
         queryset = self._get_workorder_base_queryset()
 
-        selected_status_choices = self._get_selected_status_choices()
-        if WorkOrderStatus.CANCELLED not in selected_status_choices:
-            queryset = queryset.exclude(status=WorkOrderStatus.CANCELLED)
-
         queryset = apply_query_param_filters(
             queryset,
             params=self.request.GET,
             filter_configs=WORKORDER_LIST_FILTERS,
         )
 
-        return queryset.order_by("-criado_em")
+        return queryset.order_by("-delivered_at")
 
     def _get_selection_report_items(self) -> list[WorkOrder]:
         cached = getattr(self, "_selection_report_items_cache", None)

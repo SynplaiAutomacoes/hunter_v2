@@ -122,16 +122,39 @@ class WorkshopCostForm(CoreModelForm):
     def get_layout(self) -> Layout:
         cancel_url = reverse("workshops:workshop_cost_list")
         calculate_url = reverse("workshops:workshop_cost_calculate")
+        copy_modal_url = reverse("workshops:workshop_cost_copy_selection")
 
         # Gera os campos dinâmicos de custo para o Layout
         cost_fields_layout = [Field(name, wrapper_class="col-span-12 lg:col-span-3") for name in self.cost_fields_names]
+
+        copy_btn_html = ""
+        if not self.instance.pk:
+            copy_btn_html = f"""
+                <button type="button"
+                        class="btn btn-primary btn-base ml-auto d-flex align-items-center gap-2 px-3 shadow-sm"
+                        hx-get="{copy_modal_url}"
+                        hx-target="#modal-container"
+                        hx-swap="innerHTML">
+                    
+                    <span class="material-icons" style="font-size:18px;">
+                        content_copy
+                    </span>
+                
+                    <span>Copiar Custos Mensais</span>
+                </button>
+            """
 
         return Layout(
             Div(
                 # Envoltório com HTMX Trigger. Qualquer mudança (change) ou digitação (keyup) nestes campos dispara o recálculo.
                 Div(
                     # --- SEÇÃO 1: Referência ---
-                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Mês de Referência</h3>'),
+                    HTML(f"""
+                        <div class="col-span-12 flex items-center justify-between mb-2">
+                            <h3 class="text-xl font-bold">Mês de Referência</h3>
+                            {copy_btn_html}
+                        </div>
+                    """),
                     Field("month", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("year", wrapper_class="col-span-12 lg:col-span-6"),
                     HTML('<div class="col-span-12 divider my-2"></div>'),

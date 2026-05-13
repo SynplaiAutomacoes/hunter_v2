@@ -60,28 +60,49 @@ def build_financial_overview(
         is_paid_workorder = total_paid >= total_amount > _ZERO_DECIMAL
         return is_paid_workorder if paid_status == "paid" else not is_paid_workorder
 
+    def _workorder_has_paid_payments(*, movement: FinancialMovement) -> bool:
+        workorder = getattr(movement, "workorder", None)
+        if workorder is None:
+            return False
+        return any(Decimal(getattr(getattr(payment, "total_paid", None), "amount", _ZERO_DECIMAL) or _ZERO_DECIMAL) > _ZERO_DECIMAL for payment in workorder.payments.all())
+
+    def _apply_workorder_payment_aware_date_filter(queryset, *, lookup: str, value: date):
+        return queryset.filter(
+            Q(**{lookup: value})
+            | Q(
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                workorder__isnull=False,
+                **{f"workorder__payments__{lookup}": value},
+            )
+        ).distinct()
+
     movements = FinancialMovement.objects.filter(workshop=workshop)
     if start_date is not None:
-        movements = movements.filter(due_date__gte=start_date)
+        movements = _apply_workorder_payment_aware_date_filter(movements, lookup="due_date__gte", value=start_date)
     if end_date is not None:
-        movements = movements.filter(due_date__lte=end_date)
+        movements = _apply_workorder_payment_aware_date_filter(movements, lookup="due_date__lte", value=end_date)
     if direction:
         movements = movements.filter(direction=direction)
     if normalized_budget_plan_ids:
         movements = movements.filter(budget_plan_id__in=normalized_budget_plan_ids)
-    if bank_account_id is not None:
+    if bank_account_id:
         if bank_account_id == "none":
             movements = movements.filter(bank_account__isnull=True)
         else:
             movements = movements.filter(bank_account_id=bank_account_id)
 
-    if opened_by_id is not None:
+    if opened_by_id:
         movements = movements.filter(user_id=opened_by_id)
-    if payment_method_id is not None:
-        movements = movements.filter(payment_method_id=payment_method_id)
+    if payment_method_id:
+        pm_filter = Q(payment_method_id=payment_method_id) | Q(workorder__payments__payment_method_id=payment_method_id)
+        movements = movements.filter(pm_filter).distinct()
     if paid_status in {"paid", "unpaid"}:
         matched_ids = list(movements.exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False).filter(is_paid=paid_status == "paid").values_list("pk", flat=True))
-        matched_ids.extend(movement.pk for movement in movements.filter(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False).select_related("workorder").prefetch_related("workorder__payments") if _matches_workorder_paid_status(movement=movement))
+        for movement in movements.filter(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False).select_related("workorder").prefetch_related("workorder__payments"):
+            if paid_status == "paid" and _workorder_has_paid_payments(movement=movement):
+                matched_ids.append(movement.pk)
+            elif paid_status == "unpaid" and _matches_workorder_paid_status(movement=movement):
+                matched_ids.append(movement.pk)
         movements = movements.filter(pk__in=matched_ids)
 
     if agent:
@@ -91,6 +112,10 @@ def build_financial_overview(
             movements = movements.filter(supplier_id=agent.replace("supp_", ""))
         elif agent.startswith("wo_"):
             movements = movements.filter(workorder_id=agent.replace("wo_", ""))
+        else:
+            # Fallback for plain text agent search (used in Cash Flow)
+            agent_query = build_text_search_query(search_value=agent, lookups=("source__name", "workorder__budget__customer__name"))
+            movements = movements.filter(agent_query)
 
     if search:
         search_query = build_text_search_query(
@@ -123,7 +148,7 @@ def build_financial_overview(
         )
         if normalized_budget_plan_ids:
             paid_credit_movements = paid_credit_movements.filter(budget_plan_id__in=normalized_budget_plan_ids)
-        if bank_account_id is not None:
+        if bank_account_id:
             if bank_account_id == "none":
                 paid_credit_movements = paid_credit_movements.filter(bank_account__isnull=True)
             else:
@@ -136,11 +161,16 @@ def build_financial_overview(
                 paid_credit_movements = paid_credit_movements.filter(supplier_id=agent.replace("supp_", ""))
             elif agent.startswith("wo_"):
                 paid_credit_movements = paid_credit_movements.filter(workorder_id=agent.replace("wo_", ""))
+            else:
+                # Fallback for plain text agent search (used in Cash Flow)
+                agent_query = build_text_search_query(search_value=agent, lookups=("source__name", "workorder__budget__customer__name"))
+                paid_credit_movements = paid_credit_movements.filter(agent_query)
 
-        if opened_by_id is not None:
+        if opened_by_id:
             paid_credit_movements = paid_credit_movements.filter(user_id=opened_by_id)
-        if payment_method_id is not None:
-            paid_credit_movements = paid_credit_movements.filter(payment_method_id=payment_method_id)
+        if payment_method_id:
+            pm_filter = Q(payment_method_id=payment_method_id) | Q(workorder__payments__payment_method_id=payment_method_id)
+            paid_credit_movements = paid_credit_movements.filter(pm_filter).distinct()
 
         if search:
             search_query = build_text_search_query(
@@ -162,7 +192,7 @@ def build_financial_overview(
             paid_credit_movements = paid_credit_movements.filter(search_query)
 
         if paid_status in {"paid", "unpaid"}:
-            paid_credit_movements = [movement for movement in paid_credit_movements.select_related("workorder").prefetch_related("workorder__payments") if _matches_workorder_paid_status(movement=movement)]
+            paid_credit_movements = [movement for movement in paid_credit_movements.select_related("workorder").prefetch_related("workorder__payments") if (paid_status == "paid" and _workorder_has_paid_payments(movement=movement)) or (paid_status == "unpaid" and _matches_workorder_paid_status(movement=movement))]
         else:
             paid_credit_movements = paid_credit_movements.select_related("workorder").prefetch_related("workorder__payments")
 
@@ -195,6 +225,9 @@ def build_financial_overview(
                 continue
             if end_date is not None and payment.due_date > end_date:
                 continue
+            if payment_method_id and str(payment.payment_method_id) != str(payment_method_id):
+                continue
+
             payment_amount = Decimal(getattr(getattr(payment, "total_paid", None), "amount", _ZERO_DECIMAL) or _ZERO_DECIMAL)
             paid_credits += payment_amount
 

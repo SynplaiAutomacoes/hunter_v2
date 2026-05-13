@@ -1,0 +1,48 @@
+<input type="checkbox" id="copy-selection-modal" class="modal-toggle" checked />
+<div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-box w-11/12 max-w-2xl bg-base-100 shadow-2xl border border-base-300">
+    <div class="flex items-center justify-between mb-6">
+        <h3 class="text-2xl font-bold">Copiar Custo Mensal</h3>
+        <label for="copy-selection-modal" class="btn btn-sm btn-circle btn-ghost">✕</label>
+    </div>
+
+    <div class="overflow-x-auto">
+        <table class="table table-zebra w-full">
+            <thead>
+                <tr>
+                    <th>Mês/Ano</th>
+                    <th>Mecânicos</th>
+                    <th>Total</th>
+                    <th class="text-right">Ação</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for cost in workshop_costs %}
+                <tr>
+                    <td>{{ cost }}</td>
+                    <td>{{ cost.mechanic_quantity }}</td>
+                    <td>{{ cost.total_monthly_costs }}</td>
+                    <td class="text-right">
+                        <a href="{% url 'workshops:workshop_cost_copy' cost.pk %}" class="btn btn-primary btn-sm">
+                            Copiar
+                        </a>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="4" class="text-center py-8 text-base-content/50">
+                        Nenhum custo mensal encontrado para cópia.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="modal-action">
+        <label for="copy-selection-modal" class="btn">Fechar</label>
+    </div>
+</div>
+</div>
+
+<label class="modal-backdrop bg-black/50" for="copy-selection-modal">Close</label>

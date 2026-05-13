@@ -440,7 +440,7 @@ def _empty_result() -> DreCalculationResult:
             _row(label="(=) Resultado Operacional", amount=_ZERO, tone="result", component=COMP_OPERATING_RESULT, formula="Receita Bruta de Vendas + Receitas Financeiras + Despesas Financeiras"),
         ],
         summary_cards=[
-            {"label": "Receita Bruta de Vendas", "amount": _ZERO, "accent": "text-sky-700"},
+            {"label": "Receita Líquida", "amount": _ZERO, "accent": "text-sky-700"},
             {"label": "Resultado Operacional", "amount": _ZERO, "accent": "text-amber-700"},
         ],
     )

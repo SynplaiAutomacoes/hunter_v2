@@ -21,6 +21,10 @@ from django.conf.urls.static import static
 from django.urls import path, include
 from django.views.generic import RedirectView
 
+from apps.core.views import permission_denied
+
+handler403 = permission_denied
+
 urlpatterns = [
     path("", RedirectView.as_view(pattern_name="accounts:login", permanent=False)),
     path("admin/", admin.site.urls),
