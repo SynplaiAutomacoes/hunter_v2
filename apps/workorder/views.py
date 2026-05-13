@@ -357,10 +357,6 @@ class WorkOrderStatusReportDataMixin:
     def _get_filtered_workorder_queryset(self):
         queryset = self._get_workorder_base_queryset()
 
-        selected_status_choices = self._get_selected_status_choices()
-        if WorkOrderStatus.CANCELLED not in selected_status_choices:
-            queryset = queryset.exclude(status=WorkOrderStatus.CANCELLED)
-
         queryset = apply_query_param_filters(
             queryset,
             params=self.request.GET,
