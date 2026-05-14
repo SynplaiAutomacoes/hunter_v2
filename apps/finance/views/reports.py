@@ -26,7 +26,6 @@ from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.reports import FinancialOverview, build_monthly_financial_overview, build_yearly_financial_overview
-from apps.suppliers.models import Supplier
 from apps.workorder.models import WorkOrder
 from apps.workshops.mixin import WorkshopScopedMixin
 
@@ -575,17 +574,10 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
 
     def _get_agent_filter_choices(self) -> List[Tuple[str, str]]:
         collaborators = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
-        suppliers = Supplier.objects.filter(workshop=self.workshop).order_by("name")
-        workorders = WorkOrder.objects.filter(workshop=self.workshop).select_related("budget", "budget__customer").order_by("-pk")[:100]
 
-        choices = [("", "Todos os agentes")]
+        choices = [("", "Todos os colaboradores")]
         for c in collaborators:
             choices.append((f"coll_{c.pk}", c.name))
-        for s in suppliers:
-            choices.append((f"supp_{s.pk}", f"Fornecedor: {s.name}"))
-        for wo in workorders:
-            customer_name = wo.budget.customer.name if wo.budget and wo.budget.customer else "-"
-            choices.append((f"wo_{wo.pk}", f"O.S #{wo.pk} - {customer_name}"))
         return choices
 
     def _get_opened_by_filter_choices(self) -> List[Tuple[str, str]]:

@@ -6045,6 +6045,20 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertNotContains(response, f"Colaborador: {active_collaborator.name}")
         self.assertNotContains(response, inactive_collaborator.name)
 
+    def test_reports_home_view_agent_filter_shows_only_active_collaborators(self) -> None:
+        active_collaborator = self._create_collaborator(suffix=72, name="Colaborador Filtro")
+        inactive_collaborator = self._create_collaborator(suffix=73, name="Colaborador Oculto")
+        inactive_collaborator.is_active = False
+        inactive_collaborator.save(update_fields=["is_active"])
+        supplier = self._create_supplier(suffix=72, name="Fornecedor Filtro")
+
+        response = self.client.get(reverse("finance:reports_home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, active_collaborator.name)
+        self.assertNotContains(response, inactive_collaborator.name)
+        self.assertNotContains(response, supplier.name)
+
     def test_report_edit_modal_renders_supplier_and_collaborator_fields_in_wider_modal(self) -> None:
         supplier = self._create_supplier(suffix=1, name="Fornecedor Modal")
         collaborator = self._create_collaborator(suffix=1, name="Colaborador Modal")
