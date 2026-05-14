@@ -472,16 +472,6 @@ def _should_include_workorder_revenue_movement(*, movement: FinancialMovement, w
     if workorder is None:
         return False
 
-    budget = getattr(workorder, "budget", None)
-    if budget is None:
-        return False
-
-    if getattr(budget, "is_warranty_budget", False):
-        return False
-
-    if getattr(budget, "budget_type", None) in {"warranty", "courtesy"}:
-        return False
-
     return _resolve_workorder_revenue_amount(movement=movement, workorder_payment_totals=workorder_payment_totals).amount > Decimal("0.00")
 
 
@@ -492,6 +482,8 @@ def _build_financial_group_rollup(*, movements: list[FinancialMovement], directi
 
     for movement in movements:
         if movement.direction != direction:
+            continue
+        if workorder_payment_totals is not None and movement.workorder_id is None:
             continue
         if movement.workorder_id is not None and not include_workorder_movements:
             continue
@@ -516,6 +508,8 @@ def _build_financial_group_rollup(*, movements: list[FinancialMovement], directi
 
     for movement in movements:
         if movement.direction != direction:
+            continue
+        if workorder_payment_totals is not None and movement.workorder_id is None:
             continue
         if movement.workorder_id is not None and not include_workorder_movements:
             continue

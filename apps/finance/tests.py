@@ -8137,14 +8137,9 @@ class DreReportViewTests(TestCase):
 
         self.assertEqual(revenue_row["detail_kind"], "group_entries")
         self.assertEqual(expense_row["detail_kind"], "group_entries")
-        self.assertEqual(revenue_row["amount"], Money("35.00", "BRL"))
+        self.assertEqual(revenue_row["amount"], Money("0.00", "BRL"))
         self.assertEqual(expense_row["amount"], Money("20.00", "BRL"))
-
-        self.assertEqual(revenue_row["details"][0]["group"].name, "Receitas Financeiras")
-        self.assertEqual(revenue_row["details"][0]["amount"], Money("35.00", "BRL"))
-        self.assertEqual(revenue_row["details"][0]["details"][0]["summary"], "Juros recebidos")
-        self.assertEqual(revenue_row["details"][0]["children"][0]["group"].name, "Rendimentos")
-        self.assertEqual(revenue_row["details"][0]["children"][0]["details"][0]["summary"], "Rendimento aplicacao")
+        self.assertEqual(revenue_row["details"], [])
 
         self.assertEqual(expense_row["details"][0]["group"].name, "Despesas Financeiras")
         self.assertEqual(expense_row["details"][0]["amount"], Money("20.00", "BRL"))
@@ -8152,8 +8147,6 @@ class DreReportViewTests(TestCase):
         self.assertEqual(expense_row["details"][0]["children"][0]["group"].name, "Tarifas")
         self.assertEqual(expense_row["details"][0]["children"][0]["details"][0]["summary"], "Tarifa TED")
 
-        self.assertContains(response, revenue_root.name)
-        self.assertContains(response, revenue_child.name)
         self.assertContains(response, expense_root.name)
         self.assertContains(response, expense_child.name)
 
@@ -8239,7 +8232,7 @@ class DreReportViewTests(TestCase):
             f"O.S #{workorder.budget.pk} - Cliente Receita",
         )
 
-    def test_results_page_excludes_warranty_and_courtesy_workorders_from_financial_group_tree(self) -> None:
+    def test_results_page_financial_group_tree_matches_dashboard_total_vendido_logic(self) -> None:
         revenue_root = FinancialGroup.objects.create(workshop=self.workshop, name="Vendas")
         revenue_child = FinancialGroup.objects.create(workshop=self.workshop, parent=revenue_root, name="Servicos Rapidos")
 
@@ -8287,8 +8280,15 @@ class DreReportViewTests(TestCase):
             return workorder
 
         sale_workorder = create_grouped_workorder(customer=sale_customer, budget_type=BudgetType.SALE, is_warranty_budget=False, payment_amount="250.00", reference_day=10)
-        create_grouped_workorder(customer=warranty_customer, budget_type=BudgetType.WARRANTY, is_warranty_budget=True, payment_amount="180.00", reference_day=11)
-        create_grouped_workorder(customer=courtesy_customer, budget_type=BudgetType.COURTESY, is_warranty_budget=False, payment_amount="90.00", reference_day=12)
+        warranty_workorder = create_grouped_workorder(customer=warranty_customer, budget_type=BudgetType.WARRANTY, is_warranty_budget=True, payment_amount="180.00", reference_day=11)
+        courtesy_workorder = create_grouped_workorder(customer=courtesy_customer, budget_type=BudgetType.COURTESY, is_warranty_budget=False, payment_amount="90.00", reference_day=12)
+
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.RECEITAS_FINANCEIRAS,
+            amount="500.00",
+            due_date=date(2026, 1, 15),
+            description="Receita financeira avulsa",
+        )
 
         result = build_dre_calculation(
             workshops=[self.workshop],
@@ -8299,10 +8299,17 @@ class DreReportViewTests(TestCase):
         rows = {row["component"]: row for row in result.rows}
         financial_revenue_row = rows["receitas_financeiras"]
 
-        self.assertEqual(financial_revenue_row["amount"], Money("250.00", "BRL"))
-        self.assertEqual(len(financial_revenue_row["details"][0]["children"][0]["details"]), 1)
+        self.assertEqual(financial_revenue_row["amount"], Money("520.00", "BRL"))
+        self.assertEqual(len(financial_revenue_row["details"][0]["children"][0]["details"]), 3)
         movement_summaries = [detail["summary"] for detail in financial_revenue_row["details"][0]["children"][0]["details"]]
-        self.assertEqual(movement_summaries, [f"O.S #{sale_workorder.budget.pk} - Cliente Venda"])
+        self.assertEqual(
+            movement_summaries,
+            [
+                f"O.S #{sale_workorder.budget.pk} - Cliente Venda",
+                f"O.S #{warranty_workorder.budget.pk} - Cliente Garantia",
+                f"O.S #{courtesy_workorder.budget.pk} - Cliente Cortesia",
+            ],
+        )
 
     def test_results_page_adds_negative_financial_expense_to_operating_result(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas Financeiras")
@@ -8333,9 +8340,9 @@ class DreReportViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         rows = {row["label"]: row for row in response.context["dre_rows"]}
-        self.assertEqual(rows["Receitas Financeiras"]["amount"], Money("100.00", "BRL"))
+        self.assertEqual(rows["Receitas Financeiras"]["amount"], Money("0.00", "BRL"))
         self.assertEqual(rows["Despesas Financeiras"]["amount"], Money("-25.00", "BRL"))
-        self.assertEqual(rows["(=) Resultado Operacional"]["amount"], Money("75.00", "BRL"))
+        self.assertEqual(rows["(=) Resultado Operacional"]["amount"], Money("-25.00", "BRL"))
 
     def test_results_page_keeps_derived_rows_static_without_dropdown_details(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
