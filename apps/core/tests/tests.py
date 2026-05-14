@@ -24,7 +24,7 @@ from apps.finance.models.financial_movement import FinancialMovement
 from apps.iam.utils import get_or_create_director_role
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
-from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
 
 
 def create_workshop(**kwargs):
@@ -1162,10 +1162,20 @@ class DashboardMetricsTests(TestCase):
         amount: str,
         due_date,
         is_paid: bool = False,
-    ) -> FinancialMovement:
+    ) -> WorkOrder:
         budget = Budget.objects.create(workshop=workshop, entry_date=due_date)
         workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=workorder_status)
-        return FinancialMovement.objects.create(
+        WorkOrderItem.objects.create(
+            workshop=workshop,
+            workorder=workorder,
+            description=f"Item OS {amount}",
+            quantity=1,
+            service_selling_price=Money(amount, "BRL"),
+        )
+        WorkOrder.objects.filter(pk=workorder.pk).update(
+            criado_em=timezone.make_aware(datetime.combine(due_date, datetime.min.time())),
+        )
+        FinancialMovement.objects.create(
             workshop=workshop,
             workorder=workorder,
             direction=FinancialMovement.MovementDirection.CREDIT,
@@ -1173,6 +1183,7 @@ class DashboardMetricsTests(TestCase):
             due_date=due_date,
             is_paid=is_paid,
         )
+        return workorder
 
     def _create_workorder_payment(
         self,
@@ -1279,27 +1290,47 @@ class DashboardMetricsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["total_orcamentos_reprovados"], Decimal("100.00"))
 
-    def test_dashboard_counts_only_unpaid_receivables_from_approved_workorders_in_execution(self):
+    def test_dashboard_counts_only_pending_values_from_draft_workorders_in_execution(self):
         today = timezone.localdate()
         previous_month_date = today - timedelta(days=40)
+
+        previous_month_workorder = self._create_workorder_receivable(
+            workshop=self.workshop,
+            workorder_status=WorkOrderStatus.DRAFT,
+            amount="1000.00",
+            due_date=previous_month_date,
+        )
+        self._create_workorder_payment(
+            workshop=self.workshop,
+            amount="500.00",
+            due_date=previous_month_date,
+            workorder=previous_month_workorder,
+        )
 
         self._create_workorder_receivable(
             workshop=self.workshop,
             workorder_status=WorkOrderStatus.DRAFT,
-            amount="150.00",
-            due_date=previous_month_date,
+            amount="300.00",
+            due_date=today,
         )
-        self._create_workorder_receivable(
+
+        fully_paid_workorder = self._create_workorder_receivable(
             workshop=self.workshop,
             workorder_status=WorkOrderStatus.DRAFT,
-            amount="50.00",
+            amount="200.00",
             due_date=today,
-            is_paid=True,
         )
+        self._create_workorder_payment(
+            workshop=self.workshop,
+            amount="200.00",
+            due_date=today,
+            workorder=fully_paid_workorder,
+        )
+
         self._create_workorder_receivable(
             workshop=self.workshop,
             workorder_status=WorkOrderStatus.APPROVED,
-            amount="75.00",
+            amount="999.00",
             due_date=today,
         )
 
@@ -1320,8 +1351,10 @@ class DashboardMetricsTests(TestCase):
         response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["total_os_a_receber_em_execucao"], 150)
-        self.assertContains(response, "R$ 150,00")
+        self.assertEqual(response.context["total_os_a_receber_em_execucao"], Decimal("800.00"))
+        self.assertEqual(response.context["total_mensal_os_a_receber_em_execucao"], Decimal("300.00"))
+        self.assertEqual(response.context["total_meses_anteriores_os_a_receber_em_execucao"], Decimal("500.00"))
+        self.assertContains(response, "R$ 800,00")
 
     def test_dashboard_total_vendido_sums_workorder_payment_plans_for_selected_month(self):
         today = timezone.localdate()

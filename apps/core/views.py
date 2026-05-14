@@ -7,10 +7,10 @@ import logging
 import time
 from datetime import date
 from typing import Any
+from django.db.models import Q
 
 import requests
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db.models import Q, Sum
 from django.http import HttpResponse
 from django.template.response import TemplateResponse
 from django.utils import timezone
@@ -20,7 +20,6 @@ from django.views.generic import TemplateView
 from apps.budget.models import Budget, BudgetStatus, BudgetType
 from apps.core.favorites import FavoritePageLimitError, InvalidFavoritePageError, reorder_favorite_pages, toggle_favorite_page
 from apps.core.navigation import build_favoritable_page
-from apps.finance.models.financial_movement import FinancialMovement
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
@@ -296,6 +295,7 @@ def metricas_dashboard(request) -> dict[str, Any]:
         .count()
     )
     ticket_medio = total_vendido_ate_a_data / qtd_carros_mes if qtd_carros_mes > 0 else Decimal("0.00")
+    projecao = ((total_vendido_ate_a_data / dias_transcorridos) * dias_faltantes) + total_vendido_ate_a_data if dias_transcorridos > 0 else total_vendido_ate_a_data
     rentabilidade_acumulada_mes = sum(rentabilidades) / len(rentabilidades) if rentabilidades else 0
     indice_retorno_em_garantia_mes = (qtd_garantias_mes / qtd_veiculos_mes) * 100 if qtd_veiculos_mes > 0 else 0
     taxa_aprovacao = (qtd_orcamentos_aprovados / qtd_orcamentos_criados) * 100 if qtd_orcamentos_criados > 0 else 0
@@ -303,24 +303,20 @@ def metricas_dashboard(request) -> dict[str, Any]:
     # Financeiro (R$)
 
     ## Geral
-    total_geral_os_a_receber_em_execucao_result = FinancialMovement.objects.filter(
+    draft_workorders = WorkOrder.objects.filter(
         workshop=workshop,
-        direction=FinancialMovement.MovementDirection.CREDIT,
-        is_paid=False,
-        workorder__status=WorkOrderStatus.DRAFT,
-    ).aggregate(total=Sum("amount"))["total"]
-    total_geral_os_a_receber_em_execucao = getattr(total_geral_os_a_receber_em_execucao_result, "amount", total_geral_os_a_receber_em_execucao_result) or Decimal("0.00")
+        status=WorkOrderStatus.DRAFT,
+    ).prefetch_related("payments")
 
-    ## Mensal
-    total_mensal_os_a_receber_em_execucao_result = FinancialMovement.objects.filter(
-        workshop=workshop,
-        direction=FinancialMovement.MovementDirection.CREDIT,
-        is_paid=False,
-        workorder__status=WorkOrderStatus.DRAFT,
-        due_date__month=mes_selecionado,
-        due_date__year=ano_selecionado,
-    ).aggregate(total=Sum("amount"))["total"]
-    total_mensal_os_a_receber_em_execucao = getattr(total_mensal_os_a_receber_em_execucao_result, "amount", total_mensal_os_a_receber_em_execucao_result) or Decimal("0.00")
+    total_geral_os_a_receber_em_execucao = Decimal("0.00")
+    total_mensal_os_a_receber_em_execucao = Decimal("0.00")
+    for workorder in draft_workorders:
+        pending_value = _resolve_decimal_amount(workorder.pending_payment_value)
+
+        total_geral_os_a_receber_em_execucao += pending_value
+
+        if workorder.criado_em and workorder.criado_em.month == mes_selecionado and workorder.criado_em.year == ano_selecionado:
+            total_mensal_os_a_receber_em_execucao += pending_value
 
     total_meses_anteriores_os_a_receber_em_execucao = total_geral_os_a_receber_em_execucao - total_mensal_os_a_receber_em_execucao
 
