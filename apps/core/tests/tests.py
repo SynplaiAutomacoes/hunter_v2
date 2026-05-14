@@ -1594,3 +1594,83 @@ class DashboardMetricsTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["taxa_aprovacao"], 50)
+
+    def test_dashboard_taxa_aprovacao_uses_approved_over_created_from_sale_budgets_only(self):
+        today = timezone.localdate()
+
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.APPROVED,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=False,
+        )
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.APPROVED,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=False,
+        )
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.DRAFT,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=False,
+        )
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.WAITING_APPROVAL,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=False,
+        )
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.REJECTED,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=False,
+        )
+
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.APPROVED,
+            budget_type=BudgetType.COURTESY,
+        )
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.APPROVED,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=True,
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["taxa_aprovacao"], 40)
+
+    def test_dashboard_taxa_aprovacao_is_zero_when_no_sale_budgets_created_in_month(self):
+        today = timezone.localdate()
+
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.APPROVED,
+            budget_type=BudgetType.COURTESY,
+        )
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.APPROVED,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=True,
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["taxa_aprovacao"], 0)
