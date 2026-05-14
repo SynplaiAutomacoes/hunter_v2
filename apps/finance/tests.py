@@ -21,7 +21,7 @@ from django.utils import timezone
 from djmoney.money import Money
 from openpyxl import load_workbook
 
-from apps.budget.models import Budget, BudgetItem, BudgetStatus
+from apps.budget.models import Budget, BudgetItem, BudgetStatus, BudgetType
 from apps.accounts.models import Account, User
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.kits import Kit, KitProduct, KitService
@@ -8204,7 +8204,7 @@ class DreReportViewTests(TestCase):
             workorder=workorder,
             payment_method=payment_method,
             installments_count=1,
-            first_installment_amount=Money("400.00", "BRL"),
+            first_installment_amount=Money("250.00", "BRL"),
             remaining_installments_amount=Money("0.00", "BRL"),
             due_date=date(2026, 1, 20),
         )
@@ -8227,17 +8227,82 @@ class DreReportViewTests(TestCase):
         gross_revenue_row = rows["receita_bruta_vendas_e_servicos"]
         financial_revenue_row = rows["receitas_financeiras"]
 
-        self.assertEqual(gross_revenue_row["amount"], Money("400.00", "BRL"))
-        self.assertEqual(financial_revenue_row["amount"], Money("400.00", "BRL"))
+        self.assertEqual(gross_revenue_row["amount"], Money("250.00", "BRL"))
+        self.assertEqual(financial_revenue_row["amount"], Money("250.00", "BRL"))
         self.assertEqual(financial_revenue_row["detail_kind"], "group_entries")
         self.assertEqual(financial_revenue_row["details"][0]["group"].name, "Vendas")
-        self.assertEqual(financial_revenue_row["details"][0]["amount"], Money("400.00", "BRL"))
+        self.assertEqual(financial_revenue_row["details"][0]["amount"], Money("250.00", "BRL"))
         self.assertEqual(financial_revenue_row["details"][0]["children"][0]["group"].name, "Servicos Rapidos")
-        self.assertEqual(financial_revenue_row["details"][0]["children"][0]["amount"], Money("400.00", "BRL"))
+        self.assertEqual(financial_revenue_row["details"][0]["children"][0]["amount"], Money("250.00", "BRL"))
         self.assertEqual(
             financial_revenue_row["details"][0]["children"][0]["details"][0]["summary"],
             f"O.S #{workorder.budget.pk} - Cliente Receita",
         )
+
+    def test_results_page_excludes_warranty_and_courtesy_workorders_from_financial_group_tree(self) -> None:
+        revenue_root = FinancialGroup.objects.create(workshop=self.workshop, name="Vendas")
+        revenue_child = FinancialGroup.objects.create(workshop=self.workshop, parent=revenue_root, name="Servicos Rapidos")
+
+        sale_customer = Customer.objects.create(workshop=self.workshop, name="Cliente Venda", cpf_or_cnpj="12345678902", email="cliente.venda@example.com")
+        warranty_customer = Customer.objects.create(workshop=self.workshop, name="Cliente Garantia", cpf_or_cnpj="12345678903", email="cliente.garantia@example.com")
+        courtesy_customer = Customer.objects.create(workshop=self.workshop, name="Cliente Cortesia", cpf_or_cnpj="12345678904", email="cliente.cortesia@example.com")
+
+        product_group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Receita Filtro")
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code="DRE-REV-FILTRO",
+            unit=Product.Unit.UND,
+            name="Produto Receita Filtro",
+            group=product_group,
+            cost_price=Money("120.00", "BRL"),
+            selling_price=Money("250.00", "BRL"),
+        )
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pagamento Receita Filtro")
+
+        def create_grouped_workorder(*, customer: Customer, budget_type: str, is_warranty_budget: bool, payment_amount: str, reference_day: int) -> WorkOrder:
+            budget = Budget.objects.create(
+                workshop=self.workshop,
+                customer=customer,
+                entry_date=date(2026, 1, reference_day),
+                status=BudgetStatus.APPROVED,
+                budget_type=budget_type,
+                is_warranty_budget=is_warranty_budget,
+            )
+            workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget)
+            WorkOrder.objects.filter(pk=workorder.pk).update(criado_em=timezone.make_aware(datetime.combine(date(2026, 1, reference_day), datetime.min.time())))
+            workorder.refresh_from_db()
+            WorkOrderItem.objects.create(workshop=self.workshop, workorder=workorder, product=product, quantity=1, shipping=Money("0.00", "BRL"))
+            WorkOrderPaymentMethod.objects.create(
+                workorder=workorder,
+                payment_method=payment_method,
+                installments_count=1,
+                first_installment_amount=Money(payment_amount, "BRL"),
+                remaining_installments_amount=Money("0.00", "BRL"),
+                due_date=date(2026, 1, 20),
+            )
+            sync_workorder_financial_movement(workorder=workorder)
+            movement = FinancialMovement.objects.get(workorder=workorder, movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT)
+            movement.budget_plan = revenue_child
+            movement.save(update_fields=["budget_plan"])
+            return workorder
+
+        sale_workorder = create_grouped_workorder(customer=sale_customer, budget_type=BudgetType.SALE, is_warranty_budget=False, payment_amount="250.00", reference_day=10)
+        create_grouped_workorder(customer=warranty_customer, budget_type=BudgetType.WARRANTY, is_warranty_budget=True, payment_amount="180.00", reference_day=11)
+        create_grouped_workorder(customer=courtesy_customer, budget_type=BudgetType.COURTESY, is_warranty_budget=False, payment_amount="90.00", reference_day=12)
+
+        result = build_dre_calculation(
+            workshops=[self.workshop],
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+            tipo_data="A",
+        )
+        rows = {row["component"]: row for row in result.rows}
+        financial_revenue_row = rows["receitas_financeiras"]
+
+        self.assertEqual(financial_revenue_row["amount"], Money("250.00", "BRL"))
+        self.assertEqual(len(financial_revenue_row["details"][0]["children"][0]["details"]), 1)
+        movement_summaries = [detail["summary"] for detail in financial_revenue_row["details"][0]["children"][0]["details"]]
+        self.assertEqual(movement_summaries, [f"O.S #{sale_workorder.budget.pk} - Cliente Venda"])
 
     def test_results_page_adds_negative_financial_expense_to_operating_result(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas Financeiras")
