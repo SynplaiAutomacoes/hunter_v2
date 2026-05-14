@@ -1510,6 +1510,37 @@ class DashboardMetricsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["qtd_carros_mes"], 1)
 
+    def test_dashboard_retorno_em_garantia_uses_qtd_carros_as_denominator(self):
+        today = timezone.localdate()
+
+        for _ in range(2):
+            Budget.objects.create(
+                workshop=self.workshop,
+                entry_date=today,
+                budget_type=BudgetType.WARRANTY,
+                is_warranty_budget=True,
+            )
+
+        for _ in range(4):
+            budget = Budget.objects.create(
+                workshop=self.workshop,
+                entry_date=today,
+                budget_type=BudgetType.SALE,
+                is_warranty_budget=False,
+            )
+            WorkOrder.objects.create(
+                workshop=self.workshop,
+                budget=budget,
+                status=WorkOrderStatus.APPROVED,
+                delivered_at=timezone.now(),
+            )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["qtd_carros_mes"], 4)
+        self.assertEqual(response.context["indice_retorno_em_garantia_mes"], 50)
+
     def test_dashboard_projection_uses_elapsed_business_days_for_current_month(self):
         today = timezone.localdate()
         self._create_workshop_cost(reference_date=today, work_days_per_month=22)
