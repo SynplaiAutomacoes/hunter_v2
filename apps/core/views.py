@@ -276,14 +276,55 @@ def metricas_dashboard(request) -> dict[str, Any]:
 
     orcamentos_aprovados_mes = Budget.objects.filter(workshop=workshop, status=BudgetStatus.APPROVED, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado)
     rentabilidades = [b.rentability for b in orcamentos_aprovados_mes if b.rentability is not None]
-    qtd_garantias_mes = Budget.objects.filter(workshop=workshop, is_warranty_budget=True, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado).count()
+
+    # Métricas
+    # qtd_carros_mes = (Budget.objects.filter(workshop=workshop, status=BudgetStatus.APPROVED, entry_date__month=mes_selecionado,
+    #                                         entry_date__year=ano_selecionado).exclude(reference_budget__isnull=False).count())
+    qtd_carros_mes = (
+        WorkOrder.objects.filter(
+            workshop=workshop,
+            status=WorkOrderStatus.APPROVED,
+            budget__reference_budget__isnull=True,
+        )
+        .filter(
+            Q(
+                delivered_at__month=mes_selecionado,
+                delivered_at__year=ano_selecionado,
+            )
+            | Q(
+                delivered_at__isnull=True,
+                signature_request_status=WorkOrderSignatureStatus.APPROVED,
+                atualizado_em__month=mes_selecionado,
+                atualizado_em__year=ano_selecionado,
+            )
+        )
+        .count()
+    )
+    qtd_garantias_mes = (
+        WorkOrder.objects.filter(
+            workshop=workshop,
+            budget_type="warranty",
+            status=WorkOrderStatus.APPROVED,
+        )
+        .filter(
+            Q(
+                delivered_at__month=mes_selecionado,
+                delivered_at__year=ano_selecionado,
+            )
+            | Q(
+                delivered_at__isnull=True,
+                signature_request_status=WorkOrderSignatureStatus.APPROVED,
+                atualizado_em__month=mes_selecionado,
+                atualizado_em__year=ano_selecionado,
+            )
+        )
+        .count()
+    )
     orcamentos_taxa_base = Budget.objects.filter(
         workshop=workshop,
         entry_date__month=mes_selecionado,
         entry_date__year=ano_selecionado,
-        budget_type=BudgetType.SALE,
-        is_warranty_budget=False,
-    )
+    ).exclude(budget_type__in=["warranty", "courtesy"])
     orcamentos_criados_no_mes = orcamentos_taxa_base.count()
     orcamentos_aprovados_no_mes = orcamentos_taxa_base.filter(status=BudgetStatus.APPROVED).count()
 
