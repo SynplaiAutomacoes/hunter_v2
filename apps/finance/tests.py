@@ -8137,9 +8137,14 @@ class DreReportViewTests(TestCase):
 
         self.assertEqual(revenue_row["detail_kind"], "group_entries")
         self.assertEqual(expense_row["detail_kind"], "group_entries")
-        self.assertEqual(revenue_row["amount"], Money("0.00", "BRL"))
+        self.assertEqual(revenue_row["amount"], Money("35.00", "BRL"))
         self.assertEqual(expense_row["amount"], Money("20.00", "BRL"))
-        self.assertEqual(revenue_row["details"], [])
+
+        self.assertEqual(revenue_row["details"][0]["group"].name, "Receitas Financeiras")
+        self.assertEqual(revenue_row["details"][0]["amount"], Money("35.00", "BRL"))
+        self.assertEqual(revenue_row["details"][0]["details"][0]["summary"], "Juros recebidos")
+        self.assertEqual(revenue_row["details"][0]["children"][0]["group"].name, "Rendimentos")
+        self.assertEqual(revenue_row["details"][0]["children"][0]["details"][0]["summary"], "Rendimento aplicacao")
 
         self.assertEqual(expense_row["details"][0]["group"].name, "Despesas Financeiras")
         self.assertEqual(expense_row["details"][0]["amount"], Money("20.00", "BRL"))
@@ -8147,6 +8152,8 @@ class DreReportViewTests(TestCase):
         self.assertEqual(expense_row["details"][0]["children"][0]["group"].name, "Tarifas")
         self.assertEqual(expense_row["details"][0]["children"][0]["details"][0]["summary"], "Tarifa TED")
 
+        self.assertContains(response, revenue_root.name)
+        self.assertContains(response, revenue_child.name)
         self.assertContains(response, expense_root.name)
         self.assertContains(response, expense_child.name)
 
@@ -8231,6 +8238,70 @@ class DreReportViewTests(TestCase):
             financial_revenue_row["details"][0]["children"][0]["details"][0]["summary"],
             f"O.S #{workorder.budget.pk} - Cliente Receita",
         )
+
+    def test_results_page_keeps_multiple_workorder_payments_as_separate_financial_revenue_entries(self) -> None:
+        revenue_root = FinancialGroup.objects.create(workshop=self.workshop, name="Vendas")
+        revenue_child = FinancialGroup.objects.create(workshop=self.workshop, parent=revenue_root, name="Servicos Rapidos")
+
+        customer = Customer.objects.create(workshop=self.workshop, name="Cliente Parcelado", cpf_or_cnpj="12345678908", email="cliente.parcelado@example.com")
+        budget = Budget.objects.create(workshop=self.workshop, customer=customer, entry_date=date(2026, 1, 10), status=BudgetStatus.APPROVED)
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget)
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix")
+        WorkOrderPaymentMethod.objects.create(
+            workorder=workorder,
+            payment_method=payment_method,
+            installments_count=1,
+            first_installment_amount=Money("200.00", "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            due_date=date(2026, 1, 20),
+        )
+        WorkOrderPaymentMethod.objects.create(
+            workorder=workorder,
+            payment_method=payment_method,
+            installments_count=1,
+            first_installment_amount=Money("300.00", "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            due_date=date(2026, 1, 21),
+        )
+
+        sync_workorder_financial_movement(workorder=workorder)
+        revenue_movement = FinancialMovement.objects.get(workorder=workorder, movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT)
+        revenue_movement.budget_plan = revenue_child
+        revenue_movement.save(update_fields=["budget_plan"])
+
+        result = build_dre_calculation(
+            workshops=[self.workshop],
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+            tipo_data="A",
+        )
+        details = result.rows[3]["details"][0]["children"][0]["details"]
+
+        self.assertEqual(len(details), 2)
+        self.assertEqual([detail["amount"] for detail in details], [Money("200.00", "BRL"), Money("300.00", "BRL")])
+
+    def test_results_page_includes_non_workorder_credit_entries_in_financial_revenue(self) -> None:
+        receitas_group = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.RECEITAS_FINANCEIRAS,
+            amount="125.00",
+            due_date=date(2026, 1, 10),
+            description="Receita avulsa",
+        )
+        revenue_movement = FinancialMovement.objects.latest("pk")
+        revenue_movement.budget_plan = receitas_group
+        revenue_movement.save(update_fields=["budget_plan"])
+
+        result = build_dre_calculation(
+            workshops=[self.workshop],
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+            tipo_data="A",
+        )
+        rows = {row["component"]: row for row in result.rows}
+
+        self.assertEqual(rows["receitas_financeiras"]["amount"], Money("125.00", "BRL"))
+        self.assertEqual(rows["receitas_financeiras"]["details"][0]["details"][0]["summary"], "Receita avulsa")
 
     def test_results_page_includes_current_month_payment_even_when_workorder_movement_due_date_is_older(self) -> None:
         revenue_root = FinancialGroup.objects.create(workshop=self.workshop, name="Vendas")
@@ -8451,7 +8522,7 @@ class DreReportViewTests(TestCase):
         rows = {row["component"]: row for row in result.rows}
         financial_revenue_row = rows["receitas_financeiras"]
 
-        self.assertEqual(financial_revenue_row["amount"], Money("520.00", "BRL"))
+        self.assertEqual(financial_revenue_row["amount"], Money("1020.00", "BRL"))
         self.assertEqual(len(financial_revenue_row["details"][0]["children"][0]["details"]), 3)
         movement_summaries = [detail["summary"] for detail in financial_revenue_row["details"][0]["children"][0]["details"]]
         self.assertEqual(
@@ -8462,6 +8533,7 @@ class DreReportViewTests(TestCase):
                 f"O.S #{courtesy_workorder.budget.pk} - Cliente Cortesia",
             ],
         )
+        self.assertEqual(financial_revenue_row["details"][1]["details"][0]["summary"], "Receita financeira avulsa")
 
     def test_results_page_adds_negative_financial_expense_to_operating_result(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas Financeiras")
@@ -8492,9 +8564,9 @@ class DreReportViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         rows = {row["label"]: row for row in response.context["dre_rows"]}
-        self.assertEqual(rows["Receitas Financeiras"]["amount"], Money("0.00", "BRL"))
+        self.assertEqual(rows["Receitas Financeiras"]["amount"], Money("100.00", "BRL"))
         self.assertEqual(rows["Despesas Financeiras"]["amount"], Money("-25.00", "BRL"))
-        self.assertEqual(rows["(=) Resultado Operacional"]["amount"], Money("-25.00", "BRL"))
+        self.assertEqual(rows["(=) Resultado Operacional"]["amount"], Money("75.00", "BRL"))
 
     def test_results_page_keeps_derived_rows_static_without_dropdown_details(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
