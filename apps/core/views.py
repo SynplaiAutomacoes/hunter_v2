@@ -17,7 +17,7 @@ from django.views.generic import TemplateView
 
 from apps.budget.models import Budget, BudgetStatus, BudgetType
 from apps.finance.models.financial_movement import FinancialMovement
-from apps.workorder.models import WorkOrderPaymentMethod, WorkOrderStatus, WorkOrder
+from apps.workorder.models import WorkOrderStatus, WorkOrder
 import calendar
 from apps.core.favorites import FavoritePageLimitError, InvalidFavoritePageError, reorder_favorite_pages, toggle_favorite_page
 from apps.core.navigation import build_favoritable_page
@@ -222,9 +222,24 @@ def metricas_dashboard(request) -> dict[str, Any]:
             pass
 
     # Auxiliares (valores que não serão retornados no dict, mas que servem para auxílio nas contas das métricas)
-    pagamentos_total_vendido = list(WorkOrderPaymentMethod.objects.filter(workorder__workshop=workshop, due_date__month=mes_selecionado, due_date__year=ano_selecionado).select_related("workorder").order_by("due_date", "pk"))
-    total_vendido_ate_a_data = sum((payment.total_paid.amount for payment in pagamentos_total_vendido), Decimal("0.00"))
-    dias_transcorridos = len({payment.due_date for payment in pagamentos_total_vendido})
+    movimentacoes_total_vendido = list(
+        FinancialMovement.objects.filter(
+            workshop=workshop,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            is_paid=True,
+            due_date__month=mes_selecionado,
+            due_date__year=ano_selecionado,
+        )
+        .exclude(
+            movement_kind__in=(
+                FinancialMovement.MovementKind.WORKORDER_PARENT,
+                FinancialMovement.MovementKind.GROUP_PARENT,
+            )
+        )
+        .order_by("due_date", "pk")
+    )
+    total_vendido_ate_a_data = sum((getattr(movement.amount, "amount", movement.amount) or Decimal("0.00") for movement in movimentacoes_total_vendido), Decimal("0.00"))
+    dias_transcorridos = len({movement.due_date for movement in movimentacoes_total_vendido if movement.due_date is not None})
 
     _, dias_no_mes = calendar.monthrange(ano_selecionado, mes_selecionado)
     dias_faltantes = dias_no_mes

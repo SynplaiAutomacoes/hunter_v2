@@ -20,6 +20,7 @@ from apps.collaborators.models import WorkshopMember
 from apps.core.documents.signature import SIGNATURE_POSITION, build_absolute_app_url, normalize_signature_phone_number
 from apps.core.templatetags.table_tags import TableColumn, render_table
 from apps.finance.models.financial_movement import FinancialMovement
+from apps.finance.models.movement_group import MovementGroup
 from apps.iam.utils import get_or_create_director_role
 from apps.workshops.models.workshops import Workshop
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
@@ -1306,25 +1307,77 @@ class DashboardMetricsTests(TestCase):
         self.assertEqual(response.context["total_os_a_receber_em_execucao"], 150)
         self.assertContains(response, "R$ 150,00")
 
-    def test_dashboard_total_vendido_sums_workorder_payments_for_selected_month(self):
+    def test_dashboard_total_vendido_sums_paid_credit_child_movements_for_selected_month(self):
         today = timezone.localdate()
         previous_month_date = today - timedelta(days=40)
 
-        budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
-        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.DRAFT)
-
         FinancialMovement.objects.create(
             workshop=self.workshop,
-            workorder=workorder,
             direction=FinancialMovement.MovementDirection.CREDIT,
-            amount=Money("500.00", "BRL"),
+            amount=Money("100.00", "BRL"),
+            due_date=today,
+            is_paid=True,
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("50.00", "BRL"),
+            due_date=today,
+            is_paid=True,
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("90.00", "BRL"),
+            due_date=today,
+            is_paid=False,
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("80.00", "BRL"),
+            due_date=today,
+            is_paid=True,
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            amount=Money("700.00", "BRL"),
             due_date=today,
             is_paid=True,
         )
 
-        self._create_workorder_payment(workshop=self.workshop, workorder=workorder, amount="100.00", due_date=today)
-        self._create_workorder_payment(workshop=self.workshop, workorder=workorder, amount="50.00", due_date=today)
-        self._create_workorder_payment(workshop=self.workshop, workorder=workorder, amount="25.00", due_date=previous_month_date)
+        group = MovementGroup.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            name="Grupo Dashboard",
+            due_date=today,
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            movement_kind=FinancialMovement.MovementKind.GROUP_PARENT,
+            movement_group=group,
+            amount=Money("500.00", "BRL"),
+            due_date=today,
+            is_paid=True,
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            movement_group=group,
+            amount=Money("70.00", "BRL"),
+            due_date=today,
+            is_paid=True,
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("40.00", "BRL"),
+            due_date=previous_month_date,
+            is_paid=True,
+        )
 
         other_workshop = Workshop.objects.create(
             account=self.account,
@@ -1333,21 +1386,35 @@ class DashboardMetricsTests(TestCase):
             phone="+5511777777777",
             address="Rua Externa, 789",
         )
-        self._create_workorder_payment(workshop=other_workshop, amount="300.00", due_date=today)
+        FinancialMovement.objects.create(
+            workshop=other_workshop,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("300.00", "BRL"),
+            due_date=today,
+            is_paid=True,
+        )
 
         response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["total_vendido_ate_a_data"], Decimal("150.00"))
-        self.assertContains(response, "R$ 150,00")
+        self.assertEqual(response.context["total_vendido_ate_a_data"], Decimal("220.00"))
+        self.assertContains(response, "R$ 220,00")
 
     def test_dashboard_ticket_medio_uses_paid_workorders_in_selected_month(self):
         today = timezone.localdate()
 
-        self._create_workorder_receivable(
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
+        workorder = WorkOrder.objects.create(
             workshop=self.workshop,
-            workorder_status=WorkOrderStatus.DRAFT,
-            amount="500.00",
+            budget=budget,
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("500.00", "BRL"),
             due_date=today,
             is_paid=True,
         )
