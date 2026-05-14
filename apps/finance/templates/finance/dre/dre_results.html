@@ -132,75 +132,89 @@
                                     <tr class="bg-base-200/40" x-cloak x-show="openRow === '{{ row.component }}'">
                                         <td colspan="2" class="p-0">
                                             <div class="border-t border-base-300 px-4 py-4 md:px-6">
-                                                <div class="overflow-hidden rounded-xl border border-base-300 bg-base-100">
-                                                    <table class="table table-sm">
-                                                        <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
-                                                            <tr>
-                                                                {% if row.detail_kind == 'components' %}
-                                                                    <th>Composição da linha</th>
-                                                                    <th class="text-right">Valor</th>
-                                                                {% elif row.detail_kind == 'financial_entries' %}
-                                                                    <th>Itens incluídos</th>
-                                                                    <th>Referência</th>
-                                                                    <th class="text-right">Valor</th>
-                                                                {% else %}
-                                                                    <th>O.S. incluídas</th>
-                                                                    <th class="text-right">Valor total</th>
-                                                                {% endif %}
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            {% if row.details %}
-                                                                {% for detail in row.details %}
-                                                                    <tr>
-                                                                        {% if row.detail_kind == 'components' %}
-                                                                            <td class="{% if detail.is_total %}font-bold text-base-content{% else %}font-semibold text-base-content{% endif %}">{{ detail.summary }}</td>
-                                                                            <td class="text-right {% if detail.is_total %}font-bold text-base-content{% else %}font-semibold text-base-content{% endif %}">{{ detail.amount }}</td>
-                                                                        {% elif row.detail_kind == 'financial_entries' %}
-                                                                            <td class="font-semibold text-base-content">
-                                                                                {% if detail.workorder_id %}
-                                                                                    <a href="{% url 'workorder:workorder_detail' detail.workorder_id %}" class="hover:underline">
-                                                                                        {{ detail.summary }}
-                                                                                    </a>
-                                                                                {% else %}
-                                                                                    {{ detail.summary }}
-                                                                                {% endif %}
-                                                                            </td>
-                                                                            <td class="text-base-content/65">{{ detail.reference }}</td>
-                                                                            <td class="text-right font-semibold text-base-content">
-                                                                                {% if detail.movement %}
-                                                                                    <span class="{{ detail.movement.report_total_display.class }}">{{ detail.movement.report_total_display.text }}</span>
-                                                                                {% else %}
-                                                                                    {% if row.tone == 'negative' %}
-                                                                                        <span class="text-error font-semibold whitespace-nowrap">- {{ detail.amount }}</span>
-                                                                                    {% else %}
-                                                                                        <span class="text-success font-semibold whitespace-nowrap">+ {{ detail.amount }}</span>
-                                                                                    {% endif %}
-                                                                                {% endif %}
-                                                                            </td>
-                                                                        {% else %}
-                                                                            <td>
-                                                                                <div class="space-y-1">
-                                                                                    <p>
-                                                                                        <a href="{% url 'workorder:workorder_detail' detail.workorder_id %}" class="font-semibold text-primary transition hover:underline">
+                                                {% if row.detail_kind == 'group_entries' %}
+                                                    <div class="space-y-3" x-data="{ openGroups: {} }">
+                                                        {% if row.details %}
+                                                            {% for node in row.details %}
+                                                                {% include 'finance/dre/partials/group_tree_node.html' with node=node tone=row.tone %}
+                                                            {% endfor %}
+                                                        {% else %}
+                                                            <div class="rounded-xl border border-base-300 bg-base-100 px-4 py-6 text-center text-base-content/60">
+                                                                Não há dados neste período.
+                                                            </div>
+                                                        {% endif %}
+                                                    </div>
+                                                {% else %}
+                                                    <div class="overflow-hidden rounded-xl border border-base-300 bg-base-100">
+                                                        <table class="table table-sm">
+                                                            <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
+                                                                <tr>
+                                                                    {% if row.detail_kind == 'components' %}
+                                                                        <th>Composição da linha</th>
+                                                                        <th class="text-right">Valor</th>
+                                                                    {% elif row.detail_kind == 'financial_entries' %}
+                                                                        <th>Itens incluídos</th>
+                                                                        <th>Referência</th>
+                                                                        <th class="text-right">Valor</th>
+                                                                    {% else %}
+                                                                        <th>O.S. incluídas</th>
+                                                                        <th class="text-right">Valor total</th>
+                                                                    {% endif %}
+                                                                </tr>
+                                                            </thead>
+                                                            <tbody>
+                                                                {% if row.details %}
+                                                                    {% for detail in row.details %}
+                                                                        <tr>
+                                                                            {% if row.detail_kind == 'components' %}
+                                                                                <td class="{% if detail.is_total %}font-bold text-base-content{% else %}font-semibold text-base-content{% endif %}">{{ detail.summary }}</td>
+                                                                                <td class="text-right {% if detail.is_total %}font-bold text-base-content{% else %}font-semibold text-base-content{% endif %}">{{ detail.amount }}</td>
+                                                                            {% elif row.detail_kind == 'financial_entries' %}
+                                                                                <td class="font-semibold text-base-content">
+                                                                                    {% if detail.workorder_id %}
+                                                                                        <a href="{% url 'workorder:workorder_detail' detail.workorder_id %}" class="hover:underline">
                                                                                             {{ detail.summary }}
                                                                                         </a>
-                                                                                    </p>
-                                                                                    <p class="text-xs text-base-content/65">Data Entrada: {{ detail.entry_date|date:"d/m/Y"|default:"-" }} | Data Saída: {{ detail.payment_date|date:"d/m/Y"|default:"-" }}</p>
-                                                                                </div>
-                                                                            </td>
-                                                                            <td class="text-right font-semibold text-base-content">{{ detail.amount }}</td>
-                                                                        {% endif %}
+                                                                                    {% else %}
+                                                                                        {{ detail.summary }}
+                                                                                    {% endif %}
+                                                                                </td>
+                                                                                <td class="text-base-content/65">{{ detail.reference }}</td>
+                                                                                <td class="text-right font-semibold text-base-content">
+                                                                                    {% if detail.movement %}
+                                                                                        <span class="{{ detail.movement.report_total_display.class }}">{{ detail.movement.report_total_display.text }}</span>
+                                                                                    {% else %}
+                                                                                        {% if row.tone == 'negative' %}
+                                                                                            <span class="text-error font-semibold whitespace-nowrap">- {{ detail.amount }}</span>
+                                                                                        {% else %}
+                                                                                            <span class="text-success font-semibold whitespace-nowrap">+ {{ detail.amount }}</span>
+                                                                                        {% endif %}
+                                                                                    {% endif %}
+                                                                                </td>
+                                                                            {% else %}
+                                                                                <td>
+                                                                                    <div class="space-y-1">
+                                                                                        <p>
+                                                                                            <a href="{% url 'workorder:workorder_detail' detail.workorder_id %}" class="font-semibold text-primary transition hover:underline">
+                                                                                                {{ detail.summary }}
+                                                                                            </a>
+                                                                                        </p>
+                                                                                        <p class="text-xs text-base-content/65">Data Entrada: {{ detail.entry_date|date:"d/m/Y"|default:"-" }} | Data Saída: {{ detail.payment_date|date:"d/m/Y"|default:"-" }}</p>
+                                                                                    </div>
+                                                                                </td>
+                                                                                <td class="text-right font-semibold text-base-content">{{ detail.amount }}</td>
+                                                                            {% endif %}
+                                                                        </tr>
+                                                                    {% endfor %}
+                                                                {% else %}
+                                                                    <tr>
+                                                                        <td colspan="{% if row.detail_kind == 'financial_entries' %}3{% else %}2{% endif %}" class="py-4 text-center text-base-content/60">Não há dados neste período.</td>
                                                                     </tr>
-                                                                {% endfor %}
-                                                            {% else %}
-                                                                <tr>
-                                                                    <td colspan="{% if row.detail_kind == 'financial_entries' %}3{% else %}2{% endif %}" class="py-4 text-center text-base-content/60">Não há dados neste período.</td>
-                                                                </tr>
-                                                            {% endif %}
-                                                        </tbody>
-                                                    </table>
-                                                </div>
+                                                                {% endif %}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                {% endif %}
                                             </div>
                                         </td>
                                     </tr>

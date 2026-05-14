@@ -7493,8 +7493,10 @@ class DreReportViewTests(TestCase):
         self.assertEqual(rows["(-) Despesas Financeiras"]["amount"], Money("70.00", "BRL"))
         self.assertEqual(rows["(=) Resultado Operacional"]["amount"], Money("-30.00", "BRL"))
         self.assertEqual([detail["summary"] for detail in rows["(+) Receita Bruta de Vendas e Serviços"]["details"]], ["Receita paga"])
-        self.assertEqual([detail["summary"] for detail in rows["(+) Receitas Financeiras"]["details"]], ["Receita financeira paga"])
-        self.assertEqual([detail["summary"] for detail in rows["(-) Despesas Financeiras"]["details"]], ["Despesa paga"])
+        revenue_details = [detail for detail in rows["(+) Receitas Financeiras"]["details"] if detail.get("kind") == "movement"]
+        expense_details = [detail for detail in rows["(-) Despesas Financeiras"]["details"] if detail.get("kind") == "movement"]
+        self.assertEqual([detail["detail"]["summary"] for detail in revenue_details], ["Receita financeira paga"])
+        self.assertEqual([detail["detail"]["summary"] for detail in expense_details], ["Despesa paga"])
 
     def test_results_page_filters_unpaid_movements_when_tipo_data_is_npg(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
@@ -7578,8 +7580,10 @@ class DreReportViewTests(TestCase):
         self.assertEqual(rows["(-) Despesas Financeiras"]["amount"], Money("30.00", "BRL"))
         self.assertEqual(rows["(=) Resultado Operacional"]["amount"], Money("-15.00", "BRL"))
         self.assertEqual([detail["summary"] for detail in rows["(+) Receita Bruta de Vendas e Serviços"]["details"]], ["Receita em aberto"])
-        self.assertEqual([detail["summary"] for detail in rows["(+) Receitas Financeiras"]["details"]], ["Receita financeira em aberto"])
-        self.assertEqual([detail["summary"] for detail in rows["(-) Despesas Financeiras"]["details"]], ["Despesa em aberto"])
+        revenue_details = [detail for detail in rows["(+) Receitas Financeiras"]["details"] if detail.get("kind") == "movement"]
+        expense_details = [detail for detail in rows["(-) Despesas Financeiras"]["details"] if detail.get("kind") == "movement"]
+        self.assertEqual([detail["detail"]["summary"] for detail in revenue_details], ["Receita financeira em aberto"])
+        self.assertEqual([detail["detail"]["summary"] for detail in expense_details], ["Despesa em aberto"])
 
     def test_results_page_treats_invalid_tipo_data_as_ambos(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
@@ -7975,9 +7979,10 @@ class DreReportViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         expense_row = next(row for row in response.context["dre_rows"] if row["component"] == "despesas_financeiras")
 
-        self.assertEqual(expense_row["detail_kind"], "financial_entries")
+        self.assertEqual(expense_row["detail_kind"], "group_entries")
         self.assertEqual(expense_row["amount"], Money("70.00", "BRL"))
-        detail_map = {detail["summary"]: (detail["reference"], detail["amount"]) for detail in expense_row["details"]}
+        movement_details = [detail for node in expense_row["details"] for detail in node["details"]]
+        detail_map = {detail["summary"]: (detail["reference"], detail["amount"]) for detail in movement_details}
         self.assertEqual(len(detail_map), 2)
         self.assertEqual(detail_map["Aluguel 1/2026"], (f"Origem: {rent_movement.source.name}", Money("60.00", "BRL")))
         self.assertEqual(detail_map["Taxas bancarias 1/2026"], (f"Origem: {bank_fee_movement.source.name}", Money("10.00", "BRL")))
@@ -8020,7 +8025,8 @@ class DreReportViewTests(TestCase):
         expense_row = next(row for row in response.context["dre_rows"] if row["component"] == "despesas_financeiras")
 
         self.assertEqual(expense_row["amount"], Money("95.00", "BRL"))
-        detail_map = {detail["summary"]: (detail["reference"], detail["amount"]) for detail in expense_row["details"]}
+        movement_details = [detail for node in expense_row["details"] for detail in node["details"]]
+        detail_map = {detail["summary"]: (detail["reference"], detail["amount"]) for detail in movement_details}
         self.assertEqual(len(detail_map), 3)
         self.assertEqual(detail_map["Salarios mecanicos produtivos"], (f"Origem: {salary_movement.source.name}", Money("25.00", "BRL")))
         self.assertEqual(detail_map["Aluguel 1/2026"], (f"Origem: {rent_movement.source.name}", Money("60.00", "BRL")))
@@ -8056,6 +8062,117 @@ class DreReportViewTests(TestCase):
         content = response.content.decode("utf-8")
         self.assertEqual(content.count("chevron_right"), 4)
         self.assertIn("Não há dados neste período.", content)
+
+    def test_results_page_groups_financial_revenue_and_expense_by_financial_group_hierarchy(self) -> None:
+        revenue_root = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas Financeiras")
+        revenue_child = FinancialGroup.objects.create(workshop=self.workshop, parent=revenue_root, name="Rendimentos")
+        expense_root = FinancialGroup.objects.create(workshop=self.workshop, name="Despesas Financeiras")
+        expense_child = FinancialGroup.objects.create(workshop=self.workshop, parent=expense_root, name="Tarifas")
+
+        revenue_root_movement = self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.RECEITAS_FINANCEIRAS,
+            amount="10.00",
+            due_date=date(2026, 1, 10),
+            description="Juros recebidos",
+        )
+        revenue_root_movement.budget_plan = revenue_root
+        revenue_root_movement.save(update_fields=["budget_plan"])
+
+        revenue_child_movement = self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.RECEITAS_FINANCEIRAS,
+            amount="25.00",
+            due_date=date(2026, 1, 11),
+            description="Rendimento aplicacao",
+        )
+        revenue_child_movement.budget_plan = revenue_child
+        revenue_child_movement.save(update_fields=["budget_plan"])
+
+        expense_root_movement = self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.DESPESAS_FINANCEIRAS,
+            amount="8.00",
+            due_date=date(2026, 1, 12),
+            description="Despesa bancaria",
+        )
+        expense_root_movement.budget_plan = expense_root
+        expense_root_movement.save(update_fields=["budget_plan"])
+
+        expense_child_movement = self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.DESPESAS_FINANCEIRAS,
+            amount="12.00",
+            due_date=date(2026, 1, 13),
+            description="Tarifa TED",
+        )
+        expense_child_movement.budget_plan = expense_child
+        expense_child_movement.save(update_fields=["budget_plan"])
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        revenue_row = next(row for row in response.context["dre_rows"] if row["component"] == "receitas_financeiras")
+        expense_row = next(row for row in response.context["dre_rows"] if row["component"] == "despesas_financeiras")
+
+        self.assertEqual(revenue_row["detail_kind"], "group_entries")
+        self.assertEqual(expense_row["detail_kind"], "group_entries")
+        self.assertEqual(revenue_row["amount"], Money("35.00", "BRL"))
+        self.assertEqual(expense_row["amount"], Money("20.00", "BRL"))
+
+        self.assertEqual(revenue_row["details"][0]["group"].name, "Receitas Financeiras")
+        self.assertEqual(revenue_row["details"][0]["amount"], Money("35.00", "BRL"))
+        self.assertEqual(revenue_row["details"][0]["details"][0]["summary"], "Juros recebidos")
+        self.assertEqual(revenue_row["details"][0]["children"][0]["group"].name, "Rendimentos")
+        self.assertEqual(revenue_row["details"][0]["children"][0]["details"][0]["summary"], "Rendimento aplicacao")
+
+        self.assertEqual(expense_row["details"][0]["group"].name, "Despesas Financeiras")
+        self.assertEqual(expense_row["details"][0]["amount"], Money("20.00", "BRL"))
+        self.assertEqual(expense_row["details"][0]["details"][0]["summary"], "Despesa bancaria")
+        self.assertEqual(expense_row["details"][0]["children"][0]["group"].name, "Tarifas")
+        self.assertEqual(expense_row["details"][0]["children"][0]["details"][0]["summary"], "Tarifa TED")
+
+        self.assertContains(response, revenue_root.code_label)
+        self.assertContains(response, revenue_child.code_label)
+        self.assertContains(response, expense_root.code_label)
+        self.assertContains(response, expense_child.code_label)
+
+    def test_results_page_adds_negative_financial_expense_to_operating_result(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas Financeiras")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Despesas Financeiras")
+
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.RECEITAS_FINANCEIRAS,
+            amount="100.00",
+            due_date=date(2026, 1, 10),
+            description="Receita financeira",
+        )
+        self._create_dre_financial_movement(
+            dre_topic=FinancialMovement.DreTopic.DESPESAS_FINANCEIRAS,
+            amount="-25.00",
+            due_date=date(2026, 1, 11),
+            description="Despesa negativa",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-01-01",
+                "data_final": "2026-01-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        rows = {row["label"]: row for row in response.context["dre_rows"]}
+        self.assertEqual(rows["Receitas Financeiras"]["amount"], Money("100.00", "BRL"))
+        self.assertEqual(rows["Despesas Financeiras"]["amount"], Money("-25.00", "BRL"))
+        self.assertEqual(rows["(=) Resultado Operacional"]["amount"], Money("75.00", "BRL"))
 
     def test_results_page_keeps_derived_rows_static_without_dropdown_details(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
