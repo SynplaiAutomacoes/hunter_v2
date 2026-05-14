@@ -238,15 +238,11 @@ def metricas_dashboard(request) -> dict[str, Any]:
     projecao: Decimal | None = None
     projecao_warning = ""
     dias_uteis_mes_configurados = int(workshop_cost.work_days_per_month) if workshop_cost is not None else None
-    dias_uteis_efetivos = workshop_cost.get_effective_work_days() if workshop_cost is not None else None
     feriados_uteis = workshop_cost.get_business_holiday_count() if workshop_cost is not None else 0
 
     if workshop_cost is not None:
-        dias_transcorridos = _count_elapsed_business_days(
-            workshop_cost=workshop_cost,
-            today=hoje,
-        )
-        dias_faltantes = max(workshop_cost.get_effective_work_days() - dias_transcorridos, 0)
+        dias_transcorridos = _count_elapsed_business_days(workshop_cost=workshop_cost, today=hoje)
+        dias_faltantes = max(int(workshop_cost.work_days_per_month or 0) - dias_transcorridos, 0)
         if dias_transcorridos > 0:
             media_diaria = total_vendido_ate_a_data / Decimal(dias_transcorridos)
             projecao = (media_diaria * Decimal(dias_faltantes)) + total_vendido_ate_a_data
@@ -341,7 +337,6 @@ def metricas_dashboard(request) -> dict[str, Any]:
         "dias_transcorridos": dias_transcorridos,
         "dias_faltantes": dias_faltantes,
         "dias_uteis_mes_configurados": dias_uteis_mes_configurados,
-        "dias_uteis_efetivos": dias_uteis_efetivos,
         "feriados_uteis": feriados_uteis,
         "total_vendido_ate_a_data": total_vendido_ate_a_data,
         "rentabilidade_acumulada_mes": rentabilidade_acumulada_mes,
