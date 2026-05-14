@@ -531,6 +531,14 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
     PAYMENT_METHOD_DIRECTION_ERROR = "Selecione uma forma de pagamento compatível com o tipo da movimentação."
 
     is_paid = forms.TypedChoiceField(
+        label="Conciliado",
+        required=True,
+        coerce=lambda value: str(value).lower() == "true",
+        choices=((False, "Aguardando Conciliação"), (True, "Conciliado")),
+        widget=SearchableSelectInput(choices=[(False, "Aguardando Conciliação"), (True, "Conciliado")]),
+        initial=False,
+    )
+    payment_status = forms.TypedChoiceField(
         label="Pago",
         required=True,
         coerce=lambda value: str(value).lower() == "true",
@@ -588,6 +596,9 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         self.fields["amount"].required = True
         self.fields["payment_method"].required = True
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
+        self.fields["is_paid"].label = "Conciliado"
+        self.fields["is_paid"].widget = SearchableSelectInput(choices=[(False, "Aguardando Conciliação"), (True, "Conciliado")])
+        self.fields["payment_status"].initial = bool(self.instance.is_paid) if self.instance.pk else False
 
         if self.workshop:
             supplier_qs = Supplier.objects.filter(workshop=self.workshop)
@@ -624,8 +635,8 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
-            HTML('<section x-show="activeTab === \'initial\'" x-cloak class="space-y-4">'),
-            HTML('<h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3"><span class="material-icons text-sm">groups</span> Dados Iniciais</h3>'),
+            HTML('<section x-show="activeTab === \'initial\'" x-cloak class="space-y-4">') if self.instance.workorder_id is None else HTML(""),
+            HTML('<h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3"><span class="material-icons text-sm">groups</span> Dados Iniciais</h3>') if self.instance.workorder_id is None else HTML(""),
             Div(
                 Div("supplier", css_class="col-span-12 lg:col-span-6"),
                 Div("collaborator", css_class="col-span-12 lg:col-span-6"),
@@ -635,16 +646,20 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
                     css_class="col-span-12",
                 ),
                 css_class="grid grid-cols-12 gap-4",
-            ),
-            HTML("</section>"),
-            HTML('<section x-show="activeTab === \'item\'" x-cloak class="space-y-4">'),
-            HTML('<h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3"><span class="material-icons text-sm">inventory_2</span> Sobre o Item</h3>'),
+            )
+            if self.instance.workorder_id is None
+            else HTML(""),
+            HTML("</section>") if self.instance.workorder_id is None else HTML(""),
+            HTML('<section x-show="activeTab === \'item\'" x-cloak class="space-y-4">') if self.instance.workorder_id is None else HTML(""),
+            HTML('<h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3"><span class="material-icons text-sm">inventory_2</span> Sobre o Item</h3>') if self.instance.workorder_id is None else HTML(""),
             Div(
                 Div("description", css_class="col-span-12"),
                 Div("items_observation", css_class="col-span-12"),
                 css_class="grid grid-cols-12 gap-4",
-            ),
-            HTML("</section>"),
+            )
+            if self.instance.workorder_id is None
+            else HTML(""),
+            HTML("</section>") if self.instance.workorder_id is None else HTML(""),
             HTML('<section x-show="activeTab === \'payment\'" x-cloak class="space-y-4">'),
             HTML('<h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3"><span class="material-icons text-sm">payments</span> Sobre o Pagamento</h3>'),
             Div(
@@ -656,6 +671,7 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
                 Div("bank_account", css_class="col-span-12 lg:col-span-6"),
                 #
                 Div("payment_method", css_class="col-span-12 lg:col-span-4"),
+                Div("payment_status", css_class="col-span-12 lg:col-span-4"),
                 Div("is_paid", css_class="col-span-12 lg:col-span-4"),
                 Div("nf_number", css_class="col-span-12 lg:col-span-4"),
                 Div("financial_observation", css_class="col-span-12"),
@@ -720,6 +736,8 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
 
     def clean(self):
         cleaned_data = super().clean()
+        if "payment_status" in cleaned_data:
+            cleaned_data["is_paid"] = cleaned_data["payment_status"]
         supplier = cleaned_data.get("supplier")
         collaborator = cleaned_data.get("collaborator")
         direction = cleaned_data.get("direction")

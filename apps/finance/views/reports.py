@@ -356,6 +356,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         payment_method = getattr(payment, "payment_method", None)
         payment_amount = getattr(payment, "total_paid", None)
         resolved_amount = self._resolve_money_amount(payment_amount)
+        workorder_url = reverse("workorder:workorder_detail", kwargs={"pk": movement.workorder_id}) if movement.workorder_id else None
 
         return {
             "component": f"workorder-payment-{payment.pk}",
@@ -370,7 +371,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "account": movement.report_bank_account_display,
             "payment_type": getattr(payment_method, "description", "-") or "-",
             "edit_url": reverse("finance:financial_movement_update", kwargs={"pk": movement.pk}),
-            "edit_modal_url": reverse("workorder:workorder_detail", kwargs={"pk": movement.workorder_id}),
+            "edit_modal_url": reverse("finance:report_movement_edit", kwargs={"pk": movement.pk}),
             "is_workorder": True,
             "is_group_parent": False,
             "total": {
@@ -381,6 +382,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "summary_direction": FinancialMovement.MovementDirection.CREDIT,
             "summary_amount": resolved_amount,
             "summary_is_paid": True,
+            "workorder_url": workorder_url,
         }
 
     def _get_financial_groups_queryset(self):
@@ -519,9 +521,9 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         edit_modal_url = reverse("finance:report_movement_edit", kwargs={"pk": movement.pk})
         is_workorder = False
         is_group_parent = False
+        workorder_url = reverse("workorder:workorder_detail", kwargs={"pk": movement.workorder_id}) if movement.workorder_id else None
 
         if movement.workorder_id:
-            edit_modal_url = reverse("workorder:workorder_detail", kwargs={"pk": movement.workorder_id})
             is_workorder = True
 
         if workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
@@ -564,6 +566,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "summary_direction": movement.direction,
             "summary_amount": self._resolve_money_amount(movement.amount),
             "summary_is_paid": bool(movement.is_paid),
+            "workorder_url": workorder_url,
         }
 
     def _build_pagination_url(self, *, page_number: int) -> str:

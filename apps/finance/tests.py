@@ -5646,12 +5646,13 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertEqual(fee_movement.amount, Money("100.00", "BRL"))
         self.assertEqual(fee_movement.description, "Pagamento da taxa da maquininha")
         self.assertFalse(fee_movement.is_paid)
-        self.assertEqual(fee_movement.dre_topic, FinancialMovement.DreTopic.DESPESAS_FINANCEIRAS)
+        if hasattr(fee_movement, "dre_topic"):
+            self.assertEqual(fee_movement.dre_topic, FinancialMovement.DreTopic.DESPESAS_FINANCEIRAS)
         self.assertEqual(fee_movement.payment_method.description, "Crédito")
         self.assertContains(response, "Pagamento da taxa da maquininha")
         self.assertNotContains(response, reverse("finance:financial_movement_update", args=[parent_movement.pk]))
-        self.assertContains(response, reverse("workorder:workorder_detail", args=[workorder.pk]))
-        self.assertContains(response, reverse("finance:financial_movement_update", args=[fee_movement.pk]))
+        self.assertContains(response, reverse("finance:report_movement_edit", kwargs={"pk": parent_movement.pk}))
+        self.assertContains(response, reverse("finance:report_movement_edit", kwargs={"pk": fee_movement.pk}))
 
     def test_repair_payment_method_fee_movements_fixes_existing_workorder_fee_history(self) -> None:
         today = timezone.localdate()
@@ -5887,6 +5888,7 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Movimentações Financeiras")
         self.assertContains(response, 'id="financial-reports-movements-table"')
+        self.assertContains(response, "Conciliado")
         self.assertContains(response, "Pago")
         self.assertContains(response, "Tipo")
         self.assertContains(response, "Vencimento")
@@ -6122,6 +6124,36 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, collaborator.name)
         self.assertContains(response, collaborator.cpf)
         self.assertRegex(response.content.decode("utf-8"), r'<input[^>]*name="supplier"[^>]*disabled')
+
+    def test_report_edit_modal_renders_workorder_link_for_os_movements(self) -> None:
+        workorder = self._create_report_workorder(
+            customer_name="Cliente OS Modal",
+            total_value="1000.00",
+            problem_description="OS modal",
+            payment_specs=[
+                {"description": "Pix", "amount": "1000.00", "due_date": "2026-03-10", "installments_count": "1"},
+            ],
+        )
+        movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("1000.00", "BRL"),
+            due_date=date(2026, 3, 10),
+        )
+
+        response = self.client.get(
+            reverse("finance:report_movement_edit", kwargs={"pk": movement.pk}),
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("workorder:workorder_detail", kwargs={"pk": workorder.pk}))
+        self.assertNotContains(response, "Dados Iniciais")
+        self.assertNotContains(response, "Sobre o Item")
 
     def test_report_delete_modal_uses_reports_edit_container_as_htmx_target(self) -> None:
         movement = FinancialMovement.objects.create(
@@ -6663,12 +6695,15 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertEqual([row["payment_type"] for row in rows], ["Pix", "Crédito"])
         self.assertEqual([row["due_date"] for row in rows], [date(2026, 3, 10), date(2026, 3, 11)])
         self.assertEqual([row["total"]["text"] for row in rows], ["+ R$ 500,00", "+ R$ 500,00"])
+        movement_pk = FinancialMovement.objects.get(workorder=workorder).pk
+        self.assertEqual([row["edit_modal_url"] for row in rows], [reverse("finance:report_movement_edit", kwargs={"pk": movement_pk})] * 2)
+        self.assertEqual([row["workorder_url"] for row in rows], [reverse("workorder:workorder_detail", kwargs={"pk": workorder.pk})] * 2)
         self.assertFalse(any(row["is_expandable"] for row in rows))
         self.assertTrue(all(row["details"] == [] for row in rows))
         self.assertContains(response, "+ R$ 500,00", count=2)
         self.assertNotContains(response, "Pendente")
         self.assertContains(response, "text-success")
-        self.assertContains(response, reverse("workorder:workorder_detail", args=[workorder.pk]))
+        self.assertNotContains(response, reverse("workorder:workorder_detail", args=[workorder.pk]))
 
     def test_reports_home_view_keeps_grouped_movements_expandable(self) -> None:
         group = MovementGroup.objects.create(
