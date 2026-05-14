@@ -177,13 +177,11 @@ def build_dre_calculation(
     # -----------------------
 
     # Receitas Financeiras
-    fin_revenue_groups, total_receitas_financeiras = _build_financial_group_tree(
+    fin_revenue_groups, total_receitas_financeiras = _build_financial_revenue_group_tree(
+        payments=pagamentos_ordens_de_servico,
         movements=movements,
         workorder_revenue_movements=workorder_revenue_movements,
-        direction=FinancialMovement.MovementDirection.CREDIT,
         financial_groups=financial_groups,
-        include_workorder_movements=True,
-        workorder_payment_totals=workorder_payment_totals,
     )
     detail_receitas_financeiras = fin_revenue_groups
     logger.info(
@@ -333,6 +331,46 @@ def _build_workorder_payment_totals(*, payments: list[WorkOrderPaymentMethod]) -
             continue
         totals[workorder_id] = totals.get(workorder_id, _ZERO) + payment.total_paid
     return totals
+
+
+def _build_financial_revenue_group_tree(
+    *,
+    payments: list[WorkOrderPaymentMethod],
+    movements: list[FinancialMovement],
+    workorder_revenue_movements: list[FinancialMovement],
+    financial_groups: list[FinancialGroup],
+) -> tuple[list[dict], Money]:
+    movement_by_workorder_id = {workorder_id: movement for movement in workorder_revenue_movements if (workorder_id := getattr(movement, "workorder_id", None)) is not None}
+
+    revenue_details: list[dict] = []
+
+    for payment in payments:
+        workorder_id = getattr(payment, "workorder_id", None)
+        if workorder_id is None:
+            continue
+        movement = movement_by_workorder_id.get(workorder_id)
+        if movement is None:
+            continue
+        group = _resolve_financial_group_for_revenue_movement(movement=movement, financial_groups=financial_groups)
+        if group is None or not getattr(group, "pk", None):
+            continue
+        detail = _build_wo_pm_detail(payment, include_workshop_ref=False)
+        detail["budget_plan"] = group
+        revenue_details.append(detail)
+
+    for movement in movements:
+        if movement.direction != FinancialMovement.MovementDirection.CREDIT:
+            continue
+        if getattr(movement, "workorder_id", None) is not None:
+            continue
+        group = getattr(movement, "budget_plan", None)
+        if group is None or not getattr(group, "pk", None):
+            continue
+        detail = _build_detail(movement, include_workshop_ref=False)
+        detail["budget_plan"] = group
+        revenue_details.append(detail)
+
+    return _build_group_tree_from_details(details=revenue_details, financial_groups=financial_groups)
 
 
 def _fetch_workorder_revenue_movements(
@@ -735,6 +773,47 @@ def _build_group_tree_roots(*, nodes: dict[int, dict]) -> list[dict]:
     roots = [node for node in nodes.values() if not getattr(node["group"], "parent_id", None)]
     roots.sort(key=lambda node: (getattr(node["group"], "sort_key", ""), getattr(node["group"], "pk", 0)))
     return roots
+
+
+def _build_group_tree_from_details(*, details: list[dict], financial_groups: list[FinancialGroup]) -> tuple[list[dict], Money]:
+    grouped: dict[int, dict] = {}
+    groups_by_id = {group.pk: group for group in financial_groups}
+
+    for detail in details:
+        group = detail.get("budget_plan")
+        group_id = getattr(group, "pk", None)
+        while group_id:
+            if group_id not in grouped and group_id in groups_by_id:
+                grouped[group_id] = {
+                    "group": groups_by_id[group_id],
+                    "amount": _ZERO,
+                    "details": [],
+                }
+            group_id = getattr(groups_by_id.get(group_id), "parent_id", None)
+
+        group = detail.get("budget_plan")
+        group_id = getattr(group, "pk", None)
+        if group_id is None:
+            continue
+        grouped.setdefault(
+            group_id,
+            {
+                "group": group,
+                "amount": _ZERO,
+                "details": [],
+            },
+        )["details"].append(detail)
+
+    ordered_groups = []
+    for payload in grouped.values():
+        payload["amount"] = _sum_detail_amounts(payload["details"])
+        ordered_groups.append(payload)
+
+    ordered_groups.sort(key=lambda item: (getattr(item["group"], "sort_key", ""), getattr(item["group"], "pk", 0)))
+    nodes = _build_group_tree(groups=ordered_groups)
+    roots = _build_group_tree_roots(nodes=nodes)
+    total = sum((root["amount"] for root in roots), _ZERO)
+    return roots, total
 
 
 def _serialize_group_nodes_for_log(nodes: list[dict]) -> list[dict[str, object]]:
