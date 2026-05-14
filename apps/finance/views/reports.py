@@ -72,14 +72,14 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         return label
 
     @staticmethod
-    def _resolve_workorder_conciliation_status(*, is_paid: bool) -> dict[str, str]:
-        if is_paid:
+    def _resolve_workorder_conciliation_status(*, is_reconciled: bool) -> dict[str, str]:
+        if is_reconciled:
             return {"label": "Conciliado", "icon": "check_circle", "class": "text-success"}
         return {"label": "Aguardando Conciliação", "icon": "schedule", "class": "text-warning"}
 
     def _resolve_movement_paid_status_display(self, movement: FinancialMovement) -> dict[str, str]:
         if movement.movement_kind in {FinancialMovement.MovementKind.WORKORDER_PARENT, FinancialMovement.MovementKind.WORKORDER_CARD_FEE}:
-            return self._resolve_workorder_conciliation_status(is_paid=bool(movement.is_paid))
+            return self._resolve_workorder_conciliation_status(is_reconciled=bool(movement.is_reconciled))
         paid_status = movement.report_paid_indicator
         return paid_status if isinstance(paid_status, dict) else {"label": str(paid_status), "icon": "schedule", "class": "text-warning"}
 
@@ -126,6 +126,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             FinancialMovement.objects.filter(workshop=self.workshop)
             .filter(due_date__isnull=False)
             .filter(Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT))
+            .exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder_payment__isnull=False)
             .select_related(
                 "source",
                 "supplier",
@@ -240,11 +241,11 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
 
         matched_ids = list(queryset.exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False).filter(is_paid=paid_status == "paid").values_list("pk", flat=True))
 
-        workorder_parent_movements = queryset.filter(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False).select_related("workorder").prefetch_related("workorder__payments")
+        workorder_parent_movements = queryset.filter(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False)
         for movement in workorder_parent_movements:
-            payments = list(movement.workorder.payments.all())
-            has_payments = any(self._resolve_money_amount(payment.total_paid) > Decimal("0.00") for payment in payments)
-            if paid_status == "paid" and has_payments:
+            if paid_status == "paid" and movement.is_paid:
+                matched_ids.append(movement.pk)
+            if paid_status == "unpaid" and not movement.is_paid:
                 matched_ids.append(movement.pk)
 
         return queryset.filter(pk__in=matched_ids)
@@ -353,6 +354,15 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
 
     def _build_workorder_payment_row(self, *, movement: FinancialMovement, payment: object) -> dict[str, object]:
         workorder = movement.workorder
+        payment_movement = (
+            FinancialMovement.objects.filter(
+                workorder=workorder,
+                workorder_payment_id=payment.pk,
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            )
+            .order_by("-pk")
+            .first()
+        ) or movement
         payment_method = getattr(payment, "payment_method", None)
         payment_amount = getattr(payment, "total_paid", None)
         resolved_amount = self._resolve_money_amount(payment_amount)
@@ -361,17 +371,17 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         return {
             "component": f"workorder-payment-{payment.pk}",
             "is_expandable": False,
-            "paid_status": self._resolve_workorder_conciliation_status(is_paid=bool(movement.is_paid)),
-            "type_badge": movement.report_direction_badge,
+            "paid_status": self._resolve_workorder_conciliation_status(is_reconciled=bool(payment_movement.is_reconciled)),
+            "type_badge": payment_movement.report_direction_badge,
             "due_date": payment.due_date,
-            "agent": movement.report_agent_display,
+            "agent": payment_movement.report_agent_display,
             "origin": f"OS #{workorder.pk}" if workorder is not None else "-",
             "description": self._resolve_workorder_description(workorder) if workorder is not None else movement.report_description_display,
-            "budget_plan": movement.report_budget_plan_display,
-            "account": movement.report_bank_account_display,
+            "budget_plan": payment_movement.report_budget_plan_display,
+            "account": payment_movement.report_bank_account_display,
             "payment_type": getattr(payment_method, "description", "-") or "-",
-            "edit_url": reverse("finance:financial_movement_update", kwargs={"pk": movement.pk}),
-            "edit_modal_url": reverse("finance:report_movement_edit", kwargs={"pk": movement.pk}),
+            "edit_url": reverse("finance:financial_movement_update", kwargs={"pk": payment_movement.pk}),
+            "edit_modal_url": f"{reverse('finance:report_movement_edit', kwargs={'pk': payment_movement.pk})}?payment_id={payment.pk}",
             "is_workorder": True,
             "is_group_parent": False,
             "total": {
@@ -381,7 +391,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "details": [],
             "summary_direction": FinancialMovement.MovementDirection.CREDIT,
             "summary_amount": resolved_amount,
-            "summary_is_paid": True,
+            "summary_is_paid": bool(payment_movement.is_paid),
             "workorder_url": workorder_url,
         }
 
@@ -527,7 +537,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             is_workorder = True
 
         if workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
-            paid_status = self._resolve_workorder_conciliation_status(is_paid=bool(movement.is_paid))
+            paid_status = self._resolve_workorder_conciliation_status(is_reconciled=bool(movement.is_reconciled))
             due_date = latest_payment_date
             description = self._resolve_workorder_description(workorder)
             payment_type = self._resolve_payment_method_summary(payments)
@@ -697,6 +707,7 @@ class ReportMovementEditView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["movement"] = self.object
+        context["selected_workorder_payment_id"] = self.request.GET.get("payment_id") or self.request.POST.get("selected_workorder_payment_id") or ""
         return context
 
     def form_valid(self, form):

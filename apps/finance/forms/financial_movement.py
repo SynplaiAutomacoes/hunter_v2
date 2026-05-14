@@ -13,6 +13,7 @@ from apps.finance.services.financial_movement import generate_card_fee_movement
 from apps.suppliers.models import Supplier
 from apps.core.text_normalization import sentence_case
 from apps.core.forms import CoreModelForm
+from apps.workorder.models import WorkOrderPaymentMethod
 
 
 class FinancialMovementBaseForm(CoreModelForm):
@@ -531,19 +532,19 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
     PAYMENT_METHOD_DIRECTION_ERROR = "Selecione uma forma de pagamento compatível com o tipo da movimentação."
 
     is_paid = forms.TypedChoiceField(
-        label="Conciliado",
-        required=True,
-        coerce=lambda value: str(value).lower() == "true",
-        choices=((False, "Aguardando Conciliação"), (True, "Conciliado")),
-        widget=SearchableSelectInput(choices=[(False, "Aguardando Conciliação"), (True, "Conciliado")]),
-        initial=False,
-    )
-    payment_status = forms.TypedChoiceField(
         label="Pago",
         required=True,
         coerce=lambda value: str(value).lower() == "true",
         choices=((False, "Não"), (True, "Sim")),
         widget=SearchableSelectInput(choices=[(False, "Não"), (True, "Sim")]),
+        initial=False,
+    )
+    is_reconciled = forms.TypedChoiceField(
+        label="Conciliado",
+        required=True,
+        coerce=lambda value: str(value).lower() == "true",
+        choices=((False, "Aguardando Conciliação"), (True, "Conciliado")),
+        widget=SearchableSelectInput(choices=[(False, "Aguardando Conciliação"), (True, "Conciliado")]),
         initial=False,
     )
 
@@ -564,6 +565,7 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
             "bank_account",
             "payment_method",
             "is_paid",
+            "is_reconciled",
             "nf_number",
             "financial_observation",
             "attachment",
@@ -587,18 +589,22 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         super().__init__(*args, **kwargs)
 
         self.payment_method_filter_data = {"CREDIT": [], "DEBIT": []}
+        self.selected_workorder_payment: WorkOrderPaymentMethod | None = None
 
         self.fields["supplier"].required = False
         self.fields["collaborator"].required = False
-        self.fields["description"].required = True
+        self.fields["description"].required = getattr(self.instance, "workorder_id", None) is None
         self.fields["due_date"].required = True
         self.fields["direction"].required = True
         self.fields["amount"].required = True
         self.fields["payment_method"].required = True
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
-        self.fields["is_paid"].label = "Conciliado"
-        self.fields["is_paid"].widget = SearchableSelectInput(choices=[(False, "Aguardando Conciliação"), (True, "Conciliado")])
-        self.fields["payment_status"].initial = bool(self.instance.is_paid) if self.instance.pk else False
+        self.fields["is_reconciled"].initial = bool(getattr(self.instance, "is_reconciled", False)) if self.instance.pk else False
+
+        if getattr(self.instance, "workorder_id", None) and getattr(self, "request", None):
+            raw_payment_id = self.request.GET.get("payment_id") if not self.is_bound else self.data.get("selected_workorder_payment_id")
+            if raw_payment_id:
+                self.selected_workorder_payment = WorkOrderPaymentMethod.objects.filter(pk=raw_payment_id, workorder=self.instance.workorder).select_related("payment_method").first()
 
         if self.workshop:
             supplier_qs = Supplier.objects.filter(workshop=self.workshop)
@@ -617,6 +623,11 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
                 "CREDIT": [str(payment_method.pk) for payment_method in payment_method_qs if payment_method.payment_type in [PaymentMethod.PaymentType.CREDIT, PaymentMethod.PaymentType.BOTH]],
                 "DEBIT": [str(payment_method.pk) for payment_method in payment_method_qs if payment_method.payment_type in [PaymentMethod.PaymentType.DEBIT, PaymentMethod.PaymentType.BOTH]],
             }
+
+            if self.selected_workorder_payment and self.selected_workorder_payment.payment_method_id:
+                self.fields["payment_method"].initial = self.selected_workorder_payment.payment_method_id
+            elif self.instance.payment_method_id:
+                self.fields["payment_method"].initial = self.instance.payment_method_id
 
         selected_supplier = self.instance.supplier_id if self.instance.pk else None
         selected_collaborator = self.instance.collaborator_id if self.instance.pk else None
@@ -671,8 +682,8 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
                 Div("bank_account", css_class="col-span-12 lg:col-span-6"),
                 #
                 Div("payment_method", css_class="col-span-12 lg:col-span-4"),
-                Div("payment_status", css_class="col-span-12 lg:col-span-4"),
                 Div("is_paid", css_class="col-span-12 lg:col-span-4"),
+                Div("is_reconciled", css_class="col-span-12 lg:col-span-4"),
                 Div("nf_number", css_class="col-span-12 lg:col-span-4"),
                 Div("financial_observation", css_class="col-span-12"),
                 css_class="grid grid-cols-12 gap-4",
@@ -736,19 +747,26 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
 
     def clean(self):
         cleaned_data = super().clean()
-        if "payment_status" in cleaned_data:
-            cleaned_data["is_paid"] = cleaned_data["payment_status"]
         supplier = cleaned_data.get("supplier")
         collaborator = cleaned_data.get("collaborator")
         direction = cleaned_data.get("direction")
         payment_method = cleaned_data.get("payment_method")
 
-        if supplier and collaborator:
-            self.add_error("supplier", self.ENTITY_EXCLUSIVE_ERROR)
-            self.add_error("collaborator", self.ENTITY_EXCLUSIVE_ERROR)
-        elif not supplier and not collaborator:
-            self.add_error("supplier", self.ENTITY_REQUIRED_ERROR)
-            self.add_error("collaborator", self.ENTITY_REQUIRED_ERROR)
+        if getattr(self.instance, "workorder_id", None) and payment_method is None:
+            if self.selected_workorder_payment and self.selected_workorder_payment.payment_method is not None:
+                payment_method = self.selected_workorder_payment.payment_method
+                cleaned_data["payment_method"] = payment_method
+            elif self.instance.payment_method is not None:
+                payment_method = self.instance.payment_method
+                cleaned_data["payment_method"] = payment_method
+
+        if not getattr(self.instance, "workorder_id", None):
+            if supplier and collaborator:
+                self.add_error("supplier", self.ENTITY_EXCLUSIVE_ERROR)
+                self.add_error("collaborator", self.ENTITY_EXCLUSIVE_ERROR)
+            elif not supplier and not collaborator:
+                self.add_error("supplier", self.ENTITY_REQUIRED_ERROR)
+                self.add_error("collaborator", self.ENTITY_REQUIRED_ERROR)
 
         if payment_method and direction and not self._payment_method_matches_direction(payment_method, direction):
             self.add_error("payment_method", self.PAYMENT_METHOD_DIRECTION_ERROR)
@@ -759,6 +777,36 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         instance = super().save(commit=False)
         supplier = self.cleaned_data.get("supplier")
         collaborator = self.cleaned_data.get("collaborator")
+
+        if getattr(self.instance, "workorder_id", None) and self.instance.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT and self.selected_workorder_payment is not None and getattr(self.instance, "workorder_payment_id", None) != self.selected_workorder_payment.pk:
+            target_instance = (
+                FinancialMovement.objects.filter(
+                    workorder=self.instance.workorder,
+                    workorder_payment=self.selected_workorder_payment,
+                    movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                )
+                .exclude(pk=self.instance.pk)
+                .order_by("-pk")
+                .first()
+            )
+            if target_instance is None:
+                target_instance = FinancialMovement(
+                    workshop=self.instance.workshop,
+                    user=self.instance.user,
+                    workorder=self.instance.workorder,
+                    workorder_payment=self.selected_workorder_payment,
+                    movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                    source=self.instance.source,
+                )
+
+            for field_name in self._meta.fields:
+                setattr(target_instance, field_name, getattr(instance, field_name))
+
+            target_instance.workorder = self.instance.workorder
+            target_instance.workorder_payment = self.selected_workorder_payment
+            target_instance.movement_kind = FinancialMovement.MovementKind.WORKORDER_PARENT
+            target_instance.source = self.instance.source
+            instance = target_instance
 
         instance.source = None
         instance.supplier = supplier if supplier else None

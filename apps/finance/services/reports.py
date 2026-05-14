@@ -51,29 +51,19 @@ def build_financial_overview(
         if paid_status not in {"paid", "unpaid"}:
             return True
 
-        workorder = getattr(movement, "workorder", None)
-        if workorder is None:
-            return False
-
-        total_paid = sum((Decimal(getattr(getattr(payment, "total_paid", None), "amount", _ZERO_DECIMAL) or _ZERO_DECIMAL) for payment in workorder.payments.all()), start=_ZERO_DECIMAL)
-        total_amount = Decimal(getattr(getattr(workorder, "total_budget_value", None), "amount", _ZERO_DECIMAL) or _ZERO_DECIMAL)
-        is_paid_workorder = total_paid >= total_amount > _ZERO_DECIMAL
-        return is_paid_workorder if paid_status == "paid" else not is_paid_workorder
-
-    def _workorder_has_paid_payments(*, movement: FinancialMovement) -> bool:
-        workorder = getattr(movement, "workorder", None)
-        if workorder is None:
-            return False
-        return any(Decimal(getattr(getattr(payment, "total_paid", None), "amount", _ZERO_DECIMAL) or _ZERO_DECIMAL) > _ZERO_DECIMAL for payment in workorder.payments.all())
+        return bool(movement.is_paid) if paid_status == "paid" else not bool(movement.is_paid)
 
     def _apply_workorder_payment_aware_date_filter(queryset, *, lookup: str, value: date):
         workorder_parent_query = Q(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False)
         return queryset.filter(
             (~workorder_parent_query & Q(**{lookup: value}))
-            | (workorder_parent_query & Q(
-                workorder__payments__isnull=False,
-                **{f"workorder__payments__{lookup}": value},
-            ))
+            | (
+                workorder_parent_query
+                & Q(
+                    workorder__payments__isnull=False,
+                    **{f"workorder__payments__{lookup}": value},
+                )
+            )
         ).distinct()
 
     movements = FinancialMovement.objects.filter(workshop=workshop)
@@ -98,8 +88,8 @@ def build_financial_overview(
         movements = movements.filter(pm_filter).distinct()
     if paid_status in {"paid", "unpaid"}:
         matched_ids = list(movements.exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False).filter(is_paid=paid_status == "paid").values_list("pk", flat=True))
-        for movement in movements.filter(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False).select_related("workorder").prefetch_related("workorder__payments"):
-            if paid_status == "paid" and _workorder_has_paid_payments(movement=movement):
+        for movement in movements.filter(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False):
+            if paid_status == "paid" and movement.is_paid:
                 matched_ids.append(movement.pk)
             elif paid_status == "unpaid" and _matches_workorder_paid_status(movement=movement):
                 matched_ids.append(movement.pk)
@@ -192,7 +182,7 @@ def build_financial_overview(
             paid_credit_movements = paid_credit_movements.filter(search_query)
 
         if paid_status == "paid":
-            paid_credit_movements = [movement for movement in paid_credit_movements.select_related("workorder").prefetch_related("workorder__payments") if _workorder_has_paid_payments(movement=movement)]
+            paid_credit_movements = [movement for movement in paid_credit_movements.select_related("workorder") if movement.is_paid]
         elif paid_status == "unpaid":
             paid_credit_movements = []
         else:
