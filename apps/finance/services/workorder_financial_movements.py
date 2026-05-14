@@ -111,6 +111,9 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
     if workorder.budget.status != "approved":
         return None
 
+    if workorder.budget_type in ("warranty", "courtesy"):
+        return None
+
     source = _get_workorder_source(workorder=workorder)
 
     defaults = {
