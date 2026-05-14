@@ -345,6 +345,7 @@ class WorkOrderStatusReportDataMixin:
             TableColumn("Cliente", attr="budget.customer", search_by="budget__customer__name"),
             TableColumn("Entregue em", attr="delivered_at"),
             TableColumn("Veículo", attr="budget.vehicle", search_by=("budget__vehicle__plate", "budget__vehicle__model", "budget__vehicle__brand")),
+            TableColumn("Tipo", attr="type_badge", searchable=False, format="status_badge"),
             TableColumn("Valor Total", attr="total_budget_value", searchable=False),
             TableColumn("Status", attr="workorder_status_badge", search_by="status", format="status_badge"),
         ]
