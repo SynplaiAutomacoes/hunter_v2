@@ -1,5 +1,6 @@
+import calendar
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -15,12 +16,13 @@ from phonenumber_field.phonenumber import PhoneNumber
 from djmoney.money import Money
 
 from apps.accounts.models import Account
-from apps.budget.models import Budget, BudgetItem, BudgetStatus
+from apps.budget.models import Budget, BudgetItem, BudgetStatus, BudgetType
 from apps.collaborators.models import WorkshopMember
 from apps.core.documents.signature import SIGNATURE_POSITION, build_absolute_app_url, normalize_signature_phone_number
 from apps.core.templatetags.table_tags import TableColumn, render_table
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.iam.utils import get_or_create_director_role
+from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
 
@@ -1192,6 +1194,21 @@ class DashboardMetricsTests(TestCase):
             due_date=due_date,
         )
 
+    def _create_workshop_cost(self, *, reference_date: date, work_days_per_month: int) -> WorkshopCost:
+        return WorkshopCost.objects.create(
+            workshop=self.workshop,
+            month=reference_date.month,
+            year=reference_date.year,
+            mechanic_quantity=1,
+            work_days_per_month=work_days_per_month,
+        )
+
+    def _count_business_days(self, *, start_date: date, end_date: date) -> int:
+        if end_date < start_date:
+            return 0
+
+        return sum(1 for day in range(start_date.day, end_date.day + 1) if date(start_date.year, start_date.month, day).weekday() < 5)
+
     def test_dashboard_counts_open_budgets_from_all_open_statuses_even_from_previous_months(self):
         today = timezone.localdate()
         previous_month_date = today - timedelta(days=40)
@@ -1368,6 +1385,7 @@ class DashboardMetricsTests(TestCase):
 
     def test_dashboard_ticket_medio_uses_paid_workorders_in_selected_month(self):
         today = timezone.localdate()
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
 
         budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
         workorder = WorkOrder.objects.create(
@@ -1392,6 +1410,7 @@ class DashboardMetricsTests(TestCase):
 
     def test_dashboard_counts_approved_workorders_without_delivery_date_using_signature_date_fallback(self):
         today = timezone.localdate()
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
 
         budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
         workorder = WorkOrder.objects.create(
@@ -1412,6 +1431,7 @@ class DashboardMetricsTests(TestCase):
 
     def test_dashboard_does_not_count_child_workorders_in_vehicle_total(self):
         today = timezone.localdate()
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
 
         parent_budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
         child_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, reference_budget=parent_budget)
@@ -1433,3 +1453,90 @@ class DashboardMetricsTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["qtd_carros_mes"], 1)
+
+    def test_dashboard_projection_uses_elapsed_business_days_for_current_month(self):
+        today = timezone.localdate()
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
+        self._create_workorder_payment(workshop=self.workshop, amount="220.00", due_date=today)
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        elapsed_business_days = self._count_business_days(start_date=today.replace(day=1), end_date=today)
+        remaining_business_days = max(22 - elapsed_business_days, 0)
+        expected_projection = (Decimal("220.00") / Decimal(elapsed_business_days) * Decimal(remaining_business_days)) + Decimal("220.00")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["projecao"], expected_projection)
+
+    def test_dashboard_projection_uses_zero_remaining_days_for_past_month(self):
+        today = timezone.localdate()
+        previous_month_anchor = today.replace(day=1) - timedelta(days=1)
+        self._create_workshop_cost(reference_date=previous_month_anchor, work_days_per_month=22)
+        self._create_workorder_payment(workshop=self.workshop, amount="150.00", due_date=previous_month_anchor)
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": previous_month_anchor.month, "ano": previous_month_anchor.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["projecao"], Decimal("150.00"))
+
+    def test_dashboard_projection_is_blank_and_warns_without_workshop_cost(self):
+        today = timezone.localdate()
+        self._create_workorder_payment(workshop=self.workshop, amount="100.00", due_date=today)
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context["projecao"])
+        self.assertEqual(response.context["projecao_warning"], "Para realizar o calculo, cadastre um custo mensal da oficina para o mes selecionado.")
+        self.assertContains(response, "Estimativa para o fim do mês")
+        self.assertContains(response, "showToast")
+
+    def test_dashboard_projection_uses_total_sold_for_future_month_when_no_business_days_elapsed(self):
+        today = timezone.localdate()
+        year = today.year + 1 if today.month == 12 else today.year
+        month = 1 if today.month == 12 else today.month + 1
+        future_date = date(year, month, min(today.day, calendar.monthrange(year, month)[1]))
+        self._create_workshop_cost(reference_date=future_date, work_days_per_month=22)
+        self._create_workorder_payment(workshop=self.workshop, amount="180.00", due_date=future_date)
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": future_date.month, "ano": future_date.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["projecao"], Decimal("180.00"))
+
+    def test_dashboard_taxa_aprovacao_ignores_warranty_and_courtesy_budgets(self):
+        today = timezone.localdate()
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
+
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.APPROVED,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=False,
+        )
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.DRAFT,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=False,
+        )
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.APPROVED,
+            budget_type=BudgetType.COURTESY,
+        )
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.APPROVED,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=True,
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["taxa_aprovacao"], 50)

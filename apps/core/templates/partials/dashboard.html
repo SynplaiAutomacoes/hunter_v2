@@ -68,7 +68,7 @@
                     <i class="ph ph-chart-line text-3xl"></i>
                 </div>
                 <div class="stat-title">Projeção</div>
-                <div class="stat-value text-primary">R$ {{ projecao|floatformat:2 }}</div>
+                <div class="stat-value text-primary">{% if projecao is not None %}R$ {{ projecao|floatformat:2 }}{% endif %}</div>
                 <div class="stat-desc">Estimativa para o fim do mês</div>
             </div>
         </div>
@@ -157,5 +157,16 @@
             </div>
         </div>
     </div>
+
+    {% if projecao_warning %}
+        <script>
+            document.body.dispatchEvent(new CustomEvent('showToast', {
+                detail: {
+                    type: 'warning',
+                    message: '{{ projecao_warning|escapejs }}'
+                }
+            }));
+        </script>
+    {% endif %}
 
 {% endblock %}
