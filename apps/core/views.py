@@ -262,8 +262,16 @@ def metricas_dashboard(request) -> dict[str, Any]:
         budget_type=BudgetType.SALE,
         is_warranty_budget=False,
     ).exclude(reference_budget__isnull=False)
-    orcamentos_criados_no_mes = orcamentos_base.count()
-    orcamentos_aprovados_no_mes = orcamentos_base.filter(status=BudgetStatus.APPROVED).count()
+
+    orcamentos_taxa_base = Budget.objects.filter(
+        workshop=workshop,
+        entry_date__month=mes_selecionado,
+        entry_date__year=ano_selecionado,
+        budget_type=BudgetType.SALE,
+        is_warranty_budget=False,
+    )
+    orcamentos_criados_no_mes = orcamentos_taxa_base.count()
+    orcamentos_aprovados_no_mes = orcamentos_taxa_base.filter(status=BudgetStatus.APPROVED).count()
 
     budgets_aguardando_base = Budget.objects.filter(workshop=workshop, budget_type=BudgetType.SALE, status__in=OPEN_BUDGET_STATUSES).prefetch_related("items", "items__kit_overrides", "items__kit__kit_products", "items__kit__kit_services")
 

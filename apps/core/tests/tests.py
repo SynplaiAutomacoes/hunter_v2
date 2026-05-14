@@ -1674,3 +1674,27 @@ class DashboardMetricsTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["taxa_aprovacao"], 0)
+
+    def test_dashboard_taxa_aprovacao_includes_parent_and_child_sale_budgets(self):
+        today = timezone.localdate()
+
+        parent_budget = Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.DRAFT,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=False,
+        )
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.APPROVED,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=False,
+            reference_budget=parent_budget,
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["taxa_aprovacao"], 50)
