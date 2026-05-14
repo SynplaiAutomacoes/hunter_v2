@@ -57,6 +57,7 @@ from apps.finance.services.emission import (
     preview_nfse_request,
     sync_emission_response,
 )
+from apps.finance.services.dre import build_dre_calculation
 from apps.finance.services.nfe_emission import (
     NfeEmissionError,
     _build_nfe_products_payload,
@@ -8151,10 +8152,92 @@ class DreReportViewTests(TestCase):
         self.assertEqual(expense_row["details"][0]["children"][0]["group"].name, "Tarifas")
         self.assertEqual(expense_row["details"][0]["children"][0]["details"][0]["summary"], "Tarifa TED")
 
-        self.assertContains(response, revenue_root.code_label)
-        self.assertContains(response, revenue_child.code_label)
-        self.assertContains(response, expense_root.code_label)
-        self.assertContains(response, expense_child.code_label)
+        self.assertContains(response, revenue_root.name)
+        self.assertContains(response, revenue_child.name)
+        self.assertContains(response, expense_root.name)
+        self.assertContains(response, expense_child.name)
+
+    def test_results_page_includes_workorder_revenue_inside_financial_group_tree(self) -> None:
+        revenue_root = FinancialGroup.objects.create(workshop=self.workshop, name="Vendas")
+        revenue_child = FinancialGroup.objects.create(workshop=self.workshop, parent=revenue_root, name="Servicos Rapidos")
+
+        customer = Customer.objects.create(
+            workshop=self.workshop,
+            name="Cliente Receita",
+            cpf_or_cnpj="12345678901",
+            email="cliente.receita@example.com",
+        )
+
+        budget = Budget.objects.create(
+            workshop=self.workshop,
+            customer=customer,
+            entry_date=date(2026, 1, 10),
+            status=BudgetStatus.APPROVED,
+        )
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget)
+        WorkOrder.objects.filter(pk=workorder.pk).update(criado_em=timezone.make_aware(datetime.combine(date(2026, 1, 10), datetime.min.time())))
+        workorder.refresh_from_db()
+
+        product_group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Receita OS")
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code="DRE-REV-OS",
+            unit=Product.Unit.UND,
+            name="Produto Receita OS",
+            group=product_group,
+            cost_price=Money("120.00", "BRL"),
+            selling_price=Money("250.00", "BRL"),
+        )
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Servico Receita OS",
+            duration=timedelta(hours=1),
+            suggested_cost=Money("60.00", "BRL"),
+            selling_price=Money("150.00", "BRL"),
+            is_third_party=True,
+        )
+        WorkOrderItem.objects.create(workshop=self.workshop, workorder=workorder, product=product, quantity=1, shipping=Money("0.00", "BRL"))
+        WorkOrderItem.objects.create(workshop=self.workshop, workorder=workorder, service=service, quantity=1)
+
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pagamento Receita OS")
+        WorkOrderPaymentMethod.objects.create(
+            workorder=workorder,
+            payment_method=payment_method,
+            installments_count=1,
+            first_installment_amount=Money("400.00", "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            due_date=date(2026, 1, 20),
+        )
+
+        sync_workorder_financial_movement(workorder=workorder)
+        revenue_movement = FinancialMovement.objects.get(
+            workorder=workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+        )
+        revenue_movement.budget_plan = revenue_child
+        revenue_movement.save(update_fields=["budget_plan"])
+
+        result = build_dre_calculation(
+            workshops=[self.workshop],
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+            tipo_data="A",
+        )
+        rows = {row["component"]: row for row in result.rows}
+        gross_revenue_row = rows["receita_bruta_vendas_e_servicos"]
+        financial_revenue_row = rows["receitas_financeiras"]
+
+        self.assertEqual(gross_revenue_row["amount"], Money("400.00", "BRL"))
+        self.assertEqual(financial_revenue_row["amount"], Money("400.00", "BRL"))
+        self.assertEqual(financial_revenue_row["detail_kind"], "group_entries")
+        self.assertEqual(financial_revenue_row["details"][0]["group"].name, "Vendas")
+        self.assertEqual(financial_revenue_row["details"][0]["amount"], Money("400.00", "BRL"))
+        self.assertEqual(financial_revenue_row["details"][0]["children"][0]["group"].name, "Servicos Rapidos")
+        self.assertEqual(financial_revenue_row["details"][0]["children"][0]["amount"], Money("400.00", "BRL"))
+        self.assertEqual(
+            financial_revenue_row["details"][0]["children"][0]["details"][0]["summary"],
+            f"O.S #{workorder.budget.pk} - Cliente Receita",
+        )
 
     def test_results_page_adds_negative_financial_expense_to_operating_result(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas Financeiras")
