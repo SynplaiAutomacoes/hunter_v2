@@ -254,15 +254,6 @@ def metricas_dashboard(request) -> dict[str, Any]:
     orcamentos_aprovados_mes = Budget.objects.filter(workshop=workshop, status=BudgetStatus.APPROVED, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado)
     rentabilidades = [b.rentability for b in orcamentos_aprovados_mes if b.rentability is not None]
     qtd_garantias_mes = Budget.objects.filter(workshop=workshop, is_warranty_budget=True, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado).count()
-    qtd_veiculos_mes = Budget.objects.filter(workshop=workshop, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado).values("vehicle").distinct().count()
-    orcamentos_base = Budget.objects.filter(
-        workshop=workshop,
-        entry_date__month=mes_selecionado,
-        entry_date__year=ano_selecionado,
-        budget_type=BudgetType.SALE,
-        is_warranty_budget=False,
-    ).exclude(reference_budget__isnull=False)
-
     orcamentos_taxa_base = Budget.objects.filter(
         workshop=workshop,
         entry_date__month=mes_selecionado,
@@ -302,7 +293,7 @@ def metricas_dashboard(request) -> dict[str, Any]:
     )
     ticket_medio = total_vendido_ate_a_data / qtd_carros_mes if qtd_carros_mes > 0 else Decimal("0.00")
     rentabilidade_acumulada_mes = sum(rentabilidades) / len(rentabilidades) if rentabilidades else 0
-    indice_retorno_em_garantia_mes = (qtd_garantias_mes / qtd_veiculos_mes) * 100 if qtd_veiculos_mes > 0 else 0
+    indice_retorno_em_garantia_mes = (qtd_garantias_mes / qtd_carros_mes) * 100 if qtd_carros_mes > 0 else 0
     taxa_aprovacao = (orcamentos_aprovados_no_mes / orcamentos_criados_no_mes) * 100 if orcamentos_criados_no_mes > 0 else 0
 
     # Financeiro (R$)
