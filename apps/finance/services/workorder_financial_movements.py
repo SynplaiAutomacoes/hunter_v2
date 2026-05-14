@@ -77,7 +77,6 @@ def sync_workorder_card_fee_movements(*, workorder: WorkOrder) -> None:
             "payment_method": payment.payment_method,
             "amount": fee_amount,
             "due_date": payment.due_date,
-            "is_paid": True,
         }
 
         fee_movement = (
@@ -86,6 +85,8 @@ def sync_workorder_card_fee_movements(*, workorder: WorkOrder) -> None:
             else FinancialMovement(
                 workorder_payment=payment,
                 movement_kind=FinancialMovement.MovementKind.WORKORDER_CARD_FEE,
+                is_paid=True,
+                is_reconciled=False,
             )
         )
         for field_name, field_value in defaults.items():
@@ -110,6 +111,9 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
     if workorder.budget.status != "approved":
         return None
 
+    if workorder.budget_type in ("warranty", "courtesy"):
+        return None
+
     source = _get_workorder_source(workorder=workorder)
 
     defaults = {
@@ -124,12 +128,66 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
     }
 
     reversed_movement_ids = _get_reversed_financial_movement_ids()
+    active_payment_ids: set[int] = set()
+
+    for payment in workorder.payments.select_related("payment_method"):
+        active_payment_ids.add(payment.pk)
+        payment_defaults = {
+            "workshop": workorder.workshop,
+            "user": workorder.budget.cost_estimator,
+            "source": source,
+            "direction": FinancialMovement.MovementDirection.CREDIT,
+            "description": str(workorder.budget.problem_description or workorder.budget.notes or f"OS Nº {workorder.pk}"),
+            "amount": payment.total_paid,
+            "due_date": payment.due_date,
+            "payment_method": payment.payment_method,
+            "movement_kind": FinancialMovement.MovementKind.WORKORDER_PARENT,
+            "workorder": workorder,
+            "workorder_payment": payment,
+        }
+        payment_movement = (
+            FinancialMovement.objects.filter(
+                workorder=workorder,
+                workorder_payment=payment,
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            )
+            .exclude(pk__in=reversed_movement_ids)
+            .order_by("pk")
+            .first()
+        )
+        if payment_movement is None:
+            FinancialMovement.objects.create(is_paid=True, is_reconciled=False, **payment_defaults)
+        else:
+            for field_name, field_value in payment_defaults.items():
+                setattr(payment_movement, field_name, field_value)
+            payment_movement.save(update_fields=[*payment_defaults.keys()])
+
+    stale_payment_movements = FinancialMovement.objects.filter(
+        workorder=workorder,
+        movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+        workorder_payment__isnull=False,
+    ).exclude(pk__in=reversed_movement_ids)
+    if active_payment_ids:
+        stale_payment_movements = stale_payment_movements.exclude(workorder_payment_id__in=active_payment_ids)
+    stale_payment_movements.delete()
+
     movement = FinancialMovement.objects.filter(workorder=workorder, movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT).exclude(pk__in=reversed_movement_ids).order_by("pk").first()
+    if movement is not None and movement.workorder_payment_id is not None:
+        movement = (
+            FinancialMovement.objects.filter(
+                workorder=workorder,
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                workorder_payment__isnull=True,
+            )
+            .exclude(pk__in=reversed_movement_ids)
+            .order_by("pk")
+            .first()
+        )
     if movement is None:
         movement = FinancialMovement.objects.filter(workorder=workorder, workorder_payment__isnull=True).exclude(pk__in=reversed_movement_ids).order_by("pk").first()
 
     if movement is None:
-        movement = FinancialMovement.objects.create(workorder=workorder, **defaults)
+        movement = FinancialMovement.objects.create(workorder=workorder, is_paid=True, is_reconciled=False, **defaults)
     else:
         for field_name, field_value in defaults.items():
             setattr(movement, field_name, field_value)

@@ -64,6 +64,12 @@ class WorkOrder(TimeStampedModel):
     rejection_reason = models.TextField(verbose_name="Justificativa da rejeicao", blank=True)
     reopen_reason = models.TextField(verbose_name="Justificativa da reabertura", blank=True)
     km_final = models.PositiveIntegerField(verbose_name="KM Final", null=True, blank=True)
+    budget_type = models.CharField(verbose_name="Tipo", max_length=50, choices=[("sale", "Venda"), ("warranty", "Garantia"), ("courtesy", "Cortesia")], default="sale")
+
+    def save(self, *args, **kwargs):
+        if self.budget_id and self.budget_id:
+            self.budget_type = self.budget.budget_type
+        super().save(*args, **kwargs)
 
     @property
     def public_number(self) -> int:
@@ -79,6 +85,14 @@ class WorkOrder(TimeStampedModel):
         }
 
         return {"text": WorkOrderStatus(self.status).label, "class": status_color.get(self.status, "badge-ghost")}
+
+    @property
+    def type_badge(self):
+        if self.budget_type == "warranty":
+            return {"text": "Garantia", "class": "badge-error"}
+        if self.budget_type == "courtesy":
+            return {"text": "Cortesia", "class": "badge-info"}
+        return {"text": "Venda", "class": "badge-success"}
 
     def _iter_items(self) -> Iterable["WorkOrderItem"]:
         if not self.pk:
