@@ -127,12 +127,12 @@ WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
     ),
     QueryParamFilter(
         param_name="data_inicial",
-        lookup="delivered_at__date",
+        lookup="criado_em__date",
         kind="date_gte",
     ),
     QueryParamFilter(
         param_name="data_final",
-        lookup="delivered_at__date",
+        lookup="criado_em__date",
         kind="date_lte",
     ),
 )
@@ -363,7 +363,7 @@ class WorkOrderStatusReportDataMixin:
             filter_configs=WORKORDER_LIST_FILTERS,
         )
 
-        return queryset.order_by("-delivered_at")
+        return queryset.order_by("-criado_em")
 
     def _get_selection_report_items(self) -> list[WorkOrder]:
         cached = getattr(self, "_selection_report_items_cache", None)
