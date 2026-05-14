@@ -86,6 +86,8 @@ class FinancialMovement(TimeStampedModel):
         # Regra 2: Movimentação vinculada a uma Ordem de Serviço
         if self.workorder:
             target_group = FinancialGroup.objects.filter(workshop=self.workshop, name__iexact="Vendas").first()
+            if target_group is None:
+                target_group = FinancialGroup.objects.filter(workshop=self.workshop, name__iexact="Receitas").first()
             if target_group:
                 self.budget_plan = target_group
                 return
