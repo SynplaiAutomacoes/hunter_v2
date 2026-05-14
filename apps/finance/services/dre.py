@@ -131,6 +131,7 @@ def build_dre_calculation(
         movements=movements,
         direction=FinancialMovement.MovementDirection.CREDIT,
         financial_groups=financial_groups,
+        include_workorder_movements=True,
     )
     detail_receitas_financeiras = fin_revenue_groups
     # -------------------
@@ -441,13 +442,15 @@ def _build_workorder_cost_detail(wo: WorkOrder, include_workshop_ref: bool) -> d
     }
 
 
-def _build_financial_group_rollup(*, movements: list[FinancialMovement], direction: str, financial_groups: list[FinancialGroup]) -> list[dict]:
+def _build_financial_group_rollup(*, movements: list[FinancialMovement], direction: str, financial_groups: list[FinancialGroup], include_workorder_movements: bool = False) -> list[dict]:
     grouped: dict[int, dict] = {}
     groups_by_id = {group.pk: group for group in financial_groups}
     relevant_group_ids: set[int] = set()
 
     for movement in movements:
-        if movement.workorder_id is not None or movement.direction != direction:
+        if movement.direction != direction:
+            continue
+        if movement.workorder_id is not None and not include_workorder_movements:
             continue
         group = getattr(movement, "budget_plan", None)
         group_id = getattr(group, "pk", None)
@@ -467,9 +470,9 @@ def _build_financial_group_rollup(*, movements: list[FinancialMovement], directi
         }
 
     for movement in movements:
-        if movement.workorder_id is not None:
-            continue
         if movement.direction != direction:
+            continue
+        if movement.workorder_id is not None and not include_workorder_movements:
             continue
 
         detail = _build_detail(movement, include_workshop_ref=False)
@@ -497,8 +500,13 @@ def _build_financial_group_rollup(*, movements: list[FinancialMovement], directi
     return ordered_groups
 
 
-def _build_financial_group_tree(*, movements: list[FinancialMovement], direction: str, financial_groups: list[FinancialGroup]) -> tuple[list[dict], Money]:
-    grouped = _build_financial_group_rollup(movements=movements, direction=direction, financial_groups=financial_groups)
+def _build_financial_group_tree(*, movements: list[FinancialMovement], direction: str, financial_groups: list[FinancialGroup], include_workorder_movements: bool = False) -> tuple[list[dict], Money]:
+    grouped = _build_financial_group_rollup(
+        movements=movements,
+        direction=direction,
+        financial_groups=financial_groups,
+        include_workorder_movements=include_workorder_movements,
+    )
     nodes = _build_group_tree(groups=grouped)
     roots = _build_group_tree_roots(nodes=nodes)
     total = sum((root["amount"] for root in roots), _ZERO)
