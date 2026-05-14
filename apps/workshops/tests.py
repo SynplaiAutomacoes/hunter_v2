@@ -615,8 +615,7 @@ class WorkshopCostHolidayTests(TestCase):
         WorkshopCostHoliday.objects.create(workshop_cost=self.workshop_cost, date=date(2026, 5, 2))
 
         self.assertEqual(self.workshop_cost.get_business_holiday_count(), 1)
-        self.assertEqual(self.workshop_cost.get_effective_work_days(), 21)
-        self.assertEqual(self.workshop_cost.calculate_working_hours_per_month(), Decimal("100.80"))
+        self.assertEqual(self.workshop_cost.calculate_working_hours_per_month(), Decimal("105.60"))
 
     def test_holiday_validation_rejects_date_outside_reference_month(self) -> None:
         holiday = WorkshopCostHoliday(workshop_cost=self.workshop_cost, date=date(2026, 6, 1))

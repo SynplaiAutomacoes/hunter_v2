@@ -99,11 +99,11 @@ def get_reference_work_days(*, collaborator: WorkshopCollaborator, reference_dat
     resolved = _resolve_reference_date(reference_date)
     workshop_cost = WorkshopCost.objects.filter(workshop=collaborator.workshop, year=resolved.year, month=resolved.month).only("work_days_per_month").first()
     if workshop_cost is not None:
-        return workshop_cost.get_effective_work_days()
+        return int(workshop_cost.work_days_per_month or 0)
 
     latest_workshop_cost = WorkshopCost.objects.filter(workshop=collaborator.workshop).order_by("-year", "-month", "-id").only("work_days_per_month").first()
     if latest_workshop_cost is not None:
-        return latest_workshop_cost.get_effective_work_days()
+        return int(latest_workshop_cost.work_days_per_month or 0)
 
     return 0
 

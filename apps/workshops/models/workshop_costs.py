@@ -132,10 +132,6 @@ class WorkshopCost(TimeStampedModel):
     def get_business_holiday_count(self) -> int:
         return len(self.get_business_holiday_dates())
 
-    def get_effective_work_days(self) -> int:
-        configured_work_days = int(self.work_days_per_month or 0)
-        return max(configured_work_days - self.get_business_holiday_count(), 0)
-
     def calculate_working_hours_per_month(self) -> Decimal:
         if not self.work_hours_per_day:
             return Decimal("0.00")
@@ -143,7 +139,7 @@ class WorkshopCost(TimeStampedModel):
         work_hours_per_day = Decimal(self.work_hours_per_day.total_seconds()) / Decimal("3600")
         productivity_per_day = Decimal(self.mechanic_quantity or 0) * work_hours_per_day * (self.productivity_average or Decimal("0"))
 
-        working_hours_per_month = productivity_per_day * Decimal(self.get_effective_work_days())
+        working_hours_per_month = productivity_per_day * Decimal(self.work_days_per_month or 0)
         return working_hours_per_month.quantize(Decimal("0.01"), ROUND_HALF_UP)
 
     def calculate_minimum_hourly_cost(self) -> Money:
