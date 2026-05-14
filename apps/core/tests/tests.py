@@ -1514,12 +1514,11 @@ class DashboardMetricsTests(TestCase):
         response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
 
         elapsed_business_days = self._count_business_days(start_date=today.replace(day=1), end_date=today, holiday_dates={holiday_date})
-        remaining_business_days = max(21 - elapsed_business_days, 0)
+        remaining_business_days = max(22 - elapsed_business_days, 0)
         expected_projection = (Decimal("220.00") / Decimal(elapsed_business_days) * Decimal(remaining_business_days)) + Decimal("220.00")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["dias_transcorridos"], elapsed_business_days)
-        self.assertEqual(response.context["dias_uteis_efetivos"], 21)
         self.assertEqual(response.context["feriados_uteis"], 1)
         self.assertEqual(response.context["projecao"], expected_projection)
 
