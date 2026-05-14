@@ -232,6 +232,28 @@ def metricas_dashboard(request) -> dict[str, Any]:
         ).order_by("due_date", "pk")
     )
     total_vendido_ate_a_data = sum((_resolve_decimal_amount(payment.total_paid) for payment in pagamentos_total_vendido), Decimal("0.00"))
+    logger.info(
+        "Dashboard total vendido calculado | %s",
+        json.dumps(
+            {
+                "workshop_id": workshop.pk,
+                "mes": mes_selecionado,
+                "ano": ano_selecionado,
+                "total_vendido": str(total_vendido_ate_a_data),
+                "payments": [
+                    {
+                        "payment_id": payment.pk,
+                        "workorder_id": payment.workorder_id,
+                        "budget_id": getattr(getattr(payment.workorder, "budget", None), "pk", None),
+                        "due_date": payment.due_date.isoformat() if payment.due_date else None,
+                        "total_paid": str(payment.total_paid),
+                    }
+                    for payment in pagamentos_total_vendido
+                ],
+            },
+            ensure_ascii=True,
+        ),
+    )
     workshop_cost = WorkshopCost.objects.filter(workshop=workshop, month=mes_selecionado, year=ano_selecionado).first()
     dias_transcorridos = 0
     dias_faltantes = 0

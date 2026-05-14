@@ -8232,6 +8232,158 @@ class DreReportViewTests(TestCase):
             f"O.S #{workorder.budget.pk} - Cliente Receita",
         )
 
+    def test_results_page_includes_current_month_payment_even_when_workorder_movement_due_date_is_older(self) -> None:
+        revenue_root = FinancialGroup.objects.create(workshop=self.workshop, name="Vendas")
+        revenue_child = FinancialGroup.objects.create(workshop=self.workshop, parent=revenue_root, name="Servicos Rapidos")
+
+        customer = Customer.objects.create(
+            workshop=self.workshop,
+            name="Cliente Parcela Atual",
+            cpf_or_cnpj="12345678905",
+            email="cliente.parcela@example.com",
+        )
+        budget = Budget.objects.create(
+            workshop=self.workshop,
+            customer=customer,
+            entry_date=date(2025, 12, 10),
+            status=BudgetStatus.APPROVED,
+        )
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget)
+        WorkOrder.objects.filter(pk=workorder.pk).update(criado_em=timezone.make_aware(datetime.combine(date(2025, 12, 10), datetime.min.time())))
+        workorder.refresh_from_db()
+
+        product_group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Receita Parcela")
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code="DRE-REV-PARCELA",
+            unit=Product.Unit.UND,
+            name="Produto Receita Parcela",
+            group=product_group,
+            cost_price=Money("120.00", "BRL"),
+            selling_price=Money("250.00", "BRL"),
+        )
+        WorkOrderItem.objects.create(workshop=self.workshop, workorder=workorder, product=product, quantity=1, shipping=Money("0.00", "BRL"))
+
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pagamento Parcela Atual")
+        WorkOrderPaymentMethod.objects.create(
+            workorder=workorder,
+            payment_method=payment_method,
+            installments_count=1,
+            first_installment_amount=Money("410.75", "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            due_date=date(2026, 1, 15),
+        )
+
+        sync_workorder_financial_movement(workorder=workorder)
+        movement = FinancialMovement.objects.get(workorder=workorder, movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT)
+        movement.budget_plan = revenue_child
+        movement.save(update_fields=["budget_plan"])
+
+        result = build_dre_calculation(
+            workshops=[self.workshop],
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+            tipo_data="A",
+        )
+        rows = {row["component"]: row for row in result.rows}
+
+        self.assertEqual(rows["receita_bruta_vendas_e_servicos"]["amount"], Money("410.75", "BRL"))
+        self.assertEqual(rows["receitas_financeiras"]["amount"], Money("410.75", "BRL"))
+
+    def test_results_page_falls_back_to_receitas_group_when_workorder_movement_has_no_budget_plan(self) -> None:
+        receitas_group = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+
+        customer = Customer.objects.create(
+            workshop=self.workshop,
+            name="Cliente Sem Grupo",
+            cpf_or_cnpj="12345678906",
+            email="cliente.semgrupo@example.com",
+        )
+        budget = Budget.objects.create(
+            workshop=self.workshop,
+            customer=customer,
+            entry_date=date(2026, 1, 10),
+            status=BudgetStatus.APPROVED,
+        )
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget)
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pagamento Sem Grupo")
+        WorkOrderPaymentMethod.objects.create(
+            workorder=workorder,
+            payment_method=payment_method,
+            installments_count=1,
+            first_installment_amount=Money("300.00", "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            due_date=date(2026, 1, 20),
+        )
+
+        sync_workorder_financial_movement(workorder=workorder)
+        movement = FinancialMovement.objects.get(workorder=workorder, movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT)
+        movement.budget_plan = None
+        movement.save(update_fields=["budget_plan"])
+
+        result = build_dre_calculation(
+            workshops=[self.workshop],
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+            tipo_data="A",
+        )
+        rows = {row["component"]: row for row in result.rows}
+
+        self.assertEqual(rows["receitas_financeiras"]["amount"], Money("300.00", "BRL"))
+        self.assertEqual(rows["receitas_financeiras"]["details"][0]["group"], receitas_group)
+
+    def test_results_page_includes_legacy_default_workorder_revenue_movement_in_financial_tree(self) -> None:
+        receitas_group = FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+
+        customer = Customer.objects.create(
+            workshop=self.workshop,
+            name="Cliente Legado",
+            cpf_or_cnpj="12345678907",
+            email="cliente.legado@example.com",
+        )
+        budget = Budget.objects.create(
+            workshop=self.workshop,
+            customer=customer,
+            entry_date=date(2026, 1, 10),
+            status=BudgetStatus.APPROVED,
+        )
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget)
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pagamento Legado")
+        WorkOrderPaymentMethod.objects.create(
+            workorder=workorder,
+            payment_method=payment_method,
+            installments_count=1,
+            first_installment_amount=Money("320.00", "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            due_date=date(2026, 1, 20),
+        )
+
+        source = Source.objects.create(workshop=self.workshop, name=f"OS Nº {workorder.pk}")
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            workorder=workorder,
+            source=source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            description="Receita legado",
+            amount=Money("400.00", "BRL"),
+            due_date=date(2026, 1, 10),
+            is_paid=False,
+            movement_kind=FinancialMovement.MovementKind.DEFAULT,
+            budget_plan=receitas_group,
+        )
+
+        result = build_dre_calculation(
+            workshops=[self.workshop],
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31),
+            tipo_data="A",
+        )
+        rows = {row["component"]: row for row in result.rows}
+
+        self.assertEqual(rows["receitas_financeiras"]["amount"], Money("320.00", "BRL"))
+        self.assertEqual(rows["receitas_financeiras"]["details"][0]["group"], receitas_group)
+
     def test_results_page_financial_group_tree_matches_dashboard_total_vendido_logic(self) -> None:
         revenue_root = FinancialGroup.objects.create(workshop=self.workshop, name="Vendas")
         revenue_child = FinancialGroup.objects.create(workshop=self.workshop, parent=revenue_root, name="Servicos Rapidos")
