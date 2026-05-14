@@ -237,14 +237,16 @@ def metricas_dashboard(request) -> dict[str, Any]:
     dias_faltantes = 0
     projecao: Decimal | None = None
     projecao_warning = ""
+    dias_uteis_mes_configurados = int(workshop_cost.work_days_per_month) if workshop_cost is not None else None
+    dias_uteis_efetivos = workshop_cost.get_effective_work_days() if workshop_cost is not None else None
+    feriados_uteis = workshop_cost.get_business_holiday_count() if workshop_cost is not None else 0
 
     if workshop_cost is not None:
         dias_transcorridos = _count_elapsed_business_days(
-            selected_month=mes_selecionado,
-            selected_year=ano_selecionado,
+            workshop_cost=workshop_cost,
             today=hoje,
         )
-        dias_faltantes = max(int(workshop_cost.work_days_per_month or 0) - dias_transcorridos, 0)
+        dias_faltantes = max(workshop_cost.get_effective_work_days() - dias_transcorridos, 0)
         if dias_transcorridos > 0:
             media_diaria = total_vendido_ate_a_data / Decimal(dias_transcorridos)
             projecao = (media_diaria * Decimal(dias_faltantes)) + total_vendido_ate_a_data
@@ -295,7 +297,6 @@ def metricas_dashboard(request) -> dict[str, Any]:
         .count()
     )
     ticket_medio = total_vendido_ate_a_data / qtd_carros_mes if qtd_carros_mes > 0 else Decimal("0.00")
-    projecao = ((total_vendido_ate_a_data / dias_transcorridos) * dias_faltantes) + total_vendido_ate_a_data if dias_transcorridos > 0 else total_vendido_ate_a_data
     rentabilidade_acumulada_mes = sum(rentabilidades) / len(rentabilidades) if rentabilidades else 0
     indice_retorno_em_garantia_mes = (qtd_garantias_mes / qtd_veiculos_mes) * 100 if qtd_veiculos_mes > 0 else 0
     taxa_aprovacao = (qtd_orcamentos_aprovados / qtd_orcamentos_criados) * 100 if qtd_orcamentos_criados > 0 else 0
@@ -337,6 +338,11 @@ def metricas_dashboard(request) -> dict[str, Any]:
         "ticket_medio": ticket_medio,
         "projecao": projecao,
         "projecao_warning": projecao_warning,
+        "dias_transcorridos": dias_transcorridos,
+        "dias_faltantes": dias_faltantes,
+        "dias_uteis_mes_configurados": dias_uteis_mes_configurados,
+        "dias_uteis_efetivos": dias_uteis_efetivos,
+        "feriados_uteis": feriados_uteis,
         "total_vendido_ate_a_data": total_vendido_ate_a_data,
         "rentabilidade_acumulada_mes": rentabilidade_acumulada_mes,
         "indice_retorno_em_garantia_mes": indice_retorno_em_garantia_mes,
@@ -353,22 +359,24 @@ def metricas_dashboard(request) -> dict[str, Any]:
     }
 
 
-def _count_business_days(*, start_date: date, end_date: date) -> int:
+def _count_business_days(*, start_date: date, end_date: date, holiday_dates: set[date] | None = None) -> int:
     if end_date < start_date:
         return 0
 
-    return sum(1 for day in range(start_date.day, end_date.day + 1) if date(start_date.year, start_date.month, day).weekday() < 5)
+    excluded_holidays = holiday_dates or set()
+    return sum(1 for day in range(start_date.day, end_date.day + 1) if (current_date := date(start_date.year, start_date.month, day)).weekday() < 5 and current_date not in excluded_holidays)
 
 
-def _count_elapsed_business_days(*, selected_month: int, selected_year: int, today: date) -> int:
-    first_day = date(selected_year, selected_month, 1)
-    last_day = date(selected_year, selected_month, calendar.monthrange(selected_year, selected_month)[1])
+def _count_elapsed_business_days(*, workshop_cost: WorkshopCost, today: date) -> int:
+    first_day = date(workshop_cost.year, workshop_cost.month, 1)
+    last_day = date(workshop_cost.year, workshop_cost.month, calendar.monthrange(workshop_cost.year, workshop_cost.month)[1])
 
     if first_day > today:
         return 0
 
     period_end = min(today, last_day)
-    return _count_business_days(start_date=first_day, end_date=period_end)
+    holiday_dates = {holiday_date for holiday_date in workshop_cost.get_business_holiday_dates() if holiday_date <= period_end}
+    return _count_business_days(start_date=first_day, end_date=period_end, holiday_dates=holiday_dates)
 
 
 def _resolve_decimal_amount(value: Any) -> Decimal:

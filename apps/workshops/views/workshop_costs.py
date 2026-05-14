@@ -107,6 +107,8 @@ class WorkshopCostCopyView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
             field_name = f"cost_item_{item.monthly_cost_id}"
             initial[field_name] = item.amount
 
+        initial["holiday_dates"] = ",".join(holiday.date.isoformat() for holiday in original_instance.holidays.order_by("date"))
+
         # Calculados (Readonly)
         initial["total_value"] = original_instance.total_value
         initial["total_monthly_costs"] = original_instance.total_monthly_costs
