@@ -266,8 +266,8 @@ def metricas_dashboard(request) -> dict[str, Any]:
         budget_type=BudgetType.SALE,
         is_warranty_budget=False,
     ).exclude(reference_budget__isnull=False)
-    qtd_orcamentos_criados = orcamentos_base.count()
-    qtd_orcamentos_aprovados = orcamentos_base.filter(status=BudgetStatus.APPROVED).count()
+    orcamentos_criados_no_mes = orcamentos_base.count()
+    orcamentos_aprovados_no_mes = orcamentos_base.filter(status=BudgetStatus.APPROVED).count()
 
     budgets_aguardando_base = Budget.objects.filter(workshop=workshop, budget_type=BudgetType.SALE, status__in=OPEN_BUDGET_STATUSES).prefetch_related("items", "items__kit_overrides", "items__kit__kit_products", "items__kit__kit_services")
 
@@ -299,7 +299,7 @@ def metricas_dashboard(request) -> dict[str, Any]:
     ticket_medio = total_vendido_ate_a_data / qtd_carros_mes if qtd_carros_mes > 0 else Decimal("0.00")
     rentabilidade_acumulada_mes = sum(rentabilidades) / len(rentabilidades) if rentabilidades else 0
     indice_retorno_em_garantia_mes = (qtd_garantias_mes / qtd_veiculos_mes) * 100 if qtd_veiculos_mes > 0 else 0
-    taxa_aprovacao = (qtd_orcamentos_aprovados / qtd_orcamentos_criados) * 100 if qtd_orcamentos_criados > 0 else 0
+    taxa_aprovacao = (orcamentos_aprovados_no_mes / orcamentos_criados_no_mes) * 100 if orcamentos_criados_no_mes > 0 else 0
 
     # Financeiro (R$)
 
