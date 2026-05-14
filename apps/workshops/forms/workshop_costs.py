@@ -304,17 +304,19 @@ class WorkshopCostForm(CoreModelForm):
         return f"""
             <div class="col-span-12 rounded-box border border-base-300 bg-base-200/40 p-2 w-fit lg:justify-self-end">
                 <div class="flex flex-col gap-1">
-                    <div>
-                        <h3 class="text-sm font-semibold">Calendário de Feriados</h3>
-                        <p class="text-[10px] text-base-content/70">Clique em um dia útil para marcar ou desmarcar feriado.</p>
+                    <div class="flex items-start justify-between gap-2">
+                        <div>
+                            <h3 class="text-sm font-semibold">Calendário de Feriados</h3>
+                            <p class="text-[10px] text-base-content/70">Clique em um dia útil para marcar ou desmarcar feriado.</p>
+                        </div>
+                        <button type="button" id="holiday-calendar-toggle" class="btn btn-xs btn-ghost">Mostrar</button>
                     </div>
-                    <div id="holiday-calendar"
-                         class="grid grid-cols-7 gap-1 max-w-[260px]"
-                         data-selected-month="{selected_month}"
-                         data-selected-year="{selected_year}"
-                         data-weekday-labels='{json.dumps(weekday_labels)}'></div>
-                    <div class="text-[10px] text-base-content/70">
-                        <span id="holiday-calendar-summary">Feriados úteis marcados: 0 | Dias úteis efetivos: 0</span>
+                    <div id="holiday-calendar-panel" class="hidden">
+                        <div id="holiday-calendar"
+                             class="grid grid-cols-7 gap-1 max-w-[260px]"
+                             data-selected-month="{selected_month}"
+                             data-selected-year="{selected_year}"
+                             data-weekday-labels='{json.dumps(weekday_labels)}'></div>
                     </div>
                 </div>
             </div>
@@ -324,9 +326,10 @@ class WorkshopCostForm(CoreModelForm):
                     const monthInput = document.getElementById('id_month');
                     const yearInput = document.getElementById('id_year');
                     const calendarRoot = document.getElementById('holiday-calendar');
-                    const summary = document.getElementById('holiday-calendar-summary');
+                    const panel = document.getElementById('holiday-calendar-panel');
+                    const toggleButton = document.getElementById('holiday-calendar-toggle');
 
-                    if (!hiddenInput || !monthInput || !yearInput || !calendarRoot || !summary) {{
+                    if (!hiddenInput || !monthInput || !yearInput || !calendarRoot || !panel || !toggleButton) {{
                         return;
                     }}
 
@@ -355,6 +358,9 @@ class WorkshopCostForm(CoreModelForm):
                     }}
 
                     function renderCalendar() {{
+                        if (panel.classList.contains('hidden')) {{
+                            return;
+                        }}
                         const year = parseInt(yearInput.value || calendarRoot.dataset.selectedYear || '0', 10);
                         const month = parseInt(monthInput.value || calendarRoot.dataset.selectedMonth || '0', 10);
                         if (!year || !month) {{
@@ -369,10 +375,7 @@ class WorkshopCostForm(CoreModelForm):
                         const firstWeekday = new Date(year, month - 1, 1).getDay();
                         const weekdayOffset = firstWeekday;
                         const businessHolidayCount = countBusinessHolidays(selectedDates, year, month);
-                        const configuredWorkDays = parseInt(document.getElementById('id_work_days_per_month')?.value || '0', 10) || 0;
-                        const effectiveWorkDays = Math.max(configuredWorkDays - businessHolidayCount, 0);
-
-                        summary.textContent = `Feriados úteis marcados: ${{businessHolidayCount}} | Dias úteis efetivos: ${{effectiveWorkDays}}`;
+                        void businessHolidayCount;
                         calendarRoot.innerHTML = '';
 
                         weekdayLabels.forEach(label => {{
@@ -420,12 +423,19 @@ class WorkshopCostForm(CoreModelForm):
                         }}
                     }}
 
+                    toggleButton.addEventListener('click', () => {{
+                        const isHidden = panel.classList.contains('hidden');
+                        panel.classList.toggle('hidden');
+                        toggleButton.textContent = isHidden ? 'Ocultar' : 'Mostrar';
+                        if (isHidden) {{
+                            renderCalendar();
+                        }}
+                    }});
+
                     monthInput.addEventListener('change', renderCalendar);
                     yearInput.addEventListener('input', renderCalendar);
                     yearInput.addEventListener('change', renderCalendar);
                     document.getElementById('id_work_days_per_month')?.addEventListener('input', renderCalendar);
-                    document.addEventListener('DOMContentLoaded', renderCalendar, {{ once: true }});
-                    renderCalendar();
                 }})();
             </script>
         """
