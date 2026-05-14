@@ -10,7 +10,8 @@ from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 from django.utils import timezone
-from django.views.generic import DeleteView, TemplateView, UpdateView
+from django.views.generic import DeleteView, TemplateView, UpdateView, View
+from django.db import transaction
 from django.db.models import Q, Value
 from django.db.models.functions import Coalesce
 from typing import List, Tuple
@@ -26,8 +27,14 @@ from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.reports import FinancialOverview, build_monthly_financial_overview, build_yearly_financial_overview
-from apps.workorder.models import WorkOrder
+from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod
 from apps.workshops.mixin import WorkshopScopedMixin
+
+
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 
 class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
@@ -751,3 +758,147 @@ class ReportMovementDeleteView(LoginRequiredMixin, WorkshopScopedMixin, DeleteVi
 
     def get_success_url(self):
         return reverse("finance:reports_home")
+
+
+class BatchConciliateView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = FinancialMovement
+    workshop_permission_codename = "change_financialmovement"
+
+    def post(self, request, *args, **kwargs):
+        raw_values = request.POST.getlist("movement_ids")
+        logger.info("BatchConciliateView received %d movement_ids: %s", len(raw_values), raw_values)
+
+        fm_ids = []
+        wo_payment_pks: list[int] = []
+        for value in raw_values:
+            if value.startswith("financial-movement-"):
+                try:
+                    fm_ids.append(int(value.replace("financial-movement-", "")))
+                except ValueError:
+                    pass
+            elif value.startswith("workorder-payment-"):
+                try:
+                    wo_payment_pks.append(int(value.replace("workorder-payment-", "")))
+                except ValueError:
+                    pass
+
+        movement_map: dict[str, FinancialMovement] = {}
+
+        if fm_ids:
+            qs = FinancialMovement.objects.filter(pk__in=fm_ids, workshop=self.workshop).select_related("workorder", "workorder__budget", "workorder__budget__customer")
+            for m in qs:
+                movement_map[f"financial-movement-{m.pk}"] = m
+
+        if wo_payment_pks:
+            # Busca per-payment movements
+            per_payment_map: dict[int, FinancialMovement] = {}
+            for m in (
+                FinancialMovement.objects.filter(
+                    workorder_payment_id__in=wo_payment_pks,
+                    movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                    workshop=self.workshop,
+                )
+                .select_related("workorder", "workorder__budget", "workorder__budget__customer")
+                .order_by("-pk")
+            ):
+                key = m.workorder_payment_id
+                if key is not None and key not in per_payment_map:
+                    per_payment_map[key] = m
+
+            # Busca os WorkOrderPaymentMethod faltantes para tentar fallback ao agregado
+            found_pks = set(per_payment_map.keys())
+            missing_pks = [pk for pk in wo_payment_pks if pk not in found_pks]
+            logger.info("Per-payment movements found: %d, missing: %d", len(found_pks), len(missing_pks))
+
+            fallback_workorder_ids: set[int] = set()
+            if missing_pks:
+                for pm in WorkOrderPaymentMethod.objects.filter(pk__in=missing_pks).select_related("workorder"):
+                    if pm.workorder_id:
+                        fallback_workorder_ids.add(pm.workorder_id)
+
+            # Busca movimentos agregados para os workorders em fallback
+            aggregate_map: dict[int, FinancialMovement] = {}
+            if fallback_workorder_ids:
+                for m in (
+                    FinancialMovement.objects.filter(
+                        workorder_id__in=list(fallback_workorder_ids),
+                        movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                        workorder_payment__isnull=True,
+                        workshop=self.workshop,
+                    )
+                    .select_related("workorder", "workorder__budget", "workorder__budget__customer")
+                    .order_by("-pk")
+                ):
+                    wo_id = m.workorder_id
+                    if wo_id is not None and wo_id not in aggregate_map:
+                        aggregate_map[wo_id] = m
+
+            # Popula movement_map: primeiro per-payment, depois fallback agregado
+            for pk in wo_payment_pks:
+                key = f"workorder-payment-{pk}"
+                if pk in per_payment_map:
+                    movement_map[key] = per_payment_map[pk]
+                else:
+                    pm = WorkOrderPaymentMethod.objects.filter(pk=pk).select_related("workorder").first()
+                    if pm and pm.workorder_id and pm.workorder_id in aggregate_map:
+                        movement_map[key] = aggregate_map[pm.workorder_id]
+                        logger.info("Fallback para agregado da OS %s para workorder-payment-%s", pm.workorder_id, pk)
+
+            if not movement_map.get(f"workorder-payment-{wo_payment_pks[0]}" if wo_payment_pks else "__dummy__"):
+                logger.warning(
+                    "Nenhum movimento encontrado para workorder-payment IDs %s. Per-payment: %s, missing: %s, fallback WOs: %s",
+                    wo_payment_pks,
+                    list(per_payment_map.keys()),
+                    missing_pks,
+                    list(fallback_workorder_ids),
+                )
+
+        errors = []
+        validated_movements: list[FinancialMovement] = []
+
+        for value in raw_values:
+            movement = movement_map.get(value)
+            if movement is None:
+                errors.append({"id": value, "reason": "Nenhuma movimentação financeira encontrada para este pagamento. Execute a sincronização da O.S. primeiro."})
+                continue
+            if not movement.is_paid:
+                errors.append({"id": self._label(movement), "reason": "O pagamento desta movimentação ainda não foi confirmado. Marque como 'Sim' no campo Pago antes de conciliar."})
+                continue
+            if movement.is_reconciled:
+                errors.append({"id": self._label(movement), "reason": "Esta movimentação já está conciliada."})
+                continue
+            if not movement.budget_plan_id:
+                errors.append({"id": self._label(movement), "reason": "Plano Orçamentário é obrigatório para conciliar. Preencha o campo no modal de edição."})
+                continue
+            if not movement.bank_account_id:
+                errors.append({"id": self._label(movement), "reason": "Conta Bancária é obrigatória para conciliar. Preencha o campo no modal de edição."})
+                continue
+            validated_movements.append(movement)
+
+        if errors:
+            logger.warning("Conciliação em lote: %d erros, nenhuma movimentação foi atualizada", len(errors))
+            return render(
+                request,
+                "finance/reports/partials/batch_conciliate_errors.html",
+                {
+                    "errors": errors,
+                    "success_count": 0,
+                },
+            )
+
+        if validated_movements:
+            with transaction.atomic():
+                reconciled_pks = [m.pk for m in validated_movements]
+                updated = FinancialMovement.objects.filter(pk__in=reconciled_pks).update(is_reconciled=True)
+                logger.info("Conciliação em lote: %d movimentos reconciliados (atomic)", updated)
+
+        response = HttpResponse()
+        response["HX-Refresh"] = "true"
+        return response
+
+    def _label(self, movement: FinancialMovement) -> str:
+        if movement.workorder_id:
+            customer = getattr(getattr(movement.workorder, "budget", None), "customer", None)
+            name = customer.name if customer else ""
+            return f"OS #{movement.workorder_id} — {name}" if name else f"OS #{movement.workorder_id}"
+        return movement.description or f"Movimentação #{movement.pk}"

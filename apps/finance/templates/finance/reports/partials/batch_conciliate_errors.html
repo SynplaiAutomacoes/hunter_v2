@@ -1,0 +1,55 @@
+<dialog id="conciliate-errors-modal" class="modal" x-init="$nextTick(() => $el.showModal())" @click="if ($event.target === $el) $el.close()" @close="$el.remove()">
+    <div class="modal-box w-[95vw] max-w-2xl border border-base-300 bg-base-100 shadow-2xl p-6 md:p-12">
+        <div class="flex items-center justify-between mb-6">
+            <h3 class="text-2xl font-bold text-base-content flex items-center gap-3">
+                <span class="material-icons text-warning text-2xl">warning</span>
+                Resultado da Conciliação
+            </h3>
+            <button type="button" class="btn btn-ghost btn-sm btn-circle" @click="$el.closest('dialog').close()" aria-label="Fechar">
+                <span class="material-icons text-xl">close</span>
+            </button>
+        </div>
+
+        {% if success_count %}
+        <div class="alert alert-success shadow-lg mb-6">
+            <span class="material-icons">check_circle</span>
+            <span>{{ success_count }} movimentação(ões) conciliada(s) com sucesso.</span>
+        </div>
+        {% endif %}
+
+        {% if errors %}
+        <div class="alert alert-warning shadow-lg mb-6">
+            <span class="material-icons">warning</span>
+            <span>{{ errors|length }} movimentação(ões) não puderam ser conciliadas.</span>
+        </div>
+
+        <div class="overflow-x-auto rounded-xl border border-base-300">
+            <table class="table table-sm">
+                <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
+                    <tr>
+                        <th>Movimentação</th>
+                        <th>Motivo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for error in errors %}
+                    <tr>
+                        <td class="font-medium">{{ error.id }}</td>
+                        <td class="text-error">{{ error.reason }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <div class="modal-action mt-8">
+            <button type="button" class="btn btn-primary px-10" @click="$el.closest('dialog').close()">
+                Fechar
+            </button>
+        </div>
+    </div>
+    <form method="dialog" class="modal-backdrop bg-black/50">
+        <button>close</button>
+    </form>
+</dialog>
