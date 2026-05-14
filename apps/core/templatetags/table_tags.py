@@ -784,6 +784,7 @@ def render_table(
     preserve_selection: bool = False,
     hierarchical_selection: bool = False,
     htmx_push_url: bool = True,
+    disable_pagination_when_filtered: bool = False,
 ) -> dict[str, Any]:
     """
     Inclusion tag principal para renderizar uma tabela de dados completa.
@@ -820,6 +821,7 @@ def render_table(
         preserve_selection: Se True, mantém checkboxes de linha marcados com base na query string atual.
         hierarchical_selection: Se True, sincroniza seleção pai/filhos via metadados de hierarquia.
         htmx_push_url: Se True, atualiza a URL do navegador durante interações HTMX da tabela.
+        disable_pagination_when_filtered: Se True, remove a paginação quando houver filtros extras ativos.
     """
     parent_context = _copy_parent_context(context)
     request: HttpRequest = parent_context["request"]
@@ -857,11 +859,17 @@ def render_table(
     else:
         ordered_items, sort, sort_attr, sort_desc = _apply_sort_to_sequence(filtered_items, columns=columns, sort_attr=sort_attr, sort_desc=sort_desc, sort_is_valid=sort_is_valid)
 
+    has_active_filters = show_filter_controls and any(str(value).strip() != "" for param_name in normalized_filter_param_names for value in request.GET.getlist(param_name))
+
+    effective_per_page = per_page
+    if disable_pagination_when_filtered and has_active_filters:
+        effective_per_page = max(len(ordered_items), 1) if not is_queryset else max(ordered_items.count(), 1)
+
     page_number = request.GET.get("page", "1")
     if is_queryset:
-        page_obj, paginator = _paginate(ordered_items, per_page=per_page, page_number=page_number)
+        page_obj, paginator = _paginate(ordered_items, per_page=effective_per_page, page_number=page_number)
     else:
-        page_obj, paginator = _paginate_sequence(ordered_items, per_page=per_page, page_number=page_number)
+        page_obj, paginator = _paginate_sequence(ordered_items, per_page=effective_per_page, page_number=page_number)
 
     rendered_columns = _render_columns(columns=columns, request=request, sort_attr=sort_attr, sort_desc=sort_desc)
     selected_values: set[str] = set()
@@ -875,7 +883,6 @@ def render_table(
 
     clear_search_url = _build_url(request, updates={search_param: None, "page": 1})
 
-    has_active_filters = show_filter_controls and any(str(value).strip() != "" for param_name in normalized_filter_param_names for value in request.GET.getlist(param_name))
     clear_filter_url = None
     if show_filter_controls and normalized_filter_param_names:
         clear_filter_updates: dict[str, Any] = {**{param_name: None for param_name in normalized_filter_param_names}, "page": 1}

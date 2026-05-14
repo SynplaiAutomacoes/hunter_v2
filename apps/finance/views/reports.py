@@ -242,10 +242,13 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         workorder_parent_query = Q(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False)
         return queryset.filter(
             (~workorder_parent_query & Q(**{lookup: value}))
-            | (workorder_parent_query & Q(
-                workorder__payments__isnull=False,
-                **{f"workorder__payments__{lookup}": value},
-            ))
+            | (
+                workorder_parent_query
+                & Q(
+                    workorder__payments__isnull=False,
+                    **{f"workorder__payments__{lookup}": value},
+                )
+            )
         ).distinct()
 
     def _apply_report_filters(self, queryset):
@@ -562,18 +565,22 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
     def _get_financial_movements_page(self, *, rows: list[dict[str, object]]) -> tuple[Any, Paginator]:
         page_number = self.request.GET.get("page") or "1"
 
+        if self._has_active_filters():
+            paginator = Paginator(rows, max(len(rows), 1))
+            return paginator.get_page(1), paginator
+
         paginator = Paginator(rows, self.MOVEMENTS_PER_PAGE)
         page_obj = paginator.get_page(page_number)
         return page_obj, paginator
 
     def _get_agent_filter_choices(self) -> List[Tuple[str, str]]:
-        collaborators = WorkshopCollaborator.objects.filter(workshop=self.workshop).order_by("name")
+        collaborators = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
         suppliers = Supplier.objects.filter(workshop=self.workshop).order_by("name")
         workorders = WorkOrder.objects.filter(workshop=self.workshop).select_related("budget", "budget__customer").order_by("-pk")[:100]
 
         choices = [("", "Todos os agentes")]
         for c in collaborators:
-            choices.append((f"coll_{c.pk}", f"Colaborador: {c.name}"))
+            choices.append((f"coll_{c.pk}", c.name))
         for s in suppliers:
             choices.append((f"supp_{s.pk}", f"Fornecedor: {s.name}"))
         for wo in workorders:
