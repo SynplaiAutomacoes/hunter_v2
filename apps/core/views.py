@@ -6,7 +6,7 @@ import logging
 import time
 from datetime import datetime
 from typing import Any
-from django.db.models import Sum
+from django.db.models import Q, Sum
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
@@ -17,7 +17,7 @@ from django.views.generic import TemplateView
 
 from apps.budget.models import Budget, BudgetStatus, BudgetType
 from apps.finance.models.financial_movement import FinancialMovement
-from apps.workorder.models import WorkOrderStatus, WorkOrder
+from apps.workorder.models import WorkOrder, WorkOrderSignatureStatus, WorkOrderStatus
 import calendar
 from apps.core.favorites import FavoritePageLimitError, InvalidFavoritePageError, reorder_favorite_pages, toggle_favorite_page
 from apps.core.navigation import build_favoritable_page
@@ -264,12 +264,25 @@ def metricas_dashboard(request) -> dict[str, Any]:
     # Métricas
     # qtd_carros_mes = (Budget.objects.filter(workshop=workshop, status=BudgetStatus.APPROVED, entry_date__month=mes_selecionado,
     #                                         entry_date__year=ano_selecionado).exclude(reference_budget__isnull=False).count())
-    qtd_carros_mes = WorkOrder.objects.filter(
-        workshop=workshop,
-        status=WorkOrderStatus.APPROVED,
-        delivered_at__month=mes_selecionado,
-        delivered_at__year=ano_selecionado,
-    ).count()
+    qtd_carros_mes = (
+        WorkOrder.objects.filter(
+            workshop=workshop,
+            status=WorkOrderStatus.APPROVED,
+        )
+        .filter(
+            Q(
+                delivered_at__month=mes_selecionado,
+                delivered_at__year=ano_selecionado,
+            )
+            | Q(
+                delivered_at__isnull=True,
+                signature_request_status=WorkOrderSignatureStatus.APPROVED,
+                atualizado_em__month=mes_selecionado,
+                atualizado_em__year=ano_selecionado,
+            )
+        )
+        .count()
+    )
     ticket_medio = total_vendido_ate_a_data / qtd_carros_mes if qtd_carros_mes > 0 else Decimal("0.00")
     projecao = ((total_vendido_ate_a_data / dias_transcorridos) * dias_faltantes) + total_vendido_ate_a_data if dias_transcorridos > 0 else total_vendido_ate_a_data
     rentabilidade_acumulada_mes = sum(rentabilidades) / len(rentabilidades) if rentabilidades else 0

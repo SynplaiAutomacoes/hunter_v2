@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -23,7 +23,7 @@ from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.movement_group import MovementGroup
 from apps.iam.utils import get_or_create_director_role
 from apps.workshops.models.workshops import Workshop
-from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
 
 
 def create_workshop(**kwargs):
@@ -1425,3 +1425,23 @@ class DashboardMetricsTests(TestCase):
         self.assertEqual(response.context["qtd_carros_mes"], 1)
         self.assertEqual(response.context["ticket_medio"], Decimal("500.00"))
         self.assertContains(response, "R$ 500,00")
+
+    def test_dashboard_counts_approved_workorders_without_delivery_date_using_signature_date_fallback(self):
+        today = timezone.localdate()
+
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
+        workorder = WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            status=WorkOrderStatus.APPROVED,
+            signature_request_status=WorkOrderSignatureStatus.APPROVED,
+            delivered_at=None,
+        )
+        WorkOrder.objects.filter(pk=workorder.pk).update(
+            atualizado_em=timezone.make_aware(datetime.combine(today, datetime.min.time())),
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["qtd_carros_mes"], 1)
