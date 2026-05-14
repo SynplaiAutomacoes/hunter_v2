@@ -71,6 +71,18 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
 
         return label
 
+    @staticmethod
+    def _resolve_workorder_conciliation_status(*, is_paid: bool) -> dict[str, str]:
+        if is_paid:
+            return {"label": "Conciliado", "icon": "check_circle", "class": "text-success"}
+        return {"label": "Aguardando Conciliação", "icon": "schedule", "class": "text-warning"}
+
+    def _resolve_movement_paid_status_display(self, movement: FinancialMovement) -> dict[str, str]:
+        if movement.movement_kind in {FinancialMovement.MovementKind.WORKORDER_PARENT, FinancialMovement.MovementKind.WORKORDER_CARD_FEE}:
+            return self._resolve_workorder_conciliation_status(is_paid=bool(movement.is_paid))
+        paid_status = movement.report_paid_indicator
+        return paid_status if isinstance(paid_status, dict) else {"label": str(paid_status), "icon": "schedule", "class": "text-warning"}
+
     def _build_summary_card(self, *, title: str, overview: FinancialOverview) -> dict[str, object]:
         return {
             "title": title,
@@ -348,7 +360,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         return {
             "component": f"workorder-payment-{payment.pk}",
             "is_expandable": False,
-            "paid_status": {"icon": "check_circle", "class": "text-success", "label": "Sim"},
+            "paid_status": self._resolve_workorder_conciliation_status(is_paid=bool(movement.is_paid)),
             "type_badge": movement.report_direction_badge,
             "due_date": payment.due_date,
             "agent": movement.report_agent_display,
@@ -498,8 +510,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         payment_manager = getattr(workorder, "payments", None)
         payments = list(payment_manager.all()) if payment_manager is not None else []
         latest_payment_date = max((payment.due_date for payment in payments if payment.due_date), default=None)
-        total_paid = sum((self._resolve_money_amount(payment.total_paid) for payment in payments), start=Decimal("0.00"))
-        paid_status = movement.report_paid_indicator
+        paid_status = self._resolve_movement_paid_status_display(movement)
         agent = movement.report_agent_display
         due_date = movement.due_date
         description = movement.report_description_display
@@ -514,7 +525,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             is_workorder = True
 
         if workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
-            paid_status: str | dict[str, str] = self._resolve_paid_status(total_paid=total_paid, total_amount=self._resolve_money_amount(workorder.total_budget_value))
+            paid_status = self._resolve_workorder_conciliation_status(is_paid=bool(movement.is_paid))
             due_date = latest_payment_date
             description = self._resolve_workorder_description(workorder)
             payment_type = self._resolve_payment_method_summary(payments)

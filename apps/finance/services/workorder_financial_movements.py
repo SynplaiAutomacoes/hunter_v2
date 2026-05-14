@@ -77,7 +77,7 @@ def sync_workorder_card_fee_movements(*, workorder: WorkOrder) -> None:
             "payment_method": payment.payment_method,
             "amount": fee_amount,
             "due_date": payment.due_date,
-            "is_paid": True,
+            "is_paid": False,
         }
 
         fee_movement = (
