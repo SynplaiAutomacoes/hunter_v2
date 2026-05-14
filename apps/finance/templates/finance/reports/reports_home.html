@@ -508,6 +508,46 @@
                     {% endif %}
 
                     {% include "tables/partials/_pagination.html" %}
+
+                    <script>
+                    (function () {
+                        function init() {
+                            var selectAll = document.getElementById('select-all-movements');
+                            if (!selectAll) return;
+                            var checkboxes = document.querySelectorAll('#financial-reports-movements-table .item-checkbox');
+                            var checked = 0;
+                            for (var i = 0; i < checkboxes.length; i++) {
+                                if (checkboxes[i].checked) checked++;
+                            }
+                            selectAll.checked = checked === checkboxes.length && checkboxes.length > 0;
+                            selectAll.indeterminate = checked > 0 && checked < checkboxes.length;
+                        }
+
+                        document.addEventListener('change', function (e) {
+                            if (e.target.id === 'select-all-movements') {
+                                var checkboxes = document.querySelectorAll('#financial-reports-movements-table .item-checkbox');
+                                for (var i = 0; i < checkboxes.length; i++) {
+                                    checkboxes[i].checked = e.target.checked;
+                                }
+                                e.target.checked = e.target.checked;
+                                e.target.indeterminate = false;
+                            }
+                            if (e.target.matches('#financial-reports-movements-table .item-checkbox')) {
+                                var selectAll = document.getElementById('select-all-movements');
+                                if (!selectAll) return;
+                                var checkboxes = document.querySelectorAll('#financial-reports-movements-table .item-checkbox');
+                                var checked = 0;
+                                for (var i = 0; i < checkboxes.length; i++) {
+                                    if (checkboxes[i].checked) checked++;
+                                }
+                                selectAll.checked = checked === checkboxes.length;
+                                selectAll.indeterminate = checked > 0 && checked < checkboxes.length;
+                            }
+                        });
+
+                        init();
+                    })();
+                    </script>
                 </div>
             </div>
         </div>
@@ -567,41 +607,4 @@
             <button>close</button>
         </form>
     </dialog>
-{% endblock %}
-
-{% block extra_scripts %}
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    const table = document.getElementById('financial-reports-movements-table');
-    if (!table) return;
-    const selectAll = table.querySelector('#select-all-movements');
-    if (!selectAll) return;
-
-    function visibleCheckboxes() {
-        return table.querySelectorAll('.item-checkbox');
-    }
-
-    function updateSelectAllState() {
-        const boxes = Array.from(visibleCheckboxes());
-        if (boxes.length === 0) {
-            selectAll.checked = false;
-            selectAll.indeterminate = false;
-            return;
-        }
-        const allChecked = boxes.every(cb => cb.checked);
-        const someChecked = boxes.some(cb => cb.checked);
-        selectAll.checked = allChecked;
-        selectAll.indeterminate = someChecked && !allChecked;
-    }
-
-    selectAll.addEventListener('change', function (e) {
-        visibleCheckboxes().forEach(cb => cb.checked = e.target.checked);
-        updateSelectAllState();
-    });
-
-    visibleCheckboxes().forEach(cb => cb.addEventListener('change', updateSelectAllState));
-
-    updateSelectAllState();
-});
-</script>
 {% endblock %}
