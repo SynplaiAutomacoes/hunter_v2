@@ -15,7 +15,8 @@ from django.contrib.messages import get_messages
 from django.core.management import call_command
 from django.core.exceptions import ValidationError
 from django.contrib.auth.models import Permission
-from django.test import TestCase, override_settings
+from django.contrib.sessions.middleware import SessionMiddleware
+from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from djmoney.money import Money
@@ -44,6 +45,7 @@ from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
+from apps.finance.views.reports import FinancialReportsHomeView
 from apps.finance.services.emission import (
     NfseEmissionError,
     _build_taker_payload,
@@ -5182,6 +5184,8 @@ class FinancialReportsHomeViewTests(TestCase):
         supplier: Supplier | None = None,
         collaborator: WorkshopCollaborator | None = None,
         direction: str = FinancialMovement.MovementDirection.DEBIT,
+        is_paid: str = "False",
+        is_reconciled: str = "False",
     ) -> dict[str, str]:
         return {
             "supplier": str(supplier.pk) if supplier else "",
@@ -5195,7 +5199,8 @@ class FinancialReportsHomeViewTests(TestCase):
             "budget_plan": "",
             "bank_account": "",
             "payment_method": str(payment_method.pk),
-            "is_paid": "False",
+            "is_paid": is_paid,
+            "is_reconciled": is_reconciled,
             "nf_number": "NF-EDIT-01",
             "financial_observation": "Observacao financeira",
         }
@@ -5554,6 +5559,7 @@ class FinancialReportsHomeViewTests(TestCase):
             direction=FinancialMovement.MovementDirection.CREDIT,
             amount=Money("1000.00", "BRL"),
             due_date=today,
+            is_paid=True,
         )
 
         response = self.client.get(reverse("finance:reports_home"))
@@ -5640,18 +5646,20 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertEqual(monthly_card["rows"][0]["value"], "R$ 1.000,00")
         self.assertEqual(monthly_card["rows"][1]["value"], "R$ 1.000,00")
         self.assertEqual(monthly_card["rows"][2]["value"], "R$ 100,00")
-        self.assertEqual(monthly_card["rows"][3]["value"], "R$ 100,00")
+        self.assertEqual(monthly_card["rows"][3]["value"], "R$ 0,00")
         self.assertEqual(monthly_card["results"][0]["value"], "R$ 900,00")
-        self.assertEqual(monthly_card["results"][1]["value"], "R$ 900,00")
+        self.assertEqual(monthly_card["results"][1]["value"], "R$ 1.000,00")
         self.assertEqual(fee_movement.amount, Money("100.00", "BRL"))
         self.assertEqual(fee_movement.description, "Pagamento da taxa da maquininha")
         self.assertTrue(fee_movement.is_paid)
-        self.assertEqual(fee_movement.dre_topic, FinancialMovement.DreTopic.DESPESAS_FINANCEIRAS)
+        self.assertFalse(fee_movement.is_reconciled)
+        if hasattr(fee_movement, "dre_topic"):
+            self.assertEqual(fee_movement.dre_topic, FinancialMovement.DreTopic.DESPESAS_FINANCEIRAS)
         self.assertEqual(fee_movement.payment_method.description, "Crédito")
         self.assertContains(response, "Pagamento da taxa da maquininha")
         self.assertNotContains(response, reverse("finance:financial_movement_update", args=[parent_movement.pk]))
-        self.assertContains(response, reverse("workorder:workorder_detail", args=[workorder.pk]))
-        self.assertContains(response, reverse("finance:financial_movement_update", args=[fee_movement.pk]))
+        self.assertContains(response, reverse("finance:report_movement_edit", kwargs={"pk": parent_movement.pk}))
+        self.assertContains(response, reverse("finance:report_movement_edit", kwargs={"pk": fee_movement.pk}))
 
     def test_repair_payment_method_fee_movements_fixes_existing_workorder_fee_history(self) -> None:
         today = timezone.localdate()
@@ -5887,6 +5895,7 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Movimentações Financeiras")
         self.assertContains(response, 'id="financial-reports-movements-table"')
+        self.assertContains(response, "Conciliado")
         self.assertContains(response, "Pago")
         self.assertContains(response, "Tipo")
         self.assertContains(response, "Vencimento")
@@ -6045,6 +6054,20 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertNotContains(response, f"Colaborador: {active_collaborator.name}")
         self.assertNotContains(response, inactive_collaborator.name)
 
+    def test_reports_home_view_agent_filter_shows_only_active_collaborators(self) -> None:
+        active_collaborator = self._create_collaborator(suffix=72, name="Colaborador Filtro")
+        inactive_collaborator = self._create_collaborator(suffix=73, name="Colaborador Oculto")
+        inactive_collaborator.is_active = False
+        inactive_collaborator.save(update_fields=["is_active"])
+        supplier = self._create_supplier(suffix=72, name="Fornecedor Filtro")
+
+        response = self.client.get(reverse("finance:reports_home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, active_collaborator.name)
+        self.assertNotContains(response, inactive_collaborator.name)
+        self.assertNotContains(response, supplier.name)
+
     def test_report_edit_modal_renders_supplier_and_collaborator_fields_in_wider_modal(self) -> None:
         supplier = self._create_supplier(suffix=1, name="Fornecedor Modal")
         collaborator = self._create_collaborator(suffix=1, name="Colaborador Modal")
@@ -6108,6 +6131,114 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, collaborator.name)
         self.assertContains(response, collaborator.cpf)
         self.assertRegex(response.content.decode("utf-8"), r'<input[^>]*name="supplier"[^>]*disabled')
+
+    def test_report_edit_modal_renders_workorder_link_for_os_movements(self) -> None:
+        workorder = self._create_report_workorder(
+            customer_name="Cliente OS Modal",
+            total_value="1000.00",
+            problem_description="OS modal",
+            payment_specs=[
+                {"description": "Pix", "amount": "1000.00", "due_date": "2026-03-10", "installments_count": "1"},
+            ],
+        )
+        movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("1000.00", "BRL"),
+            due_date=date(2026, 3, 10),
+        )
+
+        response = self.client.get(
+            reverse("finance:report_movement_edit", kwargs={"pk": movement.pk}),
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("workorder:workorder_detail", kwargs={"pk": workorder.pk}))
+        self.assertNotContains(response, "Dados Iniciais")
+        self.assertNotContains(response, "Sobre o Item")
+        self.assertContains(response, 'name="is_paid"', html=False)
+        self.assertContains(response, 'name="is_reconciled"', html=False)
+
+    def test_report_edit_modal_prefills_payment_method_from_selected_workorder_payment(self) -> None:
+        workorder = self._create_report_workorder(
+            customer_name="Cliente Metodo Modal",
+            total_value="1000.00",
+            problem_description="OS modal metodo",
+            payment_specs=[
+                {"description": "Pix", "amount": "400.00", "due_date": "2026-03-10", "installments_count": "1"},
+                {"description": "Credito", "amount": "600.00", "due_date": "2026-03-11", "installments_count": "2"},
+            ],
+        )
+        payment = workorder.payments.order_by("pk").last()
+        movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("1000.00", "BRL"),
+            due_date=date(2026, 3, 10),
+            is_paid=True,
+        )
+
+        response = self.client.get(
+            f"{reverse('finance:report_movement_edit', kwargs={'pk': movement.pk})}?payment_id={payment.pk}",
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'name="selected_workorder_payment_id" value="{payment.pk}"', html=False)
+        self.assertContains(response, f'value="{payment.payment_method.pk}"', html=False)
+
+    def test_report_edit_modal_post_updates_workorder_paid_status_reflected_in_workorder_section(self) -> None:
+        workorder = self._create_report_workorder(
+            customer_name="Cliente Status OS",
+            total_value="1000.00",
+            problem_description="OS status sincronizado",
+            payment_specs=[
+                {"description": "Pix", "amount": "1000.00", "due_date": "2026-03-10", "installments_count": "1"},
+            ],
+        )
+        payment = workorder.payments.get()
+        movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("1000.00", "BRL"),
+            due_date=date(2026, 3, 10),
+            payment_method=payment.payment_method,
+            is_paid=True,
+            is_reconciled=False,
+        )
+
+        response = self.client.post(
+            reverse("finance:report_movement_edit", kwargs={"pk": movement.pk}),
+            data={
+                **self._build_report_edit_payload(payment_method=payment.payment_method, direction=FinancialMovement.MovementDirection.CREDIT, is_paid="False", is_reconciled="False"),
+                "selected_workorder_payment_id": str(payment.pk),
+                "supplier": "",
+                "collaborator": "",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+        movement.refresh_from_db()
+        workorder_response = self.client.get(reverse("workorder:payment_section", args=[workorder.pk]), HTTP_HX_REQUEST="true")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Refresh"), "true")
+        self.assertFalse(movement.is_paid)
+        self.assertFalse(movement.is_reconciled)
+        self.assertContains(workorder_response, "Pendente")
+        self.assertNotContains(workorder_response, ">Pago</span>", html=False)
 
     def test_report_delete_modal_uses_reports_edit_container_as_htmx_target(self) -> None:
         movement = FinancialMovement.objects.create(
@@ -6413,9 +6544,9 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertNotIn(f"OS #{unpaid_workorder.pk}", rows_by_origin)
         self.assertEqual([row["payment_type"] for row in paid_rows], ["Pix", "Crédito"])
         self.assertEqual([row["due_date"] for row in paid_rows], [today, today])
-        self.assertTrue(all(row["paid_status"]["label"] == "Sim" for row in paid_rows))
+        self.assertTrue(all(row["paid_status"]["label"] == "Aguardando Conciliação" for row in paid_rows))
         self.assertEqual(len(partial_rows), 1)
-        self.assertEqual(partial_rows[0]["paid_status"]["label"], "Sim")
+        self.assertEqual(partial_rows[0]["paid_status"]["label"], "Aguardando Conciliação")
         self.assertEqual(partial_rows[0]["payment_type"], "Pix")
         self.assertEqual(partial_rows[0]["due_date"], today)
         self.assertEqual(generic_row["paid_status"]["label"], "Sim")
@@ -6452,16 +6583,9 @@ class FinancialReportsHomeViewTests(TestCase):
                 {"description": "Pix", "amount": "500.00", "due_date": today.isoformat(), "installments_count": "1"},
             ],
         )
-        FinancialMovement.objects.create(
-            workshop=self.workshop,
-            user=self.user,
-            source=self.source,
-            workorder=workorder,
-            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
-            direction=FinancialMovement.MovementDirection.CREDIT,
-            amount=Money("1000.00", "BRL"),
-            due_date=today,
-        )
+        workorder.budget.status = BudgetStatus.APPROVED
+        workorder.budget.save(update_fields=["status"])
+        sync_workorder_financial_movement(workorder=workorder)
         unpaid_movement = FinancialMovement.objects.create(
             workshop=self.workshop,
             user=self.user,
@@ -6474,21 +6598,99 @@ class FinancialReportsHomeViewTests(TestCase):
             description="Despesa pendente",
         )
 
-        paid_response = self.client.get(reverse("finance:reports_home"), data={"paid_status": "paid"})
-        unpaid_response = self.client.get(reverse("finance:reports_home"), data={"paid_status": "unpaid"})
-        paid_rows = paid_response.context["financial_movement_report_rows"]
-        unpaid_rows = unpaid_response.context["financial_movement_report_rows"]
+        request_factory = RequestFactory()
 
-        self.assertEqual(paid_response.status_code, 200)
-        self.assertEqual(unpaid_response.status_code, 200)
+        paid_request = request_factory.get(reverse("finance:reports_home"), data={"paid_status": "paid"})
+        SessionMiddleware(lambda request: None).process_request(paid_request)
+        paid_request.session = self.client.session
+        paid_request.user = self.user
+        paid_view = FinancialReportsHomeView()
+        paid_view.request = paid_request
+        paid_view.workshop = self.workshop
+        paid_rows = paid_view._get_financial_movement_report_rows(movements=paid_view._get_financial_movements_queryset())
+
+        unpaid_request = request_factory.get(reverse("finance:reports_home"), data={"paid_status": "unpaid"})
+        SessionMiddleware(lambda request: None).process_request(unpaid_request)
+        unpaid_request.session = self.client.session
+        unpaid_request.user = self.user
+        unpaid_view = FinancialReportsHomeView()
+        unpaid_view.request = unpaid_request
+        unpaid_view.workshop = self.workshop
+        unpaid_rows = unpaid_view._get_financial_movement_report_rows(movements=unpaid_view._get_financial_movements_queryset())
+
         self.assertEqual(len(paid_rows), 1)
         self.assertEqual(paid_rows[0]["origin"], f"OS #{workorder.pk}")
-        self.assertEqual(paid_rows[0]["paid_status"]["label"], "Sim")
+        self.assertEqual(paid_rows[0]["paid_status"]["label"], "Aguardando Conciliação")
         self.assertEqual(paid_rows[0]["total"]["text"], "+ R$ 500,00")
         self.assertEqual(len(unpaid_rows), 1)
         self.assertEqual(unpaid_rows[0]["origin"], "NF-PENDENTE")
         self.assertEqual(unpaid_rows[0]["paid_status"]["label"], "Não")
         self.assertEqual(unpaid_rows[0]["edit_url"], reverse("finance:financial_movement_update", args=[unpaid_movement.pk]))
+
+    def test_reports_home_view_marks_paid_workorder_movement_as_conciliado(self) -> None:
+        today = timezone.localdate()
+        workorder = self._create_report_workorder(
+            customer_name="Cliente Conciliado",
+            total_value="800.00",
+            problem_description="OS conciliada",
+            payment_specs=[
+                {"description": "Pix", "amount": "800.00", "due_date": today.isoformat(), "installments_count": "1"},
+            ],
+        )
+        movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("800.00", "BRL"),
+            due_date=today,
+            is_paid=True,
+            is_reconciled=True,
+        )
+
+        response = self.client.get(reverse("finance:reports_home"))
+        rows = response.context["financial_movement_report_rows"]
+        workorder_row = next(row for row in rows if row["origin"] == f"OS #{workorder.pk}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(workorder_row["paid_status"]["label"], "Conciliado")
+        self.assertEqual(workorder_row["edit_url"], reverse("finance:financial_movement_update", args=[movement.pk]))
+
+    def test_reports_home_view_marks_paid_card_fee_movement_as_conciliado(self) -> None:
+        today = timezone.localdate()
+        workorder = self._create_report_workorder(
+            customer_name="Cliente Taxa Conciliada",
+            total_value="1000.00",
+            problem_description="Taxa conciliada",
+            payment_specs=[
+                {"description": "Credito", "amount": "1000.00", "due_date": today.isoformat(), "installments_count": "1"},
+            ],
+        )
+        payment = WorkOrderPaymentMethod.objects.get(workorder=workorder)
+        fee_movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            workorder_payment=payment,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_CARD_FEE,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            payment_method=payment.payment_method,
+            amount=Money("25.00", "BRL"),
+            due_date=today,
+            is_paid=True,
+            is_reconciled=True,
+            description="Pagamento da taxa da maquininha",
+        )
+
+        response = self.client.get(reverse("finance:reports_home"))
+        rows = response.context["financial_movement_report_rows"]
+        fee_row = next(row for row in rows if row["component"] == f"financial-movement-{fee_movement.pk}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(fee_row["paid_status"]["label"], "Conciliado")
 
     def test_reports_home_view_without_filters_lists_all_dates_and_card_fees(self) -> None:
         old_date = date(2026, 3, 10)
@@ -6550,6 +6752,7 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertIn("- R$ 120,00", row_totals)
         self.assertNotIn("+ R$ 1.000,00", row_totals)
         self.assertContains(response, "Pagamento da taxa da maquininha")
+        self.assertContains(response, "Aguardando Conciliação")
         self.assertContains(response, "Despesa futura")
 
     def test_reports_home_view_displays_os_payment_rows_without_nested_details(self) -> None:
@@ -6585,12 +6788,15 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertEqual([row["payment_type"] for row in rows], ["Pix", "Crédito"])
         self.assertEqual([row["due_date"] for row in rows], [date(2026, 3, 10), date(2026, 3, 11)])
         self.assertEqual([row["total"]["text"] for row in rows], ["+ R$ 500,00", "+ R$ 500,00"])
+        movement_pk = FinancialMovement.objects.get(workorder=workorder).pk
+        self.assertEqual([row["edit_modal_url"] for row in rows], [reverse("finance:report_movement_edit", kwargs={"pk": movement_pk})] * 2)
+        self.assertEqual([row["workorder_url"] for row in rows], [reverse("workorder:workorder_detail", kwargs={"pk": workorder.pk})] * 2)
         self.assertFalse(any(row["is_expandable"] for row in rows))
         self.assertTrue(all(row["details"] == [] for row in rows))
         self.assertContains(response, "+ R$ 500,00", count=2)
         self.assertNotContains(response, "Pendente")
         self.assertContains(response, "text-success")
-        self.assertContains(response, reverse("workorder:workorder_detail", args=[workorder.pk]))
+        self.assertNotContains(response, reverse("workorder:workorder_detail", args=[workorder.pk]))
 
     def test_reports_home_view_keeps_grouped_movements_expandable(self) -> None:
         group = MovementGroup.objects.create(

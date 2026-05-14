@@ -227,6 +227,7 @@ def metricas_dashboard(request) -> dict[str, Any]:
     pagamentos_total_vendido = list(
         WorkOrderPaymentMethod.objects.filter(
             workorder__workshop=workshop,
+            workorder__budget_type="sale",
             due_date__month=mes_selecionado,
             due_date__year=ano_selecionado,
         ).order_by("due_date", "pk")
