@@ -1221,6 +1221,47 @@ class DashboardMetricsTests(TestCase):
         self.assertEqual(response.context["total_orcamentos_aguardando_aprovacao"], 280)
         self.assertContains(response, "R$ 280,00")
 
+    def test_dashboard_counts_rejected_budgets_from_selected_month(self):
+        today = timezone.localdate()
+        previous_month_date = today - timedelta(days=40)
+
+        self._create_budget(status=BudgetStatus.REJECTED, amount="200.00", entry_date=today)
+        self._create_budget(status=BudgetStatus.REJECTED, amount="300.00", entry_date=previous_month_date)
+
+        other_workshop = Workshop.objects.create(
+            account=self.account,
+            name="Oficina Externa Reprovados",
+            cnpj="11.222.333/0001-66",
+            phone="+5511666666666",
+            address="Rua Externa, 321",
+        )
+        other_budget = Budget.objects.create(workshop=other_workshop, entry_date=today, status=BudgetStatus.REJECTED)
+        BudgetItem.objects.create(
+            workshop=other_workshop,
+            budget=other_budget,
+            is_local=True,
+            description="Item externo reprovado",
+            quantity=1,
+            service_selling_price=Money("500.00", "BRL"),
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["total_orcamentos_reprovados"], Decimal("200.00"))
+        self.assertContains(response, "R$ 200,00")
+
+    def test_dashboard_counts_legacy_rejected_status_values(self):
+        today = timezone.localdate()
+
+        self._create_budget(status="reprovado", amount="75.00", entry_date=today)
+        self._create_budget(status="reproved", amount="25.00", entry_date=today)
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["total_orcamentos_reprovados"], Decimal("100.00"))
+
     def test_dashboard_counts_only_unpaid_receivables_from_approved_workorders_in_execution(self):
         today = timezone.localdate()
         previous_month_date = today - timedelta(days=40)

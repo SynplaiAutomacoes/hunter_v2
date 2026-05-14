@@ -9,7 +9,7 @@ from typing import Any
 from django.db.models import Sum
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponse, HttpResponseForbidden
+from django.http import HttpResponse
 from django.template.response import TemplateResponse
 import requests
 from django.views import View
@@ -36,6 +36,12 @@ OPEN_BUDGET_STATUSES: tuple[str, ...] = (
     BudgetStatus.WAITING_PRICING,
     BudgetStatus.WAITING_REVIEW,
     BudgetStatus.WAITING_APPROVAL,
+)
+
+REJECTED_BUDGET_STATUS_VALUES: tuple[str, ...] = (
+    BudgetStatus.REJECTED,
+    "reprovado",
+    "reproved",
 )
 
 
@@ -238,20 +244,17 @@ def metricas_dashboard(request) -> dict[str, Any]:
 
     budgets_aguardando_base = Budget.objects.filter(workshop=workshop, budget_type=BudgetType.SALE, status__in=OPEN_BUDGET_STATUSES).prefetch_related("items", "items__kit_overrides", "items__kit__kit_products", "items__kit__kit_services")
 
-    orcamentos_reprovados = Budget.objects.filter(workshop=workshop, status=BudgetStatus.REJECTED, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado)
+    orcamentos_reprovados = Budget.objects.filter(workshop=workshop, status__in=REJECTED_BUDGET_STATUS_VALUES, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado)
 
     # Métricas
     # qtd_carros_mes = (Budget.objects.filter(workshop=workshop, status=BudgetStatus.APPROVED, entry_date__month=mes_selecionado,
     #                                         entry_date__year=ano_selecionado).exclude(reference_budget__isnull=False).count())
-    qtd_carros_mes = (
-        WorkOrder.objects.filter(
-            workshop=workshop,
-            status=WorkOrderStatus.APPROVED,
-            delivered_at__month=mes_selecionado,
-            delivered_at__year=ano_selecionado,
-        )
-        .count()
-    )
+    qtd_carros_mes = WorkOrder.objects.filter(
+        workshop=workshop,
+        status=WorkOrderStatus.APPROVED,
+        delivered_at__month=mes_selecionado,
+        delivered_at__year=ano_selecionado,
+    ).count()
     ticket_medio = total_vendido_ate_a_data / qtd_carros_mes if qtd_carros_mes > 0 else Decimal("0.00")
     projecao = ((total_vendido_ate_a_data / dias_transcorridos) * dias_faltantes) + total_vendido_ate_a_data if dias_transcorridos > 0 else total_vendido_ate_a_data
     rentabilidade_acumulada_mes = sum(rentabilidades) / len(rentabilidades) if rentabilidades else 0
@@ -287,7 +290,7 @@ def metricas_dashboard(request) -> dict[str, Any]:
     total_mensal_orcamentos_aguardando_aprovacao = sum((b.total_budget_value.amount for b in budgets_aguardando_base.filter(entry_date__month=mes_selecionado, entry_date__year=ano_selecionado)), Decimal("0.00"))
     total_meses_anteriores_orcamentos_aguardando_aprovacao = total_geral_orcamentos_aguardando_aprovacao - total_mensal_orcamentos_aguardando_aprovacao
 
-    total_orcamentos_reprovados = sum(getattr(b.total_budget_value, "amount", b.total_budget_value) or 0 for b in orcamentos_reprovados)
+    total_orcamentos_reprovados = sum(getattr(b.display_total_budget_value, "amount", b.display_total_budget_value) or 0 for b in orcamentos_reprovados)
 
     return {
         "workshop": workshop,
