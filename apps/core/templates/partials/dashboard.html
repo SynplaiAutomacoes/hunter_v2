@@ -19,13 +19,13 @@
             <form method="get" hx-boost="true" hx-trigger="change from:select" class="flex items-center gap-2 bg-base-100 p-2 rounded-xl shadow-sm border border-base-200">
                 <div class="flex items-center gap-2 px-2">
                     <i class="ph ph-calendar-blank text-primary text-xl"></i>
-                    <select name="mes" class="select select-sm select-ghost focus:bg-transparent font-medium">
+                    <select name="mes" class="select select-sm bg-base-100 focus:bg-base-100 font-medium">
                         {% for val, name in meses %}
                             <option value="{{ val }}" {% if val == mes_selecionado %}selected{% endif %}>{{ name }}</option>
                         {% endfor %}
                     </select>
                     <div class="divider divider-horizontal mx-0"></div>
-                    <select name="ano" class="select select-sm select-ghost focus:bg-transparent font-medium">
+                    <select name="ano" class="select select-sm bg-base-100 focus:bg-base-100 font-medium">
                         {% for val in anos %}
                             <option value="{{ val }}" {% if val == ano_selecionado %}selected{% endif %}>{{ val|stringformat:"d" }}</option>
                         {% endfor %}
