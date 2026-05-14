@@ -6,7 +6,7 @@ import logging
 import time
 from datetime import datetime
 from typing import Any
-from django.db.models import Q, Sum
+from django.db.models import Sum
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
@@ -222,24 +222,15 @@ def metricas_dashboard(request) -> dict[str, Any]:
             pass
 
     # Auxiliares (valores que não serão retornados no dict, mas que servem para auxílio nas contas das métricas)
-    movimentacoes_total_vendido = list(
-        FinancialMovement.objects.filter(
-            workshop=workshop,
-            direction=FinancialMovement.MovementDirection.CREDIT,
-            is_paid=True,
+    pagamentos_total_vendido = list(
+        WorkOrderPaymentMethod.objects.filter(
+            workorder__workshop=workshop,
             due_date__month=mes_selecionado,
             due_date__year=ano_selecionado,
-        )
-        .exclude(
-            movement_kind__in=(
-                FinancialMovement.MovementKind.WORKORDER_PARENT,
-                FinancialMovement.MovementKind.GROUP_PARENT,
-            )
-        )
-        .order_by("due_date", "pk")
+        ).order_by("due_date", "pk")
     )
-    total_vendido_ate_a_data = sum((getattr(movement.amount, "amount", movement.amount) or Decimal("0.00") for movement in movimentacoes_total_vendido), Decimal("0.00"))
-    dias_transcorridos = len({movement.due_date for movement in movimentacoes_total_vendido if movement.due_date is not None})
+    total_vendido_ate_a_data = sum((getattr(payment.total_paid, "amount", payment.total_paid) or Decimal("0.00") for payment in pagamentos_total_vendido), Decimal("0.00"))
+    dias_transcorridos = len({payment.due_date for payment in pagamentos_total_vendido if payment.due_date is not None})
 
     _, dias_no_mes = calendar.monthrange(ano_selecionado, mes_selecionado)
     dias_faltantes = dias_no_mes
