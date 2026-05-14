@@ -911,6 +911,25 @@ class TestRenderTableTag(TestCase):
         self.assertNotIn("city=", clear_filter_url)
         self.assertNotIn("state=", clear_filter_url)
 
+    def test_render_table_can_disable_pagination_when_filters_are_active(self):
+        request = self.factory.get("/workshops/?city=Campinas")
+        workshops = [Workshop(name=f"Oficina {index}", cnpj=f"00.000.000/0001-{index:02d}", phone="11999999999", address="Rua Teste") for index in range(1, 16)]
+
+        rendered = render_table(
+            context={"request": request},
+            queryset=workshops,
+            fields=[TableColumn(label="Nome", attr="name")],
+            table_id="t",
+            per_page=10,
+            filter_fields_template="tables/partials/_pagination.html",
+            filter_param_names="city",
+            disable_pagination_when_filtered=True,
+        )
+
+        self.assertTrue(rendered["has_active_filters"])
+        self.assertFalse(rendered["is_paginated"])
+        self.assertEqual(rendered["page_obj"].paginator.count, 15)
+
     def test_render_table_defaults_hierarchical_selection_to_false(self):
         request = self.factory.get("/workshops/")
 

@@ -5889,7 +5889,7 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, "Pago")
         self.assertContains(response, "Tipo")
         self.assertContains(response, "Vencimento")
-        self.assertContains(response, "Agente")
+        self.assertContains(response, "Colaborador")
         self.assertContains(response, "Origem")
         self.assertContains(response, "Descrição")
         self.assertContains(response, "Plano Orçamentário")
@@ -5988,7 +5988,7 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertFalse(any(str(row["origin"]) == f"OS #{unpaid_workorder.pk}" for row in all_rows))
         self.assertTrue(all(row["total"]["text"] != "+ R$ 1.000,00" for row in all_rows))
 
-    def test_reports_home_view_pagination_links_preserve_active_filters(self) -> None:
+    def test_reports_home_view_disables_pagination_when_filters_are_active(self) -> None:
         selected_account = self._create_bank_account(suffix="7")
         other_account = self._create_bank_account(suffix="8")
 
@@ -6019,15 +6019,30 @@ class FinancialReportsHomeViewTests(TestCase):
             reverse("finance:reports_home"),
             data={"bank_account": str(selected_account.pk), "direction": FinancialMovement.MovementDirection.DEBIT},
         )
-        compact_html = "".join(response.content.decode("utf-8").split())
-        next_page_url = f"{reverse('finance:reports_home')}?bank_account={selected_account.pk}&amp;direction={FinancialMovement.MovementDirection.DEBIT}&amp;page=2"
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.context["financial_movement_report_rows"]), 10)
+        self.assertEqual(len(response.context["financial_movement_report_rows"]), 11)
         self.assertEqual(response.context["page_obj"].number, 1)
+        self.assertFalse(response.context["is_paginated"])
         self.assertContains(response, "Despesa filtrada 11")
+        self.assertContains(response, "Despesa filtrada 01")
         self.assertNotContains(response, "Despesa fora do filtro")
-        self.assertIn(f'hx-get="{next_page_url}"', compact_html)
+        self.assertNotContains(response, "Página 1 de 2")
+        self.assertNotContains(response, "Próxima")
+
+    def test_reports_home_view_agent_filter_shows_only_active_collaborators_without_prefix(self) -> None:
+        active_collaborator = self._create_collaborator(suffix=70, name="Colaborador Ativo")
+        inactive_collaborator = self._create_collaborator(suffix=71, name="Colaborador Inativo")
+        inactive_collaborator.is_active = False
+        inactive_collaborator.save(update_fields=["is_active"])
+
+        response = self.client.get(reverse("finance:reports_home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Colaborador")
+        self.assertContains(response, active_collaborator.name)
+        self.assertNotContains(response, f"Colaborador: {active_collaborator.name}")
+        self.assertNotContains(response, inactive_collaborator.name)
 
     def test_report_edit_modal_renders_supplier_and_collaborator_fields_in_wider_modal(self) -> None:
         supplier = self._create_supplier(suffix=1, name="Fornecedor Modal")
