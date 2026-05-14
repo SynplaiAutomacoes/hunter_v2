@@ -6,7 +6,7 @@ import logging
 import time
 from datetime import datetime
 from typing import Any
-from django.db.models import Sum
+from django.db.models import Q, Sum
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
