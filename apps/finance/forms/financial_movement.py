@@ -598,6 +598,8 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         self.fields["direction"].required = True
         self.fields["amount"].required = True
         self.fields["payment_method"].required = True
+        self.fields["budget_plan"].required = getattr(self.instance, "workorder_id", None) is not None
+        self.fields["bank_account"].required = getattr(self.instance, "workorder_id", None) is not None
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
         self.fields["is_reconciled"].initial = bool(getattr(self.instance, "is_reconciled", False)) if self.instance.pk else False
 
