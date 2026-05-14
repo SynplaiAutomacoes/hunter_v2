@@ -1409,3 +1409,27 @@ class DashboardMetricsTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["qtd_carros_mes"], 1)
+
+    def test_dashboard_does_not_count_child_workorders_in_vehicle_total(self):
+        today = timezone.localdate()
+
+        parent_budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
+        child_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, reference_budget=parent_budget)
+
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=parent_budget,
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=child_budget,
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["qtd_carros_mes"], 1)

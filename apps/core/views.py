@@ -259,6 +259,7 @@ def metricas_dashboard(request) -> dict[str, Any]:
         WorkOrder.objects.filter(
             workshop=workshop,
             status=WorkOrderStatus.APPROVED,
+            budget__reference_budget__isnull=True,
         )
         .filter(
             Q(
