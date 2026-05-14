@@ -887,6 +887,29 @@ class BudgetListFiltersTests(TestCase):
         self.assertEqual(response.context["selection_report"]["count"], 2)
         self.assertEqual(len(response.context["selection_report"]["badges"]), 4)
 
+    def test_budget_list_collaborator_filter_deduplicates_rows_when_budget_matches_multiple_collaborators(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=58)
+
+        duplicated_budget = create_budget(workshop=workshop)
+        duplicated_budget.status = BudgetStatus.APPROVED
+        duplicated_budget.save(update_fields=["status"])
+
+        first_matching_collaborator = create_collaborator(workshop=workshop, suffix=5111, name="Ana Teste")
+        second_matching_collaborator = create_collaborator(workshop=workshop, suffix=5112, name="Ana Souza")
+        duplicated_budget.collaborators.set([first_matching_collaborator, second_matching_collaborator])
+
+        non_matching_budget = create_budget(workshop=workshop)
+        non_matching_budget.status = BudgetStatus.APPROVED
+        non_matching_budget.save(update_fields=["status"])
+        non_matching_collaborator = create_collaborator(workshop=workshop, suffix=5113, name="Carlos Silva")
+        non_matching_budget.collaborators.set([non_matching_collaborator])
+
+        response = self.client.get(reverse("budget:budget_list"), {"collaborator": "Ana"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertQuerySetEqual(response.context["budget"], [duplicated_budget], transform=lambda obj: obj)
+        self.assertNotIn(non_matching_budget, response.context["budget"])
+
     def test_budget_status_report_counts_only_selected_status(self) -> None:
         workshop = self._login_with_active_workshop(suffix=76)
 

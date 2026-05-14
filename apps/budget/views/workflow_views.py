@@ -294,7 +294,9 @@ class BudgetStatusReportDataMixin:
             filter_configs=BUDGET_LIST_FILTERS,
         )
 
-        return queryset.order_by("-entry_date")
+        queryset = queryset.distinct()
+
+        return queryset.order_by("-entry_date", "-pk")
 
     def _get_selection_report_items(self) -> list[Budget]:
         cached = getattr(self, "_selection_report_items_cache", None)
