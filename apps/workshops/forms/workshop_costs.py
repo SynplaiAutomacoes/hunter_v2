@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import calendar
 import datetime
+import json
 from typing import cast
+
 from django import forms
 from django.urls import reverse
 
@@ -19,7 +22,7 @@ from apps.core.widgets import (
     SearchableSelectInput,
     TextInput,
 )
-from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
+from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostHoliday, WorkshopCostItem
 from apps.workshops.models.monthly_costs import MonthlyCost
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.monthly_costs import ADMIN_SALARY_MONTHLY_COST_NAME, MECHANIC_SALARY_MONTHLY_COST_NAME
@@ -30,6 +33,7 @@ class WorkshopCostForm(CoreModelForm):
         MECHANIC_SALARY_MONTHLY_COST_NAME: "Esta é a soma total dos salários dos colaboradores produtivos, deseja manter?",
         ADMIN_SALARY_MONTHLY_COST_NAME: "Esta é a soma total dos salários dos colaboradores administrativos, deseja manter?",
     }
+    holiday_dates = forms.CharField(required=False, widget=forms.HiddenInput())
 
     class Meta:
         model = WorkshopCost
@@ -99,6 +103,8 @@ class WorkshopCostForm(CoreModelForm):
         if self.instance.pk:
             saved_values = {item.monthly_cost_id: item.amount for item in self.instance.items.all()}
 
+        self.initial.setdefault("holiday_dates", self._serialize_holiday_dates())
+
         self.cost_fields_names = []
         for cost in self.active_costs:
             cost_id = cost.pk
@@ -122,16 +128,39 @@ class WorkshopCostForm(CoreModelForm):
     def get_layout(self) -> Layout:
         cancel_url = reverse("workshops:workshop_cost_list")
         calculate_url = reverse("workshops:workshop_cost_calculate")
+        copy_modal_url = reverse("workshops:workshop_cost_copy_selection")
 
         # Gera os campos dinâmicos de custo para o Layout
         cost_fields_layout = [Field(name, wrapper_class="col-span-12 lg:col-span-3") for name in self.cost_fields_names]
+
+        copy_btn_html = ""
+        if not self.instance.pk:
+            copy_btn_html = f"""
+                <button type="button"
+                        class="btn btn-primary btn-base ml-auto d-flex align-items-center gap-2 px-3 shadow-sm"
+                        hx-get="{copy_modal_url}"
+                        hx-target="#modal-container"
+                        hx-swap="innerHTML">
+                    
+                    <span class="material-icons" style="font-size:18px;">
+                        content_copy
+                    </span>
+                
+                    <span>Copiar Custos Mensais</span>
+                </button>
+            """
 
         return Layout(
             Div(
                 # Envoltório com HTMX Trigger. Qualquer mudança (change) ou digitação (keyup) nestes campos dispara o recálculo.
                 Div(
                     # --- SEÇÃO 1: Referência ---
-                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Mês de Referência</h3>'),
+                    HTML(f"""
+                        <div class="col-span-12 flex items-center justify-between mb-2">
+                            <h3 class="text-xl font-bold">Mês de Referência</h3>
+                            {copy_btn_html}
+                        </div>
+                    """),
                     Field("month", wrapper_class="col-span-12 lg:col-span-6"),
                     Field("year", wrapper_class="col-span-12 lg:col-span-6"),
                     HTML('<div class="col-span-12 divider my-2"></div>'),
@@ -140,6 +169,8 @@ class WorkshopCostForm(CoreModelForm):
                     Field("mechanic_quantity", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("work_hours_per_day", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("work_days_per_month", wrapper_class="col-span-12 lg:col-span-4"),
+                    Field("holiday_dates", type="hidden"),
+                    HTML(self._build_holiday_calendar_html()),
                     Field("productivity_average", wrapper_class="col-span-12 lg:col-span-12"),
                     HTML('<div class="col-span-12 divider my-2"></div>'),
                     # --- SEÇÃO 3: Despesas Mensais (Dinâmico) ---
@@ -218,6 +249,9 @@ class WorkshopCostForm(CoreModelForm):
         cleaned_data = cast(dict[str, object], super().clean() or {})
         month = cleaned_data.get("month")
         year = cleaned_data.get("year")
+        holiday_dates = self._parse_holiday_dates(cleaned_data.get("holiday_dates"), month=month, year=year)
+        cleaned_data["holiday_dates"] = holiday_dates
+        self.instance.holiday_dates_override = holiday_dates
 
         if month and year and self.workshop:
             qs = WorkshopCost.objects.filter(workshop=self.workshop, month=month, year=year)
@@ -231,6 +265,8 @@ class WorkshopCostForm(CoreModelForm):
     def save(self, commit=True):
         instance = super().save(commit=False)
         instance.workshop = self.workshop
+        holiday_dates = cast(list[datetime.date], self.cleaned_data.get("holiday_dates", []))
+        instance.holiday_dates_override = holiday_dates
 
         if commit:
             instance.save()
@@ -246,6 +282,217 @@ class WorkshopCostForm(CoreModelForm):
                 if amount is not None:
                     WorkshopCostItem.objects.update_or_create(workshop_cost=instance, monthly_cost=cost, defaults={"amount": amount})
 
+            self._sync_holidays(instance=instance, holiday_dates=holiday_dates)
+
             instance.calculate_all()
             instance.save()
         return instance
+
+    def _serialize_holiday_dates(self) -> str:
+        if not self.instance.pk:
+            return ""
+
+        holiday_dates = self.instance.holidays.order_by("date").values_list("date", flat=True)
+        return ",".join(holiday_date.isoformat() for holiday_date in holiday_dates)
+
+    def _build_holiday_calendar_html(self) -> str:
+        today = datetime.date.today()
+        selected_month = self._resolve_selected_month(default=today.month)
+        selected_year = self._resolve_selected_year(default=today.year)
+        weekday_labels = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab"]
+
+        return f"""
+            <div class="col-span-12 rounded-box border border-base-300 bg-base-200/40 p-2 w-fit lg:justify-self-end">
+                <div class="flex flex-col gap-1">
+                    <div class="flex items-start justify-between gap-2">
+                        <div>
+                            <h3 class="text-sm font-semibold">Calendário de Feriados</h3>
+                            <p class="text-[10px] text-base-content/70">Clique em um dia útil para marcar ou desmarcar feriado.</p>
+                        </div>
+                        <button type="button" id="holiday-calendar-toggle" class="btn btn-xs btn-ghost">Mostrar</button>
+                    </div>
+                    <div id="holiday-calendar-panel" class="hidden">
+                        <div id="holiday-calendar"
+                             class="grid grid-cols-7 gap-1 max-w-[260px]"
+                             data-selected-month="{selected_month}"
+                             data-selected-year="{selected_year}"
+                             data-weekday-labels='{json.dumps(weekday_labels)}'></div>
+                    </div>
+                </div>
+            </div>
+            <script>
+                (function() {{
+                    const hiddenInput = document.getElementById('id_holiday_dates');
+                    const monthInput = document.getElementById('id_month');
+                    const yearInput = document.getElementById('id_year');
+                    const calendarRoot = document.getElementById('holiday-calendar');
+                    const panel = document.getElementById('holiday-calendar-panel');
+                    const toggleButton = document.getElementById('holiday-calendar-toggle');
+
+                    if (!hiddenInput || !monthInput || !yearInput || !calendarRoot || !panel || !toggleButton) {{
+                        return;
+                    }}
+
+                    const weekdayLabels = JSON.parse(calendarRoot.dataset.weekdayLabels || '[]');
+
+                    function parseSelectedDates() {{
+                        return new Set((hiddenInput.value || '').split(',').map(value => value.trim()).filter(Boolean));
+                    }}
+
+                    function filterDatesForMonth(selectedDates, year, month) {{
+                        return new Set(Array.from(selectedDates).filter(value => {{
+                            const date = new Date(`${{value}}T00:00:00`);
+                            return date.getFullYear() === year && (date.getMonth() + 1) === month;
+                        }}));
+                    }}
+
+                    function formatDate(year, month, day) {{
+                        return `${{year}}-${{String(month).padStart(2, '0')}}-${{String(day).padStart(2, '0')}}`;
+                    }}
+
+                    function countBusinessHolidays(selectedDates, year, month) {{
+                        return Array.from(selectedDates).filter(value => {{
+                            const date = new Date(`${{value}}T00:00:00`);
+                            return date.getFullYear() === year && (date.getMonth() + 1) === month && date.getDay() !== 0 && date.getDay() !== 6;
+                        }}).length;
+                    }}
+
+                    function renderCalendar() {{
+                        if (panel.classList.contains('hidden')) {{
+                            return;
+                        }}
+                        const year = parseInt(yearInput.value || calendarRoot.dataset.selectedYear || '0', 10);
+                        const month = parseInt(monthInput.value || calendarRoot.dataset.selectedMonth || '0', 10);
+                        if (!year || !month) {{
+                            return;
+                        }}
+
+                        calendarRoot.dataset.selectedYear = String(year);
+                        calendarRoot.dataset.selectedMonth = String(month);
+                        const selectedDates = filterDatesForMonth(parseSelectedDates(), year, month);
+                        hiddenInput.value = Array.from(selectedDates).sort().join(',');
+                        const daysInMonth = new Date(year, month, 0).getDate();
+                        const firstWeekday = new Date(year, month - 1, 1).getDay();
+                        const weekdayOffset = firstWeekday;
+                        const businessHolidayCount = countBusinessHolidays(selectedDates, year, month);
+                        void businessHolidayCount;
+                        calendarRoot.innerHTML = '';
+
+                        weekdayLabels.forEach(label => {{
+                            const header = document.createElement('div');
+                            header.className = 'text-center text-[10px] font-semibold uppercase tracking-wide text-base-content/60 h-5';
+                            header.textContent = label;
+                            calendarRoot.appendChild(header);
+                        }});
+
+                        for (let index = 0; index < weekdayOffset; index += 1) {{
+                            const spacer = document.createElement('div');
+                            spacer.className = 'h-7 w-7 rounded-sm bg-transparent';
+                            calendarRoot.appendChild(spacer);
+                        }}
+
+                        for (let day = 1; day <= daysInMonth; day += 1) {{
+                            const dateValue = formatDate(year, month, day);
+                            const date = new Date(`${{dateValue}}T00:00:00`);
+                            const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+                            const isSelected = selectedDates.has(dateValue);
+                            const button = document.createElement('button');
+                            button.type = 'button';
+                            button.textContent = String(day);
+                            button.dataset.date = dateValue;
+                            button.className = `h-7 w-7 rounded-sm border text-[11px] font-medium transition ${{isWeekend ? 'cursor-not-allowed border-base-300 bg-base-100 text-base-content/30' : isSelected ? 'border-warning bg-warning/20 text-warning-content' : 'border-base-300 bg-base-100 hover:border-warning hover:bg-warning/10'}}`;
+
+                            if (isWeekend) {{
+                                button.disabled = true;
+                            }} else {{
+                                button.addEventListener('click', () => {{
+                                    const nextSelectedDates = parseSelectedDates();
+                                    if (nextSelectedDates.has(dateValue)) {{
+                                        nextSelectedDates.delete(dateValue);
+                                    }} else {{
+                                        nextSelectedDates.add(dateValue);
+                                    }}
+
+                                    hiddenInput.value = Array.from(nextSelectedDates).sort().join(',');
+                                    hiddenInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                    renderCalendar();
+                                }});
+                            }}
+
+                            calendarRoot.appendChild(button);
+                        }}
+                    }}
+
+                    toggleButton.addEventListener('click', () => {{
+                        const isHidden = panel.classList.contains('hidden');
+                        panel.classList.toggle('hidden');
+                        toggleButton.textContent = isHidden ? 'Ocultar' : 'Mostrar';
+                        if (isHidden) {{
+                            renderCalendar();
+                        }}
+                    }});
+
+                    monthInput.addEventListener('change', renderCalendar);
+                    yearInput.addEventListener('input', renderCalendar);
+                    yearInput.addEventListener('change', renderCalendar);
+                    document.getElementById('id_work_days_per_month')?.addEventListener('input', renderCalendar);
+                }})();
+            </script>
+        """
+
+    def _resolve_selected_month(self, *, default: int) -> int:
+        raw_month = self.data.get("month") if self.is_bound else getattr(self.instance, "month", None)
+        if raw_month in (None, ""):
+            raw_month = self.initial.get("month", default)
+        return int(str(raw_month))
+
+    def _resolve_selected_year(self, *, default: int) -> int:
+        raw_year = self.data.get("year") if self.is_bound else getattr(self.instance, "year", None)
+        if raw_year in (None, ""):
+            raw_year = self.initial.get("year", default)
+        return int(str(raw_year))
+
+    def _parse_holiday_dates(self, raw_value: object, *, month: object, year: object) -> list[datetime.date]:
+        if not raw_value:
+            return []
+
+        if not month or not year:
+            raise forms.ValidationError("Informe o mês e o ano antes de selecionar feriados.")
+
+        selected_month = int(str(month))
+        selected_year = int(str(year))
+        last_day = calendar.monthrange(selected_year, selected_month)[1]
+        parsed_dates: list[datetime.date] = []
+
+        for raw_date in str(raw_value).split(","):
+            normalized = raw_date.strip()
+            if not normalized:
+                continue
+
+            try:
+                parsed_date = datetime.date.fromisoformat(normalized)
+            except ValueError as exc:
+                raise forms.ValidationError("Existe um feriado inválido selecionado.") from exc
+
+            if parsed_date.year != selected_year or parsed_date.month != selected_month:
+                raise forms.ValidationError("Selecione apenas feriados dentro do mês de referência.")
+
+            if parsed_date.day < 1 or parsed_date.day > last_day:
+                raise forms.ValidationError("Selecione apenas dias válidos para o mês de referência.")
+
+            if parsed_date not in parsed_dates:
+                parsed_dates.append(parsed_date)
+
+        return sorted(parsed_dates)
+
+    def _sync_holidays(self, *, instance: WorkshopCost, holiday_dates: list[datetime.date]) -> None:
+        existing_holidays = {holiday.date: holiday for holiday in instance.holidays.all()}
+        selected_dates = set(holiday_dates)
+
+        holidays_to_delete = [holiday.pk for current_date, holiday in existing_holidays.items() if current_date not in selected_dates and holiday.pk is not None]
+        if holidays_to_delete:
+            WorkshopCostHoliday.objects.filter(pk__in=holidays_to_delete).delete()
+
+        holidays_to_create = [WorkshopCostHoliday(workshop_cost=instance, date=holiday_date) for holiday_date in holiday_dates if holiday_date not in existing_holidays]
+        if holidays_to_create:
+            WorkshopCostHoliday.objects.bulk_create(holidays_to_create)

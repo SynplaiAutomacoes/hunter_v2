@@ -1,5 +1,6 @@
+import calendar
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -15,14 +16,15 @@ from phonenumber_field.phonenumber import PhoneNumber
 from djmoney.money import Money
 
 from apps.accounts.models import Account
-from apps.budget.models import Budget, BudgetItem, BudgetStatus
+from apps.budget.models import Budget, BudgetItem, BudgetStatus, BudgetType
 from apps.collaborators.models import WorkshopMember
 from apps.core.documents.signature import SIGNATURE_POSITION, build_absolute_app_url, normalize_signature_phone_number
 from apps.core.templatetags.table_tags import TableColumn, render_table
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.iam.utils import get_or_create_director_role
+from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostHoliday
 from apps.workshops.models.workshops import Workshop
-from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
 
 
 def create_workshop(**kwargs):
@@ -909,6 +911,25 @@ class TestRenderTableTag(TestCase):
         self.assertNotIn("city=", clear_filter_url)
         self.assertNotIn("state=", clear_filter_url)
 
+    def test_render_table_can_disable_pagination_when_filters_are_active(self):
+        request = self.factory.get("/workshops/?city=Campinas")
+        workshops = [Workshop(name=f"Oficina {index}", cnpj=f"00.000.000/0001-{index:02d}", phone="11999999999", address="Rua Teste") for index in range(1, 16)]
+
+        rendered = render_table(
+            context={"request": request},
+            queryset=workshops,
+            fields=[TableColumn(label="Nome", attr="name")],
+            table_id="t",
+            per_page=10,
+            filter_fields_template="tables/partials/_pagination.html",
+            filter_param_names="city",
+            disable_pagination_when_filtered=True,
+        )
+
+        self.assertTrue(rendered["has_active_filters"])
+        self.assertFalse(rendered["is_paginated"])
+        self.assertEqual(rendered["page_obj"].paginator.count, 15)
+
     def test_render_table_defaults_hierarchical_selection_to_false(self):
         request = self.factory.get("/workshops/")
 
@@ -1160,10 +1181,20 @@ class DashboardMetricsTests(TestCase):
         amount: str,
         due_date,
         is_paid: bool = False,
-    ) -> FinancialMovement:
+    ) -> WorkOrder:
         budget = Budget.objects.create(workshop=workshop, entry_date=due_date)
         workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=workorder_status)
-        return FinancialMovement.objects.create(
+        WorkOrderItem.objects.create(
+            workshop=workshop,
+            workorder=workorder,
+            description=f"Item OS {amount}",
+            quantity=1,
+            service_selling_price=Money(amount, "BRL"),
+        )
+        WorkOrder.objects.filter(pk=workorder.pk).update(
+            criado_em=timezone.make_aware(datetime.combine(due_date, datetime.min.time())),
+        )
+        FinancialMovement.objects.create(
             workshop=workshop,
             workorder=workorder,
             direction=FinancialMovement.MovementDirection.CREDIT,
@@ -1171,6 +1202,7 @@ class DashboardMetricsTests(TestCase):
             due_date=due_date,
             is_paid=is_paid,
         )
+        return workorder
 
     def _create_workorder_payment(
         self,
@@ -1191,6 +1223,25 @@ class DashboardMetricsTests(TestCase):
             installments_count=1,
             due_date=due_date,
         )
+
+    def _create_workshop_cost(self, *, reference_date: date, work_days_per_month: int, holiday_dates: list[date] | None = None) -> WorkshopCost:
+        workshop_cost = WorkshopCost.objects.create(
+            workshop=self.workshop,
+            month=reference_date.month,
+            year=reference_date.year,
+            mechanic_quantity=1,
+            work_days_per_month=work_days_per_month,
+        )
+        for holiday_date in holiday_dates or []:
+            WorkshopCostHoliday.objects.create(workshop_cost=workshop_cost, date=holiday_date)
+        return workshop_cost
+
+    def _count_business_days(self, *, start_date: date, end_date: date, holiday_dates: set[date] | None = None) -> int:
+        if end_date < start_date:
+            return 0
+
+        excluded_holidays = holiday_dates or set()
+        return sum(1 for day in range(start_date.day, end_date.day + 1) if (current_date := date(start_date.year, start_date.month, day)).weekday() < 5 and current_date not in excluded_holidays)
 
     def test_dashboard_counts_open_budgets_from_all_open_statuses_even_from_previous_months(self):
         today = timezone.localdate()
@@ -1221,27 +1272,88 @@ class DashboardMetricsTests(TestCase):
         self.assertEqual(response.context["total_orcamentos_aguardando_aprovacao"], 280)
         self.assertContains(response, "R$ 280,00")
 
-    def test_dashboard_counts_only_unpaid_receivables_from_approved_workorders_in_execution(self):
+    def test_dashboard_counts_rejected_budgets_from_selected_month(self):
         today = timezone.localdate()
         previous_month_date = today - timedelta(days=40)
+
+        self._create_budget(status=BudgetStatus.REJECTED, amount="200.00", entry_date=today)
+        self._create_budget(status=BudgetStatus.REJECTED, amount="300.00", entry_date=previous_month_date)
+
+        other_workshop = Workshop.objects.create(
+            account=self.account,
+            name="Oficina Externa Reprovados",
+            cnpj="11.222.333/0001-66",
+            phone="+5511666666666",
+            address="Rua Externa, 321",
+        )
+        other_budget = Budget.objects.create(workshop=other_workshop, entry_date=today, status=BudgetStatus.REJECTED)
+        BudgetItem.objects.create(
+            workshop=other_workshop,
+            budget=other_budget,
+            is_local=True,
+            description="Item externo reprovado",
+            quantity=1,
+            service_selling_price=Money("500.00", "BRL"),
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["total_orcamentos_reprovados"], Decimal("200.00"))
+        self.assertContains(response, "R$ 200,00")
+
+    def test_dashboard_counts_legacy_rejected_status_values(self):
+        today = timezone.localdate()
+
+        self._create_budget(status="reprovado", amount="75.00", entry_date=today)
+        self._create_budget(status="reproved", amount="25.00", entry_date=today)
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["total_orcamentos_reprovados"], Decimal("100.00"))
+
+    def test_dashboard_counts_only_pending_values_from_draft_workorders_in_execution(self):
+        today = timezone.localdate()
+        previous_month_date = today - timedelta(days=40)
+
+        previous_month_workorder = self._create_workorder_receivable(
+            workshop=self.workshop,
+            workorder_status=WorkOrderStatus.DRAFT,
+            amount="1000.00",
+            due_date=previous_month_date,
+        )
+        self._create_workorder_payment(
+            workshop=self.workshop,
+            amount="500.00",
+            due_date=previous_month_date,
+            workorder=previous_month_workorder,
+        )
 
         self._create_workorder_receivable(
             workshop=self.workshop,
             workorder_status=WorkOrderStatus.DRAFT,
-            amount="150.00",
-            due_date=previous_month_date,
+            amount="300.00",
+            due_date=today,
         )
-        self._create_workorder_receivable(
+
+        fully_paid_workorder = self._create_workorder_receivable(
             workshop=self.workshop,
             workorder_status=WorkOrderStatus.DRAFT,
-            amount="50.00",
+            amount="200.00",
             due_date=today,
-            is_paid=True,
         )
+        self._create_workorder_payment(
+            workshop=self.workshop,
+            amount="200.00",
+            due_date=today,
+            workorder=fully_paid_workorder,
+        )
+
         self._create_workorder_receivable(
             workshop=self.workshop,
             workorder_status=WorkOrderStatus.APPROVED,
-            amount="75.00",
+            amount="999.00",
             due_date=today,
         )
 
@@ -1262,28 +1374,34 @@ class DashboardMetricsTests(TestCase):
         response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["total_os_a_receber_em_execucao"], 150)
-        self.assertContains(response, "R$ 150,00")
+        self.assertEqual(response.context["total_os_a_receber_em_execucao"], Decimal("800.00"))
+        self.assertEqual(response.context["total_mensal_os_a_receber_em_execucao"], Decimal("300.00"))
+        self.assertEqual(response.context["total_meses_anteriores_os_a_receber_em_execucao"], Decimal("500.00"))
+        self.assertContains(response, "R$ 800,00")
 
-    def test_dashboard_total_vendido_sums_workorder_payments_for_selected_month(self):
+    def test_dashboard_total_vendido_sums_workorder_payment_plans_for_selected_month(self):
         today = timezone.localdate()
         previous_month_date = today - timedelta(days=40)
 
+        self._create_workorder_payment(
+            workshop=self.workshop,
+            amount="100.00",
+            due_date=today,
+        )
         budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
         workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.DRAFT)
-
-        FinancialMovement.objects.create(
-            workshop=self.workshop,
+        WorkOrderPaymentMethod.objects.create(
             workorder=workorder,
-            direction=FinancialMovement.MovementDirection.CREDIT,
-            amount=Money("500.00", "BRL"),
+            first_installment_amount=Money("50.00", "BRL"),
+            remaining_installments_amount=Money("25.00", "BRL"),
+            installments_count=3,
             due_date=today,
-            is_paid=True,
         )
-
-        self._create_workorder_payment(workshop=self.workshop, workorder=workorder, amount="100.00", due_date=today)
-        self._create_workorder_payment(workshop=self.workshop, workorder=workorder, amount="50.00", due_date=today)
-        self._create_workorder_payment(workshop=self.workshop, workorder=workorder, amount="25.00", due_date=previous_month_date)
+        self._create_workorder_payment(
+            workshop=self.workshop,
+            amount="40.00",
+            due_date=previous_month_date,
+        )
 
         other_workshop = Workshop.objects.create(
             account=self.account,
@@ -1292,23 +1410,51 @@ class DashboardMetricsTests(TestCase):
             phone="+5511777777777",
             address="Rua Externa, 789",
         )
-        self._create_workorder_payment(workshop=other_workshop, amount="300.00", due_date=today)
+        self._create_workorder_payment(
+            workshop=other_workshop,
+            amount="300.00",
+            due_date=today,
+        )
 
         response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["total_vendido_ate_a_data"], Decimal("150.00"))
-        self.assertContains(response, "R$ 150,00")
+        self.assertEqual(response.context["total_vendido_ate_a_data"], Decimal("200.00"))
+        self.assertContains(response, "R$ 200,00")
+
+    def test_dashboard_total_vendido_ignores_financial_movements_without_workorder_payment_plan(self):
+        today = timezone.localdate()
+
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("900.00", "BRL"),
+            due_date=today,
+            is_paid=True,
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["total_vendido_ate_a_data"], Decimal("0.00"))
+        self.assertContains(response, "R$ 0,00")
 
     def test_dashboard_ticket_medio_uses_paid_workorders_in_selected_month(self):
         today = timezone.localdate()
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
 
-        self._create_workorder_receivable(
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
+        workorder = WorkOrder.objects.create(
             workshop=self.workshop,
-            workorder_status=WorkOrderStatus.DRAFT,
+            budget=budget,
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+        self._create_workorder_payment(
+            workshop=self.workshop,
             amount="500.00",
             due_date=today,
-            is_paid=True,
+            workorder=workorder,
         )
 
         response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
@@ -1317,3 +1463,288 @@ class DashboardMetricsTests(TestCase):
         self.assertEqual(response.context["qtd_carros_mes"], 1)
         self.assertEqual(response.context["ticket_medio"], Decimal("500.00"))
         self.assertContains(response, "R$ 500,00")
+
+    def test_dashboard_counts_approved_workorders_without_delivery_date_using_signature_date_fallback(self):
+        today = timezone.localdate()
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
+
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
+        workorder = WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            status=WorkOrderStatus.APPROVED,
+            signature_request_status=WorkOrderSignatureStatus.APPROVED,
+            delivered_at=None,
+        )
+        WorkOrder.objects.filter(pk=workorder.pk).update(
+            atualizado_em=timezone.make_aware(datetime.combine(today, datetime.min.time())),
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["qtd_carros_mes"], 1)
+
+    def test_dashboard_does_not_count_child_workorders_in_vehicle_total(self):
+        today = timezone.localdate()
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
+
+        parent_budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
+        child_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, reference_budget=parent_budget)
+
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=parent_budget,
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=child_budget,
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["qtd_carros_mes"], 1)
+
+    def test_dashboard_retorno_em_garantia_uses_qtd_carros_as_denominator(self):
+        today = timezone.localdate()
+
+        for _ in range(2):
+            Budget.objects.create(
+                workshop=self.workshop,
+                entry_date=today,
+                budget_type=BudgetType.WARRANTY,
+                is_warranty_budget=True,
+            )
+
+        for _ in range(4):
+            budget = Budget.objects.create(
+                workshop=self.workshop,
+                entry_date=today,
+                budget_type=BudgetType.SALE,
+                is_warranty_budget=False,
+            )
+            WorkOrder.objects.create(
+                workshop=self.workshop,
+                budget=budget,
+                status=WorkOrderStatus.APPROVED,
+                delivered_at=timezone.now(),
+            )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["qtd_carros_mes"], 4)
+        self.assertEqual(response.context["indice_retorno_em_garantia_mes"], 50)
+
+    def test_dashboard_projection_uses_elapsed_business_days_for_current_month(self):
+        today = timezone.localdate()
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
+        self._create_workorder_payment(workshop=self.workshop, amount="220.00", due_date=today)
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        elapsed_business_days = self._count_business_days(start_date=today.replace(day=1), end_date=today)
+        remaining_business_days = max(22 - elapsed_business_days, 0)
+        expected_projection = (Decimal("220.00") / Decimal(elapsed_business_days) * Decimal(remaining_business_days)) + Decimal("220.00")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["projecao"], expected_projection)
+
+    def test_dashboard_projection_excludes_business_holidays_from_elapsed_and_effective_days(self):
+        today = timezone.localdate()
+        holiday_date = next(day for day in (today.replace(day=day_number) for day_number in range(1, today.day + 1)) if day.weekday() < 5)
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22, holiday_dates=[holiday_date])
+        self._create_workorder_payment(workshop=self.workshop, amount="220.00", due_date=today)
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        elapsed_business_days = self._count_business_days(start_date=today.replace(day=1), end_date=today, holiday_dates={holiday_date})
+        remaining_business_days = max(22 - elapsed_business_days, 0)
+        expected_projection = (Decimal("220.00") / Decimal(elapsed_business_days) * Decimal(remaining_business_days)) + Decimal("220.00")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["dias_transcorridos"], elapsed_business_days)
+        self.assertEqual(response.context["feriados_uteis"], 1)
+        self.assertEqual(response.context["projecao"], expected_projection)
+
+    def test_dashboard_projection_uses_zero_remaining_days_for_past_month(self):
+        today = timezone.localdate()
+        previous_month_anchor = today.replace(day=1) - timedelta(days=1)
+        self._create_workshop_cost(reference_date=previous_month_anchor, work_days_per_month=22)
+        self._create_workorder_payment(workshop=self.workshop, amount="150.00", due_date=previous_month_anchor)
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": previous_month_anchor.month, "ano": previous_month_anchor.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["projecao"], Decimal("150.00"))
+
+    def test_dashboard_projection_is_blank_and_warns_without_workshop_cost(self):
+        today = timezone.localdate()
+        self._create_workorder_payment(workshop=self.workshop, amount="100.00", due_date=today)
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context["projecao"])
+        self.assertEqual(response.context["projecao_warning"], "Para realizar o calculo, cadastre um custo mensal da oficina para o mes selecionado.")
+        self.assertContains(response, "Estimativa para o fim do mês")
+        self.assertContains(response, "showToast")
+
+    def test_dashboard_projection_uses_total_sold_for_future_month_when_no_business_days_elapsed(self):
+        today = timezone.localdate()
+        year = today.year + 1 if today.month == 12 else today.year
+        month = 1 if today.month == 12 else today.month + 1
+        future_date = date(year, month, min(today.day, calendar.monthrange(year, month)[1]))
+        self._create_workshop_cost(reference_date=future_date, work_days_per_month=22)
+        self._create_workorder_payment(workshop=self.workshop, amount="180.00", due_date=future_date)
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": future_date.month, "ano": future_date.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["projecao"], Decimal("180.00"))
+
+    def test_dashboard_taxa_aprovacao_ignores_warranty_and_courtesy_budgets(self):
+        today = timezone.localdate()
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
+
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.APPROVED,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=False,
+        )
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.DRAFT,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=False,
+        )
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.APPROVED,
+            budget_type=BudgetType.COURTESY,
+        )
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.APPROVED,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=True,
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["taxa_aprovacao"], 50)
+
+    def test_dashboard_taxa_aprovacao_uses_approved_over_created_from_sale_budgets_only(self):
+        today = timezone.localdate()
+
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.APPROVED,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=False,
+        )
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.APPROVED,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=False,
+        )
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.DRAFT,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=False,
+        )
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.WAITING_APPROVAL,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=False,
+        )
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.REJECTED,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=False,
+        )
+
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.APPROVED,
+            budget_type=BudgetType.COURTESY,
+        )
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.APPROVED,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=True,
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["taxa_aprovacao"], 40)
+
+    def test_dashboard_taxa_aprovacao_is_zero_when_no_sale_budgets_created_in_month(self):
+        today = timezone.localdate()
+
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.APPROVED,
+            budget_type=BudgetType.COURTESY,
+        )
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.APPROVED,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=True,
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["taxa_aprovacao"], 0)
+
+    def test_dashboard_taxa_aprovacao_includes_parent_and_child_sale_budgets(self):
+        today = timezone.localdate()
+
+        parent_budget = Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.DRAFT,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=False,
+        )
+        Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            status=BudgetStatus.APPROVED,
+            budget_type=BudgetType.SALE,
+            is_warranty_budget=False,
+            reference_budget=parent_budget,
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["taxa_aprovacao"], 50)

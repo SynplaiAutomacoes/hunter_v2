@@ -209,6 +209,9 @@ class PercentageInput(forms.TextInput):
         ctx["widget"]["behavior"] = self.behavior
         return ctx
 
+    def id_for_label(self, id_):
+        return f"{id_}_display" if id_ else id_
+
 
 class ImageInput(forms.ClearableFileInput):
     template_name = "widgets/image_input.html"

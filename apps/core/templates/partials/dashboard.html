@@ -19,13 +19,13 @@
             <form method="get" hx-boost="true" hx-trigger="change from:select" class="flex items-center gap-2 bg-base-100 p-2 rounded-xl shadow-sm border border-base-200">
                 <div class="flex items-center gap-2 px-2">
                     <i class="ph ph-calendar-blank text-primary text-xl"></i>
-                    <select name="mes" class="select select-sm select-ghost focus:bg-transparent font-medium">
+                    <select name="mes" class="select select-sm bg-base-100 focus:bg-base-100 font-medium">
                         {% for val, name in meses %}
                             <option value="{{ val }}" {% if val == mes_selecionado %}selected{% endif %}>{{ name }}</option>
                         {% endfor %}
                     </select>
                     <div class="divider divider-horizontal mx-0"></div>
-                    <select name="ano" class="select select-sm select-ghost focus:bg-transparent font-medium">
+                    <select name="ano" class="select select-sm bg-base-100 focus:bg-base-100 font-medium">
                         {% for val in anos %}
                             <option value="{{ val }}" {% if val == ano_selecionado %}selected{% endif %}>{{ val|stringformat:"d" }}</option>
                         {% endfor %}
@@ -68,7 +68,7 @@
                     <i class="ph ph-chart-line text-3xl"></i>
                 </div>
                 <div class="stat-title">Projeção</div>
-                <div class="stat-value text-primary">R$ {{ projecao|floatformat:2 }}</div>
+                <div class="stat-value text-primary">{% if projecao is not None %}R$ {{ projecao|floatformat:2 }}{% endif %}</div>
                 <div class="stat-desc">Estimativa para o fim do mês</div>
             </div>
         </div>
@@ -85,7 +85,7 @@
                             <div class="radial-progress text-success border-4 border-success/10"
                                  style="--value:{{ taxa_aprovacao|floatformat:0 }}; --size:9rem; --thickness: 1rem;"
                                  role="progressbar">
-                                <span class="text-2xl font-bold text-base-content">{{ taxa_aprovacao|floatformat:1 }}%</span>
+                                <span class="text-2xl font-bold text-base-content">{{ taxa_aprovacao|floatformat:2 }}%</span>
                             </div>
                             <span class="text-lg font-semibold">Taxa de Aprovação</span>
                         </div>
@@ -93,7 +93,7 @@
                             <div class="radial-progress text-warning border-4 border-warning/10"
                                  style="--value:{{ rentabilidade_acumulada_mes|floatformat:0 }}; --size:9rem; --thickness: 1rem;"
                                  role="progressbar">
-                                <span class="text-2xl font-bold text-base-content">{{ rentabilidade_acumulada_mes|floatformat:1 }}%</span>
+                                <span class="text-2xl font-bold text-base-content">{{ rentabilidade_acumulada_mes|floatformat:2 }}%</span>
                             </div>
                             <span class="text-lg font-semibold">Rentabilidade Acumulada</span>
                         </div>
@@ -101,7 +101,7 @@
                             <div class="radial-progress text-error border-4 border-error/10"
                                  style="--value:{{ indice_retorno_em_garantia_mes|floatformat:0 }}; --size:9rem; --thickness: 1rem;"
                                  role="progressbar">
-                                <span class="text-2xl font-bold text-base-content">{{ indice_retorno_em_garantia_mes|floatformat:1 }}%</span>
+                                <span class="text-2xl font-bold text-base-content">{{ indice_retorno_em_garantia_mes|floatformat:2 }}%</span>
                             </div>
                             <span class="text-lg font-semibold">Retorno em Garantia</span>
                         </div>
@@ -149,7 +149,7 @@
                         </div>
                         <div class="divider my-0"></div>
                         <div class="flex justify-between items-center text-error">
-                            <span class="text-sm font-semibold">Total Reprovados (mês atual)</span>
+                            <span class="text-sm font-semibold">Total Reprovados (mês selecionado)</span>
                             <span class="font-bold">R$ {{ total_orcamentos_reprovados|floatformat:2 }}</span>
                         </div>
                     </div>
@@ -157,5 +157,28 @@
             </div>
         </div>
     </div>
+
+    {% if projecao_warning %}
+        <script>
+            document.body.dispatchEvent(new CustomEvent('showToast', {
+                detail: {
+                    type: 'warning',
+                    message: '{{ projecao_warning|escapejs }}'
+                }
+            }));
+        </script>
+    {% endif %}
+
+    <script>
+        console.info('Dashboard projeção', {
+            mes: {{ mes_selecionado }},
+            ano: {{ ano_selecionado }},
+            diasTranscorridos: {{ dias_transcorridos }},
+            diasFaltantes: {{ dias_faltantes }},
+            diasUteisMesConfigurados: {% if dias_uteis_mes_configurados is not None %}{{ dias_uteis_mes_configurados }}{% else %}null{% endif %},
+            feriadosUteis: {{ feriados_uteis }},
+            projecaoDisponivel: {% if projecao is not None %}true{% else %}false{% endif %}
+        });
+    </script>
 
 {% endblock %}

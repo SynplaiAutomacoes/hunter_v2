@@ -94,12 +94,12 @@ BUDGET_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
     ),
     QueryParamFilter(
         param_name="data_inicial",
-        lookup="criado_em__date",
+        lookup="entry_date",
         kind="date_gte",
     ),
     QueryParamFilter(
         param_name="data_final",
-        lookup="criado_em__date",
+        lookup="entry_date",
         kind="date_lte",
     ),
     QueryParamFilter(
@@ -288,17 +288,15 @@ class BudgetStatusReportDataMixin:
     def _get_filtered_budget_queryset(self):
         queryset = self._get_budget_base_queryset()
 
-        selected_status_choices = self._get_selected_status_choices()
-        if BudgetStatus.CANCELLED not in selected_status_choices:
-            queryset = queryset.exclude(status=BudgetStatus.CANCELLED)
-
         queryset = apply_query_param_filters(
             queryset,
             params=self.request.GET,
             filter_configs=BUDGET_LIST_FILTERS,
         )
 
-        return queryset.order_by("-criado_em")
+        queryset = queryset.distinct()
+
+        return queryset.order_by("-entry_date", "-pk")
 
     def _get_selection_report_items(self) -> list[Budget]:
         cached = getattr(self, "_selection_report_items_cache", None)
@@ -499,7 +497,7 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         today = timezone.now()
         if not WorkshopCost.objects.filter(workshop=self.workshop, month=today.month, year=today.year).exists():
             messages.warning(request, "Cadastre um custo mensal da oficina para este mês antes de prosseguir.")
-            return redirect("budget:budget_list")
+            return redirect("workshops:workshop_cost_list")
 
         requested_step = request.GET.get("step")
         budget_pk = request.GET.get("pk")

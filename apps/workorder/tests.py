@@ -308,6 +308,27 @@ class WorkOrderListFiltersTests(TestCase):
         self.assertEqual(response.context["selection_report"]["count"], 2)
         self.assertEqual(len(response.context["selection_report"]["badges"]), 2)
 
+    def test_workorder_list_filters_rejected_by_creation_date(self) -> None:
+        workshop = self._login_with_active_workshop(suffix=96)
+
+        rejected_in_range = WorkOrder.objects.create(workshop=workshop, budget=create_budget(workshop=workshop), status=WorkOrderStatus.REJECTED)
+        matching_created_at = (timezone.now() - timedelta(days=1)).replace(hour=11, minute=0, second=0, microsecond=0)
+        WorkOrder.objects.filter(pk=rejected_in_range.pk).update(criado_em=matching_created_at)
+
+        rejected_out_of_range = WorkOrder.objects.create(workshop=workshop, budget=create_budget(workshop=workshop), status=WorkOrderStatus.REJECTED)
+        WorkOrder.objects.filter(pk=rejected_out_of_range.pk).update(criado_em=timezone.now() - timedelta(days=15))
+
+        approved_same_day = WorkOrder.objects.create(workshop=workshop, budget=create_budget(workshop=workshop), status=WorkOrderStatus.APPROVED)
+        WorkOrder.objects.filter(pk=approved_same_day.pk).update(criado_em=matching_created_at)
+
+        selected_date = matching_created_at.date().isoformat()
+        response = self.client.get(reverse("workorder:workorder_list"), {"status": WorkOrderStatus.REJECTED, "data_inicial": selected_date, "data_final": selected_date})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertQuerySetEqual(response.context["workorder"].order_by("pk"), [rejected_in_range], transform=lambda obj: obj)
+        self.assertNotIn(rejected_out_of_range, response.context["workorder"])
+        self.assertNotIn(approved_same_day, response.context["workorder"])
+
     def test_workorder_status_report_counts_only_selected_status(self) -> None:
         workshop = self._login_with_active_workshop(suffix=76)
 
@@ -2290,7 +2311,7 @@ class AddPaymentMethodViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.workorder.status, WorkOrderStatus.DRAFT)
-        self.assertContains(response, "Informe a justificativa para rejeitar a O.S.")
+        self.assertContains(response, "Informe a justificativa para reprovar a O.S.")
 
     def test_reject_status_persists_reason(self) -> None:
         response = self.client.post(

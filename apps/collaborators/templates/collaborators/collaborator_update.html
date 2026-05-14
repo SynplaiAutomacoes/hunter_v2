@@ -241,13 +241,13 @@
                             </div>
                         </div>
                     {% empty %}
-                        <div class="rounded-xl border border-dashed border-base-300 p-4 text-sm text-base-content/70">
+                        <div class="rounded-xl border border-dashed border-base-300 p-4 text-sm text-base-content/70 benefit-empty-state">
                             Nenhum benefício cadastrado ainda.
                         </div>
                     {% endfor %}
                 </div>
 
-                <p class="text-xs text-base-content/60">Use a última linha em branco para adicionar um novo benefício mensal.</p>
+                <p class="text-xs text-base-content/60">Use o botão acima para adicionar um novo benefício mensal.</p>
 
                 <template id="benefit-empty-form-template">
                     <div class="rounded-xl border border-base-300 p-4 benefit-form-item">
@@ -398,6 +398,32 @@
 
     function collaboratorBenefitsManager() {
         return {
+            reindexBenefits() {
+                const totalFormsInput = document.getElementById('id_benefits-TOTAL_FORMS');
+                const formList = document.getElementById('benefit-form-list');
+                if (!totalFormsInput || !formList) {
+                    return;
+                }
+
+                const items = Array.from(formList.querySelectorAll('.benefit-form-item'));
+                items.forEach((item, index) => {
+                    item.querySelectorAll('[name], [id], [for], [aria-describedby]').forEach((element) => {
+                        ['name', 'id', 'for', 'aria-describedby'].forEach((attributeName) => {
+                            const attributeValue = element.getAttribute(attributeName);
+                            if (!attributeValue) {
+                                return;
+                            }
+                            element.setAttribute(attributeName, attributeValue.replace(/benefits-(\d+)-/g, `benefits-${index}-`).replace(/id_benefits-(\d+)-/g, `id_benefits-${index}-`));
+                        });
+                    });
+                });
+
+                totalFormsInput.value = String(items.length);
+                const emptyState = formList.querySelector('.benefit-empty-state');
+                if (emptyState) {
+                    emptyState.classList.toggle('hidden', items.length > 0);
+                }
+            },
             addBenefit() {
                 const totalFormsInput = document.getElementById('id_benefits-TOTAL_FORMS');
                 const formList = document.getElementById('benefit-form-list');
@@ -410,6 +436,7 @@
                 const html = template.innerHTML.replace(/__prefix__/g, String(formIndex));
                 formList.insertAdjacentHTML('beforeend', html);
                 totalFormsInput.value = String(formIndex + 1);
+                this.reindexBenefits();
             },
             removeUnsavedBenefit(event) {
                 const item = event.target.closest('.benefit-form-item');
@@ -422,6 +449,7 @@
                     deleteInput.checked = true;
                 }
                 item.remove();
+                this.reindexBenefits();
             },
         };
     }

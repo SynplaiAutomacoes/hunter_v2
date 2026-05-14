@@ -26,6 +26,7 @@ from apps.workshops.views.workshop_costs import (
     WorkshopCostUpdateView,
     WorkshopCostDeleteView,
     WorkshopCostCopyView,
+    WorkshopCostSelectionModalView,
 )
 
 app_name = "workshops"
@@ -51,6 +52,7 @@ urlpatterns = [
     path("copy/<int:pk>/", WorkshopCostCopyView.as_view(), name="workshop_cost_copy"),
     path("workshops_costs/<int:pk>/delete/", WorkshopCostDeleteView.as_view(), name="workshop_cost_delete"),
     path("workshops_costs/calculate/", WorkshopCostCalculateView.as_view(), name="workshop_cost_calculate"),
+    path("workshops_costs/copy-selection/", WorkshopCostSelectionModalView.as_view(), name="workshop_cost_copy_selection"),
     #
     path("webmania/empresas/sync/", WorkshopWebmaniaSyncView.as_view(), name="webmania_company_sync"),
     path("historico-emissoes/", WorkshopEmissionHistoryView.as_view(), name="emission_history"),

@@ -1,31 +1,33 @@
 from __future__ import annotations
 
+import calendar
 from decimal import Decimal
 import json
 import logging
 import time
-from datetime import datetime
+from datetime import date
 from typing import Any
-from django.db.models import Sum
+from django.db.models import Q
 
+import requests
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
 from django.template.response import TemplateResponse
-import requests
+from django.utils import timezone
 from django.views import View
 from django.views.generic import TemplateView
 
 from apps.budget.models import Budget, BudgetStatus, BudgetType
-from apps.finance.models.financial_movement import FinancialMovement
-from apps.workorder.models import WorkOrderPaymentMethod, WorkOrderStatus
-import calendar
 from apps.core.favorites import FavoritePageLimitError, InvalidFavoritePageError, reorder_favorite_pages, toggle_favorite_page
 from apps.core.navigation import build_favoritable_page
+from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
+from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 external_calls_logger = logging.getLogger("performance.external")
 logger = logging.getLogger(__name__)
+MISSING_WORKSHOP_COST_WARNING = "Para realizar o calculo, cadastre um custo mensal da oficina para o mes selecionado."
 
 
 OPEN_BUDGET_STATUSES: tuple[str, ...] = (
@@ -36,6 +38,12 @@ OPEN_BUDGET_STATUSES: tuple[str, ...] = (
     BudgetStatus.WAITING_PRICING,
     BudgetStatus.WAITING_REVIEW,
     BudgetStatus.WAITING_APPROVAL,
+)
+
+REJECTED_BUDGET_STATUS_VALUES: tuple[str, ...] = (
+    BudgetStatus.REJECTED,
+    "reprovado",
+    "reproved",
 )
 
 
@@ -203,7 +211,7 @@ def metricas_dashboard(request) -> dict[str, Any]:
     - Todas as métricas são baseadas no Workshop atual E Mês atual
     """
     workshop: Workshop = get_active_workshop_or_404(request=request)
-    hoje = datetime.now()
+    hoje = timezone.localdate()
     mes_param = request.GET.get("mes")
     ano_param = request.GET.get("ano")
 
@@ -216,68 +224,95 @@ def metricas_dashboard(request) -> dict[str, Any]:
             pass
 
     # Auxiliares (valores que não serão retornados no dict, mas que servem para auxílio nas contas das métricas)
-    pagamentos_total_vendido = list(WorkOrderPaymentMethod.objects.filter(workorder__workshop=workshop, due_date__month=mes_selecionado, due_date__year=ano_selecionado).select_related("workorder").order_by("due_date", "pk"))
-    total_vendido_ate_a_data = sum((payment.total_paid.amount for payment in pagamentos_total_vendido), Decimal("0.00"))
-    dias_transcorridos = len({payment.due_date for payment in pagamentos_total_vendido})
+    pagamentos_total_vendido = list(
+        WorkOrderPaymentMethod.objects.filter(
+            workorder__workshop=workshop,
+            due_date__month=mes_selecionado,
+            due_date__year=ano_selecionado,
+        ).order_by("due_date", "pk")
+    )
+    total_vendido_ate_a_data = sum((_resolve_decimal_amount(payment.total_paid) for payment in pagamentos_total_vendido), Decimal("0.00"))
+    workshop_cost = WorkshopCost.objects.filter(workshop=workshop, month=mes_selecionado, year=ano_selecionado).first()
+    dias_transcorridos = 0
+    dias_faltantes = 0
+    projecao: Decimal | None = None
+    projecao_warning = ""
+    dias_uteis_mes_configurados = int(workshop_cost.work_days_per_month) if workshop_cost is not None else None
+    feriados_uteis = workshop_cost.get_business_holiday_count() if workshop_cost is not None else 0
 
-    _, dias_no_mes = calendar.monthrange(ano_selecionado, mes_selecionado)
-    dias_faltantes = dias_no_mes
-
-    if ano_selecionado < hoje.year or (ano_selecionado == hoje.year and mes_selecionado < hoje.month):
-        dias_faltantes = 0
-    elif ano_selecionado == hoje.year and mes_selecionado == hoje.month:
-        dias_faltantes = dias_no_mes - hoje.day
+    if workshop_cost is not None:
+        dias_transcorridos = _count_elapsed_business_days(workshop_cost=workshop_cost, today=hoje)
+        dias_faltantes = max(int(workshop_cost.work_days_per_month or 0) - dias_transcorridos, 0)
+        if dias_transcorridos > 0:
+            media_diaria = total_vendido_ate_a_data / Decimal(dias_transcorridos)
+            projecao = (media_diaria * Decimal(dias_faltantes)) + total_vendido_ate_a_data
+        else:
+            projecao = total_vendido_ate_a_data
+    else:
+        projecao_warning = MISSING_WORKSHOP_COST_WARNING
 
     orcamentos_aprovados_mes = Budget.objects.filter(workshop=workshop, status=BudgetStatus.APPROVED, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado)
     rentabilidades = [b.rentability for b in orcamentos_aprovados_mes if b.rentability is not None]
     qtd_garantias_mes = Budget.objects.filter(workshop=workshop, is_warranty_budget=True, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado).count()
-    qtd_veiculos_mes = Budget.objects.filter(workshop=workshop, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado).values("vehicle").distinct().count()
-    orcamentos_base = Budget.objects.filter(workshop=workshop, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado, budget_type=BudgetType.SALE).exclude(reference_budget__isnull=False)
-    qtd_orcamentos_criados = orcamentos_base.count()
-    qtd_orcamentos_aprovados = orcamentos_base.filter(status=BudgetStatus.APPROVED).count()
+    orcamentos_taxa_base = Budget.objects.filter(
+        workshop=workshop,
+        entry_date__month=mes_selecionado,
+        entry_date__year=ano_selecionado,
+        budget_type=BudgetType.SALE,
+        is_warranty_budget=False,
+    )
+    orcamentos_criados_no_mes = orcamentos_taxa_base.count()
+    orcamentos_aprovados_no_mes = orcamentos_taxa_base.filter(status=BudgetStatus.APPROVED).count()
 
     budgets_aguardando_base = Budget.objects.filter(workshop=workshop, budget_type=BudgetType.SALE, status__in=OPEN_BUDGET_STATUSES).prefetch_related("items", "items__kit_overrides", "items__kit__kit_products", "items__kit__kit_services")
 
-    orcamentos_reprovados = Budget.objects.filter(workshop=workshop, status=BudgetStatus.REJECTED, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado)
+    orcamentos_reprovados = Budget.objects.filter(workshop=workshop, status__in=REJECTED_BUDGET_STATUS_VALUES, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado)
 
     # Métricas
+    # qtd_carros_mes = (Budget.objects.filter(workshop=workshop, status=BudgetStatus.APPROVED, entry_date__month=mes_selecionado,
+    #                                         entry_date__year=ano_selecionado).exclude(reference_budget__isnull=False).count())
     qtd_carros_mes = (
-        Budget.objects.filter(
+        WorkOrder.objects.filter(
             workshop=workshop,
-            status=BudgetStatus.APPROVED,
-            entry_date__month=mes_selecionado,
-            entry_date__year=ano_selecionado,
+            status=WorkOrderStatus.APPROVED,
+            budget__reference_budget__isnull=True,
         )
-        .exclude(reference_budget__isnull=False)
+        .filter(
+            Q(
+                delivered_at__month=mes_selecionado,
+                delivered_at__year=ano_selecionado,
+            )
+            | Q(
+                delivered_at__isnull=True,
+                signature_request_status=WorkOrderSignatureStatus.APPROVED,
+                atualizado_em__month=mes_selecionado,
+                atualizado_em__year=ano_selecionado,
+            )
+        )
         .count()
     )
     ticket_medio = total_vendido_ate_a_data / qtd_carros_mes if qtd_carros_mes > 0 else Decimal("0.00")
-    projecao = ((total_vendido_ate_a_data / dias_transcorridos) * dias_faltantes) + total_vendido_ate_a_data if dias_transcorridos > 0 else total_vendido_ate_a_data
     rentabilidade_acumulada_mes = sum(rentabilidades) / len(rentabilidades) if rentabilidades else 0
-    indice_retorno_em_garantia_mes = (qtd_garantias_mes / qtd_veiculos_mes) * 100 if qtd_veiculos_mes > 0 else 0
-    taxa_aprovacao = (qtd_orcamentos_aprovados / qtd_orcamentos_criados) * 100 if qtd_orcamentos_criados > 0 else 0
+    indice_retorno_em_garantia_mes = (qtd_garantias_mes / qtd_carros_mes) * 100 if qtd_carros_mes > 0 else 0
+    taxa_aprovacao = (orcamentos_aprovados_no_mes / orcamentos_criados_no_mes) * 100 if orcamentos_criados_no_mes > 0 else 0
 
     # Financeiro (R$)
 
     ## Geral
-    total_geral_os_a_receber_em_execucao_result = FinancialMovement.objects.filter(
+    draft_workorders = WorkOrder.objects.filter(
         workshop=workshop,
-        direction=FinancialMovement.MovementDirection.CREDIT,
-        is_paid=False,
-        workorder__status=WorkOrderStatus.DRAFT,
-    ).aggregate(total=Sum("amount"))["total"]
-    total_geral_os_a_receber_em_execucao = getattr(total_geral_os_a_receber_em_execucao_result, "amount", total_geral_os_a_receber_em_execucao_result) or Decimal("0.00")
+        status=WorkOrderStatus.DRAFT,
+    ).prefetch_related("payments")
 
-    ## Mensal
-    total_mensal_os_a_receber_em_execucao_result = FinancialMovement.objects.filter(
-        workshop=workshop,
-        direction=FinancialMovement.MovementDirection.CREDIT,
-        is_paid=False,
-        workorder__status=WorkOrderStatus.DRAFT,
-        due_date__month=mes_selecionado,
-        due_date__year=ano_selecionado,
-    ).aggregate(total=Sum("amount"))["total"]
-    total_mensal_os_a_receber_em_execucao = getattr(total_mensal_os_a_receber_em_execucao_result, "amount", total_mensal_os_a_receber_em_execucao_result) or Decimal("0.00")
+    total_geral_os_a_receber_em_execucao = Decimal("0.00")
+    total_mensal_os_a_receber_em_execucao = Decimal("0.00")
+    for workorder in draft_workorders:
+        pending_value = _resolve_decimal_amount(workorder.pending_payment_value)
+
+        total_geral_os_a_receber_em_execucao += pending_value
+
+        if workorder.criado_em and workorder.criado_em.month == mes_selecionado and workorder.criado_em.year == ano_selecionado:
+            total_mensal_os_a_receber_em_execucao += pending_value
 
     total_meses_anteriores_os_a_receber_em_execucao = total_geral_os_a_receber_em_execucao - total_mensal_os_a_receber_em_execucao
 
@@ -286,7 +321,7 @@ def metricas_dashboard(request) -> dict[str, Any]:
     total_mensal_orcamentos_aguardando_aprovacao = sum((b.total_budget_value.amount for b in budgets_aguardando_base.filter(entry_date__month=mes_selecionado, entry_date__year=ano_selecionado)), Decimal("0.00"))
     total_meses_anteriores_orcamentos_aguardando_aprovacao = total_geral_orcamentos_aguardando_aprovacao - total_mensal_orcamentos_aguardando_aprovacao
 
-    total_orcamentos_reprovados = sum(getattr(b.total_budget_value, "amount", b.total_budget_value) or 0 for b in orcamentos_reprovados)
+    total_orcamentos_reprovados = sum(getattr(b.display_total_budget_value, "amount", b.display_total_budget_value) or 0 for b in orcamentos_reprovados)
 
     return {
         "workshop": workshop,
@@ -297,6 +332,11 @@ def metricas_dashboard(request) -> dict[str, Any]:
         "qtd_carros_mes": qtd_carros_mes,
         "ticket_medio": ticket_medio,
         "projecao": projecao,
+        "projecao_warning": projecao_warning,
+        "dias_transcorridos": dias_transcorridos,
+        "dias_faltantes": dias_faltantes,
+        "dias_uteis_mes_configurados": dias_uteis_mes_configurados,
+        "feriados_uteis": feriados_uteis,
         "total_vendido_ate_a_data": total_vendido_ate_a_data,
         "rentabilidade_acumulada_mes": rentabilidade_acumulada_mes,
         "indice_retorno_em_garantia_mes": indice_retorno_em_garantia_mes,
@@ -311,3 +351,35 @@ def metricas_dashboard(request) -> dict[str, Any]:
         "total_meses_anteriores_orcamentos_aguardando_aprovacao": total_meses_anteriores_orcamentos_aguardando_aprovacao,
         "total_orcamentos_reprovados": total_orcamentos_reprovados,
     }
+
+
+def _count_business_days(*, start_date: date, end_date: date, holiday_dates: set[date] | None = None) -> int:
+    if end_date < start_date:
+        return 0
+
+    excluded_holidays = holiday_dates or set()
+    return sum(1 for day in range(start_date.day, end_date.day + 1) if (current_date := date(start_date.year, start_date.month, day)).weekday() < 5 and current_date not in excluded_holidays)
+
+
+def _count_elapsed_business_days(*, workshop_cost: WorkshopCost, today: date) -> int:
+    first_day = date(workshop_cost.year, workshop_cost.month, 1)
+    last_day = date(workshop_cost.year, workshop_cost.month, calendar.monthrange(workshop_cost.year, workshop_cost.month)[1])
+
+    if first_day > today:
+        return 0
+
+    period_end = min(today, last_day)
+    holiday_dates = {holiday_date for holiday_date in workshop_cost.get_business_holiday_dates() if holiday_date <= period_end}
+    return _count_business_days(start_date=first_day, end_date=period_end, holiday_dates=holiday_dates)
+
+
+def _resolve_decimal_amount(value: Any) -> Decimal:
+    amount = getattr(value, "amount", value)
+    if isinstance(amount, Decimal):
+        return amount
+    return Decimal(str(amount or "0.00"))
+
+
+def permission_denied(request, exception=None):
+    """Handler customizado para erros 403 (Permission Denied)."""
+    return TemplateResponse(request, "403.html", status=403)

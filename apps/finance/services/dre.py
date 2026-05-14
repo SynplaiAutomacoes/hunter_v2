@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 from typing import Sequence
 
 from djmoney.money import Money
@@ -20,12 +21,12 @@ from apps.workshops.models.workshops import Workshop
 _ZERO = Money("0.00", "BRL")
 
 # Chaves de componente usadas no template (row.component)
-COMP_GROSS_REVENUE = "gross_revenue"
-COMP_COGS = "cogs"
-COMP_GROSS_PROFIT = "gross_profit"
-COMP_FINANCIAL_REVENUE = "financial_revenue"
-COMP_FINANCIAL_EXPENSE = "financial_expense"
-COMP_OPERATING_RESULT = "operating_result"
+COMP_GROSS_REVENUE = "receita_bruta_vendas_e_servicos"
+COMP_COGS = "custos_mercadorias_vendidas"
+COMP_GROSS_PROFIT = "receita_bruta_de_vendas"
+COMP_FINANCIAL_REVENUE = "receitas_financeiras"
+COMP_FINANCIAL_EXPENSE = "despesas_financeiras"
+COMP_OPERATING_RESULT = "resultado_operacional"
 
 _VALID_TIPO_DATA = {"PG", "NPG", "A"}
 
@@ -68,6 +69,11 @@ def build_dre_calculation(
         end_date=end_date,
         tipo_data=tipo_data,
         selected_financial_groups=selected_financial_groups,
+    )
+    financial_groups = list(FinancialGroup.objects.filter(workshop__in=workshops).select_related("parent").order_by("sort_key", "id"))
+    financial_groups = _filter_financial_groups_by_selection(
+        financial_groups=financial_groups,
+        selected_financial_groups=selected_financial_groups or [],
     )
 
     # --- Monta detalhes de cada seção ---
@@ -121,19 +127,28 @@ def build_dre_calculation(
     # -----------------------
 
     # Receitas Financeiras
-    fin_revenue_mvs = [m for m in movements if m.workorder is None and m.direction == FinancialMovement.MovementDirection.CREDIT]
-    total_receitas_financeiras = _sum_movements(fin_revenue_mvs)
-    detail_receitas_financeiras = details(fin_revenue_mvs)
+    fin_revenue_groups, total_receitas_financeiras = _build_financial_group_tree(
+        movements=movements,
+        direction=FinancialMovement.MovementDirection.CREDIT,
+        financial_groups=financial_groups,
+    )
+    detail_receitas_financeiras = fin_revenue_groups
     # -------------------
 
     # Despesas Financeiras
-    fin_expense_mvs = [m for m in movements if m.workorder is None and m.direction == FinancialMovement.MovementDirection.DEBIT]
-    total_despesas_financeiras = _sum_movements(fin_expense_mvs)
-    detail_despesas_financeiras = details(fin_expense_mvs)
+    fin_expense_groups, total_despesas_financeiras = _build_financial_group_tree(
+        movements=movements,
+        direction=FinancialMovement.MovementDirection.DEBIT,
+        financial_groups=financial_groups,
+    )
+    detail_despesas_financeiras = fin_expense_groups
     # --------------------
 
     # Resultado Operacional
-    total_resultado_operacional = total_receitas_financeiras - total_despesas_financeiras
+    total_resultado_operacional = _calculate_operating_result(
+        financial_revenue=total_receitas_financeiras,
+        financial_expense=total_despesas_financeiras,
+    )
     # ---------------------
 
     rows = [
@@ -167,7 +182,7 @@ def build_dre_calculation(
             amount=total_receitas_financeiras,
             tone="positive",
             component=COMP_FINANCIAL_REVENUE,
-            detail_kind="financial_entries",
+            detail_kind="group_entries",
             is_expandable=True,
             details=detail_receitas_financeiras,
         ),
@@ -176,7 +191,7 @@ def build_dre_calculation(
             amount=total_despesas_financeiras,
             tone="negative",
             component=COMP_FINANCIAL_EXPENSE,
-            detail_kind="financial_entries",
+            detail_kind="group_entries",
             is_expandable=True,
             details=detail_despesas_financeiras,
         ),
@@ -190,7 +205,7 @@ def build_dre_calculation(
     ]
 
     summary_cards = [
-        {"label": "Receita Bruta de Vendas", "amount": total_receita_bruta_de_vendas, "accent": "text-sky-700"},
+        {"label": "Receita Líquida", "amount": total_receita_bruta_de_vendas, "accent": "text-sky-700"},
         {"label": "Resultado Operacional", "amount": total_resultado_operacional, "accent": "text-amber-700"},
     ]
 
@@ -231,6 +246,22 @@ def _sum_movements(movements: list[FinancialMovement]) -> Money:
         else:
             total += amount
     return total
+
+
+def _sum_detail_amounts(details: list[dict]) -> Money:
+    total = _ZERO
+    for detail in details:
+        amount = detail.get("amount", _ZERO)
+        if isinstance(amount, Money):
+            total += amount
+    return total
+
+
+def _calculate_operating_result(*, financial_revenue: Money, financial_expense: Money) -> Money:
+    expense_amount = getattr(financial_expense, "amount", Decimal("0.00"))
+    if expense_amount >= Decimal("0.00"):
+        return financial_revenue - financial_expense
+    return financial_revenue + financial_expense
 
 
 # ---------------------------------------------------------------------------
@@ -300,6 +331,8 @@ def _build_detail(m: FinancialMovement, include_workshop_ref: bool) -> dict:
     reference_parts: list[str] = []
     if include_workshop_ref and m.workshop_id:
         reference_parts.append(f"Filial: {m.workshop.name}")
+    if m.source_id:
+        reference_parts.append(f"Origem: {m.source.name}")
     if m.workorder_id:
         reference_parts.append(f"O.S #{getattr(budget, 'pk', workorder.pk if workorder else '-')}")
     if m.nf_number:
@@ -335,6 +368,7 @@ def _build_detail(m: FinancialMovement, include_workshop_ref: bool) -> dict:
         "entry_date": created_at.date() if created_at else None,
         "payment_date": payment_date,
         "amount": amount,
+        "budget_plan": getattr(m, "budget_plan", None),
     }
 
 
@@ -403,7 +437,144 @@ def _build_workorder_cost_detail(wo: WorkOrder, include_workshop_ref: bool) -> d
         "entry_date": getattr(wo, "criado_em", None),
         "payment_date": getattr(wo, "criado_em", None),
         "amount": wo.total_costs_products_value,
+        "budget_plan": None,
     }
+
+
+def _build_financial_group_rollup(*, movements: list[FinancialMovement], direction: str, financial_groups: list[FinancialGroup]) -> list[dict]:
+    grouped: dict[int, dict] = {}
+    groups_by_id = {group.pk: group for group in financial_groups}
+    relevant_group_ids: set[int] = set()
+
+    for movement in movements:
+        if movement.workorder_id is not None or movement.direction != direction:
+            continue
+        group = getattr(movement, "budget_plan", None)
+        group_id = getattr(group, "pk", None)
+        while group_id:
+            relevant_group_ids.add(group_id)
+            parent_id = getattr(groups_by_id.get(group_id), "parent_id", None)
+            group_id = parent_id
+
+    for group in financial_groups:
+        if group.pk not in relevant_group_ids:
+            continue
+        group_id = group.pk
+        grouped[group_id] = {
+            "group": group,
+            "amount": _ZERO,
+            "details": [],
+        }
+
+    for movement in movements:
+        if movement.workorder_id is not None:
+            continue
+        if movement.direction != direction:
+            continue
+
+        detail = _build_detail(movement, include_workshop_ref=False)
+        group = detail.get("budget_plan") or getattr(movement, "budget_plan", None)
+        if group is None or not getattr(group, "pk", None):
+            continue
+
+        group_id = group.pk
+        if group_id not in grouped:
+            grouped[group_id] = {
+                "group": group,
+                "amount": _ZERO,
+                "details": [],
+            }
+
+        grouped[group_id]["details"].append(detail)
+
+    ordered_groups = []
+    for payload in grouped.values():
+        payload["amount"] = _sum_detail_amounts(payload["details"])
+        ordered_groups.append(payload)
+
+    ordered_groups.sort(key=lambda item: (getattr(item["group"], "sort_key", ""), getattr(item["group"], "pk", 0)))
+
+    return ordered_groups
+
+
+def _build_financial_group_tree(*, movements: list[FinancialMovement], direction: str, financial_groups: list[FinancialGroup]) -> tuple[list[dict], Money]:
+    grouped = _build_financial_group_rollup(movements=movements, direction=direction, financial_groups=financial_groups)
+    nodes = _build_group_tree(groups=grouped)
+    roots = _build_group_tree_roots(nodes=nodes)
+    total = sum((root["amount"] for root in roots), _ZERO)
+    return roots, total
+
+
+def _build_group_tree(*, groups: list[dict]) -> dict[int, dict]:
+    nodes: dict[int, dict] = {}
+
+    for group_payload in groups:
+        group = group_payload["group"]
+        group_id = group.pk
+        nodes[group_id] = {
+            "group": group,
+            "direct_amount": group_payload["amount"],
+            "amount": group_payload["amount"],
+            "details": group_payload["details"],
+            "children": [],
+        }
+
+    for node in list(nodes.values()):
+        parent_id = getattr(node["group"], "parent_id", None)
+        if parent_id and parent_id in nodes:
+            nodes[parent_id]["children"].append(node)
+
+    for node in list(nodes.values()):
+        node["children"].sort(key=lambda child: (getattr(child["group"], "sort_key", ""), getattr(child["group"], "pk", 0)))
+
+    for node in sorted(nodes.values(), key=lambda item: getattr(item["group"], "level", 0), reverse=True):
+        for child in node["children"]:
+            node["amount"] += child["amount"]
+
+    return nodes
+
+
+def _build_group_tree_roots(*, nodes: dict[int, dict]) -> list[dict]:
+    roots = [node for node in nodes.values() if not getattr(node["group"], "parent_id", None)]
+    roots.sort(key=lambda node: (getattr(node["group"], "sort_key", ""), getattr(node["group"], "pk", 0)))
+    return roots
+
+
+def _flatten_financial_group_details(groups: list[dict]) -> list[dict]:
+    if not groups:
+        return []
+
+    nodes = _build_group_tree(groups=groups)
+    roots = _build_group_tree_roots(nodes=nodes)
+    flattened: list[dict] = []
+
+    def walk(node: dict, depth: int) -> None:
+        flattened.append(
+            {
+                "kind": "group",
+                "depth": depth,
+                "group": node["group"],
+                "amount": node["amount"],
+                "children_count": len(node["children"]),
+            }
+        )
+
+        for detail in node["details"]:
+            flattened.append(
+                {
+                    "kind": "movement",
+                    "depth": depth + 1,
+                    "detail": detail,
+                }
+            )
+
+        for child in node["children"]:
+            walk(child, depth + 1)
+
+    for root in roots:
+        walk(root, 0)
+
+    return flattened
 
 
 def _row(
@@ -435,12 +606,12 @@ def _empty_result() -> DreCalculationResult:
             _row(label="Receita Bruta de Vendas e Serviços", amount=_ZERO, tone="positive", component=COMP_GROSS_REVENUE, detail_kind="financial_entries", is_expandable=True),
             _row(label="Custos Mercadorias Vendidas", amount=_ZERO, tone="negative", component=COMP_COGS, detail_kind="financial_entries", is_expandable=True),
             _row(label="(=) Receita Bruta de Vendas", amount=_ZERO, tone="highlight", component=COMP_GROSS_PROFIT, formula="Receita Bruta de Vendas e Serviços + Custos Mercadorias Vendidas"),
-            _row(label="Receitas Financeiras", amount=_ZERO, tone="positive", component=COMP_FINANCIAL_REVENUE, detail_kind="financial_entries", is_expandable=True),
-            _row(label="Despesas Financeiras", amount=_ZERO, tone="negative", component=COMP_FINANCIAL_EXPENSE, detail_kind="financial_entries", is_expandable=True),
+            _row(label="Receitas Financeiras", amount=_ZERO, tone="positive", component=COMP_FINANCIAL_REVENUE, detail_kind="group_entries", is_expandable=True),
+            _row(label="Despesas Financeiras", amount=_ZERO, tone="negative", component=COMP_FINANCIAL_EXPENSE, detail_kind="group_entries", is_expandable=True),
             _row(label="(=) Resultado Operacional", amount=_ZERO, tone="result", component=COMP_OPERATING_RESULT, formula="Receita Bruta de Vendas + Receitas Financeiras + Despesas Financeiras"),
         ],
         summary_cards=[
-            {"label": "Receita Bruta de Vendas", "amount": _ZERO, "accent": "text-sky-700"},
+            {"label": "Receita Líquida", "amount": _ZERO, "accent": "text-sky-700"},
             {"label": "Resultado Operacional", "amount": _ZERO, "accent": "text-amber-700"},
         ],
     )
@@ -449,3 +620,20 @@ def _empty_result() -> DreCalculationResult:
 def _normalize_tipo_data(value: str) -> str:
     normalized = str(value or "A").strip().upper()
     return normalized if normalized in _VALID_TIPO_DATA else "A"
+
+
+def _filter_financial_groups_by_selection(*, financial_groups: list[FinancialGroup], selected_financial_groups: list[FinancialGroup]) -> list[FinancialGroup]:
+    if not selected_financial_groups:
+        return financial_groups
+
+    selected_ids = {group.pk for group in selected_financial_groups}
+    parent_map = {group.pk: group.parent_id for group in financial_groups}
+    allowed_ids = set(selected_ids)
+
+    for group_id in list(selected_ids):
+        parent_id = parent_map.get(group_id)
+        while parent_id:
+            allowed_ids.add(parent_id)
+            parent_id = parent_map.get(parent_id)
+
+    return [group for group in financial_groups if group.pk in allowed_ids]

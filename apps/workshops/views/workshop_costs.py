@@ -107,6 +107,8 @@ class WorkshopCostCopyView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
             field_name = f"cost_item_{item.monthly_cost_id}"
             initial[field_name] = item.amount
 
+        initial["holiday_dates"] = ",".join(holiday.date.isoformat() for holiday in original_instance.holidays.order_by("date"))
+
         # Calculados (Readonly)
         initial["total_value"] = original_instance.total_value
         initial["total_monthly_costs"] = original_instance.total_monthly_costs
@@ -176,3 +178,12 @@ class WorkshopCostCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         response_form = WorkshopCostForm(instance=instance, workshop=self.workshop)
 
         return render(request, "workshop_costs/partials/workshop_cost_calculation_results.html", {"form": response_form})
+
+
+class WorkshopCostSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, ListView):
+    model = WorkshopCost
+    template_name = "workshop_costs/partials/copy_selection_modal.html"
+    context_object_name = "workshop_costs"
+
+    def get_queryset(self):
+        return super().get_queryset().order_by("-year", "-month")

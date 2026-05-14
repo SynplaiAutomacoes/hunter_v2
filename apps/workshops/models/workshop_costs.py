@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
@@ -117,13 +118,27 @@ class WorkshopCost(TimeStampedModel):
     def __str__(self):
         return f"{self.get_month_display()}/{self.year}"
 
+    def get_business_holiday_dates(self) -> set[date]:
+        override_holiday_dates = getattr(self, "holiday_dates_override", None)
+        if override_holiday_dates is not None:
+            holiday_dates = set(override_holiday_dates)
+        elif self.pk:
+            holiday_dates = set(self.holidays.values_list("date", flat=True))
+        else:
+            holiday_dates = set()
+
+        return {holiday_date for holiday_date in holiday_dates if holiday_date.weekday() < 5}
+
+    def get_business_holiday_count(self) -> int:
+        return len(self.get_business_holiday_dates())
+
     def calculate_working_hours_per_month(self) -> Decimal:
         if not self.work_hours_per_day:
             return Decimal("0.00")
 
         work_hours_per_day = Decimal(self.work_hours_per_day.total_seconds()) / Decimal("3600")
         productivity_per_day = Decimal(self.mechanic_quantity or 0) * work_hours_per_day * (self.productivity_average or Decimal("0"))
-        
+
         working_hours_per_month = productivity_per_day * Decimal(self.work_days_per_month or 0)
         return working_hours_per_month.quantize(Decimal("0.01"), ROUND_HALF_UP)
 
@@ -224,3 +239,24 @@ class WorkshopCostItem(models.Model):
         verbose_name = "Custo dos Itens da Oficina"
         verbose_name_plural = "Custos dos Itens da Oficina"
         unique_together = ("workshop_cost", "monthly_cost")
+
+
+class WorkshopCostHoliday(models.Model):
+    workshop_cost = models.ForeignKey(WorkshopCost, on_delete=models.CASCADE, related_name="holidays")
+    date = models.DateField(verbose_name="Data do feriado")
+    description = models.CharField(verbose_name="Descricao", max_length=120, blank=True)
+
+    class Meta:
+        verbose_name = "Feriado do Custo da Oficina"
+        verbose_name_plural = "Feriados do Custo da Oficina"
+        ordering = ["date", "pk"]
+        constraints = [models.UniqueConstraint(fields=["workshop_cost", "date"], name="unique_workshop_cost_holiday_date")]
+
+    def __str__(self) -> str:
+        return self.description or self.date.strftime("%d/%m/%Y")
+
+    def clean(self) -> None:
+        super().clean()
+
+        if self.date.month != self.workshop_cost.month or self.date.year != self.workshop_cost.year:
+            raise ValidationError({"date": "O feriado deve pertencer ao mesmo mês e ano do custo mensal."})

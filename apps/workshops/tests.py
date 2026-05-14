@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import base64
 import io
+from datetime import date
+from decimal import Decimal
 from unittest.mock import Mock, patch
 
+from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -15,6 +18,7 @@ from apps.collaborators.models import WorkshopMember
 from apps.finance.models.finance import WebmaniaCompany
 from apps.iam.models import WorkshopRole
 from apps.iam.utils import get_or_create_director_role
+from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostHoliday
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.services.files import StoredWorkshopFile, WorkshopFileSyncError
 from apps.workshops.util.workshops import is_workshop_director, is_workshop_manager
@@ -586,3 +590,42 @@ class WorkshopRoleFormReservedNameTests(TestCase):
         # May fail for other reasons (account FK) but not on name field
         if not form.is_valid():
             self.assertNotIn("name", form.errors)
+
+
+class WorkshopCostHolidayTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=90)
+        self.client.force_login(self.user)
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        self.workshop_cost = WorkshopCost.objects.create(
+            workshop=self.workshop,
+            month=5,
+            year=2026,
+            mechanic_quantity=1,
+            work_days_per_month=22,
+            productivity_average=Decimal("0.60"),
+        )
+
+    def test_effective_work_days_ignore_weekend_holidays(self) -> None:
+        WorkshopCostHoliday.objects.create(workshop_cost=self.workshop_cost, date=date(2026, 5, 1))
+        WorkshopCostHoliday.objects.create(workshop_cost=self.workshop_cost, date=date(2026, 5, 2))
+
+        self.assertEqual(self.workshop_cost.get_business_holiday_count(), 1)
+        self.assertEqual(self.workshop_cost.calculate_working_hours_per_month(), Decimal("105.60"))
+
+    def test_holiday_validation_rejects_date_outside_reference_month(self) -> None:
+        holiday = WorkshopCostHoliday(workshop_cost=self.workshop_cost, date=date(2026, 6, 1))
+
+        with self.assertRaises(ValidationError):
+            holiday.full_clean()
+
+    def test_workshop_cost_create_page_renders_holiday_calendar(self) -> None:
+        response = self.client.get(reverse("workshops:workshop_cost_create"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Calendário de Feriados")
+        self.assertContains(response, "holiday-calendar")

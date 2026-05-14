@@ -24,7 +24,7 @@ from apps.finance.models.payment_method import PaymentMethod
 class WorkOrderStatus(models.TextChoices):
     DRAFT = "draft", "Aprovado"
     APPROVED = "approved", "Veículo Entregue"
-    REJECTED = "rejected", "Rejeitado"
+    REJECTED = "rejected", "Reprovado"
     CANCELLED = "cancelled", "Cancelado"
 
 

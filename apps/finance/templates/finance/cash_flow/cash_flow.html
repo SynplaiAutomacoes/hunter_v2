@@ -26,12 +26,12 @@
             </div>
         </div>
 
-        <div class="card border border-base-300 bg-base-100 shadow-xl" x-data="{ openRow: null }">
+        <div class="card border border-base-300 bg-base-100 shadow-xl">
             <div class="card-body gap-6 p-5 md:p-6">
                 <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div class="flex flex-col gap-2">
                         <h2 class="text-xl font-semibold text-base-content">Contas Pagas {{ filter_start_date|date:"d/m/Y"|default:"" }} {% if filter_start_date and filter_end_date %} até {% endif %} {{ filter_end_date|date:"d/m/Y"|default:"" }}</h2>
-                        <p class="text-sm text-base-content/70">Abaixo as movimentações que já foram efetivadas. Expanda as linhas de OS para ver os pagamentos das mesmas.</p>
+                        <p class="text-sm text-base-content/70">Abaixo as movimentações que já foram efetivadas, incluindo pagamentos de OS em linhas individuais.</p>
                     </div>
 
                     <div class="flex w-full flex-wrap items-center gap-2 sm:w-auto" x-data>
@@ -157,7 +157,7 @@
                                 <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
                                     <tr>
                                         <th>Tipo</th>
-                                        <th>Vencimento do último Pgto.</th>
+                                        <th>Data do Pagamento</th>
                                         <th>Agente</th>
                                         <th>Origem</th>
                                         <th>Descrição</th>
@@ -170,14 +170,7 @@
                                 <tbody>
                                     {% for row in financial_movement_report_rows %}
                                         <tr class="bg-base-100">
-                                            <td class="{% if row.is_expandable %}cursor-pointer{% endif %}"{% if row.is_expandable %} @click="openRow = openRow === '{{ row.component }}' ? null : '{{ row.component }}'"{% endif %}>
-                                                <div class="flex items-center gap-2">
-                                                    {% if row.is_expandable %}
-                                                        <span class="material-icons text-base leading-none text-base-content/55" x-text="openRow === '{{ row.component }}' ? 'expand_more' : 'chevron_right'"></span>
-                                                    {% endif %}
-                                                    <span class="badge {{ row.type_badge.class }} badge-sm whitespace-nowrap">{{ row.type_badge.text }}</span>
-                                                </div>
-                                            </td>
+                                            <td><span class="badge {{ row.type_badge.class }} badge-sm whitespace-nowrap">{{ row.type_badge.text }}</span></td>
                                             <td>{{ row.due_date|date:"d/m/Y"|default:"-" }}</td>
                                             <td>{{ row.agent }}</td>
                                             <td>{{ row.origin }}</td>
@@ -187,34 +180,6 @@
                                             <td>{{ row.payment_type }}</td>
                                             <td class="text-right"><span class="{{ row.total.class }}">{{ row.total.text }}</span></td>
                                         </tr>
-                                        {% if row.is_expandable %}
-                                            <tr class="bg-base-200/40" x-cloak x-show="openRow === '{{ row.component }}'">
-                                                <td colspan="9" class="p-0">
-                                                    <div class="border-t border-base-300 px-4 py-4 md:px-6">
-                                                        <div class="overflow-hidden rounded-xl border border-base-300 bg-base-100">
-                                                            <table class="table table-sm">
-                                                                <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
-                                                                    <tr>
-                                                                        <th>Data do Pagamento</th>
-                                                                        <th>Tipo Pagamento</th>
-                                                                        <th class="text-right">Valor Pago</th>
-                                                                    </tr>
-                                                                </thead>
-                                                                <tbody>
-                                                                    {% for detail in row.details %}
-                                                                        <tr>
-                                                                            <td>{{ detail.payment_date|date:"d/m/Y"|default:"-" }}</td>
-                                                                            <td>{{ detail.payment_type }}</td>
-                                                                            <td class="text-right font-semibold text-success">+ {{ detail.amount }}</td>
-                                                                        </tr>
-                                                                    {% endfor %}
-                                                                </tbody>
-                                                            </table>
-                                                        </div>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        {% endif %}
                                     {% endfor %}
                                 </tbody>
                             </table>
