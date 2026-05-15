@@ -37,7 +37,7 @@
                         <td>
                             <div class="flex items-center gap-2">
                                 <span>{{ payment.total_paid }}</span>
-                                <span class="badge badge-success badge-sm badge-outline">Pago</span>
+                                <span class="badge {{ payment.status_badge_class|default:'badge-warning' }} badge-sm badge-outline">{{ payment.status_badge_label|default:'Pendente' }}</span>
                             </div>
                         </td>
 

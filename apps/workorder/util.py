@@ -28,6 +28,7 @@ from apps.workshops.util.workshops import has_workshop_perm
 
 logger = logging.getLogger(__name__)
 THOUSAND_SEPARATED_INT_PATTERN = re.compile(r"^\d{1,3}(?:[\s.,]\d{3})+$")
+LOCKED_WORKORDER_EDIT_MESSAGE = "Reabra a O.S. antes de editar qualquer campo."
 
 
 def _get_workorder_for_workshop(workshop, workorder_id: int) -> WorkOrder:
@@ -109,6 +110,10 @@ def _normalize_active_tab(active_tab: str | None) -> str:
     if normalized in {"products", "services", "kits"}:
         return normalized
     return "products"
+
+
+def _is_workorder_edit_locked(workorder: WorkOrder) -> bool:
+    return bool(getattr(workorder, "is_status_locked", False))
 
 
 def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products") -> dict[str, object]:

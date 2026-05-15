@@ -10,6 +10,14 @@
             </div>
 
             <div class="flex items-center gap-2">
+                <button type="button" class="btn btn-secondary" id="btn-conciliar" disabled
+                        hx-get="{% url 'finance:batch_conciliate_modal' %}"
+                        hx-target="#conciliar-modal-container"
+                        hx-swap="innerHTML"
+                        hx-include="#financial-reports-movements-table .item-checkbox:checked">
+                    <span class="material-icons">checklist</span>
+                    Conciliar
+                </button>
                 <button type="button" class="btn btn-secondary" onclick="group_modal.showModal()" hx-get="{% url 'finance:group_movement_wizard' %}?step=1" hx-target="#group-modal-content">
                     <span class="material-icons">layers</span>
                     Agrupar
@@ -145,6 +153,15 @@
                                                     <select name="paid_status" id="reports-filter-paid-status" class="select select-bordered w-full">
                                                         {% for value, label in paid_status_filter_choices %}
                                                             <option value="{{ value }}" {% if selected_paid_status == value %}selected{% endif %}>{{ label }}</option>
+                                                        {% endfor %}
+                                                    </select>
+                                                </div>
+
+                                                <div>
+                                                    <label for="reports-filter-reconciliation-status">Conciliação</label>
+                                                    <select name="reconciliation_status" id="reports-filter-reconciliation-status" class="select select-bordered w-full">
+                                                        {% for value, label in reconciliation_status_filter_choices %}
+                                                            <option value="{{ value }}" {% if selected_reconciliation_status == value %}selected{% endif %}>{{ label }}</option>
                                                         {% endfor %}
                                                     </select>
                                                 </div>
@@ -377,6 +394,9 @@
                                 <table id="financial-reports-movements-table" class="table table-sm md:table-md">
                                     <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
                                         <tr>
+                                            <th class="w-16">
+                                                <input type="checkbox" id="select-all-movements" class="checkbox checkbox-primary" />
+                                            </th>
                                             <th>Pago</th>
                                             <th>Tipo</th>
                                             <th>Vencimento</th>
@@ -392,6 +412,9 @@
                                     <tbody>
                                         {% for row in financial_movement_report_rows %}
                                             <tr class="bg-base-100">
+                                                <td class="text-center">
+                                                    <input type="checkbox" name="movement_ids" class="checkbox checkbox-primary item-checkbox" value="{{ row.component }}">
+                                                </td>
                                                 <td class="{% if row.is_expandable %}cursor-pointer{% endif %}"{% if row.is_expandable %} @click="openRow = openRow === '{{ row.component }}' ? null : '{{ row.component }}'"{% endif %}>
                                                     <div class="flex items-center gap-2">
                                                         {% if row.is_expandable %}
@@ -415,27 +438,19 @@
                                                 <td>{{ row.account }}</td>
                                                 <td>{{ row.payment_type }}</td>
                                                 <td class="text-center">
-                                                    {% if row.is_workorder %}
-                                                        <button type="button" class="btn btn-ghost btn-xs"
-                                                            title="Abrir Ordem de Serviço"
-                                                            onclick="window.location.href='{{ row.edit_modal_url }}'">
-                                                            <span class="material-icons text-sm">open_in_new</span>
-                                                        </button>
-                                                    {% else %}
-                                                        <button type="button" class="btn btn-ghost btn-xs"
-                                                            title="Editar Movimentação Financeira"
-                                                            hx-get="{{ row.edit_modal_url }}"
-                                                            hx-target="#edit-modal-container"
-                                                            hx-swap="innerHTML">
-                                                            <span class="material-icons text-sm">edit</span>
-                                                        </button>
-                                                    {% endif %}
+                                                    <button type="button" class="btn btn-ghost btn-xs"
+                                                        title="Editar Movimentação Financeira"
+                                                        hx-get="{{ row.edit_modal_url }}"
+                                                        hx-target="#edit-modal-container"
+                                                        hx-swap="innerHTML">
+                                                        <span class="material-icons text-sm">edit</span>
+                                                    </button>
                                                 </td>
                                                 <td class="text-right"><span class="{{ row.total.class }}">{{ row.total.text }}</span></td>
                                             </tr>
                                             {% if row.is_expandable %}
                                                 <tr class="bg-base-200/40" x-cloak x-show="openRow === '{{ row.component }}'">
-                                                    <td colspan="11" class="p-0">
+                                                    <td colspan="12" class="p-0">
                                                         <div class="border-t border-base-300 px-4 py-4 md:px-6">
                                                             <div class="overflow-hidden rounded-xl border border-base-300 bg-base-100">
                                                                 <table class="table table-sm">
@@ -510,12 +525,68 @@
                     {% endif %}
 
                     {% include "tables/partials/_pagination.html" %}
+
+                    <script>
+                    (function () {
+                        var btnConciliar = document.getElementById('btn-conciliar');
+
+                        function updateConciliarButton() {
+                            if (!btnConciliar) return;
+                            var checkboxes = document.querySelectorAll('#financial-reports-movements-table .item-checkbox:checked');
+                            btnConciliar.disabled = checkboxes.length === 0;
+                            if (checkboxes.length > 0) {
+                                btnConciliar.removeAttribute('disabled');
+                            } else {
+                                btnConciliar.setAttribute('disabled', 'disabled');
+                            }
+                        }
+
+                        function init() {
+                            var selectAll = document.getElementById('select-all-movements');
+                            if (!selectAll) return;
+                            var checkboxes = document.querySelectorAll('#financial-reports-movements-table .item-checkbox');
+                            var checked = 0;
+                            for (var i = 0; i < checkboxes.length; i++) {
+                                if (checkboxes[i].checked) checked++;
+                            }
+                            selectAll.checked = checked === checkboxes.length && checkboxes.length > 0;
+                            selectAll.indeterminate = checked > 0 && checked < checkboxes.length;
+                            updateConciliarButton();
+                        }
+
+                        document.addEventListener('change', function (e) {
+                            if (e.target.id === 'select-all-movements') {
+                                var checkboxes = document.querySelectorAll('#financial-reports-movements-table .item-checkbox');
+                                for (var i = 0; i < checkboxes.length; i++) {
+                                    checkboxes[i].checked = e.target.checked;
+                                }
+                                e.target.checked = e.target.checked;
+                                e.target.indeterminate = false;
+                            }
+                            if (e.target.matches('#financial-reports-movements-table .item-checkbox')) {
+                                var selectAll = document.getElementById('select-all-movements');
+                                if (!selectAll) return;
+                                var checkboxes = document.querySelectorAll('#financial-reports-movements-table .item-checkbox');
+                                var checked = 0;
+                                for (var i = 0; i < checkboxes.length; i++) {
+                                    if (checkboxes[i].checked) checked++;
+                                }
+                                selectAll.checked = checked === checkboxes.length;
+                                selectAll.indeterminate = checked > 0 && checked < checkboxes.length;
+                            }
+                            updateConciliarButton();
+                        });
+
+                        init();
+                    })();
+                    </script>
                 </div>
             </div>
         </div>
     </div>
 
     <div id="edit-modal-container"></div>
+    <div id="conciliar-modal-container"></div>
 
     <dialog
         id="pdfModal"

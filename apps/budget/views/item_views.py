@@ -3,7 +3,7 @@ import re
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils.html import escape
 from django.views import View
@@ -21,7 +21,20 @@ from apps.catalog.product_issues import annotate_product_issues
 from apps.core.widgets import NumberInput
 from apps.workshops.mixin import WorkshopScopedMixin
 
-from .shared import _calculate_service_prices, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _get_current_step_from_referer, _parse_duration_from_string, _step_redirect_response, logger, reset_steps_after_step_4
+from .shared import (
+    LOCKED_BUDGET_EDIT_MESSAGE,
+    _build_locked_budget_response,
+    _calculate_service_prices,
+    _get_budget_for_workshop,
+    _get_budget_item_for_workshop,
+    _get_budget_workshop_cost,
+    _get_current_step_from_referer,
+    _is_budget_edit_locked,
+    _parse_duration_from_string,
+    _step_redirect_response,
+    logger,
+    reset_steps_after_step_4,
+)
 
 
 THOUSAND_SEPARATED_INT_PATTERN = re.compile(r"^\d{1,3}(?:[\s.,]\d{3})+$")
@@ -244,6 +257,8 @@ class AddItemToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, *args, **kwargs):
         budget = _get_budget_for_workshop(self.workshop, kwargs["budget_id"])
+        if _is_budget_edit_locked(budget):
+            return _build_locked_budget_response(request, budget, fallback_step=4)
 
         if kwargs["item_type"] == "kit":
             incompatible_kits = _get_incompatible_budget_kits(workshop=self.workshop, budget=budget, selected_ids=[kwargs["item_id"]])
@@ -275,6 +290,8 @@ class RemoveItemFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, *args, **kwargs):
         budget = _get_budget_for_workshop(self.workshop, kwargs["budget_id"])
+        if _is_budget_edit_locked(budget):
+            return _build_locked_budget_response(request, budget, fallback_step=4)
 
         item_filter = {f"{kwargs['item_type']}_id": kwargs["item_id"]}
 
@@ -296,6 +313,9 @@ class RemoveBudgetItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id, item_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if _is_budget_edit_locked(budget):
+            return _build_locked_budget_response(request, budget, fallback_step=4)
+
         item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id)
 
         item.delete()
@@ -312,6 +332,8 @@ class RemoveProductItemsBatchFromBudgetView(LoginRequiredMixin, WorkshopScopedMi
 
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if _is_budget_edit_locked(budget):
+            return _build_locked_budget_response(request, budget, fallback_step=4)
 
         raw_selected_ids = request.POST.getlist("selected_product_items")
         selected_ids, invalid_ids = _normalize_selected_item_ids(raw_selected_ids)
@@ -357,6 +379,8 @@ class RemoveServiceItemsBatchFromBudgetView(LoginRequiredMixin, WorkshopScopedMi
 
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if _is_budget_edit_locked(budget):
+            return _build_locked_budget_response(request, budget, fallback_step=4)
 
         raw_selected_ids = request.POST.getlist("selected_service_items")
         selected_ids, invalid_ids = _normalize_selected_item_ids(raw_selected_ids)
@@ -402,6 +426,8 @@ class RemoveKitItemsBatchFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin,
 
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if _is_budget_edit_locked(budget):
+            return _build_locked_budget_response(request, budget, fallback_step=4)
 
         raw_selected_ids = request.POST.getlist("selected_kit_items")
         selected_ids, invalid_ids = _normalize_selected_item_ids(raw_selected_ids)
@@ -479,6 +505,9 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id, item_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if _is_budget_edit_locked(budget):
+            return _build_locked_budget_response(request, budget, fallback_step=4)
+
         item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id)
         form = BudgetItemEditForm(request.POST, instance=item, budget_id=budget_id)
         in_queue = self._is_queue_request(request)
@@ -568,6 +597,9 @@ class BudgetItemCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id, item_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if _is_budget_edit_locked(budget):
+            return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
+
         item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id)
 
         # Usamos o form para processar o valor da duração vindo do POST
@@ -667,6 +699,9 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id, item_type):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if _is_budget_edit_locked(budget):
+            return _build_locked_budget_response(request, budget, fallback_step=4)
+
         modal_context = request.POST.get("modal_context", "")
 
         if item_type not in {"product", "service", "kit"}:

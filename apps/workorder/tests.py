@@ -2016,6 +2016,34 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertContains(response, "check_circle")
         self.assertContains(response, 'title="OS paga por completo"', html=False)
 
+    def test_payment_section_uses_financial_movement_paid_status_badge(self) -> None:
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
+        payment = WorkOrderPaymentMethod.objects.create(
+            workorder=self.workorder,
+            payment_method=payment_method,
+            first_installment_amount=Money("100.00", "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 24),
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            workorder=self.workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("100.00", "BRL"),
+            due_date=date(2026, 3, 24),
+            is_paid=False,
+        )
+
+        response = self.client.get(reverse("workorder:payment_section", args=[self.workorder.pk]), HTTP_HX_REQUEST="true")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, payment.payment_method.description)
+        self.assertContains(response, "Pendente")
+        self.assertContains(response, "badge-warning")
+
         html = response.content.decode()
         self.assertRegex(html, r'id="id_entry_amount_0_display"[\s\S]*?disabled[\s\S]*?>')
         self.assertRegex(html, r'id="id_first_installment_amount_0_display"[\s\S]*?disabled[\s\S]*?>')

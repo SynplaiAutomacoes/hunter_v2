@@ -396,7 +396,8 @@ class BudgetStep1Form(CoreModelForm):
                 selected_vehicle_queryset = selected_vehicle_queryset.filter(customer_id=selected_customer_id)
             selected_vehicle = selected_vehicle_queryset.first()
 
-        customer_vehicle_x_data = json.dumps({"customerId": selected_customer_id, "vehicleId": selected_vehicle_id})
+        is_locked = bool(getattr(self.instance, "is_status_locked", False))
+        customer_vehicle_x_data = json.dumps({"customerId": selected_customer_id, "vehicleId": selected_vehicle_id, "isLocked": is_locked})
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -409,6 +410,9 @@ class BudgetStep1Form(CoreModelForm):
 
                     const vehicleContainer = vehicleInput.closest('[x-data]');
                     const vehicleData = Alpine.$data(vehicleContainer);
+                    if (vehicleData && vehicleData.isLocked) {
+                        return;
+                    }
                     const optionsUl = vehicleContainer.querySelector('ul[role="listbox"]');
 
                     vehicleData.clear(); 
@@ -594,8 +598,9 @@ class BudgetStep1Form(CoreModelForm):
                         Div(
                             Div(
                                 Field("customer", wrapper_class="flex-1 mb-0"),
-                                HTML("""<button type="button" class="btn btn-circle mb-2" :class="customerId ? 'btn-warning' : 'btn-primary'"
-                                                                @click="const url = customerId ? `/customer/quick-update/${customerId}/` : '/customer/quick-create/';
+                                HTML("""<button type="button" class="btn btn-circle mb-2" :class="isLocked ? 'btn-disabled opacity-60 cursor-not-allowed' : (customerId ? 'btn-warning' : 'btn-primary')" :disabled="isLocked"
+                                                                 @click="const url = customerId ? `/customer/quick-update/${customerId}/` : '/customer/quick-create/';
+                                                                        if (isLocked) { return; }
                                                                         htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
                                                                         document.getElementById('form_modal').showModal();">
                                                                 <span class="material-icons" x-text="customerId ? 'edit' : 'person_add'"></span>
@@ -605,9 +610,10 @@ class BudgetStep1Form(CoreModelForm):
                             Div(
                                 Field("vehicle", wrapper_class="flex-1 mb-0"),
                                 HTML("""<button type="button" class="btn btn-circle mb-2" 
-                                                                :class="!customerId ? 'btn-disabled opacity-50' : (vehicleId ? 'btn-warning' : 'btn-primary')" 
-                                                                :disabled="!customerId"
+                                                                :class="isLocked ? 'btn-disabled opacity-60 cursor-not-allowed' : (!customerId ? 'btn-disabled opacity-50' : (vehicleId ? 'btn-warning' : 'btn-primary'))" 
+                                                                :disabled="isLocked || !customerId"
                                                                 @click="const url = vehicleId ? `/customer/vehicle/quick-update/${vehicleId}/` : `/customer/vehicle/quick-create/?customer_id=${customerId}`;
+                                                                        if (isLocked) { return; }
                                                                         htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
                                                                         document.getElementById('form_modal').showModal();">
                                                                 <span class="material-icons" x-text="vehicleId ? 'edit' : 'directions_car_filled'"></span>
@@ -618,6 +624,9 @@ class BudgetStep1Form(CoreModelForm):
                             x_data=customer_vehicle_x_data,
                             **{
                                 "@change": """
+                                        if (isLocked) {
+                                            return;
+                                        }
                                         if ($event.target.name === 'customer') { 
                                             customerId = $event.target.value; 
                                             vehicleId = ''; // Reseta veículo se mudar cliente
@@ -2836,7 +2845,7 @@ class BudgetStep6Form(CoreModelForm):
         base_pdf_download_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?download=1&variant=base"
 
         saved_observation = budget.pdf_observation or ""
-        
+
         cancellation_reason_html = ""
         if budget.cancellation_reason:
             cancellation_reason_html = f"""
@@ -3319,6 +3328,8 @@ class BudgetStep6Form(CoreModelForm):
                                 {reject_button_attrs}>
                                 Reprovar
                             </button>
+
+                            {f'<button type="button" class="btn btn-outline col-span-12" data-allow-locked="1" onclick="updateBudgetStatus({budget.pk}, \'reopen\')">Reabrir Orçamento</button>' if budget.is_status_locked else ""}
                         </div>
                         """),
                         css_class="p-4 bg-base-200/50 rounded-lg",

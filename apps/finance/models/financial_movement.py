@@ -60,6 +60,7 @@ class FinancialMovement(TimeStampedModel):
     amount = MoneyField(verbose_name="Valor", max_digits=14, decimal_places=2, default=0, null=True)
     due_date = models.DateField(verbose_name="Data de Vencimento", blank=True, null=True)
     is_paid = models.BooleanField(verbose_name="Pago", default=False)
+    is_reconciled = models.BooleanField(verbose_name="Conciliado", default=False)
     budget_plan = models.ForeignKey(FinancialGroup, on_delete=models.PROTECT, verbose_name="Plano Orçamentário", blank=True, null=True)
     bank_account = models.ForeignKey(BankAccount, on_delete=models.PROTECT, verbose_name="Conta Bancária", blank=True, null=True)
     attachment = models.FileField(upload_to="financial/attachments/", null=True, blank=True, verbose_name="Anexo")
@@ -86,6 +87,8 @@ class FinancialMovement(TimeStampedModel):
         # Regra 2: Movimentação vinculada a uma Ordem de Serviço
         if self.workorder:
             target_group = FinancialGroup.objects.filter(workshop=self.workshop, name__iexact="Vendas").first()
+            if target_group is None:
+                target_group = FinancialGroup.objects.filter(workshop=self.workshop, name__iexact="Receitas").first()
             if target_group:
                 self.budget_plan = target_group
                 return
@@ -101,6 +104,14 @@ class FinancialMovement(TimeStampedModel):
             "icon": "check_circle" if self.is_paid else "cancel",
             "class": "text-success" if self.is_paid else "text-error",
             "label": "Sim" if self.is_paid else "Não",
+        }
+
+    @property
+    def report_reconciliation_indicator(self) -> dict[str, str]:
+        return {
+            "icon": "check_circle" if self.is_reconciled else "schedule",
+            "class": "text-success" if self.is_reconciled else "text-warning",
+            "label": "Conciliado" if self.is_reconciled else "Aguardando Conciliação",
         }
 
     @property

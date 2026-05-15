@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+import logging
+import json
 from typing import Sequence
 
 from djmoney.money import Money
@@ -12,6 +14,9 @@ from apps.finance.models import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.workorder.models import WorkOrderPaymentMethod, WorkOrder
 from apps.workshops.models.workshops import Workshop
+
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -107,8 +112,53 @@ def build_dre_calculation(
     if end_date is not None:
         pagamentos_ordens_de_servico = pagamentos_ordens_de_servico.filter(due_date__lte=end_date)
 
+    pagamentos_ordens_de_servico = list(pagamentos_ordens_de_servico)
     total_receita_bruta_de_vendas_e_servicos = sum((payment.total_paid for payment in pagamentos_ordens_de_servico), _ZERO)
-    detail_receita_bruta_de_vendas_e_servicos = workorder_payment_method_details(list(pagamentos_ordens_de_servico))
+    detail_receita_bruta_de_vendas_e_servicos = workorder_payment_method_details(pagamentos_ordens_de_servico)
+    workorder_payment_totals = _build_workorder_payment_totals(payments=pagamentos_ordens_de_servico)
+    workorder_revenue_movements = _fetch_workorder_revenue_movements(
+        workshops=workshops,
+        workorder_ids=list(workorder_payment_totals.keys()),
+        selected_financial_groups=selected_financial_groups,
+    )
+    logger.info(
+        "DRE revenue payment inputs | %s",
+        json.dumps(
+            {
+                "workshop_ids": [workshop.pk for workshop in workshops],
+                "start_date": start_date.isoformat() if start_date else None,
+                "end_date": end_date.isoformat() if end_date else None,
+                "tipo_data": tipo_data,
+                "selected_financial_group_ids": [group.pk for group in selected_financial_groups or []],
+                "gross_revenue_total": str(total_receita_bruta_de_vendas_e_servicos),
+                "workorder_payment_totals": {str(workorder_id): str(amount) for workorder_id, amount in workorder_payment_totals.items()},
+                "payments": [
+                    {
+                        "payment_id": payment.pk,
+                        "workorder_id": payment.workorder_id,
+                        "budget_id": getattr(getattr(payment.workorder, "budget", None), "pk", None),
+                        "due_date": payment.due_date.isoformat() if payment.due_date else None,
+                        "total_paid": str(payment.total_paid),
+                    }
+                    for payment in pagamentos_ordens_de_servico
+                ],
+                "revenue_movements": [
+                    {
+                        "movement_id": movement.pk,
+                        "workorder_id": getattr(movement, "workorder_id", None),
+                        "budget_id": getattr(getattr(movement.workorder, "budget", None), "pk", None),
+                        "movement_due_date": movement.due_date.isoformat() if movement.due_date else None,
+                        "budget_plan_id": getattr(getattr(movement, "budget_plan", None), "pk", None),
+                        "budget_plan_name": getattr(getattr(movement, "budget_plan", None), "name", None),
+                        "resolved_amount": str(_resolve_workorder_revenue_amount(movement=movement, workorder_payment_totals=workorder_payment_totals)),
+                    }
+                    for movement in workorder_revenue_movements
+                ],
+            },
+            ensure_ascii=True,
+            default=str,
+        ),
+    )
     # ----------------------------------
 
     # Custo Mercadorias Vendidas
@@ -127,12 +177,28 @@ def build_dre_calculation(
     # -----------------------
 
     # Receitas Financeiras
-    fin_revenue_groups, total_receitas_financeiras = _build_financial_group_tree(
+    fin_revenue_groups, total_receitas_financeiras = _build_financial_revenue_group_tree(
+        payments=pagamentos_ordens_de_servico,
         movements=movements,
-        direction=FinancialMovement.MovementDirection.CREDIT,
+        workorder_revenue_movements=workorder_revenue_movements,
         financial_groups=financial_groups,
     )
     detail_receitas_financeiras = fin_revenue_groups
+    logger.info(
+        "DRE revenue grouped output | %s",
+        json.dumps(
+            {
+                "workshop_ids": [workshop.pk for workshop in workshops],
+                "start_date": start_date.isoformat() if start_date else None,
+                "end_date": end_date.isoformat() if end_date else None,
+                "tipo_data": tipo_data,
+                "financial_revenue_total": str(total_receitas_financeiras),
+                "financial_revenue_groups": _serialize_group_nodes_for_log(fin_revenue_groups),
+            },
+            ensure_ascii=True,
+            default=str,
+        ),
+    )
     # -------------------
 
     # Despesas Financeiras
@@ -257,6 +323,113 @@ def _sum_detail_amounts(details: list[dict]) -> Money:
     return total
 
 
+def _build_workorder_payment_totals(*, payments: list[WorkOrderPaymentMethod]) -> dict[int, Money]:
+    totals: dict[int, Money] = {}
+    for payment in payments:
+        workorder_id = getattr(payment, "workorder_id", None)
+        if workorder_id is None:
+            continue
+        totals[workorder_id] = totals.get(workorder_id, _ZERO) + payment.total_paid
+    return totals
+
+
+def _build_financial_revenue_group_tree(
+    *,
+    payments: list[WorkOrderPaymentMethod],
+    movements: list[FinancialMovement],
+    workorder_revenue_movements: list[FinancialMovement],
+    financial_groups: list[FinancialGroup],
+) -> tuple[list[dict], Money]:
+    movement_by_workorder_id = {workorder_id: movement for movement in workorder_revenue_movements if (workorder_id := getattr(movement, "workorder_id", None)) is not None}
+
+    revenue_details: list[dict] = []
+
+    for payment in payments:
+        workorder_id = getattr(payment, "workorder_id", None)
+        if workorder_id is None:
+            continue
+        movement = movement_by_workorder_id.get(workorder_id)
+        if movement is None:
+            continue
+        group = _resolve_financial_group_for_revenue_movement(movement=movement, financial_groups=financial_groups)
+        if group is None or not getattr(group, "pk", None):
+            continue
+        detail = _build_wo_pm_detail(payment, include_workshop_ref=False)
+        detail["budget_plan"] = group
+        revenue_details.append(detail)
+
+    for movement in movements:
+        if movement.direction != FinancialMovement.MovementDirection.CREDIT:
+            continue
+        if getattr(movement, "workorder_id", None) is not None:
+            continue
+        group = getattr(movement, "budget_plan", None)
+        if group is None or not getattr(group, "pk", None):
+            continue
+        detail = _build_detail(movement, include_workshop_ref=False)
+        detail["budget_plan"] = group
+        revenue_details.append(detail)
+
+    return _build_group_tree_from_details(details=revenue_details, financial_groups=financial_groups)
+
+
+def _fetch_workorder_revenue_movements(
+    *,
+    workshops: Sequence[Workshop],
+    workorder_ids: list[int],
+    selected_financial_groups: list[FinancialGroup] | None = None,
+) -> list[FinancialMovement]:
+    if not workorder_ids:
+        return []
+
+    qs = FinancialMovement.objects.filter(
+        workshop__in=workshops,
+        workorder_id__in=workorder_ids,
+        direction=FinancialMovement.MovementDirection.CREDIT,
+        workorder_payment__isnull=True,
+    ).exclude(reversal_of__isnull=False)
+
+    if selected_financial_groups:
+        qs = qs.filter(Q(budget_plan_id__in=[group.pk for group in selected_financial_groups]) | Q(budget_plan__isnull=True))
+
+    candidate_movements = list(
+        qs.select_related(
+            "payment_method",
+            "source",
+            "workshop",
+            "workorder",
+            "workorder__budget",
+            "workorder__budget__customer",
+            "budget_plan",
+            "budget_plan__parent",
+            "budget_plan__parent__parent",
+        )
+        .prefetch_related(
+            "workorder__payments",
+            "workorder__payments__payment_method",
+        )
+        .order_by("workorder_id", "pk")
+    )
+
+    movements_by_workorder: dict[int, FinancialMovement] = {}
+    for movement in candidate_movements:
+        workorder_id = getattr(movement, "workorder_id", None)
+        if workorder_id is None:
+            continue
+
+        current = movements_by_workorder.get(workorder_id)
+        if current is None:
+            movements_by_workorder[workorder_id] = movement
+            continue
+
+        current_is_parent = current.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT
+        movement_is_parent = movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT
+        if movement_is_parent and not current_is_parent:
+            movements_by_workorder[workorder_id] = movement
+
+    return list(movements_by_workorder.values())
+
+
 def _calculate_operating_result(*, financial_revenue: Money, financial_expense: Money) -> Money:
     expense_amount = getattr(financial_expense, "amount", Decimal("0.00"))
     if expense_amount >= Decimal("0.00"):
@@ -313,13 +486,15 @@ def _fetch_movements(*, workshops: Sequence[Workshop], start_date: date | None, 
 # ---------------------------------------------------------------------------
 
 
-def _build_detail(m: FinancialMovement, include_workshop_ref: bool) -> dict:
+def _build_detail(m: FinancialMovement, include_workshop_ref: bool, workorder_payment_totals: dict[int, Money] | None = None) -> dict:
     """Monta o dicionário de detalhe de uma movimentação para o template."""
     workorder = getattr(m, "workorder", None)
     budget = getattr(workorder, "budget", None)
 
-    if m.workorder_id and m.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
-        amount = getattr(workorder, "total_budget_value", _ZERO)
+    is_workorder_revenue_detail = m.workorder_id and workorder_payment_totals is not None
+
+    if is_workorder_revenue_detail:
+        amount = _resolve_workorder_revenue_amount(movement=m, workorder_payment_totals=workorder_payment_totals)
         summary = _agent_label(m)
         payments = list(workorder.payments.all()) if hasattr(workorder, "payments") else []
         payment_date = max((p.due_date for p in payments if p.due_date), default=m.due_date)
@@ -338,7 +513,7 @@ def _build_detail(m: FinancialMovement, include_workshop_ref: bool) -> dict:
     if m.nf_number:
         reference_parts.append(f"NF: {m.nf_number}")
 
-    if m.workorder_id and m.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
+    if is_workorder_revenue_detail:
         payments = list(workorder.payments.all()) if hasattr(workorder, "payments") else []
         method_names = []
         for p in payments:
@@ -441,15 +616,56 @@ def _build_workorder_cost_detail(wo: WorkOrder, include_workshop_ref: bool) -> d
     }
 
 
-def _build_financial_group_rollup(*, movements: list[FinancialMovement], direction: str, financial_groups: list[FinancialGroup]) -> list[dict]:
+def _resolve_workorder_revenue_amount(*, movement: FinancialMovement, workorder_payment_totals: dict[int, Money] | None = None) -> Money:
+    workorder_id = getattr(movement, "workorder_id", None)
+    if workorder_id is not None and workorder_payment_totals is not None:
+        return workorder_payment_totals.get(workorder_id, _ZERO)
+
+    workorder = getattr(movement, "workorder", None)
+    if workorder is None:
+        return _ZERO
+
+    payments = list(workorder.payments.all()) if hasattr(workorder, "payments") else []
+    return sum((payment.total_paid for payment in payments), _ZERO)
+
+
+def _should_include_workorder_revenue_movement(*, movement: FinancialMovement, workorder_payment_totals: dict[int, Money] | None = None) -> bool:
+    workorder = getattr(movement, "workorder", None)
+    if workorder is None:
+        return False
+
+    return _resolve_workorder_revenue_amount(movement=movement, workorder_payment_totals=workorder_payment_totals).amount > Decimal("0.00")
+
+
+def _resolve_financial_group_for_revenue_movement(*, movement: FinancialMovement, financial_groups: list[FinancialGroup]) -> FinancialGroup | None:
+    budget_plan = getattr(movement, "budget_plan", None)
+    if budget_plan is not None and getattr(budget_plan, "pk", None):
+        return budget_plan
+
+    preferred_names = {"vendas", "receitas"}
+    root_candidates = [group for group in financial_groups if getattr(group, "parent_id", None) is None and str(getattr(group, "name", "")).strip().lower() in preferred_names]
+    if root_candidates:
+        root_candidates.sort(key=lambda group: (getattr(group, "sort_key", ""), getattr(group, "pk", 0)))
+        return root_candidates[0]
+
+    return None
+
+
+def _build_financial_group_rollup(*, movements: list[FinancialMovement], direction: str, financial_groups: list[FinancialGroup], include_workorder_movements: bool = False, workorder_payment_totals: dict[int, Money] | None = None) -> list[dict]:
     grouped: dict[int, dict] = {}
     groups_by_id = {group.pk: group for group in financial_groups}
     relevant_group_ids: set[int] = set()
 
     for movement in movements:
-        if movement.workorder_id is not None or movement.direction != direction:
+        if movement.direction != direction:
             continue
-        group = getattr(movement, "budget_plan", None)
+        if workorder_payment_totals is not None and movement.workorder_id is None:
+            continue
+        if movement.workorder_id is not None and not include_workorder_movements:
+            continue
+        if movement.workorder_id is not None and not _should_include_workorder_revenue_movement(movement=movement, workorder_payment_totals=workorder_payment_totals):
+            continue
+        group = _resolve_financial_group_for_revenue_movement(movement=movement, financial_groups=financial_groups) if workorder_payment_totals is not None else getattr(movement, "budget_plan", None)
         group_id = getattr(group, "pk", None)
         while group_id:
             relevant_group_ids.add(group_id)
@@ -467,15 +683,20 @@ def _build_financial_group_rollup(*, movements: list[FinancialMovement], directi
         }
 
     for movement in movements:
-        if movement.workorder_id is not None:
-            continue
         if movement.direction != direction:
             continue
+        if workorder_payment_totals is not None and movement.workorder_id is None:
+            continue
+        if movement.workorder_id is not None and not include_workorder_movements:
+            continue
+        if movement.workorder_id is not None and not _should_include_workorder_revenue_movement(movement=movement, workorder_payment_totals=workorder_payment_totals):
+            continue
 
-        detail = _build_detail(movement, include_workshop_ref=False)
-        group = detail.get("budget_plan") or getattr(movement, "budget_plan", None)
+        detail = _build_detail(movement, include_workshop_ref=False, workorder_payment_totals=workorder_payment_totals)
+        group = detail.get("budget_plan") or (_resolve_financial_group_for_revenue_movement(movement=movement, financial_groups=financial_groups) if workorder_payment_totals is not None else getattr(movement, "budget_plan", None))
         if group is None or not getattr(group, "pk", None):
             continue
+        detail["budget_plan"] = group
 
         group_id = group.pk
         if group_id not in grouped:
@@ -497,8 +718,22 @@ def _build_financial_group_rollup(*, movements: list[FinancialMovement], directi
     return ordered_groups
 
 
-def _build_financial_group_tree(*, movements: list[FinancialMovement], direction: str, financial_groups: list[FinancialGroup]) -> tuple[list[dict], Money]:
-    grouped = _build_financial_group_rollup(movements=movements, direction=direction, financial_groups=financial_groups)
+def _build_financial_group_tree(
+    *,
+    movements: list[FinancialMovement],
+    direction: str,
+    financial_groups: list[FinancialGroup],
+    include_workorder_movements: bool = False,
+    workorder_payment_totals: dict[int, Money] | None = None,
+    workorder_revenue_movements: list[FinancialMovement] | None = None,
+) -> tuple[list[dict], Money]:
+    grouped = _build_financial_group_rollup(
+        movements=workorder_revenue_movements if direction == FinancialMovement.MovementDirection.CREDIT and workorder_revenue_movements is not None else movements,
+        direction=direction,
+        financial_groups=financial_groups,
+        include_workorder_movements=include_workorder_movements,
+        workorder_payment_totals=workorder_payment_totals,
+    )
     nodes = _build_group_tree(groups=grouped)
     roots = _build_group_tree_roots(nodes=nodes)
     total = sum((root["amount"] for root in roots), _ZERO)
@@ -538,6 +773,71 @@ def _build_group_tree_roots(*, nodes: dict[int, dict]) -> list[dict]:
     roots = [node for node in nodes.values() if not getattr(node["group"], "parent_id", None)]
     roots.sort(key=lambda node: (getattr(node["group"], "sort_key", ""), getattr(node["group"], "pk", 0)))
     return roots
+
+
+def _build_group_tree_from_details(*, details: list[dict], financial_groups: list[FinancialGroup]) -> tuple[list[dict], Money]:
+    grouped: dict[int, dict] = {}
+    groups_by_id = {group.pk: group for group in financial_groups}
+
+    for detail in details:
+        group = detail.get("budget_plan")
+        group_id = getattr(group, "pk", None)
+        while group_id:
+            if group_id not in grouped and group_id in groups_by_id:
+                grouped[group_id] = {
+                    "group": groups_by_id[group_id],
+                    "amount": _ZERO,
+                    "details": [],
+                }
+            group_id = getattr(groups_by_id.get(group_id), "parent_id", None)
+
+        group = detail.get("budget_plan")
+        group_id = getattr(group, "pk", None)
+        if group_id is None:
+            continue
+        grouped.setdefault(
+            group_id,
+            {
+                "group": group,
+                "amount": _ZERO,
+                "details": [],
+            },
+        )["details"].append(detail)
+
+    ordered_groups = []
+    for payload in grouped.values():
+        payload["amount"] = _sum_detail_amounts(payload["details"])
+        ordered_groups.append(payload)
+
+    ordered_groups.sort(key=lambda item: (getattr(item["group"], "sort_key", ""), getattr(item["group"], "pk", 0)))
+    nodes = _build_group_tree(groups=ordered_groups)
+    roots = _build_group_tree_roots(nodes=nodes)
+    total = sum((root["amount"] for root in roots), _ZERO)
+    return roots, total
+
+
+def _serialize_group_nodes_for_log(nodes: list[dict]) -> list[dict[str, object]]:
+    serialized: list[dict[str, object]] = []
+    for node in nodes:
+        serialized.append(
+            {
+                "group_id": getattr(node.get("group"), "pk", None),
+                "group_name": getattr(node.get("group"), "name", None),
+                "amount": str(node.get("amount", _ZERO)),
+                "details": [
+                    {
+                        "workorder_id": detail.get("workorder_id"),
+                        "summary": detail.get("summary"),
+                        "amount": str(detail.get("amount", _ZERO)),
+                        "budget_plan_id": getattr(detail.get("budget_plan"), "pk", None),
+                        "budget_plan_name": getattr(detail.get("budget_plan"), "name", None),
+                    }
+                    for detail in node.get("details", [])
+                ],
+                "children": _serialize_group_nodes_for_log(node.get("children", [])),
+            }
+        )
+    return serialized
 
 
 def _flatten_financial_group_details(groups: list[dict]) -> list[dict]:

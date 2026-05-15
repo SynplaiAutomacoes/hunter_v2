@@ -227,11 +227,34 @@ def metricas_dashboard(request) -> dict[str, Any]:
     pagamentos_total_vendido = list(
         WorkOrderPaymentMethod.objects.filter(
             workorder__workshop=workshop,
+            workorder__budget_type="sale",
             due_date__month=mes_selecionado,
             due_date__year=ano_selecionado,
         ).order_by("due_date", "pk")
     )
     total_vendido_ate_a_data = sum((_resolve_decimal_amount(payment.total_paid) for payment in pagamentos_total_vendido), Decimal("0.00"))
+    logger.info(
+        "Dashboard total vendido calculado | %s",
+        json.dumps(
+            {
+                "workshop_id": workshop.pk,
+                "mes": mes_selecionado,
+                "ano": ano_selecionado,
+                "total_vendido": str(total_vendido_ate_a_data),
+                "payments": [
+                    {
+                        "payment_id": payment.pk,
+                        "workorder_id": payment.workorder_id,
+                        "budget_id": getattr(getattr(payment.workorder, "budget", None), "pk", None),
+                        "due_date": payment.due_date.isoformat() if payment.due_date else None,
+                        "total_paid": str(payment.total_paid),
+                    }
+                    for payment in pagamentos_total_vendido
+                ],
+            },
+            ensure_ascii=True,
+        ),
+    )
     workshop_cost = WorkshopCost.objects.filter(workshop=workshop, month=mes_selecionado, year=ano_selecionado).first()
     dias_transcorridos = 0
     dias_faltantes = 0
@@ -253,24 +276,8 @@ def metricas_dashboard(request) -> dict[str, Any]:
 
     orcamentos_aprovados_mes = Budget.objects.filter(workshop=workshop, status=BudgetStatus.APPROVED, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado)
     rentabilidades = [b.rentability for b in orcamentos_aprovados_mes if b.rentability is not None]
-    qtd_garantias_mes = Budget.objects.filter(workshop=workshop, is_warranty_budget=True, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado).count()
-    orcamentos_taxa_base = Budget.objects.filter(
-        workshop=workshop,
-        entry_date__month=mes_selecionado,
-        entry_date__year=ano_selecionado,
-        budget_type=BudgetType.SALE,
-        is_warranty_budget=False,
-    )
-    orcamentos_criados_no_mes = orcamentos_taxa_base.count()
-    orcamentos_aprovados_no_mes = orcamentos_taxa_base.filter(status=BudgetStatus.APPROVED).count()
-
-    budgets_aguardando_base = Budget.objects.filter(workshop=workshop, budget_type=BudgetType.SALE, status__in=OPEN_BUDGET_STATUSES).prefetch_related("items", "items__kit_overrides", "items__kit__kit_products", "items__kit__kit_services")
-
-    orcamentos_reprovados = Budget.objects.filter(workshop=workshop, status__in=REJECTED_BUDGET_STATUS_VALUES, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado)
 
     # Métricas
-    # qtd_carros_mes = (Budget.objects.filter(workshop=workshop, status=BudgetStatus.APPROVED, entry_date__month=mes_selecionado,
-    #                                         entry_date__year=ano_selecionado).exclude(reference_budget__isnull=False).count())
     qtd_carros_mes = (
         WorkOrder.objects.filter(
             workshop=workshop,
@@ -291,13 +298,49 @@ def metricas_dashboard(request) -> dict[str, Any]:
         )
         .count()
     )
+    qtd_garantias_mes = (
+        WorkOrder.objects.filter(
+            workshop=workshop,
+            budget_type="warranty",
+            status=WorkOrderStatus.APPROVED,
+        )
+        .filter(
+            Q(
+                delivered_at__month=mes_selecionado,
+                delivered_at__year=ano_selecionado,
+            )
+            | Q(
+                delivered_at__isnull=True,
+                signature_request_status=WorkOrderSignatureStatus.APPROVED,
+                atualizado_em__month=mes_selecionado,
+                atualizado_em__year=ano_selecionado,
+            )
+        )
+        .count()
+    )
+    orcamentos_taxa_base = Budget.objects.filter(
+        workshop=workshop,
+        entry_date__month=mes_selecionado,
+        entry_date__year=ano_selecionado,
+    ).exclude(budget_type__in=["warranty", "courtesy"])
+    orcamentos_criados_no_mes = orcamentos_taxa_base.count()
+    orcamentos_aprovados_no_mes = Budget.objects.filter(
+        workshop=workshop,
+        status=BudgetStatus.APPROVED,
+        entry_date__month=mes_selecionado,
+        entry_date__year=ano_selecionado,
+    ).count()
+
+    budgets_aguardando_base = Budget.objects.filter(workshop=workshop, budget_type=BudgetType.SALE, status__in=OPEN_BUDGET_STATUSES).prefetch_related("items", "items__kit_overrides", "items__kit__kit_products", "items__kit__kit_services")
+
+    orcamentos_reprovados = Budget.objects.filter(workshop=workshop, status__in=REJECTED_BUDGET_STATUS_VALUES, entry_date__month=mes_selecionado, entry_date__year=ano_selecionado)
+
     ticket_medio = total_vendido_ate_a_data / qtd_carros_mes if qtd_carros_mes > 0 else Decimal("0.00")
     rentabilidade_acumulada_mes = sum(rentabilidades) / len(rentabilidades) if rentabilidades else 0
     indice_retorno_em_garantia_mes = (qtd_garantias_mes / qtd_carros_mes) * 100 if qtd_carros_mes > 0 else 0
     taxa_aprovacao = (orcamentos_aprovados_no_mes / orcamentos_criados_no_mes) * 100 if orcamentos_criados_no_mes > 0 else 0
 
     # Financeiro (R$)
-
     ## Geral
     draft_workorders = WorkOrder.objects.filter(
         workshop=workshop,
