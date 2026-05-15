@@ -13,8 +13,8 @@ def alert_confirm_layout(title="Deseja realmente prosseguir?", func_name="custom
         <div class="modal-box border-t-4 border-warning">
             <h3 class="font-bold text-lg text-center" id="confirm-title">{title}</h3>
             <div class="modal-action flex justify-center gap-4">
-                <button type="button" class="btn btn-ghost" onclick="alert_confirm_modal.close()">Cancelar</button>
-                <button type="button" class="btn btn-warning" id="confirm-yes">Confirmar</button>
+                <button type="button" class="btn btn-ghost" data-allow-locked="1" onclick="alert_confirm_modal.close()">Cancelar</button>
+                <button type="button" class="btn btn-warning" id="confirm-yes" data-allow-locked="1">Confirmar</button>
             </div>
         </div>
     </dialog>
@@ -66,4 +66,4 @@ def clean_id(value):
     if value is None:
         return None
     # Remove qualquer caractere que não seja número (como pontos e espaços)
-    return re.sub(r'\D', '', str(value))
+    return re.sub(r"\D", "", str(value))
