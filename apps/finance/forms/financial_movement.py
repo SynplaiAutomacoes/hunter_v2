@@ -271,10 +271,18 @@ class MovementStep2Form(FinancialMovementBaseForm):
 
 class MovementStep3Form(FinancialMovementBaseForm):
     is_paid = forms.TypedChoiceField(label="Pago", required=True, initial=False, coerce=lambda value: str(value).lower() == "true", choices=((False, "Não"), (True, "Sim")), widget=SearchableSelectInput(choices=[(False, "Não"), (True, "Sim")]))
+    is_reconciled = forms.TypedChoiceField(
+        label="Conciliado",
+        required=True,
+        initial=False,
+        coerce=lambda value: str(value).lower() == "true",
+        choices=((False, "Aguardando Conciliação"), (True, "Conciliado")),
+        widget=SearchableSelectInput(choices=[(False, "Aguardando Conciliação"), (True, "Conciliado")]),
+    )
 
     class Meta:
         model = FinancialMovement
-        fields = ["payment_method", "is_paid", "amount", "due_date", "nf_number", "budget_plan", "bank_account", "attachment", "financial_observation"]
+        fields = ["payment_method", "is_paid", "is_reconciled", "amount", "due_date", "nf_number", "budget_plan", "bank_account", "attachment", "financial_observation"]
         widgets = {
             "payment_method": SearchableSelectInput(),
             "amount": MoneyInput(),
@@ -292,6 +300,7 @@ class MovementStep3Form(FinancialMovementBaseForm):
         self.fields["amount"].required = True
         self.fields["payment_method"].required = True
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
+        self.fields["is_reconciled"].initial = bool(self.instance.is_reconciled) if self.instance.pk else False
 
         self.fields["repeat_count"] = forms.IntegerField(required=False, min_value=1, max_value=120, widget=NumberInput(attrs={"class": "w-8 text-center", "placeholder": "1"}))
 
@@ -332,6 +341,7 @@ class MovementStep3Form(FinancialMovementBaseForm):
                 Div("is_paid", css_class="col-span-4"),
                 Div("amount", css_class="col-span-4"),
                 #
+                Div("is_reconciled", css_class="col-span-4"),
                 Div("payment_method", css_class="col-span-4"),
                 Div("budget_plan", css_class="col-span-4"),
                 Div("bank_account", css_class="col-span-4"),

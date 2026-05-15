@@ -98,7 +98,7 @@ def build_dre_calculation(
     # Receita Bruta de Vendas e Serviços
     pagamentos_ordens_de_servico = (
         WorkOrderPaymentMethod.objects.filter(workorder__workshop__in=workshops)
-        .select_related("workorder", "workorder__budget", "workorder__budget__customer")
+        .select_related("workorder", "workorder__budget", "workorder__budget__customer", "payment_method")
         .prefetch_related(
             "workorder__items__product",
             "workorder__items__service",
@@ -107,6 +107,7 @@ def build_dre_calculation(
             "workorder__items__kit__kit_products__product",
             "workorder__items__kit__kit_services__service",
         )
+        .order_by("criado_em", "pk")
     )
     if start_date is not None:
         pagamentos_ordens_de_servico = pagamentos_ordens_de_servico.filter(due_date__gte=start_date)
