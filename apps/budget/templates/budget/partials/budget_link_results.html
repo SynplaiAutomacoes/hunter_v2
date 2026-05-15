@@ -1,0 +1,73 @@
+<form
+    method="post"
+    action="{% url 'budget:budget_link_process' pk=budget.pk %}"
+    hx-post="{% url 'budget:budget_link_process' pk=budget.pk %}"
+    hx-target="#modal-container"
+    hx-swap="innerHTML"
+    class="h-full flex flex-col">
+    {% csrf_token %}
+
+    <div class="overflow-y-auto flex-1 border border-base-300 rounded-lg">
+        <table class="table table-zebra w-full">
+            <thead>
+                <tr>
+                    <th class="w-12"></th>
+                    <th>Orçamento</th>
+                    <th>Cliente</th>
+                    <th>Veículo</th>
+                    <th>Vinculado a</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in results_page.object_list %}
+                <tr>
+                    <td>
+                        <input type="radio" name="reference_budget_id" value="{{ item.pk }}" class="radio radio-primary" required>
+                    </td>
+                    <td>#{{ item.pk }}</td>
+                    <td>{{ item.customer.name|default:'-' }}</td>
+                    <td>{% if item.vehicle %}{{ item.vehicle.plate }}{% else %}-{% endif %}</td>
+                    <td>{% if item.reference_budget_id %}#{{ item.reference_budget_id }}{% else %}-{% endif %}</td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="5" class="text-center py-6 text-base-content/70">Nenhum orçamento encontrado para este filtro.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="mt-4 flex items-center justify-between gap-2">
+        <div class="join">
+            {% if results_page.has_previous %}
+            <button
+                type="button"
+                class="btn btn-sm join-item"
+                hx-get="{% url 'budget:budget_link_search' pk=budget.pk %}?q={{ query|urlencode }}&page={{ results_page.previous_page_number }}"
+                hx-target="#budget-link-results"
+                hx-swap="innerHTML">Anterior</button>
+            {% else %}
+            <button type="button" class="btn btn-sm join-item btn-disabled" disabled>Anterior</button>
+            {% endif %}
+
+            <button type="button" class="btn btn-sm join-item btn-ghost" disabled>Página {{ results_page.number }} de {{ results_page.paginator.num_pages }}</button>
+
+            {% if results_page.has_next %}
+            <button
+                type="button"
+                class="btn btn-sm join-item"
+                hx-get="{% url 'budget:budget_link_search' pk=budget.pk %}?q={{ query|urlencode }}&page={{ results_page.next_page_number }}"
+                hx-target="#budget-link-results"
+                hx-swap="innerHTML">Próxima</button>
+            {% else %}
+            <button type="button" class="btn btn-sm join-item btn-disabled" disabled>Próxima</button>
+            {% endif %}
+        </div>
+
+        <div class="modal-action mt-0">
+            <button type="button" class="btn" onclick="closeBudgetParentModal()">Cancelar</button>
+            <button type="submit" class="btn btn-primary" {% if not results_page.object_list %}disabled{% endif %}>Vincular</button>
+        </div>
+    </div>
+</form>
