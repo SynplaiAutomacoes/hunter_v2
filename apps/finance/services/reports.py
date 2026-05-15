@@ -39,6 +39,7 @@ def build_financial_overview(
     agent: str | None = None,
     opened_by_id: int | str | None = None,
     payment_method_id: int | str | None = None,
+    reconciliation_status: str | None = None,
 ) -> FinancialOverview:
     total_credits = _ZERO_DECIMAL
     paid_credits = _ZERO_DECIMAL
@@ -94,6 +95,10 @@ def build_financial_overview(
             elif paid_status == "unpaid" and _matches_workorder_paid_status(movement=movement):
                 matched_ids.append(movement.pk)
         movements = movements.filter(pk__in=matched_ids)
+
+    if reconciliation_status in {"reconciled", "pending"}:
+        expected_reconciled = reconciliation_status == "reconciled"
+        movements = movements.filter(is_reconciled=expected_reconciled)
 
     if agent:
         if agent.startswith("coll_"):
@@ -180,6 +185,10 @@ def build_financial_overview(
             )
             search_query = search_query | Q(workorder__id__icontains=search) if search_query.children else Q(workorder__id__icontains=search)
             paid_credit_movements = paid_credit_movements.filter(search_query)
+
+        if reconciliation_status in {"reconciled", "pending"}:
+            expected_reconciled = reconciliation_status == "reconciled"
+            paid_credit_movements = paid_credit_movements.filter(is_reconciled=expected_reconciled)
 
         if paid_status == "paid":
             paid_credit_movements = [movement for movement in paid_credit_movements.select_related("workorder") if movement.is_paid]
