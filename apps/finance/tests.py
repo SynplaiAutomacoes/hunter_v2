@@ -8740,7 +8740,7 @@ class DreReportViewTests(TestCase):
             ],
         )
 
-    def test_dre_excludes_partially_paid_workorder_costs(self) -> None:
+    def test_dre_excludes_workorder_costs_when_vehicle_not_delivered_but_keeps_revenue(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
         FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
 
@@ -8754,10 +8754,7 @@ class DreReportViewTests(TestCase):
             payment_due_date=date(2026, 2, 15),
         )
 
-        payment = workorder.payments.first()
-        self.assertIsNotNone(payment)
-        payment.first_installment_amount = Money("150.00", "BRL")
-        payment.save(update_fields=["first_installment_amount"])
+        self.assertEqual(workorder.status, WorkOrderStatus.DRAFT)
 
         response = self.client.get(
             reverse("finance:dre_results"),
@@ -8770,7 +8767,9 @@ class DreReportViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
+        revenue_row = next(row for row in response.context["dre_rows"] if row["component"] == "receita_bruta_vendas_e_servicos")
         costs_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
+        self.assertEqual(revenue_row["amount"], Money("300.00", "BRL"))
         self.assertEqual(costs_row["amount"], Money("0.00", "BRL"))
 
     def test_dre_includes_fully_paid_workorder_costs(self) -> None:
@@ -8786,6 +8785,7 @@ class DreReportViewTests(TestCase):
             customer_name="Cliente Quitado",
             payment_due_date=date(2026, 3, 15),
         )
+        WorkOrder.objects.filter(workshop=self.workshop, budget__entry_date=date(2026, 3, 10)).update(status=WorkOrderStatus.APPROVED)
 
         response = self.client.get(
             reverse("finance:dre_results"),
@@ -8814,6 +8814,8 @@ class DreReportViewTests(TestCase):
             customer_name="Cliente Custo Total",
             payment_due_date=date(2026, 4, 15),
         )
+        workorder.status = WorkOrderStatus.APPROVED
+        workorder.save(update_fields=["status"])
 
         response = self.client.get(
             reverse("finance:dre_results"),

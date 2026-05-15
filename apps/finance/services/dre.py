@@ -13,7 +13,7 @@ from django.db.models.functions import Coalesce
 
 from apps.finance.models import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
-from apps.workorder.models import WorkOrderPaymentMethod, WorkOrder
+from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.models.workshops import Workshop
 
 
@@ -166,11 +166,11 @@ def build_dre_calculation(
     taxa_maquininha_os = FinancialMovement.objects.filter(workorder_payment__in=pagamentos_ordens_de_servico, description="Pagamento da taxa da maquininha").select_related("workorder_payment", "workorder_payment__workorder")
     total_taxa_maquininha_os = _sum_movements(list(taxa_maquininha_os))
 
-    paid_workorders_with_costs = _fetch_fully_paid_workorders_with_costs(payments=pagamentos_ordens_de_servico)
-    total_custos_os = sum((payload["total_cost"] for payload in paid_workorders_with_costs), _ZERO)
+    delivered_workorders_with_costs = _fetch_delivered_workorders_with_costs(payments=pagamentos_ordens_de_servico)
+    total_custos_os = sum((total_cost for _, total_cost in delivered_workorders_with_costs), _ZERO)
 
     total_custos_mercadorias_vendidas = total_taxa_maquininha_os + total_custos_os
-    detail_custos_mercadorias_vendidas = maquininha_tax_details(list(taxa_maquininha_os)) + workorder_cost_details([payload["workorder"] for payload in paid_workorders_with_costs])
+    detail_custos_mercadorias_vendidas = maquininha_tax_details(list(taxa_maquininha_os)) + workorder_cost_details([workorder for workorder, _ in delivered_workorders_with_costs])
     # --------------------------
 
     # Receita Bruta de Vendas
@@ -334,7 +334,7 @@ def _build_workorder_payment_totals(*, payments: list[WorkOrderPaymentMethod]) -
     return totals
 
 
-def _fetch_fully_paid_workorders_with_costs(*, payments: list[WorkOrderPaymentMethod]) -> list[dict[str, WorkOrder | Money]]:
+def _fetch_delivered_workorders_with_costs(*, payments: list[WorkOrderPaymentMethod]) -> list[tuple[WorkOrder, Money]]:
     workorder_ids = sorted({payment.workorder_id for payment in payments if payment.workorder_id})
     if not workorder_ids:
         return []
@@ -365,15 +365,15 @@ def _fetch_fully_paid_workorders_with_costs(*, payments: list[WorkOrderPaymentMe
         )
     )
 
-    payloads: list[dict[str, WorkOrder | Money]] = []
+    payloads: list[tuple[WorkOrder, Money]] = []
     for workorder in workorders:
-        if not workorder.is_fully_paid:
+        if workorder.status != WorkOrderStatus.APPROVED:
             continue
 
         total_cost_amount = (getattr(workorder, "products_cost_total", Decimal("0.00")) or Decimal("0.00")) + (getattr(workorder, "services_cost_total", Decimal("0.00")) or Decimal("0.00"))
         total_cost = Money(total_cost_amount, "BRL")
         setattr(workorder, "dre_total_cost", total_cost)
-        payloads.append({"workorder": workorder, "total_cost": total_cost})
+        payloads.append((workorder, total_cost))
 
     return payloads
 
