@@ -1,0 +1,19 @@
+<div class="modal-box max-w-md relative">
+    <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="closeBudgetParentModal()">x</button>
+
+    <h3 class="font-bold text-xl mb-3">Desvincular orçamento</h3>
+    <p class="text-base-content/70 mb-6">Tem certeza que deseja remover o vínculo deste orçamento com o orçamento de referência?</p>
+
+    <form
+        method="post"
+        action="{% url 'budget:budget_unlink_process' pk=budget.pk %}"
+        hx-post="{% url 'budget:budget_unlink_process' pk=budget.pk %}"
+        hx-target="#modal-container"
+        hx-swap="innerHTML">
+        {% csrf_token %}
+        <div class="modal-action">
+            <button type="button" class="btn" onclick="closeBudgetParentModal()">Cancelar</button>
+            <button type="submit" class="btn btn-warning">Desvincular</button>
+        </div>
+    </form>
+</div>

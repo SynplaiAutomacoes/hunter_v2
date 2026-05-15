@@ -6,8 +6,10 @@ from urllib.parse import urlencode
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.conf import settings
+from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Prefetch
+from django.db.models import Q
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse, reverse_lazy
@@ -1000,4 +1002,127 @@ class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         redirect_url = f"{reverse('budget:budget_update', kwargs={'pk': new_budget.pk})}?step=1"
         triggers = {"showToast": {"message": "Orçamento criado com sucesso.", "type": "success"}, "redirectAfterToast": {"url": redirect_url, "delay": 500}}
         response["HX-Trigger"] = json.dumps(triggers)
+        return response
+
+
+class BudgetLinkModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "change_budget"
+
+    def get(self, request, pk):
+        budget = _get_budget_for_workshop(self.workshop, pk)
+        query = str(request.GET.get("q") or "").strip()
+        page_number = request.GET.get("page", "1")
+        results_page = self._build_results_page(budget=budget, query=query, page_number=page_number)
+        context = {
+            "budget": budget,
+            "query": query,
+            "results_page": results_page,
+        }
+        return render(request, "budget/partials/budget_link_modal.html", context)
+
+    def _build_results_page(self, *, budget: Budget, query: str, page_number: str):
+        queryset = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle", "reference_budget").order_by("-entry_date", "-pk")
+
+        if query:
+            filters = Q(customer__name__icontains=query)
+            if query.isdigit():
+                filters |= Q(pk=int(query))
+            queryset = queryset.filter(filters)
+
+        paginator = Paginator(queryset, 20)
+        return paginator.get_page(page_number)
+
+
+class BudgetLinkSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "change_budget"
+
+    def get(self, request, pk):
+        budget = _get_budget_for_workshop(self.workshop, pk)
+        query = str(request.GET.get("q") or "").strip()
+        page_number = request.GET.get("page", "1")
+
+        queryset = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle", "reference_budget").order_by("-entry_date", "-pk")
+
+        if query:
+            filters = Q(customer__name__icontains=query)
+            if query.isdigit():
+                filters |= Q(pk=int(query))
+            queryset = queryset.filter(filters)
+
+        paginator = Paginator(queryset, 20)
+        context = {
+            "budget": budget,
+            "query": query,
+            "results_page": paginator.get_page(page_number),
+        }
+        return render(request, "budget/partials/budget_link_results.html", context)
+
+
+class BudgetLinkProcessView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "change_budget"
+
+    def post(self, request, pk):
+        budget = _get_budget_for_workshop(self.workshop, pk)
+        reference_budget_id_raw = str(request.POST.get("reference_budget_id") or "").strip()
+
+        if not reference_budget_id_raw:
+            return JsonResponse({"success": False, "error": "Selecione um orçamento para vincular."}, status=400)
+
+        if not reference_budget_id_raw.isdigit():
+            return JsonResponse({"success": False, "error": "Orçamento selecionado inválido."}, status=400)
+
+        reference_budget_id = int(reference_budget_id_raw)
+        if budget.pk == reference_budget_id:
+            return JsonResponse({"success": False, "error": "Não é possível vincular um orçamento a ele mesmo."}, status=400)
+
+        with transaction.atomic():
+            locked_budget = Budget.objects.select_for_update().get(pk=budget.pk, workshop=self.workshop)
+
+            if locked_budget.reference_budget_id is not None:
+                return JsonResponse({"success": False, "error": "Este orçamento já está vinculado. Desvincule antes de realizar um novo vínculo."}, status=409)
+
+            reference_budget = Budget.objects.select_related("customer", "vehicle").filter(pk=reference_budget_id, workshop=self.workshop).first()
+            if reference_budget is None:
+                return JsonResponse({"success": False, "error": "Orçamento de referência não encontrado."}, status=404)
+
+            locked_budget.reference_budget = reference_budget
+            locked_budget.save(update_fields=["reference_budget"])
+
+        response = JsonResponse({"success": True})
+        response["HX-Trigger"] = json.dumps({"showToast": {"message": "Orçamento vinculado com sucesso.", "type": "success"}})
+        response["HX-Refresh"] = "true"
+        return response
+
+
+class BudgetUnlinkModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "change_budget"
+
+    def get(self, request, pk):
+        budget = _get_budget_for_workshop(self.workshop, pk)
+        return render(request, "budget/partials/budget_unlink_confirm_modal.html", {"budget": budget})
+
+
+class BudgetUnlinkProcessView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "change_budget"
+
+    def post(self, request, pk):
+        with transaction.atomic():
+            budget = Budget.objects.select_for_update().filter(pk=pk, workshop=self.workshop).first()
+            if budget is None:
+                return JsonResponse({"success": False, "error": "Orçamento não encontrado."}, status=404)
+
+            if budget.reference_budget_id is None:
+                return JsonResponse({"success": False, "error": "Este orçamento não possui vínculo para ser removido."}, status=400)
+
+            budget.reference_budget = None
+            budget.save(update_fields=["reference_budget"])
+
+        response = JsonResponse({"success": True})
+        response["HX-Trigger"] = json.dumps({"showToast": {"message": "Vínculo removido com sucesso.", "type": "success"}})
+        response["HX-Refresh"] = "true"
         return response

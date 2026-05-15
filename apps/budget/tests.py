@@ -2246,6 +2246,76 @@ class BudgetStep6WorkflowTests(TestCase):
         )
 
 
+class BudgetLinkWorkflowTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=19)
+        self.current_budget = create_budget(workshop=self.workshop)
+        self.reference_budget = create_budget(workshop=self.workshop)
+        self.other_reference_budget = create_budget(workshop=self.workshop)
+
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_link_budget_success(self) -> None:
+        response = self.client.post(
+            reverse("budget:budget_link_process", args=[self.current_budget.pk]),
+            data={"reference_budget_id": str(self.reference_budget.pk)},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.current_budget.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.current_budget.reference_budget_id, self.reference_budget.pk)
+
+    def test_unlink_budget_success(self) -> None:
+        self.current_budget.reference_budget = self.reference_budget
+        self.current_budget.save(update_fields=["reference_budget"])
+
+        response = self.client.post(
+            reverse("budget:budget_unlink_process", args=[self.current_budget.pk]),
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.current_budget.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(self.current_budget.reference_budget_id)
+
+    def test_link_budget_to_itself_fails(self) -> None:
+        response = self.client.post(
+            reverse("budget:budget_link_process", args=[self.current_budget.pk]),
+            data={"reference_budget_id": str(self.current_budget.pk)},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.current_budget.refresh_from_db()
+        self.assertEqual(response.status_code, 400)
+        self.assertJSONEqual(response.content, {"success": False, "error": "Não é possível vincular um orçamento a ele mesmo."})
+        self.assertIsNone(self.current_budget.reference_budget_id)
+
+    def test_link_budget_when_already_linked_fails(self) -> None:
+        self.current_budget.reference_budget = self.reference_budget
+        self.current_budget.save(update_fields=["reference_budget"])
+
+        response = self.client.post(
+            reverse("budget:budget_link_process", args=[self.current_budget.pk]),
+            data={"reference_budget_id": str(self.other_reference_budget.pk)},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.current_budget.refresh_from_db()
+        self.assertEqual(response.status_code, 409)
+        self.assertJSONEqual(
+            response.content,
+            {
+                "success": False,
+                "error": "Este orçamento já está vinculado. Desvincule antes de realizar um novo vínculo.",
+            },
+        )
+        self.assertEqual(self.current_budget.reference_budget_id, self.reference_budget.pk)
+
+
 class BudgetProductIssueTests(TestCase):
     def test_step4_product_rows_render_stock_and_invalid_ncm_warnings(self) -> None:
         workshop = create_workshop(suffix=98)

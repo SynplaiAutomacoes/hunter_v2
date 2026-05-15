@@ -21,7 +21,26 @@ from .local_item_views import CalculateLocalServiceView, CreateLocalItemView, Qu
 from .pdf_views import signature_file, signature_preview, visualizar_pdf, visualizar_pdf_assinatura, visualizar_pdf_checklist, visualizar_pdf_gestor, visualizar_pdf_mecanico
 from .realtime_views import BudgetEventsView
 from .shared import reset_steps_after_step_4
-from .workflow_views import BudgetCreateView, BudgetDeleteView, BudgetListView, BudgetStatusReportPdfPreviewView, BudgetStatusReportPdfView, BudgetUpdateView, MarkStep5CalculationViewedView, SaveObservationView, SendBudgetSignatureView, UpdateBudgetDiscountView, UpdateBudgetStatusView, UpdateSliderView
+from .workflow_views import (
+    BudgetCreateView,
+    BudgetDeleteView,
+    BudgetLinkModalView,
+    BudgetLinkProcessView,
+    BudgetLinkSearchView,
+    BudgetListView,
+    BudgetReferenceModalView,
+    BudgetStatusReportPdfPreviewView,
+    BudgetStatusReportPdfView,
+    BudgetUnlinkModalView,
+    BudgetUnlinkProcessView,
+    BudgetUpdateView,
+    MarkStep5CalculationViewedView,
+    SaveObservationView,
+    SendBudgetSignatureView,
+    UpdateBudgetDiscountView,
+    UpdateBudgetStatusView,
+    UpdateSliderView,
+)
 
 __all__ = [
     "BudgetListView",
@@ -49,6 +68,12 @@ __all__ = [
     "MarkStep5CalculationViewedView",
     "UpdateBudgetDiscountView",
     "UpdateBudgetStatusView",
+    "BudgetLinkModalView",
+    "BudgetLinkSearchView",
+    "BudgetLinkProcessView",
+    "BudgetUnlinkModalView",
+    "BudgetUnlinkProcessView",
+    "BudgetReferenceModalView",
     "SaveObservationView",
     "SendBudgetSignatureView",
     "BudgetImageView",
