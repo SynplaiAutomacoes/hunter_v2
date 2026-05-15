@@ -3329,7 +3329,7 @@ class BudgetStep6Form(CoreModelForm):
                                 Reprovar
                             </button>
 
-                            {f'<button type="button" class="btn btn-outline col-span-12" data-allow-locked="1" onclick="updateBudgetStatus({budget.pk}, \'reopen\')">Reabrir Orçamento</button>' if budget.is_status_locked else ""}
+                            {f"<button type='button' class='btn btn-outline col-span-12' data-allow-locked='1' onclick='updateBudgetStatus({budget.pk}, &#39;reopen&#39;)'>Reabrir Orçamento</button>" if budget.is_status_locked else ""}
                         </div>
                         """),
                         css_class="p-4 bg-base-200/50 rounded-lg",
