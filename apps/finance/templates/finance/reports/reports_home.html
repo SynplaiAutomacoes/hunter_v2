@@ -18,6 +18,15 @@
                     <span class="material-icons">checklist</span>
                     Conciliar
                 </button>
+                <button type="button" class="btn btn-success" id="btn-pagar-todos" disabled
+                        hx-post="{% url 'finance:bulk_pay' %}"
+                        hx-include="#financial-reports-movements-table .item-checkbox:checked"
+                        hx-confirm="Tem certeza que deseja marcar todas as movimentações selecionadas como pagas?"
+                        hx-target="#financial-reports-movements-section"
+                        hx-swap="outerHTML">
+                    <span class="material-icons">payments</span>
+                    Pagar todos
+                </button>
                 <button type="button" class="btn btn-secondary" onclick="group_modal.showModal()" hx-get="{% url 'finance:group_movement_wizard' %}?step=1" hx-target="#group-modal-content">
                     <span class="material-icons">layers</span>
                     Agrupar
@@ -529,15 +538,22 @@
                     <script>
                     (function () {
                         var btnConciliar = document.getElementById('btn-conciliar');
+                        var btnPagarTodos = document.getElementById('btn-pagar-todos');
 
-                        function updateConciliarButton() {
-                            if (!btnConciliar) return;
+                        function updateActionButtons() {
                             var checkboxes = document.querySelectorAll('#financial-reports-movements-table .item-checkbox:checked');
-                            btnConciliar.disabled = checkboxes.length === 0;
-                            if (checkboxes.length > 0) {
-                                btnConciliar.removeAttribute('disabled');
-                            } else {
-                                btnConciliar.setAttribute('disabled', 'disabled');
+                            var hasSelection = checkboxes.length > 0;
+
+                            if (btnConciliar) {
+                                btnConciliar.disabled = !hasSelection;
+                                if (hasSelection) btnConciliar.removeAttribute('disabled');
+                                else btnConciliar.setAttribute('disabled', 'disabled');
+                            }
+
+                            if (btnPagarTodos) {
+                                btnPagarTodos.disabled = !hasSelection;
+                                if (hasSelection) btnPagarTodos.removeAttribute('disabled');
+                                else btnPagarTodos.setAttribute('disabled', 'disabled');
                             }
                         }
 
@@ -551,7 +567,7 @@
                             }
                             selectAll.checked = checked === checkboxes.length && checkboxes.length > 0;
                             selectAll.indeterminate = checked > 0 && checked < checkboxes.length;
-                            updateConciliarButton();
+                            updateActionButtons();
                         }
 
                         document.addEventListener('change', function (e) {
@@ -574,7 +590,7 @@
                                 selectAll.checked = checked === checkboxes.length;
                                 selectAll.indeterminate = checked > 0 && checked < checkboxes.length;
                             }
-                            updateConciliarButton();
+                            updateActionButtons();
                         });
 
                         init();

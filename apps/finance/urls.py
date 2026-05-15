@@ -58,7 +58,13 @@ from apps.finance.views.financial_movement import (
     EntityDetailView,
 )
 from apps.finance.views.payment_method import PaymentMethodListView, PaymentMethodCreateView, PaymentMethodUpdateView
-from apps.finance.views.reports import BatchConciliateModalView, BatchConciliateView, ReportMovementEditView, ReportMovementDeleteView
+from apps.finance.views.reports import (
+    BatchConciliateModalView,
+    BatchConciliateView,
+    ReportMovementEditView,
+    ReportMovementDeleteView,
+    FinancialBulkPayView,
+)
 from apps.finance.views.movement_group import GroupMovementWizardView, GroupMovementDeleteView
 
 app_name = "finance"
@@ -69,6 +75,7 @@ urlpatterns = [
     path("reports/movement/<int:pk>/delete/", ReportMovementDeleteView.as_view(), name="report_movement_delete"),
     path("reports/batch-conciliate/modal/", BatchConciliateModalView.as_view(), name="batch_conciliate_modal"),
     path("reports/batch-conciliate/", BatchConciliateView.as_view(), name="batch_conciliate"),
+    path("reports/bulk-pay/", FinancialBulkPayView.as_view(), name="bulk_pay"),
     path("reports/group/wizard/", GroupMovementWizardView.as_view(), name="group_movement_wizard"),
     path("reports/group/<int:pk>/delete/", GroupMovementDeleteView.as_view(), name="group_movement_delete"),
     path("comissoes/", CommissionReportView.as_view(), name="commission_report"),
