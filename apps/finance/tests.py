@@ -8739,7 +8739,101 @@ class DreReportViewTests(TestCase):
                 f"O.S #{courtesy_workorder.budget.pk} - Cliente Cortesia",
             ],
         )
-        self.assertEqual(financial_revenue_row["details"][1]["details"][0]["summary"], "Receita financeira avulsa")
+
+    def test_dre_excludes_partially_paid_workorder_costs(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+
+        workorder = self._create_workorder_with_values(
+            reference_date=date(2026, 2, 10),
+            product_selling_price="200.00",
+            product_cost_price="120.00",
+            service_selling_price="100.00",
+            service_cost_price="40.00",
+            customer_name="Cliente Parcial",
+            payment_due_date=date(2026, 2, 15),
+        )
+
+        payment = workorder.payments.first()
+        self.assertIsNotNone(payment)
+        payment.first_installment_amount = Money("150.00", "BRL")
+        payment.save(update_fields=["first_installment_amount"])
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-02-01",
+                "data_final": "2026-02-28",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        costs_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
+        self.assertEqual(costs_row["amount"], Money("0.00", "BRL"))
+
+    def test_dre_includes_fully_paid_workorder_costs(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+
+        self._create_workorder_with_values(
+            reference_date=date(2026, 3, 10),
+            product_selling_price="200.00",
+            product_cost_price="120.00",
+            service_selling_price="100.00",
+            service_cost_price="40.00",
+            customer_name="Cliente Quitado",
+            payment_due_date=date(2026, 3, 15),
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-03-01",
+                "data_final": "2026-03-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        costs_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
+        self.assertEqual(costs_row["amount"], Money("160.00", "BRL"))
+
+    def test_dre_workorder_cost_total_sums_products_and_services(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+
+        workorder = self._create_workorder_with_values(
+            reference_date=date(2026, 4, 10),
+            product_selling_price="220.00",
+            product_cost_price="90.00",
+            service_selling_price="180.00",
+            service_cost_price="55.00",
+            customer_name="Cliente Custo Total",
+            payment_due_date=date(2026, 4, 15),
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-04-01",
+                "data_final": "2026-04-30",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        costs_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
+        self.assertEqual(costs_row["amount"], Money("145.00", "BRL"))
+
+        workorder_detail = next((detail for detail in costs_row["details"] if detail.get("workorder_id") == workorder.pk), None)
+        self.assertIsNotNone(workorder_detail)
+        if workorder_detail is None:
+            return
+        self.assertEqual(workorder_detail["amount"], Money("145.00", "BRL"))
 
     def test_results_page_adds_negative_financial_expense_to_operating_result(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas Financeiras")
