@@ -1,0 +1,45 @@
+<div class="modal-box w-full max-w-[95vw] relative overflow-hidden flex flex-col h-[90vh]" style="width: 65vw;">
+    <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="closeBudgetParentModal()">x</button>
+
+    <h3 class="font-bold text-2xl mb-2">Vincular orçamento</h3>
+    <p class="text-base-content/70 mb-4">Busque por numero do orçamento ou nome do cliente e selecione um orçamento para vincular ao orçamento atual (#{{ budget.pk }}).</p>
+
+    <form
+        hx-get="{% url 'budget:budget_link_search' pk=budget.pk %}"
+        hx-target="#budget-link-results"
+        hx-swap="innerHTML"
+        class="mb-4">
+        <div class="join w-full">
+            <input
+                type="text"
+                name="q"
+                value="{{ query }}"
+                placeholder="Buscar por numero ou cliente"
+                class="input input-bordered join-item w-full" />
+            <button type="submit" class="btn btn-primary join-item">Buscar</button>
+        </div>
+    </form>
+
+    <div id="budget-link-results" class="min-h-0 flex-1 overflow-hidden">
+        {% include 'budget/partials/budget_link_results.html' %}
+    </div>
+
+    <script>
+        (function() {
+            const modal = document.getElementById('form_modal');
+            if (!modal) {
+                return;
+            }
+
+            modal.addEventListener('htmx:afterRequest', function(event) {
+                if (!event.detail || !event.detail.xhr) {
+                    return;
+                }
+
+                if (event.detail.xhr.getResponseHeader('HX-Refresh') === 'true') {
+                    closeBudgetParentModal();
+                }
+            }, { once: true });
+        })();
+    </script>
+</div>

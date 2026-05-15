@@ -600,6 +600,16 @@ class ImportStepPaymentForm(CoreModelForm):
             ),
         )
 
+    def clean(self):
+        cleaned_data = super().clean()
+        totals = calculate_import_totals(items=self.import_items, entries=self.import_payments)
+        if totals.pending_value > 0:
+            self.add_error(
+                None,
+                f"Não é possível avançar. Existem R$ {totals.pending_value:.2f} pendentes. Pague o valor total antes de continuar."
+            )
+        return cleaned_data
+
     def _generate_payments_table_html(self):
         rows = ""
         for entry in self.import_payments:
@@ -858,6 +868,11 @@ class ImportStepSummaryForm(CoreModelForm):
         for item in self.instance.items_data:
             if not item.get("linked_product_id"):
                 self.add_error(None, "Existem itens pendentes de vínculo.")
+
+        totals = calculate_import_totals(items=self.instance.items_data or [], entries=self.instance.payments_data or [])
+        if totals.pending_value > 0:
+            self.add_error(None, f"Não é possível finalizar. Existem R$ {totals.pending_value:.2f} pendentes. Pague o valor total antes de continuar.")
+
         return cleaned_data
 
 

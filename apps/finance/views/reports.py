@@ -994,3 +994,56 @@ class BatchConciliateView(LoginRequiredMixin, WorkshopScopedMixin, View):
             name = customer.name if customer else ""
             return f"OS #{movement.workorder_id} — {name}" if name else f"OS #{movement.workorder_id}"
         return movement.description or f"Movimentação #{movement.pk}"
+
+
+class FinancialBulkPayView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = FinancialMovement
+    workshop_permission_codename = "change_financialmovement"
+
+    def post(self, request, *args, **kwargs):
+        raw_values = request.POST.getlist("movement_ids")
+        logger.info("FinancialBulkPayView received %d movement_ids: %s", len(raw_values), raw_values)
+
+        if not raw_values:
+            return HttpResponse("Nenhuma movimentação selecionada.", status=400)
+
+        fm_ids = []
+        wo_payment_pks = []
+        for value in raw_values:
+            if value.startswith("financial-movement-"):
+                try:
+                    fm_ids.append(int(value.replace("financial-movement-", "")))
+                except ValueError:
+                    pass
+            elif value.startswith("workorder-payment-"):
+                try:
+                    wo_payment_pks.append(int(value.replace("workorder-payment-", "")))
+                except ValueError:
+                    pass
+
+        target_pks = set(fm_ids)
+
+        if wo_payment_pks:
+            # Encontrar movimentos associados aos pagamentos de OS
+            wo_movements = FinancialMovement.objects.filter(
+                workshop=self.workshop,
+                workorder_payment_id__in=wo_payment_pks,
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT
+            ).values_list('pk', flat=True)
+            target_pks.update(list(wo_movements))
+
+        if target_pks:
+            with transaction.atomic():
+                updated = FinancialMovement.objects.filter(
+                    pk__in=target_pks,
+                    workshop=self.workshop,
+                    is_paid=False
+                ).update(is_paid=True)
+                logger.info("Bulk Pay: %d movements marked as paid", updated)
+
+        if request.headers.get('HX-Request'):
+            response = HttpResponse()
+            response["HX-Refresh"] = "true"
+            return response
+
+        return HttpResponseRedirect(reverse("finance:reports_home"))
