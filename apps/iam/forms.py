@@ -30,7 +30,10 @@ class WorkshopRoleForm(CoreModelForm):
 
     def clean_name(self) -> str:
         name = self.cleaned_data.get("name", "")
-        if str(name).strip().lower() in RESERVED_ROLE_NAMES:
+        normalized_name = str(name).strip().lower()
+        current_name = str(getattr(self.instance, "name", "")).strip().lower()
+
+        if normalized_name in RESERVED_ROLE_NAMES and normalized_name != current_name:
             raise forms.ValidationError("Este nome de cargo é reservado pelo sistema e não pode ser usado.")
         return name
 
