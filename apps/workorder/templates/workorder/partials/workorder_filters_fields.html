@@ -56,4 +56,16 @@
             {% endfor %}
         </div>
     </fieldset>
+
+    <fieldset class="sm:col-span-2">
+        <legend class="label-text font-medium">Tipo</legend>
+        <div class="mt-2 grid gap-2 rounded-box border border-base-300 bg-base-100 p-3 sm:grid-cols-3">
+            {% for value, label in budget_type_choices %}
+                <label class="flex cursor-pointer select-none items-center gap-3 rounded-md px-2 py-1 hover:bg-base-200/70">
+                    <input type="checkbox" name="budget_type" value="{{ value }}" class="checkbox checkbox-sm" {% if value in selected_budget_type_values %}checked{% endif %} />
+                    <span class="text-sm text-base-content">{{ label }}</span>
+                </label>
+            {% endfor %}
+        </div>
+    </fieldset>
 </div>

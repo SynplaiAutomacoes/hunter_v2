@@ -29,6 +29,7 @@ from apps.catalog.kit_applications import build_vehicle_context_label, evaluate_
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.models.kits import Kit
+from apps.budget.models import BudgetType
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
 from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
@@ -128,6 +129,18 @@ WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
         ),
     ),
     QueryParamFilter(
+        param_name="budget_type",
+        lookup="budget__budget_type",
+        kind="choice",
+        allowed_values=frozenset(
+            {
+                BudgetType.SALE,
+                BudgetType.WARRANTY,
+                BudgetType.COURTESY,
+            }
+        ),
+    ),
+    QueryParamFilter(
         param_name="data_inicial",
         lookup="criado_em__date",
         kind="date_gte",
@@ -140,7 +153,8 @@ WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
 )
 
 WORKORDER_STATUS_CHOICES = tuple((status.value, str(status.label)) for status in WorkOrderStatus)
-WORKORDER_FILTER_PARAM_NAMES = ("client", "vehicle", "status", "data_inicial", "data_final")
+WORKORDER_BUDGET_TYPE_CHOICES = tuple((budget_type.value, str(budget_type.label)) for budget_type in BudgetType)
+WORKORDER_FILTER_PARAM_NAMES = ("client", "vehicle", "status", "budget_type", "data_inicial", "data_final")
 WORKORDER_STATUS_BADGE_CLASSES = {
     WorkOrderStatus.DRAFT: "badge-soft badge-ghost min-w-sm",
     WorkOrderStatus.APPROVED: "badge-success min-w-sm",
@@ -292,6 +306,19 @@ class WorkOrderStatusReportDataMixin:
     def _get_selected_status_values(self) -> list[str]:
         return [str(status) for status in self._get_selected_status_choices()]
 
+    def _get_selected_budget_type_values(self) -> list[str]:
+        selected: list[str] = []
+        seen_values: set[str] = set()
+        for raw_value in self.request.GET.getlist("budget_type"):
+            value = str(raw_value or "").strip()
+            if not value or value in seen_values:
+                continue
+            if value not in {BudgetType.SALE, BudgetType.WARRANTY, BudgetType.COURTESY}:
+                continue
+            seen_values.add(value)
+            selected.append(value)
+        return selected
+
     def _get_selected_status_choices(self) -> list[WorkOrderStatus]:
         cached = getattr(self, "_selected_status_choices_cache", None)
         if cached is not None:
@@ -397,6 +424,12 @@ class WorkOrderStatusReportDataMixin:
         if selected_status_labels:
             filter_labels.append(f"Status: {', '.join(selected_status_labels)}")
 
+        selected_budget_type_values = self._get_selected_budget_type_values()
+        if selected_budget_type_values:
+            type_labels_map = dict(WORKORDER_BUDGET_TYPE_CHOICES)
+            selected_type_labels = [type_labels_map.get(value, value) for value in selected_budget_type_values]
+            filter_labels.append(f"Tipo: {', '.join(selected_type_labels)}")
+
         raw_client = str(self.request.GET.get("client") or "").strip()
         if raw_client:
             filter_labels.append(f"Cliente: {raw_client}")
@@ -461,6 +494,8 @@ class WorkOrderListView(LoginRequiredMixin, WorkOrderStatusReportDataMixin, Work
         ]
         context["status_choices"] = WORKORDER_STATUS_CHOICES
         context["selected_status_values"] = self._get_selected_status_values()
+        context["budget_type_choices"] = WORKORDER_BUDGET_TYPE_CHOICES
+        context["selected_budget_type_values"] = self._get_selected_budget_type_values()
         context["selection_report"] = self._get_selection_report()
         context["selected_status_report"] = context["selection_report"]
         context["status_report_period_label"] = self._get_status_report_period_label()
