@@ -20,13 +20,32 @@ def alert_confirm_layout(title="Deseja realmente prosseguir?", func_name="custom
     </dialog>
 
     <script>
-        function {func_name}(customTitle) {{
+        function {func_name}(customTitle, options = {{}}) {{
             return new Promise((resolve) => {{
                 const modal = document.getElementById('alert_confirm_modal');
                 const titleElem = document.getElementById('confirm-title');
                 const yesBtn = document.getElementById('confirm-yes');
+                const cancelBtn = modal ? modal.querySelector('.modal-action .btn-ghost') : null;
+
+                const normalizedOptions = (typeof options === 'object' && options !== null) ? options : {{}};
+                const singleClose = normalizedOptions.singleClose === true;
+                const confirmText = normalizedOptions.confirmText || 'Confirmar';
+                const cancelText = normalizedOptions.cancelText || 'Cancelar';
 
                 if (customTitle) titleElem.innerText = customTitle;
+
+                if (cancelBtn) {{
+                    cancelBtn.textContent = cancelText;
+                    cancelBtn.classList.toggle('hidden', singleClose);
+                    cancelBtn.disabled = false;
+                }}
+
+                if (yesBtn) {{
+                    yesBtn.textContent = singleClose ? (normalizedOptions.closeText || 'Fechar') : confirmText;
+                    yesBtn.classList.toggle('btn-primary', singleClose);
+                    yesBtn.classList.toggle('btn-warning', !singleClose);
+                    yesBtn.disabled = false;
+                }}
 
                 modal.showModal();
 
@@ -34,10 +53,20 @@ def alert_confirm_layout(title="Deseja realmente prosseguir?", func_name="custom
                 const newYesBtn = yesBtn.cloneNode(true);
                 yesBtn.parentNode.replaceChild(newYesBtn, yesBtn);
 
+                let isResolved = false;
+
                 newYesBtn.addEventListener('click', () => {{
                     modal.close();
-                    resolve(true);
+                    isResolved = true;
+                    resolve(!singleClose);
                 }});
+
+                modal.addEventListener('close', () => {{
+                    if (isResolved) {{
+                        return;
+                    }}
+                    resolve(false);
+                }}, {{ once: true }});
             }});
         }}
         
