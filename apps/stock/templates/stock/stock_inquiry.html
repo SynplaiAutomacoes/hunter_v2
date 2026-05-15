@@ -1,0 +1,116 @@
+{% extends 'crud/list_page.html' %}
+{% load static %}
+
+{% block crud_title %}Consulta no Estoque{% endblock %}
+{% block crud_subtitle %}Visualize e filtre todas as movimentações de estoque da oficina.{% endblock %}
+
+{% block crud_content %}
+    <div class="flex flex-col gap-6">
+        <!-- Header Section -->
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+                <h1 class="text-3xl font-bold text-base-content">Consulta no Estoque</h1>
+                <p class="text-base-content/70 mt-1">Visualize e filtre todas as movimentações de estoque da oficina.</p>
+            </div>
+            
+            <div class="flex items-center gap-2">
+                 <button class="btn btn-ghost" onclick="window.location.reload()">
+                    <span class="material-icons">refresh</span> Atualizar
+                </button>
+            </div>
+        </div>
+
+        <!-- Filter Bar -->
+        <div class="card bg-base-100 shadow-xl border border-base-200">
+            <div class="card-body p-4 md:p-6">
+                <form 
+                    id="stock-inquiry-filter-form"
+                    hx-get="{% url 'stock:stock_inquiry' %}" 
+                    hx-target="#stock-inquiry-table-wrapper" 
+                    hx-trigger="change, keyup delay:500ms from:input[name='q']"
+                    hx-push-url="true"
+                    class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4"
+                >
+                    <!-- Search -->
+                    <div class="form-control xl:col-span-2">
+                        <label class="label"><span class="label-text font-semibold">Pesquisar</span></label>
+                        <div class="relative">
+                            <span class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-base-content/50">
+                                <span class="material-icons">search</span>
+                            </span>
+                            <input type="text" name="q" value="{{ request.GET.q }}" placeholder="Produto, código, fornecedor..." class="input input-bordered w-full pl-10" />
+                        </div>
+                    </div>
+
+                    <!-- Type -->
+                    <div class="form-control">
+                        <label class="label"><span class="label-text font-semibold">Tipo</span></label>
+                        <select name="type" class="select select-bordered w-full">
+                            <option value="">Todos</option>
+                            {% for val, label in type_choices %}
+                                <option value="{{ val }}" {% if request.GET.type == val %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Status -->
+                    <div class="form-control">
+                        <label class="label"><span class="label-text font-semibold">Status</span></label>
+                        <select name="status" class="select select-bordered w-full">
+                            <option value="">Todos</option>
+                            {% for val, label in status_choices %}
+                                <option value="{{ val }}" {% if request.GET.status == val %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Date Start -->
+                    <div class="form-control">
+                        <label class="label"><span class="label-text font-semibold">Início</span></label>
+                        <input type="date" name="date_start" value="{{ request.GET.date_start }}" class="input input-bordered w-full" />
+                    </div>
+
+                    <!-- Date End -->
+                    <div class="form-control">
+                        <label class="label"><span class="label-text font-semibold">Fim</span></label>
+                        <input type="date" name="date_end" value="{{ request.GET.date_end }}" class="input input-bordered w-full" />
+                    </div>
+
+                    <!-- Supplier -->
+                    <div class="form-control xl:col-span-2">
+                        <label class="label"><span class="label-text font-semibold">Fornecedor</span></label>
+                        <select name="supplier" class="select select-bordered w-full">
+                            <option value="">Todos</option>
+                            {% for supplier in suppliers %}
+                                <option value="{{ supplier.id }}" {% if request.GET.supplier == supplier.id|stringformat:"s" %}selected{% endif %}>{{ supplier.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    
+                    <!-- Reset Button -->
+                    <div class="form-control flex items-end">
+                        <a href="{% url 'stock:stock_inquiry' %}" class="btn btn-ghost w-full">
+                            <span class="material-icons mr-2">restart_alt</span> Limpar Filtros
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Table Card -->
+        <div class="card bg-base-100 shadow-xl overflow-visible min-h-[400px]">
+            <div class="card-body p-0 overflow-visible">
+                <div
+                    id="stock-inquiry-table-wrapper"
+                    hx-get="{% url 'stock:stock_inquiry' %}"
+                    hx-trigger="stock-inquiry-refresh from:body"
+                    hx-target="this"
+                    hx-swap="innerHTML"
+                    class="overflow-visible"
+                >
+                    {% include 'stock/partials/stock_inquiry_table.html' %}
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

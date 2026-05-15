@@ -119,6 +119,61 @@ class StockMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplat
         return context
 
 
+class StockInquiryListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
+    model = StockMovement
+    template_name = "stock/stock_inquiry.html"
+    context_object_name = "movements"
+    workshop_permission_codename = "view_stockmovement"
+    paginate_by = 25
+    htmx_template_name = "stock/partials/stock_inquiry_table.html"
+
+    def get_queryset(self):
+        queryset = super().get_queryset().filter(workshop=self.workshop).select_related("stock_product__product", "supplier", "transcation_by").order_by("-criado_em")
+
+        # Filters (Search and Sorting are handled by the table tags)
+        status_choices = frozenset(choice[0] for choice in StockMovement.MovementStatus.choices)
+        type_choices = frozenset(choice[0] for choice in StockMovement.MovementType.choices)
+        supplier_ids = frozenset(str(id) for id in Supplier.objects.filter(workshop=self.workshop).values_list("id", flat=True))
+
+        queryset = apply_query_param_filters(
+            queryset,
+            params=self.request.GET,
+            filter_configs=(
+                QueryParamFilter(param_name="status", lookup="status", kind="choice", allowed_values=status_choices),
+                QueryParamFilter(param_name="type", lookup="type", kind="choice", allowed_values=type_choices),
+                QueryParamFilter(param_name="supplier", lookup="supplier_id", kind="choice", allowed_values=supplier_ids),
+                QueryParamFilter(param_name="date_start", lookup="criado_em", kind="date_gte"),
+                QueryParamFilter(param_name="date_end", lookup="criado_em", kind="date_lte"),
+            ),
+        )
+
+        return queryset
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["fields"] = [
+            TableColumn("Data da Movimentação", attr="criado_em", sortable=True),
+            TableColumn(StockMovement.status.field.verbose_name, attr="stockmovement_status_badge", format="status_badge", sort_by="status", search_by="status"),
+            TableColumn(StockMovement.type.field.verbose_name, attr="stockmovement_type_badge", format="status_badge", sort_by="type", search_by="type"),
+            TableColumn(StockMovement.stock_product.field.verbose_name, attr="get_product_reference", sortable=True, sort_by="stock_product__product__name", search_by=("stock_product__product__name", "stock_product__product__code")),
+            TableColumn(StockMovement.quantity.field.verbose_name, attr="quantity", sortable=True),
+            TableColumn(StockMovement.supplier.field.verbose_name, attr="supplier", sort_by="supplier__name", search_by="supplier__name"),
+            TableColumn("Responsável", attr="transcation_by", sort_by="transcation_by__first_name", search_by=("transcation_by__username", "transcation_by__first_name", "transcation_by__last_name")),
+        ]
+
+        # Use TableActionDefaults for the edit product button
+        context["actions"] = [
+            TableActionDefaults.view(url_name="catalog:product_update")
+        ]
+
+        context["status_choices"] = StockMovement.MovementStatus.choices
+        context["type_choices"] = StockMovement.MovementType.choices
+        context["suppliers"] = Supplier.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
+
+        return context
+
+
+
 class ReplenishmentListView(LoginRequiredMixin, WorkshopScopedMixin, ListView):
     model = StockProduct
     template_name = "stock/replenish.html"
