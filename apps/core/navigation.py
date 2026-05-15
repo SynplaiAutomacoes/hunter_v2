@@ -37,6 +37,7 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
     {
         "label": "Estoque",
         "items": (
+            {"label": "Consulta no Estoque", "view_name": "stock:stock_inquiry"},
             {"label": "Exportar Itens", "view_name": "stock:transfer"},
             {"label": "Importar Itens", "view_name": "stock:stock_list"},
             {"label": "Aprovação", "view_name": "stock:approvals"},
