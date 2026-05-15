@@ -71,10 +71,8 @@
             return;
         }
 
-        const pollIntervalMs = {{ budget_poll_interval_seconds|default:20 }} * 1000;
-        window.setInterval(function () {
-            document.body.dispatchEvent(new CustomEvent('budget-table-refresh'));
-        }, pollIntervalMs);
+        // Intencionalmente sem auto refresh por polling na listagem de orcamentos.
+        // O refresh continua funcionando via eventos explicitos (HX-Trigger) e SSE quando habilitado.
     })();
 </script>
 {% endblock %}
