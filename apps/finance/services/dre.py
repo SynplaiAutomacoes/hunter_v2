@@ -8,7 +8,8 @@ import json
 from typing import Sequence
 
 from djmoney.money import Money
-from django.db.models import Q
+from django.db.models import DecimalField, ExpressionWrapper, F, Q, Sum, Value
+from django.db.models.functions import Coalesce
 
 from apps.finance.models import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
@@ -165,11 +166,11 @@ def build_dre_calculation(
     taxa_maquininha_os = FinancialMovement.objects.filter(workorder_payment__in=pagamentos_ordens_de_servico, description="Pagamento da taxa da maquininha").select_related("workorder_payment", "workorder_payment__workorder")
     total_taxa_maquininha_os = _sum_movements(list(taxa_maquininha_os))
 
-    workorders = set(payment.workorder for payment in pagamentos_ordens_de_servico if payment.workorder)
-    total_custos_os = sum((wo.total_costs_products_value for wo in workorders), _ZERO)
+    paid_workorders_with_costs = _fetch_fully_paid_workorders_with_costs(payments=pagamentos_ordens_de_servico)
+    total_custos_os = sum((payload["total_cost"] for payload in paid_workorders_with_costs), _ZERO)
 
     total_custos_mercadorias_vendidas = total_taxa_maquininha_os + total_custos_os
-    detail_custos_mercadorias_vendidas = maquininha_tax_details(list(taxa_maquininha_os)) + workorder_cost_details(list(workorders))
+    detail_custos_mercadorias_vendidas = maquininha_tax_details(list(taxa_maquininha_os)) + workorder_cost_details([payload["workorder"] for payload in paid_workorders_with_costs])
     # --------------------------
 
     # Receita Bruta de Vendas
@@ -331,6 +332,50 @@ def _build_workorder_payment_totals(*, payments: list[WorkOrderPaymentMethod]) -
             continue
         totals[workorder_id] = totals.get(workorder_id, _ZERO) + payment.total_paid
     return totals
+
+
+def _fetch_fully_paid_workorders_with_costs(*, payments: list[WorkOrderPaymentMethod]) -> list[dict[str, WorkOrder | Money]]:
+    workorder_ids = sorted({payment.workorder_id for payment in payments if payment.workorder_id})
+    if not workorder_ids:
+        return []
+
+    workorders = list(
+        WorkOrder.objects.filter(pk__in=workorder_ids)
+        .select_related("budget", "budget__customer", "workshop")
+        .prefetch_related("payments")
+        .annotate(
+            products_cost_total=Coalesce(
+                Sum(
+                    ExpressionWrapper(
+                        F("items__product_cost_price") * F("items__quantity"),
+                        output_field=DecimalField(max_digits=16, decimal_places=2),
+                    )
+                ),
+                Value(Decimal("0.00")),
+            ),
+            services_cost_total=Coalesce(
+                Sum(
+                    ExpressionWrapper(
+                        F("items__service_cost_price") * F("items__quantity"),
+                        output_field=DecimalField(max_digits=16, decimal_places=2),
+                    )
+                ),
+                Value(Decimal("0.00")),
+            ),
+        )
+    )
+
+    payloads: list[dict[str, WorkOrder | Money]] = []
+    for workorder in workorders:
+        if not workorder.is_fully_paid:
+            continue
+
+        total_cost_amount = (getattr(workorder, "products_cost_total", Decimal("0.00")) or Decimal("0.00")) + (getattr(workorder, "services_cost_total", Decimal("0.00")) or Decimal("0.00"))
+        total_cost = Money(total_cost_amount, "BRL")
+        setattr(workorder, "dre_total_cost", total_cost)
+        payloads.append({"workorder": workorder, "total_cost": total_cost})
+
+    return payloads
 
 
 def _build_financial_revenue_group_tree(
@@ -611,7 +656,7 @@ def _build_workorder_cost_detail(wo: WorkOrder, include_workshop_ref: bool) -> d
         "reference": reference,
         "entry_date": getattr(wo, "criado_em", None),
         "payment_date": getattr(wo, "criado_em", None),
-        "amount": wo.total_costs_products_value,
+        "amount": getattr(wo, "dre_total_cost", wo.total_costs_products_value + wo.total_costs_services_value),
         "budget_plan": None,
     }
 
