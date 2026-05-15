@@ -173,8 +173,8 @@ class StockInquiryListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
         if search:
             queryset = apply_text_search(
                 queryset,
-                search_query=search,
-                search_fields=(
+                search_value=search,
+                lookups=(
                     "stock_product__product__name",
                     "stock_product__product__code",
                     "supplier__name",
