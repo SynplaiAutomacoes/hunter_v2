@@ -16,7 +16,7 @@ from apps.catalog.models.services import Service
 from apps.catalog.price_tracking import record_product_last_used_price
 from apps.workshops.mixin import WorkshopScopedMixin
 
-from .shared import _calculate_service_prices, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _parse_duration_from_string, reset_steps_after_step_4
+from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _calculate_service_prices, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _is_budget_edit_locked, _parse_duration_from_string, reset_steps_after_step_4
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +109,9 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
         from datetime import timedelta
 
         budget = _get_budget_for_workshop(self.workshop, str(budget_id))
+        if _is_budget_edit_locked(budget):
+            return _build_locked_budget_response(request, budget, fallback_step=4)
+
         item = _get_budget_item_for_workshop(self.workshop, str(budget_id), str(item_id), kit__isnull=False)
         item.ensure_kit_snapshot()
 
@@ -274,6 +277,9 @@ class BudgetKitProductCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
 
     def post(self, request, budget_id, item_id, product_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if _is_budget_edit_locked(budget):
+            return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
+
         item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id, kit__isnull=False)
 
         product_in_kit = item.kit.kit_products.filter(product_id=product_id).exists()
@@ -329,6 +335,9 @@ class BudgetKitServiceCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
 
     def post(self, request, budget_id, item_id, service_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if _is_budget_edit_locked(budget):
+            return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
+
         item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id, kit__isnull=False)
 
         service_in_kit = item.kit.kit_services.filter(service_id=service_id).exists()

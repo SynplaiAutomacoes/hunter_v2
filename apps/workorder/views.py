@@ -76,6 +76,8 @@ from apps.workorder.util import (
     _normalize_active_tab,
     _normalize_selected_item_ids,
     _get_workorder_from_signature_token,
+    _is_workorder_edit_locked,
+    LOCKED_WORKORDER_EDIT_MESSAGE,
 )
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshops import Workshop
@@ -551,6 +553,9 @@ class UpdateWorkOrderCollaboratorsView(LoginRequiredMixin, WorkshopScopedMixin, 
 
     def post(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if _is_workorder_edit_locked(workorder):
+            return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
+
         form = WorkOrderCollaboratorForm(request.POST, instance=workorder, workorder=workorder)
         if form.is_valid():
             form.save()
@@ -588,6 +593,8 @@ class UpdateWorkOrderDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View)
 
     def post(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if _is_workorder_edit_locked(workorder):
+            return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
 
         try:
             raw_discount_value = request.POST.get("discount_value_0", "0").replace(",", ".") or "0"
@@ -630,6 +637,9 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if _is_workorder_edit_locked(workorder):
+            return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
+
         approval_form = WorkOrderCustomerApprovalForm(request.POST, workorder=workorder, require_unsigned_delivery_reason=False)
 
         if not approval_form.is_valid():
@@ -704,6 +714,11 @@ class WorkOrderAddItemsBatchView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk, item_type):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if _is_workorder_edit_locked(workorder):
+            response = _render_edit_items_modal(request, workorder, "products")
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": LOCKED_WORKORDER_EDIT_MESSAGE, "type": "warning"}})
+            return response
+
         if item_type not in {"product", "service", "kit"}:
             return _render_edit_items_modal(request, workorder, "products")
 
@@ -777,6 +792,11 @@ class WorkOrderRemoveItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
         item = _get_workorder_item_for_workshop(self.workshop, pk, item_id)
         active_tab = request.POST.get("active_tab") or _active_tab_from_item(item)
         workorder = item.workorder
+        if _is_workorder_edit_locked(workorder):
+            response = _render_edit_items_modal(request, workorder, active_tab)
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": LOCKED_WORKORDER_EDIT_MESSAGE, "type": "warning"}})
+            return response
+
         item.delete()
         return _render_edit_items_modal(request, workorder, active_tab, trigger_refresh=True)
 
@@ -802,6 +822,11 @@ class WorkOrderItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk, item_id):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if _is_workorder_edit_locked(workorder):
+            response = _render_edit_items_modal(request, workorder, "products")
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": LOCKED_WORKORDER_EDIT_MESSAGE, "type": "warning"}})
+            return response
+
         item = _get_workorder_item_for_workshop(self.workshop, pk, item_id)
         active_tab = _normalize_active_tab(request.POST.get("active_tab") or request.GET.get("tab") or _active_tab_from_item(item))
 
@@ -928,6 +953,11 @@ class WorkOrderKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk, item_id):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if _is_workorder_edit_locked(workorder):
+            response = _render_edit_items_modal(request, workorder, "kits")
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": LOCKED_WORKORDER_EDIT_MESSAGE, "type": "warning"}})
+            return response
+
         item = _get_workorder_item_for_workshop(self.workshop, pk, item_id, kit__isnull=False)
 
         products_data = json.loads(request.POST.get("products", "[]"))
@@ -996,6 +1026,9 @@ class AddPaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk):
         workorder = get_object_or_404(WorkOrder, pk=pk, workshop=self.workshop)
+        if _is_workorder_edit_locked(workorder):
+            return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
+
         form = WorkOrderPaymentForm(request.POST, workorder=workorder)
 
         if form.is_valid():
@@ -1027,6 +1060,8 @@ class DeletePaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def delete(self, request, pk):
         payment = get_object_or_404(WorkOrderPaymentMethod, pk=pk, workorder__workshop=self.workshop)
         workorder = payment.workorder
+        if _is_workorder_edit_locked(workorder):
+            return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
 
         payment.delete()
         sync_workorder_financial_movement(workorder=workorder)
@@ -1051,6 +1086,9 @@ class UploadAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk):
         workorder = get_object_or_404(WorkOrder, pk=pk, workshop=self.workshop)
+        if _is_workorder_edit_locked(workorder):
+            return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
+
         uploaded_files = request.FILES.getlist("file_upload")
 
         attachment = None
@@ -1113,6 +1151,8 @@ class DeleteAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
         attachment = get_object_or_404(WorkOrderAttachment, pk=pk, workorder__workshop=self.workshop)
         with transaction.atomic():
             workorder = attachment.workorder
+            if _is_workorder_edit_locked(workorder):
+                return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
             attachment.delete()
 
         context = _build_customer_approvement_context(workorder, request=request)

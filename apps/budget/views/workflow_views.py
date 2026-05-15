@@ -39,7 +39,7 @@ from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
-from .shared import _get_budget_for_workshop, logger
+from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _get_budget_for_workshop, _is_budget_edit_locked, logger
 
 
 def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, str, str | None]:
@@ -698,6 +698,9 @@ class BudgetUpdateView(BudgetCreateView):
         return context
 
     def form_valid(self, form):
+        if self.object and _is_budget_edit_locked(self.object):
+            return _build_locked_budget_response(self.request, self.object)
+
         # Mantemos a lógica de salvar o workshop e colaborador
         form.instance.workshop = self.workshop
         form.instance.cost_estimator = self.request.user
@@ -781,6 +784,9 @@ class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if _is_budget_edit_locked(budget):
+            return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
+
         try:
             raw_discount_value = request.POST.get("discount_value_0", "0").replace(",", ".") or "0"
             raw_discount_percentage = request.POST.get("discount_percentage", "0").replace(",", ".") or "0"
@@ -879,6 +885,9 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if _is_budget_edit_locked(budget):
+            return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
+
         slider_value = request.POST.get("slider")
         if slider_value is not None:
             budget.slider = int(slider_value)
@@ -910,6 +919,9 @@ class MarkStep5CalculationViewedView(LoginRequiredMixin, WorkshopScopedMixin, Vi
 
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if _is_budget_edit_locked(budget):
+            return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
+
         if not budget.step5_calculation_viewed:
             budget.step5_calculation_viewed = True
             budget.save(update_fields=["step5_calculation_viewed"])
@@ -926,6 +938,9 @@ class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
             budget_id = int(data.get("budget_id"))
             observation = sentence_case(str(data.get("observation", "")).strip())
             budget = _get_budget_for_workshop(self.workshop, budget_id)
+            if _is_budget_edit_locked(budget):
+                return JsonResponse({"success": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
+
             budget.pdf_observation = observation
             budget.save(update_fields=["pdf_observation"])
             return JsonResponse({"success": True})

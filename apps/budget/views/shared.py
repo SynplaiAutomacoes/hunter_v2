@@ -1,4 +1,5 @@
 import logging
+import json
 from datetime import timedelta
 from decimal import Decimal
 from urllib.parse import parse_qs, urlparse
@@ -14,6 +15,7 @@ from apps.budget.fields import DurationField
 from apps.workshops.models.workshop_costs import WorkshopCost
 
 logger = logging.getLogger(__name__)
+LOCKED_BUDGET_EDIT_MESSAGE = "Reabra o orçamento antes de editar qualquer campo."
 
 
 def _get_budget_for_workshop(workshop, budget_id):
@@ -53,6 +55,17 @@ def _step_redirect_response(request, budget, fallback_step=None):
     response = HttpResponse()
     response["HX-Redirect"] = _budget_update_url(budget.id, current_step)
     return response
+
+
+def _build_locked_budget_response(request, budget, *, fallback_step=None, status_code: int = 409):
+    response = _step_redirect_response(request, budget, fallback_step=fallback_step)
+    response.status_code = status_code
+    response["HX-Trigger"] = json.dumps({"showToast": {"message": LOCKED_BUDGET_EDIT_MESSAGE, "type": "warning"}})
+    return response
+
+
+def _is_budget_edit_locked(budget: Budget) -> bool:
+    return bool(getattr(budget, "is_status_locked", False))
 
 
 def _parse_duration_from_string(raw_duration):

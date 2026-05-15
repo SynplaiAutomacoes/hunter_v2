@@ -8,6 +8,13 @@
         <p class="text-lg-content/70 mt-1">Status: <span class="badge badge-sm {{ workorder.workorder_status_badge.class|cut:' min-w-sm' }} uppercase font-bold">{{ workorder.workorder_status_badge.text }}</span></p>
     </div>
 
+    {% if workorder.is_status_locked %}
+    <div class="alert alert-warning">
+        <span class="material-icons">lock</span>
+        <span>Esta O.S. está com status final. Reabra a O.S. para editar campos.</span>
+    </div>
+    {% endif %}
+
     <div class="mt-8 space-y-4">
         <div class="app-tabs tabs tabs-lift flex-wrap" role="tablist" aria-label="Seções da ordem de serviço">
             <input type="radio" name="workorder_tabs" value="resumo" class="tab" aria-label="Resumo" x-model="activeTab" checked />
@@ -109,11 +116,56 @@
 
 <script>
     (function () {
+        const isWorkorderLocked = {% if workorder.is_status_locked %}true{% else %}false{% endif %};
+        const lockMessage = 'Esta O.S. está bloqueada. Reabra para editar.';
+
         const formModal = document.getElementById('form_modal');
         const itemFormModal = document.getElementById('item_form_modal');
         const itemModalContainer = document.getElementById('item-modal-container');
         const itemConfirmModal = document.getElementById('item_confirm_modal');
         const itemConfirmModalContainer = document.getElementById('item-confirm-modal-container');
+
+        function lockWorkorderEditing(root) {
+            if (!isWorkorderLocked || !root) {
+                return;
+            }
+
+            const editableScopes = [
+                '#resume-section',
+                '#payment-section',
+                '#customer-approvement-section',
+                '#modal-container',
+                '#item-modal-container',
+                '#item-confirm-modal-container'
+            ];
+
+            editableScopes.forEach((scopeSelector) => {
+                const scope = root.querySelector(scopeSelector);
+                if (!scope) {
+                    return;
+                }
+
+                const fields = scope.querySelectorAll('input:not([type="hidden"]):not([type="radio"]), select, textarea');
+                fields.forEach((field) => {
+                    if (field.id === 'toggle-reopen-workorder-form' || field.closest('#reopen-workorder-form')) {
+                        return;
+                    }
+                    field.setAttribute('disabled', 'disabled');
+                    field.setAttribute('title', lockMessage);
+                    field.classList.add('cursor-not-allowed', 'opacity-70');
+                });
+
+                const actionButtons = scope.querySelectorAll('button, [hx-post], [hx-put], [hx-delete]');
+                actionButtons.forEach((button) => {
+                    if (button.id === 'toggle-reopen-workorder-form' || button.closest('#reopen-workorder-form')) {
+                        return;
+                    }
+                    button.setAttribute('disabled', 'disabled');
+                    button.setAttribute('title', lockMessage);
+                    button.classList.add('cursor-not-allowed', 'opacity-70');
+                });
+            });
+        }
 
         function clearItemModalContainer() {
             if (!itemModalContainer) {
@@ -202,7 +254,10 @@
             if (target && target.id === 'payment-section' && typeof window.initWorkOrderPaymentForm === 'function') {
                 window.initWorkOrderPaymentForm();
             }
+            lockWorkorderEditing(document);
         });
+
+        lockWorkorderEditing(document);
     })();
 </script>
 

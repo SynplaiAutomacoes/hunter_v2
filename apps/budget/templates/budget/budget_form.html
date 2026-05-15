@@ -15,6 +15,13 @@
         </div>
     </div>
 
+    {% if form.instance.pk and form.instance.is_status_locked %}
+    <div class="alert alert-warning mt-4">
+        <span class="material-icons">lock</span>
+        <span>Este orçamento está com status final. Reabra o orçamento para editar campos.</span>
+    </div>
+    {% endif %}
+
     <div class="card bg-base-100 shadow-xl">
         <div class="card-body p-6 md:p-8" id="step-container">
             {% include 'budget/partials/budget_step_content.html' %}
@@ -61,6 +68,34 @@
 
     <script>
         (function() {
+            const isBudgetLocked = {% if form.instance.pk and form.instance.is_status_locked %}true{% else %}false{% endif %};
+
+            function lockBudgetEditing(root) {
+                if (!isBudgetLocked || !root) {
+                    return;
+                }
+
+                const lockMessage = 'Este orçamento está bloqueado. Reabra para editar.';
+                const selectors = [
+                    '#budget-form input:not([type="hidden"]):not([type="radio"]):not([data-allow-locked])',
+                    '#budget-form select:not([data-allow-locked])',
+                    '#budget-form textarea:not([data-allow-locked])',
+                    '#budget-form button:not([data-allow-locked])',
+                    '[form="budget-form"]:not([data-allow-locked])',
+                    '#step-container [hx-post]:not([data-allow-locked])',
+                    '#step-container [hx-delete]:not([data-allow-locked])',
+                    '#step-container [hx-put]:not([data-allow-locked])'
+                ];
+
+                root.querySelectorAll(selectors.join(',')).forEach((element) => {
+                    element.setAttribute('disabled', 'disabled');
+                    element.setAttribute('title', lockMessage);
+                    if (element.classList) {
+                        element.classList.add('cursor-not-allowed', 'opacity-70');
+                    }
+                });
+            }
+
             function getModal(id) {
                 return document.getElementById(id);
             }
@@ -130,6 +165,14 @@
                 window.__budgetCloseParentModalBound = true;
                 document.body.addEventListener('closeParentBudgetModal', function() {
                     window.closeBudgetParentModal();
+                });
+            }
+
+            lockBudgetEditing(document);
+            if (!window.__budgetLockAfterSwapBound) {
+                window.__budgetLockAfterSwapBound = true;
+                document.body.addEventListener('htmx:afterSwap', function() {
+                    lockBudgetEditing(document);
                 });
             }
         })();
