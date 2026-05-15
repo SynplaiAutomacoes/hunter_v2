@@ -24,6 +24,7 @@ from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, Percen
 from apps.customer.models import Customer, Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 from apps.workorder.models import WorkOrderStatus
+from apps.workshops.util.workshops import has_workshop_perm
 
 from .shared import MAX_BUDGET_IMAGES, _get_budget_with_prefetched_items, _render_budget_items_rows, _validate_uploaded_files, _validate_uploaded_images
 from .widgets import MultipleFileField, MultipleFileInput
@@ -2987,6 +2988,16 @@ class BudgetStep6Form(CoreModelForm):
                     }
 
                 async function updateBudgetStatus(budgetId, status) {
+                    const canReopenBudget = arguments.length > 2 ? Boolean(arguments[2]) : true;
+
+                    if (status === 'reopen' && !canReopenBudget) {
+                        await customConfirm(
+                            'Você não tem permissão para reabrir este orçamento. Fale com um responsável que tenha essa permissão para continuar.',
+                            { singleClose: true, closeText: 'Fechar' }
+                        );
+                        return;
+                    }
+
                     if (status === 'cancel') {
                         const modal = document.getElementById('cancelBudgetModal');
                         const input = document.getElementById('cancellation-reason-input');
@@ -3329,7 +3340,7 @@ class BudgetStep6Form(CoreModelForm):
                                 Reprovar
                             </button>
 
-                            {f"<button type='button' class='btn btn-outline col-span-12' data-allow-locked='1' onclick='updateBudgetStatus({budget.pk}, &#39;reopen&#39;)'>Reabrir Orçamento</button>" if budget.is_status_locked else ""}
+                            {f"<button type='button' class='btn btn-outline col-span-12' data-allow-locked='1' onclick='updateBudgetStatus({budget.pk}, &#39;reopen&#39;, {str(bool(self.request and self.workshop and has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label='budget', model='budget', codename='add_budget', request=self.request))).lower()})'>Reabrir Orçamento</button>" if budget.is_status_locked else ""}
                         </div>
                         """),
                         css_class="p-4 bg-base-200/50 rounded-lg",
