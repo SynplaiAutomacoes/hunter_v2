@@ -87,8 +87,8 @@
                         data-url="{% url 'workorder:send_signature' workorder.pk %}"
                         onclick="sendBudgetForSignature(this)">Enviar para Assinatura</button>
                     <button class="btn btn-sm btn-outline" x-show="showPdfVariantToggle" @click="togglePdfVariant()" x-text="pdfToggleLabel"></button>
-                    <button class="btn btn-sm btn-success" x-show="d" @click="window.open(d, '_blank')">Baixar PDF</button>
-                    <button class="btn btn-sm" onclick="pdfModal.close()">Fechar</button>
+                    <button class="btn btn-sm btn-success" data-allow-locked="1" x-show="d" @click="window.open(d, '_blank')">Baixar PDF</button>
+                    <button class="btn btn-sm" data-allow-locked="1" onclick="pdfModal.close()">Fechar</button>
                 </div>
             </div>
             <iframe :src="u" class="w-full flex-1"></iframe>

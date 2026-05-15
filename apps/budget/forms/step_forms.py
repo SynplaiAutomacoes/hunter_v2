@@ -1013,11 +1013,11 @@ class BudgetStep3Form(CoreModelForm):
                                 Visualização do Checklist
                             </h3>
                             <div class="flex gap-2">
-                                <button type="button" class="btn btn-sm btn-success"
+                                <button type="button" class="btn btn-sm btn-success" data-allow-locked="1"
                                     onclick="const frame = document.querySelector('#pdfModal iframe'); frame.contentWindow.focus(); frame.contentWindow.print();">
                                     Baixar PDF
                                 </button>
-                                <button type="button" class="btn btn-sm" onclick="document.getElementById('pdfModal').close()">
+                                <button type="button" class="btn btn-sm" data-allow-locked="1" onclick="document.getElementById('pdfModal').close()">
                                     Fechar
                                 </button>
                             </div>
@@ -1028,7 +1028,7 @@ class BudgetStep3Form(CoreModelForm):
                             </template>
                         </div>
                     </div>
-                    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+                    <form method="dialog" class="modal-backdrop"><button data-allow-locked="1">close</button></form>
                 </dialog>
             """),
         )
@@ -3392,6 +3392,7 @@ class BudgetStep6Form(CoreModelForm):
 
                         <button type="button"
                                 class="btn btn-sm btn-success"
+                                data-allow-locked="1"
                                 onclick="
                                   const frame = document.querySelector('#pdfModal iframe');
                                   const downloadUrl = frame ? frame.dataset.downloadUrl : '';
@@ -3407,6 +3408,7 @@ class BudgetStep6Form(CoreModelForm):
 
                         <button type="button"
                                 class="btn btn-sm"
+                                data-allow-locked="1"
                                 onclick="document.getElementById('pdfModal').close()">
                             Fechar
                         </button>
