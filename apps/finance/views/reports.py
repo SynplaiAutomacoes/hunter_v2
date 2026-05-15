@@ -548,6 +548,13 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             due_date = latest_payment_date
             description = self._resolve_workorder_description(workorder)
             payment_type = self._resolve_payment_method_summary(payments)
+            selected_payment_id = str(movement.workorder_payment_id) if movement.workorder_payment_id else ""
+            if not selected_payment_id and payments:
+                selected_payment_id = str(payments[0].pk)
+            if selected_payment_id:
+                edit_modal_url = f"{edit_modal_url}?payment_id={selected_payment_id}"
+        elif movement.workorder_id and movement.workorder_payment_id:
+            edit_modal_url = f"{edit_modal_url}?payment_id={movement.workorder_payment_id}"
         elif movement.movement_kind == FinancialMovement.MovementKind.GROUP_PARENT and movement.movement_group_id:
             is_group_parent = True
             children = movement.movement_group.financial_movements.exclude(pk=movement.pk)
@@ -714,7 +721,37 @@ class ReportMovementEditView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["movement"] = self.object
-        context["selected_workorder_payment_id"] = self.request.GET.get("payment_id") or self.request.POST.get("selected_workorder_payment_id") or ""
+        fallback_payment_id = ""
+        if getattr(self.object, "workorder_payment_id", None):
+            fallback_payment_id = str(self.object.workorder_payment_id)
+        elif getattr(self.object, "workorder_id", None):
+            first_payment = WorkOrderPaymentMethod.objects.filter(workorder_id=self.object.workorder_id).order_by("-pk").first()
+            if first_payment is not None:
+                fallback_payment_id = str(first_payment.pk)
+
+        selected_workorder_payment_id = self.request.GET.get("payment_id") or self.request.POST.get("selected_workorder_payment_id") or fallback_payment_id
+        context["selected_workorder_payment_id"] = selected_workorder_payment_id
+
+        forced_payment_method_id = ""
+        if getattr(self.object, "payment_method_id", None):
+            forced_payment_method_id = str(self.object.payment_method_id)
+        elif selected_workorder_payment_id:
+            selected_payment = WorkOrderPaymentMethod.objects.filter(pk=selected_workorder_payment_id).select_related("payment_method").first()
+            if selected_payment is not None and getattr(selected_payment, "payment_method_id", None):
+                forced_payment_method_id = str(selected_payment.payment_method_id)
+        context["forced_payment_method_id"] = forced_payment_method_id
+
+        logger.warning(
+            "[ReportMovementEditView] modal context payment | movement_id=%s kind=%s workorder_id=%s query_payment_id=%s selected_workorder_payment_id=%s movement_workorder_payment_id=%s movement_payment_method_id=%s forced_payment_method_id=%s",
+            getattr(self.object, "pk", None),
+            getattr(self.object, "movement_kind", None),
+            getattr(self.object, "workorder_id", None),
+            self.request.GET.get("payment_id"),
+            context["selected_workorder_payment_id"],
+            getattr(self.object, "workorder_payment_id", None),
+            getattr(self.object, "payment_method_id", None),
+            forced_payment_method_id,
+        )
         return context
 
     def form_valid(self, form):
