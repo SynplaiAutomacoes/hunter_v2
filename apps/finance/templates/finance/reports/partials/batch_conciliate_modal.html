@@ -1,0 +1,56 @@
+<dialog id="batch-conciliate-modal" class="modal" x-init="$nextTick(() => $el.showModal())" @click="if ($event.target === $el) $el.close()" @close="$el.remove()">
+    <div class="modal-box w-[95vw] max-w-xl border border-base-300 bg-base-100 shadow-2xl p-6 md:p-10">
+        <div class="flex items-center justify-between mb-6">
+            <h3 class="text-2xl font-bold text-base-content flex items-center gap-3">
+                <span class="material-icons text-primary text-2xl">account_balance</span>
+                Conciliar em Lote
+            </h3>
+            <button type="button" class="btn btn-ghost btn-sm btn-circle" @click="$el.closest('dialog').close()" aria-label="Fechar">
+                <span class="material-icons text-xl">close</span>
+            </button>
+        </div>
+
+        <div class="alert alert-info shadow-lg mb-6">
+            <span class="material-icons">info</span>
+            <span>A conta selecionada será aplicada a todas as movimentações escolhidas e, em seguida, elas serão conciliadas.</span>
+        </div>
+
+        <form
+            hx-post="{% url 'finance:batch_conciliate' %}"
+            hx-target="#conciliar-modal-container"
+            hx-swap="innerHTML"
+            class="space-y-5"
+        >
+            {% csrf_token %}
+
+            {% for movement_id in movement_ids %}
+                <input type="hidden" name="movement_ids" value="{{ movement_id }}">
+            {% endfor %}
+
+            <div>
+                <label for="batch-bank-account" class="label-text font-medium">Conta bancária</label>
+                <select id="batch-bank-account" name="bank_account_id" class="select select-bordered w-full mt-2" required>
+                    <option value="">Selecione uma conta</option>
+                    {% for account in bank_accounts %}
+                        <option value="{{ account.pk }}">{{ account }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="text-sm text-base-content/70">
+                {{ movement_ids|length }} movimentação(ões) selecionada(s).
+            </div>
+
+            <div class="modal-action mt-8">
+                <button type="button" class="btn btn-ghost" @click="$el.closest('dialog').close()">Cancelar</button>
+                <button type="submit" class="btn btn-primary">
+                    <span class="material-icons text-sm">done_all</span>
+                    Aplicar e conciliar
+                </button>
+            </div>
+        </form>
+    </div>
+    <form method="dialog" class="modal-backdrop bg-black/50">
+        <button>close</button>
+    </form>
+</dialog>

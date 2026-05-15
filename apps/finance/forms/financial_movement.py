@@ -1,3 +1,5 @@
+import logging
+
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
@@ -14,6 +16,9 @@ from apps.suppliers.models import Supplier
 from apps.core.text_normalization import sentence_case
 from apps.core.forms import CoreModelForm
 from apps.workorder.models import WorkOrderPaymentMethod
+
+
+logger = logging.getLogger(__name__)
 
 
 class FinancialMovementBaseForm(CoreModelForm):
@@ -599,14 +604,36 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         self.fields["amount"].required = True
         self.fields["payment_method"].required = True
         self.fields["budget_plan"].required = getattr(self.instance, "workorder_id", None) is not None
-        self.fields["bank_account"].required = getattr(self.instance, "workorder_id", None) is not None
+        self.fields["bank_account"].required = False
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
         self.fields["is_reconciled"].initial = bool(getattr(self.instance, "is_reconciled", False)) if self.instance.pk else False
 
-        if getattr(self.instance, "workorder_id", None) and getattr(self, "request", None):
-            raw_payment_id = self.request.GET.get("payment_id") if not self.is_bound else self.data.get("selected_workorder_payment_id")
+        if getattr(self.instance, "workorder_id", None):
+            raw_payment_id = ""
+            if getattr(self, "request", None):
+                raw_payment_id = self.request.GET.get("payment_id") if not self.is_bound else self.data.get("selected_workorder_payment_id")
+
             if raw_payment_id:
                 self.selected_workorder_payment = WorkOrderPaymentMethod.objects.filter(pk=raw_payment_id, workorder=self.instance.workorder).select_related("payment_method").first()
+
+            if self.selected_workorder_payment is None and getattr(self.instance, "workorder_payment_id", None):
+                self.selected_workorder_payment = WorkOrderPaymentMethod.objects.filter(pk=self.instance.workorder_payment_id, workorder=self.instance.workorder).select_related("payment_method").first()
+
+            if self.selected_workorder_payment is None and getattr(self.instance, "workorder", None) is not None:
+                self.selected_workorder_payment = WorkOrderPaymentMethod.objects.filter(workorder=self.instance.workorder).select_related("payment_method").order_by("-pk").first()
+
+            logger.warning(
+                "[ReportMovementEditForm] workorder movement resolve payment | movement_id=%s kind=%s workorder_id=%s raw_payment_id=%s instance_workorder_payment_id=%s selected_workorder_payment_id=%s selected_workorder_payment_method_id=%s instance_payment_method_id=%s direction=%s",
+                getattr(self.instance, "pk", None),
+                getattr(self.instance, "movement_kind", None),
+                getattr(self.instance, "workorder_id", None),
+                raw_payment_id,
+                getattr(self.instance, "workorder_payment_id", None),
+                getattr(self.selected_workorder_payment, "pk", None),
+                getattr(self.selected_workorder_payment, "payment_method_id", None),
+                getattr(self.instance, "payment_method_id", None),
+                getattr(self.instance, "direction", None),
+            )
 
         if self.workshop:
             supplier_qs = Supplier.objects.filter(workshop=self.workshop)
@@ -630,6 +657,13 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
                 self.fields["payment_method"].initial = self.selected_workorder_payment.payment_method_id
             elif self.instance.payment_method_id:
                 self.fields["payment_method"].initial = self.instance.payment_method_id
+
+            logger.warning(
+                "[ReportMovementEditForm] payment_method initial applied | movement_id=%s initial=%s queryset_size=%s",
+                getattr(self.instance, "pk", None),
+                self.fields["payment_method"].initial,
+                self.fields["payment_method"].queryset.count() if hasattr(self.fields["payment_method"], "queryset") else -1,
+            )
 
         selected_supplier = self.instance.supplier_id if self.instance.pk else None
         selected_collaborator = self.instance.collaborator_id if self.instance.pk else None
@@ -732,8 +766,14 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
     def _get_payment_method_queryset(self):
         payment_methods = PaymentMethod.objects.filter(workshop=self.workshop, is_active=True)
 
+        pinned_payment_method_ids: set[int] = set()
         if self.instance.pk and self.instance.payment_method_id:
-            payment_methods = PaymentMethod.objects.filter(workshop=self.workshop).filter(Q(is_active=True) | Q(pk=self.instance.payment_method_id))
+            pinned_payment_method_ids.add(int(self.instance.payment_method_id))
+        if self.selected_workorder_payment and self.selected_workorder_payment.payment_method_id:
+            pinned_payment_method_ids.add(int(self.selected_workorder_payment.payment_method_id))
+
+        if pinned_payment_method_ids:
+            payment_methods = PaymentMethod.objects.filter(workshop=self.workshop).filter(Q(is_active=True) | Q(pk__in=pinned_payment_method_ids))
 
         return payment_methods.order_by("description").distinct()
 

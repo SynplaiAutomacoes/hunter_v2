@@ -38,6 +38,15 @@ class BudgetStatus(models.TextChoices):
     CANCELLED = "cancelled", "Cancelado"
 
 
+BUDGET_REOPENABLE_STATUSES = frozenset(
+    {
+        BudgetStatus.APPROVED,
+        BudgetStatus.REJECTED,
+        BudgetStatus.CANCELLED,
+    }
+)
+
+
 class SignatureStatus(models.TextChoices):
     NOT_SENT = "not_sent", "Não Enviado"
     SENDING = "sending", "Enviando"
@@ -182,6 +191,10 @@ class Budget(TimeStampedModel):
     @property
     def has_frozen_pricing_snapshot(self) -> bool:
         return self.pricing_reference_month is not None and self.pricing_reference_year is not None
+
+    @property
+    def is_status_locked(self) -> bool:
+        return self.status in BUDGET_REOPENABLE_STATUSES
 
     def _get_pricing_reference_date(self):
         return self.criado_em if self.criado_em else timezone.now()

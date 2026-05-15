@@ -158,6 +158,8 @@
     const detailsContainer = modal.querySelector('#report-edit-entity-details');
     const paymentMethodConfigElement = document.getElementById('report-edit-payment-method-data');
     const paymentMethodFilterData = paymentMethodConfigElement ? JSON.parse(paymentMethodConfigElement.textContent) : null;
+    const isWorkorderMovement = {{ movement.workorder_id|yesno:"true,false" }};
+    const expectedPaymentMethodId = '{{ forced_payment_method_id|default_if_none:""|escapejs }}';
 
     function getWidgetElements(input) {
         if (!input) return null;
@@ -296,9 +298,38 @@
 
     function syncPaymentMethodState() {
         if (!directionInput || !paymentMethodInput || !paymentMethodFilterData) return;
+        if (isWorkorderMovement) {
+            return;
+        }
 
         const allowedValues = paymentMethodFilterData[directionInput.value] || null;
         setWidgetAllowedValues(paymentMethodInput, allowedValues);
+    }
+
+    function forceWorkorderPaymentMethodSelection() {
+        if (!isWorkorderMovement || !paymentMethodInput || !expectedPaymentMethodId) {
+            return;
+        }
+
+        const currentValue = String(paymentMethodInput.value || '').trim();
+        const expectedValue = String(expectedPaymentMethodId).trim();
+        if (!expectedValue || currentValue === expectedValue) {
+            return;
+        }
+
+        const container = paymentMethodInput.closest('[x-data]');
+        if (container) {
+            container.dispatchEvent(
+                new CustomEvent('searchable-set-value', {
+                    detail: { value: expectedValue, silent: true },
+                    bubbles: true,
+                })
+            );
+        }
+
+        paymentMethodInput.value = expectedValue;
+        paymentMethodInput.dispatchEvent(new Event('input', { bubbles: true }));
+        paymentMethodInput.dispatchEvent(new Event('change', { bubbles: true }));
     }
 
     if (supplierInput && collaboratorInput && detailsContainer) {
@@ -316,6 +347,12 @@
     if (directionInput && paymentMethodInput && paymentMethodFilterData) {
         directionInput.addEventListener('change', syncPaymentMethodState);
         setTimeout(syncPaymentMethodState, 250);
+    }
+
+    if (isWorkorderMovement) {
+        setTimeout(forceWorkorderPaymentMethodSelection, 50);
+        setTimeout(forceWorkorderPaymentMethodSelection, 250);
+        setTimeout(forceWorkorderPaymentMethodSelection, 600);
     }
 })();
 </script>

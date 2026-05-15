@@ -11,7 +11,7 @@
 
             <div class="flex items-center gap-2">
                 <button type="button" class="btn btn-secondary" id="btn-conciliar" disabled
-                        hx-post="{% url 'finance:batch_conciliate' %}"
+                        hx-get="{% url 'finance:batch_conciliate_modal' %}"
                         hx-target="#conciliar-modal-container"
                         hx-swap="innerHTML"
                         hx-include="#financial-reports-movements-table .item-checkbox:checked">
@@ -153,6 +153,15 @@
                                                     <select name="paid_status" id="reports-filter-paid-status" class="select select-bordered w-full">
                                                         {% for value, label in paid_status_filter_choices %}
                                                             <option value="{{ value }}" {% if selected_paid_status == value %}selected{% endif %}>{{ label }}</option>
+                                                        {% endfor %}
+                                                    </select>
+                                                </div>
+
+                                                <div>
+                                                    <label for="reports-filter-reconciliation-status">Conciliação</label>
+                                                    <select name="reconciliation_status" id="reports-filter-reconciliation-status" class="select select-bordered w-full">
+                                                        {% for value, label in reconciliation_status_filter_choices %}
+                                                            <option value="{{ value }}" {% if selected_reconciliation_status == value %}selected{% endif %}>{{ label }}</option>
                                                         {% endfor %}
                                                     </select>
                                                 </div>

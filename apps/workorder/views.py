@@ -29,6 +29,7 @@ from apps.catalog.kit_applications import build_vehicle_context_label, evaluate_
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.models.kits import Kit
+from apps.budget.models import BudgetType
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
 from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
@@ -76,6 +77,8 @@ from apps.workorder.util import (
     _normalize_active_tab,
     _normalize_selected_item_ids,
     _get_workorder_from_signature_token,
+    _is_workorder_edit_locked,
+    LOCKED_WORKORDER_EDIT_MESSAGE,
 )
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshops import Workshop
@@ -126,6 +129,18 @@ WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
         ),
     ),
     QueryParamFilter(
+        param_name="budget_type",
+        lookup="budget__budget_type",
+        kind="choice",
+        allowed_values=frozenset(
+            {
+                BudgetType.SALE,
+                BudgetType.WARRANTY,
+                BudgetType.COURTESY,
+            }
+        ),
+    ),
+    QueryParamFilter(
         param_name="data_inicial",
         lookup="criado_em__date",
         kind="date_gte",
@@ -138,7 +153,8 @@ WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
 )
 
 WORKORDER_STATUS_CHOICES = tuple((status.value, str(status.label)) for status in WorkOrderStatus)
-WORKORDER_FILTER_PARAM_NAMES = ("client", "vehicle", "status", "data_inicial", "data_final")
+WORKORDER_BUDGET_TYPE_CHOICES = tuple((budget_type.value, str(budget_type.label)) for budget_type in BudgetType)
+WORKORDER_FILTER_PARAM_NAMES = ("client", "vehicle", "status", "budget_type", "data_inicial", "data_final")
 WORKORDER_STATUS_BADGE_CLASSES = {
     WorkOrderStatus.DRAFT: "badge-soft badge-ghost min-w-sm",
     WorkOrderStatus.APPROVED: "badge-success min-w-sm",
@@ -290,6 +306,19 @@ class WorkOrderStatusReportDataMixin:
     def _get_selected_status_values(self) -> list[str]:
         return [str(status) for status in self._get_selected_status_choices()]
 
+    def _get_selected_budget_type_values(self) -> list[str]:
+        selected: list[str] = []
+        seen_values: set[str] = set()
+        for raw_value in self.request.GET.getlist("budget_type"):
+            value = str(raw_value or "").strip()
+            if not value or value in seen_values:
+                continue
+            if value not in {BudgetType.SALE, BudgetType.WARRANTY, BudgetType.COURTESY}:
+                continue
+            seen_values.add(value)
+            selected.append(value)
+        return selected
+
     def _get_selected_status_choices(self) -> list[WorkOrderStatus]:
         cached = getattr(self, "_selected_status_choices_cache", None)
         if cached is not None:
@@ -395,6 +424,12 @@ class WorkOrderStatusReportDataMixin:
         if selected_status_labels:
             filter_labels.append(f"Status: {', '.join(selected_status_labels)}")
 
+        selected_budget_type_values = self._get_selected_budget_type_values()
+        if selected_budget_type_values:
+            type_labels_map = dict(WORKORDER_BUDGET_TYPE_CHOICES)
+            selected_type_labels = [type_labels_map.get(value, value) for value in selected_budget_type_values]
+            filter_labels.append(f"Tipo: {', '.join(selected_type_labels)}")
+
         raw_client = str(self.request.GET.get("client") or "").strip()
         if raw_client:
             filter_labels.append(f"Cliente: {raw_client}")
@@ -459,6 +494,8 @@ class WorkOrderListView(LoginRequiredMixin, WorkOrderStatusReportDataMixin, Work
         ]
         context["status_choices"] = WORKORDER_STATUS_CHOICES
         context["selected_status_values"] = self._get_selected_status_values()
+        context["budget_type_choices"] = WORKORDER_BUDGET_TYPE_CHOICES
+        context["selected_budget_type_values"] = self._get_selected_budget_type_values()
         context["selection_report"] = self._get_selection_report()
         context["selected_status_report"] = context["selection_report"]
         context["status_report_period_label"] = self._get_status_report_period_label()
@@ -551,6 +588,9 @@ class UpdateWorkOrderCollaboratorsView(LoginRequiredMixin, WorkshopScopedMixin, 
 
     def post(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if _is_workorder_edit_locked(workorder):
+            return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
+
         form = WorkOrderCollaboratorForm(request.POST, instance=workorder, workorder=workorder)
         if form.is_valid():
             form.save()
@@ -588,6 +628,8 @@ class UpdateWorkOrderDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View)
 
     def post(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if _is_workorder_edit_locked(workorder):
+            return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
 
         try:
             raw_discount_value = request.POST.get("discount_value_0", "0").replace(",", ".") or "0"
@@ -630,6 +672,9 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if _is_workorder_edit_locked(workorder):
+            return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
+
         approval_form = WorkOrderCustomerApprovalForm(request.POST, workorder=workorder, require_unsigned_delivery_reason=False)
 
         if not approval_form.is_valid():
@@ -704,6 +749,11 @@ class WorkOrderAddItemsBatchView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk, item_type):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if _is_workorder_edit_locked(workorder):
+            response = _render_edit_items_modal(request, workorder, "products")
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": LOCKED_WORKORDER_EDIT_MESSAGE, "type": "warning"}})
+            return response
+
         if item_type not in {"product", "service", "kit"}:
             return _render_edit_items_modal(request, workorder, "products")
 
@@ -777,6 +827,11 @@ class WorkOrderRemoveItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
         item = _get_workorder_item_for_workshop(self.workshop, pk, item_id)
         active_tab = request.POST.get("active_tab") or _active_tab_from_item(item)
         workorder = item.workorder
+        if _is_workorder_edit_locked(workorder):
+            response = _render_edit_items_modal(request, workorder, active_tab)
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": LOCKED_WORKORDER_EDIT_MESSAGE, "type": "warning"}})
+            return response
+
         item.delete()
         return _render_edit_items_modal(request, workorder, active_tab, trigger_refresh=True)
 
@@ -802,6 +857,11 @@ class WorkOrderItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk, item_id):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if _is_workorder_edit_locked(workorder):
+            response = _render_edit_items_modal(request, workorder, "products")
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": LOCKED_WORKORDER_EDIT_MESSAGE, "type": "warning"}})
+            return response
+
         item = _get_workorder_item_for_workshop(self.workshop, pk, item_id)
         active_tab = _normalize_active_tab(request.POST.get("active_tab") or request.GET.get("tab") or _active_tab_from_item(item))
 
@@ -928,6 +988,11 @@ class WorkOrderKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk, item_id):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if _is_workorder_edit_locked(workorder):
+            response = _render_edit_items_modal(request, workorder, "kits")
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": LOCKED_WORKORDER_EDIT_MESSAGE, "type": "warning"}})
+            return response
+
         item = _get_workorder_item_for_workshop(self.workshop, pk, item_id, kit__isnull=False)
 
         products_data = json.loads(request.POST.get("products", "[]"))
@@ -996,6 +1061,9 @@ class AddPaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk):
         workorder = get_object_or_404(WorkOrder, pk=pk, workshop=self.workshop)
+        if _is_workorder_edit_locked(workorder):
+            return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
+
         form = WorkOrderPaymentForm(request.POST, workorder=workorder)
 
         if form.is_valid():
@@ -1027,6 +1095,8 @@ class DeletePaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def delete(self, request, pk):
         payment = get_object_or_404(WorkOrderPaymentMethod, pk=pk, workorder__workshop=self.workshop)
         workorder = payment.workorder
+        if _is_workorder_edit_locked(workorder):
+            return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
 
         payment.delete()
         sync_workorder_financial_movement(workorder=workorder)
@@ -1051,6 +1121,9 @@ class UploadAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk):
         workorder = get_object_or_404(WorkOrder, pk=pk, workshop=self.workshop)
+        if _is_workorder_edit_locked(workorder):
+            return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
+
         uploaded_files = request.FILES.getlist("file_upload")
 
         attachment = None
@@ -1113,6 +1186,8 @@ class DeleteAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
         attachment = get_object_or_404(WorkOrderAttachment, pk=pk, workorder__workshop=self.workshop)
         with transaction.atomic():
             workorder = attachment.workorder
+            if _is_workorder_edit_locked(workorder):
+                return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
             attachment.delete()
 
         context = _build_customer_approvement_context(workorder, request=request)
