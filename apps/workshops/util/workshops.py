@@ -81,7 +81,7 @@ def is_workshop_director(*, user: User, workshop: Workshop, request=None) -> boo
         user=user,
         workshop=workshop,
         is_active=True,
-        role__name__iexact="Diretor",
+        role__name__iregex=r"^\s*diretor\s*$",
     ).exists()
 
     if request is not None and cache is not None:
@@ -109,7 +109,7 @@ def is_workshop_manager(*, user: User, workshop: Workshop, request=None) -> bool
         user=user,
         workshop=workshop,
         is_active=True,
-        role__name__iexact="Gerente",
+        role__name__iregex=r"^\s*gerente\s*$",
     ).exists()
 
     if request is not None and cache is not None:
