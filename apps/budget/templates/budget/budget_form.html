@@ -23,7 +23,7 @@
     {% endif %}
 
     <div class="card bg-base-100 shadow-xl">
-        <div class="card-body p-6 md:p-8" id="step-container">
+        <div class="card-body p-6 md:p-8" id="step-container" data-budget-locked="{% if form.instance.pk and form.instance.is_status_locked %}1{% else %}0{% endif %}">
             {% include 'budget/partials/budget_step_content.html' %}
         </div>
     </div>
@@ -93,6 +93,47 @@
                     if (element.classList) {
                         element.classList.add('cursor-not-allowed', 'opacity-70');
                     }
+                });
+
+                const vehicleField = root.querySelector('[name="vehicle"]');
+                const customerField = root.querySelector('[name="customer"]');
+                [vehicleField, customerField].forEach((field) => {
+                    if (!field) {
+                        return;
+                    }
+                    field.setAttribute('disabled', 'disabled');
+                    const container = field.closest('[x-data]');
+                    if (container && container.classList) {
+                        container.classList.add('pointer-events-none', 'opacity-70');
+                    }
+                });
+
+                root.querySelectorAll('#step-container button.btn-circle').forEach((btn) => {
+                    btn.setAttribute('disabled', 'disabled');
+                    btn.setAttribute('title', lockMessage);
+                    btn.classList.add('btn-disabled', 'cursor-not-allowed', 'opacity-70');
+                });
+
+                root.querySelectorAll('[data-budget-lock-scope="collaborators"] select, [data-budget-lock-scope="collaborators"] button').forEach((element) => {
+                    if (element.hasAttribute('data-allow-locked')) {
+                        return;
+                    }
+                    element.setAttribute('disabled', 'disabled');
+                    element.setAttribute('title', lockMessage);
+                    element.classList.add('cursor-not-allowed', 'opacity-70');
+                });
+
+                root.querySelectorAll('[data-budget-lock-scope="collaborators"] button.btn-circle').forEach((btn) => {
+                    btn.classList.remove('btn-primary', 'btn-warning', 'btn-error');
+                    btn.classList.add('btn-disabled', 'opacity-60', 'cursor-not-allowed');
+                });
+
+                root.querySelectorAll('[data-budget-lock-scope="collaborators"] select').forEach((select) => {
+                    select.classList.add('select-disabled', 'opacity-70', 'cursor-not-allowed');
+                });
+
+                root.querySelectorAll('[data-budget-lock-scope="collaborators"]').forEach((scope) => {
+                    scope.classList.add('pointer-events-none', 'opacity-70');
                 });
             }
 
@@ -174,6 +215,33 @@
                 document.body.addEventListener('htmx:afterSwap', function() {
                     lockBudgetEditing(document);
                 });
+            }
+
+            if (!window.__budgetLockClickGuardBound) {
+                window.__budgetLockClickGuardBound = true;
+                document.addEventListener('click', function (event) {
+                    if (!isBudgetLocked) {
+                        return;
+                    }
+
+                    const target = event.target;
+                    if (!target || !(target instanceof Element)) {
+                        return;
+                    }
+
+                    const blockedScope = target.closest('[data-budget-lock-scope="collaborators"], #step-container [x-data]');
+                    if (!blockedScope) {
+                        return;
+                    }
+
+                    const allowed = target.closest('[data-allow-locked="1"]');
+                    if (allowed) {
+                        return;
+                    }
+
+                    event.preventDefault();
+                    event.stopPropagation();
+                }, true);
             }
         })();
     </script>

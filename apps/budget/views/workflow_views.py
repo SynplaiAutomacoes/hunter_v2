@@ -821,6 +821,7 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "cancel": BudgetStatus.CANCELLED,
             "approve": BudgetStatus.APPROVED,
             "reject": BudgetStatus.REJECTED,
+            "reopen": BudgetStatus.WAITING_REVIEW,
         }
 
         if status not in status_map:
@@ -835,6 +836,9 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if status == "reject" and has_active_workorder:
             error_message = "Não é possível reprovar um orçamento após a abertura da O.S. Cancele a ordem de serviço primeiro ou siga com o cancelamento do orçamento."
             return JsonResponse({"success": False, "error": error_message}, status=400)
+
+        if budget.is_status_locked and status != "reopen":
+            return JsonResponse({"success": False, "error": "Reabra o orçamento antes de alterar o status."}, status=409)
 
         # Validação de Aprovação
         if status == "approve":
@@ -856,6 +860,9 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 if not cancellation_reason:
                     return JsonResponse({"success": False, "error": "O motivo do cancelamento é obrigatório."}, status=400)
                 budget.cancellation_reason = cancellation_reason
+            elif status == "reopen":
+                budget.cancellation_reason = ""
+                budget.regenerate_signature_token()
 
             budget.status = status_map[status]
             budget.save()
