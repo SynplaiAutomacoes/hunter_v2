@@ -24,6 +24,7 @@ from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, Percen
 from apps.customer.models import Customer, Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 from apps.workorder.models import WorkOrderStatus
+from apps.workshops.util.workshops import has_workshop_perm
 
 from .shared import MAX_BUDGET_IMAGES, _get_budget_with_prefetched_items, _render_budget_items_rows, _validate_uploaded_files, _validate_uploaded_images
 from .widgets import MultipleFileField, MultipleFileInput
@@ -1012,11 +1013,11 @@ class BudgetStep3Form(CoreModelForm):
                                 Visualização do Checklist
                             </h3>
                             <div class="flex gap-2">
-                                <button type="button" class="btn btn-sm btn-success"
+                                <button type="button" class="btn btn-sm btn-success" data-allow-locked="1"
                                     onclick="const frame = document.querySelector('#pdfModal iframe'); frame.contentWindow.focus(); frame.contentWindow.print();">
                                     Baixar PDF
                                 </button>
-                                <button type="button" class="btn btn-sm" onclick="document.getElementById('pdfModal').close()">
+                                <button type="button" class="btn btn-sm" data-allow-locked="1" onclick="document.getElementById('pdfModal').close()">
                                     Fechar
                                 </button>
                             </div>
@@ -1027,7 +1028,7 @@ class BudgetStep3Form(CoreModelForm):
                             </template>
                         </div>
                     </div>
-                    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+                    <form method="dialog" class="modal-backdrop"><button data-allow-locked="1">close</button></form>
                 </dialog>
             """),
         )
@@ -2987,6 +2988,16 @@ class BudgetStep6Form(CoreModelForm):
                     }
 
                 async function updateBudgetStatus(budgetId, status) {
+                    const canReopenBudget = arguments.length > 2 ? Boolean(arguments[2]) : true;
+
+                    if (status === 'reopen' && !canReopenBudget) {
+                        await customConfirm(
+                            'Você não tem permissão para reabrir este orçamento. Fale com um responsável que tenha essa permissão para continuar.',
+                            { singleClose: true, closeText: 'Fechar' }
+                        );
+                        return;
+                    }
+
                     if (status === 'cancel') {
                         const modal = document.getElementById('cancelBudgetModal');
                         const input = document.getElementById('cancellation-reason-input');
@@ -3264,17 +3275,17 @@ class BudgetStep6Form(CoreModelForm):
                         HTML('<h4 class="font-bold text-lg mb-2 border-b">PDF</h4>'),
                         HTML(f"""
                         <div class="grid grid-cols-12 gap-3 text-center mb-8">
-                            <button type="button" class="btn btn-success col-span-4"
+                            <button type="button" class="btn btn-success col-span-4" data-allow-locked="1"
                                 onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{signed_pdf_url}', downloadUrl: '{signed_pdf_download_url}', showSignatureBtn: true, signatureButtonLabel: '{signature_button_label}', isSignatureResend: {"true" if is_signature_resend else "false"}, signatureBlocked: {signature_blocked_json}, signatureBlockedReason: {signature_blocked_reason_json}, showPdfVariantToggle: {"true" if can_toggle_signed_pdf else "false"}, pdfVariant: 'signed', signedPdfUrl: '{signed_pdf_url}', basePdfUrl: '{base_pdf_url}', signedDownloadUrl: '{signed_pdf_download_url}', baseDownloadUrl: '{base_pdf_download_url}' }} }}))">
                                 PDF Cliente
                             </button>
 
-                            <button type="button" class="btn btn-success col-span-4"
+                            <button type="button" class="btn btn-success col-span-4" data-allow-locked="1"
                                 onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf_gestor", args=[budget.pk])}', showSignatureBtn: false }} }}))">
                                 PDF Gestor
                             </button>
 
-                            <button type="button" class="btn btn-success col-span-4"
+                            <button type="button" class="btn btn-success col-span-4" data-allow-locked="1"
                                 onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf_mecanico", args=[budget.pk])}', showSignatureBtn: false }} }}))">
                                 PDF Mecânico
                             </button>
@@ -3329,7 +3340,7 @@ class BudgetStep6Form(CoreModelForm):
                                 Reprovar
                             </button>
 
-                            {f"<button type='button' class='btn btn-outline col-span-12' data-allow-locked='1' onclick='updateBudgetStatus({budget.pk}, &#39;reopen&#39;)'>Reabrir Orçamento</button>" if budget.is_status_locked else ""}
+                            {f"<button type='button' class='btn btn-outline col-span-12' data-allow-locked='1' onclick='updateBudgetStatus({budget.pk}, &#39;reopen&#39;, {str(bool(self.request and self.workshop and has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label='budget', model='budget', codename='add_budget', request=self.request))).lower()})'>Reabrir Orçamento</button>" if budget.is_status_locked else ""}
                         </div>
                         """),
                         css_class="p-4 bg-base-200/50 rounded-lg",
@@ -3381,6 +3392,7 @@ class BudgetStep6Form(CoreModelForm):
 
                         <button type="button"
                                 class="btn btn-sm btn-success"
+                                data-allow-locked="1"
                                 onclick="
                                   const frame = document.querySelector('#pdfModal iframe');
                                   const downloadUrl = frame ? frame.dataset.downloadUrl : '';
@@ -3396,6 +3408,7 @@ class BudgetStep6Form(CoreModelForm):
 
                         <button type="button"
                                 class="btn btn-sm"
+                                data-allow-locked="1"
                                 onclick="document.getElementById('pdfModal').close()">
                             Fechar
                         </button>

@@ -102,7 +102,7 @@
 
         <div class="flex flex-wrap gap-3">
             <div class="flex flex-wrap gap-3">
-                <button type="button" class="btn btn-primary"
+                <button type="button" class="btn btn-primary" data-allow-locked="1"
                     onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {
                         detail: {
                             url: '{% url 'workorder:visualizar_pdf' workorder.pk %}?variant=signed',
@@ -479,14 +479,14 @@
         }
 
         if (reopenToggleButton && reopenForm) {
-            reopenToggleButton.addEventListener('click', () => {
+            reopenToggleButton.addEventListener('click', async () => {
                 if (reopenToggleButton.dataset.canReopenWorkorder !== 'true') {
-                    document.body.dispatchEvent(new CustomEvent('showToast', {
-                        detail: {
-                            message: 'Você não tem permissão para reabrir esta O.S.',
-                            type: 'error'
-                        }
-                    }));
+                    if (typeof window.customConfirm === 'function') {
+                        await window.customConfirm(
+                            'Você não tem permissão para reabrir esta O.S. Fale com alguém que tenha essa permissão para continuar.',
+                            { singleClose: true, closeText: 'Fechar' }
+                        );
+                    }
                     return;
                 }
 
@@ -495,13 +495,13 @@
                 reopenForm.querySelector('textarea')?.focus();
             });
         } else if (reopenToggleButton) {
-            reopenToggleButton.addEventListener('click', () => {
-                document.body.dispatchEvent(new CustomEvent('showToast', {
-                    detail: {
-                        message: 'Você não tem permissão para reabrir esta O.S.',
-                        type: 'error'
-                    }
-                }));
+            reopenToggleButton.addEventListener('click', async () => {
+                if (typeof window.customConfirm === 'function') {
+                    await window.customConfirm(
+                        'Você não tem permissão para reabrir esta O.S. Fale com alguém que tenha essa permissão para continuar.',
+                        { singleClose: true, closeText: 'Fechar' }
+                    );
+                }
             });
         }
 
