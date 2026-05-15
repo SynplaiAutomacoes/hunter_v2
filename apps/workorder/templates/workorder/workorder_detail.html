@@ -157,6 +157,9 @@
 
                 const actionButtons = scope.querySelectorAll('button, [hx-post], [hx-put], [hx-delete]');
                 actionButtons.forEach((button) => {
+                    if (button.getAttribute('data-allow-locked') === '1') {
+                        return;
+                    }
                     if (button.id === 'toggle-reopen-workorder-form' || button.closest('#reopen-workorder-form')) {
                         return;
                     }

@@ -102,7 +102,7 @@
 
         <div class="flex flex-wrap gap-3">
             <div class="flex flex-wrap gap-3">
-                <button type="button" class="btn btn-primary"
+                <button type="button" class="btn btn-primary" data-allow-locked="1"
                     onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {
                         detail: {
                             url: '{% url 'workorder:visualizar_pdf' workorder.pk %}?variant=signed',

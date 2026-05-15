@@ -3275,17 +3275,17 @@ class BudgetStep6Form(CoreModelForm):
                         HTML('<h4 class="font-bold text-lg mb-2 border-b">PDF</h4>'),
                         HTML(f"""
                         <div class="grid grid-cols-12 gap-3 text-center mb-8">
-                            <button type="button" class="btn btn-success col-span-4"
+                            <button type="button" class="btn btn-success col-span-4" data-allow-locked="1"
                                 onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{signed_pdf_url}', downloadUrl: '{signed_pdf_download_url}', showSignatureBtn: true, signatureButtonLabel: '{signature_button_label}', isSignatureResend: {"true" if is_signature_resend else "false"}, signatureBlocked: {signature_blocked_json}, signatureBlockedReason: {signature_blocked_reason_json}, showPdfVariantToggle: {"true" if can_toggle_signed_pdf else "false"}, pdfVariant: 'signed', signedPdfUrl: '{signed_pdf_url}', basePdfUrl: '{base_pdf_url}', signedDownloadUrl: '{signed_pdf_download_url}', baseDownloadUrl: '{base_pdf_download_url}' }} }}))">
                                 PDF Cliente
                             </button>
 
-                            <button type="button" class="btn btn-success col-span-4"
+                            <button type="button" class="btn btn-success col-span-4" data-allow-locked="1"
                                 onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf_gestor", args=[budget.pk])}', showSignatureBtn: false }} }}))">
                                 PDF Gestor
                             </button>
 
-                            <button type="button" class="btn btn-success col-span-4"
+                            <button type="button" class="btn btn-success col-span-4" data-allow-locked="1"
                                 onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf_mecanico", args=[budget.pk])}', showSignatureBtn: false }} }}))">
                                 PDF Mecânico
                             </button>
