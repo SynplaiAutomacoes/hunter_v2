@@ -1,5 +1,6 @@
 import json
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from django import forms
@@ -19,6 +20,7 @@ from django.db import transaction
 from django.db import models
 from django.db.models import F, ExpressionWrapper, IntegerField, Q
 from djmoney.money import Money
+from typing_extensions import Any
 
 from .forms import (
     AdditionalChargeSessionForm,
@@ -119,58 +121,120 @@ class StockMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplat
         return context
 
 
-class StockInquiryListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
+class StockInquiryListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     model = StockMovement
     template_name = "stock/stock_inquiry.html"
-    context_object_name = "movements"
     workshop_permission_codename = "view_stockmovement"
-    paginate_by = 25
-    htmx_template_name = "stock/partials/stock_inquiry_table.html"
+    MOVEMENTS_PER_PAGE = 25
 
-    def get_queryset(self):
-        queryset = super().get_queryset().filter(workshop=self.workshop).select_related("stock_product__product", "supplier", "transcation_by").order_by("-criado_em")
+    def _get_filter_params(self) -> dict[str, Any]:
+        return {
+            "search": str(self.request.GET.get("search") or "").strip(),
+            "status": str(self.request.GET.get("status") or "").strip(),
+            "type": str(self.request.GET.get("type") or "").strip(),
+            "supplier": str(self.request.GET.get("supplier") or "").strip(),
+            "date_start": self._parse_date_param(self.request.GET.get("date_start")),
+            "date_end": self._parse_date_param(self.request.GET.get("date_end")),
+        }
 
-        # Filters (Search and Sorting are handled by the table tags)
-        status_choices = frozenset(choice[0] for choice in StockMovement.MovementStatus.choices)
-        type_choices = frozenset(choice[0] for choice in StockMovement.MovementType.choices)
-        supplier_ids = frozenset(str(id) for id in Supplier.objects.filter(workshop=self.workshop).values_list("id", flat=True))
+    def _parse_date_param(self, raw_value: str | None) -> date | None:
+        value = str(raw_value or "").strip()
+        if not value:
+            return None
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            return None
 
-        queryset = apply_query_param_filters(
-            queryset,
-            params=self.request.GET,
-            filter_configs=(
-                QueryParamFilter(param_name="status", lookup="status", kind="choice", allowed_values=status_choices),
-                QueryParamFilter(param_name="type", lookup="type", kind="choice", allowed_values=type_choices),
-                QueryParamFilter(param_name="supplier", lookup="supplier_id", kind="choice", allowed_values=supplier_ids),
-                QueryParamFilter(param_name="date_start", lookup="criado_em", kind="date_gte"),
-                QueryParamFilter(param_name="date_end", lookup="criado_em", kind="date_lte"),
-            ),
-        )
+    def _get_queryset(self):
+        queryset = StockMovement.objects.filter(workshop=self.workshop).select_related(
+            "stock_product__product", "supplier", "transcation_by"
+        ).order_by("-criado_em")
+
+        filter_params = self._get_filter_params()
+        status = filter_params["status"]
+        type_param = filter_params["type"]
+        supplier = filter_params["supplier"]
+        date_start = filter_params["date_start"]
+        date_end = filter_params["date_end"]
+        search = filter_params["search"]
+
+        if status:
+            queryset = queryset.filter(status=status)
+        if type_param:
+            queryset = queryset.filter(type=type_param)
+        if supplier and supplier.isdigit():
+            queryset = queryset.filter(supplier_id=supplier)
+        if date_start:
+            queryset = queryset.filter(criado_em__date__gte=date_start)
+        if date_end:
+            queryset = queryset.filter(criado_em__date__lte=date_end)
+
+        if search:
+            queryset = apply_text_search(
+                queryset,
+                search_query=search,
+                search_fields=(
+                    "stock_product__product__name",
+                    "stock_product__product__code",
+                    "supplier__name",
+                    "transcation_by__username",
+                    "transcation_by__first_name",
+                    "transcation_by__last_name",
+                ),
+            )
 
         return queryset
 
+    def _build_movement_row(self, movement: StockMovement) -> dict[str, object]:
+        return {
+            "id": movement.pk,
+            "date": movement.criado_em,
+            "status_badge": movement.stockmovement_status_badge,
+            "type_badge": movement.stockmovement_type_badge,
+            "product": movement.get_product_reference,
+            "quantity": movement.quantity,
+            "supplier": movement.supplier,
+            "transcation_by": movement.transcation_by,
+            "edit_url": reverse("catalog:product_update", kwargs={"pk": movement.get_product_reference.pk}) if movement.get_product_reference else None,
+        }
+
+    def _has_active_filters(self) -> bool:
+        params = self._get_filter_params()
+        return any(v for k, v in params.items())
+
+    def _build_pagination_url(self, *, page_number: int) -> str:
+        params = self.request.GET.copy()
+        params["page"] = str(page_number)
+        querystring = params.urlencode()
+        return f"{self.request.path}?{querystring}" if querystring else self.request.path
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["fields"] = [
-            TableColumn("Data da Movimentação", attr="criado_em", sortable=True),
-            TableColumn(StockMovement.status.field.verbose_name, attr="stockmovement_status_badge", format="status_badge", sort_by="status", search_by="status"),
-            TableColumn(StockMovement.type.field.verbose_name, attr="stockmovement_type_badge", format="status_badge", sort_by="type", search_by="type"),
-            TableColumn(StockMovement.stock_product.field.verbose_name, attr="get_product_reference", sortable=True, sort_by="stock_product__product__name", search_by=("stock_product__product__name", "stock_product__product__code")),
-            TableColumn(StockMovement.quantity.field.verbose_name, attr="quantity", sortable=True),
-            TableColumn(StockMovement.supplier.field.verbose_name, attr="supplier", sort_by="supplier__name", search_by="supplier__name"),
-            TableColumn("Responsável", attr="transcation_by", sort_by="transcation_by__first_name", search_by=("transcation_by__username", "transcation_by__first_name", "transcation_by__last_name")),
-        ]
+        queryset = self._get_queryset()
+        
+        paginator = Paginator(queryset, self.MOVEMENTS_PER_PAGE)
+        page_number = self.request.GET.get("page") or "1"
+        page_obj = paginator.get_page(page_number)
 
-        # Use TableActionDefaults for the edit product button
-        context["actions"] = [
-            TableActionDefaults.view(url_name="catalog:product_update")
-        ]
+        rows = [self._build_movement_row(m) for m in page_obj.object_list]
+
+        context["movements"] = rows
+        context["page_obj"] = page_obj
+        context["paginator"] = paginator
+        context["is_paginated"] = paginator.num_pages > 1
+        context["prev_url"] = self._build_pagination_url(page_number=page_obj.previous_page_number()) if page_obj.has_previous() else None
+        context["next_url"] = self._build_pagination_url(page_number=page_obj.next_page_number()) if page_obj.has_next() else None
+        
+        context["has_active_filters"] = self._has_active_filters()
+        context["clear_filters_url"] = reverse("stock:stock_inquiry")
 
         context["status_choices"] = StockMovement.MovementStatus.choices
         context["type_choices"] = StockMovement.MovementType.choices
         context["suppliers"] = Supplier.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
 
         return context
+
 
 
 
