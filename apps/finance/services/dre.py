@@ -90,10 +90,12 @@ def build_dre_calculation(
         return [_build_wo_pm_detail(p, include_workshop_ref) for p in payments]
 
     def maquininha_tax_details(mvs: list[FinancialMovement]) -> list[dict]:
-        return [_build_maquininha_detail(m, include_workshop_ref) for m in mvs]
+        return [_build_maquininha_detail(m, include_workshop_ref, budget_plan=cost_budget_plan) for m in mvs]
+
+    cost_budget_plan = _resolve_default_sales_group(financial_groups=financial_groups)
 
     def workorder_cost_details(wos: list[WorkOrder]) -> list[dict]:
-        return [_build_workorder_cost_detail(wo, include_workshop_ref) for wo in wos]
+        return [_build_workorder_cost_detail(wo, include_workshop_ref, budget_plan=cost_budget_plan) for wo in wos]
 
     # Receita Bruta de Vendas e Serviços
     pagamentos_ordens_de_servico = (
@@ -634,11 +636,13 @@ def _build_wo_pm_detail(payment: WorkOrderPaymentMethod, include_workshop_ref: b
     }
 
 
-def _build_maquininha_detail(m: FinancialMovement, include_workshop_ref: bool) -> dict:
-    return _build_detail(m, include_workshop_ref)
+def _build_maquininha_detail(m: FinancialMovement, include_workshop_ref: bool, budget_plan: FinancialGroup | None = None) -> dict:
+    detail = _build_detail(m, include_workshop_ref)
+    detail["budget_plan"] = budget_plan
+    return detail
 
 
-def _build_workorder_cost_detail(wo: WorkOrder, include_workshop_ref: bool) -> dict:
+def _build_workorder_cost_detail(wo: WorkOrder, include_workshop_ref: bool, budget_plan: FinancialGroup | None = None) -> dict:
     budget = getattr(wo, "budget", None)
     customer = getattr(budget, "customer", None)
     pk = getattr(budget, "pk", "-")
@@ -658,7 +662,7 @@ def _build_workorder_cost_detail(wo: WorkOrder, include_workshop_ref: bool) -> d
         "entry_date": getattr(wo, "criado_em", None),
         "payment_date": getattr(wo, "criado_em", None),
         "amount": getattr(wo, "dre_total_cost", wo.total_costs_products_value + wo.total_costs_services_value),
-        "budget_plan": None,
+        "budget_plan": budget_plan,
     }
 
 
@@ -688,6 +692,16 @@ def _resolve_financial_group_for_revenue_movement(*, movement: FinancialMovement
     if budget_plan is not None and getattr(budget_plan, "pk", None):
         return budget_plan
 
+    preferred_names = {"vendas", "receitas"}
+    root_candidates = [group for group in financial_groups if getattr(group, "parent_id", None) is None and str(getattr(group, "name", "")).strip().lower() in preferred_names]
+    if root_candidates:
+        root_candidates.sort(key=lambda group: (getattr(group, "sort_key", ""), getattr(group, "pk", 0)))
+        return root_candidates[0]
+
+    return None
+
+
+def _resolve_default_sales_group(*, financial_groups: list[FinancialGroup]) -> FinancialGroup | None:
     preferred_names = {"vendas", "receitas"}
     root_candidates = [group for group in financial_groups if getattr(group, "parent_id", None) is None and str(getattr(group, "name", "")).strip().lower() in preferred_names]
     if root_candidates:
