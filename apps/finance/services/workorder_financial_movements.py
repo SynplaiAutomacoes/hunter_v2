@@ -144,8 +144,9 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
             "movement_kind": FinancialMovement.MovementKind.WORKORDER_PARENT,
             "workorder": workorder,
             "workorder_payment": payment,
+            "is_paid": True,
         }
-        payment_movement = (
+        payment_movements = list(
             FinancialMovement.objects.filter(
                 workorder=workorder,
                 workorder_payment=payment,
@@ -153,14 +154,16 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
             )
             .exclude(pk__in=reversed_movement_ids)
             .order_by("pk")
-            .first()
         )
+        payment_movement = payment_movements[0] if payment_movements else None
         if payment_movement is None:
-            FinancialMovement.objects.create(is_paid=True, is_reconciled=False, **payment_defaults)
+            FinancialMovement.objects.create(is_reconciled=False, **payment_defaults)
         else:
             for field_name, field_value in payment_defaults.items():
                 setattr(payment_movement, field_name, field_value)
             payment_movement.save(update_fields=[*payment_defaults.keys()])
+            if len(payment_movements) > 1:
+                FinancialMovement.objects.filter(pk__in=[movement.pk for movement in payment_movements[1:]]).delete()
 
     stale_payment_movements = FinancialMovement.objects.filter(
         workorder=workorder,
