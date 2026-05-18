@@ -5725,6 +5725,49 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertEqual(fee_movement.amount, Money("96.87", "BRL"))
         self.assertEqual(fee_movement.payment_method, payment_method)
 
+    def test_sync_workorder_financial_movement_marks_existing_payment_movement_as_paid(self) -> None:
+        today = timezone.localdate()
+        workorder = self._create_report_workorder(
+            customer_name="Cliente Status Pago",
+            total_value="300.00",
+            problem_description="OS para validar status pago",
+            payment_specs=[
+                {"description": "Pix", "amount": "300.00", "due_date": today.isoformat(), "installments_count": "1"},
+            ],
+        )
+        workorder.budget.status = BudgetStatus.APPROVED
+        workorder.budget.save(update_fields=["status"])
+        payment = WorkOrderPaymentMethod.objects.get(workorder=workorder)
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            workorder_payment=payment,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("300.00", "BRL"),
+            due_date=today,
+            is_paid=False,
+            is_reconciled=False,
+        )
+
+        sync_workorder_financial_movement(workorder=workorder)
+
+        payment_movement = (
+            FinancialMovement.objects.filter(
+                workorder=workorder,
+                workorder_payment=payment,
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            )
+            .order_by("-pk")
+            .first()
+        )
+        self.assertIsNotNone(payment_movement)
+        if payment_movement is None:
+            return
+        self.assertTrue(payment_movement.is_paid)
+
     def test_reports_home_view_orders_financial_movements_by_newest_created(self) -> None:
         older_created = FinancialMovement.objects.create(
             workshop=self.workshop,
@@ -5899,11 +5942,9 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, "Pago")
         self.assertContains(response, "Tipo")
         self.assertContains(response, "Vencimento")
-        self.assertContains(response, "Colaborador")
-        self.assertContains(response, "Origem")
+        self.assertContains(response, "Agente")
         self.assertContains(response, "Descrição")
         self.assertContains(response, "Plano Orçamentário")
-        self.assertContains(response, "Conta")
         self.assertContains(response, "Tipo Pagamento")
         self.assertContains(response, "Total")
 
@@ -6544,9 +6585,11 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertNotIn(f"OS #{unpaid_workorder.pk}", rows_by_origin)
         self.assertEqual([row["payment_type"] for row in paid_rows], ["Pix", "Crédito"])
         self.assertEqual([row["due_date"] for row in paid_rows], [today, today])
-        self.assertTrue(all(row["paid_status"]["label"] == "Aguardando Conciliação" for row in paid_rows))
+        self.assertTrue(all(row["paid_status"]["label"] == "Não" for row in paid_rows))
+        self.assertTrue(all(row["reconciliation_status"]["label"] == "Aguardando Conciliação" for row in paid_rows))
         self.assertEqual(len(partial_rows), 1)
-        self.assertEqual(partial_rows[0]["paid_status"]["label"], "Aguardando Conciliação")
+        self.assertEqual(partial_rows[0]["paid_status"]["label"], "Não")
+        self.assertEqual(partial_rows[0]["reconciliation_status"]["label"], "Aguardando Conciliação")
         self.assertEqual(partial_rows[0]["payment_type"], "Pix")
         self.assertEqual(partial_rows[0]["due_date"], today)
         self.assertEqual(generic_row["paid_status"]["label"], "Sim")
@@ -6569,9 +6612,6 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertNotContains(response, "+ R$ 1.000,00")
         self.assertContains(response, "+ R$ 500,00", count=3)
         self.assertContains(response, "- R$ 100,00")
-        self.assertContains(response, reverse("workorder:workorder_detail", args=[paid_workorder.pk]))
-        self.assertContains(response, reverse("workorder:workorder_detail", args=[partial_workorder.pk]))
-        self.assertNotContains(response, reverse("workorder:workorder_detail", args=[unpaid_workorder.pk]))
 
     def test_reports_home_view_paid_status_filter_treats_os_payments_as_paid_rows_only(self) -> None:
         today = timezone.localdate()
@@ -6620,7 +6660,8 @@ class FinancialReportsHomeViewTests(TestCase):
 
         self.assertEqual(len(paid_rows), 1)
         self.assertEqual(paid_rows[0]["origin"], f"OS #{workorder.pk}")
-        self.assertEqual(paid_rows[0]["paid_status"]["label"], "Aguardando Conciliação")
+        self.assertEqual(paid_rows[0]["paid_status"]["label"], "Sim")
+        self.assertEqual(paid_rows[0]["reconciliation_status"]["label"], "Aguardando Conciliação")
         self.assertEqual(paid_rows[0]["total"]["text"], "+ R$ 500,00")
         self.assertEqual(len(unpaid_rows), 1)
         self.assertEqual(unpaid_rows[0]["origin"], "NF-PENDENTE")
@@ -6655,7 +6696,8 @@ class FinancialReportsHomeViewTests(TestCase):
         workorder_row = next(row for row in rows if row["origin"] == f"OS #{workorder.pk}")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(workorder_row["paid_status"]["label"], "Conciliado")
+        self.assertEqual(workorder_row["paid_status"]["label"], "Sim")
+        self.assertEqual(workorder_row["reconciliation_status"]["label"], "Conciliado")
         self.assertEqual(workorder_row["edit_url"], reverse("finance:financial_movement_update", args=[movement.pk]))
 
     def test_reports_home_view_marks_paid_card_fee_movement_as_conciliado(self) -> None:
@@ -6690,7 +6732,41 @@ class FinancialReportsHomeViewTests(TestCase):
         fee_row = next(row for row in rows if row["component"] == f"financial-movement-{fee_movement.pk}")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(fee_row["paid_status"]["label"], "Conciliado")
+        self.assertEqual(fee_row["paid_status"]["label"], "Sim")
+        self.assertEqual(fee_row["reconciliation_status"]["label"], "Conciliado")
+
+    def test_reports_home_view_reconciliation_filter_returns_only_reconciled_rows(self) -> None:
+        today = timezone.localdate()
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("50.00", "BRL"),
+            due_date=today,
+            is_paid=True,
+            is_reconciled=True,
+            description="Despesa conciliada",
+            nf_number="NF-CONC",
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("40.00", "BRL"),
+            due_date=today,
+            is_paid=True,
+            is_reconciled=False,
+            description="Despesa nao conciliada",
+            nf_number="NF-PAGO",
+        )
+
+        response = self.client.get(reverse("finance:reports_home"), data={"reconciliation_status": "reconciled"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Despesa conciliada")
+        self.assertNotContains(response, "Despesa nao conciliada")
 
     def test_reports_home_view_without_filters_lists_all_dates_and_card_fees(self) -> None:
         old_date = date(2026, 3, 10)
@@ -9573,6 +9649,47 @@ class CashFlowReconciliationTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, f"OS #{workorder.pk}")
+
+    def test_cash_flow_payment_method_filter_does_not_include_other_methods_in_balance(self) -> None:
+        debit_pm = PaymentMethod.objects.create(
+            workshop=self.workshop,
+            description="Debito",
+            payment_type=PaymentMethod.PaymentType.BOTH,
+        )
+        workorder, payment_pix = self._create_workorder_with_payment(customer_name="Cliente Filtro Metodo", due_date=date(2026, 5, 12))
+        payment_pix.first_installment_amount = Money("100.00", "BRL")
+        payment_pix.save(update_fields=["first_installment_amount", "first_installment_amount_currency"])
+        payment_debit = WorkOrderPaymentMethod.objects.create(
+            workorder=workorder,
+            payment_method=debit_pm,
+            installments_count=1,
+            first_installment_amount=Money("200.00", "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            due_date=date(2026, 5, 13),
+        )
+
+        for payment in [payment_pix, payment_debit]:
+            FinancialMovement.objects.create(
+                workshop=self.workshop,
+                user=self.user,
+                source=self.source,
+                workorder=workorder,
+                workorder_payment=payment,
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                direction=FinancialMovement.MovementDirection.CREDIT,
+                payment_method=payment.payment_method,
+                amount=payment.total_paid,
+                due_date=payment.due_date,
+                is_paid=True,
+                is_reconciled=True,
+                description="Recebimento O.S.",
+            )
+
+        response = self.client.get(reverse("finance:cash_flow"), data={"forma_pagamento": str(self.payment_method.pk)})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["saldo_atual"]["value"], "R$ 100,00")
+        self.assertContains(response, "Pix")
 
 
 class PaymentMethodFormTests(TestCase):

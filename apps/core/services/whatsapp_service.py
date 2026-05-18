@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from functools import lru_cache
 from typing import IO
 
 import requests
@@ -50,8 +49,7 @@ class IWhatsAppService(ABC):
         pass
 
     @abstractmethod
-    def send_file_from_url(self, number: str, file_url: str, text: str | None = None, filename: str | None = None,
-                           mimetype: str | None = None) -> SendFileResponse:
+    def send_file_from_url(self, number: str, file_url: str, text: str | None = None, filename: str | None = None, mimetype: str | None = None) -> SendFileResponse:
         pass
 
 
@@ -108,8 +106,7 @@ class WhatsAppHunterService(IWhatsAppService):
             media_url=result.get("media_url", ""),
         )
 
-    def send_file_from_url(self, number: str, file_url: str, text: str | None = None, filename: str | None = None,
-                           mimetype: str | None = None) -> SendFileResponse:
+    def send_file_from_url(self, number: str, file_url: str, text: str | None = None, filename: str | None = None, mimetype: str | None = None) -> SendFileResponse:
         if not number or not file_url:
             raise WhatsAppServiceError("Numero e URL do arquivo sao obrigatorios.")
 
@@ -144,9 +141,7 @@ class WhatsAppServiceFactory:
         if cls._instance is None:
             base_url = getattr(settings, "WHATSAPP_API_URL", None)
             if not base_url:
-                raise WhatsAppConfigurationError(
-                    "Configure WHATSAPP_API_URL nas settings do Django."
-                )
+                raise WhatsAppConfigurationError("Configure WHATSAPP_API_URL nas settings do Django.")
             cls._instance = WhatsAppHunterService(base_url=base_url)
         return cls._instance
 

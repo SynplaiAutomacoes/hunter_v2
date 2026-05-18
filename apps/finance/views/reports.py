@@ -86,14 +86,17 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
     @staticmethod
     def _resolve_workorder_conciliation_status(*, is_reconciled: bool) -> dict[str, str]:
         if is_reconciled:
-            return {"label": "Conciliado", "icon": "check_circle", "class": "text-success"}
+            return {"label": "Conciliado", "icon": "check_circle", "class": "text-info"}
         return {"label": "Aguardando Conciliação", "icon": "schedule", "class": "text-warning"}
 
+    @staticmethod
+    def _resolve_simple_paid_status(*, is_paid: bool) -> dict[str, str]:
+        if is_paid:
+            return {"label": "Sim", "icon": "check_circle", "class": "text-success"}
+        return {"label": "Não", "icon": "cancel", "class": "text-error"}
+
     def _resolve_movement_paid_status_display(self, movement: FinancialMovement) -> dict[str, str]:
-        if movement.movement_kind in {FinancialMovement.MovementKind.WORKORDER_PARENT, FinancialMovement.MovementKind.WORKORDER_CARD_FEE}:
-            return self._resolve_workorder_conciliation_status(is_reconciled=bool(movement.is_reconciled))
-        paid_status = movement.report_paid_indicator
-        return paid_status if isinstance(paid_status, dict) else {"label": str(paid_status), "icon": "schedule", "class": "text-warning"}
+        return self._resolve_simple_paid_status(is_paid=bool(movement.is_paid))
 
     def _build_summary_card(self, *, title: str, overview: FinancialOverview) -> dict[str, object]:
         return {
@@ -403,7 +406,8 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         return {
             "component": f"workorder-payment-{payment.pk}",
             "is_expandable": False,
-            "paid_status": self._resolve_workorder_conciliation_status(is_reconciled=bool(payment_movement.is_reconciled)),
+            "paid_status": self._resolve_simple_paid_status(is_paid=bool(payment_movement.is_paid)),
+            "reconciliation_status": self._resolve_workorder_conciliation_status(is_reconciled=bool(payment_movement.is_reconciled)),
             "type_badge": payment_movement.report_direction_badge,
             "due_date": payment.due_date,
             "agent": payment_movement.report_agent_display,
@@ -556,6 +560,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         payments = list(payment_manager.all()) if payment_manager is not None else []
         latest_payment_date = max((payment.due_date for payment in payments if payment.due_date), default=None)
         paid_status = self._resolve_movement_paid_status_display(movement)
+        reconciliation_status = self._resolve_workorder_conciliation_status(is_reconciled=bool(movement.is_reconciled))
         agent = movement.report_agent_display
         due_date = movement.due_date
         description = movement.report_description_display
@@ -570,7 +575,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             is_workorder = True
 
         if workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
-            paid_status = self._resolve_workorder_conciliation_status(is_reconciled=bool(movement.is_reconciled))
+            reconciliation_status = self._resolve_workorder_conciliation_status(is_reconciled=bool(movement.is_reconciled))
             due_date = latest_payment_date
             description = self._resolve_workorder_description(workorder)
             payment_type = self._resolve_payment_method_summary(payments)
@@ -599,6 +604,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "component": f"financial-movement-{movement.pk}",
             "is_expandable": bool(details),
             "paid_status": paid_status,
+            "reconciliation_status": reconciliation_status,
             "type_badge": movement.report_direction_badge,
             "due_date": due_date,
             "agent": agent,
@@ -1025,23 +1031,15 @@ class FinancialBulkPayView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         if wo_payment_pks:
             # Encontrar movimentos associados aos pagamentos de OS
-            wo_movements = FinancialMovement.objects.filter(
-                workshop=self.workshop,
-                workorder_payment_id__in=wo_payment_pks,
-                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT
-            ).values_list('pk', flat=True)
+            wo_movements = FinancialMovement.objects.filter(workshop=self.workshop, workorder_payment_id__in=wo_payment_pks, movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT).values_list("pk", flat=True)
             target_pks.update(list(wo_movements))
 
         if target_pks:
             with transaction.atomic():
-                updated = FinancialMovement.objects.filter(
-                    pk__in=target_pks,
-                    workshop=self.workshop,
-                    is_paid=False
-                ).update(is_paid=True)
+                updated = FinancialMovement.objects.filter(pk__in=target_pks, workshop=self.workshop, is_paid=False).update(is_paid=True)
                 logger.info("Bulk Pay: %d movements marked as paid", updated)
 
-        if request.headers.get('HX-Request'):
+        if request.headers.get("HX-Request"):
             response = HttpResponse()
             response["HX-Refresh"] = "true"
             return response

@@ -85,7 +85,11 @@ def build_financial_overview(
     if opened_by_id:
         movements = movements.filter(user_id=opened_by_id)
     if payment_method_id:
-        pm_filter = Q(payment_method_id=payment_method_id) | Q(workorder__payments__payment_method_id=payment_method_id)
+        pm_filter = Q(payment_method_id=payment_method_id) | Q(
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            workorder__isnull=False,
+            workorder__payments__payment_method_id=payment_method_id,
+        )
         movements = movements.filter(pm_filter).distinct()
     if paid_status in {"paid", "unpaid"}:
         matched_ids = list(movements.exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False).filter(is_paid=paid_status == "paid").values_list("pk", flat=True))
@@ -164,7 +168,11 @@ def build_financial_overview(
         if opened_by_id:
             paid_credit_movements = paid_credit_movements.filter(user_id=opened_by_id)
         if payment_method_id:
-            pm_filter = Q(payment_method_id=payment_method_id) | Q(workorder__payments__payment_method_id=payment_method_id)
+            pm_filter = Q(payment_method_id=payment_method_id) | Q(
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                workorder__isnull=False,
+                workorder__payments__payment_method_id=payment_method_id,
+            )
             paid_credit_movements = paid_credit_movements.filter(pm_filter).distinct()
 
         if search:

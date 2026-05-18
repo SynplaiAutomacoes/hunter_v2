@@ -123,7 +123,11 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 
         # Payment Method Filter
         if filter_params["payment_method_id"]:
-            pm_filter = Q(payment_method_id=filter_params["payment_method_id"]) | Q(workorder__payments__payment_method_id=filter_params["payment_method_id"])
+            pm_filter = Q(payment_method_id=filter_params["payment_method_id"]) | Q(
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                workorder__isnull=False,
+                workorder__payments__payment_method_id=filter_params["payment_method_id"],
+            )
             queryset = queryset.filter(pm_filter).distinct()
 
         # Budget Plan Filter

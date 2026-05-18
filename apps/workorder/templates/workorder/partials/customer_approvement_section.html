@@ -153,7 +153,7 @@
             <button type="button" class="btn btn-warning" onclick="rejectWorkOrderModal.showModal()" {% if workorder.is_status_locked %}disabled title="Reabra a O.S. antes de alterar o status."{% endif %}>Reprovar</button>
 
             {% if workorder.can_reopen %}
-            <button type="button" class="btn btn-outline" id="toggle-reopen-workorder-form" data-can-reopen-workorder="{% if can_reopen_workorder %}true{% else %}false{% endif %}">Reabrir O.S.</button>
+            <button type="button" class="btn btn-outline" id="toggle-reopen-workorder-form" data-allow-locked="1" data-can-reopen-workorder="{% if can_reopen_workorder %}true{% else %}false{% endif %}">Reabrir O.S.</button>
             {% endif %}
         </div>
 
@@ -223,6 +223,7 @@
             hx-target="#customer-approvement-section"
             hx-swap="innerHTML"
             class="mt-4 space-y-4 rounded-xl border border-warning/40 bg-warning/10 p-4 {% if not reopen_form.errors %}hidden{% endif %}"
+            data-allow-locked="1"
         >
             {% csrf_token %}
             <div class="space-y-1 text-sm text-base-content/80">
@@ -230,9 +231,9 @@
                 <p>Ao reabrir, o sistema vai estornar os movimentos financeiros e de estoque vinculados a esta entrega e voltar a O.S. para rascunho.</p>
             </div>
             {% crispy reopen_form %}
-            <div class="flex flex-wrap gap-3">
-                <button type="submit" class="btn btn-warning">Confirmar reabertura</button>
-                <button type="button" class="btn btn-ghost" id="cancel-reopen-workorder-form">Fechar</button>
+            <div class="flex flex-wrap gap-3" data-allow-locked="1">
+                <button type="submit" class="btn btn-warning" data-allow-locked="1">Confirmar reabertura</button>
+                <button type="button" class="btn btn-ghost" id="cancel-reopen-workorder-form" data-allow-locked="1">Fechar</button>
             </div>
         </form>
         {% endif %}
