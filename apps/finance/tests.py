@@ -6255,6 +6255,7 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, f'name="selected_workorder_payment_id" value="{payment.pk}"', html=False)
         self.assertContains(response, f'value="{payment.payment_method.pk}"', html=False)
         self.assertContains(response, "maxAttempts = 25")
+        self.assertContains(response, "searchable-set-selection")
 
     def test_report_edit_modal_post_updates_workorder_paid_status_reflected_in_workorder_section(self) -> None:
         workorder = self._create_report_workorder(
