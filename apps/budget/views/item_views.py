@@ -34,6 +34,7 @@ from .shared import (
     _step_redirect_response,
     logger,
     reset_steps_after_step_4,
+    sync_linked_workorder_from_budget,
 )
 
 
@@ -280,6 +281,7 @@ class AddItemToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         # Reset etapas 5 e 6 após modificar a etapa 4
         reset_steps_after_step_4(budget)
+        sync_linked_workorder_from_budget(budget)
 
         return _step_redirect_response(request, budget, fallback_step=4)
 
@@ -301,6 +303,7 @@ class RemoveItemFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         # Reset etapas 5 e 6 após modificar a etapa 4
         reset_steps_after_step_4(budget)
+        sync_linked_workorder_from_budget(budget)
 
         return _step_redirect_response(request, budget, fallback_step=4)
 
@@ -322,6 +325,7 @@ class RemoveBudgetItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         # Reset etapas 5 e 6 após modificar a etapa 4
         reset_steps_after_step_4(budget)
+        sync_linked_workorder_from_budget(budget)
 
         return _step_redirect_response(request, budget, fallback_step=4)
 
@@ -369,6 +373,7 @@ class RemoveProductItemsBatchFromBudgetView(LoginRequiredMixin, WorkshopScopedMi
 
         # Reset etapas 5 e 6 após modificar a etapa 4
         reset_steps_after_step_4(budget)
+        sync_linked_workorder_from_budget(budget)
 
         return _step_redirect_response(request, budget, fallback_step=4)
 
@@ -416,6 +421,7 @@ class RemoveServiceItemsBatchFromBudgetView(LoginRequiredMixin, WorkshopScopedMi
 
         # Reset etapas 5 e 6 após modificar a etapa 4
         reset_steps_after_step_4(budget)
+        sync_linked_workorder_from_budget(budget)
 
         return _step_redirect_response(request, budget, fallback_step=4)
 
@@ -463,6 +469,7 @@ class RemoveKitItemsBatchFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin,
 
         # Reset etapas 5 e 6 após modificar a etapa 4
         reset_steps_after_step_4(budget)
+        sync_linked_workorder_from_budget(budget)
 
         return _step_redirect_response(request, budget, fallback_step=4)
 
@@ -536,6 +543,7 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             # Reset etapas 5 e 6 após modificar a etapa 4
             reset_steps_after_step_4(budget)
+            sync_linked_workorder_from_budget(budget)
 
             if action == "update_master":
                 self.update_master_record(item=item, form=form)

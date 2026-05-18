@@ -12,6 +12,7 @@ from djmoney.money import Money
 
 from apps.budget.models import Budget, BudgetItem, BudgetStatus
 from apps.budget.fields import DurationField
+from apps.workorder.models import WorkOrder
 from apps.workshops.models.workshop_costs import WorkshopCost
 
 logger = logging.getLogger(__name__)
@@ -144,3 +145,10 @@ def reset_steps_after_step_4(budget):
         budget.step5_calculation_viewed = False
         budget.status = BudgetStatus.WAITING_PRICING
         budget.save(update_fields=["current_step", "slider", "discount_value", "discount_percentage", "step5_calculation_viewed", "status"])
+
+
+def sync_linked_workorder_from_budget(budget: Budget) -> None:
+    workorder = WorkOrder.objects.filter(budget=budget).order_by("id").first()
+    if workorder is None:
+        return
+    workorder.sync_from_budget()
