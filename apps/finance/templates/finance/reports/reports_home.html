@@ -430,7 +430,7 @@
                                                             <span class="material-icons text-base leading-none text-base-content/55" x-text="openRow === '{{ row.component }}' ? 'expand_more' : 'chevron_right'"></span>
                                                         {% endif %}
                                                         {% if row.paid_status.icon %}
-                                                            <span class="badge badge-sm inline-flex items-center gap-1 whitespace-nowrap {% if row.paid_status.label == 'Sim' %}badge-success{% elif row.paid_status.label == 'Não' %}badge-error{% else %}badge-warning{% endif %}" title="{{ row.paid_status.label }}" aria-label="{{ row.paid_status.label }}">
+                                                            <span class="inline-flex items-center gap-1 whitespace-nowrap {% if row.paid_status.label == 'Sim' %}text-success{% elif row.paid_status.label == 'Não' %}text-error{% else %}text-warning{% endif %}" title="{{ row.paid_status.label }}" aria-label="{{ row.paid_status.label }}">
                                                                 <span class="material-icons text-base leading-none">{{ row.paid_status.icon }}</span>
                                                                 <span class="font-medium">{{ row.paid_status.label }}</span>
                                                             </span>
@@ -441,7 +441,7 @@
                                                 </td>
                                                 <td>
                                                     {% if row.reconciliation_status and row.reconciliation_status.icon %}
-                                                        <span class="badge badge-sm inline-flex items-center gap-1 whitespace-nowrap {% if row.reconciliation_status.label == 'Conciliado' %}badge-info{% else %}badge-warning{% endif %}" title="{{ row.reconciliation_status.label }}" aria-label="{{ row.reconciliation_status.label }}">
+                                                        <span class="inline-flex items-center gap-1 whitespace-nowrap {% if row.reconciliation_status.label == 'Conciliado' %}text-info{% else %}text-warning{% endif %}" title="{{ row.reconciliation_status.label }}" aria-label="{{ row.reconciliation_status.label }}">
                                                             <span class="material-icons text-base leading-none">{{ row.reconciliation_status.icon }}</span>
                                                             <span class="font-medium">{{ row.reconciliation_status.label }}</span>
                                                         </span>

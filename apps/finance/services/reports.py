@@ -203,10 +203,10 @@ def build_financial_overview(
         elif paid_status == "unpaid":
             paid_credit_movements = []
         else:
-            paid_credit_movements = paid_credit_movements.select_related("workorder").prefetch_related("workorder__payments")
+            paid_credit_movements = paid_credit_movements.select_related("workorder", "workorder_payment").prefetch_related("workorder__payments")
 
         if not isinstance(paid_credit_movements, list):
-            paid_credit_movements = paid_credit_movements.only("workorder")
+            paid_credit_movements = paid_credit_movements.only("workorder", "workorder_payment")
 
     for movement in movements:
         if movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
@@ -224,7 +224,32 @@ def build_financial_overview(
                 paid_debits += amount
 
     counted_workorders: set[int] = set()
+    counted_workorder_payments: set[int] = set()
     for movement in paid_credit_movements:
+        workorder_payment_id = getattr(movement, "workorder_payment_id", None)
+        if workorder_payment_id is not None:
+            if workorder_payment_id in counted_workorder_payments:
+                continue
+            counted_workorder_payments.add(workorder_payment_id)
+            payment = getattr(movement, "workorder_payment", None)
+            if payment is None:
+                continue
+            if payment.due_date is None:
+                continue
+            if start_date is not None and payment.due_date < start_date:
+                continue
+            if end_date is not None and payment.due_date > end_date:
+                continue
+            if payment_method_id and str(payment.payment_method_id) != str(payment_method_id):
+                continue
+
+            payment_amount = Decimal(getattr(getattr(payment, "total_paid", None), "amount", _ZERO_DECIMAL) or _ZERO_DECIMAL)
+            if payment_amount <= _ZERO_DECIMAL:
+                continue
+            total_credits += payment_amount
+            paid_credits += payment_amount
+            continue
+
         workorder_id = getattr(movement, "workorder_id", None)
         if workorder_id is None or workorder_id in counted_workorders:
             continue

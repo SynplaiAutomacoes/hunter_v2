@@ -151,7 +151,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 
         return queryset
 
-    def _filter_workorder_payments_for_rows(self, *, payments: list[WorkOrderPaymentMethod], filter_start_date: date | None, filter_end_date: date | None, payment_method_id: str | None) -> list[WorkOrderPaymentMethod]:
+    def _filter_workorder_payments_for_rows(self, *, payments: list[WorkOrderPaymentMethod], filter_start_date: date | None, filter_end_date: date | None, payment_method_id: str | None, bank_account_id: str | None) -> list[WorkOrderPaymentMethod]:
         reconciled_movement_by_payment_id: dict[int, FinancialMovement] = getattr(self, "_reconciled_workorder_payment_movements", {})
         filtered_payments = []
         for payment in payments:
@@ -164,8 +164,15 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
                 continue
             if payment_method_id and str(getattr(payment.payment_method, "pk", "")) != str(payment_method_id):
                 continue
-            if payment.pk not in reconciled_movement_by_payment_id:
+            payment_movement = reconciled_movement_by_payment_id.get(payment.pk)
+            if payment_movement is None:
                 continue
+            if bank_account_id:
+                if bank_account_id == "none":
+                    if payment_movement.bank_account_id is not None:
+                        continue
+                elif str(payment_movement.bank_account_id or "") != str(bank_account_id):
+                    continue
             filtered_payments.append(payment)
         return filtered_payments
 
@@ -238,6 +245,12 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
                 workorder_payment__isnull=False,
                 is_reconciled=True,
             ).select_related("payment_method", "budget_plan", "bank_account")
+            bank_account_id = filter_params["bank_account_id"]
+            if bank_account_id:
+                if bank_account_id == "none":
+                    reconciled_workorder_payment_movements = reconciled_workorder_payment_movements.filter(bank_account__isnull=True)
+                else:
+                    reconciled_workorder_payment_movements = reconciled_workorder_payment_movements.filter(bank_account_id=bank_account_id)
 
         self._reconciled_workorder_payment_movements = {movement.workorder_payment.pk: movement for movement in reconciled_workorder_payment_movements if movement.workorder_payment is not None}
 
@@ -252,6 +265,7 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
                         filter_start_date=filter_params["start_date"],
                         filter_end_date=filter_params["end_date"],
                         payment_method_id=filter_params["payment_method_id"],
+                        bank_account_id=filter_params["bank_account_id"],
                     )
                 )
                 continue

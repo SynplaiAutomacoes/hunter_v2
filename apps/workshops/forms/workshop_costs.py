@@ -7,6 +7,7 @@ from typing import cast
 
 from django import forms
 from django.urls import reverse
+import holidays
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
@@ -251,6 +252,8 @@ class WorkshopCostForm(CoreModelForm):
         year = cleaned_data.get("year")
         holiday_dates = self._parse_holiday_dates(cleaned_data.get("holiday_dates"), month=month, year=year)
         cleaned_data["holiday_dates"] = holiday_dates
+        if month and year:
+            cleaned_data["work_days_per_month"] = self._calculate_work_days_per_month(month=int(str(month)), year=int(str(year)), holiday_dates=holiday_dates)
         self.instance.holiday_dates_override = holiday_dates
 
         if month and year and self.workshop:
@@ -290,7 +293,12 @@ class WorkshopCostForm(CoreModelForm):
 
     def _serialize_holiday_dates(self) -> str:
         if not self.instance.pk:
-            return ""
+            if self.is_bound:
+                return str(self.data.get("holiday_dates") or "")
+            month = self._resolve_selected_month(default=datetime.date.today().month)
+            year = self._resolve_selected_year(default=datetime.date.today().year)
+            auto_holidays = self._get_sp_holiday_dates(month=month, year=year)
+            return ",".join(holiday_date.isoformat() for holiday_date in auto_holidays)
 
         holiday_dates = self.instance.holidays.order_by("date").values_list("date", flat=True)
         return ",".join(holiday_date.isoformat() for holiday_date in holiday_dates)
@@ -299,6 +307,7 @@ class WorkshopCostForm(CoreModelForm):
         today = datetime.date.today()
         selected_month = self._resolve_selected_month(default=today.month)
         selected_year = self._resolve_selected_year(default=today.year)
+        default_holiday_dates = [holiday_date.isoformat() for holiday_date in self._get_sp_holiday_dates(month=selected_month, year=selected_year)]
         weekday_labels = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab"]
 
         return f"""
@@ -316,6 +325,7 @@ class WorkshopCostForm(CoreModelForm):
                              class="grid grid-cols-7 gap-1 max-w-[260px]"
                              data-selected-month="{selected_month}"
                              data-selected-year="{selected_year}"
+                             data-default-holidays='{json.dumps(default_holiday_dates)}'
                              data-weekday-labels='{json.dumps(weekday_labels)}'></div>
                     </div>
                 </div>
@@ -334,6 +344,25 @@ class WorkshopCostForm(CoreModelForm):
                     }}
 
                     const weekdayLabels = JSON.parse(calendarRoot.dataset.weekdayLabels || '[]');
+                    const defaultHolidays = new Set(JSON.parse(calendarRoot.dataset.defaultHolidays || '[]'));
+
+                    function calculateWorkDaysPerMonth(year, month, selectedDates) {{
+                        const daysInMonth = new Date(year, month, 0).getDate();
+                        return Math.max(daysInMonth - selectedDates.size, 0);
+                    }}
+
+                    function updateWorkDaysPerMonth(year, month, selectedDates) {{
+                        const workDaysInput = document.getElementById('id_work_days_per_month');
+                        if (!workDaysInput) {{
+                            return;
+                        }}
+                        const calculated = calculateWorkDaysPerMonth(year, month, selectedDates);
+                        if (String(workDaysInput.value || '') !== String(calculated)) {{
+                            workDaysInput.value = String(calculated);
+                            workDaysInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                            workDaysInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        }}
+                    }}
 
                     function parseSelectedDates() {{
                         return new Set((hiddenInput.value || '').split(',').map(value => value.trim()).filter(Boolean));
@@ -369,8 +398,12 @@ class WorkshopCostForm(CoreModelForm):
 
                         calendarRoot.dataset.selectedYear = String(year);
                         calendarRoot.dataset.selectedMonth = String(month);
-                        const selectedDates = filterDatesForMonth(parseSelectedDates(), year, month);
+                        let selectedDates = filterDatesForMonth(parseSelectedDates(), year, month);
+                        if (selectedDates.size === 0 && defaultHolidays.size > 0) {{
+                            selectedDates = filterDatesForMonth(defaultHolidays, year, month);
+                        }}
                         hiddenInput.value = Array.from(selectedDates).sort().join(',');
+                        updateWorkDaysPerMonth(year, month, selectedDates);
                         const daysInMonth = new Date(year, month, 0).getDate();
                         const firstWeekday = new Date(year, month - 1, 1).getDay();
                         const weekdayOffset = firstWeekday;
@@ -435,7 +468,6 @@ class WorkshopCostForm(CoreModelForm):
                     monthInput.addEventListener('change', renderCalendar);
                     yearInput.addEventListener('input', renderCalendar);
                     yearInput.addEventListener('change', renderCalendar);
-                    document.getElementById('id_work_days_per_month')?.addEventListener('input', renderCalendar);
                 }})();
             </script>
         """
@@ -496,3 +528,16 @@ class WorkshopCostForm(CoreModelForm):
         holidays_to_create = [WorkshopCostHoliday(workshop_cost=instance, date=holiday_date) for holiday_date in holiday_dates if holiday_date not in existing_holidays]
         if holidays_to_create:
             WorkshopCostHoliday.objects.bulk_create(holidays_to_create)
+
+    def _get_sp_holiday_dates(self, *, month: int, year: int) -> list[datetime.date]:
+        holiday_calendar = holidays.Brazil(state="SP", years=year)
+        month_holidays: list[datetime.date] = []
+        for holiday_date in holiday_calendar.keys():
+            if holiday_date.year == year and holiday_date.month == month and holiday_date.weekday() < 5:
+                month_holidays.append(holiday_date)
+        return sorted(set(month_holidays))
+
+    @staticmethod
+    def _calculate_work_days_per_month(*, month: int, year: int, holiday_dates: list[datetime.date]) -> int:
+        total_days = calendar.monthrange(year, month)[1]
+        return max(total_days - len(set(holiday_dates)), 0)
