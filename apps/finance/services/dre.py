@@ -166,7 +166,9 @@ def build_dre_calculation(
     # ----------------------------------
 
     # Custo Mercadorias Vendidas
-    taxa_maquininha_os = FinancialMovement.objects.filter(workorder_payment__in=pagamentos_ordens_de_servico, description="Pagamento da taxa da maquininha").select_related("workorder_payment", "workorder_payment__workorder")
+    delivered_payment_ids = [payment.pk for payment in pagamentos_ordens_de_servico if payment.workorder.status == WorkOrderStatus.APPROVED and payment.workorder.delivered_at is not None]
+
+    taxa_maquininha_os = FinancialMovement.objects.filter(workorder_payment_id__in=delivered_payment_ids, description="Pagamento da taxa da maquininha").select_related("workorder_payment", "workorder_payment__workorder")
     total_taxa_maquininha_os = _sum_cost_movements(list(taxa_maquininha_os))
 
     delivered_workorders_with_costs = _fetch_delivered_workorders_with_costs(payments=pagamentos_ordens_de_servico)
@@ -381,7 +383,7 @@ def _fetch_delivered_workorders_with_costs(*, payments: list[WorkOrderPaymentMet
 
     payloads: list[tuple[WorkOrder, Money]] = []
     for workorder in workorders:
-        if workorder.status != WorkOrderStatus.APPROVED:
+        if workorder.status != WorkOrderStatus.APPROVED or workorder.delivered_at is None:
             continue
 
         total_cost_amount = (getattr(workorder, "products_cost_total", Decimal("0.00")) or Decimal("0.00")) + (getattr(workorder, "services_cost_total", Decimal("0.00")) or Decimal("0.00"))

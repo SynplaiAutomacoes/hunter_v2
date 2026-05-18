@@ -14,7 +14,7 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from djmoney.money import Money
 
-from apps.budget.models import Budget, BudgetImage, BudgetImageType, BudgetStatus, Defect, SignatureStatus
+from apps.budget.models import Budget, BudgetHistory, BudgetImage, BudgetImageType, BudgetStatus, Defect, SignatureStatus
 from apps.budget.pricing import resolve_discount_fields
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
@@ -2858,6 +2858,21 @@ class BudgetStep6Form(CoreModelForm):
             </div>
             """
 
+        history_entries = list(budget.history_entries.filter(action=BudgetHistory.Action.REOPENED).select_related("user")[:10])
+        reopen_history_html = ""
+        if history_entries:
+            history_rows = "".join(
+                (
+                    "<div class='rounded-lg border border-base-300 bg-base-100 p-3'>"
+                    f"<p class='text-sm font-medium text-base-content'>{entry.criado_em.strftime('%d/%m/%Y %H:%M')} - Orçamento reaberto"
+                    f"{f' por {escape(entry.user.get_full_name() or entry.user.username)}' if entry.user else ''}</p>"
+                    f"<p class='mt-1 whitespace-pre-line text-sm text-base-content/80'>{escape(entry.reason)}</p>"
+                    "</div>"
+                )
+                for entry in history_entries
+            )
+            reopen_history_html = f"<div class='mt-4 rounded-xl border border-base-300 bg-base-200/40 p-4'><h5 class='text-lg font-semibold text-base-content'>Histórico de reaberturas</h5><div class='mt-3 space-y-3'>{history_rows}</div></div>"
+
         # Render das linhas (mantido)
         rows = _render_budget_items_rows(budget, step6=True)
         products_html = rows["product"]
@@ -3023,6 +3038,22 @@ class BudgetStep6Form(CoreModelForm):
                         return;
                     }
 
+                    if (status === 'reopen') {
+                        const reopenForm = document.getElementById('reopen-budget-form');
+                        const reopenInput = document.getElementById('reopen-reason-input');
+
+                        if (!reopenForm || !reopenInput) {
+                            document.body.dispatchEvent(new CustomEvent('showToast', {
+                                detail: { type: 'error', message: 'Falha ao abrir o formulário de reabertura.' },
+                            }));
+                            return;
+                        }
+
+                        reopenForm.classList.remove('hidden');
+                        reopenInput.focus();
+                        return;
+                    }
+
                     const confirmed = await customConfirm("Você tem certeza que deseja alterar o status deste orçamento?");
                     if (!confirmed) return;
                     
@@ -3047,7 +3078,43 @@ class BudgetStep6Form(CoreModelForm):
                         return;
                     }
 
+                    if (status === 'reopen') {
+                        window.location.reload();
+                        return;
+                    }
+
                     window.location.href = "{% url 'budget:budget_list' %}";
+                }
+
+                async function confirmReopenBudgetStatus(budgetId) {
+                    const reopenInput = document.getElementById('reopen-reason-input');
+                    if (!reopenInput) {
+                        return;
+                    }
+
+                    const reason = reopenInput.value.trim();
+                    if (!reason) {
+                        document.body.dispatchEvent(new CustomEvent('showToast', {
+                            detail: { type: 'error', message: 'A justificativa da reabertura é obrigatória.' },
+                        }));
+                        reopenInput.focus();
+                        return;
+                    }
+
+                    const formData = new FormData();
+                    formData.append('reopen_reason', reason);
+                    await executeStatusUpdate(budgetId, 'reopen', formData);
+                }
+
+                function cancelReopenBudgetStatus() {
+                    const reopenForm = document.getElementById('reopen-budget-form');
+                    const reopenInput = document.getElementById('reopen-reason-input');
+                    if (reopenForm) {
+                        reopenForm.classList.add('hidden');
+                    }
+                    if (reopenInput) {
+                        reopenInput.value = '';
+                    }
                 }
 
                 async function sendBudgetForSignature(buttonEl) {
@@ -3319,6 +3386,7 @@ class BudgetStep6Form(CoreModelForm):
                     # -------- APROVAÇÃO --------
                     Div(
                         HTML(cancellation_reason_html),
+                        HTML(reopen_history_html),
                         HTML('<h4 class="font-bold text-lg mb-2 border-b">Aprovação</h4>'),
                         HTML(f"""
                         <div class="grid grid-cols-12 gap-3">
@@ -3341,6 +3409,8 @@ class BudgetStep6Form(CoreModelForm):
                             </button>
 
                             {f"<button type='button' class='btn btn-outline col-span-12' data-allow-locked='1' onclick='updateBudgetStatus({budget.pk}, &#39;reopen&#39;, {str(bool(self.request and self.workshop and has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label='budget', model='budget', codename='add_budget', request=self.request))).lower()})'>Reabrir Orçamento</button>" if budget.is_status_locked else ""}
+
+                            {f"<div id='reopen-budget-form' class='col-span-12 mt-2 space-y-3 rounded-xl border border-warning/40 bg-warning/10 p-4 hidden' data-allow-locked='1'><p class='text-sm text-base-content/80' data-allow-locked='1'>Informe a justificativa da reabertura antes de concluir esta ação.</p><textarea id='reopen-reason-input' class='textarea textarea-bordered w-full' rows='4' placeholder='Explique por que este orçamento deve ser reaberto...' data-allow-locked='1'></textarea><div class='flex flex-wrap gap-3' data-allow-locked='1'><button type='button' class='btn btn-warning' data-allow-locked='1' onclick='confirmReopenBudgetStatus({budget.pk})'>Confirmar reabertura</button><button type='button' class='btn btn-ghost' data-allow-locked='1' onclick='cancelReopenBudgetStatus()'>Fechar</button></div></div>" if budget.is_status_locked else ""}
                         </div>
                         """),
                         css_class="p-4 bg-base-200/50 rounded-lg",

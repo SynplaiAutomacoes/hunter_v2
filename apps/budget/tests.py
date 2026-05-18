@@ -26,7 +26,7 @@ from djmoney.money import Money
 from apps.budget.forms import BudgetStep1Form, BudgetStep4Form, BudgetStep6Form
 from apps.budget.forms.step_forms import BudgetStep3Form
 from apps.budget.forms.shared import _render_budget_items_rows
-from apps.budget.models import Budget, BudgetItem, BudgetKitItemOverride, BudgetStatus, BudgetType, SignatureStatus
+from apps.budget.models import Budget, BudgetHistory, BudgetItem, BudgetKitItemOverride, BudgetStatus, BudgetType, SignatureStatus
 from apps.budget.pdf_context import build_budget_pdf_context
 from apps.budget.service import (
     BUDGET_SIGNATURE_DOCUMENT_ID_KEY,
@@ -2244,6 +2244,35 @@ class BudgetStep6WorkflowTests(TestCase):
                 "error": f"Nao e possivel aprovar. {Budget.CUSTOMER_AGREED_DEPARTURE_REQUIRED_MESSAGE} {Budget.SERVICE_EXPECTED_COMPLETION_REQUIRED_MESSAGE}",
             },
         )
+
+    def test_update_budget_status_reopen_requires_reason(self) -> None:
+        self.budget.status = BudgetStatus.CANCELLED
+        self.budget.save(update_fields=["status"])
+
+        response = self.client.post(reverse("budget:update_budget_status", args=[self.budget.pk, "reopen"]), data={"reopen_reason": ""})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertJSONEqual(response.content, {"success": False, "error": "A justificativa da reabertura é obrigatória."})
+        self.budget.refresh_from_db()
+        self.assertEqual(self.budget.status, BudgetStatus.CANCELLED)
+
+    def test_update_budget_status_reopen_creates_history_entry(self) -> None:
+        self.budget.status = BudgetStatus.CANCELLED
+        self.budget.save(update_fields=["status"])
+
+        response = self.client.post(
+            reverse("budget:update_budget_status", args=[self.budget.pk, "reopen"]),
+            data={"reopen_reason": "Cliente solicitou nova revisão."},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertJSONEqual(response.content, {"success": True})
+        self.budget.refresh_from_db()
+        self.assertEqual(self.budget.status, BudgetStatus.WAITING_REVIEW)
+
+        history_entry = BudgetHistory.objects.get(budget=self.budget, action=BudgetHistory.Action.REOPENED)
+        self.assertEqual(history_entry.reason, "Cliente solicitou nova revisão.")
+        self.assertEqual(history_entry.user_id, self.user.pk)
 
 
 class BudgetLinkWorkflowTests(TestCase):

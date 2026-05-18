@@ -8785,7 +8785,10 @@ class DreReportViewTests(TestCase):
             customer_name="Cliente Quitado",
             payment_due_date=date(2026, 3, 15),
         )
-        WorkOrder.objects.filter(workshop=self.workshop, budget__entry_date=date(2026, 3, 10)).update(status=WorkOrderStatus.APPROVED)
+        WorkOrder.objects.filter(workshop=self.workshop, budget__entry_date=date(2026, 3, 10)).update(
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
 
         response = self.client.get(
             reverse("finance:dre_results"),
@@ -8815,7 +8818,8 @@ class DreReportViewTests(TestCase):
             payment_due_date=date(2026, 4, 15),
         )
         workorder.status = WorkOrderStatus.APPROVED
-        workorder.save(update_fields=["status"])
+        workorder.delivered_at = timezone.now()
+        workorder.save(update_fields=["status", "delivered_at"])
 
         response = self.client.get(
             reverse("finance:dre_results"),
@@ -8851,7 +8855,8 @@ class DreReportViewTests(TestCase):
             payment_due_date=date(2026, 5, 15),
         )
         workorder.status = WorkOrderStatus.APPROVED
-        workorder.save(update_fields=["status"])
+        workorder.delivered_at = timezone.now()
+        workorder.save(update_fields=["status", "delivered_at"])
 
         movement = FinancialMovement.objects.create(
             workshop=self.workshop,
@@ -8914,7 +8919,8 @@ class DreReportViewTests(TestCase):
             payment_due_date=date(2026, 6, 15),
         )
         workorder.status = WorkOrderStatus.APPROVED
-        workorder.save(update_fields=["status"])
+        workorder.delivered_at = timezone.now()
+        workorder.save(update_fields=["status", "delivered_at"])
 
         response = self.client.get(
             reverse("finance:dre_results"),
@@ -8947,6 +8953,9 @@ class DreReportViewTests(TestCase):
             customer_name="Cliente Taxa",
             payment_due_date=date(2026, 7, 15),
         )
+        workorder.status = WorkOrderStatus.APPROVED
+        workorder.delivered_at = timezone.now()
+        workorder.save(update_fields=["status", "delivered_at"])
 
         payment = workorder.payments.first()
         self.assertIsNotNone(payment)
@@ -8998,7 +9007,8 @@ class DreReportViewTests(TestCase):
             payment_due_date=date(2026, 8, 15),
         )
         workorder.status = WorkOrderStatus.APPROVED
-        workorder.save(update_fields=["status"])
+        workorder.delivered_at = timezone.now()
+        workorder.save(update_fields=["status", "delivered_at"])
 
         payment = workorder.payments.first()
         self.assertIsNotNone(payment)
@@ -9034,6 +9044,56 @@ class DreReportViewTests(TestCase):
 
         self.assertEqual(costs_row["amount"], Money("170.00", "BRL"))
         self.assertEqual(details_total, costs_row["amount"])
+
+    def test_dre_excludes_non_delivered_workorder_costs_and_card_fee(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Vendas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+
+        workorder = self._create_workorder_with_values(
+            reference_date=date(2026, 9, 10),
+            product_selling_price="200.00",
+            product_cost_price="120.00",
+            service_selling_price="100.00",
+            service_cost_price="40.00",
+            customer_name="Cliente Nao Entregue",
+            payment_due_date=date(2026, 9, 15),
+        )
+        workorder.status = WorkOrderStatus.APPROVED
+        workorder.delivered_at = None
+        workorder.save(update_fields=["status", "delivered_at"])
+
+        payment = workorder.payments.first()
+        self.assertIsNotNone(payment)
+        if payment is None:
+            return
+
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            workorder=workorder,
+            workorder_payment=payment,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("10.00", "BRL"),
+            due_date=payment.due_date,
+            is_paid=True,
+            description="Pagamento da taxa da maquininha",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-09-01",
+                "data_final": "2026-09-30",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        costs_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
+        self.assertEqual(costs_row["amount"], Money("0.00", "BRL"))
+        self.assertEqual(costs_row["details"], [])
 
     def test_results_page_adds_negative_financial_expense_to_operating_result(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas Financeiras")

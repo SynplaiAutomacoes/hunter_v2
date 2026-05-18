@@ -254,11 +254,8 @@
         const reopenToggleButton = document.getElementById('toggle-reopen-workorder-form');
         const reopenCancelButton = document.getElementById('cancel-reopen-workorder-form');
 
-        if (!form || !kmInput || !statusEl || kmInput.dataset.kmAutosaveInitialized === 'true') {
-            return;
-        }
-
-        kmInput.dataset.kmAutosaveInitialized = 'true';
+        if (form && kmInput && statusEl && kmInput.dataset.kmAutosaveInitialized !== 'true') {
+            kmInput.dataset.kmAutosaveInitialized = 'true';
 
         const autosaveUrl = form.dataset.kmAutosaveUrl;
         const signatureApproved = form.dataset.signatureApproved === 'true';
@@ -445,47 +442,52 @@
 
         window.updateWorkorderDeliveryButtonState();
 
-        if (deliveryButton) {
-            deliveryButton.addEventListener('click', () => {
-                hideStatusForms();
-                if (signatureApproved) {
-                    form.requestSubmit();
-                    return;
-                }
-
-                if (deliveryButton.dataset.signatureWarningConfirmed !== 'true') {
-                    if (!window.confirm('A O.S. ainda não foi assinada pelo cliente. Se continuar, será obrigatório informar a justificativa da entrega sem assinatura.')) {
+            if (deliveryButton) {
+                deliveryButton.addEventListener('click', () => {
+                    hideStatusForms();
+                    if (signatureApproved) {
+                        form.requestSubmit();
                         return;
                     }
-                    deliveryButton.dataset.signatureWarningConfirmed = 'true';
-                }
 
-                showUnsignedReasonField();
+                    if (deliveryButton.dataset.signatureWarningConfirmed !== 'true') {
+                        if (!window.confirm('A O.S. ainda não foi assinada pelo cliente. Se continuar, será obrigatório informar a justificativa da entrega sem assinatura.')) {
+                            return;
+                        }
+                        deliveryButton.dataset.signatureWarningConfirmed = 'true';
+                    }
 
-                if (!unsignedReasonInput) {
+                    showUnsignedReasonField();
+
+                    if (!unsignedReasonInput) {
+                        form.requestSubmit();
+                        return;
+                    }
+
+                    if (!unsignedReasonInput.value.trim()) {
+                        unsignedReasonInput.setCustomValidity('Informe a justificativa para entregar o veículo sem a assinatura da O.S.');
+                        unsignedReasonInput.reportValidity();
+                        return;
+                    }
+
+                    unsignedReasonInput.setCustomValidity('');
                     form.requestSubmit();
-                    return;
-                }
-
-                if (!unsignedReasonInput.value.trim()) {
-                    unsignedReasonInput.setCustomValidity('Informe a justificativa para entregar o veículo sem a assinatura da O.S.');
-                    unsignedReasonInput.reportValidity();
-                    return;
-                }
-
-                unsignedReasonInput.setCustomValidity('');
-                form.requestSubmit();
-            });
+                });
+            }
         }
 
         if (reopenToggleButton && reopenForm) {
             reopenToggleButton.addEventListener('click', async () => {
                 if (reopenToggleButton.dataset.canReopenWorkorder !== 'true') {
-                    if (typeof window.customConfirm === 'function') {
-                        await window.customConfirm(
-                            'Você não tem permissão para reabrir esta O.S. Fale com alguém que tenha essa permissão para continuar.',
-                            { singleClose: true, closeText: 'Fechar' }
-                        );
+                    const denyMessage = 'Você não tem permissão para reabrir esta O.S. Fale com alguém que tenha essa permissão para continuar.';
+                    try {
+                        if (typeof window.customConfirm === 'function') {
+                            await window.customConfirm(denyMessage, { singleClose: true, closeText: 'Fechar' });
+                        } else {
+                            window.alert(denyMessage);
+                        }
+                    } catch (_error) {
+                        window.alert(denyMessage);
                     }
                     return;
                 }
@@ -496,11 +498,15 @@
             });
         } else if (reopenToggleButton) {
             reopenToggleButton.addEventListener('click', async () => {
-                if (typeof window.customConfirm === 'function') {
-                    await window.customConfirm(
-                        'Você não tem permissão para reabrir esta O.S. Fale com alguém que tenha essa permissão para continuar.',
-                        { singleClose: true, closeText: 'Fechar' }
-                    );
+                const denyMessage = 'Você não tem permissão para reabrir esta O.S. Fale com alguém que tenha essa permissão para continuar.';
+                try {
+                    if (typeof window.customConfirm === 'function') {
+                        await window.customConfirm(denyMessage, { singleClose: true, closeText: 'Fechar' });
+                    } else {
+                        window.alert(denyMessage);
+                    }
+                } catch (_error) {
+                    window.alert(denyMessage);
                 }
             });
         }
