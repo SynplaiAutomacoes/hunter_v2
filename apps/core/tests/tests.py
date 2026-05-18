@@ -1388,7 +1388,7 @@ class DashboardMetricsTests(TestCase):
             amount="100.00",
             due_date=today,
         )
-        budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=today, status=BudgetStatus.APPROVED)
         workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.DRAFT)
         WorkOrderPaymentMethod.objects.create(
             workorder=workorder,
@@ -1443,7 +1443,7 @@ class DashboardMetricsTests(TestCase):
         today = timezone.localdate()
         self._create_workshop_cost(reference_date=today, work_days_per_month=22)
 
-        budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=today, status=BudgetStatus.APPROVED)
         workorder = WorkOrder.objects.create(
             workshop=self.workshop,
             budget=budget,
@@ -1468,7 +1468,7 @@ class DashboardMetricsTests(TestCase):
         today = timezone.localdate()
         self._create_workshop_cost(reference_date=today, work_days_per_month=22)
 
-        budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=today, status=BudgetStatus.APPROVED)
         workorder = WorkOrder.objects.create(
             workshop=self.workshop,
             budget=budget,
@@ -1489,8 +1489,8 @@ class DashboardMetricsTests(TestCase):
         today = timezone.localdate()
         self._create_workshop_cost(reference_date=today, work_days_per_month=22)
 
-        parent_budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
-        child_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, reference_budget=parent_budget)
+        parent_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, status=BudgetStatus.APPROVED)
+        child_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, reference_budget=parent_budget, status=BudgetStatus.APPROVED)
 
         WorkOrder.objects.create(
             workshop=self.workshop,
@@ -1514,8 +1514,8 @@ class DashboardMetricsTests(TestCase):
         today = timezone.localdate()
         self._create_workshop_cost(reference_date=today, work_days_per_month=22)
 
-        parent_budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
-        child_budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
+        parent_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, status=BudgetStatus.APPROVED)
+        child_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, status=BudgetStatus.APPROVED)
 
         WorkOrder.objects.create(
             workshop=self.workshop,
@@ -1545,9 +1545,9 @@ class DashboardMetricsTests(TestCase):
         today = timezone.localdate()
         self._create_workshop_cost(reference_date=today, work_days_per_month=22)
 
-        root_budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
-        middle_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, reference_budget=root_budget)
-        child_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, reference_budget=middle_budget)
+        root_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, status=BudgetStatus.APPROVED)
+        middle_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, reference_budget=root_budget, status=BudgetStatus.APPROVED)
+        child_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, reference_budget=middle_budget, status=BudgetStatus.APPROVED)
 
         WorkOrder.objects.create(
             workshop=self.workshop,
@@ -1571,11 +1571,18 @@ class DashboardMetricsTests(TestCase):
         today = timezone.localdate()
 
         for _ in range(2):
-            Budget.objects.create(
+            warranty_budget = Budget.objects.create(
                 workshop=self.workshop,
                 entry_date=today,
                 budget_type=BudgetType.WARRANTY,
                 is_warranty_budget=True,
+            )
+            WorkOrder.objects.create(
+                workshop=self.workshop,
+                budget=warranty_budget,
+                budget_type="warranty",
+                status=WorkOrderStatus.APPROVED,
+                delivered_at=timezone.now(),
             )
 
         for _ in range(4):
@@ -1584,6 +1591,7 @@ class DashboardMetricsTests(TestCase):
                 entry_date=today,
                 budget_type=BudgetType.SALE,
                 is_warranty_budget=False,
+                status=BudgetStatus.APPROVED,
             )
             WorkOrder.objects.create(
                 workshop=self.workshop,
