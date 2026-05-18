@@ -3047,6 +3047,11 @@ class BudgetStep6Form(CoreModelForm):
                         return;
                     }
 
+                    if (status === 'reopen') {
+                        window.location.reload();
+                        return;
+                    }
+
                     window.location.href = "{% url 'budget:budget_list' %}";
                 }
 
