@@ -664,6 +664,18 @@ wheels = [
 ]
 
 [[package]]
+name = "holidays"
+version = "0.96"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "python-dateutil" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3e/dd/068cb4636a3cb433251e7d018d145f1a8c3c57c6fb0452d022561a35c46a/holidays-0.96.tar.gz", hash = "sha256:9d4d15bc28fa690969b82f07a1d6571aa14d4073cc98802510c08dfe3b1f2d25", size = 906699, upload-time = "2026-05-04T17:37:21.258Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/00/a2/05cbe4e2309a08a09bbfab04d3d37d687b5852abf7d037fea19313d2eb60/holidays-0.96-py3-none-any.whl", hash = "sha256:9d4f06603090304584f685b2f3d9f4289eb5c52b83fca472f922cb83cc3fb93f", size = 1473213, upload-time = "2026-05-04T17:37:18.933Z" },
+]
+
+[[package]]
 name = "html5lib"
 version = "1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -696,6 +708,7 @@ dependencies = [
     { name = "django-tables2" },
     { name = "django-tailwind-cli" },
     { name = "gunicorn" },
+    { name = "holidays" },
     { name = "openpyxl" },
     { name = "pillow" },
     { name = "playwright" },
@@ -731,6 +744,7 @@ requires-dist = [
     { name = "django-tables2", specifier = ">=2.8.0" },
     { name = "django-tailwind-cli", specifier = ">=4.4.2" },
     { name = "gunicorn", specifier = ">=23.0.0" },
+    { name = "holidays", specifier = ">=0.96" },
     { name = "openpyxl", specifier = ">=3.1.5" },
     { name = "pillow", specifier = ">=11.3.0" },
     { name = "playwright", specifier = ">=1.55.0" },

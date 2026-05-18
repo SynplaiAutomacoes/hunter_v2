@@ -9691,6 +9691,60 @@ class CashFlowReconciliationTests(TestCase):
         self.assertEqual(response.context["saldo_atual"]["value"], "R$ 100,00")
         self.assertContains(response, "Pix")
 
+    def test_cash_flow_bank_account_filter_does_not_include_other_workorder_payment_accounts(self) -> None:
+        account_a = BankAccount.objects.create(workshop=self.workshop, bank_code="001", bank_name="Banco A", agency="0001", account_number="12345", account_type=BankAccount.AccountType.CORRENTE)
+        account_b = BankAccount.objects.create(workshop=self.workshop, bank_code="237", bank_name="Banco B", agency="0001", account_number="67890", account_type=BankAccount.AccountType.CORRENTE)
+
+        workorder, payment_a = self._create_workorder_with_payment(customer_name="Cliente Conta A", due_date=date(2026, 5, 12))
+        payment_a.first_installment_amount = Money("120.00", "BRL")
+        payment_a.save(update_fields=["first_installment_amount", "first_installment_amount_currency"])
+        payment_b = WorkOrderPaymentMethod.objects.create(
+            workorder=workorder,
+            payment_method=self.payment_method,
+            installments_count=1,
+            first_installment_amount=Money("180.00", "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            due_date=date(2026, 5, 13),
+        )
+
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            workorder_payment=payment_a,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            payment_method=payment_a.payment_method,
+            bank_account=account_a,
+            amount=payment_a.total_paid,
+            due_date=payment_a.due_date,
+            is_paid=True,
+            is_reconciled=True,
+            description="Recebimento O.S.",
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            workorder_payment=payment_b,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            payment_method=payment_b.payment_method,
+            bank_account=account_b,
+            amount=payment_b.total_paid,
+            due_date=payment_b.due_date,
+            is_paid=True,
+            is_reconciled=True,
+            description="Recebimento O.S.",
+        )
+
+        response = self.client.get(reverse("finance:cash_flow"), data={"conta_bancaria": str(account_a.pk)})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["saldo_atual"]["value"], "R$ 120,00")
+
 
 class PaymentMethodFormTests(TestCase):
     def test_infer_payment_type_maps_credit_debit_and_other_descriptions(self) -> None:

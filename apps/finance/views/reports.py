@@ -358,6 +358,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
 
     def _filter_workorder_payments_for_rows(self, *, payments: list[object], filter_params: dict[str, Any]) -> list[object]:
         filtered_payments = []
+        payment_movement_by_payment_id: dict[int, FinancialMovement] = getattr(self, "_payment_movement_by_payment_id", {})
         start_date = filter_params["start_date"]
         end_date = filter_params["end_date"]
         payment_method_id = filter_params["payment_method_id"]
@@ -378,6 +379,9 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             if payment_method_id is not None and payment.payment_method_id != payment_method_id:
                 continue
             payment_movement = FinancialMovement.objects.filter(workorder_payment_id=payment.pk, movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workshop=self.workshop).order_by("-pk").first()
+            if payment_movement is None:
+                continue
+            payment_movement_by_payment_id[payment.pk] = payment_movement
             is_reconciled = bool(getattr(payment_movement, "is_reconciled", False))
             if reconciliation_status == "reconciled" and not is_reconciled:
                 continue
@@ -385,19 +389,27 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
                 continue
             filtered_payments.append(payment)
 
+        self._payment_movement_by_payment_id = payment_movement_by_payment_id
+
         return filtered_payments
 
     def _build_workorder_payment_row(self, *, movement: FinancialMovement, payment: object) -> dict[str, object]:
         workorder = movement.workorder
-        payment_movement = (
-            FinancialMovement.objects.filter(
-                workorder=workorder,
-                workorder_payment_id=payment.pk,
-                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+        payment_movement_by_payment_id: dict[int, FinancialMovement] = getattr(self, "_payment_movement_by_payment_id", {})
+        payment_movement = payment_movement_by_payment_id.get(payment.pk)
+        if payment_movement is None:
+            payment_movement = (
+                FinancialMovement.objects.filter(
+                    workorder=workorder,
+                    workorder_payment_id=payment.pk,
+                    movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                    workshop=self.workshop,
+                )
+                .order_by("-pk")
+                .first()
             )
-            .order_by("-pk")
-            .first()
-        ) or movement
+        if payment_movement is None:
+            payment_movement = movement
         payment_method = getattr(payment, "payment_method", None)
         payment_amount = getattr(payment, "total_paid", None)
         resolved_amount = self._resolve_money_amount(payment_amount)

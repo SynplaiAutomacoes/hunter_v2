@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import calendar
 import io
 from datetime import date
 from decimal import Decimal
@@ -11,6 +12,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
+import holidays
 from PIL import Image
 
 from apps.accounts.models import Account, User
@@ -18,6 +20,7 @@ from apps.collaborators.models import WorkshopMember
 from apps.finance.models.finance import WebmaniaCompany
 from apps.iam.models import WorkshopRole
 from apps.iam.utils import get_or_create_director_role
+from apps.workshops.forms.workshop_costs import WorkshopCostForm
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostHoliday
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.services.files import StoredWorkshopFile, WorkshopFileSyncError
@@ -629,3 +632,40 @@ class WorkshopCostHolidayTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Calendário de Feriados")
         self.assertContains(response, "holiday-calendar")
+
+    def test_workshop_cost_form_preloads_sp_holidays_and_calculates_work_days(self) -> None:
+        form = WorkshopCostForm(workshop=self.workshop, initial={"month": 1, "year": 2026})
+        auto_dates = [date.fromisoformat(raw) for raw in str(form.initial.get("holiday_dates") or "").split(",") if raw]
+        expected_sp_holidays = sorted(holiday_date for holiday_date in holidays.Brazil(state="SP", years=2026).keys() if holiday_date.month == 1 and holiday_date.weekday() < 5)
+        self.assertEqual(auto_dates, expected_sp_holidays)
+
+        no_holiday_month = next(month for month in range(1, 13) if not [holiday_date for holiday_date in holidays.Brazil(state="SP", years=2026).keys() if holiday_date.month == month and holiday_date.weekday() < 5])
+        form_no_holiday = WorkshopCostForm(
+            data={
+                "month": str(no_holiday_month),
+                "year": "2026",
+                "mechanic_quantity": "1",
+                "work_hours_per_day": "08:00",
+                "work_days_per_month": "99",
+                "productivity_average": "0.60",
+                "holiday_dates": "",
+            },
+            workshop=self.workshop,
+        )
+        self.assertTrue(form_no_holiday.is_valid(), form_no_holiday.errors)
+        self.assertEqual(form_no_holiday.cleaned_data["work_days_per_month"], calendar.monthrange(2026, no_holiday_month)[1])
+
+        form_manual = WorkshopCostForm(
+            data={
+                "month": "1",
+                "year": "2026",
+                "mechanic_quantity": "1",
+                "work_hours_per_day": "08:00",
+                "work_days_per_month": "99",
+                "productivity_average": "0.60",
+                "holiday_dates": "2026-01-01,2026-01-15",
+            },
+            workshop=self.workshop,
+        )
+        self.assertTrue(form_manual.is_valid(), form_manual.errors)
+        self.assertEqual(form_manual.cleaned_data["work_days_per_month"], 29)
