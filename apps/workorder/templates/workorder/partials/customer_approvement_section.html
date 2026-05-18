@@ -153,7 +153,7 @@
             <button type="button" class="btn btn-warning" onclick="rejectWorkOrderModal.showModal()" {% if workorder.is_status_locked %}disabled title="Reabra a O.S. antes de alterar o status."{% endif %}>Reprovar</button>
 
             {% if workorder.can_reopen %}
-            <button type="button" class="btn btn-outline" id="toggle-reopen-workorder-form" data-can-reopen-workorder="{% if can_reopen_workorder %}true{% else %}false{% endif %}">Reabrir O.S.</button>
+            <button type="button" class="btn btn-outline" id="toggle-reopen-workorder-form" data-allow-locked="1" data-can-reopen-workorder="{% if can_reopen_workorder %}true{% else %}false{% endif %}">Reabrir O.S.</button>
             {% endif %}
         </div>
 
@@ -223,6 +223,7 @@
             hx-target="#customer-approvement-section"
             hx-swap="innerHTML"
             class="mt-4 space-y-4 rounded-xl border border-warning/40 bg-warning/10 p-4 {% if not reopen_form.errors %}hidden{% endif %}"
+            data-allow-locked="1"
         >
             {% csrf_token %}
             <div class="space-y-1 text-sm text-base-content/80">
@@ -230,9 +231,9 @@
                 <p>Ao reabrir, o sistema vai estornar os movimentos financeiros e de estoque vinculados a esta entrega e voltar a O.S. para rascunho.</p>
             </div>
             {% crispy reopen_form %}
-            <div class="flex flex-wrap gap-3">
-                <button type="submit" class="btn btn-warning">Confirmar reabertura</button>
-                <button type="button" class="btn btn-ghost" id="cancel-reopen-workorder-form">Fechar</button>
+            <div class="flex flex-wrap gap-3" data-allow-locked="1">
+                <button type="submit" class="btn btn-warning" data-allow-locked="1">Confirmar reabertura</button>
+                <button type="button" class="btn btn-ghost" id="cancel-reopen-workorder-form" data-allow-locked="1">Fechar</button>
             </div>
         </form>
         {% endif %}
@@ -254,11 +255,17 @@
         const reopenToggleButton = document.getElementById('toggle-reopen-workorder-form');
         const reopenCancelButton = document.getElementById('cancel-reopen-workorder-form');
 
-        if (!form || !kmInput || !statusEl || kmInput.dataset.kmAutosaveInitialized === 'true') {
-            return;
-        }
+        const hideStatusForms = (...formsToKeep) => {
+            [cancelForm, rejectForm, reopenForm].forEach((currentForm) => {
+                if (!currentForm || formsToKeep.includes(currentForm)) {
+                    return;
+                }
+                currentForm.classList.add('hidden');
+            });
+        };
 
-        kmInput.dataset.kmAutosaveInitialized = 'true';
+        if (form && kmInput && statusEl && kmInput.dataset.kmAutosaveInitialized !== 'true') {
+            kmInput.dataset.kmAutosaveInitialized = 'true';
 
         const autosaveUrl = form.dataset.kmAutosaveUrl;
         const signatureApproved = form.dataset.signatureApproved === 'true';
@@ -367,15 +374,6 @@
             setDeliveryButtonTooltip(currentDeliveryButton, '');
         };
 
-        const hideStatusForms = (...formsToKeep) => {
-            [reopenForm].forEach((currentForm) => {
-                if (!currentForm || formsToKeep.includes(currentForm)) {
-                    return;
-                }
-                currentForm.classList.add('hidden');
-            });
-        };
-
         const persistKmFinal = async () => {
             const currentValue = kmInput.value.trim();
 
@@ -445,48 +443,47 @@
 
         window.updateWorkorderDeliveryButtonState();
 
-        if (deliveryButton) {
-            deliveryButton.addEventListener('click', () => {
-                hideStatusForms();
-                if (signatureApproved) {
-                    form.requestSubmit();
-                    return;
-                }
-
-                if (deliveryButton.dataset.signatureWarningConfirmed !== 'true') {
-                    if (!window.confirm('A O.S. ainda não foi assinada pelo cliente. Se continuar, será obrigatório informar a justificativa da entrega sem assinatura.')) {
+            if (deliveryButton) {
+                deliveryButton.addEventListener('click', () => {
+                    hideStatusForms();
+                    if (signatureApproved) {
+                        form.requestSubmit();
                         return;
                     }
-                    deliveryButton.dataset.signatureWarningConfirmed = 'true';
-                }
 
-                showUnsignedReasonField();
+                    if (deliveryButton.dataset.signatureWarningConfirmed !== 'true') {
+                        if (!window.confirm('A O.S. ainda não foi assinada pelo cliente. Se continuar, será obrigatório informar a justificativa da entrega sem assinatura.')) {
+                            return;
+                        }
+                        deliveryButton.dataset.signatureWarningConfirmed = 'true';
+                    }
 
-                if (!unsignedReasonInput) {
+                    showUnsignedReasonField();
+
+                    if (!unsignedReasonInput) {
+                        form.requestSubmit();
+                        return;
+                    }
+
+                    if (!unsignedReasonInput.value.trim()) {
+                        unsignedReasonInput.setCustomValidity('Informe a justificativa para entregar o veículo sem a assinatura da O.S.');
+                        unsignedReasonInput.reportValidity();
+                        return;
+                    }
+
+                    unsignedReasonInput.setCustomValidity('');
                     form.requestSubmit();
-                    return;
-                }
-
-                if (!unsignedReasonInput.value.trim()) {
-                    unsignedReasonInput.setCustomValidity('Informe a justificativa para entregar o veículo sem a assinatura da O.S.');
-                    unsignedReasonInput.reportValidity();
-                    return;
-                }
-
-                unsignedReasonInput.setCustomValidity('');
-                form.requestSubmit();
-            });
+                });
+            }
         }
 
         if (reopenToggleButton && reopenForm) {
-            reopenToggleButton.addEventListener('click', async () => {
+            reopenToggleButton.addEventListener('click', () => {
                 if (reopenToggleButton.dataset.canReopenWorkorder !== 'true') {
-                    if (typeof window.customConfirm === 'function') {
-                        await window.customConfirm(
-                            'Você não tem permissão para reabrir esta O.S. Fale com alguém que tenha essa permissão para continuar.',
-                            { singleClose: true, closeText: 'Fechar' }
-                        );
-                    }
+                    const denyMessage = 'Você não tem permissão para reabrir esta O.S. Fale com alguém que tenha essa permissão para continuar.';
+                    document.body.dispatchEvent(new CustomEvent('showToast', {
+                        detail: { type: 'error', message: denyMessage },
+                    }));
                     return;
                 }
 
@@ -495,13 +492,11 @@
                 reopenForm.querySelector('textarea')?.focus();
             });
         } else if (reopenToggleButton) {
-            reopenToggleButton.addEventListener('click', async () => {
-                if (typeof window.customConfirm === 'function') {
-                    await window.customConfirm(
-                        'Você não tem permissão para reabrir esta O.S. Fale com alguém que tenha essa permissão para continuar.',
-                        { singleClose: true, closeText: 'Fechar' }
-                    );
-                }
+            reopenToggleButton.addEventListener('click', () => {
+                const denyMessage = 'Você não tem permissão para reabrir esta O.S. Fale com alguém que tenha essa permissão para continuar.';
+                document.body.dispatchEvent(new CustomEvent('showToast', {
+                    detail: { type: 'error', message: denyMessage },
+                }));
             });
         }
 

@@ -1996,6 +1996,45 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertIsNotNone(last_payment)
         self.assertEqual(last_payment.first_installment_amount, Money("20.00", "BRL"))
 
+    def test_post_with_existing_paid_plan_keeps_each_payment_status_independent(self) -> None:
+        first_method = PaymentMethod.objects.create(workshop=self.workshop, description="Dinheiro", installments_count=1)
+        second_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
+        first_payment = WorkOrderPaymentMethod.objects.create(
+            workorder=self.workorder,
+            payment_method=first_method,
+            first_installment_amount=Money("30.00", "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 20),
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            workorder=self.workorder,
+            workorder_payment=first_payment,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("30.00", "BRL"),
+            due_date=date(2026, 3, 20),
+            is_paid=True,
+        )
+
+        response = self.client.post(
+            reverse("workorder:add_payment", args=[self.workorder.pk]),
+            data={
+                "payment_method": str(second_method.pk),
+                "first_installment_amount_0": "20.00",
+                "first_installment_amount_1": "BRL",
+                "due_date": "2026-03-24",
+            },
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+        self.assertRegex(html, r"Dinheiro[\s\S]*?Pago")
+        self.assertRegex(html, r"Pix[\s\S]*?Pago")
+
     def test_payment_section_shows_success_when_workorder_is_fully_paid(self) -> None:
         payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix", installments_count=1)
         WorkOrderPaymentMethod.objects.create(

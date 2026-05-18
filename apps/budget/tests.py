@@ -26,7 +26,7 @@ from djmoney.money import Money
 from apps.budget.forms import BudgetStep1Form, BudgetStep4Form, BudgetStep6Form
 from apps.budget.forms.step_forms import BudgetStep3Form
 from apps.budget.forms.shared import _render_budget_items_rows
-from apps.budget.models import Budget, BudgetItem, BudgetKitItemOverride, BudgetStatus, BudgetType, SignatureStatus
+from apps.budget.models import Budget, BudgetHistory, BudgetItem, BudgetKitItemOverride, BudgetStatus, BudgetType, SignatureStatus
 from apps.budget.pdf_context import build_budget_pdf_context
 from apps.budget.service import (
     BUDGET_SIGNATURE_DOCUMENT_ID_KEY,
@@ -2188,8 +2188,7 @@ class BudgetStep6WorkflowTests(TestCase):
         self.assertEqual(self.budget.status, BudgetStatus.CANCELLED)
 
     def test_update_budget_status_blocks_cancel_when_active_workorder_exists(self) -> None:
-        self.budget.status = BudgetStatus.APPROVED
-        self.budget.save(update_fields=["status"])
+        WorkOrder.objects.create(workshop=self.workshop, budget=self.budget, status=WorkOrderStatus.DRAFT)
         WorkOrder.objects.create(workshop=self.workshop, budget=self.budget, status=WorkOrderStatus.DRAFT)
 
         response = self.client.post(reverse("budget:update_budget_status", args=[self.budget.pk, "cancel"]))
@@ -2244,6 +2243,105 @@ class BudgetStep6WorkflowTests(TestCase):
                 "error": f"Nao e possivel aprovar. {Budget.CUSTOMER_AGREED_DEPARTURE_REQUIRED_MESSAGE} {Budget.SERVICE_EXPECTED_COMPLETION_REQUIRED_MESSAGE}",
             },
         )
+
+    def test_update_budget_status_reopen_requires_reason(self) -> None:
+        self.budget.status = BudgetStatus.CANCELLED
+        self.budget.save(update_fields=["status"])
+
+        response = self.client.post(reverse("budget:update_budget_status", args=[self.budget.pk, "reopen"]), data={"reopen_reason": ""})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertJSONEqual(response.content, {"success": False, "error": "A justificativa da reabertura é obrigatória."})
+        self.budget.refresh_from_db()
+        self.assertEqual(self.budget.status, BudgetStatus.CANCELLED)
+
+    def test_update_budget_status_reopen_creates_history_entry(self) -> None:
+        self.budget.status = BudgetStatus.CANCELLED
+        self.budget.save(update_fields=["status"])
+
+        response = self.client.post(
+            reverse("budget:update_budget_status", args=[self.budget.pk, "reopen"]),
+            data={"reopen_reason": "Cliente solicitou nova revisão."},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertJSONEqual(response.content, {"success": True})
+        self.budget.refresh_from_db()
+        self.assertEqual(self.budget.status, BudgetStatus.WAITING_REVIEW)
+
+        history_entry = BudgetHistory.objects.get(budget=self.budget, action=BudgetHistory.Action.REOPENED)
+        self.assertEqual(history_entry.reason, "Cliente solicitou nova revisão.")
+        self.assertEqual(history_entry.user_id, self.user.pk)
+
+
+class BudgetLinkWorkflowTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=19)
+        self.current_budget = create_budget(workshop=self.workshop)
+        self.reference_budget = create_budget(workshop=self.workshop)
+        self.other_reference_budget = create_budget(workshop=self.workshop)
+
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_link_budget_success(self) -> None:
+        response = self.client.post(
+            reverse("budget:budget_link_process", args=[self.current_budget.pk]),
+            data={"reference_budget_id": str(self.reference_budget.pk)},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.current_budget.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.current_budget.reference_budget_id, self.reference_budget.pk)
+
+    def test_unlink_budget_success(self) -> None:
+        self.current_budget.reference_budget = self.reference_budget
+        self.current_budget.save(update_fields=["reference_budget"])
+
+        response = self.client.post(
+            reverse("budget:budget_unlink_process", args=[self.current_budget.pk]),
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.current_budget.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(self.current_budget.reference_budget_id)
+
+    def test_link_budget_to_itself_fails(self) -> None:
+        response = self.client.post(
+            reverse("budget:budget_link_process", args=[self.current_budget.pk]),
+            data={"reference_budget_id": str(self.current_budget.pk)},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.current_budget.refresh_from_db()
+        self.assertEqual(response.status_code, 400)
+        self.assertJSONEqual(response.content, {"success": False, "error": "Não é possível vincular um orçamento a ele mesmo."})
+        self.assertIsNone(self.current_budget.reference_budget_id)
+
+    def test_link_budget_when_already_linked_fails(self) -> None:
+        self.current_budget.reference_budget = self.reference_budget
+        self.current_budget.save(update_fields=["reference_budget"])
+
+        response = self.client.post(
+            reverse("budget:budget_link_process", args=[self.current_budget.pk]),
+            data={"reference_budget_id": str(self.other_reference_budget.pk)},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.current_budget.refresh_from_db()
+        self.assertEqual(response.status_code, 409)
+        self.assertJSONEqual(
+            response.content,
+            {
+                "success": False,
+                "error": "Este orçamento já está vinculado. Desvincule antes de realizar um novo vínculo.",
+            },
+        )
+        self.assertEqual(self.current_budget.reference_budget_id, self.reference_budget.pk)
 
 
 class BudgetProductIssueTests(TestCase):

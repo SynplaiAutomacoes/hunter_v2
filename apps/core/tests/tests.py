@@ -1510,6 +1510,37 @@ class DashboardMetricsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["qtd_carros_mes"], 1)
 
+    def test_dashboard_deduplicates_vehicle_total_when_link_is_applied_after_both_workorders_exist(self):
+        today = timezone.localdate()
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
+
+        parent_budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
+        child_budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
+
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=parent_budget,
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=child_budget,
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+
+        response_before_link = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+        self.assertEqual(response_before_link.status_code, 200)
+        self.assertEqual(response_before_link.context["qtd_carros_mes"], 2)
+
+        child_budget.reference_budget = parent_budget
+        child_budget.save(update_fields=["reference_budget"])
+
+        response_after_link = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+        self.assertEqual(response_after_link.status_code, 200)
+        self.assertEqual(response_after_link.context["qtd_carros_mes"], 1)
+
     def test_dashboard_retorno_em_garantia_uses_qtd_carros_as_denominator(self):
         today = timezone.localdate()
 

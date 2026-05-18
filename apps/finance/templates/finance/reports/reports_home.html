@@ -18,6 +18,15 @@
                     <span class="material-icons">checklist</span>
                     Conciliar
                 </button>
+                <button type="button" class="btn btn-success" id="btn-pagar-todos" disabled
+                        hx-post="{% url 'finance:bulk_pay' %}"
+                        hx-include="#financial-reports-movements-table .item-checkbox:checked"
+                        hx-confirm="Tem certeza que deseja marcar todas as movimentações selecionadas como pagas?"
+                        hx-target="#financial-reports-movements-section"
+                        hx-swap="outerHTML">
+                    <span class="material-icons">payments</span>
+                    Pagar todos
+                </button>
                 <button type="button" class="btn btn-secondary" onclick="group_modal.showModal()" hx-get="{% url 'finance:group_movement_wizard' %}?step=1" hx-target="#group-modal-content">
                     <span class="material-icons">layers</span>
                     Agrupar
@@ -398,12 +407,12 @@
                                                 <input type="checkbox" id="select-all-movements" class="checkbox checkbox-primary" />
                                             </th>
                                             <th>Pago</th>
+                                            <th>Conciliado</th>
                                             <th>Tipo</th>
                                             <th>Vencimento</th>
                                             <th>Agente</th>
                                             <th>Descrição</th>
                                             <th>Plano Orçamentário</th>
-                                            <th>Conta</th>
                                             <th>Tipo Pagamento</th>
                                             <th class="text-center">Editar</th>
                                             <th class="text-right">Total</th>
@@ -421,7 +430,7 @@
                                                             <span class="material-icons text-base leading-none text-base-content/55" x-text="openRow === '{{ row.component }}' ? 'expand_more' : 'chevron_right'"></span>
                                                         {% endif %}
                                                         {% if row.paid_status.icon %}
-                                                            <span class="inline-flex items-center gap-1 {{ row.paid_status.class }}" title="{{ row.paid_status.label }}" aria-label="{{ row.paid_status.label }}">
+                                                            <span class="inline-flex items-center gap-1 whitespace-nowrap {% if row.paid_status.label == 'Sim' %}text-success{% elif row.paid_status.label == 'Não' %}text-error{% else %}text-warning{% endif %}" title="{{ row.paid_status.label }}" aria-label="{{ row.paid_status.label }}">
                                                                 <span class="material-icons text-base leading-none">{{ row.paid_status.icon }}</span>
                                                                 <span class="font-medium">{{ row.paid_status.label }}</span>
                                                             </span>
@@ -430,12 +439,21 @@
                                                         {% endif %}
                                                     </div>
                                                 </td>
+                                                <td>
+                                                    {% if row.reconciliation_status and row.reconciliation_status.icon %}
+                                                        <span class="inline-flex items-center gap-1 whitespace-nowrap {% if row.reconciliation_status.label == 'Conciliado' %}text-info{% else %}text-warning{% endif %}" title="{{ row.reconciliation_status.label }}" aria-label="{{ row.reconciliation_status.label }}">
+                                                            <span class="material-icons text-base leading-none">{{ row.reconciliation_status.icon }}</span>
+                                                            <span class="font-medium">{{ row.reconciliation_status.label }}</span>
+                                                        </span>
+                                                    {% else %}
+                                                        <span class="font-medium text-base-content/70">-</span>
+                                                    {% endif %}
+                                                </td>
                                                 <td><span class="badge {{ row.type_badge.class }} badge-sm whitespace-nowrap">{{ row.type_badge.text }}</span></td>
                                                 <td>{{ row.due_date|date:"d/m/Y"|default:"-" }}</td>
                                                 <td>{{ row.agent }}</td>
                                                 <td>{{ row.description }}</td>
                                                 <td>{{ row.budget_plan }}</td>
-                                                <td>{{ row.account }}</td>
                                                 <td>{{ row.payment_type }}</td>
                                                 <td class="text-center">
                                                     <button type="button" class="btn btn-ghost btn-xs"
@@ -450,7 +468,7 @@
                                             </tr>
                                             {% if row.is_expandable %}
                                                 <tr class="bg-base-200/40" x-cloak x-show="openRow === '{{ row.component }}'">
-                                                    <td colspan="12" class="p-0">
+                                                    <td colspan="11" class="p-0">
                                                         <div class="border-t border-base-300 px-4 py-4 md:px-6">
                                                             <div class="overflow-hidden rounded-xl border border-base-300 bg-base-100">
                                                                 <table class="table table-sm">
@@ -528,22 +546,39 @@
 
                     <script>
                     (function () {
-                        var btnConciliar = document.getElementById('btn-conciliar');
+                        if (window.__financialReportsSelectionInitDone) {
+                            return;
+                        }
+                        window.__financialReportsSelectionInitDone = true;
 
-                        function updateConciliarButton() {
-                            if (!btnConciliar) return;
+                        var btnConciliar = document.getElementById('btn-conciliar');
+                        var btnPagarTodos = document.getElementById('btn-pagar-todos');
+
+                        function updateActionButtons() {
                             var checkboxes = document.querySelectorAll('#financial-reports-movements-table .item-checkbox:checked');
-                            btnConciliar.disabled = checkboxes.length === 0;
-                            if (checkboxes.length > 0) {
-                                btnConciliar.removeAttribute('disabled');
-                            } else {
-                                btnConciliar.setAttribute('disabled', 'disabled');
+                            var hasSelection = checkboxes.length > 0;
+
+                            if (btnConciliar) {
+                                btnConciliar.disabled = !hasSelection;
+                                if (hasSelection) btnConciliar.removeAttribute('disabled');
+                                else btnConciliar.setAttribute('disabled', 'disabled');
+                            }
+
+                            if (btnPagarTodos) {
+                                btnPagarTodos.disabled = !hasSelection;
+                                if (hasSelection) btnPagarTodos.removeAttribute('disabled');
+                                else btnPagarTodos.setAttribute('disabled', 'disabled');
                             }
                         }
 
                         function init() {
+                            btnConciliar = document.getElementById('btn-conciliar');
+                            btnPagarTodos = document.getElementById('btn-pagar-todos');
                             var selectAll = document.getElementById('select-all-movements');
-                            if (!selectAll) return;
+                            if (!selectAll) {
+                                updateActionButtons();
+                                return;
+                            }
                             var checkboxes = document.querySelectorAll('#financial-reports-movements-table .item-checkbox');
                             var checked = 0;
                             for (var i = 0; i < checkboxes.length; i++) {
@@ -551,7 +586,7 @@
                             }
                             selectAll.checked = checked === checkboxes.length && checkboxes.length > 0;
                             selectAll.indeterminate = checked > 0 && checked < checkboxes.length;
-                            updateConciliarButton();
+                            updateActionButtons();
                         }
 
                         document.addEventListener('change', function (e) {
@@ -574,7 +609,11 @@
                                 selectAll.checked = checked === checkboxes.length;
                                 selectAll.indeterminate = checked > 0 && checked < checkboxes.length;
                             }
-                            updateConciliarButton();
+                            updateActionButtons();
+                        });
+
+                        document.body.addEventListener('htmx:afterSwap', function () {
+                            init();
                         });
 
                         init();

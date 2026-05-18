@@ -104,6 +104,7 @@ class FinancialMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTem
             TableColumn("Tipo", attr="get_direction_display", search_by="direction"),
             TableColumn(FinancialMovement.amount.field.verbose_name, attr=FinancialMovement.amount.field.name),
             TableColumn(FinancialMovement.due_date.field.verbose_name, attr=FinancialMovement.due_date.field.name),
+            TableColumn("Conciliado", attr="is_reconciled"),
         ]
         context["actions"] = [
             TableActionDefaults.edit("finance:financial_movement_update", preserve_current_url_as_next=True),

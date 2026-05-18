@@ -60,9 +60,9 @@ def _mask_phone(phone: str) -> str:
 
 
 def _normalize_phone(phone: str) -> str:
-    digits = re.sub(r'\D', '', phone)
-    if not digits.startswith('55') and len(digits) >= 10:
-        return '55' + digits
+    digits = re.sub(r"\D", "", phone)
+    if not digits.startswith("55") and len(digits) >= 10:
+        return "55" + digits
     return digits
 
 
@@ -70,7 +70,7 @@ def _get_user_phone(user) -> str | None:
     if user.phone:
         return user.phone
     try:
-        collaborator = getattr(user, 'workshop_collaborator', None)
+        collaborator = getattr(user, "workshop_collaborator", None)
         if collaborator and collaborator.phone:
             return str(collaborator.phone)
     except Exception:
@@ -147,7 +147,8 @@ class PasswordResetWizardView(View):
             post_data = request.POST
         else:
             from urllib.parse import parse_qs
-            parsed = parse_qs(request.body.decode('utf-8'))
+
+            parsed = parse_qs(request.body.decode("utf-8"))
             post_data = {k: v[0] if len(v) == 1 else v for k, v in parsed.items()}
 
         step = post_data.get("step", "1")
@@ -201,9 +202,7 @@ class PasswordResetWizardView(View):
                     }
                 )
             logger.warning(f"Step 1 validation failed: {form.errors}")
-            return JsonResponse(
-                {"success": False, "step": 1, "errors": form.errors}, status=400
-            )
+            return JsonResponse({"success": False, "step": 1, "errors": form.errors}, status=400)
 
         elif step == "2":
             logger.info("Processing step 2 - Code verification")
@@ -233,7 +232,7 @@ class PasswordResetWizardView(View):
                 )
 
             if code.upper() != token.code.upper():
-                logger.warning(f"Step 2 - Invalid code submitted")
+                logger.warning("Step 2 - Invalid code submitted")
                 return JsonResponse(
                     {
                         "success": False,
@@ -284,13 +283,9 @@ class PasswordResetWizardView(View):
                 request.session.pop("password_reset_token_id", None)
 
                 logger.info(f"Password reset completed for user {user_id}")
-                return JsonResponse(
-                    {"success": True, "step": 4, "message": "Senha redefinida com sucesso!"}
-                )
+                return JsonResponse({"success": True, "step": 4, "message": "Senha redefinida com sucesso!"})
             logger.warning(f"Step 3 - Password validation failed: {form.errors}")
-            return JsonResponse(
-                {"success": False, "step": 3, "errors": form.errors}, status=400
-            )
+            return JsonResponse({"success": False, "step": 3, "errors": form.errors}, status=400)
 
         logger.warning(f"Invalid step received: {step}")
         return JsonResponse({"error": "Step inválido"}, status=400)
@@ -302,9 +297,7 @@ class PasswordResetResendView(View):
         user_id = request.session.get("password_reset_user_id")
         if not user_id:
             logger.warning("Resend - No user_id in session")
-            return JsonResponse(
-                {"success": False, "error": "Sessão expirada."}, status=400
-            )
+            return JsonResponse({"success": False, "error": "Sessão expirada."}, status=400)
 
         from django.contrib.auth import get_user_model
 
@@ -313,9 +306,7 @@ class PasswordResetResendView(View):
             user = User.objects.get(id=user_id)
         except User.DoesNotExist:
             logger.warning(f"Resend - User {user_id} not found")
-            return JsonResponse(
-                {"success": False, "error": "Usuário não encontrado."}, status=400
-            )
+            return JsonResponse({"success": False, "error": "Usuário não encontrado."}, status=400)
 
         logger.info(f"Resend - Creating new token for user {user_id}")
         token = PasswordResetToken.create_token(user)
@@ -339,11 +330,13 @@ class LoginCodeWizardView(View):
             post_data = request.POST
         else:
             import json
+
             try:
                 post_data = json.loads(request.body)
             except Exception:
                 from urllib.parse import parse_qs
-                parsed = parse_qs(request.body.decode('utf-8'))
+
+                parsed = parse_qs(request.body.decode("utf-8"))
                 post_data = {k: v[0] if len(v) == 1 else v for k, v in parsed.items()}
 
         step = post_data.get("step", "1")
@@ -367,6 +360,7 @@ class LoginCodeWizardView(View):
                     )
 
                 from apps.accounts.models import LoginCodeToken
+
                 try:
                     token = LoginCodeToken.create_token(user)
                 except ValueError as e:
@@ -396,8 +390,9 @@ class LoginCodeWizardView(View):
             token_id = request.session.get("login_code_token_id")
             if not token_id:
                 return JsonResponse({"success": False, "step": 1, "error": "Sessão expirada."}, status=400)
-            
+
             from apps.accounts.models import LoginCodeToken
+
             try:
                 token = LoginCodeToken.objects.get(id=token_id)
             except LoginCodeToken.DoesNotExist:
@@ -416,19 +411,20 @@ class LoginCodeWizardView(View):
                     token.used = True
                     token.save(update_fields=["used"])
                     return JsonResponse({"success": False, "step": 1, "error": "Limite de tentativas excedido. Solicite novo código."}, status=400)
-                
+
                 return JsonResponse({"success": False, "step": 2, "error": f"Código incorreto. Tentativas restantes: {3 - token.attempts}"}, status=400)
 
             # Success
             token.used = True
             token.save(update_fields=["used"])
-            
+
             from django.contrib.auth import login
+
             user = token.user
-            login(request, user, backend='django.contrib.auth.backends.ModelBackend')
-            
+            login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+
             logger.info(f"User {user.id} logged in via WhatsApp code.")
-            
+
             request.session.pop("login_code_user_id", None)
             request.session.pop("login_code_token_id", None)
 
@@ -444,6 +440,7 @@ class LoginCodeResendView(View):
             return JsonResponse({"success": False, "error": "Sessão expirada."}, status=400)
 
         from django.contrib.auth import get_user_model
+
         User = get_user_model()
         try:
             user = User.objects.get(id=user_id)
@@ -451,11 +448,12 @@ class LoginCodeResendView(View):
             return JsonResponse({"success": False, "error": "Usuário não encontrado."}, status=400)
 
         from apps.accounts.models import LoginCodeToken
+
         try:
             token = LoginCodeToken.create_token(user)
         except ValueError as e:
             return JsonResponse({"success": False, "error": str(e)}, status=400)
-            
+
         request.session["login_code_token_id"] = token.pk
 
         phone = _get_user_phone(user)

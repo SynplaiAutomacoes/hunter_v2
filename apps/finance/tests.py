@@ -5725,6 +5725,49 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertEqual(fee_movement.amount, Money("96.87", "BRL"))
         self.assertEqual(fee_movement.payment_method, payment_method)
 
+    def test_sync_workorder_financial_movement_marks_existing_payment_movement_as_paid(self) -> None:
+        today = timezone.localdate()
+        workorder = self._create_report_workorder(
+            customer_name="Cliente Status Pago",
+            total_value="300.00",
+            problem_description="OS para validar status pago",
+            payment_specs=[
+                {"description": "Pix", "amount": "300.00", "due_date": today.isoformat(), "installments_count": "1"},
+            ],
+        )
+        workorder.budget.status = BudgetStatus.APPROVED
+        workorder.budget.save(update_fields=["status"])
+        payment = WorkOrderPaymentMethod.objects.get(workorder=workorder)
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            workorder_payment=payment,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("300.00", "BRL"),
+            due_date=today,
+            is_paid=False,
+            is_reconciled=False,
+        )
+
+        sync_workorder_financial_movement(workorder=workorder)
+
+        payment_movement = (
+            FinancialMovement.objects.filter(
+                workorder=workorder,
+                workorder_payment=payment,
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            )
+            .order_by("-pk")
+            .first()
+        )
+        self.assertIsNotNone(payment_movement)
+        if payment_movement is None:
+            return
+        self.assertTrue(payment_movement.is_paid)
+
     def test_reports_home_view_orders_financial_movements_by_newest_created(self) -> None:
         older_created = FinancialMovement.objects.create(
             workshop=self.workshop,
@@ -5899,13 +5942,29 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, "Pago")
         self.assertContains(response, "Tipo")
         self.assertContains(response, "Vencimento")
-        self.assertContains(response, "Colaborador")
-        self.assertContains(response, "Origem")
+        self.assertContains(response, "Agente")
         self.assertContains(response, "Descrição")
         self.assertContains(response, "Plano Orçamentário")
-        self.assertContains(response, "Conta")
         self.assertContains(response, "Tipo Pagamento")
         self.assertContains(response, "Total")
+
+    def test_reports_home_view_includes_bulk_selection_reinit_script(self) -> None:
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("10.00", "BRL"),
+            due_date=timezone.localdate(),
+            is_paid=True,
+            description="Movimento para script bulk",
+        )
+
+        response = self.client.get(reverse("finance:reports_home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "window.__financialReportsSelectionInitDone")
+        self.assertContains(response, "htmx:afterSwap")
 
     def test_reports_home_view_paginates_financial_movements_with_10_rows_per_page(self) -> None:
         for index in range(1, 13):
@@ -6195,6 +6254,7 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, f'name="selected_workorder_payment_id" value="{payment.pk}"', html=False)
         self.assertContains(response, f'value="{payment.payment_method.pk}"', html=False)
+        self.assertContains(response, "maxAttempts = 25")
 
     def test_report_edit_modal_post_updates_workorder_paid_status_reflected_in_workorder_section(self) -> None:
         workorder = self._create_report_workorder(
@@ -6544,9 +6604,11 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertNotIn(f"OS #{unpaid_workorder.pk}", rows_by_origin)
         self.assertEqual([row["payment_type"] for row in paid_rows], ["Pix", "Crédito"])
         self.assertEqual([row["due_date"] for row in paid_rows], [today, today])
-        self.assertTrue(all(row["paid_status"]["label"] == "Aguardando Conciliação" for row in paid_rows))
+        self.assertTrue(all(row["paid_status"]["label"] == "Não" for row in paid_rows))
+        self.assertTrue(all(row["reconciliation_status"]["label"] == "Aguardando Conciliação" for row in paid_rows))
         self.assertEqual(len(partial_rows), 1)
-        self.assertEqual(partial_rows[0]["paid_status"]["label"], "Aguardando Conciliação")
+        self.assertEqual(partial_rows[0]["paid_status"]["label"], "Não")
+        self.assertEqual(partial_rows[0]["reconciliation_status"]["label"], "Aguardando Conciliação")
         self.assertEqual(partial_rows[0]["payment_type"], "Pix")
         self.assertEqual(partial_rows[0]["due_date"], today)
         self.assertEqual(generic_row["paid_status"]["label"], "Sim")
@@ -6569,9 +6631,6 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertNotContains(response, "+ R$ 1.000,00")
         self.assertContains(response, "+ R$ 500,00", count=3)
         self.assertContains(response, "- R$ 100,00")
-        self.assertContains(response, reverse("workorder:workorder_detail", args=[paid_workorder.pk]))
-        self.assertContains(response, reverse("workorder:workorder_detail", args=[partial_workorder.pk]))
-        self.assertNotContains(response, reverse("workorder:workorder_detail", args=[unpaid_workorder.pk]))
 
     def test_reports_home_view_paid_status_filter_treats_os_payments_as_paid_rows_only(self) -> None:
         today = timezone.localdate()
@@ -6620,7 +6679,8 @@ class FinancialReportsHomeViewTests(TestCase):
 
         self.assertEqual(len(paid_rows), 1)
         self.assertEqual(paid_rows[0]["origin"], f"OS #{workorder.pk}")
-        self.assertEqual(paid_rows[0]["paid_status"]["label"], "Aguardando Conciliação")
+        self.assertEqual(paid_rows[0]["paid_status"]["label"], "Sim")
+        self.assertEqual(paid_rows[0]["reconciliation_status"]["label"], "Aguardando Conciliação")
         self.assertEqual(paid_rows[0]["total"]["text"], "+ R$ 500,00")
         self.assertEqual(len(unpaid_rows), 1)
         self.assertEqual(unpaid_rows[0]["origin"], "NF-PENDENTE")
@@ -6655,7 +6715,8 @@ class FinancialReportsHomeViewTests(TestCase):
         workorder_row = next(row for row in rows if row["origin"] == f"OS #{workorder.pk}")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(workorder_row["paid_status"]["label"], "Conciliado")
+        self.assertEqual(workorder_row["paid_status"]["label"], "Sim")
+        self.assertEqual(workorder_row["reconciliation_status"]["label"], "Conciliado")
         self.assertEqual(workorder_row["edit_url"], reverse("finance:financial_movement_update", args=[movement.pk]))
 
     def test_reports_home_view_marks_paid_card_fee_movement_as_conciliado(self) -> None:
@@ -6690,7 +6751,41 @@ class FinancialReportsHomeViewTests(TestCase):
         fee_row = next(row for row in rows if row["component"] == f"financial-movement-{fee_movement.pk}")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(fee_row["paid_status"]["label"], "Conciliado")
+        self.assertEqual(fee_row["paid_status"]["label"], "Sim")
+        self.assertEqual(fee_row["reconciliation_status"]["label"], "Conciliado")
+
+    def test_reports_home_view_reconciliation_filter_returns_only_reconciled_rows(self) -> None:
+        today = timezone.localdate()
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("50.00", "BRL"),
+            due_date=today,
+            is_paid=True,
+            is_reconciled=True,
+            description="Despesa conciliada",
+            nf_number="NF-CONC",
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("40.00", "BRL"),
+            due_date=today,
+            is_paid=True,
+            is_reconciled=False,
+            description="Despesa nao conciliada",
+            nf_number="NF-PAGO",
+        )
+
+        response = self.client.get(reverse("finance:reports_home"), data={"reconciliation_status": "reconciled"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Despesa conciliada")
+        self.assertNotContains(response, "Despesa nao conciliada")
 
     def test_reports_home_view_without_filters_lists_all_dates_and_card_fees(self) -> None:
         old_date = date(2026, 3, 10)
@@ -8739,7 +8834,437 @@ class DreReportViewTests(TestCase):
                 f"O.S #{courtesy_workorder.budget.pk} - Cliente Cortesia",
             ],
         )
-        self.assertEqual(financial_revenue_row["details"][1]["details"][0]["summary"], "Receita financeira avulsa")
+
+    def test_dre_excludes_workorder_costs_when_vehicle_not_delivered_but_keeps_revenue(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+
+        workorder = self._create_workorder_with_values(
+            reference_date=date(2026, 2, 10),
+            product_selling_price="200.00",
+            product_cost_price="120.00",
+            service_selling_price="100.00",
+            service_cost_price="40.00",
+            customer_name="Cliente Parcial",
+            payment_due_date=date(2026, 2, 15),
+        )
+
+        self.assertEqual(workorder.status, WorkOrderStatus.DRAFT)
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-02-01",
+                "data_final": "2026-02-28",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        revenue_row = next(row for row in response.context["dre_rows"] if row["component"] == "receita_bruta_vendas_e_servicos")
+        costs_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
+        self.assertEqual(revenue_row["amount"], Money("300.00", "BRL"))
+        self.assertEqual(costs_row["amount"], Money("0.00", "BRL"))
+
+    def test_dre_includes_fully_paid_workorder_costs(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+
+        self._create_workorder_with_values(
+            reference_date=date(2026, 3, 10),
+            product_selling_price="200.00",
+            product_cost_price="120.00",
+            service_selling_price="100.00",
+            service_cost_price="40.00",
+            customer_name="Cliente Quitado",
+            payment_due_date=date(2026, 3, 15),
+        )
+        WorkOrder.objects.filter(workshop=self.workshop, budget__entry_date=date(2026, 3, 10)).update(
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-03-01",
+                "data_final": "2026-03-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        costs_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
+        self.assertEqual(costs_row["amount"], Money("160.00", "BRL"))
+
+    def test_dre_workorder_cost_total_sums_products_and_services(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+
+        workorder = self._create_workorder_with_values(
+            reference_date=date(2026, 4, 10),
+            product_selling_price="220.00",
+            product_cost_price="90.00",
+            service_selling_price="180.00",
+            service_cost_price="55.00",
+            customer_name="Cliente Custo Total",
+            payment_due_date=date(2026, 4, 15),
+        )
+        workorder.status = WorkOrderStatus.APPROVED
+        workorder.delivered_at = timezone.now()
+        workorder.save(update_fields=["status", "delivered_at"])
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-04-01",
+                "data_final": "2026-04-30",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        costs_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
+        self.assertEqual(costs_row["amount"], Money("145.00", "BRL"))
+
+        workorder_detail = next((detail for detail in costs_row["details"] if detail.get("workorder_id") == workorder.pk), None)
+        self.assertIsNotNone(workorder_detail)
+        if workorder_detail is None:
+            return
+        self.assertEqual(workorder_detail["amount"], Money("145.00", "BRL"))
+
+    def test_dre_workorder_cost_total_includes_kit_service_cost(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+
+        reference_date = date(2026, 4, 20)
+        budget = Budget(workshop=self.workshop, entry_date=reference_date)
+        customer = Customer.objects.create(
+            workshop=self.workshop,
+            name="Cliente Kit DRE",
+            cpf_or_cnpj="12345678999",
+            email="cliente-kit-dre@example.com",
+        )
+        budget.customer = customer
+        budget.save()
+
+        product_group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Kit DRE")
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code="DRE-KIT-P-0420",
+            unit=Product.Unit.UND,
+            name="Produto Kit DRE",
+            group=product_group,
+            cost_price=Money("90.00", "BRL"),
+            selling_price=Money("150.00", "BRL"),
+        )
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Servico Kit DRE",
+            duration=timedelta(hours=1),
+            suggested_cost=Money("55.00", "BRL"),
+            selling_price=Money("180.00", "BRL"),
+            is_third_party=True,
+        )
+        kit = Kit.objects.create(workshop=self.workshop, name="Kit DRE")
+        KitProduct.objects.create(kit=kit, product=product, quantity=1)
+        KitService.objects.create(
+            kit=kit,
+            service=service,
+            quantity=1,
+            cost_price=Money("55.00", "BRL"),
+        )
+        BudgetItem.objects.create(workshop=self.workshop, budget=budget, kit=kit, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        workorder.sync_from_budget()
+        workorder.delivered_at = timezone.now()
+        workorder.save(update_fields=["delivered_at"])
+
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pagamento Kit DRE")
+        WorkOrderPaymentMethod.objects.create(
+            workorder=workorder,
+            payment_method=payment_method,
+            installments_count=1,
+            first_installment_amount=Money("330.00", "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            due_date=date(2026, 4, 25),
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-04-01",
+                "data_final": "2026-04-30",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        costs_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
+        workorder_detail = next((detail for detail in costs_row["details"] if detail.get("workorder_id") == workorder.pk), None)
+        self.assertIsNotNone(workorder_detail)
+        if workorder_detail is None:
+            return
+        self.assertEqual(workorder_detail["amount"], Money("145.00", "BRL"))
+
+    def test_dre_ignores_reconciliation_status_for_workorder_entries_and_costs(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+
+        workorder = self._create_workorder_with_values(
+            reference_date=date(2026, 5, 10),
+            product_selling_price="200.00",
+            product_cost_price="120.00",
+            service_selling_price="100.00",
+            service_cost_price="40.00",
+            customer_name="Cliente Conciliacao",
+            payment_due_date=date(2026, 5, 15),
+        )
+        workorder.status = WorkOrderStatus.APPROVED
+        workorder.delivered_at = timezone.now()
+        workorder.save(update_fields=["status", "delivered_at"])
+
+        movement = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            workorder=workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("300.00", "BRL"),
+            due_date=date(2026, 5, 15),
+            is_paid=True,
+            is_reconciled=False,
+            description="Recebimento OS",
+        )
+
+        response_not_reconciled = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-05-01",
+                "data_final": "2026-05-31",
+                "tipo_data": "A",
+            },
+        )
+
+        movement.is_reconciled = True
+        movement.save(update_fields=["is_reconciled"])
+
+        response_reconciled = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-05-01",
+                "data_final": "2026-05-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response_not_reconciled.status_code, 200)
+        self.assertEqual(response_reconciled.status_code, 200)
+
+        not_reconciled_rows = {row["component"]: row for row in response_not_reconciled.context["dre_rows"]}
+        reconciled_rows = {row["component"]: row for row in response_reconciled.context["dre_rows"]}
+
+        self.assertEqual(not_reconciled_rows["receita_bruta_vendas_e_servicos"]["amount"], Money("300.00", "BRL"))
+        self.assertEqual(reconciled_rows["receita_bruta_vendas_e_servicos"]["amount"], Money("300.00", "BRL"))
+        self.assertEqual(not_reconciled_rows["custos_mercadorias_vendidas"]["amount"], Money("160.00", "BRL"))
+        self.assertEqual(reconciled_rows["custos_mercadorias_vendidas"]["amount"], Money("160.00", "BRL"))
+
+    def test_dre_links_workorder_cost_detail_to_sales_group(self) -> None:
+        sales_group = FinancialGroup.objects.create(workshop=self.workshop, name="Vendas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+
+        workorder = self._create_workorder_with_values(
+            reference_date=date(2026, 6, 10),
+            product_selling_price="200.00",
+            product_cost_price="120.00",
+            service_selling_price="100.00",
+            service_cost_price="40.00",
+            customer_name="Cliente Grupo",
+            payment_due_date=date(2026, 6, 15),
+        )
+        workorder.status = WorkOrderStatus.APPROVED
+        workorder.delivered_at = timezone.now()
+        workorder.save(update_fields=["status", "delivered_at"])
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-06-01",
+                "data_final": "2026-06-30",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        costs_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
+        workorder_detail = next((detail for detail in costs_row["details"] if detail.get("workorder_id") == workorder.pk), None)
+        self.assertIsNotNone(workorder_detail)
+        if workorder_detail is None:
+            return
+        self.assertEqual(getattr(workorder_detail.get("budget_plan"), "pk", None), sales_group.pk)
+
+    def test_dre_links_card_fee_detail_to_sales_group(self) -> None:
+        sales_group = FinancialGroup.objects.create(workshop=self.workshop, name="Vendas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+
+        workorder = self._create_workorder_with_values(
+            reference_date=date(2026, 7, 10),
+            product_selling_price="200.00",
+            product_cost_price="120.00",
+            service_selling_price="100.00",
+            service_cost_price="40.00",
+            customer_name="Cliente Taxa",
+            payment_due_date=date(2026, 7, 15),
+        )
+        workorder.status = WorkOrderStatus.APPROVED
+        workorder.delivered_at = timezone.now()
+        workorder.save(update_fields=["status", "delivered_at"])
+
+        payment = workorder.payments.first()
+        self.assertIsNotNone(payment)
+        if payment is None:
+            return
+
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            workorder=workorder,
+            workorder_payment=payment,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("10.00", "BRL"),
+            due_date=payment.due_date,
+            is_paid=True,
+            description="Pagamento da taxa da maquininha",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-07-01",
+                "data_final": "2026-07-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        costs_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
+        fee_detail = next((detail for detail in costs_row["details"] if detail.get("summary") == "Pagamento da taxa da maquininha"), None)
+        self.assertIsNotNone(fee_detail)
+        if fee_detail is None:
+            return
+        self.assertEqual(getattr(fee_detail.get("budget_plan"), "pk", None), sales_group.pk)
+
+    def test_dre_costs_row_matches_sum_of_cost_details_with_card_fee(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Vendas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+
+        workorder = self._create_workorder_with_values(
+            reference_date=date(2026, 8, 10),
+            product_selling_price="200.00",
+            product_cost_price="120.00",
+            service_selling_price="100.00",
+            service_cost_price="40.00",
+            customer_name="Cliente CMV",
+            payment_due_date=date(2026, 8, 15),
+        )
+        workorder.status = WorkOrderStatus.APPROVED
+        workorder.delivered_at = timezone.now()
+        workorder.save(update_fields=["status", "delivered_at"])
+
+        payment = workorder.payments.first()
+        self.assertIsNotNone(payment)
+        if payment is None:
+            return
+
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            workorder=workorder,
+            workorder_payment=payment,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("10.00", "BRL"),
+            due_date=payment.due_date,
+            is_paid=True,
+            description="Pagamento da taxa da maquininha",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-08-01",
+                "data_final": "2026-08-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        costs_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
+        details_total = sum((detail["amount"] for detail in costs_row["details"]), Money("0.00", "BRL"))
+
+        self.assertEqual(costs_row["amount"], Money("170.00", "BRL"))
+        self.assertEqual(details_total, costs_row["amount"])
+
+    def test_dre_excludes_non_delivered_workorder_costs_and_card_fee(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Vendas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+
+        workorder = self._create_workorder_with_values(
+            reference_date=date(2026, 9, 10),
+            product_selling_price="200.00",
+            product_cost_price="120.00",
+            service_selling_price="100.00",
+            service_cost_price="40.00",
+            customer_name="Cliente Nao Entregue",
+            payment_due_date=date(2026, 9, 15),
+        )
+        workorder.status = WorkOrderStatus.APPROVED
+        workorder.delivered_at = None
+        workorder.save(update_fields=["status", "delivered_at"])
+
+        payment = workorder.payments.first()
+        self.assertIsNotNone(payment)
+        if payment is None:
+            return
+
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            workorder=workorder,
+            workorder_payment=payment,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("10.00", "BRL"),
+            due_date=payment.due_date,
+            is_paid=True,
+            description="Pagamento da taxa da maquininha",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-09-01",
+                "data_final": "2026-09-30",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        costs_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
+        self.assertEqual(costs_row["amount"], Money("0.00", "BRL"))
+        self.assertEqual(costs_row["details"], [])
 
     def test_results_page_adds_negative_financial_expense_to_operating_result(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas Financeiras")
@@ -9018,6 +9543,226 @@ class DreReportViewTests(TestCase):
         self.assertIn("Receita Excel DRE", detail_values)
         self.assertIn("Aluguel 1/2026", detail_values)
         self.assertIn("Taxas bancarias 1/2026", detail_values)
+
+
+class CashFlowReconciliationTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=91)
+        self.client.force_login(self.user)
+        self.source = Source.objects.create(workshop=self.workshop, name="Origem Fluxo")
+
+        self.payment_method = PaymentMethod.objects.create(
+            workshop=self.workshop,
+            description="Pix",
+            payment_type=PaymentMethod.PaymentType.BOTH,
+        )
+
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def _create_workorder_with_payment(self, *, customer_name: str, due_date: date) -> tuple[WorkOrder, WorkOrderPaymentMethod]:
+        customer = Customer.objects.create(
+            workshop=self.workshop,
+            name=customer_name,
+            cpf_or_cnpj=f"1234567890{Customer.objects.count():02d}",
+            email=f"{customer_name.lower().replace(' ', '.')}.{Customer.objects.count()}@example.com",
+        )
+        budget = Budget.objects.create(
+            workshop=self.workshop,
+            customer=customer,
+            entry_date=due_date,
+            problem_description="Fluxo em conta",
+            notes="Fluxo em conta",
+            status=BudgetStatus.APPROVED,
+        )
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        payment = WorkOrderPaymentMethod.objects.create(
+            workorder=workorder,
+            payment_method=self.payment_method,
+            installments_count=1,
+            first_installment_amount=Money("200.00", "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            due_date=due_date,
+        )
+        return workorder, payment
+
+    def test_cash_flow_hides_non_reconciled_financial_movement(self) -> None:
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("50.00", "BRL"),
+            due_date=date(2026, 5, 10),
+            is_paid=True,
+            is_reconciled=False,
+            description="Compra de café",
+        )
+
+        response = self.client.get(reverse("finance:cash_flow"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Compra de café")
+
+    def test_cash_flow_shows_reconciled_financial_movement(self) -> None:
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("50.00", "BRL"),
+            due_date=date(2026, 5, 10),
+            is_paid=True,
+            is_reconciled=True,
+            description="Compra de café",
+        )
+
+        response = self.client.get(reverse("finance:cash_flow"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Compra de café")
+
+    def test_cash_flow_hides_non_reconciled_workorder_payment(self) -> None:
+        workorder, payment = self._create_workorder_with_payment(customer_name="Cliente Pendente", due_date=date(2026, 5, 12))
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            workorder_payment=payment,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            payment_method=self.payment_method,
+            amount=Money("200.00", "BRL"),
+            due_date=payment.due_date,
+            is_paid=True,
+            is_reconciled=False,
+            description="Recebimento O.S.",
+        )
+
+        response = self.client.get(reverse("finance:cash_flow"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, f"OS #{workorder.pk}")
+
+    def test_cash_flow_shows_reconciled_workorder_payment(self) -> None:
+        workorder, payment = self._create_workorder_with_payment(customer_name="Cliente Conciliado", due_date=date(2026, 5, 12))
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            workorder_payment=payment,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            payment_method=self.payment_method,
+            amount=Money("200.00", "BRL"),
+            due_date=payment.due_date,
+            is_paid=True,
+            is_reconciled=True,
+            description="Recebimento O.S.",
+        )
+
+        response = self.client.get(reverse("finance:cash_flow"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f"OS #{workorder.pk}")
+
+    def test_cash_flow_payment_method_filter_does_not_include_other_methods_in_balance(self) -> None:
+        debit_pm = PaymentMethod.objects.create(
+            workshop=self.workshop,
+            description="Debito",
+            payment_type=PaymentMethod.PaymentType.BOTH,
+        )
+        workorder, payment_pix = self._create_workorder_with_payment(customer_name="Cliente Filtro Metodo", due_date=date(2026, 5, 12))
+        payment_pix.first_installment_amount = Money("100.00", "BRL")
+        payment_pix.save(update_fields=["first_installment_amount", "first_installment_amount_currency"])
+        payment_debit = WorkOrderPaymentMethod.objects.create(
+            workorder=workorder,
+            payment_method=debit_pm,
+            installments_count=1,
+            first_installment_amount=Money("200.00", "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            due_date=date(2026, 5, 13),
+        )
+
+        for payment in [payment_pix, payment_debit]:
+            FinancialMovement.objects.create(
+                workshop=self.workshop,
+                user=self.user,
+                source=self.source,
+                workorder=workorder,
+                workorder_payment=payment,
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                direction=FinancialMovement.MovementDirection.CREDIT,
+                payment_method=payment.payment_method,
+                amount=payment.total_paid,
+                due_date=payment.due_date,
+                is_paid=True,
+                is_reconciled=True,
+                description="Recebimento O.S.",
+            )
+
+        response = self.client.get(reverse("finance:cash_flow"), data={"forma_pagamento": str(self.payment_method.pk)})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["saldo_atual"]["value"], "R$ 100,00")
+        self.assertContains(response, "Pix")
+
+    def test_cash_flow_bank_account_filter_does_not_include_other_workorder_payment_accounts(self) -> None:
+        account_a = BankAccount.objects.create(workshop=self.workshop, bank_code="001", bank_name="Banco A", agency="0001", account_number="12345", account_type=BankAccount.AccountType.CORRENTE)
+        account_b = BankAccount.objects.create(workshop=self.workshop, bank_code="237", bank_name="Banco B", agency="0001", account_number="67890", account_type=BankAccount.AccountType.CORRENTE)
+
+        workorder, payment_a = self._create_workorder_with_payment(customer_name="Cliente Conta A", due_date=date(2026, 5, 12))
+        payment_a.first_installment_amount = Money("120.00", "BRL")
+        payment_a.save(update_fields=["first_installment_amount", "first_installment_amount_currency"])
+        payment_b = WorkOrderPaymentMethod.objects.create(
+            workorder=workorder,
+            payment_method=self.payment_method,
+            installments_count=1,
+            first_installment_amount=Money("180.00", "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            due_date=date(2026, 5, 13),
+        )
+
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            workorder_payment=payment_a,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            payment_method=payment_a.payment_method,
+            bank_account=account_a,
+            amount=payment_a.total_paid,
+            due_date=payment_a.due_date,
+            is_paid=True,
+            is_reconciled=True,
+            description="Recebimento O.S.",
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            workorder_payment=payment_b,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            payment_method=payment_b.payment_method,
+            bank_account=account_b,
+            amount=payment_b.total_paid,
+            due_date=payment_b.due_date,
+            is_paid=True,
+            is_reconciled=True,
+            description="Recebimento O.S.",
+        )
+
+        response = self.client.get(reverse("finance:cash_flow"), data={"conta_bancaria": str(account_a.pk)})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["saldo_atual"]["value"], "R$ 120,00")
 
 
 class PaymentMethodFormTests(TestCase):

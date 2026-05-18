@@ -12,7 +12,7 @@ from django.db.models import Q
 
 from apps.finance.models import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
-from apps.workorder.models import WorkOrderPaymentMethod, WorkOrder
+from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.models.workshops import Workshop
 
 
@@ -89,15 +89,17 @@ def build_dre_calculation(
         return [_build_wo_pm_detail(p, include_workshop_ref) for p in payments]
 
     def maquininha_tax_details(mvs: list[FinancialMovement]) -> list[dict]:
-        return [_build_maquininha_detail(m, include_workshop_ref) for m in mvs]
+        return [_build_maquininha_detail(m, include_workshop_ref, budget_plan=cost_budget_plan) for m in mvs]
+
+    cost_budget_plan = _resolve_default_sales_group(financial_groups=financial_groups)
 
     def workorder_cost_details(wos: list[WorkOrder]) -> list[dict]:
-        return [_build_workorder_cost_detail(wo, include_workshop_ref) for wo in wos]
+        return [_build_workorder_cost_detail(wo, include_workshop_ref, budget_plan=cost_budget_plan) for wo in wos]
 
     # Receita Bruta de Vendas e Serviços
     pagamentos_ordens_de_servico = (
         WorkOrderPaymentMethod.objects.filter(workorder__workshop__in=workshops)
-        .select_related("workorder", "workorder__budget", "workorder__budget__customer")
+        .select_related("workorder", "workorder__budget", "workorder__budget__customer", "payment_method")
         .prefetch_related(
             "workorder__items__product",
             "workorder__items__service",
@@ -106,6 +108,7 @@ def build_dre_calculation(
             "workorder__items__kit__kit_products__product",
             "workorder__items__kit__kit_services__service",
         )
+        .order_by("criado_em", "pk")
     )
     if start_date is not None:
         pagamentos_ordens_de_servico = pagamentos_ordens_de_servico.filter(due_date__gte=start_date)
@@ -162,14 +165,16 @@ def build_dre_calculation(
     # ----------------------------------
 
     # Custo Mercadorias Vendidas
-    taxa_maquininha_os = FinancialMovement.objects.filter(workorder_payment__in=pagamentos_ordens_de_servico, description="Pagamento da taxa da maquininha").select_related("workorder_payment", "workorder_payment__workorder")
-    total_taxa_maquininha_os = _sum_movements(list(taxa_maquininha_os))
+    delivered_payment_ids = [payment.pk for payment in pagamentos_ordens_de_servico if payment.workorder.status == WorkOrderStatus.APPROVED and payment.workorder.delivered_at is not None]
 
-    workorders = set(payment.workorder for payment in pagamentos_ordens_de_servico if payment.workorder)
-    total_custos_os = sum((wo.total_costs_products_value for wo in workorders), _ZERO)
+    taxa_maquininha_os = FinancialMovement.objects.filter(workorder_payment_id__in=delivered_payment_ids, description="Pagamento da taxa da maquininha").select_related("workorder_payment", "workorder_payment__workorder")
+    total_taxa_maquininha_os = _sum_cost_movements(list(taxa_maquininha_os))
+
+    delivered_workorders_with_costs = _fetch_delivered_workorders_with_costs(payments=pagamentos_ordens_de_servico)
+    total_custos_os = sum((total_cost for _, total_cost in delivered_workorders_with_costs), _ZERO)
 
     total_custos_mercadorias_vendidas = total_taxa_maquininha_os + total_custos_os
-    detail_custos_mercadorias_vendidas = maquininha_tax_details(list(taxa_maquininha_os)) + workorder_cost_details(list(workorders))
+    detail_custos_mercadorias_vendidas = maquininha_tax_details(list(taxa_maquininha_os)) + workorder_cost_details([workorder for workorder, _ in delivered_workorders_with_costs])
     # --------------------------
 
     # Receita Bruta de Vendas
@@ -314,6 +319,17 @@ def _sum_movements(movements: list[FinancialMovement]) -> Money:
     return total
 
 
+def _sum_cost_movements(movements: list[FinancialMovement]) -> Money:
+    """Soma custos por valor absoluto para exibição no CMV."""
+    total = _ZERO
+    for movement in movements:
+        amount = movement.amount
+        if not isinstance(amount, Money):
+            continue
+        total += abs(amount)
+    return total
+
+
 def _sum_detail_amounts(details: list[dict]) -> Money:
     total = _ZERO
     for detail in details:
@@ -331,6 +347,37 @@ def _build_workorder_payment_totals(*, payments: list[WorkOrderPaymentMethod]) -
             continue
         totals[workorder_id] = totals.get(workorder_id, _ZERO) + payment.total_paid
     return totals
+
+
+def _fetch_delivered_workorders_with_costs(*, payments: list[WorkOrderPaymentMethod]) -> list[tuple[WorkOrder, Money]]:
+    workorder_ids = sorted({payment.workorder_id for payment in payments if payment.workorder_id})
+    if not workorder_ids:
+        return []
+
+    workorders = list(
+        WorkOrder.objects.filter(pk__in=workorder_ids)
+        .select_related("budget", "budget__customer", "workshop")
+        .prefetch_related(
+            "payments",
+            "items__product",
+            "items__service",
+            "items__kit",
+            "items__kit_overrides",
+            "items__kit__kit_products__product",
+            "items__kit__kit_services__service",
+        )
+    )
+
+    payloads: list[tuple[WorkOrder, Money]] = []
+    for workorder in workorders:
+        if workorder.status != WorkOrderStatus.APPROVED or workorder.delivered_at is None:
+            continue
+
+        total_cost = workorder.total_costs_products_value + workorder.total_costs_services_value
+        setattr(workorder, "dre_total_cost", total_cost)
+        payloads.append((workorder, total_cost))
+
+    return payloads
 
 
 def _build_financial_revenue_group_tree(
@@ -588,11 +635,13 @@ def _build_wo_pm_detail(payment: WorkOrderPaymentMethod, include_workshop_ref: b
     }
 
 
-def _build_maquininha_detail(m: FinancialMovement, include_workshop_ref: bool) -> dict:
-    return _build_detail(m, include_workshop_ref)
+def _build_maquininha_detail(m: FinancialMovement, include_workshop_ref: bool, budget_plan: FinancialGroup | None = None) -> dict:
+    detail = _build_detail(m, include_workshop_ref)
+    detail["budget_plan"] = budget_plan
+    return detail
 
 
-def _build_workorder_cost_detail(wo: WorkOrder, include_workshop_ref: bool) -> dict:
+def _build_workorder_cost_detail(wo: WorkOrder, include_workshop_ref: bool, budget_plan: FinancialGroup | None = None) -> dict:
     budget = getattr(wo, "budget", None)
     customer = getattr(budget, "customer", None)
     pk = getattr(budget, "pk", "-")
@@ -611,8 +660,8 @@ def _build_workorder_cost_detail(wo: WorkOrder, include_workshop_ref: bool) -> d
         "reference": reference,
         "entry_date": getattr(wo, "criado_em", None),
         "payment_date": getattr(wo, "criado_em", None),
-        "amount": wo.total_costs_products_value,
-        "budget_plan": None,
+        "amount": getattr(wo, "dre_total_cost", wo.total_costs_products_value + wo.total_costs_services_value),
+        "budget_plan": budget_plan,
     }
 
 
@@ -642,6 +691,16 @@ def _resolve_financial_group_for_revenue_movement(*, movement: FinancialMovement
     if budget_plan is not None and getattr(budget_plan, "pk", None):
         return budget_plan
 
+    preferred_names = {"vendas", "receitas"}
+    root_candidates = [group for group in financial_groups if getattr(group, "parent_id", None) is None and str(getattr(group, "name", "")).strip().lower() in preferred_names]
+    if root_candidates:
+        root_candidates.sort(key=lambda group: (getattr(group, "sort_key", ""), getattr(group, "pk", 0)))
+        return root_candidates[0]
+
+    return None
+
+
+def _resolve_default_sales_group(*, financial_groups: list[FinancialGroup]) -> FinancialGroup | None:
     preferred_names = {"vendas", "receitas"}
     root_candidates = [group for group in financial_groups if getattr(group, "parent_id", None) is None and str(getattr(group, "name", "")).strip().lower() in preferred_names]
     if root_candidates:

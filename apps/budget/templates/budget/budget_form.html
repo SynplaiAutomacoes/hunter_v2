@@ -8,6 +8,23 @@
         </div>
         <div class="flex items-center gap-2">
             {% if form.instance.pk %}
+            {% if form.instance.reference_budget_id %}
+            <button
+                class="btn btn-outline"
+                hx-get="{% url 'budget:budget_unlink_modal' pk=form.instance.pk %}"
+                hx-target="#modal-container"
+                onclick="form_modal.showModal()">
+                <span class="material-icons" style="vertical-align: middle;">link_off</span> Desvincular
+            </button>
+            {% else %}
+            <button
+                class="btn btn-outline"
+                hx-get="{% url 'budget:budget_link_modal' pk=form.instance.pk %}"
+                hx-target="#modal-container"
+                onclick="form_modal.showModal()">
+                <span class="material-icons" style="vertical-align: middle;">link</span> Vincular a
+            </button>
+            {% endif %}
             <button class="btn btn-outline" hx-get="{% url 'budget:budget_reference_modal' pk=form.instance.pk %}" hx-target="#modal-container" onclick="form_modal.showModal()">
                 <span class="material-icons" style="vertical-align: middle;">content_copy</span> Criar orçamento a partir deste
             </button>

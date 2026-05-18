@@ -12,6 +12,7 @@ urlpatterns = [
     path("history/<str:record_type>/<int:pk>/edit/", views.StockHistoryEditRedirectView.as_view(), name="history_edit"),
     path("alerts/", views.StockAlertsListView.as_view(), name="alerts"),
     path("movements/", views.StockMovementListView.as_view(), name="movements"),
+    path("inquiry/", views.StockInquiryListView.as_view(), name="stock_inquiry"),
     path("replenishment/", views.ReplenishmentListView.as_view(), name="replenishment"),
     path("approvals/", views.MovementApprovalListView.as_view(), name="approvals"),
     path("approvals/<int:pk>/process/", views.MovementApprovalActionView.as_view(), name="process_approval"),

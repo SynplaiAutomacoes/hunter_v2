@@ -205,7 +205,7 @@
                 <div class="min-w-0">
                     {% if workorder.payments.all %}
                         <h4 class="font-bold mb-1">CONDIÇÕES DE PAGAMENTO</h4>
-                        {% for payment in workorder.payments.all|dictsort:"pk" %}
+                        {% for payment in payment_rows|default:workorder.payments.all %}
                             <p class="text-sm flex flex-wrap items-center gap-2">
                                 <span>{{ payment.payment_method.description }}</span>
                                 <span>-</span>

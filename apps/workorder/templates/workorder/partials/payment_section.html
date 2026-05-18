@@ -28,7 +28,7 @@
             </thead>
 
             <tbody>
-                {% for payment in workorder.payments.all|dictsort:"pk" %}
+                {% for payment in payment_rows|default:workorder.payments.all %}
                     <tr>
                         <td>{% if forloop.first %}{{ payment.total_paid }}{% else %}-{% endif %}</td>
                         <td>{% if forloop.first %}-{% else %}{{ payment.total_paid }}{% endif %}</td>
