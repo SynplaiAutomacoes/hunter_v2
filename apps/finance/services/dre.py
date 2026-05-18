@@ -167,7 +167,7 @@ def build_dre_calculation(
 
     # Custo Mercadorias Vendidas
     taxa_maquininha_os = FinancialMovement.objects.filter(workorder_payment__in=pagamentos_ordens_de_servico, description="Pagamento da taxa da maquininha").select_related("workorder_payment", "workorder_payment__workorder")
-    total_taxa_maquininha_os = _sum_movements(list(taxa_maquininha_os))
+    total_taxa_maquininha_os = _sum_cost_movements(list(taxa_maquininha_os))
 
     delivered_workorders_with_costs = _fetch_delivered_workorders_with_costs(payments=pagamentos_ordens_de_servico)
     total_custos_os = sum((total_cost for _, total_cost in delivered_workorders_with_costs), _ZERO)
@@ -315,6 +315,17 @@ def _sum_movements(movements: list[FinancialMovement]) -> Money:
             total -= amount
         else:
             total += amount
+    return total
+
+
+def _sum_cost_movements(movements: list[FinancialMovement]) -> Money:
+    """Soma custos por valor absoluto para exibição no CMV."""
+    total = _ZERO
+    for movement in movements:
+        amount = movement.amount
+        if not isinstance(amount, Money):
+            continue
+        total += abs(amount)
     return total
 
 
