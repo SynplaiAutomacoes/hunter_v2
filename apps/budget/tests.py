@@ -2188,8 +2188,7 @@ class BudgetStep6WorkflowTests(TestCase):
         self.assertEqual(self.budget.status, BudgetStatus.CANCELLED)
 
     def test_update_budget_status_blocks_cancel_when_active_workorder_exists(self) -> None:
-        self.budget.status = BudgetStatus.APPROVED
-        self.budget.save(update_fields=["status"])
+        WorkOrder.objects.create(workshop=self.workshop, budget=self.budget, status=WorkOrderStatus.DRAFT)
         WorkOrder.objects.create(workshop=self.workshop, budget=self.budget, status=WorkOrderStatus.DRAFT)
 
         response = self.client.post(reverse("budget:update_budget_status", args=[self.budget.pk, "cancel"]))
