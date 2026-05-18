@@ -8841,6 +8841,82 @@ class DreReportViewTests(TestCase):
             return
         self.assertEqual(workorder_detail["amount"], Money("145.00", "BRL"))
 
+    def test_dre_workorder_cost_total_includes_kit_service_cost(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+
+        reference_date = date(2026, 4, 20)
+        budget = Budget(workshop=self.workshop, entry_date=reference_date)
+        customer = Customer.objects.create(
+            workshop=self.workshop,
+            name="Cliente Kit DRE",
+            cpf_or_cnpj="12345678999",
+            email="cliente-kit-dre@example.com",
+        )
+        budget.customer = customer
+        budget.save()
+
+        product_group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Kit DRE")
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code="DRE-KIT-P-0420",
+            unit=Product.Unit.UND,
+            name="Produto Kit DRE",
+            group=product_group,
+            cost_price=Money("90.00", "BRL"),
+            selling_price=Money("150.00", "BRL"),
+        )
+        service = Service.objects.create(
+            workshop=self.workshop,
+            name="Servico Kit DRE",
+            duration=timedelta(hours=1),
+            suggested_cost=Money("55.00", "BRL"),
+            selling_price=Money("180.00", "BRL"),
+            is_third_party=True,
+        )
+        kit = Kit.objects.create(workshop=self.workshop, name="Kit DRE")
+        KitProduct.objects.create(kit=kit, product=product, quantity=1)
+        KitService.objects.create(
+            kit=kit,
+            service=service,
+            quantity=1,
+            cost_price=Money("55.00", "BRL"),
+        )
+        BudgetItem.objects.create(workshop=self.workshop, budget=budget, kit=kit, quantity=1)
+
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        workorder.sync_from_budget()
+        workorder.delivered_at = timezone.now()
+        workorder.save(update_fields=["delivered_at"])
+
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pagamento Kit DRE")
+        WorkOrderPaymentMethod.objects.create(
+            workorder=workorder,
+            payment_method=payment_method,
+            installments_count=1,
+            first_installment_amount=Money("330.00", "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            due_date=date(2026, 4, 25),
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-04-01",
+                "data_final": "2026-04-30",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        costs_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
+        workorder_detail = next((detail for detail in costs_row["details"] if detail.get("workorder_id") == workorder.pk), None)
+        self.assertIsNotNone(workorder_detail)
+        if workorder_detail is None:
+            return
+        self.assertEqual(workorder_detail["amount"], Money("145.00", "BRL"))
+
     def test_dre_ignores_reconciliation_status_for_workorder_entries_and_costs(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
         FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
