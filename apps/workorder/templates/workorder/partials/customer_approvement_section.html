@@ -477,18 +477,12 @@
         }
 
         if (reopenToggleButton && reopenForm) {
-            reopenToggleButton.addEventListener('click', async () => {
+            reopenToggleButton.addEventListener('click', () => {
                 if (reopenToggleButton.dataset.canReopenWorkorder !== 'true') {
                     const denyMessage = 'Você não tem permissão para reabrir esta O.S. Fale com alguém que tenha essa permissão para continuar.';
-                    try {
-                        if (typeof window.customConfirm === 'function') {
-                            await window.customConfirm(denyMessage, { singleClose: true, closeText: 'Fechar' });
-                        } else {
-                            window.alert(denyMessage);
-                        }
-                    } catch (_error) {
-                        window.alert(denyMessage);
-                    }
+                    document.body.dispatchEvent(new CustomEvent('showToast', {
+                        detail: { type: 'error', message: denyMessage },
+                    }));
                     return;
                 }
 
@@ -497,17 +491,11 @@
                 reopenForm.querySelector('textarea')?.focus();
             });
         } else if (reopenToggleButton) {
-            reopenToggleButton.addEventListener('click', async () => {
+            reopenToggleButton.addEventListener('click', () => {
                 const denyMessage = 'Você não tem permissão para reabrir esta O.S. Fale com alguém que tenha essa permissão para continuar.';
-                try {
-                    if (typeof window.customConfirm === 'function') {
-                        await window.customConfirm(denyMessage, { singleClose: true, closeText: 'Fechar' });
-                    } else {
-                        window.alert(denyMessage);
-                    }
-                } catch (_error) {
-                    window.alert(denyMessage);
-                }
+                document.body.dispatchEvent(new CustomEvent('showToast', {
+                    detail: { type: 'error', message: denyMessage },
+                }));
             });
         }
 
