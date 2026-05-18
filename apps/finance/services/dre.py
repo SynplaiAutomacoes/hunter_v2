@@ -8,8 +8,7 @@ import json
 from typing import Sequence
 
 from djmoney.money import Money
-from django.db.models import DecimalField, ExpressionWrapper, F, Q, Sum, Value
-from django.db.models.functions import Coalesce
+from django.db.models import Q
 
 from apps.finance.models import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
@@ -358,26 +357,14 @@ def _fetch_delivered_workorders_with_costs(*, payments: list[WorkOrderPaymentMet
     workorders = list(
         WorkOrder.objects.filter(pk__in=workorder_ids)
         .select_related("budget", "budget__customer", "workshop")
-        .prefetch_related("payments")
-        .annotate(
-            products_cost_total=Coalesce(
-                Sum(
-                    ExpressionWrapper(
-                        F("items__product_cost_price") * F("items__quantity"),
-                        output_field=DecimalField(max_digits=16, decimal_places=2),
-                    )
-                ),
-                Value(Decimal("0.00")),
-            ),
-            services_cost_total=Coalesce(
-                Sum(
-                    ExpressionWrapper(
-                        F("items__service_cost_price") * F("items__quantity"),
-                        output_field=DecimalField(max_digits=16, decimal_places=2),
-                    )
-                ),
-                Value(Decimal("0.00")),
-            ),
+        .prefetch_related(
+            "payments",
+            "items__product",
+            "items__service",
+            "items__kit",
+            "items__kit_overrides",
+            "items__kit__kit_products__product",
+            "items__kit__kit_services__service",
         )
     )
 
@@ -386,8 +373,7 @@ def _fetch_delivered_workorders_with_costs(*, payments: list[WorkOrderPaymentMet
         if workorder.status != WorkOrderStatus.APPROVED or workorder.delivered_at is None:
             continue
 
-        total_cost_amount = (getattr(workorder, "products_cost_total", Decimal("0.00")) or Decimal("0.00")) + (getattr(workorder, "services_cost_total", Decimal("0.00")) or Decimal("0.00"))
-        total_cost = Money(total_cost_amount, "BRL")
+        total_cost = workorder.total_costs_products_value + workorder.total_costs_services_value
         setattr(workorder, "dre_total_cost", total_cost)
         payloads.append((workorder, total_cost))
 
