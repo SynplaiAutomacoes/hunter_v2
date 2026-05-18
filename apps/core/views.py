@@ -7,8 +7,7 @@ import logging
 import time
 from datetime import date
 from typing import Any
-from django.db.models import F, Q
-from django.db.models.functions import Coalesce
+from django.db.models import Q
 
 import requests
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -279,7 +278,7 @@ def metricas_dashboard(request) -> dict[str, Any]:
     rentabilidades = [b.rentability for b in orcamentos_aprovados_mes if b.rentability is not None]
 
     # Métricas
-    qtd_carros_mes = (
+    approved_workorders_for_vehicle_count = list(
         WorkOrder.objects.filter(
             workshop=workshop,
             status=WorkOrderStatus.APPROVED,
@@ -296,11 +295,48 @@ def metricas_dashboard(request) -> dict[str, Any]:
                 atualizado_em__year=ano_selecionado,
             )
         )
-        .annotate(base_budget_id=Coalesce("budget__reference_budget_id", F("budget_id")))
-        .values("base_budget_id")
-        .distinct()
-        .count()
+        .values("budget_id", "budget__reference_budget_id")
     )
+
+    initial_budget_ids = {int(row["budget_id"]) for row in approved_workorders_for_vehicle_count if row.get("budget_id") is not None}
+    budget_parent_map: dict[int, int | None] = {int(row["budget_id"]): row.get("budget__reference_budget_id") for row in approved_workorders_for_vehicle_count if row.get("budget_id") is not None}
+
+    budget_ids_to_expand = {parent_id for parent_id in budget_parent_map.values() if parent_id is not None}
+    visited_budget_ids = set(initial_budget_ids)
+    while budget_ids_to_expand:
+        missing_ids = budget_ids_to_expand - visited_budget_ids
+        if not missing_ids:
+            break
+        for budget_row in Budget.objects.filter(pk__in=missing_ids).values("id", "reference_budget_id"):
+            budget_id = int(budget_row["id"])
+            parent_id = budget_row["reference_budget_id"]
+            budget_parent_map[budget_id] = parent_id
+            visited_budget_ids.add(budget_id)
+        budget_ids_to_expand = {parent_id for parent_id in budget_parent_map.values() if parent_id is not None}
+
+    root_cache: dict[int, int] = {}
+
+    def _resolve_root_budget_id(budget_id: int) -> int:
+        cached = root_cache.get(budget_id)
+        if cached is not None:
+            return cached
+
+        seen: set[int] = set()
+        current = budget_id
+        while True:
+            parent_id = budget_parent_map.get(current)
+            if parent_id is None or parent_id in seen:
+                root = current
+                break
+            seen.add(current)
+            current = parent_id
+
+        for visited_id in seen:
+            root_cache[visited_id] = root
+        root_cache[budget_id] = root
+        return root
+
+    qtd_carros_mes = len({_resolve_root_budget_id(budget_id) for budget_id in initial_budget_ids})
     qtd_garantias_mes = (
         WorkOrder.objects.filter(
             workshop=workshop,

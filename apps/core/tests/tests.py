@@ -1541,6 +1541,32 @@ class DashboardMetricsTests(TestCase):
         self.assertEqual(response_after_link.status_code, 200)
         self.assertEqual(response_after_link.context["qtd_carros_mes"], 1)
 
+    def test_dashboard_deduplicates_vehicle_total_for_multilevel_budget_links(self):
+        today = timezone.localdate()
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
+
+        root_budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
+        middle_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, reference_budget=root_budget)
+        child_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, reference_budget=middle_budget)
+
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=root_budget,
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=child_budget,
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["qtd_carros_mes"], 1)
+
     def test_dashboard_retorno_em_garantia_uses_qtd_carros_as_denominator(self):
         today = timezone.localdate()
 
