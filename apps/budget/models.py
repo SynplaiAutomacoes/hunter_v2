@@ -1559,3 +1559,21 @@ class BudgetKitItemOverride(TimeStampedModel):
         elif self.service:
             return f"Override: {self.service.name} - Budget #{self.budget_item.budget_id}"
         return f"Override #{self.id}"
+
+
+class BudgetHistory(TimeStampedModel):
+    class Action(models.TextChoices):
+        REOPENED = "reopened", "Orçamento reaberto"
+
+    budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="history_entries")
+    user = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, related_name="budget_history_entries", null=True, blank=True)
+    action = models.CharField(verbose_name="Ação", max_length=30, choices=Action.choices)
+    reason = models.TextField(verbose_name="Justificativa", blank=True)
+
+    class Meta:
+        verbose_name = "Histórico do orçamento"
+        verbose_name_plural = "Histórico dos orçamentos"
+        ordering = ["-criado_em", "-pk"]
+
+    def __str__(self) -> str:
+        return f"{self.get_action_display()} - Orçamento #{self.budget.pk}"

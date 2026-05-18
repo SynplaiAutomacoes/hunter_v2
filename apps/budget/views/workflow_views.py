@@ -22,7 +22,7 @@ from djmoney.money import Money
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
 from apps.budget.documents.provider import build_budget_status_report_pdf_render_request, render_budget_status_report_pdf_document
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
-from apps.budget.models import Budget, BudgetItem, BudgetStatus, SignatureStatus, BudgetType
+from apps.budget.models import Budget, BudgetHistory, BudgetItem, BudgetStatus, SignatureStatus, BudgetType
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.budget.service import SuperSignError, send_budget_for_signature
 from apps.core.documents.http import build_pdf_http_response
@@ -863,8 +863,18 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     return JsonResponse({"success": False, "error": "O motivo do cancelamento é obrigatório."}, status=400)
                 budget.cancellation_reason = cancellation_reason
             elif status == "reopen":
+                reopen_reason = str(request.POST.get("reopen_reason") or "").strip()
+                if not reopen_reason:
+                    return JsonResponse({"success": False, "error": "A justificativa da reabertura é obrigatória."}, status=400)
+
                 budget.cancellation_reason = ""
                 budget.regenerate_signature_token()
+                BudgetHistory.objects.create(
+                    budget=budget,
+                    user=request.user,
+                    action=BudgetHistory.Action.REOPENED,
+                    reason=reopen_reason,
+                )
 
             budget.status = status_map[status]
             budget.save()
