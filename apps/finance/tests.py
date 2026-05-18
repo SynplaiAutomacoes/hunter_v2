@@ -5948,6 +5948,24 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, "Tipo Pagamento")
         self.assertContains(response, "Total")
 
+    def test_reports_home_view_includes_bulk_selection_reinit_script(self) -> None:
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("10.00", "BRL"),
+            due_date=timezone.localdate(),
+            is_paid=True,
+            description="Movimento para script bulk",
+        )
+
+        response = self.client.get(reverse("finance:reports_home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "window.__financialReportsSelectionInitDone")
+        self.assertContains(response, "htmx:afterSwap")
+
     def test_reports_home_view_paginates_financial_movements_with_10_rows_per_page(self) -> None:
         for index in range(1, 13):
             FinancialMovement.objects.create(
@@ -6236,6 +6254,7 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, f'name="selected_workorder_payment_id" value="{payment.pk}"', html=False)
         self.assertContains(response, f'value="{payment.payment_method.pk}"', html=False)
+        self.assertContains(response, "maxAttempts = 25")
 
     def test_report_edit_modal_post_updates_workorder_paid_status_reflected_in_workorder_section(self) -> None:
         workorder = self._create_report_workorder(

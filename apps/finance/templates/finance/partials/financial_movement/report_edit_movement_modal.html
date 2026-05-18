@@ -308,13 +308,13 @@
 
     function forceWorkorderPaymentMethodSelection() {
         if (!isWorkorderMovement || !paymentMethodInput || !expectedPaymentMethodId) {
-            return;
+            return true;
         }
 
         const currentValue = String(paymentMethodInput.value || '').trim();
         const expectedValue = String(expectedPaymentMethodId).trim();
         if (!expectedValue || currentValue === expectedValue) {
-            return;
+            return true;
         }
 
         const container = paymentMethodInput.closest('[x-data]');
@@ -330,6 +330,8 @@
         paymentMethodInput.value = expectedValue;
         paymentMethodInput.dispatchEvent(new Event('input', { bubbles: true }));
         paymentMethodInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+        return String(paymentMethodInput.value || '').trim() === expectedValue;
     }
 
     if (supplierInput && collaboratorInput && detailsContainer) {
@@ -350,9 +352,15 @@
     }
 
     if (isWorkorderMovement) {
-        setTimeout(forceWorkorderPaymentMethodSelection, 50);
-        setTimeout(forceWorkorderPaymentMethodSelection, 250);
-        setTimeout(forceWorkorderPaymentMethodSelection, 600);
+        let attempts = 0;
+        const maxAttempts = 25;
+        const intervalId = window.setInterval(() => {
+            attempts += 1;
+            const resolved = forceWorkorderPaymentMethodSelection();
+            if (resolved || attempts >= maxAttempts) {
+                window.clearInterval(intervalId);
+            }
+        }, 120);
     }
 })();
 </script>

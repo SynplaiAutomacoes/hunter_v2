@@ -255,6 +255,15 @@
         const reopenToggleButton = document.getElementById('toggle-reopen-workorder-form');
         const reopenCancelButton = document.getElementById('cancel-reopen-workorder-form');
 
+        const hideStatusForms = (...formsToKeep) => {
+            [cancelForm, rejectForm, reopenForm].forEach((currentForm) => {
+                if (!currentForm || formsToKeep.includes(currentForm)) {
+                    return;
+                }
+                currentForm.classList.add('hidden');
+            });
+        };
+
         if (form && kmInput && statusEl && kmInput.dataset.kmAutosaveInitialized !== 'true') {
             kmInput.dataset.kmAutosaveInitialized = 'true';
 
@@ -363,15 +372,6 @@
             }
 
             setDeliveryButtonTooltip(currentDeliveryButton, '');
-        };
-
-        const hideStatusForms = (...formsToKeep) => {
-            [reopenForm].forEach((currentForm) => {
-                if (!currentForm || formsToKeep.includes(currentForm)) {
-                    return;
-                }
-                currentForm.classList.add('hidden');
-            });
         };
 
         const persistKmFinal = async () => {

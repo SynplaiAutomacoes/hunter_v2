@@ -7,7 +7,8 @@ import logging
 import time
 from datetime import date
 from typing import Any
-from django.db.models import Q
+from django.db.models import F, Q
+from django.db.models.functions import Coalesce
 
 import requests
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -282,7 +283,6 @@ def metricas_dashboard(request) -> dict[str, Any]:
         WorkOrder.objects.filter(
             workshop=workshop,
             status=WorkOrderStatus.APPROVED,
-            budget__reference_budget__isnull=True,
         )
         .filter(
             Q(
@@ -296,6 +296,9 @@ def metricas_dashboard(request) -> dict[str, Any]:
                 atualizado_em__year=ano_selecionado,
             )
         )
+        .annotate(base_budget_id=Coalesce("budget__reference_budget_id", F("budget_id")))
+        .values("base_budget_id")
+        .distinct()
         .count()
     )
     qtd_garantias_mes = (

@@ -546,6 +546,11 @@
 
                     <script>
                     (function () {
+                        if (window.__financialReportsSelectionInitDone) {
+                            return;
+                        }
+                        window.__financialReportsSelectionInitDone = true;
+
                         var btnConciliar = document.getElementById('btn-conciliar');
                         var btnPagarTodos = document.getElementById('btn-pagar-todos');
 
@@ -567,8 +572,13 @@
                         }
 
                         function init() {
+                            btnConciliar = document.getElementById('btn-conciliar');
+                            btnPagarTodos = document.getElementById('btn-pagar-todos');
                             var selectAll = document.getElementById('select-all-movements');
-                            if (!selectAll) return;
+                            if (!selectAll) {
+                                updateActionButtons();
+                                return;
+                            }
                             var checkboxes = document.querySelectorAll('#financial-reports-movements-table .item-checkbox');
                             var checked = 0;
                             for (var i = 0; i < checkboxes.length; i++) {
@@ -600,6 +610,10 @@
                                 selectAll.indeterminate = checked > 0 && checked < checkboxes.length;
                             }
                             updateActionButtons();
+                        });
+
+                        document.body.addEventListener('htmx:afterSwap', function () {
+                            init();
                         });
 
                         init();
