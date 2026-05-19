@@ -2594,6 +2594,85 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertContains(detail_response, "Cliente pediu reexecução do serviço.")
         self.assertContains(detail_response, timezone.localtime(history_entry.criado_em).strftime("%d/%m/%Y %H:%M"))
 
+    def test_reopen_and_reapprove_do_not_duplicate_payment_or_card_fee_movements(self) -> None:
+        customer = create_customer(workshop=self.workshop, suffix=548)
+        vehicle = create_vehicle(workshop=self.workshop, customer=customer, suffix=548)
+        self.budget.customer = customer
+        self.budget.vehicle = vehicle
+        self.budget.current_km = 15000
+        self.budget.status = "approved"
+        self.budget.problem_description = "Reparo com reabertura"
+        self.budget.save(update_fields=["customer", "vehicle", "current_km", "status", "problem_description"])
+        self.workorder.sync_from_budget()
+
+        card_method = PaymentMethod.objects.create(workshop=self.workshop, description="Cartão", installments_count=1, tax_percentage=Decimal("2.50"))
+        WorkOrderPaymentMethod.objects.create(
+            workorder=self.workorder,
+            payment_method=card_method,
+            first_installment_amount=Money("100.00", "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 24),
+        )
+
+        def _approve() -> None:
+            response = self.client.post(
+                reverse("workorder:update_status", args=[self.workorder.pk, "approve"]),
+                data={"km_final": "15100", "unsigned_delivery_reason": "Entrega sem assinatura."},
+                HTTP_HX_REQUEST="true",
+            )
+            self.assertEqual(response.status_code, 200)
+
+        def _reopen(reason: str) -> None:
+            response = self.client.post(
+                reverse("workorder:reopen", args=[self.workorder.pk]),
+                data={"reopen_reason": reason},
+                HTTP_HX_REQUEST="true",
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.headers.get("HX-Refresh"), "true")
+
+        reversed_ids = FinancialMovement.objects.filter(reversal_of__isnull=False).values_list("reversal_of_id", flat=True)
+
+        def _active_parent_payment_count() -> int:
+            return (
+                FinancialMovement.objects.filter(
+                    workorder=self.workorder,
+                    movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                    workorder_payment__isnull=False,
+                    reversal_of__isnull=True,
+                )
+                .exclude(pk__in=reversed_ids)
+                .count()
+            )
+
+        def _active_card_fee_count() -> int:
+            return (
+                FinancialMovement.objects.filter(
+                    workorder=self.workorder,
+                    movement_kind=FinancialMovement.MovementKind.WORKORDER_CARD_FEE,
+                    reversal_of__isnull=True,
+                )
+                .exclude(pk__in=reversed_ids)
+                .count()
+            )
+
+        _approve()
+        self.assertEqual(_active_parent_payment_count(), 1)
+        self.assertEqual(_active_card_fee_count(), 1)
+
+        _reopen("Primeira reabertura")
+        _approve()
+
+        self.assertEqual(_active_parent_payment_count(), 1)
+        self.assertEqual(_active_card_fee_count(), 1)
+
+        _reopen("Segunda reabertura")
+        _approve()
+
+        self.assertEqual(_active_parent_payment_count(), 1)
+        self.assertEqual(_active_card_fee_count(), 1)
+
     def test_reopen_status_allows_cancelled_workorder(self) -> None:
         self.workorder.status = WorkOrderStatus.CANCELLED
         self.workorder.cancellation_reason = "Cliente desistiu do serviço."
