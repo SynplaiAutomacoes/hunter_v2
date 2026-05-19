@@ -2281,6 +2281,22 @@ class BudgetLinkWorkflowTests(TestCase):
         self.reference_budget = create_budget(workshop=self.workshop)
         self.other_reference_budget = create_budget(workshop=self.workshop)
 
+        self.customer = create_customer(workshop=self.workshop, suffix=191)
+        self.current_vehicle = create_vehicle(workshop=self.workshop, customer=self.customer, suffix=191, plate="BDG1911")
+        self.other_vehicle = create_vehicle(workshop=self.workshop, customer=self.customer, suffix=192, plate="BDG1922")
+
+        self.current_budget.customer = self.customer
+        self.current_budget.vehicle = self.current_vehicle
+        self.current_budget.save(update_fields=["customer", "vehicle"])
+
+        self.reference_budget.customer = self.customer
+        self.reference_budget.vehicle = self.current_vehicle
+        self.reference_budget.save(update_fields=["customer", "vehicle"])
+
+        self.other_reference_budget.customer = self.customer
+        self.other_reference_budget.vehicle = self.other_vehicle
+        self.other_reference_budget.save(update_fields=["customer", "vehicle"])
+
         self.client.force_login(self.user)
         session = self.client.session
         session["active_workshop_id"] = self.workshop.pk
@@ -2342,6 +2358,28 @@ class BudgetLinkWorkflowTests(TestCase):
             },
         )
         self.assertEqual(self.current_budget.reference_budget_id, self.reference_budget.pk)
+
+    def test_link_search_lists_only_budgets_from_same_vehicle(self) -> None:
+        response = self.client.get(
+            reverse("budget:budget_link_search", args=[self.current_budget.pk]),
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.current_vehicle.plate)
+        self.assertNotContains(response, self.other_vehicle.plate)
+
+    def test_link_budget_fails_when_reference_budget_has_different_vehicle(self) -> None:
+        response = self.client.post(
+            reverse("budget:budget_link_process", args=[self.current_budget.pk]),
+            data={"reference_budget_id": str(self.other_reference_budget.pk)},
+            HTTP_HX_REQUEST="true",
+        )
+
+        self.current_budget.refresh_from_db()
+        self.assertEqual(response.status_code, 400)
+        self.assertJSONEqual(response.content, {"success": False, "error": "Só é possível vincular orçamentos do mesmo veículo."})
+        self.assertIsNone(self.current_budget.reference_budget_id)
 
 
 class BudgetProductIssueTests(TestCase):
