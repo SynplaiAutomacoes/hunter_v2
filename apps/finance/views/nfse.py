@@ -19,6 +19,7 @@ from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.forms import NfseRequestStep1Form, NfseRequestStep2Form, NfseRequestStep3Form
 from apps.finance.models.finance import NfseItem, NfseRequest, NfseRequestStatus
+from apps.finance.services.nfse_consulta import NfseConsultaError, reconcile_nfse_item
 from apps.finance.services.emission import NfseEmissionError, cancel_nfse_document, download_nfse_preview_document, emit_nfse_request, sync_emission_response
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url
@@ -182,6 +183,28 @@ class NfseRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         nfse_request.set_status(NfseRequestStatus.CANCELED)
         messages.success(request, "Nota Fiscal de Serviço cancelada com sucesso.")
+        return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
+
+
+class NfseRequestReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "change_nfserequest"
+
+    def post(self, request, *args, **kwargs):
+        nfse_request = get_object_or_404(NfseRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+        item = nfse_request.items.order_by("-id").first()
+        if item is None:
+            messages.error(request, "A Nota Fiscal de Serviço ainda nao possui um item sincronizado para consulta.")
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
+
+        try:
+            reconcile_nfse_item(item=item)
+        except NfseConsultaError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, "Status da Nota Fiscal de Serviço atualizado com sucesso.")
+
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
 
 
