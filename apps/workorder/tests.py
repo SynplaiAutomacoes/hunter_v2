@@ -2519,7 +2519,7 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(self.workorder.delivered_at, delivered_at)
         self.assertIn("showToast", response.headers.get("HX-Trigger", ""))
 
-    def test_reopen_status_requires_reason_and_reverts_stock_and_financial_movements(self) -> None:
+    def test_reopen_status_requires_reason_and_reverts_stock_and_deletes_financial_movements(self) -> None:
         customer = create_customer(workshop=self.workshop, suffix=247)
         vehicle = create_vehicle(workshop=self.workshop, customer=customer, suffix=247)
         product = create_product(workshop=self.workshop, suffix=247, selling_price="120.00")
@@ -2551,7 +2551,12 @@ class AddPaymentMethodViewTests(TestCase):
         self.workorder.refresh_from_db()
         stock_product.refresh_from_db()
         original_stock_movement = StockMovement.objects.get(workorder=self.workorder, type=StockMovement.MovementType.EXIT)
-        original_financial_movement = FinancialMovement.objects.get(workorder=self.workorder, movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT)
+        original_financial_movement_ids = list(
+            FinancialMovement.objects.filter(
+                workorder=self.workorder,
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            ).values_list("pk", flat=True)
+        )
 
         invalid_response = self.client.post(
             reverse("workorder:reopen", args=[self.workorder.pk]),
@@ -2584,10 +2589,16 @@ class AddPaymentMethodViewTests(TestCase):
         self.assertEqual(reversal_stock.type, StockMovement.MovementType.ENTRY)
         self.assertEqual(reversal_stock.quantity, 1)
 
-        reversal_financial = FinancialMovement.objects.get(reversal_of=original_financial_movement)
-        self.assertEqual(reversal_financial.direction, FinancialMovement.MovementDirection.DEBIT)
-        self.assertEqual(reversal_financial.amount, original_financial_movement.amount)
-        self.assertEqual(reversal_financial.financial_observation, "Cliente pediu reexecução do serviço.")
+        self.assertFalse(FinancialMovement.objects.filter(pk__in=original_financial_movement_ids).exists())
+        self.assertFalse(
+            FinancialMovement.objects.filter(
+                workorder=self.workorder,
+                movement_kind__in=[
+                    FinancialMovement.MovementKind.WORKORDER_PARENT,
+                    FinancialMovement.MovementKind.WORKORDER_CARD_FEE,
+                ],
+            ).exists()
+        )
 
         detail_response = self.client.get(reverse("workorder:workorder_detail", args=[self.workorder.pk]))
         self.assertContains(detail_response, "Histórico da OS")
