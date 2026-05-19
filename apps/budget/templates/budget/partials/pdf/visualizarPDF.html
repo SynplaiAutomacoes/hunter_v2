@@ -360,7 +360,7 @@
         <div class="footer-section pt-3 border-t border-gray-200 text-[11px] text-gray-500">
             <p>Aberto por: {{ request.user.get_full_name|default:"Sistema" }} em: {{ budget.criado_em|date:"d/m/Y" }} às {{ budget.criado_em|date:"H:i" }}</p>
             {% if workorder and workorder.delivered_at %}
-            <p>Veículo entregue em: {{ workorder.delivered_at|date:"d/m/Y" }} às {{ workorder.delivered_at|date:"H:i" }}</p>
+            <p>Entrega do veículo feita no dia {{ workorder.delivered_at|date:"d/m/Y" }} às {{ workorder.delivered_at|date:"H:i" }} hrs</p>
             {% endif %}
             <p>Status: <span class="uppercase font-bold text-gray-700">{{ budget.budget_status }}</span></p>
         </div>
