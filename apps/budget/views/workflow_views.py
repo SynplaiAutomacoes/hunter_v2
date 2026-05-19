@@ -277,7 +277,7 @@ class BudgetStatusReportDataMixin:
 
     def _get_budget_table_fields(self) -> list[TableColumn]:
         return [
-            TableColumn("ID", attr="id"),
+            TableColumn("ID", attr="id", search_by="id"),
             TableColumn(str(Budget.customer.field.verbose_name), attr=Budget.customer.field.name, search_by="customer__name"),
             TableColumn(str(Budget.vehicle.field.verbose_name), attr=Budget.vehicle.field.name, search_by=("vehicle__plate", "vehicle__model", "vehicle__brand")),
             TableColumn("Vinculado à", attr="reference_budget_id", search_by="reference_budget__id"),
