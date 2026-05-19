@@ -8,7 +8,20 @@ from typing import Any
 
 from django.core.exceptions import FieldDoesNotExist, FieldError
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
-from django.db.models import Field, Q, QuerySet
+from django.db.models import (
+    AutoField,
+    BigAutoField,
+    BigIntegerField,
+    Field,
+    IntegerField,
+    PositiveBigIntegerField,
+    PositiveIntegerField,
+    PositiveSmallIntegerField,
+    Q,
+    QuerySet,
+    SmallAutoField,
+    SmallIntegerField,
+)
 from django.db.models.expressions import BaseExpression
 from django.http import HttpRequest, QueryDict
 from django.template import Library
@@ -267,6 +280,21 @@ def _matching_choice_values(field: Field | None, *, search_query: str) -> list[A
     return matched_values
 
 
+def _parse_integer_search_value(search_query: str) -> int | None:
+    normalized = search_query.strip()
+    if not normalized:
+        return None
+
+    compact = normalized.replace(" ", "").replace(".", "").replace(",", "")
+    if not compact.isdigit():
+        return None
+
+    try:
+        return int(compact)
+    except ValueError:
+        return None
+
+
 def _as_ordering_terms(col: TableColumn, *, desc: bool) -> list[str | BaseExpression]:
     """
     C onverte a configuração de ordenação de uma coluna em termos compatíveis
@@ -326,9 +354,32 @@ def _apply_search(
     if not lookups:
         return qs, search_query
 
+    integer_search_value = _parse_integer_search_value(search_query)
+    integer_field_types = (
+        AutoField,
+        BigAutoField,
+        SmallAutoField,
+        IntegerField,
+        BigIntegerField,
+        SmallIntegerField,
+        PositiveIntegerField,
+        PositiveSmallIntegerField,
+        PositiveBigIntegerField,
+    )
+
     query_clauses: list[Q] = []
     for lookup_spec in lookups:
         lookup = lookup_spec.lookup
+        field = lookup_spec.field
+
+        if integer_search_value is not None and isinstance(field, integer_field_types):
+            exact_int_clause = Q(**{f"{lookup}__exact": integer_search_value})
+            try:
+                qs.filter(exact_int_clause)
+            except FieldError:
+                pass
+            else:
+                query_clauses.append(exact_int_clause)
 
         if bool_term is not None:
             exact_clause = Q(**{f"{lookup}__exact": bool_term})
@@ -339,7 +390,7 @@ def _apply_search(
             else:
                 query_clauses.append(exact_clause)
 
-        for choice_value in _matching_choice_values(lookup_spec.field, search_query=search_query):
+        for choice_value in _matching_choice_values(field, search_query=search_query):
             choice_clause = Q(**{f"{lookup}__exact": choice_value})
             try:
                 qs.filter(choice_clause)
