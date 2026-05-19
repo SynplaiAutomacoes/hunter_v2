@@ -1512,6 +1512,58 @@ class DashboardMetricsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["qtd_carros_mes"], 1)
 
+    def test_dashboard_counts_only_sale_workorders_in_vehicle_total(self):
+        today = timezone.localdate()
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
+
+        sale_budget = Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            budget_type=BudgetType.SALE,
+            status=BudgetStatus.APPROVED,
+        )
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=sale_budget,
+            status=WorkOrderStatus.APPROVED,
+            budget_type=BudgetType.SALE,
+            delivered_at=timezone.now(),
+        )
+
+        warranty_budget = Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            budget_type=BudgetType.WARRANTY,
+            is_warranty_budget=True,
+            status=BudgetStatus.APPROVED,
+        )
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=warranty_budget,
+            status=WorkOrderStatus.APPROVED,
+            budget_type=BudgetType.WARRANTY,
+            delivered_at=timezone.now(),
+        )
+
+        courtesy_budget = Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=today,
+            budget_type=BudgetType.COURTESY,
+            status=BudgetStatus.APPROVED,
+        )
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=courtesy_budget,
+            status=WorkOrderStatus.APPROVED,
+            budget_type=BudgetType.COURTESY,
+            delivered_at=timezone.now(),
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["qtd_carros_mes"], 1)
+
     def test_dashboard_does_not_count_child_workorders_in_vehicle_total(self):
         today = timezone.localdate()
         self._create_workshop_cost(reference_date=today, work_days_per_month=22)
