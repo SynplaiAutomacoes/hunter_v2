@@ -610,6 +610,33 @@ class TestRenderTableTag(TestCase):
         self.assertIn("Beta - Avenida Industrial", html)
         self.assertNotIn("Alpha - Rua Central", html)
 
+    def test_search_supports_integer_primary_key_lookup(self):
+        alpha = create_workshop(name="Alpha", cnpj="10.000.000/0001-31")
+        create_workshop(name="Beta", cnpj="10.000.000/0001-32")
+
+        request = self.factory.get(f"/workshops/?q={alpha.pk}")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields table_id='t' per_page=10 %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.all(),
+                    "fields": [
+                        TableColumn(label="ID", attr="id"),
+                        TableColumn(label="Nome", attr="name"),
+                    ],
+                }
+            )
+        )
+
+        self.assertIn("Alpha", html)
+        self.assertNotIn("Beta", html)
+
     def test_search_filters_queryset_rows_without_accents_and_case(self):
         create_workshop(name="Sao Bento", cnpj="10.000.000/0001-05")
         create_workshop(name="Alpha", cnpj="10.000.000/0001-06")
