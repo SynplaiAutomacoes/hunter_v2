@@ -384,6 +384,7 @@ def build_nfse_payload(*, nfse_request: NfseRequest, request: HttpRequest | None
         first_rps["serie"] = str(nfse_request.reserved_rps_series)
 
     payload = {
+        "ID": str(nfse_request.pk),
         "ambiente": ambiente,
         "url_notificacao": notification_url,
         "rps": [first_rps],

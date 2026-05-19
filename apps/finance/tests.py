@@ -1266,6 +1266,7 @@ class EmissionRequestNumberReservationTests(TestCase):
         payload = build_nfse_payload(nfse_request=nfse_request)
         first_rps = payload.get("rps", [{}])[0]
 
+        self.assertEqual(payload.get("ID"), str(nfse_request.pk))
         self.assertEqual(first_rps.get("numero"), 8000)
         self.assertEqual(first_rps.get("serie"), "A1")
         self.assertEqual(first_rps.get("servico", {}).get("informacoes_complementares"), "Observacao complementar da NFS-e")
@@ -1525,6 +1526,44 @@ class WebmaniaPreviewServiceTests(TestCase):
 
 
 class NfseEmissionServiceTests(TestCase):
+    def test_emit_nfse_sends_processing_id_for_idempotency(self) -> None:
+        nfse_request = SimpleNamespace(
+            pk=9876,
+            workshop=SimpleNamespace(pk=1),
+            workorder=SimpleNamespace(pk=10),
+            tax_class="REFIDEMP01",
+        )
+        payload = {
+            "ambiente": 2,
+            "url_notificacao": "https://app.test/webhook",
+            "rps": [
+                {
+                    "servico": {
+                        "valor_servicos": "100.00",
+                        "discriminacao": "Servico",
+                        "classe_imposto": "REFIDEMP01",
+                    },
+                    "tomador": {"cpf": "12345678901", "nome_completo": "Cliente"},
+                }
+            ],
+        }
+        headers = {"Content-Type": "application/json", "Authorization": "Bearer bearer-token"}
+        tax_class_response = _mock_response([{"referencia": "REFIDEMP01", "tipo": "nfse", "status": "ativo", "codigo_servico": "01.05"}])
+        emission_response = _mock_response({"modelo": "nfse", "status": "processando", "uuid": "uuid-idempotente"})
+
+        with (
+            patch("apps.finance.services.emission.build_nfse_payload", return_value=payload),
+            patch("apps.finance.services.emission._build_tax_class_url", return_value="https://webmania.com.br/api/1/nfe/classe-imposto/"),
+            patch("apps.finance.services.emission._build_emit_url", return_value="https://api.webmania.com.br/2/nfse/emissao/"),
+            patch("apps.finance.services.emission._build_headers", return_value=headers),
+            patch("apps.finance.services.emission.requests.get", return_value=tax_class_response),
+            patch("apps.finance.services.emission.requests.post", return_value=emission_response) as post_mock,
+        ):
+            emit_nfse_request(nfse_request=nfse_request)  # type: ignore[arg-type]
+
+        sent_payload = post_mock.call_args.kwargs.get("json", {})
+        self.assertEqual(sent_payload.get("ID"), "9876")
+
     def test_emit_nfse_validates_tax_class_reference_before_emission(self) -> None:
         nfse_request = SimpleNamespace(
             pk=2,
@@ -4203,6 +4242,85 @@ class FiscalDocumentDetailFlowTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers.get("Location"), reverse("finance:nfse_detail", kwargs={"pk": nfse_request.pk}))
         cancel_mock.assert_not_called()
+
+    def test_nfse_reconcile_view_updates_item_status_to_approved(self) -> None:
+        nfse_request = NfseRequest.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            tax_class="REFNFSE124",
+            service_description="Servico fiscal",
+        )
+        item = NfseItem.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            request=nfse_request,
+            uuid="f8a5ea3a-3f7e-4e2a-90d2-5940cf27e1d5",
+            status="processando",
+        )
+
+        consulta_payload = {
+            "uuid": str(item.uuid),
+            "modelo": "nfse",
+            "status": "aprovado",
+            "motivo": "Autorizado o uso da NFS-e",
+            "numero": "54321",
+            "codigo_verificacao": "XYZ123",
+            "xml": "https://files.test/nfse.xml",
+            "pdf_nfse": "https://files.test/nfse.pdf",
+            "pdf_rps": "https://files.test/nfse-rps.pdf",
+        }
+
+        with (
+            patch("apps.finance.services.nfse_consulta._build_headers", return_value={}),
+            patch("apps.finance.services.nfse_consulta.requests.get", return_value=_mock_response(consulta_payload)),
+        ):
+            response = self.client.post(reverse("finance:nfse_reconcile", kwargs={"pk": nfse_request.pk}))
+
+        self.assertEqual(response.status_code, 302)
+        item.refresh_from_db()
+        nfse_request.refresh_from_db()
+        self.assertEqual(item.status, "aprovado")
+        self.assertEqual(item.number, "54321")
+        self.assertIsNotNone(item.last_reconciled_at)
+        self.assertEqual(nfse_request.status, NfseRequestStatus.APPROVED)
+
+    def test_nfse_reconcile_view_updates_item_status_to_canceled(self) -> None:
+        nfse_request = NfseRequest.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            tax_class="REFNFSE125",
+            service_description="Servico fiscal",
+        )
+        item = NfseItem.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            request=nfse_request,
+            uuid="a2e0512b-919e-4d5d-9f67-93de6cd2d2a8",
+            status="processando",
+        )
+
+        consulta_payload = {
+            "uuid": str(item.uuid),
+            "modelo": "nfse",
+            "status": "cancelado",
+            "motivo": "Cancelada por duplicidade",
+            "numero": "54321",
+            "codigo_verificacao": "XYZ123",
+            "xml": "https://files.test/nfse.xml",
+        }
+
+        with (
+            patch("apps.finance.services.nfse_consulta._build_headers", return_value={}),
+            patch("apps.finance.services.nfse_consulta.requests.get", return_value=_mock_response(consulta_payload)),
+        ):
+            response = self.client.post(reverse("finance:nfse_reconcile", kwargs={"pk": nfse_request.pk}))
+
+        self.assertEqual(response.status_code, 302)
+        item.refresh_from_db()
+        nfse_request.refresh_from_db()
+        self.assertEqual(item.status, "cancelado")
+        self.assertIsNotNone(item.last_reconciled_at)
+        self.assertEqual(nfse_request.status, NfseRequestStatus.CANCELED)
 
     def test_nfse_document_download_view_returns_file(self) -> None:
         nfse_request = NfseRequest.objects.create(

@@ -20,8 +20,11 @@
         <div></div>
     {% endif %}
 
-    <button type="submit" form="nfse-form" class="btn btn-primary" {% if current_step == steps_config|length %}name="intent" value="preview"{% endif %}>
+    <button type="submit" form="nfse-form" class="btn btn-primary" id="nfse-submit-btn" {% if current_step == steps_config|length %}name="intent" value="preview"{% endif %}>
+        <span class="loading loading-spinner loading-sm hidden" id="nfse-submit-spinner"></span>
+        <span id="nfse-submit-label">
         {% if current_step == steps_config|length %}Ver prévia{% else %}Salvar e Continuar{% endif %}
+        </span>
     </button>
 </div>
 
@@ -34,3 +37,44 @@
         {% crispy form %}
     </form>
 </div>
+
+<script>
+    (function () {
+        const form = document.getElementById('nfse-form');
+        if (!form || form.dataset.submitLoadingBound === '1') {
+            return;
+        }
+
+        form.dataset.submitLoadingBound = '1';
+
+        const submitBtn = document.getElementById('nfse-submit-btn');
+        const submitLabel = document.getElementById('nfse-submit-label');
+        const submitSpinner = document.getElementById('nfse-submit-spinner');
+        if (!submitBtn || !submitLabel) {
+            return;
+        }
+
+        const defaultLabel = submitLabel.textContent;
+        const loadingLabel = 'Enviando...';
+
+        const startLoading = function () {
+            submitBtn.disabled = true;
+            submitLabel.textContent = loadingLabel;
+            if (submitSpinner) {
+                submitSpinner.classList.remove('hidden');
+            }
+        };
+
+        const stopLoading = function () {
+            submitBtn.disabled = false;
+            submitLabel.textContent = defaultLabel;
+            if (submitSpinner) {
+                submitSpinner.classList.add('hidden');
+            }
+        };
+
+        form.addEventListener('htmx:beforeRequest', startLoading);
+        form.addEventListener('htmx:afterRequest', stopLoading);
+        form.addEventListener('htmx:responseError', stopLoading);
+    })();
+</script>
