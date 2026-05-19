@@ -8366,6 +8366,7 @@ class DreReportViewTests(TestCase):
         expandable_components = {
             "receita_bruta_vendas_e_servicos",
             "custos_mercadorias_vendidas",
+            "custos_servicos_vendidos",
             "receitas_financeiras",
             "despesas_financeiras",
         }
@@ -8378,7 +8379,7 @@ class DreReportViewTests(TestCase):
                 self.assertEqual(row["details"], [])
 
         content = response.content.decode("utf-8")
-        self.assertEqual(content.count("chevron_right"), 4)
+        self.assertEqual(content.count("chevron_right"), 5)
         self.assertIn("Não há dados neste período.", content)
 
     def test_results_page_groups_financial_revenue_and_expense_by_financial_group_hierarchy(self) -> None:
@@ -8898,7 +8899,9 @@ class DreReportViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         costs_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
-        self.assertEqual(costs_row["amount"], Money("160.00", "BRL"))
+        services_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_servicos_vendidos")
+        self.assertEqual(costs_row["amount"], Money("120.00", "BRL"))
+        self.assertEqual(services_row["amount"], Money("40.00", "BRL"))
 
     def test_dre_workorder_cost_total_sums_products_and_services(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas")
@@ -8929,7 +8932,9 @@ class DreReportViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         costs_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
-        self.assertEqual(costs_row["amount"], Money("145.00", "BRL"))
+        services_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_servicos_vendidos")
+        self.assertEqual(costs_row["amount"], Money("90.00", "BRL"))
+        self.assertEqual(services_row["amount"], Money("55.00", "BRL"))
 
         workorder_detail = next((detail for detail in costs_row["details"] if detail.get("workorder_id") == workorder.pk), None)
         self.assertIsNotNone(workorder_detail)
@@ -9007,7 +9012,8 @@ class DreReportViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         costs_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
-        workorder_detail = next((detail for detail in costs_row["details"] if detail.get("workorder_id") == workorder.pk), None)
+        costs_details = [detail for node in costs_row["details"] for detail in node["details"]]
+        workorder_detail = next((detail for detail in costs_details if detail.get("workorder_id") == workorder.pk), None)
         self.assertIsNotNone(workorder_detail)
         if workorder_detail is None:
             return
@@ -9074,8 +9080,10 @@ class DreReportViewTests(TestCase):
 
         self.assertEqual(not_reconciled_rows["receita_bruta_vendas_e_servicos"]["amount"], Money("300.00", "BRL"))
         self.assertEqual(reconciled_rows["receita_bruta_vendas_e_servicos"]["amount"], Money("300.00", "BRL"))
-        self.assertEqual(not_reconciled_rows["custos_mercadorias_vendidas"]["amount"], Money("160.00", "BRL"))
-        self.assertEqual(reconciled_rows["custos_mercadorias_vendidas"]["amount"], Money("160.00", "BRL"))
+        self.assertEqual(not_reconciled_rows["custos_mercadorias_vendidas"]["amount"], Money("120.00", "BRL"))
+        self.assertEqual(reconciled_rows["custos_mercadorias_vendidas"]["amount"], Money("120.00", "BRL"))
+        self.assertEqual(not_reconciled_rows["custos_servicos_vendidos"]["amount"], Money("40.00", "BRL"))
+        self.assertEqual(reconciled_rows["custos_servicos_vendidos"]["amount"], Money("40.00", "BRL"))
 
     def test_dre_links_workorder_cost_detail_to_sales_group(self) -> None:
         sales_group = FinancialGroup.objects.create(workshop=self.workshop, name="Vendas")
@@ -9106,7 +9114,8 @@ class DreReportViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         costs_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
-        workorder_detail = next((detail for detail in costs_row["details"] if detail.get("workorder_id") == workorder.pk), None)
+        costs_details = [detail for node in costs_row["details"] for detail in node["details"]]
+        workorder_detail = next((detail for detail in costs_details if detail.get("workorder_id") == workorder.pk), None)
         self.assertIsNotNone(workorder_detail)
         if workorder_detail is None:
             return
@@ -9159,7 +9168,8 @@ class DreReportViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         costs_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
-        fee_detail = next((detail for detail in costs_row["details"] if detail.get("summary") == "Pagamento da taxa da maquininha"), None)
+        costs_details = [detail for node in costs_row["details"] for detail in node["details"]]
+        fee_detail = next((detail for detail in costs_details if detail.get("summary") == "Pagamento da taxa da maquininha"), None)
         self.assertIsNotNone(fee_detail)
         if fee_detail is None:
             return
@@ -9212,10 +9222,14 @@ class DreReportViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         costs_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
-        details_total = sum((detail["amount"] for detail in costs_row["details"]), Money("0.00", "BRL"))
+        services_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_servicos_vendidos")
+        costs_details_total = sum((node["amount"] for node in costs_row["details"]), Money("0.00", "BRL"))
+        services_details_total = sum((node["amount"] for node in services_row["details"]), Money("0.00", "BRL"))
 
-        self.assertEqual(costs_row["amount"], Money("170.00", "BRL"))
-        self.assertEqual(details_total, costs_row["amount"])
+        self.assertEqual(costs_row["amount"], Money("130.00", "BRL"))
+        self.assertEqual(services_row["amount"], Money("40.00", "BRL"))
+        self.assertEqual(costs_details_total, costs_row["amount"])
+        self.assertEqual(services_details_total, services_row["amount"])
 
     def test_dre_excludes_non_delivered_workorder_costs_and_card_fee(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Vendas")
@@ -9264,8 +9278,69 @@ class DreReportViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         costs_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_mercadorias_vendidas")
+        services_row = next(row for row in response.context["dre_rows"] if row["component"] == "custos_servicos_vendidos")
         self.assertEqual(costs_row["amount"], Money("0.00", "BRL"))
+        self.assertEqual(services_row["amount"], Money("0.00", "BRL"))
         self.assertEqual(costs_row["details"], [])
+        self.assertEqual(services_row["details"], [])
+
+    def test_dre_cost_parents_match_sublevels_and_keep_total_unchanged(self) -> None:
+        FinancialGroup.objects.create(workshop=self.workshop, name="Vendas")
+        FinancialGroup.objects.create(workshop=self.workshop, name="Custos")
+
+        workorder = self._create_workorder_with_values(
+            reference_date=date(2026, 10, 10),
+            product_selling_price="200.00",
+            product_cost_price="120.00",
+            service_selling_price="100.00",
+            service_cost_price="40.00",
+            customer_name="Cliente Hierarquia DRE",
+            payment_due_date=date(2026, 10, 15),
+        )
+        workorder.status = WorkOrderStatus.APPROVED
+        workorder.delivered_at = timezone.now()
+        workorder.save(update_fields=["status", "delivered_at"])
+
+        payment = workorder.payments.first()
+        self.assertIsNotNone(payment)
+        if payment is None:
+            return
+
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            workorder=workorder,
+            workorder_payment=payment,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("10.00", "BRL"),
+            due_date=payment.due_date,
+            is_paid=True,
+            description="Pagamento da taxa da maquininha",
+        )
+
+        response = self.client.get(
+            reverse("finance:dre_results"),
+            data={
+                "filial": str(self.workshop.pk),
+                "data_inicial": "2026-10-01",
+                "data_final": "2026-10-31",
+                "tipo_data": "A",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        rows = {row["component"]: row for row in response.context["dre_rows"]}
+        cogs_row = rows["custos_mercadorias_vendidas"]
+        cos_row = rows["custos_servicos_vendidos"]
+        net_revenue_row = rows["receita_bruta_de_vendas"]
+
+        self.assertEqual(sum((node["amount"] for node in cogs_row["details"]), Money("0.00", "BRL")), cogs_row["amount"])
+        self.assertEqual(sum((node["amount"] for node in cos_row["details"]), Money("0.00", "BRL")), cos_row["amount"])
+
+        total_costs = cogs_row["amount"] + cos_row["amount"]
+        self.assertEqual(total_costs, Money("170.00", "BRL"))
+        self.assertEqual(rows["receita_bruta_vendas_e_servicos"]["amount"] - total_costs, net_revenue_row["amount"])
 
     def test_results_page_adds_negative_financial_expense_to_operating_result(self) -> None:
         FinancialGroup.objects.create(workshop=self.workshop, name="Receitas Financeiras")
@@ -9361,7 +9436,7 @@ class DreReportViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         content = response.content.decode("utf-8")
 
-        self.assertEqual(content.count("chevron_right"), 4)
+        self.assertEqual(content.count("chevron_right"), 5)
         self.assertEqual(content.count("expand_more"), 4)
         self.assertEqual(content.count("row-hover"), 4)
         self.assertEqual(content.count('@click="openRow = openRow ==='), 4)

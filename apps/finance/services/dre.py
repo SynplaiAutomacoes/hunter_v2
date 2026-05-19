@@ -28,6 +28,7 @@ _ZERO = Money("0.00", "BRL")
 # Chaves de componente usadas no template (row.component)
 COMP_GROSS_REVENUE = "receita_bruta_vendas_e_servicos"
 COMP_COGS = "custos_mercadorias_vendidas"
+COMP_COS = "custos_servicos_vendidos"
 COMP_GROSS_PROFIT = "receita_bruta_de_vendas"
 COMP_FINANCIAL_REVENUE = "receitas_financeiras"
 COMP_FINANCIAL_EXPENSE = "despesas_financeiras"
@@ -45,6 +46,13 @@ _VALID_TIPO_DATA = {"PG", "NPG", "A"}
 class DreCalculationResult:
     rows: list[dict]
     summary_cards: list[dict]
+
+
+@dataclass(frozen=True)
+class _StaticDreGroup:
+    pk: int
+    name: str
+    sort_key: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -164,21 +172,65 @@ def build_dre_calculation(
     )
     # ----------------------------------
 
-    # Custo Mercadorias Vendidas
+    # Custos
     delivered_payment_ids = [payment.pk for payment in pagamentos_ordens_de_servico if payment.workorder.status == WorkOrderStatus.APPROVED and payment.workorder.delivered_at is not None]
 
     taxa_maquininha_os = FinancialMovement.objects.filter(workorder_payment_id__in=delivered_payment_ids, description="Pagamento da taxa da maquininha").select_related("workorder_payment", "workorder_payment__workorder")
-    total_taxa_maquininha_os = _sum_cost_movements(list(taxa_maquininha_os))
 
     delivered_workorders_with_costs = _fetch_delivered_workorders_with_costs(payments=pagamentos_ordens_de_servico)
-    total_custos_os = sum((total_cost for _, total_cost in delivered_workorders_with_costs), _ZERO)
+    delivered_workorders = [workorder for workorder, _ in delivered_workorders_with_costs]
 
-    total_custos_mercadorias_vendidas = total_taxa_maquininha_os + total_custos_os
-    detail_custos_mercadorias_vendidas = maquininha_tax_details(list(taxa_maquininha_os)) + workorder_cost_details([workorder for workorder, _ in delivered_workorders_with_costs])
-    # --------------------------
+    detail_taxas_maquininha = maquininha_tax_details(list(taxa_maquininha_os))
+    detail_custos_pecas = _build_workorder_cost_component_details(
+        workorders=delivered_workorders,
+        include_workshop_ref=include_workshop_ref,
+        budget_plan=cost_budget_plan,
+        component_label="Custos de Peças",
+        amount_resolver=lambda workorder: workorder.total_costs_products_value,
+    )
+    detail_fretes = _build_workorder_cost_component_details(
+        workorders=delivered_workorders,
+        include_workshop_ref=include_workshop_ref,
+        budget_plan=cost_budget_plan,
+        component_label="Fretes",
+        amount_resolver=lambda workorder: workorder.total_products_shipping,
+    )
+    detail_servicos_terceiros = _build_workorder_cost_component_details(
+        workorders=delivered_workorders,
+        include_workshop_ref=include_workshop_ref,
+        budget_plan=cost_budget_plan,
+        component_label="Serviços Terceiros",
+        amount_resolver=lambda workorder: workorder.total_third_party_services_cost,
+    )
+    detail_mao_de_obra = _build_workorder_cost_component_details(
+        workorders=delivered_workorders,
+        include_workshop_ref=include_workshop_ref,
+        budget_plan=cost_budget_plan,
+        component_label="Custo Mão de Obra da Oficina",
+        amount_resolver=lambda workorder: workorder.total_costs_services_value - workorder.total_third_party_services_cost,
+    )
+
+    total_custos_de_mercadorias_vendidas = _sum_detail_amounts(detail_taxas_maquininha) + _sum_detail_amounts(detail_custos_pecas) + _sum_detail_amounts(detail_fretes)
+    total_custos_de_servicos_vendidos = _sum_detail_amounts(detail_servicos_terceiros) + _sum_detail_amounts(detail_mao_de_obra)
+    total_custos = total_custos_de_mercadorias_vendidas + total_custos_de_servicos_vendidos
+
+    detail_custos_mercadorias_vendidas = _build_static_group_tree(
+        sections=[
+            ("Taxas Maquininhas", detail_taxas_maquininha),
+            ("Custos de Peças", detail_custos_pecas),
+            ("Fretes", detail_fretes),
+        ]
+    )
+    detail_custos_servicos_vendidos = _build_static_group_tree(
+        sections=[
+            ("Serviços Terceiros", detail_servicos_terceiros),
+            ("Custo Mão de Obra da Oficina", detail_mao_de_obra),
+        ]
+    )
+    # ------
 
     # Receita Bruta de Vendas
-    total_receita_bruta_de_vendas = total_receita_bruta_de_vendas_e_servicos - total_custos_mercadorias_vendidas
+    total_receita_bruta_de_vendas = total_receita_bruta_de_vendas_e_servicos - total_custos
     # -----------------------
 
     # Receitas Financeiras
@@ -233,20 +285,29 @@ def build_dre_calculation(
             details=detail_receita_bruta_de_vendas_e_servicos,
         ),
         _row(
-            label="Custos Mercadorias Vendidas",
-            amount=total_custos_mercadorias_vendidas,
+            label="Custos de Mercadorias Vendidas",
+            amount=total_custos_de_mercadorias_vendidas,
             tone="negative",
             component=COMP_COGS,
-            detail_kind="financial_entries",
+            detail_kind="group_entries",
             is_expandable=True,
             details=detail_custos_mercadorias_vendidas,
+        ),
+        _row(
+            label="Custos de Serviços Vendidos",
+            amount=total_custos_de_servicos_vendidos,
+            tone="negative",
+            component=COMP_COS,
+            detail_kind="group_entries",
+            is_expandable=True,
+            details=detail_custos_servicos_vendidos,
         ),
         _row(
             label="(=) Receita Líquida",
             amount=total_receita_bruta_de_vendas,
             tone="highlight",
             component=COMP_GROSS_PROFIT,
-            formula="Receita Bruta de Vendas e Serviços - Custos Mercadorias Vendidas",
+            formula="Receita Bruta de Vendas e Serviços - Custos de Mercadorias Vendidas - Custos de Serviços Vendidos",
         ),
         _row(
             label="Receitas Financeiras",
@@ -665,6 +726,78 @@ def _build_workorder_cost_detail(wo: WorkOrder, include_workshop_ref: bool, budg
     }
 
 
+def _build_workorder_cost_component_detail(
+    *,
+    workorder: WorkOrder,
+    include_workshop_ref: bool,
+    budget_plan: FinancialGroup | None,
+    component_label: str,
+    amount: Money,
+) -> dict:
+    budget = getattr(workorder, "budget", None)
+    customer = getattr(budget, "customer", None)
+    pk = getattr(budget, "pk", "-")
+    name = getattr(customer, "name", "-") or "-"
+
+    reference = f"O.S #{pk}"
+    if include_workshop_ref and workorder.workshop_id:
+        reference = f"Filial: {workorder.workshop.name} | {reference}"
+
+    return {
+        "movement": None,
+        "workorder_id": workorder.pk,
+        "summary": f"{component_label} - O.S #{pk} - {name}",
+        "reference": reference,
+        "entry_date": getattr(workorder, "criado_em", None),
+        "payment_date": getattr(workorder, "criado_em", None),
+        "amount": amount,
+        "budget_plan": budget_plan,
+    }
+
+
+def _build_workorder_cost_component_details(
+    *,
+    workorders: list[WorkOrder],
+    include_workshop_ref: bool,
+    budget_plan: FinancialGroup | None,
+    component_label: str,
+    amount_resolver,
+) -> list[dict]:
+    details: list[dict] = []
+    for workorder in workorders:
+        amount = amount_resolver(workorder)
+        if amount.amount <= Decimal("0.00"):
+            continue
+        details.append(
+            _build_workorder_cost_component_detail(
+                workorder=workorder,
+                include_workshop_ref=include_workshop_ref,
+                budget_plan=budget_plan,
+                component_label=component_label,
+                amount=amount,
+            )
+        )
+    return details
+
+
+def _build_static_group_tree(*, sections: list[tuple[str, list[dict]]]) -> list[dict]:
+    nodes: list[dict] = []
+    for index, (group_name, details) in enumerate(sections, start=1):
+        amount = _sum_detail_amounts(details)
+        if amount.amount <= Decimal("0.00"):
+            continue
+        nodes.append(
+            {
+                "group": _StaticDreGroup(pk=-index, name=group_name),
+                "direct_amount": amount,
+                "amount": amount,
+                "details": details,
+                "children": [],
+            }
+        )
+    return nodes
+
+
 def _resolve_workorder_revenue_amount(*, movement: FinancialMovement, workorder_payment_totals: dict[int, Money] | None = None) -> Money:
     workorder_id = getattr(movement, "workorder_id", None)
     if workorder_id is not None and workorder_payment_totals is not None:
@@ -963,11 +1096,18 @@ def _empty_result() -> DreCalculationResult:
     return DreCalculationResult(
         rows=[
             _row(label="Receita Bruta de Vendas e Serviços", amount=_ZERO, tone="positive", component=COMP_GROSS_REVENUE, detail_kind="financial_entries", is_expandable=True),
-            _row(label="Custos Mercadorias Vendidas", amount=_ZERO, tone="negative", component=COMP_COGS, detail_kind="financial_entries", is_expandable=True),
-            _row(label="(=) Receita Bruta de Vendas", amount=_ZERO, tone="highlight", component=COMP_GROSS_PROFIT, formula="Receita Bruta de Vendas e Serviços + Custos Mercadorias Vendidas"),
+            _row(label="Custos de Mercadorias Vendidas", amount=_ZERO, tone="negative", component=COMP_COGS, detail_kind="group_entries", is_expandable=True),
+            _row(label="Custos de Serviços Vendidos", amount=_ZERO, tone="negative", component=COMP_COS, detail_kind="group_entries", is_expandable=True),
+            _row(
+                label="(=) Receita Líquida",
+                amount=_ZERO,
+                tone="highlight",
+                component=COMP_GROSS_PROFIT,
+                formula="Receita Bruta de Vendas e Serviços - Custos de Mercadorias Vendidas - Custos de Serviços Vendidos",
+            ),
             _row(label="Receitas Financeiras", amount=_ZERO, tone="positive", component=COMP_FINANCIAL_REVENUE, detail_kind="group_entries", is_expandable=True),
             _row(label="Despesas Financeiras", amount=_ZERO, tone="negative", component=COMP_FINANCIAL_EXPENSE, detail_kind="group_entries", is_expandable=True),
-            _row(label="(=) Resultado Operacional", amount=_ZERO, tone="result", component=COMP_OPERATING_RESULT, formula="Receita Bruta de Vendas + Receitas Financeiras + Despesas Financeiras"),
+            _row(label="(=) Resultado Operacional", amount=_ZERO, tone="result", component=COMP_OPERATING_RESULT, formula="Receitas Financeiras - Despesas Financeiras"),
         ],
         summary_cards=[
             {"label": "Receita Líquida", "amount": _ZERO, "accent": "text-sky-700"},
