@@ -68,6 +68,7 @@ def reopen_workorder(*, workorder: WorkOrder, user, reason: str) -> None:
             FinancialMovement.objects.select_for_update()
             .filter(
                 workorder=locked_workorder,
+                reversal_of__isnull=True,
                 movement_kind__in=[
                     FinancialMovement.MovementKind.WORKORDER_PARENT,
                     FinancialMovement.MovementKind.WORKORDER_CARD_FEE,
@@ -76,26 +77,26 @@ def reopen_workorder(*, workorder: WorkOrder, user, reason: str) -> None:
             .exclude(pk__in=reversed_financial_ids)
             .order_by("pk")
         )
-        for movement in financial_movements:
+        for financial_movement in financial_movements:
             FinancialMovement.objects.create(
-                workshop=movement.workshop,
+                workshop=financial_movement.workshop,
                 user=user,
                 workorder=locked_workorder,
-                workorder_payment=movement.workorder_payment,
-                reversal_of=movement,
-                source=movement.source,
-                collaborator=movement.collaborator,
-                supplier=movement.supplier,
-                description=f"Estorno da reabertura da O.S. #{locked_workorder.get_id}: {movement.description or '-'}",
-                items_observation=movement.items_observation,
-                direction=_reverse_financial_direction(movement.direction),
-                payment_method=movement.payment_method,
-                nf_number=movement.nf_number,
-                amount=movement.amount,
+                workorder_payment=financial_movement.workorder_payment,
+                reversal_of=financial_movement,
+                source=financial_movement.source,
+                collaborator=financial_movement.collaborator,
+                supplier=financial_movement.supplier,
+                description=f"Estorno da reabertura da O.S. #{locked_workorder.get_id}: {financial_movement.description or '-'}",
+                items_observation=financial_movement.items_observation,
+                direction=_reverse_financial_direction(financial_movement.direction),
+                payment_method=financial_movement.payment_method,
+                nf_number=financial_movement.nf_number,
+                amount=financial_movement.amount,
                 due_date=timezone.localdate(),
                 is_paid=True,
-                budget_plan=movement.budget_plan,
-                bank_account=movement.bank_account,
+                budget_plan=financial_movement.budget_plan,
+                bank_account=financial_movement.bank_account,
                 financial_observation=reason,
             )
 
