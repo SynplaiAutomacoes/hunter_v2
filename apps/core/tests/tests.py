@@ -610,6 +610,33 @@ class TestRenderTableTag(TestCase):
         self.assertIn("Beta - Avenida Industrial", html)
         self.assertNotIn("Alpha - Rua Central", html)
 
+    def test_search_supports_integer_primary_key_lookup(self):
+        alpha = create_workshop(name="Alpha", cnpj="10.000.000/0001-31")
+        create_workshop(name="Beta", cnpj="10.000.000/0001-32")
+
+        request = self.factory.get(f"/workshops/?q={alpha.pk}")
+        template = Template(
+            """
+            {% load table_tags %}
+            {% render_table workshops fields table_id='t' per_page=10 %}
+            """
+        )
+        html = template.render(
+            Context(
+                {
+                    "request": request,
+                    "workshops": Workshop.objects.all(),
+                    "fields": [
+                        TableColumn(label="ID", attr="id"),
+                        TableColumn(label="Nome", attr="name"),
+                    ],
+                }
+            )
+        )
+
+        self.assertIn("Alpha", html)
+        self.assertNotIn("Beta", html)
+
     def test_search_filters_queryset_rows_without_accents_and_case(self):
         create_workshop(name="Sao Bento", cnpj="10.000.000/0001-05")
         create_workshop(name="Alpha", cnpj="10.000.000/0001-06")
@@ -1388,7 +1415,7 @@ class DashboardMetricsTests(TestCase):
             amount="100.00",
             due_date=today,
         )
-        budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=today, status=BudgetStatus.APPROVED)
         workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.DRAFT)
         WorkOrderPaymentMethod.objects.create(
             workorder=workorder,
@@ -1443,7 +1470,7 @@ class DashboardMetricsTests(TestCase):
         today = timezone.localdate()
         self._create_workshop_cost(reference_date=today, work_days_per_month=22)
 
-        budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=today, status=BudgetStatus.APPROVED)
         workorder = WorkOrder.objects.create(
             workshop=self.workshop,
             budget=budget,
@@ -1468,7 +1495,7 @@ class DashboardMetricsTests(TestCase):
         today = timezone.localdate()
         self._create_workshop_cost(reference_date=today, work_days_per_month=22)
 
-        budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=today, status=BudgetStatus.APPROVED)
         workorder = WorkOrder.objects.create(
             workshop=self.workshop,
             budget=budget,
@@ -1489,8 +1516,8 @@ class DashboardMetricsTests(TestCase):
         today = timezone.localdate()
         self._create_workshop_cost(reference_date=today, work_days_per_month=22)
 
-        parent_budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
-        child_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, reference_budget=parent_budget)
+        parent_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, status=BudgetStatus.APPROVED)
+        child_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, reference_budget=parent_budget, status=BudgetStatus.APPROVED)
 
         WorkOrder.objects.create(
             workshop=self.workshop,
@@ -1514,8 +1541,8 @@ class DashboardMetricsTests(TestCase):
         today = timezone.localdate()
         self._create_workshop_cost(reference_date=today, work_days_per_month=22)
 
-        parent_budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
-        child_budget = Budget.objects.create(workshop=self.workshop, entry_date=today)
+        parent_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, status=BudgetStatus.APPROVED)
+        child_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, status=BudgetStatus.APPROVED)
 
         WorkOrder.objects.create(
             workshop=self.workshop,
@@ -1541,15 +1568,48 @@ class DashboardMetricsTests(TestCase):
         self.assertEqual(response_after_link.status_code, 200)
         self.assertEqual(response_after_link.context["qtd_carros_mes"], 1)
 
+    def test_dashboard_deduplicates_vehicle_total_for_multilevel_budget_links(self):
+        today = timezone.localdate()
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
+
+        root_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, status=BudgetStatus.APPROVED)
+        middle_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, reference_budget=root_budget, status=BudgetStatus.APPROVED)
+        child_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, reference_budget=middle_budget, status=BudgetStatus.APPROVED)
+
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=root_budget,
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=child_budget,
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["qtd_carros_mes"], 1)
+
     def test_dashboard_retorno_em_garantia_uses_qtd_carros_as_denominator(self):
         today = timezone.localdate()
 
         for _ in range(2):
-            Budget.objects.create(
+            warranty_budget = Budget.objects.create(
                 workshop=self.workshop,
                 entry_date=today,
                 budget_type=BudgetType.WARRANTY,
                 is_warranty_budget=True,
+            )
+            WorkOrder.objects.create(
+                workshop=self.workshop,
+                budget=warranty_budget,
+                budget_type="warranty",
+                status=WorkOrderStatus.APPROVED,
+                delivered_at=timezone.now(),
             )
 
         for _ in range(4):
@@ -1558,6 +1618,7 @@ class DashboardMetricsTests(TestCase):
                 entry_date=today,
                 budget_type=BudgetType.SALE,
                 is_warranty_budget=False,
+                status=BudgetStatus.APPROVED,
             )
             WorkOrder.objects.create(
                 workshop=self.workshop,

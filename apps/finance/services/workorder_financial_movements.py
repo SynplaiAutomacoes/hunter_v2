@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
+from django.db import transaction
 from django.utils import timezone
 
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
@@ -35,7 +37,7 @@ def _resolve_fee_amount(*, payment: WorkOrderPaymentMethod) -> Decimal:
     return calculate_payment_method_fee_amount(payment_method=payment_method, base_amount=payment_amount)
 
 
-def resolve_workorder_payroll_reference_date(*, workorder: WorkOrder):
+def resolve_workorder_payroll_reference_date(*, workorder: WorkOrder) -> date:
     latest_payment_date = max((payment.due_date for payment in workorder.payments.all() if payment.due_date), default=None)
     if latest_payment_date is not None:
         return latest_payment_date
@@ -57,6 +59,7 @@ def sync_workorder_card_fee_movements(*, workorder: WorkOrder) -> None:
             FinancialMovement.objects.filter(
                 workorder_payment=payment,
                 movement_kind=FinancialMovement.MovementKind.WORKORDER_CARD_FEE,
+                reversal_of__isnull=True,
             )
             .exclude(pk__in=reversed_movement_ids)
             .order_by("pk")
@@ -101,12 +104,14 @@ def sync_workorder_card_fee_movements(*, workorder: WorkOrder) -> None:
     stale_fee_movements = FinancialMovement.objects.filter(
         workorder=workorder,
         movement_kind=FinancialMovement.MovementKind.WORKORDER_CARD_FEE,
+        reversal_of__isnull=True,
     ).exclude(pk__in=reversed_movement_ids)
     if active_payment_ids:
         stale_fee_movements = stale_fee_movements.exclude(workorder_payment_id__in=active_payment_ids)
     stale_fee_movements.delete()
 
 
+@transaction.atomic
 def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovement | None:
     if workorder.budget.status != "approved":
         return None
@@ -127,8 +132,8 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
         "movement_kind": FinancialMovement.MovementKind.WORKORDER_PARENT,
     }
 
-    reversed_movement_ids = _get_reversed_financial_movement_ids()
     active_payment_ids: set[int] = set()
+    reversed_movement_ids = _get_reversed_financial_movement_ids()
 
     for payment in workorder.payments.select_related("payment_method"):
         active_payment_ids.add(payment.pk)
@@ -151,6 +156,7 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
                 workorder=workorder,
                 workorder_payment=payment,
                 movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                reversal_of__isnull=True,
             )
             .exclude(pk__in=reversed_movement_ids)
             .order_by("pk")
@@ -169,25 +175,36 @@ def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovem
         workorder=workorder,
         movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
         workorder_payment__isnull=False,
+        reversal_of__isnull=True,
     ).exclude(pk__in=reversed_movement_ids)
     if active_payment_ids:
         stale_payment_movements = stale_payment_movements.exclude(workorder_payment_id__in=active_payment_ids)
     stale_payment_movements.delete()
 
-    movement = FinancialMovement.objects.filter(workorder=workorder, movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT).exclude(pk__in=reversed_movement_ids).order_by("pk").first()
+    movement = (
+        FinancialMovement.objects.filter(
+            workorder=workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            reversal_of__isnull=True,
+        )
+        .exclude(pk__in=reversed_movement_ids)
+        .order_by("pk")
+        .first()
+    )
     if movement is not None and movement.workorder_payment_id is not None:
         movement = (
             FinancialMovement.objects.filter(
                 workorder=workorder,
                 movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
                 workorder_payment__isnull=True,
+                reversal_of__isnull=True,
             )
             .exclude(pk__in=reversed_movement_ids)
             .order_by("pk")
             .first()
         )
     if movement is None:
-        movement = FinancialMovement.objects.filter(workorder=workorder, workorder_payment__isnull=True).exclude(pk__in=reversed_movement_ids).order_by("pk").first()
+        movement = FinancialMovement.objects.filter(workorder=workorder, workorder_payment__isnull=True, reversal_of__isnull=True).exclude(pk__in=reversed_movement_ids).order_by("pk").first()
 
     if movement is None:
         movement = FinancialMovement.objects.create(workorder=workorder, is_paid=True, is_reconciled=False, **defaults)

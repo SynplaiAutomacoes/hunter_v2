@@ -313,12 +313,36 @@
 
         const currentValue = String(paymentMethodInput.value || '').trim();
         const expectedValue = String(expectedPaymentMethodId).trim();
-        if (!expectedValue || currentValue === expectedValue) {
+        if (!expectedValue) {
             return true;
         }
 
         const container = paymentMethodInput.closest('[x-data]');
+        const textInput = container ? container.querySelector('input[type="text"]') : null;
+        const currentLabel = String(textInput && 'value' in textInput ? textInput.value : '').trim();
+
+        if (currentValue === expectedValue && currentLabel) {
+            return true;
+        }
+
+        let expectedLabel = '';
         if (container) {
+            const staticOption = Array.from(container.querySelectorAll('li[data-static-option][data-value]')).find(
+                (option) => String(option.dataset.value || '').trim() === expectedValue
+            );
+            if (staticOption) {
+                expectedLabel = String(staticOption.dataset.label || staticOption.textContent || '').trim();
+            }
+        }
+
+        if (container) {
+            container.dispatchEvent(
+                new CustomEvent('searchable-set-selection', {
+                    detail: { value: expectedValue, label: expectedLabel, silent: true },
+                    bubbles: true,
+                })
+            );
+
             container.dispatchEvent(
                 new CustomEvent('searchable-set-value', {
                     detail: { value: expectedValue, silent: true },
@@ -331,7 +355,11 @@
         paymentMethodInput.dispatchEvent(new Event('input', { bubbles: true }));
         paymentMethodInput.dispatchEvent(new Event('change', { bubbles: true }));
 
-        return String(paymentMethodInput.value || '').trim() === expectedValue;
+        if (textInput && expectedLabel && !String(textInput.value || '').trim()) {
+            textInput.value = expectedLabel;
+        }
+
+        return String(paymentMethodInput.value || '').trim() === expectedValue && String(textInput && 'value' in textInput ? textInput.value : '').trim().length > 0;
     }
 
     if (supplierInput && collaboratorInput && detailsContainer) {
