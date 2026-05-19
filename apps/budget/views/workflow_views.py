@@ -1034,6 +1034,9 @@ class BudgetLinkModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def _build_results_page(self, *, budget: Budget, query: str, page_number: str):
         queryset = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle", "reference_budget").order_by("-entry_date", "-pk")
 
+        if budget.vehicle_id is not None:
+            queryset = queryset.filter(vehicle_id=budget.vehicle_id)
+
         if query:
             filters = Q(customer__name__icontains=query)
             if query.isdigit():
@@ -1054,6 +1057,9 @@ class BudgetLinkSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
         page_number = request.GET.get("page", "1")
 
         queryset = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle", "reference_budget").order_by("-entry_date", "-pk")
+
+        if budget.vehicle_id is not None:
+            queryset = queryset.filter(vehicle_id=budget.vehicle_id)
 
         if query:
             filters = Q(customer__name__icontains=query)
@@ -1097,6 +1103,9 @@ class BudgetLinkProcessView(LoginRequiredMixin, WorkshopScopedMixin, View):
             reference_budget = Budget.objects.select_related("customer", "vehicle").filter(pk=reference_budget_id, workshop=self.workshop).first()
             if reference_budget is None:
                 return JsonResponse({"success": False, "error": "Orçamento de referência não encontrado."}, status=404)
+
+            if locked_budget.vehicle_id is not None and reference_budget.vehicle_id != locked_budget.vehicle_id:
+                return JsonResponse({"success": False, "error": "Só é possível vincular orçamentos do mesmo veículo."}, status=400)
 
             locked_budget.reference_budget = reference_budget
             locked_budget.save(update_fields=["reference_budget"])
