@@ -5916,6 +5916,89 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertEqual(monthly_card["results"][1]["value"], "R$ 0,00")
         self.assertNotContains(response, "Cliente Card OS")
 
+    def test_reports_home_view_includes_os_payment_plan_credits_without_aggregate_parent(self) -> None:
+        today = timezone.localdate()
+        workorder = self._create_report_workorder(
+            customer_name="Cliente Plano Sem Pai",
+            total_value="1000.00",
+            problem_description="OS somente com movimentos por parcela",
+            payment_specs=[
+                {"description": "Pix", "amount": "400.00", "due_date": today.isoformat(), "installments_count": "1"},
+                {"description": "Crédito", "amount": "600.00", "due_date": today.isoformat(), "installments_count": "2"},
+            ],
+        )
+
+        for payment in workorder.payments.select_related("payment_method").order_by("pk"):
+            FinancialMovement.objects.create(
+                workshop=self.workshop,
+                user=self.user,
+                source=self.source,
+                workorder=workorder,
+                workorder_payment=payment,
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                direction=FinancialMovement.MovementDirection.CREDIT,
+                amount=payment.total_paid,
+                due_date=payment.due_date,
+                payment_method=payment.payment_method,
+                is_paid=True,
+                is_reconciled=False,
+            )
+
+        response = self.client.get(reverse("finance:reports_home"), data={"direction": FinancialMovement.MovementDirection.CREDIT})
+        selection_card = response.context["selection_summary"]
+        rows = response.context["financial_movement_report_rows"]
+        row_components = [row["component"] for row in rows]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(f"workorder-payment-{workorder.payments.order_by('pk')[0].pk}", row_components)
+        self.assertIn(f"workorder-payment-{workorder.payments.order_by('pk')[1].pk}", row_components)
+        self.assertEqual(selection_card["rows"][0]["value"], "R$ 1.000,00")
+        self.assertEqual(selection_card["rows"][1]["value"], "R$ 1.000,00")
+        self.assertEqual(selection_card["results"][0]["value"], "R$ 1.000,00")
+
+    def test_reports_home_view_keeps_os_payment_rows_when_installment_movements_are_missing(self) -> None:
+        target_date = date(2026, 5, 5)
+        workorder = self._create_report_workorder(
+            customer_name="Cliente Sem Movimento Parcela",
+            total_value="15070.00",
+            problem_description="OS com plano sem movimento por parcela",
+            payment_specs=[
+                {"description": "Pix", "amount": "13500.00", "due_date": target_date.isoformat(), "installments_count": "1"},
+                {"description": "Crédito", "amount": "1570.00", "due_date": target_date.isoformat(), "installments_count": "2"},
+            ],
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("15070.00", "BRL"),
+            due_date=target_date,
+            is_paid=False,
+            is_reconciled=False,
+        )
+
+        response = self.client.get(
+            reverse("finance:reports_home"),
+            data={
+                "data_inicial": target_date.isoformat(),
+                "data_final": target_date.isoformat(),
+                "direction": FinancialMovement.MovementDirection.CREDIT,
+            },
+        )
+        selection_card = response.context["selection_summary"]
+        rows = response.context["financial_movement_report_rows"]
+        row_components = [row["component"] for row in rows]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(f"workorder-payment-{workorder.payments.order_by('pk')[0].pk}", row_components)
+        self.assertIn(f"workorder-payment-{workorder.payments.order_by('pk')[1].pk}", row_components)
+        self.assertEqual(selection_card["rows"][0]["value"], "R$ 15.070,00")
+        self.assertEqual(selection_card["rows"][1]["value"], "R$ 0,00")
+        self.assertEqual(selection_card["results"][0]["value"], "R$ 15.070,00")
+
     def test_reports_home_view_displays_financial_movements_table_with_expected_columns(self) -> None:
         workorder = self._create_report_workorder(
             customer_name="Cliente Tabela",
@@ -6893,6 +6976,94 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertNotContains(response, "Pendente")
         self.assertContains(response, "text-success")
         self.assertNotContains(response, reverse("workorder:workorder_detail", args=[workorder.pk]))
+
+    def test_reports_home_view_does_not_duplicate_workorder_payment_rows_with_multiple_parent_movements(self) -> None:
+        workorder = self._create_report_workorder(
+            customer_name="Cliente Duplicado",
+            total_value="1000.00",
+            problem_description="Teste de deduplicacao",
+            payment_specs=[
+                {"description": "Pix", "amount": "500.00", "due_date": "2026-03-10", "installments_count": "1"},
+                {"description": "Crédito", "amount": "500.00", "due_date": "2026-03-11", "installments_count": "4"},
+            ],
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("1000.00", "BRL"),
+            due_date=date(2026, 3, 11),
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("1000.00", "BRL"),
+            due_date=date(2026, 3, 11),
+        )
+
+        response = self.client.get(
+            reverse("finance:reports_home"),
+            data={"data_inicial": "2026-03-01", "data_final": "2026-03-31"},
+        )
+        rows = response.context["financial_movement_report_rows"]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(rows), 2)
+        expected_components = [f"workorder-payment-{payment.pk}" for payment in workorder.payments.order_by("pk")]
+        self.assertEqual([row["component"] for row in rows], expected_components)
+        self.assertContains(response, "+ R$ 500,00", count=2)
+
+    def test_reports_home_view_filters_workorder_payment_rows_by_installment_due_date(self) -> None:
+        workorder = self._create_report_workorder(
+            customer_name="Cliente Vencimentos",
+            total_value="1000.00",
+            problem_description="Parcelas com vencimentos diferentes",
+            payment_specs=[
+                {"description": "Pix", "amount": "500.00", "due_date": "2026-05-07", "installments_count": "1"},
+                {"description": "Crédito", "amount": "500.00", "due_date": "2026-05-18", "installments_count": "4"},
+            ],
+        )
+        payments = list(workorder.payments.order_by("pk"))
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("500.00", "BRL"),
+            due_date=date(2026, 5, 7),
+            workorder_payment=payments[0],
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            workorder=workorder,
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("500.00", "BRL"),
+            due_date=date(2026, 5, 18),
+            workorder_payment=payments[1],
+        )
+
+        response = self.client.get(
+            reverse("finance:reports_home"),
+            data={"data_inicial": "2026-05-07", "data_final": "2026-05-07"},
+        )
+        rows = response.context["financial_movement_report_rows"]
+        row_components = [row["component"] for row in rows]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(row_components, [f"workorder-payment-{payments[0].pk}"])
+        self.assertContains(response, "+ R$ 500,00", count=1)
 
     def test_reports_home_view_keeps_grouped_movements_expandable(self) -> None:
         group = MovementGroup.objects.create(
