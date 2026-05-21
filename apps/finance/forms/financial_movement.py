@@ -820,7 +820,7 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
                 self.add_error("supplier", self.ENTITY_REQUIRED_ERROR)
                 self.add_error("collaborator", self.ENTITY_REQUIRED_ERROR)
 
-        if payment_method and direction and not self._payment_method_matches_direction(payment_method, direction):
+        if self.instance.description != "Pagamento da taxa da maquininha" and payment_method and direction and not self._payment_method_matches_direction(payment_method, direction):
             self.add_error("payment_method", self.PAYMENT_METHOD_DIRECTION_ERROR)
 
         return cleaned_data
