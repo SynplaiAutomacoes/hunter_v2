@@ -6,7 +6,7 @@ from django.utils import timezone
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.stock.models import StockMovement
-from apps.workorder.models import WORKORDER_REOPENABLE_STATUSES, WorkOrder, WorkOrderHistory, WorkOrderStatus
+from apps.workorder.models import WORKORDER_REOPENABLE_STATUSES, WorkOrder, WorkOrderError, WorkOrderHistory, WorkOrderStatus
 
 
 class WorkOrderReopenError(Exception):
@@ -107,9 +107,6 @@ def reopen_workorder(*, workorder: WorkOrder, user, reason: str) -> None:
             reason=reason,
         )
 
-        locked_workorder.status = WorkOrderStatus.DRAFT
-        locked_workorder.delivered_at = None
-        locked_workorder.reopen_reason = reason
-        locked_workorder.save(update_fields=["status", "delivered_at", "reopen_reason"])
+        locked_workorder.reopen(reason=reason)
 
         sync_workorder_collaborator_payrolls(workorder=locked_workorder)

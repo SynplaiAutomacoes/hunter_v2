@@ -13,10 +13,7 @@ def sync_budget_discount_to_workorder(*, budget) -> object | None:
     if workorder is None:
         return None
 
-    workorder.discount_value = budget.resolved_discount_value
-    workorder.discount_percentage = budget.resolved_discount_percentage
-    workorder.save(update_fields=["discount_value", "discount_percentage"])
-    workorder.invalidate_pricing_snapshot_cache()
+    workorder.apply_discount(budget.resolved_discount_value, budget.resolved_discount_percentage)
     sync_workorder_financial_movement(workorder=workorder)
     return workorder
 
@@ -29,10 +26,7 @@ def sync_workorder_discount_to_budget(*, workorder, discount_value: Money | None
         discount_percentage=discount_percentage,
     )
 
-    workorder.discount_value = resolved_discount_value
-    workorder.discount_percentage = resolved_discount_percentage
-    workorder.save(update_fields=["discount_value", "discount_percentage"])
-    workorder.invalidate_pricing_snapshot_cache()
+    workorder.apply_discount(resolved_discount_value, resolved_discount_percentage)
     sync_workorder_financial_movement(workorder=workorder)
 
     budget = workorder.budget
