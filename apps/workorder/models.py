@@ -21,6 +21,10 @@ from apps.core.models import TimeStampedModel
 from apps.finance.models.payment_method import PaymentMethod
 
 
+class WorkOrderError(Exception):
+    pass
+
+
 class WorkOrderStatus(models.TextChoices):
     DRAFT = "draft", "Aprovado"
     APPROVED = "approved", "Veículo Entregue"
@@ -67,7 +71,7 @@ class WorkOrder(TimeStampedModel):
     budget_type = models.CharField(verbose_name="Tipo", max_length=50, choices=[("sale", "Venda"), ("warranty", "Garantia"), ("courtesy", "Cortesia")], default="sale")
 
     def save(self, *args, **kwargs):
-        if self.budget_id and self.budget_id:
+        if self.budget_id:
             self.budget_type = self.budget.budget_type
         super().save(*args, **kwargs)
 
@@ -112,7 +116,7 @@ class WorkOrder(TimeStampedModel):
             .all()
         )
 
-    def _iter_payments(self) -> Iterable["WorkOrderPaymentMethod"]:
+    def iter_payments(self) -> Iterable["WorkOrderPaymentMethod"]:
         if not self.pk:
             return ()
 
@@ -215,7 +219,7 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def paid_value(self) -> Money:
-        paid_amount = sum((payment.total_paid.amount for payment in self._iter_payments()), start=Decimal("0.00"))
+        paid_amount = sum((payment.total_paid.amount for payment in self.iter_payments()), start=Decimal("0.00"))
         return Money(paid_amount, "BRL")
 
     @property
@@ -315,6 +319,53 @@ class WorkOrder(TimeStampedModel):
             self.save(update_fields=["status", "signature_request_status", "delivered_at"])
             return
         self.save(update_fields=["status", "signature_request_status"])
+
+    def approve(self) -> None:
+        if self.status == WorkOrderStatus.APPROVED:
+            return
+        self.status = WorkOrderStatus.APPROVED
+        if self.delivered_at is None:
+            self.delivered_at = timezone.now()
+            self.save(update_fields=["status", "delivered_at"])
+        else:
+            self.save(update_fields=["status"])
+
+    def cancel(self, *, reason: str) -> None:
+        if self.is_status_locked:
+            raise WorkOrderError("Reabra a O.S. antes de alterar o status.")
+
+        self.status = WorkOrderStatus.CANCELLED
+        self.cancellation_reason = reason
+        self.rejection_reason = ""
+
+        self.save(update_fields=["status", "cancellation_reason", "rejection_reason"])
+
+    def reject(self, *, reason: str) -> None:
+        if self.is_status_locked:
+            raise WorkOrderError("Reabra a O.S. antes de alterar o status.")
+
+        self.status = WorkOrderStatus.REJECTED
+        self.rejection_reason = reason
+        self.cancellation_reason = ""
+
+        self.save(update_fields=["status", "rejection_reason", "cancellation_reason"])
+
+    def reopen(self, *, reason: str) -> None:
+        if not self.can_reopen:
+            raise WorkOrderError("Somente ordens de serviço entregues, canceladas ou rejeitadas podem ser reabertas.")
+
+        self.status = WorkOrderStatus.DRAFT
+        self.delivered_at = None
+        self.reopen_reason = reason
+
+        self.save(update_fields=["status", "delivered_at", "reopen_reason"])
+
+    def apply_discount(self, value: Money, percentage: Decimal) -> None:
+        self.discount_value = value
+        self.discount_percentage = percentage
+
+        self.save(update_fields=["discount_value", "discount_percentage"])
+        self.invalidate_pricing_snapshot_cache()
 
     @property
     def total_products_shipping(self) -> Money:

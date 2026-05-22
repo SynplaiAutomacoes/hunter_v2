@@ -77,5 +77,4 @@ def approve_workorder_with_stock(*, workorder: WorkOrder, user: object | None = 
                     transcation_by=user,
                 )
 
-        workorder.status = WorkOrderStatus.APPROVED
-        workorder.save(update_fields=["status"])
+        workorder.approve()

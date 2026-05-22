@@ -227,7 +227,10 @@
                 {% else %}
                 <p class="text-[11px]">{{ budget.created|date:"d/m/Y H:i" }}</p>
                 {% endif %}
-                {% if budget.is_warranty_budget %}
+                {% if budget.customer_agreed_departure_at %}
+                <p class="text-[11px] mt-0.5">Previsão: {{ budget.customer_agreed_departure_at|date:"d/m/Y H:i" }}</p>
+                {% endif %}
+                {% if is_warranty_or_courtesy %}
                 <div class="mt-2 inline-block rounded border border-amber-400 bg-amber-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-900">
                     Orçamento de Garantia
                 </div>
@@ -235,8 +238,7 @@
             </div>
         </div>
 
-        <div class="client-vehicle-section grid gap-4 p-4 border-b border-gray-200" style="grid-template-columns: 2fr 1fr 1fr;">
-            <div>
+            <div class="client-vehicle-section grid gap-4 py-8 px-4 border-b border-gray-200" style="grid-template-columns: 2fr 1fr 1fr; align-items: stretch;">            <div>
                 <h4 class="font-bold mb-2 uppercase">{{ budget.customer.name|default:budget.customer }}</h4>
                 <div class="grid grid-cols-2 gap-x-4 gap-y-1">
                     <p class="field-row"><span class="field-label">CPF/CNPJ:</span> <span class="field-value">{{ budget.customer.cpf_or_cnpj|default:"-" }}</span></p>
@@ -254,6 +256,9 @@
                     <p class="field-row"><span class="field-label">Motor:</span> <span class="field-value">{{ budget.vehicle.engine|default:"-" }}</span></p>
                     <p class="field-row"><span class="field-label">Combustível:</span> <span class="field-value">{{ budget.vehicle.fuel|default:"-" }}</span></p>
                     <p class="field-row"><span class="field-label">Cor:</span> <span class="field-value">{{ budget.vehicle.color|default:"-" }}</span></p>
+                    {% if budget.customer_agreed_departure_at %}
+                    <p class="field-row"><span class="field-label">Prev. Entrega:</span> <span class="field-value font-bold">{{ budget.customer_agreed_departure_at|date:"d/m/Y H:i" }}</span></p>
+                    {% endif %}
                 </div>
             </div>
             <div class="signature-block">
@@ -329,6 +334,35 @@
         </div>
 
         <div class="summary-section p-4 border-b-0">
+            {% if payments %}
+            <div class="summary-payments mb-4">
+                <h4 class="font-bold mb-2 uppercase">Formas de Pagamento</h4>
+                <table class="w-full text-left border-collapse text-[10px] leading-tight">
+                    <thead>
+                        <tr class="bg-gray-100 border-b-2 border-gray-200">
+                            <th class="p-1 font-semibold">Forma</th>
+                            <th class="p-1 font-semibold text-center">Parcelas</th>
+                            <th class="p-1 font-semibold text-right">1ª Parcela</th>
+                            <th class="p-1 font-semibold text-right">Demais</th>
+                            <th class="p-1 font-semibold text-center">Vencimento</th>
+                            <th class="p-1 font-semibold text-right">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in payments %}
+                        <tr class="border-b border-gray-100">
+                            <td class="p-1">{{ p.method }}</td>
+                            <td class="p-1 text-center">{{ p.installments }}x</td>
+                            <td class="p-1 text-right">{{ p.first_installment_amount }}</td>
+                            <td class="p-1 text-right">{{ p.remaining_installments_amount }}</td>
+                            <td class="p-1 text-center">{{ p.due_date|date:"d/m/Y" }}</td>
+                            <td class="p-1 text-right font-medium">{{ p.total_paid }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
             <div class="summary-observation">
                 <h4 class="font-bold mb-2 uppercase">Observação</h4>
                 <p class="text-[12px] preserve-freeform-text">{{ observacao|default:"Nenhuma observação técnica adicional." }}</p>
@@ -355,12 +389,17 @@
                     </div>
                 </div>
             </div>
+            {% if is_warranty_or_courtesy and warranty_message %}
+            <div class="mt-4 p-3 border border-red-300 bg-red-50 rounded-md text-red-700 text-center font-bold text-[12px]">
+                {{ warranty_message }}
+            </div>
+            {% endif %}
         </div>
 
         <div class="footer-section pt-3 border-t border-gray-200 text-[11px] text-gray-500">
             <p>Aberto por: {{ request.user.get_full_name|default:"Sistema" }} em: {{ budget.criado_em|date:"d/m/Y" }} às {{ budget.criado_em|date:"H:i" }}</p>
             {% if workorder and workorder.delivered_at %}
-            <p>Veículo entregue em: {{ workorder.delivered_at|date:"d/m/Y" }} às {{ workorder.delivered_at|date:"H:i" }}</p>
+            <p>Entrega do veículo feita no dia {{ workorder.delivered_at|date:"d/m/Y" }} às {{ workorder.delivered_at|date:"H:i" }} hrs</p>
             {% endif %}
             <p>Status: <span class="uppercase font-bold text-gray-700">{{ budget.budget_status }}</span></p>
         </div>
