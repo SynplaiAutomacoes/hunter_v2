@@ -56,7 +56,7 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, observacao: str | None 
             "due_date": p.due_date,
             "total_paid": p.total_paid,
         }
-        for p in workorder.payments.select_related("payment_method").all()
+        for p in workorder.iter_payments()
     ]
 
     produtos = [

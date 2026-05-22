@@ -116,7 +116,7 @@ class WorkOrder(TimeStampedModel):
             .all()
         )
 
-    def _iter_payments(self) -> Iterable["WorkOrderPaymentMethod"]:
+    def iter_payments(self) -> Iterable["WorkOrderPaymentMethod"]:
         if not self.pk:
             return ()
 
@@ -219,7 +219,7 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def paid_value(self) -> Money:
-        paid_amount = sum((payment.total_paid.amount for payment in self._iter_payments()), start=Decimal("0.00"))
+        paid_amount = sum((payment.total_paid.amount for payment in self.iter_payments()), start=Decimal("0.00"))
         return Money(paid_amount, "BRL")
 
     @property
