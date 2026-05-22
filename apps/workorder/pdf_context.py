@@ -49,7 +49,7 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, observacao: str | None 
 
     payments = [
         {
-            "method": p.payment_method.name if p.payment_method else "-",
+            "method": p.payment_method.description if p.payment_method else "-",
             "installments": p.installments_count,
             "first_installment_amount": p.first_installment_amount,
             "remaining_installments_amount": p.remaining_installments_amount,
@@ -109,7 +109,7 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, observacao: str | None 
         customer_agreed_departure_at=workorder.budget.customer_agreed_departure_at,
     )
 
-    return {
+    teste = {
         "workorder": workorder,
         "budget": budget_proxy,
         "produtos": produtos,
@@ -128,3 +128,6 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, observacao: str | None 
         "workshop_logo_data_uri": build_workshop_logo_data_uri(workshop=workorder.workshop),
         "request": request,
     }
+
+    print(teste)
+    return teste
