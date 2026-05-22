@@ -335,6 +335,35 @@
         </div>
 
         <div class="summary-section p-4 border-b-0">
+            {% if payments %}
+            <div class="summary-payments mb-4">
+                <h4 class="font-bold mb-2 uppercase">Formas de Pagamento</h4>
+                <table class="w-full text-left border-collapse text-[10px] leading-tight">
+                    <thead>
+                        <tr class="bg-gray-100 border-b-2 border-gray-200">
+                            <th class="p-1 font-semibold">Forma</th>
+                            <th class="p-1 font-semibold text-center">Parcelas</th>
+                            <th class="p-1 font-semibold text-right">1ª Parcela</th>
+                            <th class="p-1 font-semibold text-right">Demais</th>
+                            <th class="p-1 font-semibold text-center">Vencimento</th>
+                            <th class="p-1 font-semibold text-right">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in payments %}
+                        <tr class="border-b border-gray-100">
+                            <td class="p-1">{{ p.method }}</td>
+                            <td class="p-1 text-center">{{ p.installments }}x</td>
+                            <td class="p-1 text-right">{{ p.first_installment_amount }}</td>
+                            <td class="p-1 text-right">{{ p.remaining_installments_amount }}</td>
+                            <td class="p-1 text-center">{{ p.due_date|date:"d/m/Y" }}</td>
+                            <td class="p-1 text-right font-medium">{{ p.total_paid }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
             <div class="summary-observation">
                 <h4 class="font-bold mb-2 uppercase">Observação</h4>
                 <p class="text-[12px] preserve-freeform-text">{{ observacao|default:"Nenhuma observação técnica adicional." }}</p>

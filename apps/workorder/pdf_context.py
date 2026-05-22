@@ -47,6 +47,18 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, observacao: str | None 
 
     ZERO = Money(0, "BRL")
 
+    payments = [
+        {
+            "method": p.payment_method.name if p.payment_method else "-",
+            "installments": p.installments_count,
+            "first_installment_amount": p.first_installment_amount,
+            "remaining_installments_amount": p.remaining_installments_amount,
+            "due_date": p.due_date,
+            "total_paid": p.total_paid,
+        }
+        for p in workorder.payments.select_related("payment_method").all()
+    ]
+
     produtos = [
         {
             "id": line.entity_id,
@@ -110,6 +122,7 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, observacao: str | None 
         "observacao": resolved_observation,
         "total_profit_product_value": ZERO if is_warranty_or_courtesy else sum((line.profit_value for line in snapshot.product_lines), Money(0, "BRL")),
         "total_profit_service_value": ZERO if is_warranty_or_courtesy else sum((line.profit_value for line in snapshot.service_lines), Money(0, "BRL")),
+        "payments": payments,
         "is_warranty_or_courtesy": is_warranty_or_courtesy,
         "warranty_message": "Ordem de serviço de garantia. Documento apenas para a visualização, peças e serviços descritos não foram cobrados do cliente" if is_warranty_or_courtesy else "",
         "workshop_logo_data_uri": build_workshop_logo_data_uri(workshop=workorder.workshop),
