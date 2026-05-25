@@ -658,7 +658,9 @@
                 },
                 syncDigitStreamDisplay(digits) {
                     const safeDigits = digits || '0';
-                    const percentValue = Number((parseInt(safeDigits, 10) / (10 ** this.decimalPlaces)).toFixed(this.decimalPlaces));
+                    const maxTotalDigits = String(Math.floor(this.maxPercent)).length + this.decimalPlaces;
+                    const trimmedDigits = safeDigits.slice(-maxTotalDigits);
+                    const percentValue = Number((parseInt(trimmedDigits, 10) / (10 ** this.decimalPlaces)).toFixed(this.decimalPlaces));
                     const clamped = percent.clamp(percentValue, this.minPercent, this.maxPercent);
                     this.$refs.value.value = percent.percentToFractionDotDecimal(clamped);
                     this.$refs.display.value = this.formatPercentValue(clamped);

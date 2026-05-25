@@ -63,7 +63,7 @@ class WorkOrderPaymentForm(CoreModelForm):
         max_value=Decimal("1"),
         decimal_places=6,
         max_digits=7,
-        widget=PercentageInput(decimal_places=2, behavior="free_decimal"),
+        widget=PercentageInput(decimal_places=2, behavior="digit_stream"),
     )
 
     class Meta:
@@ -338,7 +338,6 @@ class WorkOrderPaymentForm(CoreModelForm):
                             const amount = baseTotal > 0 ? clamp(roundCurrency(baseTotal * fraction), 0, baseTotal) : 0;
                             discountMoneyHidden.value = amount.toFixed(2);
                             discountMoneyDisplay.value = formatMoney(amount);
-                            discountPercentageHidden.value = formatFraction(fraction);
                             updateDiscountSummary(amount, fraction);
                         }};
                         const syncFromValue = (updateSourceDisplay = true) => {{
