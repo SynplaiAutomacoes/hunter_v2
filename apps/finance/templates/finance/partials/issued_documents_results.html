@@ -12,6 +12,9 @@
             {% else %}
             <p class="mt-1 text-xs text-base-content/70">Todo o periodo</p>
             {% endif %}
+            {% if filter_state.search_raw %}
+            <p class="mt-1 text-xs text-base-content/70">Busca: "{{ filter_state.search_raw }}"</p>
+            {% endif %}
         </div>
 
         <div class="rounded-xl border border-base-300 bg-base-200/40 p-4">
@@ -70,7 +73,7 @@
         </div>
     {% else %}
         <div class="rounded-xl border border-dashed border-base-300 px-6 py-10 text-center text-sm text-base-content/60">
-            Nenhuma nota encontrada para o periodo e filtro selecionados.
+            Nenhuma nota encontrada para os filtros selecionados.
         </div>
     {% endif %}
 {% endif %}

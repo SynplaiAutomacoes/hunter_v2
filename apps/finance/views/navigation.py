@@ -21,7 +21,7 @@ def append_query_params(*, url: str, params: Mapping[str, object]) -> str:
     return f"{url}?{urlencode(normalized_params)}"
 
 
-def build_issued_documents_origin_params(*, data_inicial: object, data_final: object, tipo: object) -> dict[str, str]:
+def build_issued_documents_origin_params(*, data_inicial: object, data_final: object, tipo: object, search: object = "") -> dict[str, str]:
     note_type = _normalize_query_value(tipo).lower() or "all"
     if note_type not in ISSUED_DOCUMENTS_NOTE_TYPES:
         note_type = "all"
@@ -37,6 +37,9 @@ def build_issued_documents_origin_params(*, data_inicial: object, data_final: ob
         params["data_inicial"] = start_date
     if end_date:
         params["data_final"] = end_date
+    search_value = _normalize_query_value(search)
+    if search_value:
+        params["search"] = search_value
     return params
 
 

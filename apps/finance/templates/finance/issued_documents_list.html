@@ -5,12 +5,37 @@
 
 {% block crud_header_actions %}
     <div class="flex w-full flex-col gap-3 lg:items-end">
+        <form method="get" class="flex flex-wrap items-center gap-2" data-issued-search-form="true">
+            {% if filter_state.has_selected_period %}
+                <input type="hidden" name="data_inicial" value="{{ filter_state.start_raw }}" />
+                <input type="hidden" name="data_final" value="{{ filter_state.end_raw }}" />
+            {% endif %}
+            {% if filter_state.selected_note_type != 'all' %}
+                <input type="hidden" name="tipo" value="{{ filter_state.selected_note_type }}" />
+            {% endif %}
+            <div class="join flex-1 lg:flex-none">
+                <input
+                    type="search"
+                    name="search"
+                    value="{{ filter_state.search_raw }}"
+                    placeholder="Buscar cliente, OS ou nota..."
+                    class="input input-bordered input-sm join-item w-full min-w-[200px]"
+                />
+                <button type="submit" class="btn btn-outline btn-sm join-item gap-1">
+                    <span class="material-icons text-sm">search</span>
+                    Buscar
+                </button>
+            </div>
+            {% if filter_state.search_raw %}
+                <a href="{% url 'finance:issued_documents_list' %}{% if filter_state.has_selected_period or filter_state.selected_note_type != 'all' %}?{% if filter_state.has_selected_period %}data_inicial={{ filter_state.start_raw }}&data_final={{ filter_state.end_raw }}&{% endif %}{% if filter_state.selected_note_type != 'all' %}tipo={{ filter_state.selected_note_type }}{% endif %}{% endif %}" class="btn btn-ghost btn-xs">Limpar busca</a>
+            {% endif %}
+        </form>
         <div class="flex flex-wrap gap-2 xl:justify-end">
             <button type="button" class="btn btn-outline btn-sm gap-2" onclick="document.getElementById('issued-documents-filter-modal').showModal()">
                 <span class="material-icons text-sm">filter_alt</span>
                 Filtrar
             </button>
-            {% if filter_state.has_selected_period or filter_state.selected_note_type != 'all' %}
+            {% if filter_state.has_selected_period or filter_state.selected_note_type != 'all' or filter_state.search_raw %}
                 <a href="{% url 'finance:issued_documents_list' %}" class="btn btn-ghost btn-sm">Limpar Filtros</a>
             {% endif %}
 
@@ -90,6 +115,20 @@
                             <option value="{{ value }}" {% if filter_state.selected_note_type == value %}selected{% endif %}>{{ label }}</option>
                         {% endfor %}
                     </select>
+                </div>
+
+                <div>
+                    <label for="issued-documents-search" class="label pt-0 pb-1">
+                        <span class="label-text text-xs">Buscar</span>
+                    </label>
+                    <input
+                        type="search"
+                        id="issued-documents-search"
+                        name="search"
+                        value="{{ filter_state.search_raw }}"
+                        placeholder="Buscar..."
+                        class="input input-bordered input-sm w-full"
+                    />
                 </div>
                 
                 <div class="modal-action">
