@@ -11,6 +11,7 @@ from django.utils.html import escape
 from django.utils import timezone
 
 from apps.budget.models import Budget
+from apps.catalog.models import FipeModelFuelCache, FipeVehicleBrand, FipeVehicleModel, FipeVehicleType
 from apps.core.widgets import CPForCNPJInput, CheckboxInput, PhoneInput, PlateInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.customer.cpf_cnpj_validator import is_valid_cpf
 from apps.customer.vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
@@ -37,6 +38,73 @@ def _normalize_upper_text(value: object) -> str:
 
 def _digits_only(value: object) -> str:
     return "".join(character for character in str(value or "") if character.isdigit())
+
+
+def _with_selected_choice(choices: list[tuple[str, str]], selected_value: object) -> list[tuple[str, str]]:
+    normalized_selected_value = str(selected_value or "").strip()
+    if not normalized_selected_value:
+        return choices
+
+    if any(str(value) == normalized_selected_value for value, _ in choices):
+        return choices
+
+    return [*choices, (normalized_selected_value, normalized_selected_value)]
+
+
+def _guest_vehicle_brand_form_choices() -> list[tuple[str, str]]:
+    return [
+        ("", "Selecione"),
+        *[(brand.name, brand.name) for brand in FipeVehicleBrand.objects.filter(vehicle_type=FipeVehicleType.CARROS, is_active=True).order_by("name")],
+    ]
+
+
+def _guest_vehicle_model_form_choices(brand_name: object, model_name: object = "") -> list[tuple[str, str]]:
+    normalized_brand_name = str(brand_name or "").strip()
+    choices = [("", "Selecione")]
+    if normalized_brand_name:
+        choices.extend(
+            (model.name, model.name)
+            for model in FipeVehicleModel.objects.filter(
+                vehicle_type=FipeVehicleType.CARROS,
+                brand__vehicle_type=FipeVehicleType.CARROS,
+                brand__name__iexact=normalized_brand_name,
+                brand__is_active=True,
+                is_active=True,
+            ).order_by("name")
+        )
+    return _with_selected_choice(choices, model_name)
+
+
+def _guest_vehicle_fuel_form_choices_from_catalog(brand_name: object, model_name: object, selected_fuel: object = "") -> list[tuple[str, str]]:
+    normalized_brand_name = str(brand_name or "").strip()
+    normalized_model_name = str(model_name or "").strip()
+    choices = [("", "Selecione")]
+
+    if normalized_brand_name and normalized_model_name:
+        model = (
+            FipeVehicleModel.objects.filter(
+                vehicle_type=FipeVehicleType.CARROS,
+                brand__vehicle_type=FipeVehicleType.CARROS,
+                brand__name__iexact=normalized_brand_name,
+                name__iexact=normalized_model_name,
+                brand__is_active=True,
+                is_active=True,
+            )
+            .select_related("brand")
+            .first()
+        )
+        if model is not None:
+            cache = FipeModelFuelCache.objects.filter(vehicle_type=FipeVehicleType.CARROS, model=model).first()
+            if cache is not None:
+                seen_fuels: set[str] = set()
+                for raw_value in cache.fuel_values:
+                    normalized_value = normalize_vehicle_fuel_choice(raw_value) or str(raw_value or "").strip()
+                    if not normalized_value or normalized_value in seen_fuels:
+                        continue
+                    seen_fuels.add(normalized_value)
+                    choices.append((normalized_value, normalized_value))
+
+    return _with_selected_choice(choices, selected_fuel)
 
 
 def _serialize_vehicle_details(vehicle: Vehicle | None) -> dict[str, str]:
@@ -79,8 +147,8 @@ class AppointmentForm(CoreModelForm):
     guest_customer_cpf = forms.CharField(label="CPF", required=False, widget=CPForCNPJInput(mode="cpf"))
     guest_customer_phone = forms.CharField(label="Telefone", required=False, widget=PhoneInput())
     guest_vehicle_plate = forms.CharField(label="Placa", required=False, widget=PlateInput())
-    guest_vehicle_brand = forms.CharField(label="Marca", required=False, widget=_uppercase_text_input())
-    guest_vehicle_model = forms.CharField(label="Modelo", required=False, widget=_uppercase_text_input())
+    guest_vehicle_brand = forms.CharField(label="Marca", required=False, widget=SearchableSelectInput(choices=[]))
+    guest_vehicle_model = forms.CharField(label="Modelo", required=False, widget=SearchableSelectInput(choices=[]))
     guest_vehicle_year_fabrication = forms.CharField(label="Ano Fabricacao", required=False, widget=_year_text_input())
     guest_vehicle_year_model = forms.CharField(label="Ano Modelo", required=False, widget=_year_text_input())
     guest_vehicle_engine = forms.CharField(label="Motorizacao", required=False, widget=SearchableSelectInput(choices=vehicle_engine_form_choices()))
@@ -119,8 +187,8 @@ class AppointmentForm(CoreModelForm):
             "guest_customer_cpf": CPForCNPJInput(mode="cpf"),
             "guest_customer_phone": PhoneInput(),
             "guest_vehicle_plate": PlateInput(),
-            "guest_vehicle_brand": _uppercase_text_input(),
-            "guest_vehicle_model": _uppercase_text_input(),
+            "guest_vehicle_brand": SearchableSelectInput(choices=[]),
+            "guest_vehicle_model": SearchableSelectInput(choices=[]),
             "guest_vehicle_year_fabrication": _year_text_input(),
             "guest_vehicle_year_model": _year_text_input(),
             "guest_vehicle_engine": SearchableSelectInput(choices=vehicle_engine_form_choices()),
@@ -225,6 +293,19 @@ class AppointmentForm(CoreModelForm):
             normalized_guest_vehicle_fuel = normalize_vehicle_fuel_choice(self.initial.get("guest_vehicle_fuel") or getattr(self.instance, "guest_vehicle_fuel", ""))
             self.initial["guest_vehicle_fuel"] = normalized_guest_vehicle_fuel
             self.fields["guest_vehicle_fuel"].initial = normalized_guest_vehicle_fuel
+
+        guest_brand_value = self.data.get("guest_vehicle_brand") if self.is_bound else self.initial.get("guest_vehicle_brand") or getattr(self.instance, "guest_vehicle_brand", "")
+        guest_model_value = self.data.get("guest_vehicle_model") if self.is_bound else self.initial.get("guest_vehicle_model") or getattr(self.instance, "guest_vehicle_model", "")
+        guest_fuel_value = self.data.get("guest_vehicle_fuel") if self.is_bound else self.initial.get("guest_vehicle_fuel") or getattr(self.instance, "guest_vehicle_fuel", "")
+
+        self.fields["guest_vehicle_brand"].widget.choices = _with_selected_choice(_guest_vehicle_brand_form_choices(), guest_brand_value)
+        self.fields["guest_vehicle_model"].widget.choices = _guest_vehicle_model_form_choices(guest_brand_value, guest_model_value)
+        self.fields["guest_vehicle_fuel"].widget.choices = _guest_vehicle_fuel_form_choices_from_catalog(guest_brand_value, guest_model_value, guest_fuel_value)
+
+        self.fields["guest_vehicle_brand"].widget.attrs.update({"data-catalog-field": "brand"})
+        self.fields["guest_vehicle_model"].widget.attrs.update({"data-catalog-field": "model"})
+        self.fields["guest_vehicle_fuel"].widget.attrs.update({"data-catalog-field": "fuel"})
+        self.fields["guest_vehicle_engine"].widget.attrs.update({"data-catalog-field": "engine"})
 
         if self.instance and self.instance.pk:
             if self.instance.starts_at:
@@ -364,6 +445,103 @@ class AppointmentForm(CoreModelForm):
                         input.value = value === null || value === undefined ? '' : String(value);
                     }
 
+                    function getWidgetContainer(input) {
+                        return input && input.type === 'hidden' ? input.closest('[x-data]') : null;
+                    }
+
+                    function setSearchableSelection(input, value, label = '', options = [], { silent = false } = {}) {
+                        if (!input) return;
+
+                        const normalizedValue = value === null || value === undefined ? '' : String(value);
+                        const widgetContainer = getWidgetContainer(input);
+                        if (!widgetContainer) {
+                            setInputValue(input.id, normalizedValue);
+                            return;
+                        }
+
+                        widgetContainer.dispatchEvent(new CustomEvent('searchable-set-selection', {
+                            detail: { value: normalizedValue, label: String(label || normalizedValue), options, silent },
+                            bubbles: true,
+                        }));
+                    }
+
+                    function normalizeOptions(options, selectedValue = '') {
+                        const seen = new Set();
+                        const normalizedOptions = [];
+
+                        (Array.isArray(options) ? options : []).forEach((option) => {
+                            const value = String(option && option.id !== undefined && option.id !== null ? option.id : option && option.value !== undefined && option.value !== null ? option.value : '').trim();
+                            const label = String(option && option.label !== undefined && option.label !== null ? option.label : value).trim();
+                            if (!value || seen.has(value)) return;
+                            seen.add(value);
+                            normalizedOptions.push({ id: value, label });
+                        });
+
+                        const normalizedSelectedValue = String(selectedValue || '').trim();
+                        if (normalizedSelectedValue && !seen.has(normalizedSelectedValue)) {
+                            normalizedOptions.push({ id: normalizedSelectedValue, label: normalizedSelectedValue });
+                        }
+
+                        return normalizedOptions;
+                    }
+
+                    async function fetchOptions(url) {
+                        const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                        if (!response.ok) {
+                            throw new Error('Falha ao carregar catalogo de veiculos.');
+                        }
+                        const payload = await response.json();
+                        return Array.isArray(payload) ? payload : [];
+                    }
+
+                    async function fetchFuelOptions(url) {
+                        const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                        if (!response.ok) {
+                            throw new Error('Falha ao carregar catalogo de veiculos.');
+                        }
+                        const payload = await response.json();
+                        if (Array.isArray(payload)) {
+                            return { options: payload, warning: '' };
+                        }
+                        return {
+                            options: Array.isArray(payload && payload.options) ? payload.options : [],
+                            warning: String(payload && payload.warning ? payload.warning : '').trim(),
+                        };
+                    }
+
+                    async function loadGuestModelOptions(brand, preserveModel = '', { silent = false } = {}) {
+                        const modelInput = document.getElementById('id_guest_vehicle_model');
+                        if (!modelInput) return;
+
+                        if (!brand) {
+                            setSearchableSelection(modelInput, '', '', [], { silent });
+                            return;
+                        }
+
+                        const modelOptions = normalizeOptions(await fetchOptions(`/customer/vehicle-catalog/models/?brand=${encodeURIComponent(brand)}`), preserveModel);
+                        setSearchableSelection(modelInput, preserveModel, preserveModel, modelOptions, { silent });
+                    }
+
+                    async function loadGuestFuelOptions(brand, model, preserveFuel = '', { silent = false } = {}) {
+                        const fuelInput = document.getElementById('id_guest_vehicle_fuel');
+                        if (!fuelInput) return;
+
+                        if (!brand || !model) {
+                            setSearchableSelection(fuelInput, '', '', [], { silent });
+                            return;
+                        }
+
+                        const fuelPayload = await fetchFuelOptions(`/customer/vehicle-catalog/fuels/?brand=${encodeURIComponent(brand)}&model=${encodeURIComponent(model)}`);
+                        const fuelOptions = normalizeOptions(fuelPayload.options, preserveFuel);
+                        setSearchableSelection(fuelInput, preserveFuel, preserveFuel, fuelOptions, { silent });
+
+                        if (fuelPayload.warning) {
+                            document.body.dispatchEvent(new CustomEvent('showToast', {
+                                detail: { message: fuelPayload.warning, type: 'warning' },
+                            }));
+                        }
+                    }
+
                     function clearRegisteredVehicleDetails() {
                         setReadonlyFieldValue('id_registered_vehicle_plate_display', '');
                         setReadonlyFieldValue('id_registered_vehicle_brand_display', '');
@@ -470,18 +648,21 @@ class AppointmentForm(CoreModelForm):
                             }
 
                             const data = await response.json();
-                            const fieldsMap = {
-                                id_guest_vehicle_brand: data.brand,
-                                id_guest_vehicle_model: data.model,
-                                id_guest_vehicle_year_fabrication: data.year_fabrication,
-                                id_guest_vehicle_year_model: data.year_model,
-                                id_guest_vehicle_engine: data.engine,
-                                id_guest_vehicle_fuel: data.fuel,
-                            };
+                            const brand = String(data.brand || '').trim();
+                            const model = String(data.model || '').trim();
+                            const fuel = String(data.fuel || '').trim();
+                            const engine = String(data.engine || '').trim();
 
-                            Object.entries(fieldsMap).forEach(([inputId, value]) => {
-                                setInputValue(inputId, value, { uppercase: !['id_guest_vehicle_year_fabrication', 'id_guest_vehicle_year_model', 'id_guest_vehicle_engine', 'id_guest_vehicle_fuel'].includes(inputId) });
-                            });
+                            const brandInput = document.getElementById('id_guest_vehicle_brand');
+                            const engineInput = document.getElementById('id_guest_vehicle_engine');
+                            setSearchableSelection(brandInput, brand, brand, brand ? [{ id: brand, label: brand }] : [], { silent: true });
+
+                            await loadGuestModelOptions(brand, model, { silent: true });
+                            await loadGuestFuelOptions(brand, model, fuel, { silent: true });
+                            setSearchableSelection(engineInput, engine, engine, engine ? [{ id: engine, label: engine }] : [], { silent: true });
+
+                            setInputValue('id_guest_vehicle_year_fabrication', data.year_fabrication, { uppercase: false });
+                            setInputValue('id_guest_vehicle_year_model', data.year_model, { uppercase: false });
                         } catch (error) {
                             console.warn('Erro ao buscar placa do agendamento:', error);
                         } finally {
@@ -677,6 +858,20 @@ class AppointmentForm(CoreModelForm):
                             }
                         } else if ($event.target && $event.target.name === 'guest_vehicle_plate' && !isCustomerRegistered) {
                             updateGuestVehicleFields($event.target.value || '');
+                        } else if ($event.target && $event.target.name === 'guest_vehicle_brand' && !isCustomerRegistered) {
+                            const selectedBrand = $event.target.value || '';
+                            loadGuestModelOptions(selectedBrand).catch((error) => {
+                                console.warn('Erro ao carregar modelos de veiculo:', error);
+                            });
+                            loadGuestFuelOptions(selectedBrand, '').catch((error) => {
+                                console.warn('Erro ao carregar combustiveis do veiculo:', error);
+                            });
+                        } else if ($event.target && $event.target.name === 'guest_vehicle_model' && !isCustomerRegistered) {
+                            const selectedBrand = (document.getElementById('id_guest_vehicle_brand') || {}).value || '';
+                            const selectedModel = $event.target.value || '';
+                            loadGuestFuelOptions(selectedBrand, selectedModel).catch((error) => {
+                                console.warn('Erro ao carregar combustiveis do veiculo:', error);
+                            });
                         }
                     """,
                 },
@@ -706,19 +901,19 @@ class AppointmentForm(CoreModelForm):
         return sentence_case(value) if value else value
 
     def clean_guest_customer_name(self):
-        value = self.cleaned_data.get("guest_customer_name")
+        value = str(self.cleaned_data.get("guest_customer_name") or "")
         return name_case(value) if value else value
 
     def clean_guest_vehicle_brand(self):
-        value = self.cleaned_data.get("guest_vehicle_brand")
+        value = str(self.cleaned_data.get("guest_vehicle_brand") or "")
         return sentence_case(value) if value else value
 
     def clean_guest_vehicle_model(self):
-        value = self.cleaned_data.get("guest_vehicle_model")
+        value = str(self.cleaned_data.get("guest_vehicle_model") or "")
         return sentence_case(value) if value else value
 
     def clean_guest_vehicle_plate(self):
-        value = self.cleaned_data.get("guest_vehicle_plate")
+        value = str(self.cleaned_data.get("guest_vehicle_plate") or "")
         return plate_case(value) if value else value
 
     def clean(self) -> dict[str, Any]:
@@ -726,15 +921,17 @@ class AppointmentForm(CoreModelForm):
         if cleaned_data is None:
             return {}
 
-        customer = cleaned_data.get("customer")
-        vehicle = cleaned_data.get("vehicle")
+        customer_raw = cleaned_data.get("customer")
+        vehicle_raw = cleaned_data.get("vehicle")
+        customer = customer_raw if isinstance(customer_raw, Customer) else None
+        vehicle = vehicle_raw if isinstance(vehicle_raw, Vehicle) else None
         is_customer_registered = bool(cleaned_data.get("is_customer_registered"))
-        guest_customer_name = name_case(cleaned_data.get("guest_customer_name") or "")
+        guest_customer_name = name_case(str(cleaned_data.get("guest_customer_name") or ""))
         guest_customer_cpf = _digits_only(cleaned_data.get("guest_customer_cpf"))[:11]
-        guest_customer_phone = (cleaned_data.get("guest_customer_phone") or "").strip()
-        guest_vehicle_plate = plate_case(cleaned_data.get("guest_vehicle_plate") or "")
-        guest_vehicle_brand = sentence_case(cleaned_data.get("guest_vehicle_brand") or "")
-        guest_vehicle_model = sentence_case(cleaned_data.get("guest_vehicle_model") or "")
+        guest_customer_phone = str(cleaned_data.get("guest_customer_phone") or "").strip()
+        guest_vehicle_plate = plate_case(str(cleaned_data.get("guest_vehicle_plate") or ""))
+        guest_vehicle_brand = sentence_case(str(cleaned_data.get("guest_vehicle_brand") or ""))
+        guest_vehicle_model = sentence_case(str(cleaned_data.get("guest_vehicle_model") or ""))
         guest_vehicle_year_fabrication = str(cleaned_data.get("guest_vehicle_year_fabrication") or "").strip()
         guest_vehicle_year_model = str(cleaned_data.get("guest_vehicle_year_model") or "").strip()
         guest_vehicle_engine = normalize_vehicle_engine_choice(cleaned_data.get("guest_vehicle_engine"))
@@ -790,7 +987,7 @@ class AppointmentForm(CoreModelForm):
             cleaned_data["budget"] = None
             cleaned_data["workorder"] = None
 
-        if customer and vehicle and vehicle.customer_id != customer.id:
+        if customer and vehicle and getattr(vehicle, "customer_id", None) != getattr(customer, "pk", None):
             self.add_error("vehicle", "O veiculo deve pertencer ao cliente selecionado.")
 
         if vehicle and customer is None:

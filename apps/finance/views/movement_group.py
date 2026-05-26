@@ -19,160 +19,26 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = MovementGroup
     workshop_permission_codename = "add_financialmovement"
 
-    def _get_unified_movements(self, entity_type, entity_id, filter_direction, filter_start_date, filter_end_date):
-        fm_qs = FinancialMovement.objects.filter(
-            workshop=self.workshop, 
-            movement_kind=FinancialMovement.MovementKind.DEFAULT, 
-            movement_group__isnull=True, 
-            is_paid=False
-        )
-        pm_qs = WorkOrderPaymentMethod.objects.none()
-
-        entity_name = ""
-        if entity_type == "supplier":
-            fm_qs = fm_qs.filter(supplier_id=entity_id)
-            entity_name = Supplier.objects.get(id=entity_id).name
-        elif entity_type == "collaborator":
-            fm_qs = fm_qs.filter(collaborator_id=entity_id)
-            entity_name = str(WorkshopCollaborator.objects.get(id=entity_id))
-        elif entity_type == "customer":
-            fm_qs = fm_qs.filter(workorder__budget__customer_id=entity_id)
-            pm_qs = WorkOrderPaymentMethod.objects.filter(
-                workorder__workshop=self.workshop,
-                workorder__budget__customer_id=entity_id,
-                movement_group__isnull=True
-            )
-            entity_name = Customer.objects.get(id=entity_id).name
-
-        if filter_direction:
-            fm_qs = fm_qs.filter(direction=filter_direction)
-            if filter_direction == "DEBIT":
-                pm_qs = pm_qs.none()
-        
-        if filter_start_date:
-            fm_qs = fm_qs.filter(due_date__gte=filter_start_date)
-            pm_qs = pm_qs.filter(due_date__gte=filter_start_date)
-            
-        if filter_end_date:
-            fm_qs = fm_qs.filter(due_date__lte=filter_end_date)
-            pm_qs = pm_qs.filter(due_date__lte=filter_end_date)
-
-        unified = []
-        for mv in fm_qs:
-            unified.append({
-                "id": f"fm_{mv.id}",
-                "due_date": mv.due_date,
-                "direction": mv.direction,
-                "description": mv.description,
-                "items_observation": mv.items_observation,
-                "payment_method": mv.payment_method,
-                "is_paid": mv.is_paid,
-                "amount": mv.amount,
-                "obj": mv
-            })
-
-        for pm in pm_qs:
-            unified.append({
-                "id": f"pm_{pm.id}",
-                "due_date": pm.due_date,
-                "direction": "CREDIT",
-                "description": f"OS Nº {pm.workorder_id}",
-                "items_observation": "",
-                "payment_method": pm.payment_method,
-                "is_paid": False,
-                "amount": pm.total_paid,
-                "obj": pm
-            })
-
-        unified.sort(key=lambda x: (x["due_date"] or timezone.now().date(), x["id"]))
-        return unified, entity_name
-
     def get(self, request, *args, **kwargs):
-        step = request.GET.get("step", "1")
-
-        if step == "1":
-            customers = Customer.objects.filter(workshop=self.workshop)
-            suppliers = Supplier.objects.filter(workshop=self.workshop, is_active=True)
-            collaborators = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True)
-            form = GroupMovementStep1Form(customers=customers, suppliers=suppliers, collaborators=collaborators)
-            return render(request, "finance/reports/partials/group_step1.html", {"form": form})
-
-        return HttpResponse("Invalid Step", status=400)
+        return HttpResponse("Método não permitido", status=405)
 
     def post(self, request, *args, **kwargs):
         step = request.POST.get("step")
 
-        if step == "1":
-            customers = Customer.objects.filter(workshop=self.workshop)
-            suppliers = Supplier.objects.filter(workshop=self.workshop, is_active=True)
-            collaborators = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True)
-            form = GroupMovementStep1Form(request.POST, customers=customers, suppliers=suppliers, collaborators=collaborators)
-
-            if form.is_valid():
-                entity_val = form.cleaned_data["entity"]
-                entity_type, entity_id = entity_val.split("_")
-
-                filter_direction = request.POST.get("filter_direction", "")
-                filter_start_date = request.POST.get("filter_start_date", "")
-                filter_end_date = request.POST.get("filter_end_date", "")
-
-                movements, entity_name = self._get_unified_movements(
-                    entity_type, entity_id, filter_direction, filter_start_date, filter_end_date
-                )
-
-                return render(
-                    request,
-                    "finance/reports/partials/group_step2.html",
-                    {
-                        "movements": movements,
-                        "entity_type": entity_type,
-                        "entity_id": entity_id,
-                        "entity_name": entity_name,
-                        "filter_direction": filter_direction,
-                        "filter_start_date": filter_start_date,
-                        "filter_end_date": filter_end_date,
-                    },
-                )
-
-            return render(request, "finance/reports/partials/group_step1.html", {"form": form})
-
-        elif step == "2":
-            movement_ids = request.POST.getlist("movements")
-            entity_type = request.POST.get("entity_type")
-            entity_id = request.POST.get("entity_id")
-
-            all_movements, entity_name = self._get_unified_movements(entity_type, entity_id, "", "", "")
-
-            error = None
-            if not movement_ids:
-                error = "Selecione ao menos um lançamento."
-            else:
-                selected_movements = [mv for mv in all_movements if mv["id"] in movement_ids]
-                if selected_movements:
-                    first_direction = selected_movements[0]["direction"]
-
-                    for mv in selected_movements:
-                        if mv["direction"] != first_direction:
-                            error = "Todos os lançamentos selecionados devem ser do mesmo tipo (Crédito ou Débito)."
-                            break
-
-            if error:
-                return render(request, "finance/reports/partials/group_step2.html", {"movements": all_movements, "entity_type": entity_type, "entity_id": entity_id, "entity_name": entity_name, "error": error})
-
-            # Step 3 form
-            total_amount = Decimal("0.00")
-            for mv in selected_movements:
-                val = mv["amount"]
-                total_amount += Decimal(str(val.amount if hasattr(val, "amount") else val))
-
-            form = GroupMovementStep3Form()
-            return render(request, "finance/reports/partials/group_step3.html", {"form": form, "movement_ids": movement_ids, "entity_type": entity_type, "entity_id": entity_id, "total_amount": total_amount})
-
-        elif step == "3":
+        if step == "3":
             form = GroupMovementStep3Form(request.POST)
             movement_ids = request.POST.getlist("movements")
             entity_type = request.POST.get("entity_type")
             entity_id = request.POST.get("entity_id")
+
+            # We need to fetch the entity name to display it on form validation error
+            entity_name = ""
+            if entity_type == "supplier":
+                entity_name = Supplier.objects.get(id=entity_id).name
+            elif entity_type == "collaborator":
+                entity_name = str(WorkshopCollaborator.objects.get(id=entity_id))
+            elif entity_type == "customer":
+                entity_name = Customer.objects.get(id=entity_id).name
 
             if form.is_valid():
                 with transaction.atomic():
@@ -233,9 +99,124 @@ class GroupMovementWizardView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 response["HX-Refresh"] = "true"
                 return response
 
-            return render(request, "finance/reports/partials/group_step3.html", {"form": form, "movement_ids": movement_ids, "entity_type": entity_type, "entity_id": entity_id})
+            return render(request, "finance/reports/partials/group_step3.html", {
+                "form": form,
+                "movement_ids": movement_ids,
+                "entity_type": entity_type,
+                "entity_id": entity_id,
+                "entity_name": entity_name
+            })
 
-        return HttpResponse("Invalid Step", status=400)
+        # No step - entry point from reports_home.html checkbox selection
+        checkbox_ids = request.POST.getlist("movement_ids")
+        if not checkbox_ids:
+            return render(request, "finance/reports/partials/group_error.html", {"error": "Selecione ao menos um lançamento."})
+
+        fm_pks = []
+        pm_pks = []
+        for cid in checkbox_ids:
+            if cid.startswith("financial-movement-"):
+                fm_pks.append(int(cid.split("-")[-1]))
+            elif cid.startswith("workorder-payment-"):
+                pm_pks.append(int(cid.split("-")[-1]))
+            elif cid.startswith("fm_"):
+                fm_pks.append(int(cid.split("_")[1]))
+            elif cid.startswith("pm_"):
+                pm_pks.append(int(cid.split("_")[1]))
+
+        # Fetch objects
+        fms = list(FinancialMovement.objects.filter(pk__in=fm_pks, workshop=self.workshop))
+        pms = list(WorkOrderPaymentMethod.objects.filter(pk__in=pm_pks, workorder__workshop=self.workshop))
+
+        # Check if all requested items were found
+        if len(fms) != len(fm_pks) or len(pms) != len(pm_pks):
+            return render(request, "finance/reports/partials/group_error.html", {"error": "Um ou mais lançamentos selecionados não foram encontrados ou não pertencem a esta oficina."})
+
+        # Check if any selected item is already grouped, paid, or is a group parent
+        for fm in fms:
+            if fm.movement_group_id is not None:
+                return render(request, "finance/reports/partials/group_error.html", {"error": f"O lançamento '{fm.description}' já faz parte de um agrupamento."})
+            if fm.is_paid:
+                return render(request, "finance/reports/partials/group_error.html", {"error": f"O lançamento '{fm.description}' já está pago."})
+            if fm.movement_kind == FinancialMovement.MovementKind.GROUP_PARENT:
+                return render(request, "finance/reports/partials/group_error.html", {"error": f"Não é possível agrupar o consolidado '{fm.description}'."})
+
+        for pm in pms:
+            if pm.movement_group_id is not None:
+                return render(request, "finance/reports/partials/group_error.html", {"error": f"O plano de pagamento da OS #{pm.workorder_id} já faz parte de um agrupamento."})
+
+        # Validate direction consistency
+        directions = set()
+        for fm in fms:
+            directions.add(fm.direction)
+        if pms:
+            # WorkOrderPaymentMethod is always CREDIT (inflow)
+            directions.add("CREDIT")
+
+        if len(directions) > 1:
+            return render(request, "finance/reports/partials/group_error.html", {"error": "Todos os lançamentos selecionados devem ser do mesmo tipo (Crédito ou Débito)."})
+
+        # Validate entity consistency
+        candidate_entities = []
+        for fm in fms:
+            item_candidates = set()
+            if fm.supplier_id:
+                item_candidates.add(("supplier", fm.supplier_id, fm.supplier.name))
+            if fm.collaborator_id:
+                item_candidates.add(("collaborator", fm.collaborator_id, str(fm.collaborator)))
+            if fm.workorder_id and fm.workorder.budget_id and fm.workorder.budget.customer_id:
+                item_candidates.add(("customer", fm.workorder.budget.customer_id, fm.workorder.budget.customer.name))
+            candidate_entities.append(item_candidates)
+
+        for pm in pms:
+            item_candidates = set()
+            if pm.workorder_id and pm.workorder.budget_id and pm.workorder.budget.customer_id:
+                item_candidates.add(("customer", pm.workorder.budget.customer_id, pm.workorder.budget.customer.name))
+            candidate_entities.append(item_candidates)
+
+        if not candidate_entities:
+            return render(request, "finance/reports/partials/group_error.html", {"error": "Nenhum lançamento selecionado."})
+
+        common_keys = set((c[0], c[1]) for c in candidate_entities[0])
+        for item_candidates in candidate_entities[1:]:
+            item_keys = set((c[0], c[1]) for c in item_candidates)
+            common_keys = common_keys & item_keys
+
+        if not common_keys:
+            return render(request, "finance/reports/partials/group_error.html", {"error": "Todos os lançamentos selecionados devem pertencer ao mesmo Fornecedor, Colaborador ou Cliente."})
+
+        # Pick a common key
+        selected_key = list(common_keys)[0]
+        entity_type, entity_id = selected_key
+
+        # Find name of this entity from the candidates
+        entity_name = ""
+        for item_candidates in candidate_entities:
+            for c in item_candidates:
+                if c[0] == entity_type and c[1] == entity_id:
+                    entity_name = c[2]
+                    break
+            if entity_name:
+                break
+
+        # Calculate total amount
+        total_amount = Decimal("0.00")
+        for fm in fms:
+            total_amount += Decimal(str(fm.amount.amount))
+        for pm in pms:
+            total_amount += Decimal(str(pm.total_paid.amount))
+
+        normalized_movement_ids = [f"fm_{fm.id}" for fm in fms] + [f"pm_{pm.id}" for pm in pms]
+
+        form = GroupMovementStep3Form()
+        return render(request, "finance/reports/partials/group_step3.html", {
+            "form": form,
+            "movement_ids": normalized_movement_ids,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "total_amount": total_amount,
+            "entity_name": entity_name,
+        })
 
 
 class GroupMovementDeleteView(LoginRequiredMixin, WorkshopScopedMixin, View):

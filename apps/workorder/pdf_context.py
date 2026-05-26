@@ -34,11 +34,30 @@ class WorkOrderPdfBudgetProxy:
     total_budget_value: Money
     budget_status: str
     delivered_at: Any
+    customer_agreed_departure_at: Any
 
 
 def build_workorder_pdf_context(*, workorder: WorkOrder, observacao: str | None = None, request=None) -> dict[str, Any]:
     snapshot = workorder.pricing_snapshot
     resolved_observation = observacao if observacao is not None else workorder.budget.pdf_observation
+
+    is_warranty_budget = workorder.budget.is_warranty_budget or workorder.budget.budget_type == "warranty" or workorder.budget_type in ("warranty", "courtesy")
+    is_courtesy_budget = workorder.budget.budget_type == "courtesy"
+    is_warranty_or_courtesy = is_warranty_budget or is_courtesy_budget
+
+    ZERO = Money(0, "BRL")
+
+    payments = [
+        {
+            "method": p.payment_method.description if p.payment_method else "-",
+            "installments": p.installments_count,
+            "first_installment_amount": p.first_installment_amount,
+            "remaining_installments_amount": p.remaining_installments_amount,
+            "due_date": p.due_date,
+            "total_paid": p.total_paid,
+        }
+        for p in workorder.iter_payments()
+    ]
 
     produtos = [
         {
@@ -87,9 +106,10 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, observacao: str | None 
         total_budget_value=workorder.total_budget_value,
         budget_status=WorkOrderStatus(workorder.status).label,
         delivered_at=workorder.delivered_at,
+        customer_agreed_departure_at=workorder.budget.customer_agreed_departure_at,
     )
 
-    return {
+    teste = {
         "workorder": workorder,
         "budget": budget_proxy,
         "produtos": produtos,
@@ -98,10 +118,16 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, observacao: str | None 
         "total_produtos": workorder.get_total_products_by_slider,
         "total_servicos": workorder.get_total_services_by_slider,
         "desconto": snapshot.resolved_discount_value,
-        "total_geral": workorder.total_budget_value,
+        "total_geral": ZERO if is_warranty_or_courtesy else workorder.total_budget_value,
         "observacao": resolved_observation,
         "total_profit_product_value": sum((line.profit_value for line in snapshot.product_lines), Money(0, "BRL")),
         "total_profit_service_value": sum((line.profit_value for line in snapshot.service_lines), Money(0, "BRL")),
+        "payments": payments,
+        "is_warranty_or_courtesy": is_warranty_or_courtesy,
+        "warranty_message": "Ordem de serviço de garantia. Documento apenas para a visualização, peças e serviços descritos não foram cobrados do cliente" if is_warranty_or_courtesy else "",
         "workshop_logo_data_uri": build_workshop_logo_data_uri(workshop=workorder.workshop),
         "request": request,
     }
+
+    print(teste)
+    return teste

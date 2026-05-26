@@ -9,6 +9,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.accounts.models import Account, User
+from apps.catalog.models import FipeModelFuelCache, FipeVehicleBrand, FipeVehicleModel
 from apps.collaborators.models import WorkshopMember
 from apps.customer.models import Customer, Vehicle
 from apps.iam.utils import get_or_create_director_role
@@ -146,6 +147,14 @@ class AppointmentViewsTests(TestCase):
         self.user, self.workshop = create_director_user_with_workshop(suffix=30)
         self.customer = create_customer(workshop=self.workshop, suffix=30)
         self.vehicle = create_vehicle(workshop=self.workshop, customer=self.customer, suffix=30)
+        self.catalog_brand = FipeVehicleBrand.objects.create(name="Fiat", external_id="1")
+        self.catalog_model = FipeVehicleModel.objects.create(
+            brand=self.catalog_brand,
+            vehicle_type=self.catalog_brand.vehicle_type,
+            name="Argo 1.3 Flex",
+            external_id="10",
+        )
+        FipeModelFuelCache.objects.create(model=self.catalog_model, vehicle_type=self.catalog_model.vehicle_type, fuel_values=["Gasolina / Alcool"])
 
         self.client.force_login(self.user)
         session = self.client.session
@@ -293,6 +302,14 @@ class AppointmentViewsTests(TestCase):
         self.assertEqual(appointment.guest_vehicle_year_model, "2024")
         self.assertEqual(appointment.guest_vehicle_engine, "1.3")
         self.assertEqual(appointment.guest_vehicle_fuel, "Flex")
+
+    def test_create_form_renders_guest_vehicle_catalog_endpoints(self) -> None:
+        response = self.client.get(reverse("scheduling:appointment_create"), HTTP_HX_REQUEST="true")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode("utf-8")
+        self.assertIn("/customer/vehicle-catalog/models/", html)
+        self.assertIn("/customer/vehicle-catalog/fuels/", html)
 
     def test_create_rejects_invalid_guest_vehicle_engine_choice(self) -> None:
         starts_at = timezone.now().replace(minute=0, second=0, microsecond=0)

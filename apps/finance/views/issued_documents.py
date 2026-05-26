@@ -8,8 +8,10 @@ from io import BytesIO
 from typing import Any
 from urllib.parse import urlencode
 
+from functools import reduce
+
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from django.http import Http404, HttpResponse
 from django.urls import reverse
 from django.views import View
@@ -86,6 +88,7 @@ class IssuedDocumentsFilterMixin:
         start_date = self._parse_date_param(start_raw)
         end_date = self._parse_date_param(end_raw)
         selected_note_type = self._get_selected_note_type()
+        search_raw = str(self.request.GET.get("search") or "").strip()
         filter_error = ""
 
         if start_raw or end_raw:
@@ -106,6 +109,7 @@ class IssuedDocumentsFilterMixin:
             "selected_note_type": selected_note_type,
             "selected_note_type_label": dict(self.NOTE_TYPE_CHOICES).get(selected_note_type, "Todas"),
             "has_selected_period": bool(start_raw and end_raw),
+            "search_raw": search_raw,
             "is_valid": is_valid,
             "filter_error": filter_error,
         }
@@ -116,10 +120,20 @@ class IssuedDocumentsFilterMixin:
         normalized = normalized.strip("-._")
         return normalized or "documento"
 
-    def _build_nfe_queryset(self, *, start_date: date | None, end_date: date | None):
+    def _build_nfe_queryset(self, *, start_date: date | None, end_date: date | None, search_raw: str = ""):
         qs = NfeRequest.objects.filter(workshop=self.workshop)
         if start_date and end_date:
             qs = qs.filter(criado_em__date__range=(start_date, end_date))
+        if search_raw:
+            search_filters = [
+                Q(workorder__budget__customer__name__icontains=search_raw),
+                Q(items__number__icontains=search_raw),
+            ]
+            if search_raw.isdigit():
+                search_int = int(search_raw)
+                search_filters.append(Q(workorder__budget_id=search_int))
+                search_filters.append(Q(reserved_number=search_int))
+            qs = qs.filter(reduce(lambda a, b: a | b, search_filters)).distinct()
             
         return (
             qs.select_related("workorder", "workorder__budget", "workorder__budget__customer")
@@ -127,10 +141,21 @@ class IssuedDocumentsFilterMixin:
             .order_by("-criado_em", "-pk")
         )
 
-    def _build_nfse_queryset(self, *, start_date: date | None, end_date: date | None):
+    def _build_nfse_queryset(self, *, start_date: date | None, end_date: date | None, search_raw: str = ""):
         qs = NfseRequest.objects.filter(workshop=self.workshop)
         if start_date and end_date:
             qs = qs.filter(criado_em__date__range=(start_date, end_date))
+        if search_raw:
+            search_filters = [
+                Q(workorder__budget__customer__name__icontains=search_raw),
+                Q(items__rps_number__icontains=search_raw),
+                Q(items__number__icontains=search_raw),
+            ]
+            if search_raw.isdigit():
+                search_int = int(search_raw)
+                search_filters.append(Q(workorder_id=search_int))
+                search_filters.append(Q(reserved_rps_number=search_int))
+            qs = qs.filter(reduce(lambda a, b: a | b, search_filters)).distinct()
             
         return (
             qs.select_related("workorder", "workorder__budget", "workorder__budget__customer")
@@ -146,8 +171,8 @@ class IssuedDocumentsFilterMixin:
         end_date = state["end_date"]
         selected_note_type = str(state["selected_note_type"])
 
-        nfe_requests = list(self._build_nfe_queryset(start_date=start_date, end_date=end_date)) if selected_note_type in {"all", "nfe"} else []
-        nfse_requests = list(self._build_nfse_queryset(start_date=start_date, end_date=end_date)) if selected_note_type in {"all", "nfse"} else []
+        nfe_requests = list(self._build_nfe_queryset(start_date=start_date, end_date=end_date, search_raw=state["search_raw"])) if selected_note_type in {"all", "nfe"} else []
+        nfse_requests = list(self._build_nfse_queryset(start_date=start_date, end_date=end_date, search_raw=state["search_raw"])) if selected_note_type in {"all", "nfse"} else []
         return nfe_requests, nfse_requests
 
     @staticmethod
@@ -175,6 +200,7 @@ class IssuedDocumentsFilterMixin:
                 data_inicial=state["start_raw"],
                 data_final=state["end_raw"],
                 tipo=state["selected_note_type"],
+                search=state["search_raw"],
             ),
         )
 
@@ -191,7 +217,7 @@ class IssuedDocumentsFilterMixin:
             "request_id": request_obj.pk,
             "number": request_obj.number_display,
             "reference": f"Serie {series_value}",
-            "workorder_id": getattr(request_obj, "workorder_id", None),
+            "workorder_id": request_obj.workorder.get_id,
             "customer_name": request_obj.customer_name,
             "created_at": request_obj.criado_em,
             "status_badge": request_obj.nfe_request_status_badge,
@@ -236,13 +262,14 @@ class IssuedDocumentsFilterMixin:
         if not state["is_valid"]:
             return ""
 
-        return urlencode(
-            {
-                "data_inicial": state["start_raw"],
-                "data_final": state["end_raw"],
-                "tipo": state["selected_note_type"],
-            }
-        )
+        params = {
+            "data_inicial": state["start_raw"],
+            "data_final": state["end_raw"],
+            "tipo": state["selected_note_type"],
+        }
+        if state["search_raw"]:
+            params["search"] = state["search_raw"]
+        return urlencode(params)
 
     def _collect_document_entries(self, *, nfe_requests: list[NfeRequest], nfse_requests: list[NfseRequest], document_group: str) -> list[dict[str, str]]:
         entries: list[dict[str, str]] = []

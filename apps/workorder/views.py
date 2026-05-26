@@ -381,7 +381,7 @@ class WorkOrderStatusReportDataMixin:
 
     def _get_workorder_table_fields(self) -> list[TableColumn]:
         return [
-            TableColumn("ID", attr="budget.id"),
+            TableColumn("ID", attr="budget.id", search_by=("budget__id", "id")),
             TableColumn("Cliente", attr="budget.customer", search_by="budget__customer__name"),
             TableColumn("Entregue em", attr="delivered_at"),
             TableColumn("Veículo", attr="budget.vehicle", search_by=("budget__vehicle__plate", "budget__vehicle__model", "budget__vehicle__brand")),
@@ -673,8 +673,8 @@ class UpdateWorkOrderDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View)
                 "discount_value": str(workorder.discount_value),
                 "discount_percentage": str(workorder.discount_percentage),
                 "total_budget_value": str(workorder.total_budget_value.amount),
-                "paid_value": str(sum((payment.total_paid.amount for payment in workorder.payments.all()), start=Decimal("0.00"))),
-                "pending_value": str(max(Decimal("0.00"), workorder.total_budget_value.amount - sum((payment.total_paid.amount for payment in workorder.payments.all()), start=Decimal("0.00")))),
+                "paid_value": str(workorder.paid_value.amount),
+                "pending_value": str(workorder.pending_payment_value.amount),
                 "has_completion_blockers": workorder.has_completion_blockers,
                 "completion_blockers_display": workorder.completion_blockers_display,
             }
@@ -1253,9 +1253,6 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 workorder.save(update_fields=["km_final", "unsigned_delivery_reason"])
 
                 approve_workorder_with_stock(workorder=workorder, user=request.user)
-                if workorder.delivered_at is None:
-                    workorder.delivered_at = timezone.now()
-                    workorder.save(update_fields=["delivered_at"])
                 sync_workorder_financial_movement(workorder=workorder)
 
                 vehicle = getattr(workorder.budget, "vehicle", None)
@@ -1283,15 +1280,10 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 context["reject_form"] = reason_form
             return render(request, "workorder/partials/customer_approvement_section.html", context)
 
-        workorder.status = next_status
         if next_status == WorkOrderStatus.CANCELLED:
-            workorder.cancellation_reason = reason_form.cleaned_data["status_reason"]
-            workorder.rejection_reason = ""
-            workorder.save(update_fields=["status", "cancellation_reason", "rejection_reason"])
+            workorder.cancel(reason=reason_form.cleaned_data["status_reason"])
         else:
-            workorder.rejection_reason = reason_form.cleaned_data["status_reason"]
-            workorder.cancellation_reason = ""
-            workorder.save(update_fields=["status", "rejection_reason", "cancellation_reason"])
+            workorder.reject(reason=reason_form.cleaned_data["status_reason"])
 
         return HttpResponse(headers={"HX-Refresh": "true"})
 
