@@ -27,7 +27,11 @@
                     <span class="material-icons">payments</span>
                     Pagar todos
                 </button>
-                <button type="button" class="btn btn-secondary" onclick="group_modal.showModal()" hx-get="{% url 'finance:group_movement_wizard' %}?step=1" hx-target="#group-modal-content">
+                <button type="button" class="btn btn-secondary" id="btn-agrupar" disabled
+                        onclick="group_modal.showModal()"
+                        hx-post="{% url 'finance:group_movement_wizard' %}"
+                        hx-target="#group-modal-content"
+                        hx-include="#financial-reports-movements-table .item-checkbox:checked">
                     <span class="material-icons">layers</span>
                     Agrupar
                 </button>
@@ -553,6 +557,7 @@
 
                         var btnConciliar = document.getElementById('btn-conciliar');
                         var btnPagarTodos = document.getElementById('btn-pagar-todos');
+                        var btnAgrupar = document.getElementById('btn-agrupar');
 
                         function updateActionButtons() {
                             var checkboxes = document.querySelectorAll('#financial-reports-movements-table .item-checkbox:checked');
@@ -568,6 +573,12 @@
                                 btnPagarTodos.disabled = !hasSelection;
                                 if (hasSelection) btnPagarTodos.removeAttribute('disabled');
                                 else btnPagarTodos.setAttribute('disabled', 'disabled');
+                            }
+
+                            if (btnAgrupar) {
+                                btnAgrupar.disabled = !hasSelection;
+                                if (hasSelection) btnAgrupar.removeAttribute('disabled');
+                                else btnAgrupar.setAttribute('disabled', 'disabled');
                             }
                         }
 
