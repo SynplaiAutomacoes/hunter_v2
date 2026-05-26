@@ -30,7 +30,7 @@ class SupplierForm(AddressFormMixin, CoreModelForm):
             "estado",
         ]
         widgets = {
-            "cnpj": CPForCNPJInput(mode="cnpj"),
+            "cnpj": CPForCNPJInput(mode="both"),
             "name": TextInput(),
             "contact_person": TextInput(),
             "phone": PhoneInput(),
