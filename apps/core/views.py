@@ -285,6 +285,14 @@ def metricas_dashboard(request) -> dict[str, Any]:
         entry_date__month=mes_selecionado,
         entry_date__year=ano_selecionado,
     ).count()
+    qtd_carros_garantia_cortesia_mes = Budget.objects.filter(
+        workshop=workshop,
+        status=BudgetStatus.APPROVED,
+        budget_type__in=[BudgetType.WARRANTY, BudgetType.COURTESY],
+        reference_budget__isnull=True,
+        entry_date__month=mes_selecionado,
+        entry_date__year=ano_selecionado,
+    ).count()
     qtd_garantias_mes = (
         WorkOrder.objects.filter(
             workshop=workshop,
@@ -360,6 +368,7 @@ def metricas_dashboard(request) -> dict[str, Any]:
         "meses": [(1, "Janeiro"), (2, "Fevereiro"), (3, "Março"), (4, "Abril"), (5, "Maio"), (6, "Junho"), (7, "Julho"), (8, "Agosto"), (9, "Setembro"), (10, "Outubro"), (11, "Novembro"), (12, "Dezembro")],
         "anos": list(range(hoje.year - 3, hoje.year + 2)),
         "qtd_carros_mes": qtd_carros_mes,
+        "qtd_carros_garantia_cortesia_mes": qtd_carros_garantia_cortesia_mes,
         "ticket_medio": ticket_medio,
         "projecao": projecao,
         "projecao_warning": projecao_warning,

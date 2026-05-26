@@ -35,17 +35,30 @@
         </div>
 
         <!-- KPI Stats Section -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div class="stat bg-base-100 shadow rounded-box">
-                <div class="stat-figure text-primary">
-                    <i class="ph ph-car text-3xl"></i>
+        <div class="flex flex-wrap gap-6 items-start">
+            <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(25%-18px)]">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="stat-title text-base-content/70">Carros no Mês</div>
+                        <div class="text-sm text-success font-semibold">Venda</div>
+                    </div>
                 </div>
-                <div class="stat-title">Carros no Mês</div>
-                <div class="stat-value text-primary">{{ qtd_carros_mes }}</div>
+                <div class="stat-value text-primary mt-2">{{ qtd_carros_mes }}</div>
                 <div class="stat-desc">Veículos entregues</div>
             </div>
 
-            <div class="stat bg-base-100 shadow rounded-box">
+            <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(25%-18px)]">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="stat-title text-base-content/70">Garantia + Cortesia</div>
+                        <div class="text-sm text-warning font-semibold">Não faturado</div>
+                    </div>
+                </div>
+                <div class="stat-value text-warning mt-2">{{ qtd_carros_garantia_cortesia_mes }}</div>
+                <div class="stat-desc">Veículos do mês</div>
+            </div>
+
+            <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(25%-18px)]">
                 <div class="stat-figure text-secondary">
                     <i class="ph ph-money text-3xl"></i>
                 </div>
@@ -54,7 +67,7 @@
                 <div class="stat-desc">Faturamento / Qtd Carros</div>
             </div>
 
-            <div class="stat bg-base-100 shadow rounded-box">
+            <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(25%-18px)]">
                 <div class="stat-figure text-success">
                     <i class="ph ph-trend-up text-3xl"></i>
                 </div>
@@ -63,7 +76,7 @@
                 <div class="stat-desc">Pago até o momento</div>
             </div>
 
-            <div class="stat bg-base-100 shadow rounded-box border-2 border-primary/20">
+            <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(25%-18px)]">
                 <div class="stat-figure text-primary">
                     <i class="ph ph-chart-line text-3xl"></i>
                 </div>
