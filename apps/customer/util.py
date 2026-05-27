@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 
 import requests
 
@@ -91,6 +92,12 @@ def fetch_vehicle_data(plate):
         brand, model = _extract_brand_and_model(_first_present(vehicle_data.get("marca_modelo"), root_data.get("marca_modelo")), fipe_entry)
 
         raw_engine = _first_present(vehicle_data.get("cilindradas"), vehicle_data.get("motor"), vehicle_data.get("potencia"), root_data.get("cilindradas"), root_data.get("motor"), root_data.get("potencia"), extra_data.get("cilindradas"), extra_data.get("motor"), extra_data.get("potencia"))
+        if not raw_engine:
+            model_name = _first_present(vehicle_data.get("modelo"), root_data.get("modelo"), root_data.get("MODELO"))
+            if model_name:
+                engine_match = re.search(r'(?<!\d)(\d[.,]\d)(?!\d)', str(model_name))
+                if engine_match:
+                    raw_engine = engine_match.group(1).replace(",", ".")
         raw_fuel = _first_present(vehicle_data.get("combustivel"), root_data.get("combustivel"), extra_data.get("combustivel"))
         raw_type = _first_present(vehicle_data.get("tipo_de_veiculo"), vehicle_data.get("tipo_veiculo"), root_data.get("tipo_de_veiculo"), root_data.get("tipo_veiculo"), extra_data.get("tipo_de_veiculo"), extra_data.get("tipo_veiculo"))
         raw_color = _first_present(vehicle_data.get("cor"), root_data.get("cor"))
@@ -112,6 +119,7 @@ def fetch_vehicle_data(plate):
 
         if extra_data:
             vehicle_info.update({"year_fabrication": extra_data.get("ano_fabricacao", vehicle_info["year_fabrication"])})
+            vehicle_info.update({"year_model": extra_data.get("ano_modelo", vehicle_info["year_model"])})
 
         vehicle_info["engine"] = normalize_vehicle_engine_choice(vehicle_info.get("engine"))
         vehicle_info["fuel"] = normalize_vehicle_fuel_choice(vehicle_info.get("fuel"))
