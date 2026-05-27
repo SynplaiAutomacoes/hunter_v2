@@ -94,7 +94,7 @@ class SupplierForm(AddressFormMixin, CoreModelForm):
 
             if queryset.exists():
                 # Adiciona o erro especificamente no campo CNPJ
-                self.add_error("cnpj", "Já existe um fornecedor cadastrado com este CNPJ nesta oficina.")
+                self.add_error("cnpj", "Já existe um fornecedor cadastrado com este CNPJ/CPF nesta oficina.")
 
         return cleaned_data
 
