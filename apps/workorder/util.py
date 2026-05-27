@@ -244,6 +244,9 @@ def trigger_workorder_signature_send_if_needed(*, workorder: WorkOrder) -> tuple
     if workorder.has_signature_blockers:
         return "error", workorder.signature_blockers_display
 
+    if not workorder.budget.service_expected_completion_at:
+        return "error", "Não é possível enviar para assinatura antes de definir a data prevista de término do serviço."
+
     with transaction.atomic():
         locked_workorder = WorkOrder.objects.select_for_update().get(pk=workorder.pk)
 

@@ -823,7 +823,10 @@ class Budget(TimeStampedModel):
 
     @property
     def signature_blockers(self) -> list[str]:
-        return []
+        blockers: list[str] = []
+        if self.service_expected_completion_at:
+            blockers.append("Não é possível enviar para assinatura após definir a data prevista de término do serviço.")
+        return blockers
 
     @property
     def has_signature_blockers(self) -> bool:

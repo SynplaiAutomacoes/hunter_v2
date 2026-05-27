@@ -50,6 +50,9 @@ def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, s
     if budget.has_signature_blockers:
         return "error", budget.signature_blockers_display, None
 
+    if not budget.service_expected_completion_at:
+        return "error", "Não é possível enviar para assinatura antes de definir a data prevista de término do serviço.", None
+
     with transaction.atomic():
         locked_budget = Budget.objects.select_for_update().get(pk=budget.pk)
 
@@ -888,6 +891,13 @@ class SendBudgetSignatureView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+
+        if not budget.service_expected_completion_at:
+            return JsonResponse(
+                {"success": False, "type": "error", "message": "Não é possível enviar para assinatura antes de definir a data prevista de término do serviço."},
+                status=400,
+            )
+
         toast_type, toast_message, _ = trigger_signature_send_if_needed(request=request, budget=budget)
 
         if toast_type in {"success", "info"}:
