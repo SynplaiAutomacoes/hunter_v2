@@ -69,6 +69,32 @@ Fonte oficial consultada:
 - NFCom: beta, uso manual de baixa prioridade, isolada por feature flag e habilitacao administrativa por oficina.
 - DC-e: beta, isolada por feature flag e habilitacao administrativa por oficina.
 
+## Planejamento Fase 2.0 - NF-e/NFC-e
+
+Fonte oficial reconferida em 2026-05-28: a pagina NF-e/NFC-e confirma a API v1 em `https://webmania.com.br/api/`, autenticacao por quatro headers, formato JSON, notificacoes por `uuid`, `status`, `motivo`, `chave`, `xml`, `danfe` e `log`, e lista os endpoints de emissao, devolucao/estorno, ajuste, complementar, CC-e, manifestacao e eventos IBS/CBS.
+
+| Subfase | Operacao | Endpoint Webmania | Tipo local recomendado | Uso no Hunter V2 |
+| ------- | -------- | ----------------- | ---------------------- | ---------------- |
+| 2.1 | CC-e | `POST /1/nfe/cartacorrecao/` | Evento fiscal vinculado a NF-e | Corrigir texto de NF-e autorizada sem alterar valores. |
+| 2.2 | Devolucao/estorno | `POST /1/nfe/devolucao/` | Documento derivado | Devolver produtos/estornar nota fora do cancelamento. |
+| 2.2 | Complementar | `POST /1/nfe/complementar/` | Documento derivado | Complementar preco, quantidade, imposto ou dados suportados. |
+| 2.2 | Ajuste | `POST /1/nfe/ajuste/` | Documento derivado | Ajustes fiscais com referencia obrigatoria. |
+| 2.3 | NFC-e | `POST /1/nfe/emissao/` com modelo NFC-e | Documento fiscal legado/derivado futuro | Venda consumidor em oficina habilitada. |
+| 2.3 | Cancelamento NFC-e | `PUT /1/nfe/cancelar/` | Evento de cancelamento do documento | Cancelar NFC-e conforme status e prazo/regra Webmania/SEFAZ. |
+| 2.4 | Manifestacao | `POST /1/nfe/manifesta/` | Evento fiscal vinculado a chave/documento | Registrar ciencia, confirmacao, desconhecimento ou operacao nao realizada quando suportado. |
+| 2.4 | Evento IBS/CBS | `POST /1/nfe/evento-ibs-cbs/` | Evento fiscal vinculado a NF-e/NFC-e | Registrar eventos da Reforma Tributaria. |
+| 2.4 | Cancelar evento IBS/CBS | `PUT /1/nfe/evento-ibs-cbs/cancelar/` | Evento de cancelamento vinculado ao evento original | Cancelar evento IBS/CBS previamente autorizado. |
+| 2.x | Consulta | `GET /1/nfe/consulta/` | Atualizacao de documento/evento | Reconciliar status e downloads sem emissao. |
+| 2.x | Downloads | URLs `xml`, `danfe` e XML de evento quando retornado | Download autorizado | Baixar XML/PDF por URL retornada ou resposta remota. |
+
+Observacoes condicionais:
+
+- A Webmania usa o mesmo endpoint de emissao para NF-e e NFC-e; o Hunter deve diferenciar o modelo localmente antes do payload.
+- CC-e, manifestacao e IBS/CBS sao eventos e nao devem consumir numeracao como nota comum.
+- Devolucao, complementar e ajuste sao documentos novos e devem receber tentativa idempotente propria, com vinculo ao documento original.
+- Para NFC-e, cancelamento por substituicao deve ser tratado como variacao de cancelamento somente se a documentacao vigente e a configuracao da oficina confirmarem suporte; ate la, registrar como pendencia de validacao.
+- A matriz OpenAPI validada ja contem os endpoints da Fase 2.0; nenhuma correcao no JSON foi necessaria nesta etapa documental.
+
 ## Validacao do arquivo OpenAPI recebido
 
 | Item                   | OpenAPI recebido                       | Documentacao oficial                              | Correcao necessaria                      |

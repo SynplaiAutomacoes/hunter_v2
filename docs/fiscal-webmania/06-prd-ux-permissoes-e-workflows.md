@@ -58,3 +58,38 @@ Na Fase 1, preservar telas atuais de NF-e/NFS-e. A central unificada pode evolui
 - Ambos exigem feature flag global, habilitacao administrativa por oficina e permissao especifica.
 - Desativar NFCom ou DC-e nao pode afetar NF-e, NFC-e, NFS-e, CT-e ou MDF-e.
 - Erros beta devem ser isolados e nao podem bloquear workflows fiscais prioritarios.
+
+## Fase 2.0 - UX NF-e/NFC-e
+
+A Fase 2 deve preservar as telas legadas de NF-e e adicionar acoes condicionais no detalhe/listagem do documento:
+
+- CC-e: disponivel somente para NF-e autorizada da oficina ativa.
+- Devolucao/estorno: disponivel para NF-e autorizada, com itens selecionaveis e referencia obrigatoria.
+- Complementar: disponivel para NF-e autorizada, com tipo de complemento explicito.
+- Ajuste: disponivel para usuario autorizado, com justificativa e dados fiscais obrigatorios.
+- NFC-e: disponivel em emissao manual/contextual somente se a oficina tiver configuracao NFC-e habilitada.
+- Manifestacao: disponivel para documento/chave elegivel e usuario autorizado.
+- IBS/CBS: inicialmente atras de permissao especifica e aviso de Reforma Tributaria.
+
+Eventos devem aparecer em timeline/historico do documento original. Documentos derivados devem aparecer como documentos proprios na listagem, mas com link "Documento original".
+
+## Permissoes especificas Fase 2
+
+| Acao | Owner | Diretor | Gerente | Colaborador | Permissao especifica | Escopo oficina |
+| ---- | ----: | ------: | ------: | ----------: | -------------------- | -------------- |
+| Emitir CC-e | Sim | Sim | Opcional | Nao | `issue_nfe_correction` | Obrigatorio |
+| Emitir devolucao/estorno | Sim | Sim | Opcional | Nao | `issue_nfe_return` | Obrigatorio |
+| Emitir complementar | Sim | Sim | Opcional | Nao | `issue_nfe_complementary` | Obrigatorio |
+| Emitir ajuste | Sim | Sim | Nao | Nao | `issue_nfe_adjustment` | Obrigatorio |
+| Emitir NFC-e | Sim | Sim | Opcional | Nao | `issue_nfce` | Obrigatorio |
+| Manifestar NF-e | Sim | Sim | Opcional | Nao | `manifest_nfe` | Obrigatorio |
+| Emitir evento IBS/CBS | Sim | Sim | Nao | Nao | `issue_nfe_ibs_cbs_event` | Obrigatorio |
+| Cancelar evento IBS/CBS | Sim | Sim | Nao | Nao | `cancel_nfe_ibs_cbs_event` | Obrigatorio |
+| Consultar documentos/eventos NF-e/NFC-e | Sim | Sim | Sim | Opcional | `view_fiscaldocument` | Obrigatorio |
+| Baixar XML/DANFE/eventos | Sim | Sim | Sim | Opcional | `download_fiscaldocument` | Obrigatorio |
+| Visualizar payload de evento | Sim | Opcional | Nao | Nao | `view_fiscal_payload` | Obrigatorio |
+
+Compatibilidade:
+
+- Enquanto permissoes novas nao forem migradas para todos os usuarios, views Fase 2 podem manter fallback documentado para permissoes legadas apenas quando nao ampliar acesso.
+- Fallback nunca deve permitir acesso cross-workshop.

@@ -1,0 +1,298 @@
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+import requests
+from django.conf import settings
+from django.db import IntegrityError, transaction
+from django.db.models import Max
+from django.http import HttpRequest
+from django.utils import timezone
+
+from apps.finance.models.finance import (
+    FiscalDocument,
+    FiscalDocumentEvent,
+    FiscalDocumentEventStatus,
+    FiscalDocumentEventType,
+    FiscalDocumentStatus,
+    FiscalDocumentType,
+    FiscalEmissionAttempt,
+    FiscalEmissionDocumentKind,
+    FiscalEmissionOperationType,
+    NfeItem,
+    NfeItemStatus,
+)
+from apps.finance.services.emission import build_webmania_webhook_url
+from apps.finance.services.fiscal_attempts import (
+    FiscalEmissionAttemptBlocked,
+    begin_emission_attempt,
+    build_fiscal_operation_idempotency_key,
+    build_payload_hash,
+    mark_attempt_failed,
+    mark_attempt_sent,
+    mark_attempt_succeeded,
+    mark_attempt_uncertain,
+    sanitize_fiscal_payload,
+)
+from apps.finance.services.nfe_emission import NfeEmissionError
+from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting, should_use_global_webmania_auth
+from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+
+
+logger = logging.getLogger(__name__)
+
+CCE_MAX_SEQUENCE = 20
+CCE_MIN_TEXT_LENGTH = 15
+CCE_MAX_TEXT_LENGTH = 1000
+
+
+class NfeCorrectionError(NfeEmissionError):
+    pass
+
+
+def _build_headers(*, workshop=None) -> dict[str, str]:
+    try:
+        if should_use_global_webmania_auth():
+            return build_webmania_headers()
+        return build_webmania_headers(workshop=workshop)
+    except WebmaniaAuthError as exc:
+        raise NfeCorrectionError(str(exc)) from exc
+
+
+def _build_cce_url() -> str:
+    custom_endpoint = sanitize_webmania_setting(getattr(settings, "WEBMANIA_NFE_CCE_ENDPOINT", ""))
+    if custom_endpoint:
+        return f"{custom_endpoint.rstrip('/')}/"
+
+    base_url = sanitize_webmania_setting(getattr(settings, "WEBMANIA_TAX_CLASS_BASE_URL", "https://webmania.com.br/api")).rstrip("/")
+    return f"{base_url}/1/nfe/cartacorrecao/"
+
+
+def validate_correction_text(correction_text: str) -> str:
+    normalized = str(correction_text or "").strip()
+    if len(normalized) < CCE_MIN_TEXT_LENGTH or len(normalized) > CCE_MAX_TEXT_LENGTH:
+        raise NfeCorrectionError("Informe uma correcao entre 15 e 1000 caracteres.")
+    return normalized
+
+
+def is_nfe_item_eligible_for_cce(item: NfeItem | None) -> bool:
+    if item is None:
+        return False
+    if str(getattr(item, "status", "")).strip().lower() != NfeItemStatus.aprovado:
+        return False
+    return bool(str(getattr(item, "access_key", "") or "").strip() or str(getattr(item, "uuid", "") or "").strip())
+
+
+def ensure_fiscal_document_for_nfe_item(*, item: NfeItem) -> FiscalDocument:
+    if not is_nfe_item_eligible_for_cce(item):
+        raise NfeCorrectionError("Carta de correcao permitida somente para NF-e autorizada com chave de acesso ou UUID valido.")
+
+    workshop = item.workshop
+    account = getattr(workshop, "account", None)
+    defaults = {
+        "account": account,
+        "document_type": FiscalDocumentType.NFE,
+        "remote_uuid": str(item.uuid or "").strip(),
+        "access_key": str(item.access_key or "").strip(),
+        "series": str(item.series or "").strip(),
+        "number": str(item.number or "").strip(),
+        "environment": str(getattr(settings, "WEBMANIA_AMBIENT", "2") or "2").strip(),
+        "status": FiscalDocumentStatus.APPROVED,
+        "remote_status": str(item.status or "").strip(),
+    }
+    try:
+        document, created = FiscalDocument.objects.get_or_create(
+            workshop=workshop,
+            legacy_nfe_item=item,
+            defaults=defaults,
+        )
+    except IntegrityError:
+        document = FiscalDocument.objects.get(workshop=workshop, legacy_nfe_item=item)
+        created = False
+    if not created:
+        changed_fields: list[str] = []
+        for field_name, value in defaults.items():
+            if getattr(document, field_name) != value:
+                setattr(document, field_name, value)
+                changed_fields.append(field_name)
+        if changed_fields:
+            changed_fields.append("atualizado_em")
+            document.save(update_fields=changed_fields)
+    return document
+
+
+def _next_cce_sequence(*, document: FiscalDocument) -> int:
+    current_max = document.events.filter(event_type=FiscalDocumentEventType.CCE).aggregate(max_sequence=Max("event_sequence"))["max_sequence"] or 0
+    next_sequence = int(current_max) + 1
+    if next_sequence > CCE_MAX_SEQUENCE:
+        raise NfeCorrectionError("Limite de 20 cartas de correcao atingido para esta NF-e.")
+    return next_sequence
+
+
+def _assert_no_active_cce_attempt(*, document: FiscalDocument) -> None:
+    active_statuses = [
+        FiscalDocumentEventStatus.STARTED,
+        FiscalDocumentEventStatus.SENT,
+        FiscalDocumentEventStatus.PROCESSING,
+        FiscalDocumentEventStatus.UNCERTAIN,
+    ]
+    if document.events.filter(event_type=FiscalDocumentEventType.CCE, status__in=active_statuses).exists():
+        raise NfeCorrectionError("Ja existe uma carta de correcao em processamento ou estado incerto para esta NF-e.")
+
+
+def _build_cce_payload(*, document: FiscalDocument, correction_text: str, event_sequence: int, request: HttpRequest | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "correcao": correction_text,
+        "ambiente": int(str(document.environment or getattr(settings, "WEBMANIA_AMBIENT", "2") or "2")),
+        "evento": event_sequence,
+    }
+    access_key = str(document.access_key or "").strip()
+    if access_key:
+        payload["chave"] = access_key
+    else:
+        payload["uuid"] = str(document.remote_uuid or "").strip()
+
+    notification_url = build_webmania_webhook_url(request=request)
+    if notification_url:
+        payload["url_notificacao"] = notification_url
+    return payload
+
+
+def reserve_cce_event_attempt(*, document: FiscalDocument, correction_text: str, requested_by: Any | None, request: HttpRequest | None = None) -> tuple[FiscalDocumentEvent, FiscalEmissionAttempt, dict[str, Any]]:
+    correction_text = validate_correction_text(correction_text)
+
+    with transaction.atomic():
+        locked_document = FiscalDocument.objects.select_for_update().select_related("workshop").get(pk=document.pk)
+        _assert_no_active_cce_attempt(document=locked_document)
+        event_sequence = _next_cce_sequence(document=locked_document)
+        payload = _build_cce_payload(document=locked_document, correction_text=correction_text, event_sequence=event_sequence, request=request)
+        sanitized_payload = sanitize_fiscal_payload(payload)
+
+        event = FiscalDocumentEvent.objects.create(
+            document=locked_document,
+            event_type=FiscalDocumentEventType.CCE,
+            event_sequence=event_sequence,
+            status=FiscalDocumentEventStatus.STARTED,
+            correction_text=correction_text,
+            request_payload=sanitized_payload,
+            requested_by=requested_by if getattr(requested_by, "is_authenticated", False) else None,
+            legal_confirmation=True,
+            confirmed_at=timezone.now(),
+        )
+
+        idempotency_key = build_fiscal_operation_idempotency_key(
+            workshop_id=locked_document.workshop_id,
+            document_id=locked_document.pk,
+            operation_type=FiscalEmissionOperationType.CCE,
+            sequence=event_sequence,
+        )
+        attempt = begin_emission_attempt(
+            workshop=locked_document.workshop,
+            document_kind=FiscalEmissionDocumentKind.NFE,
+            operation_type=FiscalEmissionOperationType.CCE,
+            request_model=FiscalDocumentEvent.__name__,
+            request_id=event.pk,
+            fiscal_document=locked_document,
+            fiscal_document_event=event,
+            idempotency_key=idempotency_key,
+            request_payload=sanitized_payload,
+            payload_hash=build_payload_hash(sanitized_payload),
+        )
+        return event, attempt, payload
+
+
+def _is_failed_cce_response(payload: dict[str, Any]) -> bool:
+    status = str(payload.get("status") or "").strip().lower()
+    return status in {"erro", "error", "falha", "failed", "reprovado", "rejeitado"}
+
+
+def _status_from_cce_payload(payload: dict[str, Any]) -> str:
+    status = str(payload.get("status") or "").strip().lower()
+    if status in {FiscalDocumentEventStatus.APPROVED, FiscalDocumentEventStatus.REPROVED, FiscalDocumentEventStatus.PROCESSING}:
+        return status
+    if _is_failed_cce_response(payload):
+        return FiscalDocumentEventStatus.FAILED
+    return FiscalDocumentEventStatus.APPROVED if str(payload.get("uuid") or "").strip() else FiscalDocumentEventStatus.PROCESSING
+
+
+def apply_cce_event_payload(*, event: FiscalDocumentEvent, response_payload: dict[str, Any]) -> FiscalDocumentEvent:
+    sanitized_payload = sanitize_fiscal_payload(response_payload)
+    event.response_payload = sanitized_payload
+    event.status = _status_from_cce_payload(response_payload)
+    event.remote_uuid = str(response_payload.get("uuid") or event.remote_uuid or "").strip()
+    event.remote_model = str(response_payload.get("modelo") or response_payload.get("model") or event.remote_model or "cce").strip().lower()
+    event.xml_url = str(response_payload.get("xml") or event.xml_url or "").strip()
+    event.dacce_url = str(response_payload.get("dacce") or event.dacce_url or "").strip()
+    event.save(update_fields=["response_payload", "status", "remote_uuid", "remote_model", "xml_url", "dacce_url", "atualizado_em"])
+    return event
+
+
+def mark_cce_event_uncertain(*, event: FiscalDocumentEvent, error_message: str) -> None:
+    event.status = FiscalDocumentEventStatus.UNCERTAIN
+    event.response_payload = sanitize_fiscal_payload({"error": error_message})
+    event.save(update_fields=["status", "response_payload", "atualizado_em"])
+
+
+def _replay_pending_cce_webhooks_for_uuid(*, event_uuid: str) -> None:
+    if not event_uuid:
+        return
+    from apps.finance.services.webmania_webhooks import process_pending_webhook_events
+
+    process_pending_webhook_events(model="cce", event_uuid=event_uuid)
+
+
+def emit_nfe_correction(*, nfe_item: NfeItem, correction_text: str, requested_by: Any | None = None, request: HttpRequest | None = None) -> FiscalDocumentEvent:
+    document = ensure_fiscal_document_for_nfe_item(item=nfe_item)
+    try:
+        event, attempt, payload = reserve_cce_event_attempt(document=document, correction_text=correction_text, requested_by=requested_by, request=request)
+    except FiscalEmissionAttemptBlocked as exc:
+        raise NfeCorrectionError(str(exc)) from exc
+
+    headers = _build_headers(workshop=document.workshop)
+    mark_attempt_sent(attempt=attempt)
+    event.status = FiscalDocumentEventStatus.SENT
+    event.save(update_fields=["status", "atualizado_em"])
+
+    try:
+        response = requests.post(_build_cce_url(), json=payload, headers=headers, timeout=30)
+        response.raise_for_status()
+    except requests.Timeout as exc:
+        message = "Timeout ao emitir carta de correcao; estado remoto incerto."
+        logger.warning("nfe_cce_timeout", extra={"fiscal_document_event_id": event.pk, "fiscal_attempt_id": attempt.pk})
+        mark_attempt_uncertain(attempt=attempt, error_message=message)
+        mark_cce_event_uncertain(event=event, error_message=message)
+        raise NfeCorrectionError(message) from exc
+    except requests.RequestException as exc:
+        message = build_webmania_request_exception_message(exc, default="Falha ao emitir carta de correcao", scope="nfe")
+        logger.warning("nfe_cce_request_failed", extra={"fiscal_document_event_id": event.pk, "fiscal_attempt_id": attempt.pk})
+        mark_attempt_failed(attempt=attempt, error_message=message)
+        event.status = FiscalDocumentEventStatus.FAILED
+        event.response_payload = sanitize_fiscal_payload({"error": message})
+        event.save(update_fields=["status", "response_payload", "atualizado_em"])
+        raise NfeCorrectionError(message) from exc
+
+    try:
+        response_payload = response.json()
+    except ValueError as exc:
+        message = "Resposta invalida da Webmania ao emitir carta de correcao; estado remoto incerto."
+        mark_attempt_uncertain(attempt=attempt, error_message=message)
+        mark_cce_event_uncertain(event=event, error_message=message)
+        raise NfeCorrectionError(message) from exc
+
+    if not isinstance(response_payload, dict):
+        message = "Resposta invalida da Webmania ao emitir carta de correcao; estado remoto incerto."
+        mark_attempt_uncertain(attempt=attempt, error_message=message)
+        mark_cce_event_uncertain(event=event, error_message=message)
+        raise NfeCorrectionError(message)
+
+    event = apply_cce_event_payload(event=event, response_payload=response_payload)
+    if _is_failed_cce_response(response_payload):
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "Carta de correcao rejeitada pela Webmania."
+        mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
+        raise NfeCorrectionError(message)
+
+    mark_attempt_succeeded(attempt=attempt, response_payload=response_payload)
+    if event.remote_uuid:
+        _replay_pending_cce_webhooks_for_uuid(event_uuid=event.remote_uuid)
+    return event

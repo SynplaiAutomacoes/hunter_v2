@@ -1,4 +1,4 @@
-from .finance import FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, NfeItem, NfeRequest, NfseBatch, NfseItem, NfseRequest, TaxClassNfe, TaxClassNfeCofinsScenario, TaxClassNfeIcmsScenario, TaxClassNfeIpiScenario, TaxClassNfePisScenario, TaxClassNfse, TaxClassPreset, TaxClassPresetKind, TaxClassSyncState, WebmaniaCompany
+from .finance import FiscalDocument, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, NfeItem, NfeRequest, NfseBatch, NfseItem, NfseRequest, TaxClassNfe, TaxClassNfeCofinsScenario, TaxClassNfeIcmsScenario, TaxClassNfeIpiScenario, TaxClassNfePisScenario, TaxClassNfse, TaxClassPreset, TaxClassPresetKind, TaxClassSyncState, WebmaniaCompany
 from .financial_group import FinancialGroup
 from .payment_method import PaymentMethod
 from .movement_group import MovementGroup
@@ -8,9 +8,16 @@ __all__ = [
     "FinancialGroup",
     "MovementGroup",
     "FinancialMovement",
+    "FiscalDocument",
+    "FiscalDocumentEvent",
+    "FiscalDocumentEventStatus",
+    "FiscalDocumentEventType",
+    "FiscalDocumentStatus",
+    "FiscalDocumentType",
     "FiscalEmissionAttempt",
     "FiscalEmissionAttemptStatus",
     "FiscalEmissionDocumentKind",
+    "FiscalEmissionOperationType",
     "NfeItem",
     "NfeRequest",
     "NfseBatch",

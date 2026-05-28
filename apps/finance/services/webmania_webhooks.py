@@ -7,9 +7,10 @@ from typing import Any
 from django.db import transaction
 from django.utils import timezone
 
-from apps.finance.models.finance import NfeItem, NfseBatch, NfseItem, WebmaniaWebhookEvent
+from apps.finance.models.finance import FiscalDocumentEvent, NfeItem, NfseBatch, NfseItem, WebmaniaWebhookEvent
 from apps.finance.services.emission import apply_nfse_batch_payload, apply_nfse_item_payload
 from apps.finance.services.mappers import extract_items_from_batch
+from apps.finance.services.nfe_events import apply_cce_event_payload
 from apps.finance.services.nfe_emission import apply_nfe_item_payload
 
 
@@ -72,6 +73,16 @@ def _status_rank(model: str, status: str) -> int:
             "reprovado": 40,
             "denegado": 40,
             "cancelado": 50,
+        }.get(normalized, 0)
+    if model == "cce":
+        return {
+            "started": 5,
+            "sent": 8,
+            "processando": 10,
+            "uncertain": 15,
+            "aprovado": 30,
+            "reprovado": 40,
+            "failed": 40,
         }.get(normalized, 0)
     return 0
 
@@ -171,6 +182,31 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
                     response_payload=payload,
                     webhook_received_at=webhook_received_at,
                 )
+
+        _mark_event_processed(event)
+        return True
+
+    if model == "cce":
+        cce_event = _unique_or_none(FiscalDocumentEvent.objects.filter(remote_uuid=event_uuid).select_related("document", "document__legacy_nfe_item"))
+        if cce_event is None:
+            cce_event = _unique_or_none(
+                FiscalDocumentEvent.objects.filter(emission_attempts__remote_uuid=event_uuid).select_related("document", "document__legacy_nfe_item")
+            )
+        if cce_event is None:
+            access_key = str(payload.get("chave") or "").strip()
+            event_sequence = payload.get("evento")
+            if access_key and str(event_sequence or "").isdigit():
+                cce_event = _unique_or_none(
+                    FiscalDocumentEvent.objects.filter(document__access_key=access_key, event_type="cce", event_sequence=int(event_sequence)).select_related("document", "document__legacy_nfe_item")
+                )
+        if cce_event is None:
+            _mark_event_deferred(event, error=f"Carta de correcao {event_uuid} ainda nao foi sincronizada localmente ou esta ambigua.")
+            return False
+
+        with transaction.atomic():
+            cce_event = FiscalDocumentEvent.objects.select_for_update().get(pk=cce_event.pk)
+            if not _is_regressive_status(model="cce", current_status=cce_event.status, incoming_status=str(payload.get("status") or "")):
+                apply_cce_event_payload(event=cce_event, response_payload=payload)
 
         _mark_event_processed(event)
         return True

@@ -12,6 +12,7 @@ from unittest.mock import ANY, Mock, patch
 import time
 from urllib.parse import quote
 
+import requests
 from django.contrib.messages import get_messages
 from django.core.management import call_command
 from django.core.exceptions import ValidationError
@@ -42,7 +43,7 @@ from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.movement_group import MovementGroup
-from apps.finance.models.finance import NfeItem, NfeRequest, NfeRequestStatus, NfseItem, NfseRequest, NfseRequestStatus, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalEmissionAttempt, NfeItem, NfeRequest, NfeRequestStatus, NfseItem, NfseRequest, NfseRequestStatus, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
@@ -10246,3 +10247,456 @@ class FiscalPhaseOneConcurrentEmissionTests(TransactionTestCase):
         self.assertIn("tentativa fiscal remota registrada", errors[0])
         attempt = FiscalEmissionAttempt.objects.get(document_kind="nfe", request_id=nfe_request.pk)
         self.assertEqual(attempt.status, "succeeded")
+
+
+class FiscalPhaseTwoCorrectionTests(TestCase):
+    def _create_workorder(self, *, suffix: int = 30) -> WorkOrder:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=suffix)
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=timezone.now().date())
+        return WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+
+    def _create_nfe_item(self, *, suffix: int = 30, status: str = "aprovado", access_key: str | None = None) -> NfeItem:
+        workorder = self._create_workorder(suffix=suffix)
+        nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=workorder, tax_class="REFNFE")
+        return NfeItem.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            request=nfe_request,
+            uuid=f"{suffix:08d}-c0da-46ee-a880-a03f8547a9bc",
+            status=status,
+            access_key=access_key if access_key is not None else f"35{suffix:042d}"[-44:],
+            number=str(suffix),
+            series="1",
+        )
+
+    def _emit_success(self, item: NfeItem, *, correction: str = "Correcao de informacoes complementares fiscais.", remote_uuid: str = "8f895e61-c0da-46ee-a880-a03f8547a9bc") -> FiscalDocumentEvent:
+        from apps.finance.services.nfe_events import emit_nfe_correction
+
+        response_payload = {
+            "uuid": remote_uuid,
+            "modelo": "cce",
+            "status": "aprovado",
+            "evento": 1,
+            "xml": "https://example.test/cce.xml",
+            "dacce": "https://example.test/dacce.pdf",
+            "log": {"authorization": "secret"},
+        }
+        with (
+            patch("apps.finance.services.nfe_events._build_headers", return_value={"X-Access-Token": "secret"}),
+            patch("apps.finance.services.nfe_events.requests.post", return_value=_mock_response(response_payload)) as post_mock,
+        ):
+            event = emit_nfe_correction(nfe_item=item, correction_text=correction, requested_by=self.user)
+
+        self.assertEqual(post_mock.call_count, 1)
+        return event
+
+    def test_cce_creates_fiscal_document_projection_on_demand_without_backfill(self) -> None:
+        item = self._create_nfe_item(suffix=31)
+        self.assertFalse(FiscalDocument.objects.exists())
+
+        event = self._emit_success(item)
+
+        document = FiscalDocument.objects.get(legacy_nfe_item=item, workshop=self.workshop)
+        self.assertEqual(event.document, document)
+        self.assertEqual(document.document_type, "nfe")
+        self.assertEqual(document.remote_uuid, str(item.uuid))
+        self.assertEqual(document.access_key, item.access_key)
+        self.assertEqual(document.account, self.workshop.account)
+
+    def test_cce_requires_authorized_eligible_nfe_item(self) -> None:
+        from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction
+
+        for index, status in enumerate(["cancelado", "reprovado", "denegado"], start=32):
+            item = self._create_nfe_item(suffix=index, status=status)
+            with patch("apps.finance.services.nfe_events.requests.post") as post_mock:
+                with self.assertRaisesMessage(NfeCorrectionError, "NF-e autorizada"):
+                    emit_nfe_correction(nfe_item=item, correction_text="Correcao de informacoes complementares fiscais.", requested_by=self.user)
+
+            post_mock.assert_not_called()
+        self.assertFalse(FiscalDocument.objects.exists())
+
+    def test_cce_correction_text_length_is_validated(self) -> None:
+        from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction
+
+        item = self._create_nfe_item(suffix=33)
+        with self.assertRaisesMessage(NfeCorrectionError, "15 e 1000"):
+            emit_nfe_correction(nfe_item=item, correction_text="curto", requested_by=self.user)
+
+        with self.assertRaisesMessage(NfeCorrectionError, "15 e 1000"):
+            emit_nfe_correction(nfe_item=item, correction_text="x" * 1001, requested_by=self.user)
+
+    def test_cce_sequence_starts_at_one_and_blocks_above_twenty(self) -> None:
+        from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction, ensure_fiscal_document_for_nfe_item
+
+        item = self._create_nfe_item(suffix=34)
+        first_event = self._emit_success(item)
+        self.assertEqual(first_event.event_sequence, 1)
+
+        document = ensure_fiscal_document_for_nfe_item(item=item)
+        for sequence in range(2, 21):
+            FiscalDocumentEvent.objects.create(document=document, event_type="cce", event_sequence=sequence, status=FiscalDocumentEventStatus.APPROVED, correction_text=f"Correcao {sequence}")
+
+        with patch("apps.finance.services.nfe_events.requests.post") as post_mock:
+            with self.assertRaisesMessage(NfeCorrectionError, "Limite de 20"):
+                emit_nfe_correction(nfe_item=item, correction_text="Nova correcao de informacoes complementares fiscais.", requested_by=self.user)
+        post_mock.assert_not_called()
+
+    def test_cce_second_legitimate_event_reserves_sequence_two(self) -> None:
+        item = self._create_nfe_item(suffix=44)
+
+        first_event = self._emit_success(item, correction="Primeira correcao de informacoes complementares fiscais.", remote_uuid="8f895e61-c0da-46ee-a880-a03f8547a9c1")
+        second_event = self._emit_success(item, correction="Segunda correcao de informacoes complementares fiscais.", remote_uuid="8f895e61-c0da-46ee-a880-a03f8547a9c2")
+
+        self.assertEqual(first_event.event_sequence, 1)
+        self.assertEqual(second_event.event_sequence, 2)
+        self.assertEqual(FiscalEmissionAttempt.objects.filter(fiscal_document_event__document__legacy_nfe_item=item, operation_type="cce").count(), 2)
+
+    def test_cce_same_sequence_with_different_payload_is_rejected_as_conflict(self) -> None:
+        from apps.finance.services.fiscal_attempts import FiscalEmissionAttemptBlocked, begin_emission_attempt
+
+        item = self._create_nfe_item(suffix=45)
+        event = self._emit_success(item)
+        attempt = FiscalEmissionAttempt.objects.get(fiscal_document_event=event)
+
+        with self.assertRaises(FiscalEmissionAttemptBlocked):
+            begin_emission_attempt(
+                workshop=self.workshop,
+                document_kind="nfe",
+                operation_type="cce",
+                request_model=FiscalDocumentEvent.__name__,
+                request_id=event.pk,
+                fiscal_document=event.document,
+                fiscal_document_event=event,
+                idempotency_key=attempt.idempotency_key,
+                request_payload={"correcao": "Payload divergente para a mesma sequencia."},
+            )
+
+    def test_cce_uncertain_attempt_blocks_resend_and_preserves_sequence(self) -> None:
+        from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction
+
+        item = self._create_nfe_item(suffix=35)
+        with (
+            patch("apps.finance.services.nfe_events._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_events.requests.post", side_effect=requests.Timeout("timeout")) as post_mock,
+        ):
+            with self.assertRaisesMessage(NfeCorrectionError, "estado remoto incerto"):
+                emit_nfe_correction(nfe_item=item, correction_text="Correcao de informacoes complementares fiscais.", requested_by=self.user)
+            with self.assertRaisesMessage(NfeCorrectionError, "estado incerto"):
+                emit_nfe_correction(nfe_item=item, correction_text="Correcao de informacoes complementares fiscais.", requested_by=self.user)
+
+        self.assertEqual(post_mock.call_count, 1)
+        event = FiscalDocumentEvent.objects.get(document__legacy_nfe_item=item)
+        attempt = FiscalEmissionAttempt.objects.get(fiscal_document_event=event)
+        self.assertEqual(event.event_sequence, 1)
+        self.assertEqual(event.status, "uncertain")
+        self.assertTrue(event.legal_confirmation)
+        self.assertIsNotNone(event.confirmed_at)
+        self.assertEqual(attempt.operation_type, "cce")
+        self.assertEqual(attempt.status, "uncertain")
+
+    def test_cce_webhook_is_idempotent_and_does_not_change_original_nfe_status(self) -> None:
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        item = self._create_nfe_item(suffix=36)
+        event = self._emit_success(item)
+        item.status = "aprovado"
+        item.save(update_fields=["status"])
+
+        payload = {
+            "modelo": "cce",
+            "uuid": event.remote_uuid,
+            "status": "aprovado",
+            "xml": "https://example.test/webhook-cce.xml",
+            "dacce": "https://example.test/webhook-dacce.pdf",
+            "log": {"token": "secret-token"},
+        }
+        webhook_event = store_webhook_event(payload=payload)
+        duplicate_event = store_webhook_event(payload=payload)
+        self.assertEqual(webhook_event.pk, duplicate_event.pk)
+
+        self.assertTrue(process_webhook_event(webhook_event))
+        self.assertTrue(process_webhook_event(duplicate_event))
+        event.refresh_from_db()
+        item.refresh_from_db()
+        self.assertEqual(event.xml_url, "https://example.test/webhook-cce.xml")
+        self.assertEqual(event.dacce_url, "https://example.test/webhook-dacce.pdf")
+        self.assertEqual(event.response_payload["log"]["token"], "[REDACTED]")
+        self.assertEqual(item.status, "aprovado")
+        self.assertEqual(WebmaniaWebhookEvent.objects.filter(fingerprint=webhook_event.fingerprint).count(), 1)
+
+    def test_cce_webhook_after_uncertain_resolves_by_access_key_and_sequence(self) -> None:
+        from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        item = self._create_nfe_item(suffix=43)
+        with (
+            patch("apps.finance.services.nfe_events._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_events.requests.post", side_effect=requests.Timeout("timeout")),
+        ):
+            with self.assertRaises(NfeCorrectionError):
+                emit_nfe_correction(nfe_item=item, correction_text="Correcao de informacoes complementares fiscais.", requested_by=self.user)
+
+        event = FiscalDocumentEvent.objects.get(document__legacy_nfe_item=item)
+        self.assertEqual(event.status, "uncertain")
+        webhook_event = store_webhook_event(
+            payload={
+                "modelo": "cce",
+                "uuid": "8f895e61-c0da-46ee-a880-a03f8547a9bd",
+                "status": "aprovado",
+                "chave": item.access_key,
+                "evento": 1,
+                "xml": "https://example.test/uncertain-cce.xml",
+                "dacce": "https://example.test/uncertain-dacce.pdf",
+            }
+        )
+
+        self.assertTrue(process_webhook_event(webhook_event))
+        event.refresh_from_db()
+        item.refresh_from_db()
+        self.assertEqual(event.remote_uuid, "8f895e61-c0da-46ee-a880-a03f8547a9bd")
+        self.assertEqual(event.status, "aprovado")
+        self.assertEqual(item.status, "aprovado")
+
+    def test_cce_webhook_ambiguous_access_key_sequence_is_deferred_without_updates(self) -> None:
+        from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        shared_access_key = "35123456789012345678901234567890123456789099"
+        first_item = self._create_nfe_item(suffix=46, access_key=shared_access_key)
+        with (
+            patch("apps.finance.services.nfe_events._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_events.requests.post", side_effect=requests.Timeout("timeout")),
+        ):
+            with self.assertRaises(NfeCorrectionError):
+                emit_nfe_correction(nfe_item=first_item, correction_text="Primeira correcao de informacoes complementares fiscais.", requested_by=self.user)
+
+        second_item = self._create_nfe_item(suffix=47, access_key=shared_access_key)
+        with (
+            patch("apps.finance.services.nfe_events._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_events.requests.post", side_effect=requests.Timeout("timeout")),
+        ):
+            with self.assertRaises(NfeCorrectionError):
+                emit_nfe_correction(nfe_item=second_item, correction_text="Segunda correcao de informacoes complementares fiscais.", requested_by=self.user)
+
+        webhook_event = store_webhook_event(payload={"modelo": "cce", "uuid": "8f895e61-c0da-46ee-a880-a03f8547a9be", "status": "aprovado", "chave": shared_access_key, "evento": 1})
+
+        self.assertFalse(process_webhook_event(webhook_event))
+        webhook_event.refresh_from_db()
+        self.assertIn("ambigua", webhook_event.processing_error)
+        self.assertEqual(FiscalDocumentEvent.objects.filter(remote_uuid="8f895e61-c0da-46ee-a880-a03f8547a9be").count(), 0)
+        self.assertEqual(FiscalDocumentEvent.objects.filter(document__legacy_nfe_item__in=[first_item, second_item], status="uncertain").count(), 2)
+
+    def test_cce_webhook_reproved_updates_event_only(self) -> None:
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        item = self._create_nfe_item(suffix=48)
+        event = self._emit_success(item)
+        item.status = "aprovado"
+        item.save(update_fields=["status"])
+
+        webhook_event = store_webhook_event(payload={"modelo": "cce", "uuid": event.remote_uuid, "status": "reprovado", "motivo": "Rejeicao do evento"})
+
+        self.assertTrue(process_webhook_event(webhook_event))
+        event.refresh_from_db()
+        item.refresh_from_db()
+        self.assertEqual(event.status, "reprovado")
+        self.assertEqual(item.status, "aprovado")
+
+    def test_cce_webhook_out_of_order_does_not_regress_status(self) -> None:
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        item = self._create_nfe_item(suffix=37)
+        event = self._emit_success(item)
+
+        webhook_event = store_webhook_event(payload={"modelo": "cce", "uuid": event.remote_uuid, "status": "processando"})
+        self.assertTrue(process_webhook_event(webhook_event))
+        event.refresh_from_db()
+        self.assertEqual(event.status, "aprovado")
+
+    def test_cce_view_requires_specific_permission_without_legacy_fallback(self) -> None:
+        from django.core.exceptions import PermissionDenied
+
+        from apps.finance.views.nfe import NfeCorrectionIssueView
+
+        item = self._create_nfe_item(suffix=38)
+        request = RequestFactory().post("/", data={"correction": "Correcao de informacoes complementares fiscais.", "confirm_legal_restrictions": "on"})
+        request.user = self.user
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=False),
+        ):
+            with self.assertRaises(PermissionDenied):
+                NfeCorrectionIssueView.as_view()(request, pk=item.request_id)
+
+    def test_cce_view_scopes_request_by_active_workshop(self) -> None:
+        from django.http import Http404
+
+        from apps.finance.views.nfe import NfeCorrectionIssueView
+
+        item = self._create_nfe_item(suffix=39)
+        other_workshop = create_workshop(suffix=40)
+        request = RequestFactory().post("/", data={"correction": "Correcao de informacoes complementares fiscais.", "confirm_legal_restrictions": "on"})
+        request.user = self.user
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=other_workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            with self.assertRaises(Http404):
+                NfeCorrectionIssueView.as_view()(request, pk=item.request_id)
+
+    def test_cce_detail_view_scopes_visualization_by_active_workshop(self) -> None:
+        from django.http import Http404
+
+        from apps.finance.views.nfe import NfeRequestDetailView
+
+        item = self._create_nfe_item(suffix=49)
+        other_workshop = create_workshop(suffix=51)
+        request = RequestFactory().get("/")
+        request.user = self.user
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=other_workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            with self.assertRaises(Http404):
+                NfeRequestDetailView.as_view()(request, pk=item.request_id)
+
+    def test_cce_download_uses_specific_permission_and_protected_gateway(self) -> None:
+        from apps.finance.views.nfe import NfeCorrectionDownloadView
+
+        item = self._create_nfe_item(suffix=41)
+        event = self._emit_success(item)
+        request = RequestFactory().get("/")
+        request.user = self.user
+        downloaded = SimpleNamespace(content=b"xml", content_type="application/xml")
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfe.download_webmania_document", return_value=downloaded) as download_mock,
+        ):
+            response = NfeCorrectionDownloadView.as_view()(request, pk=item.request_id, event_pk=event.pk, document="xml")
+
+        self.assertEqual(response.status_code, 200)
+        download_mock.assert_called_once_with(workshop=self.workshop, url=event.xml_url)
+
+    def test_cce_download_requires_specific_permission_and_workshop_scope(self) -> None:
+        from django.core.exceptions import PermissionDenied
+        from django.http import Http404
+
+        from apps.finance.views.nfe import NfeCorrectionDownloadView
+
+        item = self._create_nfe_item(suffix=52)
+        event = self._emit_success(item)
+        request = RequestFactory().get("/")
+        request.user = self.user
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=False),
+        ):
+            with self.assertRaises(PermissionDenied):
+                NfeCorrectionDownloadView.as_view()(request, pk=item.request_id, event_pk=event.pk, document="xml")
+
+        other_workshop = create_workshop(suffix=53)
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=other_workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            with self.assertRaises(Http404):
+                NfeCorrectionDownloadView.as_view()(request, pk=item.request_id, event_pk=event.pk, document="xml")
+
+    def test_cce_issue_view_requires_explicit_legal_confirmation(self) -> None:
+        from apps.finance.views.nfe import NfeCorrectionIssueView
+
+        item = self._create_nfe_item(suffix=54)
+        request = RequestFactory().post("/", data={"correction": "Correcao de informacoes complementares fiscais."})
+        request.user = self.user
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfe.messages.error"),
+            patch("apps.finance.views.nfe.emit_nfe_correction") as emit_mock,
+        ):
+            response = NfeCorrectionIssueView.as_view()(request, pk=item.request_id)
+
+        self.assertEqual(response.status_code, 302)
+        emit_mock.assert_not_called()
+
+    def test_cce_payload_sanitizes_notification_token_and_response_secrets(self) -> None:
+        item = self._create_nfe_item(suffix=42)
+        event = self._emit_success(item)
+        attempt = FiscalEmissionAttempt.objects.get(fiscal_document_event=event)
+        self.assertIn("url_notificacao", attempt.request_payload)
+        self.assertNotIn("token=webmania", attempt.request_payload["url_notificacao"])
+        self.assertEqual(event.response_payload["log"]["authorization"], "[REDACTED]")
+
+
+class FiscalPhaseTwoCorrectionConcurrentTests(TransactionTestCase):
+    def _create_nfe_item(self) -> NfeItem:
+        user, workshop = create_director_user_with_workshop(suffix=50)
+        self.user = user
+        self.workshop = workshop
+        budget = Budget.objects.create(workshop=workshop, entry_date=timezone.now().date())
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        nfe_request = NfeRequest.objects.create(workshop=workshop, workorder=workorder, tax_class="REFNFE")
+        return NfeItem.objects.create(
+            workshop=workshop,
+            workorder=workorder,
+            request=nfe_request,
+            uuid="9f895e61-c0da-46ee-a880-a03f8547a9bc",
+            status="aprovado",
+            access_key="35123456789012345678901234567890123456789012",
+            number="950",
+            series="1",
+        )
+
+    def test_concurrent_cce_reserves_one_sequence_and_calls_remote_once_for_active_attempt(self) -> None:
+        from apps.finance.services.nfe_events import emit_nfe_correction
+
+        item = self._create_nfe_item()
+        response_payload = {"uuid": "9f895e61-c0da-46ee-a880-a03f8547a9bd", "modelo": "cce", "status": "aprovado", "xml": "https://example.test/cce.xml", "dacce": "https://example.test/dacce.pdf"}
+        start_barrier = threading.Barrier(2)
+        results: list[str] = []
+        errors: list[str] = []
+        results_lock = threading.Lock()
+
+        def post_side_effect(*args: Any, **kwargs: Any) -> Any:
+            time.sleep(0.1)
+            return _mock_response(response_payload)
+
+        def run_cce() -> None:
+            close_old_connections()
+            try:
+                start_barrier.wait(timeout=5)
+                fresh_item = NfeItem.objects.select_related("workshop", "request", "workorder").get(pk=item.pk)
+                emit_nfe_correction(nfe_item=fresh_item, correction_text="Correcao de informacoes complementares fiscais.", requested_by=self.user)
+            except Exception as exc:
+                with results_lock:
+                    errors.append(str(exc))
+            else:
+                with results_lock:
+                    results.append("sent")
+            finally:
+                close_old_connections()
+
+        with (
+            patch("apps.finance.services.nfe_events._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_events.requests.post", side_effect=post_side_effect) as post_mock,
+        ):
+            threads = [threading.Thread(target=run_cce), threading.Thread(target=run_cce)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=10)
+
+        self.assertEqual(post_mock.call_count, 1)
+        self.assertEqual(results, ["sent"])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("carta de correcao em processamento", errors[0].lower())
+        self.assertEqual(FiscalDocumentEvent.objects.filter(document__legacy_nfe_item=item).count(), 1)
+        event = FiscalDocumentEvent.objects.get(document__legacy_nfe_item=item)
+        self.assertEqual(event.event_sequence, 1)

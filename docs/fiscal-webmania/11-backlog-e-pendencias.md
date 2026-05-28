@@ -3,9 +3,13 @@
 ## Decisoes que exigem aprovacao
 
 - Manter models legados com camada de compatibilidade ou migrar diretamente para dominio unificado.
+- Aprovar `FiscalDocumentLink` somente para a Fase 2.2, quando forem implementados devolucao, complementar e ajuste.
+- Validar em revisao a implementacao do espelho sob demanda de `NfeItem` legado usado na CC-e da Fase 2.1.
+- Aprovar politica final de permissoes fiscais para novas operacoes Fase 2.2+; Fase 2.1 nao concedeu emissao CC-e por fallback legado.
 - Evoluir `FiscalEmissionAttempt` minimo para dominio unificado futuro.
 - Politica final de permissoes fiscais.
 - Quando habilitar NFC-e.
+- Confirmar se NFC-e tera feature/config por oficina antes de aparecer na UI.
 - Prioridade real de CT-e/MDF-e para oficinas.
 - Se NFCom deve ficar apenas manual.
 - Criterios de ativacao de NFCom beta.
@@ -16,6 +20,7 @@
 - `FiscalEmissionAttempt` ainda nao substitui `FiscalDocument` unificado.
 - Compatibilidade temporaria de permissao NF-e ainda aceita fallback `nfserequest`.
 - Dominio fiscal acoplado a OS.
+- Reconciliacao especifica de eventos CC-e incertos deve ser aprofundada em fase posterior; a Fase 2.1 bloqueia reenvio e preserva auditoria local.
 
 ## Bloqueios externos observados na validacao da Fase 1
 
@@ -30,6 +35,12 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 
 ## Validacoes fiscais pendentes
 
+- Revalidar em homologacao a CC-e implementada na Fase 2.1 contra respostas reais Webmania, sem emissao em testes automatizados.
+- Confirmar dados obrigatorios de devolucao/estorno por CFOP inverso e finalidade.
+- Confirmar variantes de NF-e complementar e ajuste aplicaveis ao produto oficina.
+- Confirmar requisitos NFC-e por oficina: serie, CSC/token, ambiente, contingencia e DANFE NFC-e.
+- Confirmar suporte e semantica de cancelamento por substituicao de NFC-e antes de implementar essa variacao.
+- Revalidar eventos IBS/CBS e cancelamento conforme documentacao vigente da Reforma Tributaria.
 - Campos obrigatorios completos de cada municipio/provedor NFS-e.
 - Regras IBS/CBS por tipo documental.
 - Particularidades de NFC-e em contingencia.

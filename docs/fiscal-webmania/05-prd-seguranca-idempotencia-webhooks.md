@@ -131,3 +131,56 @@ Implementado na Fase 1:
 - O comando existente processa webhooks pendentes, NF-e em `processando`/`contingencia`, NFS-e em `processando`/`contingencia`/`agendado` e tentativas `uncertain`.
 - Tentativas `uncertain` sao reconciliadas por consulta do item local quando ja existe `NfeItem` ou `NfseItem`.
 - Nenhum caminho de reconciliacao chama emissao remota.
+
+## Fase 2.0 - Idempotencia por operacao NF-e/NFC-e
+
+Todas as operacoes novas da Fase 2 devem reutilizar ou evoluir `FiscalEmissionAttempt` para representar tentativas por operacao, nao apenas por emissao inicial.
+
+Chave recomendada:
+
+```text
+{document_kind}:{operation}:{workshop_id}:{subject_identifier}:{operation_fingerprint}
+```
+
+Onde:
+
+- `document_kind`: `nfe` ou `nfce`.
+- `operation`: `cce`, `return`, `complementary`, `adjustment`, `nfce_emission`, `manifestation`, `ibs_cbs_event`, `ibs_cbs_cancel`, `nfce_replacement_cancel`.
+- `subject_identifier`: UUID/chave/documento original/evento original, nunca texto livre mutavel da UI.
+- `operation_fingerprint`: hash canonico dos campos fiscais essenciais, sanitizado e estavel.
+
+| Operacao | Chave de idempotencia | Estado `uncertain` | Bloqueio de reenvio |
+| -------- | --------------------- | ------------------ | ------------------- |
+| CC-e | `nfe:cce:{workshop}:{original_uuid_or_key}:{hash_correcao}` | Timeout apos envio ou resposta sem identificador/evento | Bloquear mesma correcao para mesma nota ate reconciliar. |
+| Devolucao/estorno | `nfe:return:{workshop}:{original_key}:{hash_itens_cfop}` | Timeout/resposta incompleta apos envio | Bloquear documento derivado ate consulta remota. |
+| Complementar | `nfe:complementary:{workshop}:{original_key}:{hash_complemento}` | Timeout/resposta incompleta | Bloquear novo complemento identico; permitir novo complemento distinto somente apos status claro. |
+| Ajuste | `nfe:adjustment:{workshop}:{original_key}:{hash_ajuste}` | Timeout/resposta incompleta | Bloquear ajuste identico. |
+| NFC-e | `nfce:emission:{workshop}:{origin_type}:{origin_id}:{hash_itens_pagamento}` | Timeout/resposta incompleta | Bloquear emissao da mesma origem/intencao. |
+| Manifestacao | `nfe:manifestation:{workshop}:{chave}:{evento}` | Timeout/resposta sem protocolo/status | Bloquear mesma manifestacao ate consulta. |
+| IBS/CBS | `nfe:ibs_cbs_event:{workshop}:{original_key}:{event_code}:{hash_payload}` | Timeout/resposta sem evento | Bloquear evento identico. |
+| Cancelamento IBS/CBS | `nfe:ibs_cbs_cancel:{workshop}:{event_identifier}:{hash_motivo}` | Timeout/resposta sem status | Bloquear cancelamento do mesmo evento. |
+| Cancelamento/substituicao NFC-e | `nfce:replacement_cancel:{workshop}:{original_key}:{replacement_key_or_hash}` | Timeout/resposta incompleta | Bloquear ate consulta do status da NFC-e/evento. |
+
+Estados:
+
+- `started`: tentativa persistida antes da chamada remota.
+- `sent`: chamada remota iniciada.
+- `succeeded`: Webmania retornou evento/documento aceito ou status final conhecido.
+- `failed`: erro remoto claro sem efeito fiscal.
+- `uncertain`: chamada pode ter chegado na Webmania, mas o retorno local nao confirmou o resultado.
+
+Regras adicionais:
+
+- Nenhuma subfase pode usar apenas cache para idempotencia.
+- Eventos devem ter tentativa propria e registro em `FiscalDocumentEvent`.
+- Documentos derivados devem ter tentativa propria e registro em `FiscalDocument`.
+- Webhook/reconciliacao devem atualizar a tentativa/evento/documento correspondente e nunca chamar endpoint de emissao/evento.
+- Payloads persistidos devem remover headers, tokens, certificados, secrets e dados sensiveis nao essenciais.
+
+## Fase 2.0 - Webhooks e reconciliacao NF-e/NFC-e
+
+- Webhook deve resolver por `uuid` primeiro e por `chave` somente quando nao houver ambiguidade dentro da oficina.
+- Evento CC-e deve ser associado ao documento original e nao criar uma nota comum.
+- Webhook de documento derivado deve atualizar o `FiscalDocument` derivado e manter link com o original.
+- Evento IBS/CBS fora de ordem nao pode regredir estado de evento ja autorizado/cancelado.
+- Reconciliacao Fase 2 deve consultar status por `GET /1/nfe/consulta/` e downloads por URLs retornadas, sem reenviar operacao.

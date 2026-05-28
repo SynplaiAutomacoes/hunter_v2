@@ -82,6 +82,39 @@ O ambiente deve ser explicito na UI e nos payloads. Homologacao e producao nao p
 - Downloads e payloads exigem permissao.
 - OS com produtos e servicos pode gerar NF-e e NFS-e sem conflito.
 
+## Escopo planejado da Fase 2 - NF-e/NFC-e
+
+A Fase 2 expande somente a familia NF-e/NFC-e da API v1 Webmania. Ela nao deve incluir CT-e, MDF-e, NFS-e avancada, NFCom ou DC-e.
+
+Operacoes de produto planejadas:
+
+- CC-e: evento de correcao textual vinculado a uma NF-e autorizada, sem alterar valores fiscais.
+- Devolucao/estorno: novo documento fiscal referenciando a nota original.
+- Complementar: novo documento fiscal que complementa preco, quantidade, imposto ou informacao suportada pela Webmania.
+- Ajuste: novo documento fiscal para situacoes de ajuste fiscal, sempre referenciado e auditavel.
+- NFC-e: emissao modelo consumidor para venda direta, com configuracao propria por oficina e distincao visual de NF-e.
+- Manifestacao do destinatario: evento vinculado a uma chave NF-e recebida ou documento monitorado.
+- Eventos IBS/CBS: eventos vinculados a NF-e/NFC-e em contexto da Reforma Tributaria.
+- Cancelamento de evento IBS/CBS: evento de reversao vinculado ao evento IBS/CBS original.
+- Consulta, downloads e historico: devem operar sobre documentos e eventos sem reemitir.
+
+Regras de produto:
+
+- Eventos fiscais nao sao notas comuns e devem aparecer no historico/timeline do documento original.
+- Documentos derivados sao notas novas, mas devem manter vinculo auditavel com a nota original.
+- Acoes de Fase 2 devem partir de uma NF-e/NFC-e da oficina ativa ou de emissao manual autorizada quando a operacao permitir.
+- Nenhuma operacao Fase 2 pode depender exclusivamente de `WorkOrder`.
+- NFC-e deve exigir configuracao fiscal adequada de serie/modelo e ambiente antes de aparecer como acao disponivel.
+
+## Subfases da Fase 2
+
+| Subfase | Produto | Resultado esperado |
+| ------- | ------- | ------------------ |
+| 2.1 | CC-e | Emitir e consultar CC-e como evento vinculado a NF-e autorizada. |
+| 2.2 | Devolucao, complementar e ajuste | Emitir documentos derivados referenciando NF-e original, com vinculo auditavel. |
+| 2.3 | NFC-e | Emitir NFC-e pelo endpoint v1 existente, com configuracao e permissoes proprias. |
+| 2.4 | Manifestacao e IBS/CBS | Registrar eventos avancados com historico auditavel e revalidacao da Reforma Tributaria. |
+
 ## Fora de escopo por fase
 
 - Fase 0: qualquer mudanca funcional.

@@ -84,3 +84,55 @@ uv run mypy .
 | 6 | NFCom feature flag, emissao manual, consulta, download | Desligamento sem efeito colateral |
 | 7 | DC-e beta isolada, feature flag e cancelamento | Desativacao segura |
 | 8 | Backfill dry-run, migracao, rollback e comparacao legado/unificado | Remocao controlada apos validacao |
+
+## Fase 2.0 - Testes planejados NF-e/NFC-e
+
+Testes transversais obrigatorios para cada subfase da Fase 2:
+
+- Gateway monta URL, headers v1 e body esperado sem credenciais persistidas.
+- Uma acao concorrente da mesma intencao gera uma unica chamada remota.
+- Timeout apos `sent` marca tentativa como `uncertain`.
+- Tentativa `uncertain` bloqueia reenvio automatico.
+- Webhook/consulta atualizam documento/evento existente, sem emitir.
+- Usuario de outra oficina nao acessa documento, evento, payload ou download.
+- Permissao especifica e exigida antes da chamada remota.
+- Logs e payloads persistidos sao sanitizados.
+- `makemigrations finance --check --dry-run` passa apos migrations da subfase.
+- `ruff check` nos arquivos tocados passa.
+
+### Fase 2.1 - CC-e
+
+- Emitir CC-e para NF-e autorizada com `requests.post` mockado.
+- Bloquear CC-e para NF-e reprovada, cancelada, denegada, `processing` ou `uncertain`.
+- Validar texto obrigatorio/minimo e impedir alteracao de valores fiscais.
+- Concorrencia: duas requisicoes da mesma CC-e geram uma chamada remota.
+- Timeout: evento fica `uncertain` e bloqueia reenvio.
+- Webhook/consulta: atualiza `FiscalDocumentEvent` sem criar nota comum.
+- Download: XML de evento acessivel apenas por usuario autorizado.
+- Tenancy: NF-e de outra oficina retorna 404/403 antes do gateway.
+- Permissao: sem `issue_nfe_correction`, nao chama Webmania.
+
+### Fase 2.2 - Devolucao, complementar e ajuste
+
+- Documento derivado referencia documento original.
+- Payload inclui chave/UUID original e finalidade correta.
+- Itens/valores obrigatorios por operacao.
+- Nao permite derivado a partir de documento de outra oficina.
+- Cada operacao tem idempotencia propria e nao conflita com CC-e.
+- Webhook de derivado atualiza derivado, nao sobrescreve original.
+
+### Fase 2.3 - NFC-e
+
+- Oficina sem configuracao NFC-e bloqueia acao.
+- Payload NFC-e usa modelo/configuracao correta sem afetar NF-e.
+- NFC-e e NF-e da mesma origem nao compartilham chave idempotente.
+- Cancelamento NFC-e respeita status e permissao.
+- Downloads distinguem DANFE/NFC-e conforme retorno.
+
+### Fase 2.4 - Manifestacao e IBS/CBS
+
+- Manifestacao exige chave/documento elegivel.
+- IBS/CBS exige codigo de evento e payload compativel com documentacao vigente.
+- Cancelamento IBS/CBS referencia evento original.
+- Evento duplicado e fora de ordem nao duplica nem regride historico.
+- Revalidar schemas com documentacao oficial imediatamente antes de codificar.
