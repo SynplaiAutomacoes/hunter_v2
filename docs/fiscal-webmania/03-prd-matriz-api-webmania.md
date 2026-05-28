@@ -14,9 +14,9 @@ Fonte oficial consultada:
 | Documento    | Operacao                  | Metodo          | Endpoint                              | Autenticacao | Body principal                              | Resposta principal              | Downloads         | Webhook | Fase |
 | ------------ | ------------------------- | --------------- | ------------------------------------- | ------------ | ------------------------------------------- | ------------------------------- | ----------------- | ------- | ---- |
 | NF-e/NFC-e   | Emissao                   | POST            | `/1/nfe/emissao/`                     | Headers v1   | cliente, produtos, pedido, modelo, ambiente | uuid, status, chave, xml, danfe | XML/DANFE por URL | Sim     | 1/2  |
-| NF-e/NFC-e   | Devolucao/estorno         | POST            | `/1/nfe/devolucao/`                   | Headers v1   | nota referenciada, produtos, finalidade     | uuid, status, chave             | XML/DANFE         | Sim     | 2    |
-| NF-e/NFC-e   | Ajuste                    | POST            | `/1/nfe/ajuste/`                      | Headers v1   | finalidade ajuste, referencia e impostos    | uuid, status                    | XML/DANFE         | Sim     | 2    |
-| NF-e/NFC-e   | Complementar              | POST            | `/1/nfe/complementar/`                | Headers v1   | nota original, valores/quantidades/impostos | uuid, status                    | XML/DANFE         | Sim     | 2    |
+| NF-e/NFC-e   | Devolucao/estorno         | POST            | `/1/nfe/devolucao/`                   | Headers v1   | `chave`, produtos/quantidades, dados fiscais | uuid, status, chave             | XML/DANFE         | Sim     | 2.2A |
+| NF-e/NFC-e   | Ajuste                    | POST            | `/1/nfe/ajuste/`                      | Headers v1   | `operacao`, `natureza_operacao`, `codigo_cfop`, `valor_icms`, `ambiente`, `cliente` | uuid, status                    | XML/DANFE         | Sim     | 2.2C |
+| NF-e/NFC-e   | Complementar              | POST            | `/1/nfe/complementar/`                | Headers v1   | `chave` ou `uuid`, tipo de complemento, valores/quantidades/impostos | uuid, status                    | XML/DANFE         | Sim     | 2.2B |
 | NF-e/NFC-e   | Carta de correcao         | POST            | `/1/nfe/cartacorrecao/`               | Headers v1   | uuid/chave, correcao                        | modelo cce, status, xml         | XML CC-e          | Sim     | 2    |
 | NF-e/NFC-e   | Manifestacao              | POST            | `/1/nfe/manifesta/`                   | Headers v1   | chave, evento, justificativa                | status/log                      | N/A               | Sim     | 2    |
 | NF-e/NFC-e   | Eventos IBS/CBS           | POST            | `/1/nfe/evento-ibs-cbs/`              | Headers v1   | tipo evento, chave/uuid, dados IBS/CBS      | status/log                      | XML evento        | Sim     | 2    |
@@ -76,22 +76,25 @@ Fonte oficial reconferida em 2026-05-28: a pagina NF-e/NFC-e confirma a API v1 e
 | Subfase | Operacao | Endpoint Webmania | Tipo local recomendado | Uso no Hunter V2 |
 | ------- | -------- | ----------------- | ---------------------- | ---------------- |
 | 2.1 | CC-e | `POST /1/nfe/cartacorrecao/` | Evento fiscal vinculado a NF-e | Corrigir texto de NF-e autorizada sem alterar valores. |
-| 2.2 | Devolucao/estorno | `POST /1/nfe/devolucao/` | Documento derivado | Devolver produtos/estornar nota fora do cancelamento. |
-| 2.2 | Complementar | `POST /1/nfe/complementar/` | Documento derivado | Complementar preco, quantidade, imposto ou dados suportados. |
-| 2.2 | Ajuste | `POST /1/nfe/ajuste/` | Documento derivado | Ajustes fiscais com referencia obrigatoria. |
+| 2.2A | Devolucao/estorno | `POST /1/nfe/devolucao/` | Documento derivado com link obrigatorio | Devolver produtos total/parcialmente ou registrar estorno via endpoint de devolucao. |
+| 2.2B | Complementar | `POST /1/nfe/complementar/` | Documento derivado com link obrigatorio | Complementar preco/quantidade, impostos ou documento de adicao/importacao. |
+| 2.2C | Ajuste | `POST /1/nfe/ajuste/` | Documento de ajuste com link opcional | Ajustes fiscais que nao exigem obrigatoriamente chave/UUID original segundo a documentacao oficial. |
 | 2.3 | NFC-e | `POST /1/nfe/emissao/` com modelo NFC-e | Documento fiscal legado/derivado futuro | Venda consumidor em oficina habilitada. |
 | 2.3 | Cancelamento NFC-e | `PUT /1/nfe/cancelar/` | Evento de cancelamento do documento | Cancelar NFC-e conforme status e prazo/regra Webmania/SEFAZ. |
 | 2.4 | Manifestacao | `POST /1/nfe/manifesta/` | Evento fiscal vinculado a chave/documento | Registrar ciencia, confirmacao, desconhecimento ou operacao nao realizada quando suportado. |
 | 2.4 | Evento IBS/CBS | `POST /1/nfe/evento-ibs-cbs/` | Evento fiscal vinculado a NF-e/NFC-e | Registrar eventos da Reforma Tributaria. |
 | 2.4 | Cancelar evento IBS/CBS | `PUT /1/nfe/evento-ibs-cbs/cancelar/` | Evento de cancelamento vinculado ao evento original | Cancelar evento IBS/CBS previamente autorizado. |
 | 2.x | Consulta | `GET /1/nfe/consulta/` | Atualizacao de documento/evento | Reconciliar status e downloads sem emissao. |
+| 2.5 | Nota Fiscal de Credito | `POST /1/nfe/emissao/` com `finalidade=5` e `tipo_credito` | Documento NF-e de finalidade especifica | Registrar credito fiscal conforme tipos oficiais da Reforma Tributaria. |
+| 2.5 | Nota Fiscal de Debito | `POST /1/nfe/emissao/` com `finalidade=6` e `tipo_debito` | Documento NF-e de finalidade especifica | Registrar debito fiscal conforme tipos oficiais; `dfe_referenciado` pode ser obrigatorio para alguns tipos. |
 | 2.x | Downloads | URLs `xml`, `danfe` e XML de evento quando retornado | Download autorizado | Baixar XML/PDF por URL retornada ou resposta remota. |
 
 Observacoes condicionais:
 
 - A Webmania usa o mesmo endpoint de emissao para NF-e e NFC-e; o Hunter deve diferenciar o modelo localmente antes do payload.
 - CC-e, manifestacao e IBS/CBS sao eventos e nao devem consumir numeracao como nota comum.
-- Devolucao, complementar e ajuste sao documentos novos e devem receber tentativa idempotente propria, com vinculo ao documento original.
+- Devolucao/estorno e complementar sao documentos novos com tentativa idempotente propria e vinculo obrigatorio ao documento original. Ajuste tambem e documento novo, mas o vinculo ao original e opcional porque o body oficial nao exige chave/UUID de nota original.
+- NF-e externa: quando devolucao ou complemento referenciarem chave nao emitida pelo Hunter, criar projecao externa minima antes da emissao derivada, marcar `origin=external`, preservar chave informada e exigir confirmacao do usuario. A consulta padrao `/1/nfe/consulta/` pode ser usada para notas Webmania/Hunter da propria oficina, mas nao e garantia de validacao de NF-e de outro emissor.
 - Para NFC-e, cancelamento por substituicao deve ser tratado como variacao de cancelamento somente se a documentacao vigente e a configuracao da oficina confirmarem suporte; ate la, registrar como pendencia de validacao.
 - A matriz OpenAPI validada ja contem os endpoints da Fase 2.0; nenhuma correcao no JSON foi necessaria nesta etapa documental.
 

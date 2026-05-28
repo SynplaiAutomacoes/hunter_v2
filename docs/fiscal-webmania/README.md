@@ -21,9 +21,9 @@ Transformar a camada fiscal do Hunter V2 em um modulo completo, seguro e extensi
 
 ## Status atual
 
-Fase atual: Fase 2.1 - CC-e validada.
+Fase atual: Fase 2.2A - Devolucao e estorno NF-e implementada para revisao.
 
-Status geral: Fase 0 e Fase 0.1 aprovadas; Fase 1 validada tecnicamente em 2026-05-28 com aceite explicito das dividas preexistentes comprovadas no baseline anterior. A Fase 2.0 foi aprovada documentalmente, e a Fase 2.1 foi validada somente para CC-e conforme autorizacao explicita.
+Status geral: Fase 0 e Fase 0.1 aprovadas; Fase 1 validada tecnicamente em 2026-05-28 com aceite explicito das dividas preexistentes comprovadas no baseline anterior. A Fase 2.0 foi aprovada documentalmente, a Fase 2.1 foi validada somente para CC-e, a Fase 2.2.0 revisou documentalmente derivados NF-e, e a Fase 2.2A foi implementada para devolucao/estorno sem iniciar complementar, ajuste, NFC-e ou eventos avancados.
 
 A Fase 1 alterou somente os fluxos existentes de NF-e/NFS-e para estabilizacao, seguranca, idempotencia persistida, webhook, reconciliacao e permissoes conforme escopo aprovado. A revisao comprovou cobertura fiscal critica, incluindo teste transacional concorrente real. As falhas globais remanescentes em DRE, workshops, workorder, ruff/mypy e migrations nao fiscais foram aceitas como dividas preexistentes registradas em `11-backlog-e-pendencias.md`.
 
@@ -66,9 +66,13 @@ A Fase 2.1 criou apenas `FiscalDocument`, `FiscalDocumentEvent` e extensoes mini
 | 1 - Estabilizacao NF-e/NFS-e | validada com dividas preexistentes registradas | `05-prd-seguranca-idempotencia-webhooks.md`                           | 2026-05-28      | 2026-05-28  | Falhas globais preexistentes aceitas e documentadas |
 | 2.0 - Planejamento NF-e/NFC-e | aprovada documentalmente | `02-prd-produto-e-escopo.md`, `04-prd-dominio-e-modelagem.md`, `07-plano-de-fases-e-criterios-de-aceite.md` | N/A | 2026-05-28 | Manter decisao 2.1 sem `FiscalDocumentLink` |
 | 2.1 - CC-e                   | validada             | `07-plano-de-fases-e-criterios-de-aceite.md`                         | 2026-05-28      | 2026-05-28  | Nao iniciar 2.2 sem aprovacao |
-| 2.2 - Devolucao/complementar/ajuste | nao iniciada | `07-plano-de-fases-e-criterios-de-aceite.md`                         | N/A             | N/A         | Requer 2.1 validada ou decisao |
+| 2.2.0 - Revisao derivados NF-e | documentada | `04-prd-dominio-e-modelagem.md`, `07-plano-de-fases-e-criterios-de-aceite.md` | N/A | 2026-05-28 | Nenhum codigo autorizado |
+| 2.2A - Devolucao/estorno      | implementada para revisao | `07-plano-de-fases-e-criterios-de-aceite.md`                         | 2026-05-28      | N/A         | Aguardar validacao; 2.2B nao iniciada |
+| 2.2B - Complementar           | nao iniciada | `07-plano-de-fases-e-criterios-de-aceite.md`                         | N/A             | N/A         | Requer autorizacao explicita |
+| 2.2C - Ajuste                 | nao iniciada | `07-plano-de-fases-e-criterios-de-aceite.md`                         | N/A             | N/A         | Link ao original opcional |
 | 2.3 - NFC-e                  | nao iniciada         | `07-plano-de-fases-e-criterios-de-aceite.md`                         | N/A             | N/A         | Requer decisao de configuracao NFC-e |
 | 2.4 - Manifestacao e IBS/CBS | nao iniciada         | `07-plano-de-fases-e-criterios-de-aceite.md`                         | N/A             | N/A         | Revalidar Reforma Tributaria |
+| 2.5 - Credito/debito NF-e     | nao iniciada         | `07-plano-de-fases-e-criterios-de-aceite.md`                         | N/A             | N/A         | Revalidar finalidades 5/6 |
 | 3 - Completar NFS-e          | nao iniciada         | `03-prd-matriz-api-webmania.md`                                       | N/A             | N/A         | Fase 1 validada          |
 | 4 - CT-e e CT-e OS           | nao iniciada         | `03-prd-matriz-api-webmania.md`                                       | N/A             | N/A         | Fases prioritarias       |
 | 5 - MDF-e                    | nao iniciada         | `03-prd-matriz-api-webmania.md`                                       | N/A             | N/A         | CT-e/MDF-e modelados     |

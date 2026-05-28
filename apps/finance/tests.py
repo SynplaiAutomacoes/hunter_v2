@@ -43,7 +43,7 @@ from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.movement_group import MovementGroup
-from apps.finance.models.finance import FiscalDocument, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalEmissionAttempt, NfeItem, NfeRequest, NfeRequestStatus, NfseItem, NfseRequest, NfseRequestStatus, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentLink, FiscalDocumentLinkRole, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalEmissionAttempt, NfeItem, NfeRequest, NfeRequestStatus, NfseItem, NfseRequest, NfseRequestStatus, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
@@ -10700,3 +10700,351 @@ class FiscalPhaseTwoCorrectionConcurrentTests(TransactionTestCase):
         self.assertEqual(FiscalDocumentEvent.objects.filter(document__legacy_nfe_item=item).count(), 1)
         event = FiscalDocumentEvent.objects.get(document__legacy_nfe_item=item)
         self.assertEqual(event.event_sequence, 1)
+
+
+class FiscalPhaseTwoReturnTests(TestCase):
+    def _create_nfe_item(self, *, suffix: int = 60, status: str = "aprovado", quantity: str = "4", access_key: str | None = None) -> NfeItem:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=suffix)
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=timezone.now().date())
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=workorder, tax_class="REFNFE")
+        return NfeItem.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            request=nfe_request,
+            uuid=f"{suffix:08d}-c0da-46ee-a880-a03f8547a9bc",
+            status=status,
+            access_key=access_key if access_key is not None else f"35{suffix:042d}"[-44:],
+            number=str(suffix),
+            series="1",
+            raw_payload={"produtos": [{"codigo": "P1", "quantidade": quantity}]},
+        )
+
+    def _return_response(self, *, uuid: str = "af895e61-c0da-46ee-a880-a03f8547a9bc", key: str = "35123456789012345678901234567890123456789077") -> dict[str, Any]:
+        return {"uuid": uuid, "modelo": "nfe", "status": "aprovado", "nfe": "9001", "serie": "1", "recibo": "REC", "chave": key, "xml": "https://example.test/return.xml", "danfe": "https://example.test/return.pdf", "log": {"token": "secret"}}
+
+    def _emit_return(self, item: NfeItem, *, purpose: str = FiscalDocumentPurpose.RETURN, quantity: str = "1", response_payload: dict[str, Any] | None = None) -> FiscalDocument:
+        from apps.finance.services.nfe_returns import create_and_emit_nfe_return_from_item
+
+        with (
+            patch("apps.finance.services.nfe_returns._build_headers", return_value={"X-Access-Token": "secret"}),
+            patch("apps.finance.services.nfe_returns.requests.post", return_value=_mock_response(response_payload or self._return_response())) as post_mock,
+        ):
+            document = create_and_emit_nfe_return_from_item(
+                item=item,
+                purpose=purpose,
+                products=[{"codigo": "P1", "quantidade": quantity}],
+                requested_by=self.user,
+                natureza_operacao="Devolucao de mercadoria",
+                codigo_cfop="1202",
+            )
+        self.assertEqual(post_mock.call_count, 1)
+        return document
+
+    def test_local_total_return_creates_derived_document_and_required_link(self) -> None:
+        item = self._create_nfe_item(suffix=61, quantity="2")
+
+        document = self._emit_return(item, quantity="2")
+
+        original = FiscalDocument.objects.get(legacy_nfe_item=item)
+        link = FiscalDocumentLink.objects.get(document=document)
+        self.assertEqual(document.origin, FiscalDocumentOrigin.DERIVED)
+        self.assertEqual(document.purpose, FiscalDocumentPurpose.RETURN)
+        self.assertEqual(document.status, FiscalDocumentStatus.APPROVED)
+        self.assertEqual(document.xml_url, "https://example.test/return.xml")
+        self.assertEqual(document.danfe_url, "https://example.test/return.pdf")
+        self.assertEqual(document.response_payload["log"]["token"], "[REDACTED]")
+        self.assertEqual(link.related_document, original)
+        self.assertEqual(link.role, FiscalDocumentLinkRole.RETURNS)
+        original.refresh_from_db()
+        self.assertEqual(original.status, FiscalDocumentStatus.APPROVED)
+
+    def test_partial_return_validates_available_quantity_and_allows_independent_partials(self) -> None:
+        item = self._create_nfe_item(suffix=62, quantity="2")
+
+        first = self._emit_return(item, quantity="1", response_payload=self._return_response(uuid="bf895e61-c0da-46ee-a880-a03f8547a9bc", key="35123456789012345678901234567890123456789078"))
+        second = self._emit_return(item, quantity="1", response_payload=self._return_response(uuid="cf895e61-c0da-46ee-a880-a03f8547a9bc", key="35123456789012345678901234567890123456789079"))
+
+        self.assertNotEqual(first.pk, second.pk)
+        self.assertEqual(FiscalDocument.objects.filter(purpose=FiscalDocumentPurpose.RETURN, origin=FiscalDocumentOrigin.DERIVED).count(), 2)
+
+    def test_partial_return_blocks_quantity_above_available_and_uncertain_reserves_balance(self) -> None:
+        from apps.finance.services.nfe_returns import NfeReturnError, create_and_emit_nfe_return_from_item
+
+        item = self._create_nfe_item(suffix=63, quantity="1")
+        self._emit_return(item, quantity="1")
+
+        with patch("apps.finance.services.nfe_returns.requests.post") as post_mock:
+            with self.assertRaisesMessage(NfeReturnError, "excede o saldo"):
+                create_and_emit_nfe_return_from_item(item=item, purpose=FiscalDocumentPurpose.RETURN, products=[{"codigo": "P1", "quantidade": "1"}], requested_by=self.user, natureza_operacao="Devolucao", codigo_cfop="1202")
+        post_mock.assert_not_called()
+
+        item2 = self._create_nfe_item(suffix=64, quantity="1")
+        with (
+            patch("apps.finance.services.nfe_returns._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_returns.requests.post", side_effect=requests.Timeout("timeout")) as post_mock,
+        ):
+            with self.assertRaisesMessage(NfeReturnError, "estado remoto incerto"):
+                create_and_emit_nfe_return_from_item(item=item2, purpose=FiscalDocumentPurpose.RETURN, products=[{"codigo": "P1", "quantidade": "1"}], requested_by=self.user, natureza_operacao="Devolucao", codigo_cfop="1202")
+            with self.assertRaisesMessage(NfeReturnError, "excede o saldo"):
+                create_and_emit_nfe_return_from_item(item=item2, purpose=FiscalDocumentPurpose.RETURN, products=[{"codigo": "P1", "quantidade": "1"}], requested_by=self.user, natureza_operacao="Devolucao", codigo_cfop="1202")
+        self.assertEqual(post_mock.call_count, 1)
+        self.assertEqual(FiscalDocument.objects.get(legacy_nfe_item__isnull=True, purpose=FiscalDocumentPurpose.RETURN, workshop=self.workshop).status, FiscalDocumentStatus.UNCERTAIN)
+
+    def test_reversal_uses_own_purpose_operation_and_link_role(self) -> None:
+        item = self._create_nfe_item(suffix=65, quantity="1")
+
+        document = self._emit_return(item, purpose=FiscalDocumentPurpose.REVERSAL, quantity="1")
+
+        attempt = FiscalEmissionAttempt.objects.get(fiscal_document=document)
+        link = FiscalDocumentLink.objects.get(document=document)
+        self.assertEqual(document.purpose, FiscalDocumentPurpose.REVERSAL)
+        self.assertEqual(attempt.operation_type, "reversal")
+        self.assertEqual(link.role, FiscalDocumentLinkRole.REVERSES)
+        self.assertEqual(document.request_payload["tipo_operacao_hunter"], "estorno")
+
+    def test_external_nfe_creates_minimal_unvalidated_origin_document(self) -> None:
+        from apps.finance.services.nfe_returns import create_nfe_return_draft_from_external
+
+        user, workshop = create_director_user_with_workshop(suffix=66)
+        document = create_nfe_return_draft_from_external(
+            workshop=workshop,
+            access_key="35123456789012345678901234567890123456789066",
+            purpose=FiscalDocumentPurpose.RETURN,
+            products=[{"codigo": "P1", "quantidade": "1"}],
+            requested_by=user,
+            confirmed_external=True,
+            natureza_operacao="Devolucao",
+            codigo_cfop="1202",
+        )
+
+        original = FiscalDocumentLink.objects.get(document=document).related_document
+        self.assertEqual(original.origin, FiscalDocumentOrigin.EXTERNAL)
+        self.assertTrue(original.external_confirmation)
+        self.assertEqual(original.remote_status, "external_unvalidated")
+        self.assertEqual(original.response_payload["validated_remotely"], False)
+
+    def test_external_nfe_requires_valid_key_and_explicit_confirmation(self) -> None:
+        from apps.finance.services.nfe_returns import NfeReturnError, create_nfe_return_draft_from_external
+
+        user, workshop = create_director_user_with_workshop(suffix=67)
+        with self.assertRaisesMessage(NfeReturnError, "44 digitos"):
+            create_nfe_return_draft_from_external(workshop=workshop, access_key="123", purpose=FiscalDocumentPurpose.RETURN, products=[{"codigo": "P1", "quantidade": "1"}], requested_by=user, confirmed_external=True, natureza_operacao="Devolucao", codigo_cfop="1202")
+        with self.assertRaisesMessage(NfeReturnError, "Confirme explicitamente"):
+            create_nfe_return_draft_from_external(workshop=workshop, access_key="35123456789012345678901234567890123456789067", purpose=FiscalDocumentPurpose.RETURN, products=[{"codigo": "P1", "quantidade": "1"}], requested_by=user, confirmed_external=False, natureza_operacao="Devolucao", codigo_cfop="1202")
+
+    def test_timeout_marks_attempt_and_derived_document_uncertain_and_blocks_same_intention_retry(self) -> None:
+        from apps.finance.services.nfe_returns import NfeReturnError, create_nfe_return_draft_from_item, transmit_nfe_return_document
+
+        item = self._create_nfe_item(suffix=68, quantity="1")
+        document = create_nfe_return_draft_from_item(item=item, purpose=FiscalDocumentPurpose.RETURN, products=[{"codigo": "P1", "quantidade": "1"}], requested_by=self.user, natureza_operacao="Devolucao", codigo_cfop="1202")
+        with (
+            patch("apps.finance.services.nfe_returns._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_returns.requests.post", side_effect=requests.Timeout("timeout")) as post_mock,
+        ):
+            with self.assertRaisesMessage(NfeReturnError, "estado remoto incerto"):
+                transmit_nfe_return_document(document=document)
+            with self.assertRaisesMessage(NfeReturnError, "estado remoto incerto"):
+                transmit_nfe_return_document(document=document)
+
+        self.assertEqual(post_mock.call_count, 1)
+        document.refresh_from_db()
+        attempt = FiscalEmissionAttempt.objects.get(fiscal_document=document)
+        self.assertEqual(document.status, FiscalDocumentStatus.UNCERTAIN)
+        self.assertEqual(attempt.status, "uncertain")
+
+    def test_webhook_updates_derived_document_only_and_is_idempotent(self) -> None:
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        item = self._create_nfe_item(suffix=69, quantity="1")
+        document = self._emit_return(item)
+        original = FiscalDocumentLink.objects.get(document=document).related_document
+        original.status = FiscalDocumentStatus.APPROVED
+        original.save(update_fields=["status"])
+        payload = {"modelo": "nfe", "uuid": document.remote_uuid, "status": "aprovado", "chave": document.access_key, "xml": "https://example.test/webhook-return.xml", "danfe": "https://example.test/webhook-return.pdf"}
+        event = store_webhook_event(payload=payload)
+        duplicate = store_webhook_event(payload=payload)
+        self.assertEqual(event.pk, duplicate.pk)
+
+        self.assertTrue(process_webhook_event(event))
+        self.assertTrue(process_webhook_event(duplicate))
+
+        document.refresh_from_db()
+        original.refresh_from_db()
+        item.refresh_from_db()
+        self.assertEqual(document.xml_url, "https://example.test/webhook-return.xml")
+        self.assertEqual(original.status, FiscalDocumentStatus.APPROVED)
+        self.assertEqual(item.status, "aprovado")
+
+    def test_return_download_requires_permission_and_workshop_scope(self) -> None:
+        from django.core.exceptions import PermissionDenied
+        from django.http import Http404
+
+        from apps.finance.views.nfe import NfeReturnDownloadView
+
+        item = self._create_nfe_item(suffix=70, quantity="1")
+        document = self._emit_return(item)
+        request = RequestFactory().get("/")
+        request.user = self.user
+        downloaded = SimpleNamespace(content=b"pdf", content_type="application/pdf")
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfe.download_webmania_document", return_value=downloaded) as download_mock,
+        ):
+            response = NfeReturnDownloadView.as_view()(request, pk=item.request_id, document_pk=document.pk, document="danfe")
+        self.assertEqual(response.status_code, 200)
+        download_mock.assert_called_once_with(workshop=self.workshop, url=document.danfe_url)
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=False),
+        ):
+            with self.assertRaises(PermissionDenied):
+                NfeReturnDownloadView.as_view()(request, pk=item.request_id, document_pk=document.pk, document="danfe")
+
+        other_workshop = create_workshop(suffix=71)
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=other_workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            with self.assertRaises(Http404):
+                NfeReturnDownloadView.as_view()(request, pk=item.request_id, document_pk=document.pk, document="danfe")
+
+    def test_return_issue_view_requires_specific_permission(self) -> None:
+        from apps.finance.views.nfe import NfeReturnIssueView
+
+        item = self._create_nfe_item(suffix=72, quantity="1")
+        request = RequestFactory().post("/", data={"purpose": "return", "natureza_operacao": "Devolucao", "codigo_cfop": "1202", "produtos_json": '[{"codigo":"P1","quantidade":"1"}]'})
+        request.user = self.user
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfe.has_workshop_perm", return_value=False),
+            patch("apps.finance.views.nfe.messages.error"),
+            patch("apps.finance.views.nfe.create_and_emit_nfe_return_from_item") as emit_mock,
+        ):
+            response = NfeReturnIssueView.as_view()(request, pk=item.request_id)
+
+        self.assertEqual(response.status_code, 302)
+        emit_mock.assert_not_called()
+
+    def test_reconciliation_command_consults_derived_return_without_emitting(self) -> None:
+        item = self._create_nfe_item(suffix=73, quantity="1")
+        document = self._emit_return(item)
+        document.status = FiscalDocumentStatus.UNCERTAIN
+        document.save(update_fields=["status"])
+
+        with (
+            patch("apps.finance.management.commands.reconcile_webmania_documents.process_pending_webhook_events", return_value=0),
+            patch("apps.finance.management.commands.reconcile_webmania_documents.reconcile_nfe_item") as reconcile_nfe_mock,
+            patch("apps.finance.management.commands.reconcile_webmania_documents.reconcile_nfse_item") as reconcile_nfse_mock,
+            patch("apps.finance.management.commands.reconcile_webmania_documents.reconcile_nfe_return_document", return_value=document) as reconcile_return_mock,
+            patch("apps.finance.services.nfe_returns.requests.post") as post_mock,
+        ):
+            call_command("reconcile_webmania_documents", limit=10)
+
+        reconcile_return_mock.assert_called()
+        reconcile_nfe_mock.assert_not_called()
+        reconcile_nfse_mock.assert_not_called()
+        post_mock.assert_not_called()
+
+
+class FiscalPhaseTwoReturnConcurrentTests(TransactionTestCase):
+    def _create_nfe_item(self, *, suffix: int = 80, quantity: str = "2") -> NfeItem:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=suffix)
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=timezone.now().date())
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=workorder, tax_class="REFNFE")
+        return NfeItem.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            request=nfe_request,
+            uuid=f"{suffix:08d}-c0da-46ee-a880-a03f8547a9bc",
+            status="aprovado",
+            access_key=f"35{suffix:042d}"[-44:],
+            number=str(suffix),
+            series="1",
+            raw_payload={"produtos": [{"codigo": "P1", "quantidade": quantity}]},
+        )
+
+    def test_concurrent_same_return_intention_calls_remote_once(self) -> None:
+        from apps.finance.services.nfe_returns import create_nfe_return_draft_from_item, transmit_nfe_return_document
+
+        item = self._create_nfe_item(suffix=81, quantity="1")
+        document = create_nfe_return_draft_from_item(item=item, purpose=FiscalDocumentPurpose.RETURN, products=[{"codigo": "P1", "quantidade": "1"}], requested_by=self.user, natureza_operacao="Devolucao", codigo_cfop="1202")
+        response_payload = {"uuid": "df895e61-c0da-46ee-a880-a03f8547a9bc", "modelo": "nfe", "status": "aprovado", "chave": "35123456789012345678901234567890123456789081", "xml": "https://example.test/return.xml", "danfe": "https://example.test/return.pdf"}
+        start_barrier = threading.Barrier(2)
+        results: list[str] = []
+        errors: list[str] = []
+        results_lock = threading.Lock()
+
+        def post_side_effect(*args: Any, **kwargs: Any) -> Any:
+            time.sleep(0.1)
+            return _mock_response(response_payload)
+
+        def run_transmit() -> None:
+            close_old_connections()
+            try:
+                start_barrier.wait(timeout=5)
+                fresh_document = FiscalDocument.objects.get(pk=document.pk)
+                transmit_nfe_return_document(document=fresh_document)
+            except Exception as exc:
+                with results_lock:
+                    errors.append(str(exc))
+            else:
+                with results_lock:
+                    results.append("sent")
+            finally:
+                close_old_connections()
+
+        with (
+            patch("apps.finance.services.nfe_returns._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_returns.requests.post", side_effect=post_side_effect) as post_mock,
+        ):
+            threads = [threading.Thread(target=run_transmit), threading.Thread(target=run_transmit)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=10)
+
+        self.assertEqual(post_mock.call_count, 1)
+        self.assertEqual(results, ["sent"])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("envio remoto registrado", errors[0])
+
+    def test_concurrent_partial_returns_cannot_exceed_available_balance(self) -> None:
+        from apps.finance.services.nfe_returns import create_nfe_return_draft_from_item
+
+        item = self._create_nfe_item(suffix=82, quantity="1")
+        start_barrier = threading.Barrier(2)
+        results: list[str] = []
+        errors: list[str] = []
+        results_lock = threading.Lock()
+
+        def run_create() -> None:
+            close_old_connections()
+            try:
+                start_barrier.wait(timeout=5)
+                fresh_item = NfeItem.objects.select_related("workshop", "request", "workorder").get(pk=item.pk)
+                create_nfe_return_draft_from_item(item=fresh_item, purpose=FiscalDocumentPurpose.RETURN, products=[{"codigo": "P1", "quantidade": "1"}], requested_by=self.user, natureza_operacao="Devolucao", codigo_cfop="1202")
+            except Exception as exc:
+                with results_lock:
+                    errors.append(str(exc))
+            else:
+                with results_lock:
+                    results.append("created")
+            finally:
+                close_old_connections()
+
+        threads = [threading.Thread(target=run_create), threading.Thread(target=run_create)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+
+        self.assertEqual(results, ["created"])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("excede o saldo", errors[0])

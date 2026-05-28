@@ -64,9 +64,10 @@ Na Fase 1, preservar telas atuais de NF-e/NFS-e. A central unificada pode evolui
 A Fase 2 deve preservar as telas legadas de NF-e e adicionar acoes condicionais no detalhe/listagem do documento:
 
 - CC-e: disponivel somente para NF-e autorizada da oficina ativa.
-- Devolucao/estorno: disponivel para NF-e autorizada, com itens selecionaveis e referencia obrigatoria.
-- Complementar: disponivel para NF-e autorizada, com tipo de complemento explicito.
-- Ajuste: disponivel para usuario autorizado, com justificativa e dados fiscais obrigatorios.
+- Devolucao/estorno: disponivel para NF-e autorizada local ou NF-e externa validada por chave, com itens/quantidades selecionaveis e referencia obrigatoria.
+- Complementar: disponivel para NF-e autorizada local ou NF-e externa validada por chave/UUID, com tipo de complemento explicito: preco/quantidade, impostos ou adicao/importacao.
+- Ajuste: disponivel para usuario autorizado, com `operacao`, natureza, CFOP, valor ICMS, ambiente e cliente; nao exigir documento original quando a operacao for avulsa.
+- Nota Fiscal de Credito/Debito: planejada para Fase 2.5, com finalidade 5/6, `tipo_credito`/`tipo_debito` e UI propria.
 - NFC-e: disponivel em emissao manual/contextual somente se a oficina tiver configuracao NFC-e habilitada.
 - Manifestacao: disponivel para documento/chave elegivel e usuario autorizado.
 - IBS/CBS: inicialmente atras de permissao especifica e aviso de Reforma Tributaria.
@@ -81,6 +82,8 @@ Eventos devem aparecer em timeline/historico do documento original. Documentos d
 | Emitir devolucao/estorno | Sim | Sim | Opcional | Nao | `issue_nfe_return` | Obrigatorio |
 | Emitir complementar | Sim | Sim | Opcional | Nao | `issue_nfe_complementary` | Obrigatorio |
 | Emitir ajuste | Sim | Sim | Nao | Nao | `issue_nfe_adjustment` | Obrigatorio |
+| Emitir NF-e de credito | Sim | Sim | Nao | Nao | `issue_nfe_credit_note` | Obrigatorio |
+| Emitir NF-e de debito | Sim | Sim | Nao | Nao | `issue_nfe_debit_note` | Obrigatorio |
 | Emitir NFC-e | Sim | Sim | Opcional | Nao | `issue_nfce` | Obrigatorio |
 | Manifestar NF-e | Sim | Sim | Opcional | Nao | `manifest_nfe` | Obrigatorio |
 | Emitir evento IBS/CBS | Sim | Sim | Nao | Nao | `issue_nfe_ibs_cbs_event` | Obrigatorio |

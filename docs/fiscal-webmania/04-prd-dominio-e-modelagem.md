@@ -140,9 +140,11 @@ Essa abordagem evita tratar eventos como notas comuns e permite que documentos d
 | Manifestacao | `FiscalDocumentEvent(kind="recipient_manifestation")` | Documento/chave manifestada; pode existir sem nota emitida pelo Hunter, mas sempre com oficina. |
 | IBS/CBS | `FiscalDocumentEvent(kind="ibs_cbs")` | NF-e/NFC-e original. |
 | Cancelamento IBS/CBS | `FiscalDocumentEvent(kind="ibs_cbs_cancel")` | Evento IBS/CBS original e documento original. |
-| Devolucao/estorno | `FiscalDocument(kind="nfe", purpose="return")` | Documento original por `FiscalDocumentLink(role="returns")`. |
-| Complementar | `FiscalDocument(kind="nfe", purpose="complementary")` | Documento original por `FiscalDocumentLink(role="complements")`. |
-| Ajuste | `FiscalDocument(kind="nfe", purpose="adjustment")` | Documento original por `FiscalDocumentLink(role="adjusts")`. |
+| Devolucao/estorno | `FiscalDocument(kind="nfe", purpose="return" ou "reversal")` | Obrigatorio: documento original por `FiscalDocumentLink(role="returns" ou "reverses")`; original pode ser local ou externo minimo. |
+| Complementar | `FiscalDocument(kind="nfe", purpose="complementary")` | Obrigatorio: documento original por `FiscalDocumentLink(role="complements")`; original pode ser local ou externo minimo. |
+| Ajuste | `FiscalDocument(kind="nfe", purpose="adjustment")` | Opcional: `FiscalDocumentLink(role="adjusts")` somente quando houver relacao de negocio real ou exigencia futura confirmada. |
+| Nota Fiscal de Credito | `FiscalDocument(kind="nfe", purpose="credit")` | Opcional conforme tipo de credito; usar `finalidade=5` e `tipo_credito` na Fase 2.5. |
+| Nota Fiscal de Debito | `FiscalDocument(kind="nfe", purpose="debit")` | Opcional/condicional conforme tipo de debito; usar `finalidade=6` e `tipo_debito` na Fase 2.5. |
 | NFC-e normal | `FiscalDocument(kind="nfce", purpose="normal")` | Origem operacional ou emissao manual. |
 | Cancelamento/substituicao NFC-e | `FiscalDocumentEvent(kind="cancel" ou "replacement_cancel")` | NFC-e original; substituicao somente se suporte oficial/configuracao confirmar. |
 
@@ -159,8 +161,23 @@ Essa abordagem evita tratar eventos como notas comuns e permite que documentos d
 
 - Documento original legado e espelho unificado nao podem virar duas fontes independentes de emissao.
 - Na Fase 2.1, a relacao de espelho e o `OneToOne`/referencia segura com `NfeItem`; `FiscalDocumentLink` sera usado somente quando existirem documentos derivados reais na Fase 2.2.
-- Operacoes derivadas devem usar a chave/UUID do documento original e chave idempotente propria por operacao.
+- Devolucao/estorno e complementar devem usar a chave/UUID do documento original e chave idempotente propria por operacao. Ajuste nao deve ser bloqueado por ausencia de original.
 - Documento derivado nao substitui documento original; ele aponta para ele.
+
+### Fase 2.2.0 - Decisao sobre derivados e NF-e externa
+
+| Operacao | Endpoint | Modelo local | `FiscalDocumentLink` | Origem permitida | Idempotencia | UI minima | Rollback |
+| -------- | -------- | ------------ | -------------------- | ---------------- | ------------ | --------- | -------- |
+| Devolucao parcial/total | `POST /1/nfe/devolucao/` | `FiscalDocument(kind="nfe", purpose="return")` | Obrigatorio para NF-e original local ou externa | NF-e emitida pelo Hunter ou NF-e externa por chave | `hash(workshop_id, derived_document_id, operation_type, request_generation)` | Wizard por nota original, selecao de produtos/quantidades, validacao de formato da chave | Desabilitar action; documentos ja emitidos ficam consultaveis |
+| Estorno via devolucao | `POST /1/nfe/devolucao/` | `FiscalDocument(kind="nfe", purpose="reversal")` | Obrigatorio para NF-e original local ou externa | NF-e emitida pelo Hunter ou NF-e externa por chave | `hash(workshop_id, derived_document_id, operation_type, request_generation)` | Acao separada "Estornar por devolucao" com alerta operacional | Desabilitar action; nao reemitir automaticamente |
+| Complementar preco/quantidade | `POST /1/nfe/complementar/` | `FiscalDocument(kind="nfe", purpose="complementary")` | Obrigatorio | NF-e local ou externa por chave/UUID | `nfe:complementary:{workshop}:{original_identifier}:{hash_tipo_itens_valores}` | Form de tipo de complemento e itens/valores | Desabilitar action |
+| Complementar impostos | `POST /1/nfe/complementar/` | `FiscalDocument(kind="nfe", purpose="complementary_tax")` ou `purpose="complementary"` com subtipo | Obrigatorio | NF-e local ou externa por chave/UUID | `nfe:complementary_tax:{workshop}:{original_identifier}:{hash_impostos}` | Form fiscal restrito a usuarios autorizados | Desabilitar action |
+| Complementar adicao/importacao | `POST /1/nfe/complementar/` | `FiscalDocument(kind="nfe", purpose="complementary_import")` ou subtipo | Obrigatorio quando houver nota original | NF-e local ou externa por chave/UUID | `nfe:complementary_import:{workshop}:{original_identifier}:{hash_adicao}` | Form especifico, inicialmente atras de confirmacao administrativa se aplicavel | Desabilitar action |
+| Ajuste | `POST /1/nfe/ajuste/` | `FiscalDocument(kind="nfe", purpose="adjustment")` | Opcional | Emissao manual avulsa ou vinculada a NF-e local/externa quando houver relacao | `nfe:adjustment:{workshop}:{operacao}:{codigo_cfop}:{valor_icms}:{hash_cliente_payload}` | Form manual com `operacao`, natureza, CFOP, ICMS, cliente e ambiente | Desabilitar action sem afetar devolucao/complementar |
+
+NF-e externa: permitir informar chave manual de 44 digitos para devolucao e complemento. Validar apenas o formato da chave nesta fase, criar `FiscalDocument` externo minimo com `document_type="nfe"`, `origin="external"`, `access_key`, `workshop`, `account` e flag textual de que nao foi emitida localmente. Exigir confirmacao explicita do usuario autorizado antes da emissao derivada. Nao usar `/1/nfe/consulta/` como garantia de validacao de NF-e de outro emissor; importacao/validacao por XML ou API fiscal especifica fica fora da Fase 2.2A.
+
+Idempotencia da Fase 2.2A: a identidade da transmissao deve ser o documento derivado persistido, nao apenas `original + itens + quantidades + CFOP`, porque duas devolucoes parciais legitimas podem ter payload equivalente em momentos distintos. Fluxo obrigatorio: criar documento derivado local em estado inicial; criar/bloquear `FiscalEmissionAttempt` associado ao derivado; executar uma unica chamada `POST /1/nfe/devolucao/`; atualizar somente o derivado; webhook/reconciliacao atualizam o derivado. O payload sanitizado fica congelado apos o envio.
 
 ### Arquivos previstos para Fase 2.1
 

@@ -60,16 +60,36 @@
 - Rollback: desabilitar action CC-e e ignorar tabelas/eventos novos; legado NF-e continua operacional.
 - Status: validada em 2026-05-28; nao autoriza Fase 2.2.
 
-### Fase 2.2 - Devolucao, complementar e ajuste
+### Fase 2.2A - Devolucao e estorno
 
-- Escopo: documentos derivados referenciando NF-e original.
-- Dependencias: Fase 2.1 validada ou decisao explicita para iniciar com nucleo fiscal minimo ja aprovado.
-- Modelagem necessaria: `FiscalDocument` para documento derivado, `FiscalDocumentLink` para relacao com original, tentativa idempotente por operacao.
-- Endpoints Webmania: `POST /1/nfe/devolucao/`, `POST /1/nfe/complementar/`, `POST /1/nfe/ajuste/`, consulta/download por `GET /1/nfe/consulta/` e URLs retornadas.
-- Arquivos previstos: services de documentos derivados, forms por tipo, views/actions, URLs, templates, testes de gateway e permissao, docs.
-- Testes obrigatorios: derivado referencia original; item/valor obrigatorio; timeout `uncertain`; concorrencia nao duplica; cross-workshop negado; webhook atualiza documento derivado sem mexer indevidamente no original.
-- Riscos: CFOP inverso, regras fiscais por UF/operacao, complementar parcial, estorno fora de prazo.
-- Rollback: desabilitar actions e manter documentos ja emitidos consultaveis.
+- Escopo: NF-e de devolucao parcial/total e cenario de estorno pelo endpoint de devolucao.
+- Dependencias: Fase 2.1 validada e autorizacao explicita da subfase.
+- Modelagem necessaria: `FiscalDocument(kind="nfe", purpose="return" ou "reversal")`; `FiscalDocumentLink` obrigatorio para NF-e original local ou externa; suporte a itens/quantidades parciais.
+- Endpoint Webmania: `POST /1/nfe/devolucao/`; consulta/download por `GET /1/nfe/consulta/` e URLs retornadas.
+- NF-e externa: permitir chave manual de 44 digitos, validar formato, criar documento externo minimo com `origin=external`, registrar que nao foi emitido localmente e exigir confirmacao explicita; nao usar `/1/nfe/consulta/` como garantia de validacao de outro emissor.
+- Idempotencia: criar `FiscalDocument` derivado antes do gateway e usar tentativa associada ao derivado com chave `hash(workshop_id, derived_document_id, operation_type, request_generation)`; payload sanitizado congelado apos envio.
+- Testes obrigatorios: link obrigatorio; devolucao parcial; estorno via devolucao; timeout `uncertain`; concorrencia nao duplica; cross-workshop negado; webhook atualiza derivado sem alterar original; NF-e externa marcada.
+- Rollback: desabilitar actions de devolucao/estorno e manter documentos ja emitidos consultaveis.
+- Status: implementada para revisao em 2026-05-28; Fase 2.2B nao iniciada.
+
+### Fase 2.2B - Nota complementar
+
+- Escopo: complementar preco/quantidade, complementar impostos e documento de adicao/importacao quando aplicavel.
+- Dependencias: Fase 2.2A validada ou decisao explicita para executar em paralelo documentalmente aprovada.
+- Modelagem necessaria: `FiscalDocument(kind="nfe", purpose="complementary")` com subtipo; `FiscalDocumentLink` obrigatorio para NF-e original local ou externa.
+- Endpoint Webmania: `POST /1/nfe/complementar/`.
+- Testes obrigatorios: referencia por chave/UUID; tipos de complemento; timeout `uncertain`; complemento distinto versus duplicado; permissao restrita; NF-e externa marcada.
+- Rollback: desabilitar action complementar.
+- Status: nao iniciada.
+
+### Fase 2.2C - Nota de ajuste
+
+- Escopo: NF-e de ajuste fiscal com `operacao`, `natureza_operacao`, `codigo_cfop`, `valor_icms`, `ambiente` e `cliente`.
+- Dependencias: autorizacao explicita da subfase e revisao fiscal do payload.
+- Modelagem necessaria: `FiscalDocument(kind="nfe", purpose="adjustment")`; `FiscalDocumentLink` opcional, usado somente quando houver relacao de negocio real ou exigencia futura confirmada.
+- Endpoint Webmania: `POST /1/nfe/ajuste/`.
+- Testes obrigatorios: ajuste sem original permitido; ajuste com original opcional; timeout `uncertain`; concorrencia nao duplica; permissao restrita; payload sanitizado.
+- Rollback: desabilitar action ajuste sem afetar devolucao/complementar.
 - Status: nao iniciada.
 
 ### Fase 2.3 - NFC-e
@@ -94,6 +114,16 @@
 - Testes obrigatorios: evento autorizado; evento duplicado bloqueado; cancelamento referencia evento original; fora de ordem nao regride; permissao restrita; logs/payloads sanitizados.
 - Riscos: mudanca normativa IBS/CBS, codigos de evento novos, suporte remoto parcial.
 - Rollback: desligar actions avancadas mantendo historico ja recebido.
+- Status: nao iniciada.
+
+### Fase 2.5 - Nota Fiscal de Credito e Nota Fiscal de Debito
+
+- Escopo: NF-e de credito (`finalidade=5`, `tipo_credito`) e NF-e de debito (`finalidade=6`, `tipo_debito`).
+- Dependencias: revalidacao oficial da Reforma Tributaria, decisao de produto e permissao administrativa.
+- Modelagem necessaria: `FiscalDocument(kind="nfe", purpose="credit")` e `FiscalDocument(kind="nfe", purpose="debit")`; links opcionais/condicionais conforme tipo e `dfe_referenciado`.
+- Endpoint Webmania: `POST /1/nfe/emissao/`.
+- Testes obrigatorios: tipo_credito/tipo_debito obrigatorios; finalidade correta; documento referenciado quando tipo exigir; timeout `uncertain`; permissao restrita.
+- Rollback: feature/action desligavel sem afetar NF-e normal.
 - Status: nao iniciada.
 
 ## Fase 3 - Completar NFS-e

@@ -89,9 +89,11 @@ A Fase 2 expande somente a familia NF-e/NFC-e da API v1 Webmania. Ela nao deve i
 Operacoes de produto planejadas:
 
 - CC-e: evento de correcao textual vinculado a uma NF-e autorizada, sem alterar valores fiscais.
-- Devolucao/estorno: novo documento fiscal referenciando a nota original.
-- Complementar: novo documento fiscal que complementa preco, quantidade, imposto ou informacao suportada pela Webmania.
-- Ajuste: novo documento fiscal para situacoes de ajuste fiscal, sempre referenciado e auditavel.
+- Devolucao/estorno: novo documento fiscal referenciando obrigatoriamente a nota anterior por chave, com suporte a devolucao parcial por produtos/quantidades e ao cenario de estorno tratado pelo endpoint de devolucao.
+- Complementar: novo documento fiscal que complementa preco, quantidade, imposto ou informacao suportada pela Webmania, referenciando obrigatoriamente a nota original por chave ou UUID.
+- Ajuste: novo documento fiscal para situacoes de ajuste fiscal. A documentacao oficial do endpoint `/1/nfe/ajuste/` nao exige chave/UUID da nota original; portanto vinculo com documento original e opcional e so deve existir quando houver relacao de negocio real ou exigencia futura confirmada.
+- Nota Fiscal de Credito: NF-e emitida por `/1/nfe/emissao/` com `finalidade=5` e `tipo_credito`, planejada para subfase posterior.
+- Nota Fiscal de Debito: NF-e emitida por `/1/nfe/emissao/` com `finalidade=6` e `tipo_debito`, planejada para subfase posterior.
 - NFC-e: emissao modelo consumidor para venda direta, com configuracao propria por oficina e distincao visual de NF-e.
 - Manifestacao do destinatario: evento vinculado a uma chave NF-e recebida ou documento monitorado.
 - Eventos IBS/CBS: eventos vinculados a NF-e/NFC-e em contexto da Reforma Tributaria.
@@ -101,8 +103,9 @@ Operacoes de produto planejadas:
 Regras de produto:
 
 - Eventos fiscais nao sao notas comuns e devem aparecer no historico/timeline do documento original.
-- Documentos derivados sao notas novas, mas devem manter vinculo auditavel com a nota original.
+- Documentos derivados sao notas novas. Devolucao/estorno e complementar devem manter vinculo auditavel obrigatorio com a nota original; ajuste pode existir sem nota original local ou externa quando a operacao fiscal nao exigir referencia.
 - Acoes de Fase 2 devem partir de uma NF-e/NFC-e da oficina ativa ou de emissao manual autorizada quando a operacao permitir.
+- Quando devolucao ou complemento referenciarem NF-e externa nao emitida pelo Hunter, o sistema deve permitir informar chave de acesso manual de 44 digitos, validar apenas o formato da chave, criar um `FiscalDocument` externo minimo como original referenciado, registrar que a origem nao foi emitida localmente e exigir confirmacao explicita do usuario autorizado. `GET /1/nfe/consulta/` nao deve ser tratado como validador garantido de NF-e de outro emissor; importacao/validacao por XML ou API fiscal especifica fica no backlog.
 - Nenhuma operacao Fase 2 pode depender exclusivamente de `WorkOrder`.
 - NFC-e deve exigir configuracao fiscal adequada de serie/modelo e ambiente antes de aparecer como acao disponivel.
 
@@ -111,9 +114,12 @@ Regras de produto:
 | Subfase | Produto | Resultado esperado |
 | ------- | ------- | ------------------ |
 | 2.1 | CC-e | Emitir e consultar CC-e como evento vinculado a NF-e autorizada. |
-| 2.2 | Devolucao, complementar e ajuste | Emitir documentos derivados referenciando NF-e original, com vinculo auditavel. |
+| 2.2A | Devolucao e estorno | Emitir devolucao parcial/total ou estorno via `/1/nfe/devolucao/`, com vinculo obrigatorio a NF-e original ou externa. |
+| 2.2B | Nota complementar | Emitir complementar de preco/quantidade, imposto ou documento de adicao/importacao, com vinculo obrigatorio a NF-e original ou externa. |
+| 2.2C | Nota de ajuste | Emitir ajuste fiscal sem exigir documento original, com vinculo opcional quando houver relacao real. |
 | 2.3 | NFC-e | Emitir NFC-e pelo endpoint v1 existente, com configuracao e permissoes proprias. |
 | 2.4 | Manifestacao e IBS/CBS | Registrar eventos avancados com historico auditavel e revalidacao da Reforma Tributaria. |
+| 2.5 | Nota Fiscal de Credito e Debito | Planejar e implementar finalidades 5 e 6 da NF-e com `tipo_credito` e `tipo_debito`. |
 
 ## Fora de escopo por fase
 

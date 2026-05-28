@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import json
 
 from django import forms
 from django.contrib import messages
@@ -19,10 +20,11 @@ from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.forms import NfeRequestStep1Form, NfeRequestStep2Form, NfeRequestStep3Form
-from apps.finance.models.finance import FiscalDocumentEvent, NfeItem, NfeRequest, NfeRequestStatus
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentEvent, FiscalDocumentLinkRole, FiscalDocumentPurpose, NfeItem, NfeRequest, NfeRequestStatus
 from apps.finance.services.nfe_consulta import NfeConsultaError, reconcile_nfe_item
 from apps.finance.services.nfe_emission import NfeEmissionError, cancel_nfe_document, download_nfe_preview_document, emit_nfe_request, invalidate_nfe_number, sync_nfe_emission_response
 from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction, is_nfe_item_eligible_for_cce
+from apps.finance.services.nfe_returns import NfeReturnError, create_and_emit_nfe_return_from_item, is_local_nfe_eligible_for_return
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.views.ncm_validation import build_invalid_ncm_modal_context, pop_invalid_ncm_modal_context, store_invalid_ncm_modal_context
 from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url
@@ -50,6 +52,25 @@ class NfeInvalidateForm(CoreForm):
 class NfeCorrectionForm(CoreForm):
     correction = forms.CharField(min_length=15, max_length=1000)
     confirm_legal_restrictions = forms.BooleanField(required=True)
+
+
+class NfeReturnForm(CoreForm):
+    purpose = forms.ChoiceField(choices=((FiscalDocumentPurpose.RETURN, "Devolucao"), (FiscalDocumentPurpose.REVERSAL, "Estorno")))
+    natureza_operacao = forms.CharField(max_length=120)
+    codigo_cfop = forms.CharField(max_length=10)
+    produtos_json = forms.CharField(widget=forms.Textarea)
+    informacoes_complementares = forms.CharField(required=False, max_length=1000)
+    informacoes_fisco = forms.CharField(required=False, max_length=1000)
+
+    def clean_produtos_json(self):
+        raw_value = str(self.cleaned_data.get("produtos_json") or "").strip()
+        try:
+            products = json.loads(raw_value)
+        except ValueError as exc:
+            raise forms.ValidationError("Informe os produtos em JSON valido.") from exc
+        if not isinstance(products, list):
+            raise forms.ValidationError("Produtos devem ser uma lista JSON.")
+        return products
 
 
 def _can_invalidate_nfe_request(*, nfe_request: NfeRequest, latest_item: NfeItem | None) -> bool:
@@ -121,6 +142,28 @@ def _user_can_issue_cce(*, user, workshop, request) -> bool:
     )
 
 
+def _user_can_issue_return(*, user, workshop, request) -> bool:
+    return has_workshop_perm(
+        user=user,
+        workshop=workshop,
+        app_label="finance",
+        model="fiscaldocument",
+        codename="issue_nfe_return",
+        request=request,
+    )
+
+
+def _user_can_issue_reversal(*, user, workshop, request) -> bool:
+    return has_workshop_perm(
+        user=user,
+        workshop=workshop,
+        app_label="finance",
+        model="fiscaldocument",
+        codename="issue_nfe_reversal",
+        request=request,
+    )
+
+
 class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
     model = NfeRequest
     workshop_permission_model = "nferequest"
@@ -138,9 +181,13 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         can_cancel = bool(latest_item and str(getattr(latest_item, "status", "")).strip().lower() in {"aprovado", "contingencia"})
         can_invalidate = _can_invalidate_nfe_request(nfe_request=self.object, latest_item=latest_item)
         can_issue_cce = bool(latest_item and is_nfe_item_eligible_for_cce(latest_item) and _user_can_issue_cce(user=self.request.user, workshop=self.workshop, request=self.request))
+        can_issue_return = bool(latest_item and is_local_nfe_eligible_for_return(latest_item) and _user_can_issue_return(user=self.request.user, workshop=self.workshop, request=self.request))
+        can_issue_reversal = bool(latest_item and is_local_nfe_eligible_for_return(latest_item) and _user_can_issue_reversal(user=self.request.user, workshop=self.workshop, request=self.request))
         cce_events = FiscalDocumentEvent.objects.none()
+        return_documents = FiscalDocument.objects.none()
         if latest_item is not None:
             cce_events = FiscalDocumentEvent.objects.filter(document__workshop=self.workshop, document__legacy_nfe_item=latest_item, event_type="cce").order_by("event_sequence")
+            return_documents = FiscalDocument.objects.filter(links_from__related_document__legacy_nfe_item=latest_item, links_from__role__in=[FiscalDocumentLinkRole.RETURNS, FiscalDocumentLinkRole.REVERSES]).distinct().order_by("criado_em")
         fallback_back_url = reverse("finance:nfe_list")
         context.update(
             {
@@ -160,8 +207,12 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
                 "latest_item_status_badge": _format_item_status_badge(getattr(latest_item, "status", "")),
                 "can_invalidate": can_invalidate,
                 "can_issue_cce": can_issue_cce,
+                "can_issue_return": can_issue_return,
+                "can_issue_reversal": can_issue_reversal,
                 "cce_form": NfeCorrectionForm(),
                 "cce_events": cce_events,
+                "nfe_return_form": NfeReturnForm(),
+                "return_documents": return_documents,
             }
         )
         return context
@@ -195,6 +246,53 @@ class NfeCorrectionIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
             messages.error(request, str(exc))
         else:
             messages.success(request, "Carta de correcao enviada para a Webmania.")
+
+        return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+
+class NfeReturnIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nferequest"
+    workshop_permission_codename = "view_nferequest"
+    workshop_permission_fallbacks = (("finance", "nfserequest", "view_nfserequest"),)
+
+    def post(self, request, *args, **kwargs):
+        nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+        latest_item = nfe_request.items.order_by("-id").first()
+        if not is_local_nfe_eligible_for_return(latest_item):
+            messages.error(request, "Devolucao ou estorno permitidos somente para NF-e autorizada com chave de acesso valida.")
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+        form = NfeReturnForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Informe finalidade, CFOP, natureza da operacao e produtos validos para devolucao ou estorno.")
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+        purpose = str(form.cleaned_data["purpose"])
+        if purpose == FiscalDocumentPurpose.REVERSAL:
+            has_permission = _user_can_issue_reversal(user=request.user, workshop=self.workshop, request=request)
+        else:
+            has_permission = _user_can_issue_return(user=request.user, workshop=self.workshop, request=request)
+        if not has_permission:
+            messages.error(request, "Usuario sem permissao especifica para esta operacao fiscal.")
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+        try:
+            create_and_emit_nfe_return_from_item(
+                item=latest_item,
+                purpose=purpose,
+                products=form.cleaned_data["produtos_json"],
+                requested_by=request.user,
+                natureza_operacao=str(form.cleaned_data["natureza_operacao"]),
+                codigo_cfop=str(form.cleaned_data["codigo_cfop"]),
+                informacoes_complementares=str(form.cleaned_data.get("informacoes_complementares") or ""),
+                informacoes_fisco=str(form.cleaned_data.get("informacoes_fisco") or ""),
+                request=request,
+            )
+        except NfeReturnError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, "Devolucao ou estorno enviado para a Webmania.")
 
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
@@ -397,6 +495,47 @@ class NfeCorrectionDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
         identifier = str(event.remote_uuid or event.document.access_key or event.pk or "documento").strip()
         safe_identifier = identifier.replace(" ", "-")
         return f'attachment; filename="nfe-cce-{document_kind}-{safe_identifier}.{extension}"'
+
+
+class NfeReturnDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "fiscaldocument"
+    workshop_permission_codename = "download_nfe_return"
+
+    document_fields = {
+        "xml": ("xml_url", "xml"),
+        "danfe": ("danfe_url", "pdf"),
+    }
+
+    def get(self, request, *args, **kwargs):
+        nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+        document_kind = str(kwargs.get("document") or "").strip().lower()
+        if document_kind not in self.document_fields:
+            raise Http404("Documento nao suportado")
+
+        document = get_object_or_404(
+            FiscalDocument.objects.filter(links_from__related_document__legacy_nfe_item__request=nfe_request).distinct(),
+            pk=kwargs.get("document_pk"),
+            workshop=self.workshop,
+            purpose__in=[FiscalDocumentPurpose.RETURN, FiscalDocumentPurpose.REVERSAL],
+        )
+        field_name, extension = self.document_fields[document_kind]
+        document_url = str(getattr(document, field_name, "") or "").strip()
+
+        try:
+            downloaded = download_webmania_document(workshop=self.workshop, url=document_url)
+        except WebmaniaDocumentDownloadError as exc:
+            return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
+
+        response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
+        response["Content-Disposition"] = self._build_content_disposition(document=document, document_kind=document_kind, extension=extension)
+        return response
+
+    @staticmethod
+    def _build_content_disposition(*, document: FiscalDocument, document_kind: str, extension: str) -> str:
+        identifier = str(document.number or document.access_key or document.remote_uuid or document.pk or "documento").strip()
+        safe_identifier = identifier.replace(" ", "-")
+        return f'attachment; filename="nfe-{document.purpose}-{document_kind}-{safe_identifier}.{extension}"'
 
 
 @method_decorator(xframe_options_exempt, name="dispatch")

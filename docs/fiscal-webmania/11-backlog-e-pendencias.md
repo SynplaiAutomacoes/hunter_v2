@@ -3,8 +3,9 @@
 ## Decisoes que exigem aprovacao
 
 - Manter models legados com camada de compatibilidade ou migrar diretamente para dominio unificado.
-- Aprovar `FiscalDocumentLink` somente para a Fase 2.2, quando forem implementados devolucao, complementar e ajuste.
-- Validar em revisao a implementacao do espelho sob demanda de `NfeItem` legado usado na CC-e da Fase 2.1.
+- Aprovar implementacao funcional da Fase 2.2A antes de qualquer codigo de devolucao/estorno.
+- Aprovar implementacao funcional da Fase 2.2B antes de qualquer codigo de complementar.
+- Aprovar implementacao funcional da Fase 2.2C antes de qualquer codigo de ajuste.
 - Aprovar politica final de permissoes fiscais para novas operacoes Fase 2.2+; Fase 2.1 nao concedeu emissao CC-e por fallback legado.
 - Evoluir `FiscalEmissionAttempt` minimo para dominio unificado futuro.
 - Politica final de permissoes fiscais.
@@ -37,7 +38,10 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 
 - Revalidar em homologacao a CC-e implementada na Fase 2.1 contra respostas reais Webmania, sem emissao em testes automatizados.
 - Confirmar dados obrigatorios de devolucao/estorno por CFOP inverso e finalidade.
-- Confirmar variantes de NF-e complementar e ajuste aplicaveis ao produto oficina.
+- Confirmar variantes de NF-e complementar: preco/quantidade, impostos e adicao/importacao aplicaveis ao produto oficina.
+- Confirmar cenarios de ajuste que exigem ou dispensam documento original.
+- Confirmar tipos oficiais `tipo_credito` e `tipo_debito` antes da Fase 2.5.
+- Importacao/validacao de NF-e externa por XML ou API fiscal especifica fica fora da Fase 2.2A.
 - Confirmar requisitos NFC-e por oficina: serie, CSC/token, ambiente, contingencia e DANFE NFC-e.
 - Confirmar suporte e semantica de cancelamento por substituicao de NFC-e antes de implementar essa variacao.
 - Revalidar eventos IBS/CBS e cancelamento conforme documentacao vigente da Reforma Tributaria.

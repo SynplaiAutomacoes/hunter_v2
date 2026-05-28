@@ -112,14 +112,30 @@ Testes transversais obrigatorios para cada subfase da Fase 2:
 - Tenancy: NF-e de outra oficina retorna 404/403 antes do gateway.
 - Permissao: sem `issue_nfe_correction`, nao chama Webmania.
 
-### Fase 2.2 - Devolucao, complementar e ajuste
+### Fase 2.2A - Devolucao e estorno
 
-- Documento derivado referencia documento original.
-- Payload inclui chave/UUID original e finalidade correta.
-- Itens/valores obrigatorios por operacao.
-- Nao permite derivado a partir de documento de outra oficina.
-- Cada operacao tem idempotencia propria e nao conflita com CC-e.
+- Documento de devolucao/estorno referencia obrigatoriamente documento original local ou externo.
+- Devolucao parcial valida produtos e quantidades contra a nota original quando houver dados locais/consulta.
+- NF-e externa cria `FiscalDocument` minimo `origin=external` e registra chave manual.
+- NF-e externa valida somente formato da chave de 44 digitos e exige confirmacao explicita; nao chama consulta padrao como garantia.
+- Duas devolucoes parciais legitimas com payload equivalente podem existir como documentos derivados distintos.
+- Mesma intencao derivada nao pode trocar payload apos envio.
+- Timeout apos envio vira `uncertain` e bloqueia reenvio.
 - Webhook de derivado atualiza derivado, nao sobrescreve original.
+
+### Fase 2.2B - Nota complementar
+
+- Complementar referencia obrigatoriamente NF-e original local ou externa por chave/UUID.
+- Testar complemento de preco/quantidade, impostos e adicao/importacao quando aplicavel.
+- Complemento identico e bloqueado por idempotencia; complemento distinto exige status remoto claro.
+- Usuario sem permissao especifica nao chama gateway.
+
+### Fase 2.2C - Nota de ajuste
+
+- Ajuste sem documento original e permitido.
+- Ajuste com documento original usa `FiscalDocumentLink` opcional e nao obrigatorio.
+- Payload exige `operacao`, `natureza_operacao`, `codigo_cfop`, `valor_icms`, `ambiente` e `cliente`.
+- Timeout vira `uncertain`; retry automatico e proibido.
 
 ### Fase 2.3 - NFC-e
 
@@ -136,3 +152,10 @@ Testes transversais obrigatorios para cada subfase da Fase 2:
 - Cancelamento IBS/CBS referencia evento original.
 - Evento duplicado e fora de ordem nao duplica nem regride historico.
 - Revalidar schemas com documentacao oficial imediatamente antes de codificar.
+
+### Fase 2.5 - Nota Fiscal de Credito e Debito
+
+- NF-e de credito usa `/1/nfe/emissao/`, `finalidade=5` e `tipo_credito`.
+- NF-e de debito usa `/1/nfe/emissao/`, `finalidade=6` e `tipo_debito`.
+- Validar documento referenciado quando o tipo oficial exigir `dfe_referenciado`.
+- Idempotencia por tipo e payload; timeout vira `uncertain`.

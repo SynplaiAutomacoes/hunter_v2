@@ -12,6 +12,7 @@ from apps.finance.services.emission import apply_nfse_batch_payload, apply_nfse_
 from apps.finance.services.mappers import extract_items_from_batch
 from apps.finance.services.nfe_events import apply_cce_event_payload
 from apps.finance.services.nfe_emission import apply_nfe_item_payload
+from apps.finance.services.nfe_returns import apply_nfe_return_document_payload, resolve_nfe_return_document_for_webhook
 
 
 def _unique_or_none(queryset: Any) -> Any | None:
@@ -170,6 +171,16 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
         return True
 
     if model == "nfe":
+        derived_document = resolve_nfe_return_document_for_webhook(payload=payload)
+        if derived_document is not None:
+            with transaction.atomic():
+                derived_document = derived_document.__class__.objects.select_for_update().get(pk=derived_document.pk)
+                if not _is_regressive_status(model="nfe", current_status=derived_document.status, incoming_status=str(payload.get("status") or "")):
+                    apply_nfe_return_document_payload(document=derived_document, response_payload=payload)
+
+            _mark_event_processed(event)
+            return True
+
         nfe_item = _unique_or_none(NfeItem.objects.filter(uuid=event_uuid).select_related("request"))
         if nfe_item is None:
             _mark_event_deferred(event, error=f"Nota Fiscal {event_uuid} ainda nao foi sincronizada localmente ou esta ambigua entre oficinas.")

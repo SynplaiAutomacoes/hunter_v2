@@ -99,20 +99,50 @@
 - Status: implementada e validada para CC-e na Fase 2.1.
 - Fase: 2.
 
-## ADR-014 - Documentos derivados sao novos documentos com link ao original
+## ADR-014 - Documentos derivados e ajustes possuem regras distintas de vinculo
 
-- Contexto: devolucao, complementar e ajuste geram notas novas, mas dependem de uma nota original.
-- Decisao: persistir cada derivado como `FiscalDocument` proprio e vincular ao original via `FiscalDocumentLink`.
-- Alternativas consideradas: atualizar o documento original; guardar derivado apenas no payload.
-- Consequencias: evita sobrescrever a nota original, suporta multiplos derivados e auditoria.
-- Riscos: exige regras de exibicao para diferenciar original, derivado e evento.
-- Status: proposta para Fase 2.2.
+- Contexto: devolucao/estorno, complementar e ajuste geram NF-e novas, mas a documentacao oficial nao exige a mesma referencia para todas. Devolucao exige `chave`; complementar exige `chave` ou `uuid`; ajuste usa body com `operacao`, `natureza_operacao`, `codigo_cfop`, `valor_icms`, `ambiente` e `cliente`, sem exigir chave/UUID original.
+- Decisao: persistir todos como `FiscalDocument` proprio. `FiscalDocumentLink` e obrigatorio para devolucao/estorno e complementar, e opcional para ajuste. Ajuste sem original nao deve ser bloqueado.
+- Alternativas consideradas: exigir link para qualquer documento Fase 2.2; atualizar o documento original; guardar derivado apenas no payload.
+- Consequencias: evita sobrescrever a nota original, suporta NF-e externa referenciada e permite ajuste avulso compativel com a API.
+- Riscos: UI e permissoes precisam deixar claro quando ha nota original local, nota externa ou operacao avulsa.
+- Status: implementada para devolucao/estorno na Fase 2.2A; complementar e ajuste permanecem planejados.
 - Fase: 2.2.
+
+## ADR-016 - NF-e externa referenciada por devolucao e complemento
+
+- Contexto: devolucao e complemento podem referenciar uma NF-e nao emitida pelo Hunter V2.
+- Decisao: permitir chave manual de 44 digitos, validar formato, criar `FiscalDocument` externo minimo como original referenciado, marcar `origin=external`, exigir confirmacao explicita e registrar que a origem nao foi emitida localmente. Nao tratar `/1/nfe/consulta/` como validador garantido de NF-e de outro emissor.
+- Alternativas consideradas: bloquear documentos externos; guardar apenas chave no payload.
+- Consequencias: amplia cobertura fiscal sem forcar backfill inexistente e preserva auditoria por oficina.
+- Riscos: consulta remota pode ser insuficiente; nesses casos a UI deve bloquear ou exigir decisao operacional documentada antes de transmissao.
+- Status: implementada para devolucao/estorno na Fase 2.2A; complemento externo permanece planejado para 2.2B.
+- Fase: 2.2.
+
+## ADR-018 - Idempotencia de devolucao/estorno por documento derivado
+
+- Contexto: duas devolucoes parciais legitimas podem ter os mesmos itens, quantidades e CFOP em momentos diferentes, portanto a identidade nao pode ser somente `original + itens + quantidades + CFOP`.
+- Decisao: na Fase 2.2A, criar o `FiscalDocument` derivado antes da chamada remota e associar `FiscalEmissionAttempt` ao derivado. A chave recomendada e `hash(workshop_id, derived_document_id, operation_type, request_generation)`.
+- Alternativas consideradas: chave por payload fiscal; chave por nota original e itens.
+- Consequencias: cada intencao fiscal persistida transmite uma unica vez e permite devolucoes parciais legitimas independentes.
+- Riscos: documentos derivados iniciados e abandonados exigem status local claro e limpeza operacional futura.
+- Status: implementada na Fase 2.2A para devolucao/estorno.
+- Fase: 2.2A.
+
+## ADR-017 - NF-e de credito e debito ficam em Fase 2.5
+
+- Contexto: a familia NF-e inclui finalidades 5 e 6 pelo endpoint `/1/nfe/emissao/`, com `tipo_credito` e `tipo_debito`.
+- Decisao: planejar subfase propria 2.5 para Nota Fiscal de Credito e Nota Fiscal de Debito, depois de derivados basicos e NFC-e/eventos avancados estarem encaminhados.
+- Alternativas consideradas: incluir credito/debito em 2.2 ou 2.3.
+- Consequencias: reduz risco da Fase 2.2 e permite revalidar regras da Reforma Tributaria antes do codigo.
+- Riscos: demanda fiscal pode antecipar prioridade; se isso ocorrer, exigir aprovacao explicita.
+- Status: proposta.
+- Fase: 2.5.
 
 ## ADR-015 - Fase 2 dividida em subfases obrigatorias
 
 - Contexto: NF-e/NFC-e adicional combina eventos simples, documentos derivados, novo modelo NFC-e e eventos tributarios avancados.
-- Decisao: executar em 2.1 CC-e, 2.2 derivados, 2.3 NFC-e, 2.4 manifestacao e IBS/CBS.
+- Decisao: executar em 2.1 CC-e, 2.2A devolucao/estorno, 2.2B complementar, 2.2C ajuste, 2.3 NFC-e, 2.4 manifestacao e IBS/CBS, 2.5 credito/debito.
 - Alternativas consideradas: implementar toda Fase 2 em lote.
 - Consequencias: menor risco, gates claros, rollback por capacidade.
 - Riscos: mais etapas de aprovacao e manutencao documental.

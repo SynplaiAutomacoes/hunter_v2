@@ -60,6 +60,12 @@ def build_fiscal_operation_idempotency_key(*, workshop_id: int, document_id: int
     return f"{operation_type}:{digest}"
 
 
+def build_fiscal_document_operation_idempotency_key(*, workshop_id: int, derived_document_id: int, operation_type: str, request_generation: int = 1) -> str:
+    raw_value = f"{workshop_id}:{derived_document_id}:{operation_type}:{request_generation}"
+    digest = hashlib.sha256(raw_value.encode("utf-8")).hexdigest()
+    return f"{operation_type}:{digest}"
+
+
 def build_payload_hash(payload: dict[str, Any]) -> str:
     canonical_payload = json.dumps(sanitize_fiscal_payload(payload), sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canonical_payload.encode("utf-8")).hexdigest()

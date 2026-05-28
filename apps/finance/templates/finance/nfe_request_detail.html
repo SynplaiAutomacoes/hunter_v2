@@ -36,6 +36,12 @@
             Emitir Carta de Correção
         </button>
     {% endif %}
+    {% if can_issue_return or can_issue_reversal %}
+        <button type="button" class="btn btn-sm btn-outline gap-2" onclick="return_nfe_modal.showModal()">
+            <span class="material-icons text-sm">assignment_return</span>
+            Devolução/Estorno
+        </button>
+    {% endif %}
 {% endblock %}
 
 {% block crud_detail_content %}
@@ -182,6 +188,44 @@
                         </div>
                     </div>
                 {% endif %}
+                {% if return_documents %}
+                    <div class="mt-8">
+                        <h3 class="text-base font-semibold text-base-content mb-3">Devoluções e estornos</h3>
+                        <div class="overflow-x-auto rounded-lg border border-base-200">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Finalidade</th>
+                                        <th>Status</th>
+                                        <th>UUID</th>
+                                        <th>Chave</th>
+                                        <th class="text-right">Documentos</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for document in return_documents %}
+                                        <tr>
+                                            <td>{{ document.get_purpose_display }}</td>
+                                            <td>{{ document.status }}</td>
+                                            <td class="break-all">{{ document.remote_uuid|default:'-' }}</td>
+                                            <td class="break-all">{{ document.access_key|default:'-' }}</td>
+                                            <td class="text-right">
+                                                <div class="flex flex-wrap justify-end gap-2">
+                                                    {% if document.xml_url %}
+                                                        <a href="{% url 'finance:nfe_return_download' pk=nfe_request.pk document_pk=document.pk document='xml' %}" class="btn btn-outline btn-xs">XML</a>
+                                                    {% endif %}
+                                                    {% if document.danfe_url %}
+                                                        <a href="{% url 'finance:nfe_return_download' pk=nfe_request.pk document_pk=document.pk document='danfe' %}" class="btn btn-outline btn-xs">DANFE</a>
+                                                    {% endif %}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                {% endif %}
             {% else %}
                 <div class="alert alert-warning">
                     <span>A Nota Fiscal ainda nao possui item sincronizado. Reenvie a consulta quando a Webmania retornar o processamento.</span>
@@ -242,6 +286,46 @@
                     <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
                         <button type="button" class="btn-form-cancel" onclick="cce_nfe_modal.close()">Cancelar</button>
                         <button type="submit" class="btn btn-primary">Enviar CC-e</button>
+                    </div>
+                </form>
+            </div>
+        </dialog>
+    {% endif %}
+    {% if can_issue_return or can_issue_reversal %}
+        <dialog id="return_nfe_modal" class="modal" onclick="if (event.target === this) this.close()">
+            <div class="modal-box w-11/12 max-w-3xl border border-base-300 bg-base-100 shadow-2xl">
+                <form method="post" action="{% url 'finance:nfe_return_issue' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
+                    {% csrf_token %}
+                    <h3 class="text-base font-semibold text-base-content">Emitir devolução ou estorno</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                        <div>
+                            <label for="nfe-return-purpose" class="label"><span class="label-text">Finalidade</span></label>
+                            <select id="nfe-return-purpose" name="purpose" class="select select-bordered w-full" required>
+                                {% if can_issue_return %}<option value="return">Devolução</option>{% endif %}
+                                {% if can_issue_reversal %}<option value="reversal">Estorno</option>{% endif %}
+                            </select>
+                        </div>
+                        <div>
+                            <label for="nfe-return-cfop" class="label"><span class="label-text">CFOP</span></label>
+                            <input id="nfe-return-cfop" name="codigo_cfop" class="input input-bordered w-full" maxlength="10" required>
+                        </div>
+                        <div class="md:col-span-2">
+                            <label for="nfe-return-nature" class="label"><span class="label-text">Natureza da operação</span></label>
+                            <input id="nfe-return-nature" name="natureza_operacao" class="input input-bordered w-full" maxlength="120" required>
+                        </div>
+                        <div class="md:col-span-2">
+                            <label for="nfe-return-products" class="label"><span class="label-text">Produtos em JSON</span></label>
+                            <textarea id="nfe-return-products" name="produtos_json" class="textarea textarea-bordered w-full font-mono text-xs" rows="6" required>[{"codigo":"", "quantidade":"1"}]</textarea>
+                        </div>
+                        <div class="md:col-span-2">
+                            <label for="nfe-return-info" class="label"><span class="label-text">Informações complementares</span></label>
+                            <textarea id="nfe-return-info" name="informacoes_complementares" class="textarea textarea-bordered w-full" rows="3" maxlength="1000"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                        <button type="button" class="btn-form-cancel" onclick="return_nfe_modal.close()">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Enviar</button>
                     </div>
                 </form>
             </div>
