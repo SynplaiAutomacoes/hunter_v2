@@ -84,11 +84,19 @@
                             <span class="text-lg font-semibold">Taxa de Aprovação</span>
                         </div>
                         <div class="flex flex-col items-center gap-4">
+                            {% with rentabilidade_acumulada_mes|floatformat:0 as rent_val %}
+                            {% if rent_val|add:"0" >= 70 %}
+                            <div class="radial-progress text-success border-4 border-success/10"
+                            {% elif rent_val|add:"0" >= 60 %}
                             <div class="radial-progress text-warning border-4 border-warning/10"
+                            {% else %}
+                            <div class="radial-progress text-error border-4 border-error/10"
+                            {% endif %}
                                  style="--value:{{ rentabilidade_acumulada_mes|floatformat:0 }}; --size:9rem; --thickness: 1rem;"
                                  role="progressbar">
                                 <span class="text-2xl font-bold text-base-content">{{ rentabilidade_acumulada_mes|floatformat:2 }}%</span>
                             </div>
+                            {% endwith %}
                             <span class="text-lg font-semibold">Rentabilidade Acumulada</span>
                         </div>
                         <div class="flex flex-col items-center gap-4">
