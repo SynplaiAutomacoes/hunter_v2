@@ -12,7 +12,7 @@ from apps.finance.services.emission import apply_nfse_batch_payload, apply_nfse_
 from apps.finance.services.mappers import extract_items_from_batch
 from apps.finance.services.nfe_events import apply_cce_event_payload
 from apps.finance.services.nfe_emission import apply_nfe_item_payload
-from apps.finance.services.nfe_returns import apply_nfe_return_document_payload, resolve_nfe_return_document_for_webhook
+from apps.finance.services.nfe_returns import apply_nfe_return_document_payload, is_ambiguous_nfe_return_webhook, resolve_nfe_return_document_for_webhook
 
 
 def _unique_or_none(queryset: Any) -> Any | None:
@@ -180,6 +180,9 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
 
             _mark_event_processed(event)
             return True
+        if is_ambiguous_nfe_return_webhook(payload=payload):
+            _mark_event_deferred(event, error=f"Devolucao/estorno NF-e {event_uuid or str(payload.get('chave') or '').strip()} ambiguo entre documentos derivados.")
+            return False
 
         nfe_item = _unique_or_none(NfeItem.objects.filter(uuid=event_uuid).select_related("request"))
         if nfe_item is None:

@@ -118,6 +118,9 @@ Testes transversais obrigatorios para cada subfase da Fase 2:
 - Devolucao parcial valida produtos e quantidades contra a nota original quando houver dados locais/consulta.
 - NF-e externa cria `FiscalDocument` minimo `origin=external` e registra chave manual.
 - NF-e externa valida somente formato da chave de 44 digitos e exige confirmacao explicita; nao chama consulta padrao como garantia.
+- NF-e externa minima bloqueia devolucao parcial sem XML/importacao validada dos itens e da ordem fiscal original.
+- Devolucao parcial local envia `produtos` como sequenciais fiscais e `quantidade` alinhado pelo mesmo indice; devolucao total e estorno nao enviam selecao parcial desnecessaria.
+- Saldo parcial considera documentos derivados aprovados, processando, contingencia e `uncertain`; reprovado e cancelado confirmado nao reservam saldo.
 - Duas devolucoes parciais legitimas com payload equivalente podem existir como documentos derivados distintos.
 - Mesma intencao derivada nao pode trocar payload apos envio.
 - Timeout apos envio vira `uncertain` e bloqueia reenvio.

@@ -177,6 +177,8 @@ Regras adicionais:
 - Nenhuma subfase pode usar apenas cache para idempotencia.
 - Fase 2.2A nao pode usar apenas `original + itens + quantidades + CFOP` como identidade definitiva, pois devolucoes parciais legitimas podem ter payload equivalente. A tentativa deve estar ligada a uma intencao derivada persistida ou ao proprio `FiscalDocument` derivado criado antes da chamada remota.
 - Payload sanitizado de devolucao/estorno deve ser congelado apos o envio; nova tentativa para o mesmo derivado com payload diferente e conflito.
+- Devolucao parcial usa sequenciais fiscais da NF-e original em `produtos` e vetor `quantidade` alinhado por indice; IDs internos de catalogo/banco nao podem compor o contrato remoto.
+- NF-e externa minima por chave manual nao permite devolucao parcial enquanto a ordem fiscal dos itens nao for importada/validada por XML ou fonte fiscal especifica.
 - Eventos devem ter tentativa propria e registro em `FiscalDocumentEvent`.
 - Documentos derivados devem ter tentativa propria e registro em `FiscalDocument`.
 - Webhook/reconciliacao devem atualizar a tentativa/evento/documento correspondente e nunca chamar endpoint de emissao/evento.

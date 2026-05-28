@@ -100,29 +100,25 @@ def _decimal(value: Any) -> Decimal:
         raise NfeReturnError("Informe quantidades validas para os produtos da devolucao.") from exc
 
 
-def _product_code(product: dict[str, Any]) -> str:
-    for key in ("codigo", "sku", "id", "produto", "codigo_produto"):
+def _product_sequence(product: dict[str, Any], *, fallback_index: int | None = None) -> int:
+    for key in ("sequencial", "sequencia", "numero_item", "item", "produto"):
         value = str(product.get(key) or "").strip()
-        if value:
-            return value
-    raise NfeReturnError("Cada produto da devolucao deve informar um codigo.")
+        if value.isdigit() and int(value) > 0:
+            return int(value)
+    if fallback_index is not None:
+        return fallback_index
+    raise NfeReturnError("Cada produto da devolucao parcial deve informar o sequencial fiscal do item na NF-e original.")
 
 
-def _normalized_products(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    if not products:
-        raise NfeReturnError("Informe ao menos um produto para devolucao ou estorno.")
-
+def _normalized_partial_products(products: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
-    for product in products:
+    for product in products or []:
         if not isinstance(product, dict):
             raise NfeReturnError("Produtos da devolucao devem ser objetos.")
         quantity = _decimal(product.get("quantidade"))
         if quantity <= 0:
             raise NfeReturnError("A quantidade de cada produto deve ser maior que zero.")
-        item = dict(product)
-        item["codigo"] = _product_code(product)
-        item["quantidade"] = str(quantity.normalize())
-        normalized.append(item)
+        normalized.append({"sequencial": _product_sequence(product), "quantidade": str(quantity.normalize())})
     return normalized
 
 
@@ -139,7 +135,7 @@ def _extract_products_from_payload(payload: Any) -> list[dict[str, Any]]:
     return []
 
 
-def _original_quantities(document: FiscalDocument) -> dict[str, Decimal]:
+def _original_quantities(document: FiscalDocument) -> dict[int, Decimal]:
     payload_sources = [
         document.request_payload,
         document.response_payload,
@@ -147,48 +143,70 @@ def _original_quantities(document: FiscalDocument) -> dict[str, Decimal]:
     if document.legacy_nfe_item_id:
         payload_sources.extend([document.legacy_nfe_item.raw_payload, document.legacy_nfe_item.log_payload])
 
-    quantities: dict[str, Decimal] = {}
+    quantities: dict[int, Decimal] = {}
     for payload in payload_sources:
-        for product in _extract_products_from_payload(payload):
+        for index, product in enumerate(_extract_products_from_payload(payload), start=1):
             try:
-                code = _product_code(product)
+                sequence = _product_sequence(product, fallback_index=index)
                 quantity = _decimal(product.get("quantidade"))
             except NfeReturnError:
                 continue
-            quantities[code] = quantities.get(code, Decimal("0")) + quantity
+            quantities[sequence] = quantities.get(sequence, Decimal("0")) + quantity
     return quantities
 
 
-def _reserved_return_quantities(*, original_document: FiscalDocument) -> dict[str, Decimal]:
+def _partial_products_from_return_payload(payload: Any) -> list[dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return []
+    products = payload.get("produtos")
+    quantities = payload.get("quantidade")
+    if not isinstance(products, list) or not isinstance(quantities, list):
+        return []
+    partial_products: list[dict[str, Any]] = []
+    for index, sequence in enumerate(products):
+        quantity = quantities[index] if index < len(quantities) else "0"
+        partial_products.append({"sequencial": sequence, "quantidade": quantity})
+    return partial_products
+
+
+def _reserved_return_quantities(*, original_document: FiscalDocument) -> dict[int, Decimal]:
     documents = FiscalDocument.objects.filter(
         links_from__related_document=original_document,
         links_from__role__in=[FiscalDocumentLinkRole.RETURNS, FiscalDocumentLinkRole.REVERSES],
         purpose__in=[FiscalDocumentPurpose.RETURN, FiscalDocumentPurpose.REVERSAL],
         status__in=RESERVING_RETURN_STATUSES,
     )
-    quantities: dict[str, Decimal] = {}
+    quantities: dict[int, Decimal] = {}
     for document in documents:
-        for product in _extract_products_from_payload(document.request_payload):
+        for product in _partial_products_from_return_payload(document.request_payload):
             try:
-                code = _product_code(product)
+                sequence = _product_sequence(product)
                 quantity = _decimal(product.get("quantidade"))
             except NfeReturnError:
                 continue
-            quantities[code] = quantities.get(code, Decimal("0")) + quantity
+            quantities[sequence] = quantities.get(sequence, Decimal("0")) + quantity
     return quantities
 
 
+def calculate_available_return_quantities(*, original_document: FiscalDocument) -> dict[int, Decimal]:
+    original_quantities = _original_quantities(original_document)
+    reserved_quantities = _reserved_return_quantities(original_document=original_document)
+    return {sequence: quantity - reserved_quantities.get(sequence, Decimal("0")) for sequence, quantity in original_quantities.items()}
+
+
 def _validate_available_quantities(*, original_document: FiscalDocument, products: list[dict[str, Any]]) -> None:
+    if not products:
+        return
     original_quantities = _original_quantities(original_document)
     if not original_quantities:
         return
-    reserved_quantities = _reserved_return_quantities(original_document=original_document)
+    available_quantities = calculate_available_return_quantities(original_document=original_document)
     for product in products:
-        code = _product_code(product)
+        sequence = _product_sequence(product)
         requested = _decimal(product.get("quantidade"))
-        available = original_quantities.get(code, Decimal("0")) - reserved_quantities.get(code, Decimal("0"))
+        available = available_quantities.get(sequence, Decimal("0"))
         if requested > available:
-            raise NfeReturnError(f"Quantidade solicitada para devolucao do produto {code} excede o saldo disponivel.")
+            raise NfeReturnError(f"Quantidade solicitada para devolucao do item fiscal {sequence} excede o saldo disponivel.")
 
 
 def is_local_nfe_eligible_for_return(item: NfeItem | None) -> bool:
@@ -241,7 +259,7 @@ def _build_return_payload(
     *,
     original_document: FiscalDocument,
     purpose: str,
-    products: list[dict[str, Any]],
+    products: list[dict[str, Any]] | None,
     natureza_operacao: str,
     codigo_cfop: str,
     volume: dict[str, Any] | None = None,
@@ -254,8 +272,10 @@ def _build_return_payload(
         "natureza_operacao": str(natureza_operacao or ("Estorno de NF-e" if purpose == FiscalDocumentPurpose.REVERSAL else "Devolucao de mercadoria")).strip(),
         "ambiente": int(str(original_document.environment or getattr(settings, "WEBMANIA_AMBIENT", "2") or "2")),
         "codigo_cfop": str(codigo_cfop or "").strip(),
-        "produtos": products,
     }
+    if purpose == FiscalDocumentPurpose.RETURN and products:
+        payload["produtos"] = [_product_sequence(product) for product in products]
+        payload["quantidade"] = [str(_decimal(product.get("quantidade")).normalize()) for product in products]
     if purpose == FiscalDocumentPurpose.REVERSAL:
         payload["tipo_operacao_hunter"] = "estorno"
     if volume:
@@ -285,7 +305,7 @@ def create_nfe_return_draft(
 ) -> FiscalDocument:
     purpose = str(purpose or "").strip()
     operation_type = _operation_type_for_purpose(purpose)
-    products = _normalized_products(products)
+    products = _normalized_partial_products(products)
 
     with transaction.atomic():
         locked_original = FiscalDocument.objects.select_for_update().select_related("workshop").get(pk=original_document.pk)
@@ -295,6 +315,10 @@ def create_nfe_return_draft(
             raise NfeReturnError("Documento original precisa possuir chave de acesso valida.")
         if locked_original.origin == FiscalDocumentOrigin.LOCAL and locked_original.legacy_nfe_item_id and not is_local_nfe_eligible_for_return(locked_original.legacy_nfe_item):
             raise NfeReturnError("Devolucao ou estorno permitidos somente para NF-e local autorizada.")
+        if locked_original.origin == FiscalDocumentOrigin.EXTERNAL and products:
+            raise NfeReturnError("NF-e externa minima sem itens importados permite somente devolucao total ou estorno; devolucao parcial exige XML/importacao validada.")
+        if purpose == FiscalDocumentPurpose.REVERSAL:
+            products = []
         _validate_available_quantities(original_document=locked_original, products=products)
         payload = _build_return_payload(
             original_document=locked_original,
@@ -576,3 +600,23 @@ def resolve_nfe_return_document_for_webhook(*, payload: dict[str, Any]) -> Fisca
     if len(matches) != 1:
         return None
     return matches[0]
+
+
+def is_ambiguous_nfe_return_webhook(*, payload: dict[str, Any]) -> bool:
+    event_uuid = str(payload.get("uuid") or "").strip()
+    access_key = str(payload.get("chave") or "").strip()
+    if not event_uuid and not access_key:
+        return False
+    filters = Q()
+    if event_uuid:
+        filters |= Q(remote_uuid=event_uuid) | Q(emission_attempts__remote_uuid=event_uuid)
+    if access_key:
+        filters |= Q(access_key=access_key)
+    count = (
+        FiscalDocument.objects.filter(origin=FiscalDocumentOrigin.DERIVED, purpose__in=[FiscalDocumentPurpose.RETURN, FiscalDocumentPurpose.REVERSAL])
+        .filter(filters)
+        .distinct()
+        .values("pk")[:2]
+        .count()
+    )
+    return count > 1

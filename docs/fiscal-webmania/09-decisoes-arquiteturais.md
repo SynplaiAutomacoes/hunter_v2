@@ -106,7 +106,7 @@
 - Alternativas consideradas: exigir link para qualquer documento Fase 2.2; atualizar o documento original; guardar derivado apenas no payload.
 - Consequencias: evita sobrescrever a nota original, suporta NF-e externa referenciada e permite ajuste avulso compativel com a API.
 - Riscos: UI e permissoes precisam deixar claro quando ha nota original local, nota externa ou operacao avulsa.
-- Status: implementada para devolucao/estorno na Fase 2.2A; complementar e ajuste permanecem planejados.
+- Status: implementada e validada para devolucao/estorno na Fase 2.2A; complementar e ajuste permanecem planejados.
 - Fase: 2.2.
 
 ## ADR-016 - NF-e externa referenciada por devolucao e complemento
@@ -116,7 +116,7 @@
 - Alternativas consideradas: bloquear documentos externos; guardar apenas chave no payload.
 - Consequencias: amplia cobertura fiscal sem forcar backfill inexistente e preserva auditoria por oficina.
 - Riscos: consulta remota pode ser insuficiente; nesses casos a UI deve bloquear ou exigir decisao operacional documentada antes de transmissao.
-- Status: implementada para devolucao/estorno na Fase 2.2A; complemento externo permanece planejado para 2.2B.
+- Status: implementada e validada para devolucao/estorno na Fase 2.2A; complemento externo permanece planejado para 2.2B. NF-e externa minima nao permite parcial sem XML/importacao validada.
 - Fase: 2.2.
 
 ## ADR-018 - Idempotencia de devolucao/estorno por documento derivado
@@ -126,7 +126,7 @@
 - Alternativas consideradas: chave por payload fiscal; chave por nota original e itens.
 - Consequencias: cada intencao fiscal persistida transmite uma unica vez e permite devolucoes parciais legitimas independentes.
 - Riscos: documentos derivados iniciados e abandonados exigem status local claro e limpeza operacional futura.
-- Status: implementada na Fase 2.2A para devolucao/estorno.
+- Status: implementada e validada na Fase 2.2A para devolucao/estorno.
 - Fase: 2.2A.
 
 ## ADR-017 - NF-e de credito e debito ficam em Fase 2.5
