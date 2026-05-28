@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from io import BytesIO
 import re
+import threading
 import zipfile
 from decimal import Decimal
 from types import SimpleNamespace
@@ -16,7 +17,8 @@ from django.core.management import call_command
 from django.core.exceptions import ValidationError
 from django.contrib.auth.models import Permission
 from django.contrib.sessions.middleware import SessionMiddleware
-from django.test import RequestFactory, TestCase, override_settings
+from django.db import close_old_connections
+from django.test import RequestFactory, TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from djmoney.money import Money
@@ -59,6 +61,7 @@ from apps.finance.services.emission import (
     preview_nfse_request,
     sync_emission_response,
 )
+from apps.finance.services import nfe_emission as nfe_emission_service
 from apps.finance.services.dre import build_dre_calculation
 from apps.finance.services.nfe_emission import (
     NfeEmissionError,
@@ -10038,3 +10041,208 @@ class PaymentMethodViewsTests(TestCase):
         self.assertContains(response, "Débito")
         self.assertContains(response, "Parcelas")
         self.assertContains(response, "3")
+
+
+class FiscalPhaseOneStabilizationTests(TestCase):
+    def _create_workorder(self, *, suffix: int = 910) -> WorkOrder:
+        workshop = create_workshop(suffix=suffix)
+        budget = Budget.objects.create(workshop=workshop, entry_date=timezone.now().date())
+        return WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+
+    def test_duplicate_nfe_intention_calls_remote_once_and_sanitizes_payload(self) -> None:
+        from apps.finance.models.finance import FiscalEmissionAttempt
+        from apps.finance.services.nfe_emission import emit_nfe_request
+
+        workorder = self._create_workorder(suffix=11)
+        nfe_request = NfeRequest.objects.create(workshop=workorder.workshop, workorder=workorder, tax_class="REFNFE")
+        response_payload = {"uuid": "3f895e61-c0da-46ee-a880-a03f8547a9bc", "modelo": "nfe", "status": "aprovado", "chave": "NFEKEY"}
+
+        with (
+            patch("apps.finance.services.nfe_emission._build_headers", return_value={"X-Access-Token": "secret-token"}),
+            patch("apps.finance.services.nfe_emission._validate_nfe_tax_class", return_value={}),
+            patch("apps.finance.services.nfe_emission.reserve_nfe_request_number"),
+            patch("apps.finance.services.nfe_emission.build_nfe_payload", return_value={"ID": str(nfe_request.pk), "access_token": "secret-token", "cliente": {"cpf": "123"}}),
+            patch("apps.finance.services.nfe_emission.requests.post", return_value=_mock_response(response_payload)) as post_mock,
+        ):
+            self.assertEqual(emit_nfe_request(nfe_request=nfe_request), response_payload)
+            with self.assertRaisesMessage(NfeEmissionError, "tentativa remota concluida"):
+                emit_nfe_request(nfe_request=nfe_request)
+
+        self.assertEqual(post_mock.call_count, 1)
+        attempt = FiscalEmissionAttempt.objects.get(document_kind="nfe", request_id=nfe_request.pk)
+        self.assertEqual(attempt.status, "succeeded")
+        self.assertEqual(attempt.request_payload["access_token"], "[REDACTED]")
+
+    def test_nfe_timeout_marks_uncertain_and_blocks_resend(self) -> None:
+        from apps.finance.models.finance import FiscalEmissionAttempt
+        from apps.finance.services.nfe_emission import emit_nfe_request
+
+        workorder = self._create_workorder(suffix=12)
+        nfe_request = NfeRequest.objects.create(workshop=workorder.workshop, workorder=workorder, tax_class="REFNFE")
+
+        with (
+            patch("apps.finance.services.nfe_emission._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_emission._validate_nfe_tax_class", return_value={}),
+            patch("apps.finance.services.nfe_emission.reserve_nfe_request_number"),
+            patch("apps.finance.services.nfe_emission.build_nfe_payload", return_value={"ID": str(nfe_request.pk)}),
+            patch("apps.finance.services.nfe_emission.requests.post", side_effect=nfe_emission_service.requests.Timeout("timeout")) as post_mock,
+        ):
+            with self.assertRaises(NfeEmissionError):
+                emit_nfe_request(nfe_request=nfe_request)
+            with self.assertRaisesMessage(NfeEmissionError, "estado incerto"):
+                emit_nfe_request(nfe_request=nfe_request)
+
+        self.assertEqual(post_mock.call_count, 1)
+        attempt = FiscalEmissionAttempt.objects.get(document_kind="nfe", request_id=nfe_request.pk)
+        self.assertEqual(attempt.status, "uncertain")
+
+    def test_webhook_duplicate_is_idempotent_and_out_of_order_status_does_not_regress(self) -> None:
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        workorder = self._create_workorder(suffix=13)
+        nfe_request = NfeRequest.objects.create(workshop=workorder.workshop, workorder=workorder, tax_class="REFNFE")
+        item = NfeItem.objects.create(
+            workshop=workorder.workshop,
+            workorder=workorder,
+            request=nfe_request,
+            uuid="4f895e61-c0da-46ee-a880-a03f8547a9bc",
+            status="aprovado",
+        )
+        regressive_payload = {"modelo": "nfe", "uuid": str(item.uuid), "status": "processando", "motivo": "em processamento"}
+
+        first_event = store_webhook_event(payload=regressive_payload)
+        duplicate_event = store_webhook_event(payload=regressive_payload)
+        self.assertEqual(first_event.pk, duplicate_event.pk)
+
+        self.assertTrue(process_webhook_event(first_event))
+        self.assertTrue(process_webhook_event(duplicate_event))
+        item.refresh_from_db()
+        self.assertEqual(item.status, "aprovado")
+        self.assertEqual(WebmaniaWebhookEvent.objects.filter(fingerprint=first_event.fingerprint).count(), 1)
+
+    def test_webhook_ambiguous_uuid_is_deferred_without_cross_workshop_update(self) -> None:
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        shared_uuid = "5f895e61-c0da-46ee-a880-a03f8547a9bc"
+        first_workorder = self._create_workorder(suffix=14)
+        second_workorder = self._create_workorder(suffix=15)
+        first_request = NfeRequest.objects.create(workshop=first_workorder.workshop, workorder=first_workorder, tax_class="REFNFE")
+        second_request = NfeRequest.objects.create(workshop=second_workorder.workshop, workorder=second_workorder, tax_class="REFNFE")
+        first_item = NfeItem.objects.create(workshop=first_workorder.workshop, workorder=first_workorder, request=first_request, uuid=shared_uuid, status="processando")
+        second_item = NfeItem.objects.create(workshop=second_workorder.workshop, workorder=second_workorder, request=second_request, uuid=shared_uuid, status="processando")
+
+        event = store_webhook_event(payload={"modelo": "nfe", "uuid": shared_uuid, "status": "aprovado"})
+
+        self.assertFalse(process_webhook_event(event))
+        first_item.refresh_from_db()
+        second_item.refresh_from_db()
+        event.refresh_from_db()
+        self.assertEqual(first_item.status, "processando")
+        self.assertEqual(second_item.status, "processando")
+        self.assertIn("ambigua", event.processing_error)
+
+    def test_reconciliation_command_consults_nfse_without_emitting(self) -> None:
+        workorder = self._create_workorder(suffix=16)
+        nfse_request = NfseRequest.objects.create(workshop=workorder.workshop, workorder=workorder, tax_class="REFNFSE")
+        item = NfseItem.objects.create(workshop=workorder.workshop, workorder=workorder, request=nfse_request, uuid="6f895e61-c0da-46ee-a880-a03f8547a9bc", status="processando")
+
+        with (
+            patch("apps.finance.management.commands.reconcile_webmania_documents.process_pending_webhook_events", return_value=0),
+            patch("apps.finance.management.commands.reconcile_webmania_documents.reconcile_nfe_item") as reconcile_nfe_mock,
+            patch("apps.finance.management.commands.reconcile_webmania_documents.reconcile_nfse_item", return_value=item) as reconcile_nfse_mock,
+            patch("apps.finance.services.emission.emit_nfse_request") as emit_nfse_mock,
+        ):
+            call_command("reconcile_webmania_documents", limit=10)
+
+        reconcile_nfe_mock.assert_not_called()
+        reconcile_nfse_mock.assert_called_once_with(item=item)
+        emit_nfse_mock.assert_not_called()
+
+    def test_workshop_permission_fallback_preserves_legacy_nfe_permission(self) -> None:
+        from django.http import HttpResponse
+        from django.views import View
+
+        from apps.workshops.mixin import WorkshopScopedMixin
+
+        class DummyFiscalView(WorkshopScopedMixin, View):
+            workshop_permission_app_label = "finance"
+            workshop_permission_model = "nferequest"
+            workshop_permission_codename = "view_nferequest"
+            workshop_permission_fallbacks = (("finance", "nfserequest", "view_nfserequest"),)
+
+            def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+                return HttpResponse("ok")
+
+        request = RequestFactory().get("/")
+        request.user = Mock()
+        workshop = create_workshop(suffix=17)
+
+        def permission_side_effect(*, app_label: str, model: str, codename: str, **kwargs: Any) -> bool:
+            return app_label == "finance" and model == "nfserequest" and codename == "view_nfserequest"
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", side_effect=permission_side_effect) as permission_mock,
+        ):
+            response = DummyFiscalView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(permission_mock.call_count, 2)
+
+
+class FiscalPhaseOneConcurrentEmissionTests(TransactionTestCase):
+    def _create_workorder(self, *, suffix: int = 918) -> WorkOrder:
+        workshop = create_workshop(suffix=suffix)
+        budget = Budget.objects.create(workshop=workshop, entry_date=timezone.now().date())
+        return WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+
+    def test_concurrent_nfe_emission_intention_calls_remote_once(self) -> None:
+        from apps.finance.models.finance import FiscalEmissionAttempt
+        from apps.finance.services.nfe_emission import emit_nfe_request
+
+        workorder = self._create_workorder(suffix=18)
+        nfe_request = NfeRequest.objects.create(workshop=workorder.workshop, workorder=workorder, tax_class="REFNFE")
+        response_payload = {"uuid": "7f895e61-c0da-46ee-a880-a03f8547a9bc", "modelo": "nfe", "status": "aprovado", "chave": "NFEKEY-CONCURRENT"}
+        start_barrier = threading.Barrier(2)
+        results: list[str] = []
+        errors: list[str] = []
+        results_lock = threading.Lock()
+
+        def post_side_effect(*args: Any, **kwargs: Any) -> Any:
+            time.sleep(0.1)
+            return _mock_response(response_payload)
+
+        def run_emission() -> None:
+            close_old_connections()
+            try:
+                start_barrier.wait(timeout=5)
+                request = NfeRequest.objects.select_related("workshop", "workorder").get(pk=nfe_request.pk)
+                emit_nfe_request(nfe_request=request)
+            except Exception as exc:
+                with results_lock:
+                    errors.append(str(exc))
+            else:
+                with results_lock:
+                    results.append("sent")
+            finally:
+                close_old_connections()
+
+        with (
+            patch("apps.finance.services.nfe_emission._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_emission._validate_nfe_tax_class", return_value={}),
+            patch("apps.finance.services.nfe_emission.reserve_nfe_request_number"),
+            patch("apps.finance.services.nfe_emission.build_nfe_payload", return_value={"ID": str(nfe_request.pk)}),
+            patch("apps.finance.services.nfe_emission.requests.post", side_effect=post_side_effect) as post_mock,
+        ):
+            threads = [threading.Thread(target=run_emission), threading.Thread(target=run_emission)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=10)
+
+        self.assertEqual(post_mock.call_count, 1)
+        self.assertEqual(results, ["sent"])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("tentativa fiscal remota registrada", errors[0])
+        attempt = FiscalEmissionAttempt.objects.get(document_kind="nfe", request_id=nfe_request.pk)
+        self.assertEqual(attempt.status, "succeeded")

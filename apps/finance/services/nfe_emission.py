@@ -12,6 +12,7 @@ from django.db import transaction
 from django.http import HttpRequest
 
 from apps.finance.models.finance import NfeItem, NfeRequest
+from apps.finance.services.fiscal_attempts import FiscalEmissionAttemptBlocked, begin_emission_attempt, mark_attempt_failed, mark_attempt_sent, mark_attempt_succeeded, mark_attempt_uncertain
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number
 from apps.finance.services.emission import build_webmania_webhook_url
 from apps.finance.services.pricing import SliderAllocation, build_emission_pricing_snapshot_for_workorder, build_slider_allocation_for_workorder, distribute_total_proportionally
@@ -557,33 +558,52 @@ def emit_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None = N
         raise NfeEmissionError(str(exc)) from exc
 
     payload = build_nfe_payload(nfe_request=nfe_request, request=request, slider_override=slider_override)
-    print("363 - payload enviado:", payload)
+    try:
+        attempt = begin_emission_attempt(
+            workshop=nfe_request.workshop,
+            document_kind="nfe",
+            request_model="NfeRequest",
+            request_id=int(nfe_request.pk),
+            request_payload=payload,
+        )
+    except FiscalEmissionAttemptBlocked as exc:
+        raise NfeEmissionError(str(exc)) from exc
 
     try:
+        mark_attempt_sent(attempt=attempt)
         response = requests.post(emit_url, json=payload, headers=headers, timeout=30)
-        print("367 - response:", response)
         response.raise_for_status()
+    except requests.Timeout as exc:
+        message = build_webmania_request_exception_message(exc, default="Timeout ao emitir Nota Fiscal; estado remoto incerto", scope="nfe")
+        mark_attempt_uncertain(attempt=attempt, error_message=message)
+        logger.warning("nfe_emission_uncertain nfe_request_id=%s workshop_id=%s error=%s", nfe_request.pk, nfe_request.workshop_id, message)
+        raise NfeEmissionError(message) from exc
     except requests.RequestException as exc:
         message = build_webmania_request_exception_message(exc, default="Falha ao emitir Nota Fiscal", scope="nfe")
+        mark_attempt_failed(attempt=attempt, error_message=message)
         raise NfeEmissionError(message) from exc
 
     try:
         data = response.json()
-        print("375 - data:", data)
     except ValueError as exc:
+        mark_attempt_uncertain(attempt=attempt, error_message="Resposta invalida da API de emissao de Nota Fiscal.")
         raise NfeEmissionError("Resposta invalida da API de emissao de Nota Fiscal.") from exc
 
     if not isinstance(data, dict):
+        mark_attempt_uncertain(attempt=attempt, error_message="Resposta invalida da API de emissao de Nota Fiscal.")
         raise NfeEmissionError("Resposta invalida da API de emissao de Nota Fiscal.")
 
     error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfe")
     if error_message:
+        mark_attempt_failed(attempt=attempt, error_message=error_message, response_payload=data)
         raise NfeEmissionError(error_message)
 
     if not data.get("uuid") and str(data.get("modelo") or "").lower() != "nfe":
         message = extract_webmania_error_message(data, scope="nfe")
+        mark_attempt_uncertain(attempt=attempt, error_message=message or "Resposta da API sem dados de identificacao da Nota Fiscal.")
         raise NfeEmissionError(message or "Resposta da API sem dados de identificacao da Nota Fiscal.")
 
+    mark_attempt_succeeded(attempt=attempt, response_payload=data)
     return data
 
 

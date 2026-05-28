@@ -87,6 +87,19 @@ class NfeRequestStatus(models.TextChoices):
     INVALIDATED = "invalidated", "Inutilizada"
 
 
+class FiscalEmissionAttemptStatus(models.TextChoices):
+    STARTED = "started", "Iniciada"
+    SENT = "sent", "Enviada"
+    SUCCEEDED = "succeeded", "Concluida"
+    FAILED = "failed", "Falhou"
+    UNCERTAIN = "uncertain", "Incerta"
+
+
+class FiscalEmissionDocumentKind(models.TextChoices):
+    NFE = "nfe", "NF-e"
+    NFSE = "nfse", "NFS-e"
+
+
 class TaxClassNfe(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="tax_classes_nfe")
     reference = models.CharField(verbose_name="Referência", max_length=30)
@@ -652,11 +665,15 @@ class NfeItem(models.Model):
 class WebmaniaWebhookEvent(TimeStampedModel):
     model = models.CharField(max_length=32, db_index=True)
     event_uuid = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    fingerprint = models.CharField(max_length=64, blank=True, default="", db_index=True)
     payload = models.JSONField(blank=True, default=dict)
     processed_at = models.DateTimeField(null=True, blank=True)
     processing_error = models.TextField(blank=True, default="")
 
     class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["fingerprint"], condition=~models.Q(fingerprint=""), name="unique_webmania_webhook_fingerprint"),
+        ]
         indexes = [
             models.Index(fields=["model", "event_uuid"]),
             models.Index(fields=["processed_at"]),
@@ -664,3 +681,32 @@ class WebmaniaWebhookEvent(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"Webhook[{self.model}:{self.event_uuid or '-'}]"
+
+
+class FiscalEmissionAttempt(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="fiscal_emission_attempts")
+    document_kind = models.CharField(max_length=12, choices=FiscalEmissionDocumentKind.choices)
+    request_model = models.CharField(max_length=40)
+    request_id = models.PositiveIntegerField()
+    idempotency_key = models.CharField(max_length=160)
+    status = models.CharField(max_length=20, choices=FiscalEmissionAttemptStatus.choices, default=FiscalEmissionAttemptStatus.STARTED, db_index=True)
+    remote_model = models.CharField(max_length=32, blank=True, default="")
+    remote_uuid = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    remote_key = models.CharField(max_length=80, blank=True, default="")
+    request_payload = models.JSONField(blank=True, default=dict)
+    response_payload = models.JSONField(blank=True, default=dict)
+    error_message = models.TextField(blank=True, default="")
+    sent_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["workshop", "document_kind", "idempotency_key"], name="unique_fiscal_attempt_per_intention"),
+        ]
+        indexes = [
+            models.Index(fields=["workshop", "document_kind", "status"]),
+            models.Index(fields=["request_model", "request_id"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"FiscalAttempt[{self.document_kind}:{self.idempotency_key}:{self.status}]"

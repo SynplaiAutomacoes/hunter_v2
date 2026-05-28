@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 from django.db import transaction
@@ -11,16 +13,73 @@ from apps.finance.services.mappers import extract_items_from_batch
 from apps.finance.services.nfe_emission import apply_nfe_item_payload
 
 
+def _unique_or_none(queryset: Any) -> Any | None:
+    matches = list(queryset.order_by("-id")[:2])
+    if len(matches) != 1:
+        return None
+    return matches[0]
+
+
 def extract_event_uuid(payload: dict[str, Any]) -> str:
     return str(payload.get("uuid") or "").strip()
 
 
+def build_webhook_fingerprint(*, payload: dict[str, Any]) -> str:
+    model = str(payload.get("modelo") or "").strip().lower()
+    event_uuid = extract_event_uuid(payload)
+    canonical_payload = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(f"{model}:{event_uuid}:{canonical_payload}".encode("utf-8")).hexdigest()
+
+
 def store_webhook_event(*, payload: dict[str, Any]) -> WebmaniaWebhookEvent:
-    return WebmaniaWebhookEvent.objects.create(
-        model=str(payload.get("modelo") or "").strip().lower(),
-        event_uuid=extract_event_uuid(payload),
-        payload=payload,
+    fingerprint = build_webhook_fingerprint(payload=payload)
+    event, _ = WebmaniaWebhookEvent.objects.get_or_create(
+        fingerprint=fingerprint,
+        defaults={
+            "model": str(payload.get("modelo") or "").strip().lower(),
+            "event_uuid": extract_event_uuid(payload),
+            "payload": payload,
+        },
     )
+    return event
+
+
+def _status_rank(model: str, status: str) -> int:
+    normalized = str(status or "").strip().lower()
+    if model == "lote_rps":
+        return {
+            "processando": 10,
+            "contingencia": 20,
+            "agendado": 25,
+            "processado": 30,
+            "reprovado": 40,
+            "cancelado": 50,
+        }.get(normalized, 0)
+    if model == "nfse":
+        return {
+            "processando": 10,
+            "contingencia": 20,
+            "agendado": 25,
+            "aprovado": 30,
+            "reprovado": 40,
+            "cancelado": 50,
+        }.get(normalized, 0)
+    if model == "nfe":
+        return {
+            "processando": 10,
+            "contingencia": 20,
+            "aprovado": 30,
+            "reprovado": 40,
+            "denegado": 40,
+            "cancelado": 50,
+        }.get(normalized, 0)
+    return 0
+
+
+def _is_regressive_status(*, model: str, current_status: str, incoming_status: str) -> bool:
+    incoming_rank = _status_rank(model, incoming_status)
+    current_rank = _status_rank(model, current_status)
+    return bool(incoming_rank and current_rank and incoming_rank < current_rank)
 
 
 def _mark_event_processed(event: WebmaniaWebhookEvent) -> None:
@@ -35,76 +94,83 @@ def _mark_event_deferred(event: WebmaniaWebhookEvent, *, error: str) -> None:
 
 
 def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
+    if event.processed_at is not None:
+        return True
+
     payload = dict(event.payload or {})
     model = str(event.model or "").strip().lower()
     event_uuid = str(event.event_uuid or "").strip()
     webhook_received_at = timezone.now()
 
     if model == "lote_rps":
-        batch = NfseBatch.objects.filter(uuid=event_uuid).select_related("request").order_by("-id").first()
+        batch = _unique_or_none(NfseBatch.objects.filter(uuid=event_uuid).select_related("request"))
         if batch is None:
-            _mark_event_deferred(event, error=f"Lote {event_uuid} ainda nao foi sincronizado localmente.")
+            _mark_event_deferred(event, error=f"Lote {event_uuid} ainda nao foi sincronizado localmente ou esta ambiguo entre oficinas.")
             return False
 
         with transaction.atomic():
-            batch = apply_nfse_batch_payload(
-                batch=batch,
-                response_payload=payload,
-                webhook_received_at=webhook_received_at,
-            )
-            for item_payload in extract_items_from_batch(payload):
-                item_uuid = str(item_payload.get("uuid") or "").strip()
-                if not item_uuid:
-                    continue
-
-                item, _ = NfseItem.objects.get_or_create(
-                    workorder=batch.workorder,
-                    uuid=item_uuid,
-                    defaults={
-                        "workshop": batch.workshop,
-                        "request": batch.request,
-                        "batch": batch,
-                    },
+            if not _is_regressive_status(model="lote_rps", current_status=batch.status, incoming_status=str(payload.get("status") or "")):
+                batch = apply_nfse_batch_payload(
+                    batch=batch,
+                    response_payload=payload,
+                    webhook_received_at=webhook_received_at,
                 )
-                item.batch = batch
-                item.request = batch.request
+                for item_payload in extract_items_from_batch(payload):
+                    item_uuid = str(item_payload.get("uuid") or "").strip()
+                    if not item_uuid:
+                        continue
+
+                    item, _ = NfseItem.objects.get_or_create(
+                        workorder=batch.workorder,
+                        uuid=item_uuid,
+                        defaults={
+                            "workshop": batch.workshop,
+                            "request": batch.request,
+                            "batch": batch,
+                        },
+                    )
+                    item.batch = batch
+                    item.request = batch.request
+                    if not _is_regressive_status(model="nfse", current_status=item.status, incoming_status=str(item_payload.get("status") or "")):
+                        apply_nfse_item_payload(
+                            item=item,
+                            response_payload=item_payload,
+                            webhook_received_at=webhook_received_at,
+                        )
+
+        _mark_event_processed(event)
+        return True
+
+    if model == "nfse":
+        nfse_item = _unique_or_none(NfseItem.objects.filter(uuid=event_uuid).select_related("request"))
+        if nfse_item is None:
+            _mark_event_deferred(event, error=f"Nota Fiscal de Serviço {event_uuid} ainda nao foi sincronizada localmente ou esta ambigua entre oficinas.")
+            return False
+
+        with transaction.atomic():
+            if not _is_regressive_status(model="nfse", current_status=nfse_item.status, incoming_status=str(payload.get("status") or "")):
                 apply_nfse_item_payload(
-                    item=item,
-                    response_payload=item_payload,
+                    item=nfse_item,
+                    response_payload=payload,
                     webhook_received_at=webhook_received_at,
                 )
 
         _mark_event_processed(event)
         return True
 
-    if model == "nfse":
-        nfse_item = NfseItem.objects.filter(uuid=event_uuid).select_related("request").order_by("-id").first()
-        if nfse_item is None:
-            _mark_event_deferred(event, error=f"Nota Fiscal de Serviço {event_uuid} ainda nao foi sincronizada localmente.")
-            return False
-
-        with transaction.atomic():
-            apply_nfse_item_payload(
-                item=nfse_item,
-                response_payload=payload,
-                webhook_received_at=webhook_received_at,
-            )
-
-        _mark_event_processed(event)
-        return True
-
     if model == "nfe":
-        nfe_item = NfeItem.objects.filter(uuid=event_uuid).select_related("request").order_by("-id").first()
+        nfe_item = _unique_or_none(NfeItem.objects.filter(uuid=event_uuid).select_related("request"))
         if nfe_item is None:
-            _mark_event_deferred(event, error=f"Nota Fiscal {event_uuid} ainda nao foi sincronizada localmente.")
+            _mark_event_deferred(event, error=f"Nota Fiscal {event_uuid} ainda nao foi sincronizada localmente ou esta ambigua entre oficinas.")
             return False
 
         with transaction.atomic():
-            apply_nfe_item_payload(
-                item=nfe_item,
-                response_payload=payload,
-                webhook_received_at=webhook_received_at,
-            )
+            if not _is_regressive_status(model="nfe", current_status=nfe_item.status, incoming_status=str(payload.get("status") or "")):
+                apply_nfe_item_payload(
+                    item=nfe_item,
+                    response_payload=payload,
+                    webhook_received_at=webhook_received_at,
+                )
 
         _mark_event_processed(event)
         return True

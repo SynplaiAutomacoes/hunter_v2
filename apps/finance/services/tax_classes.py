@@ -17,6 +17,7 @@ from apps.finance.models.finance import (
     TaxClassNfse,
     TaxClassSyncState,
 )
+from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
 from apps.finance.services.webmania_auth import (
     WebmaniaAuthError,
     build_webmania_headers,
@@ -69,12 +70,11 @@ def _debug_print(message: str, payload: Any | None = None) -> None:
     if not _is_debug_enabled():
         return
 
-    prefix = "[TAX CLASS POST DEBUG]"
     if payload is None:
-        print(f"{prefix} {message}")
+        logger.debug("tax_class_debug %s", message)
         return
 
-    print(f"{prefix} {message}", payload)
+    logger.debug("tax_class_debug %s payload=%s", message, sanitize_fiscal_payload(payload))
 
 
 def _build_headers(*, workshop: Workshop) -> dict[str, str]:

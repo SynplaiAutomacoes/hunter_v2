@@ -59,8 +59,9 @@ def _can_invalidate_nfe_request(*, nfe_request: NfeRequest, latest_item: NfeItem
 
 class NfeRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = NfeRequest
-    workshop_permission_model = "nfserequest"
-    workshop_permission_codename = "view_nfserequest"
+    workshop_permission_model = "nferequest"
+    workshop_permission_codename = "view_nferequest"
+    workshop_permission_fallbacks = (("finance", "nfserequest", "view_nfserequest"),)
     template_name = "finance/nfe_request_list.html"
     context_object_name = "nfe_requests"
     htmx_template_name = "finance/partials/nfe_request_table.html"
@@ -104,8 +105,9 @@ def _build_field(label: str, value: object) -> dict[str, str]:
 
 class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
     model = NfeRequest
-    workshop_permission_model = "nfserequest"
-    workshop_permission_codename = "view_nfserequest"
+    workshop_permission_model = "nferequest"
+    workshop_permission_codename = "view_nferequest"
+    workshop_permission_fallbacks = (("finance", "nfserequest", "view_nfserequest"),)
     template_name = "finance/nfe_request_detail.html"
     context_object_name = "nfe_request"
 
@@ -142,8 +144,9 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
 
 class NfeRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_app_label = "finance"
-    workshop_permission_model = "nfserequest"
-    workshop_permission_codename = "change_nfserequest"
+    workshop_permission_model = "nferequest"
+    workshop_permission_codename = "change_nferequest"
+    workshop_permission_fallbacks = (("finance", "nfserequest", "change_nfserequest"),)
 
     def post(self, request, *args, **kwargs):
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
@@ -190,8 +193,9 @@ class NfeRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
 class NfeRequestReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_app_label = "finance"
-    workshop_permission_model = "nfserequest"
-    workshop_permission_codename = "change_nfserequest"
+    workshop_permission_model = "nferequest"
+    workshop_permission_codename = "change_nferequest"
+    workshop_permission_fallbacks = (("finance", "nfserequest", "change_nfserequest"),)
 
     def post(self, request, *args, **kwargs):
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
@@ -212,8 +216,9 @@ class NfeRequestReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
 class NfeRequestInvalidateView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_app_label = "finance"
-    workshop_permission_model = "nfserequest"
-    workshop_permission_codename = "change_nfserequest"
+    workshop_permission_model = "nferequest"
+    workshop_permission_codename = "change_nferequest"
+    workshop_permission_fallbacks = (("finance", "nfserequest", "change_nfserequest"),)
 
     def post(self, request, *args, **kwargs):
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
@@ -255,8 +260,9 @@ class NfeRequestInvalidateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
 class NfeDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_app_label = "finance"
-    workshop_permission_model = "nfserequest"
-    workshop_permission_codename = "view_nfserequest"
+    workshop_permission_model = "nferequest"
+    workshop_permission_codename = "view_nferequest"
+    workshop_permission_fallbacks = (("finance", "nfserequest", "view_nfserequest"),)
 
     document_fields = {
         "xml": ("xml_url", "xml"),
@@ -297,8 +303,9 @@ class NfeDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
 @method_decorator(xframe_options_exempt, name="dispatch")
 class NfePreviewPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_app_label = "finance"
-    workshop_permission_model = "nfserequest"
-    workshop_permission_codename = "view_nfserequest"
+    workshop_permission_model = "nferequest"
+    workshop_permission_codename = "view_nferequest"
+    workshop_permission_fallbacks = (("finance", "nfserequest", "view_nfserequest"),)
 
     def get(self, request, *args, **kwargs):
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
@@ -322,8 +329,9 @@ class NfePreviewPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
 class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
     model = NfeRequest
-    workshop_permission_model = "nfserequest"
-    workshop_permission_codename = "view_nfserequest"
+    workshop_permission_model = "nferequest"
+    workshop_permission_codename = "view_nferequest"
+    workshop_permission_fallbacks = (("finance", "nfserequest", "view_nfserequest"),)
     template_name = "finance/nfe_request_form.html"
     partial_template_name = "finance/partials/nfe_step_content.html"
     preview_template_name = "finance/partials/nfe_step3_preview.html"
@@ -381,7 +389,7 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
 
         return render_emission_preview_modal(
             request=self.request,
-            title="Previa da Nota Fiscal",
+            title="Previa da NF-e",
             description="Confira o documento antes de transmitir a Nota Fiscal para a Webmania.",
             previews=[{"label": "DANFE", "embed_url": reverse("finance:nfe_preview_pdf", kwargs={"pk": self.object.pk})}],
             transmit_url=self._step_url(step=self.get_current_step()),
