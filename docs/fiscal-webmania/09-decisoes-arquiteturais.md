@@ -136,7 +136,7 @@
 - Alternativas consideradas: usar `purpose` separado para cada subtipo; armazenar tudo apenas no payload; tratar complementar como variacao de devolucao.
 - Consequencias: simplifica historico e downloads como documento derivado unico, mas requer campo/subtipo persistente ou estrutura equivalente aprovada na implementacao.
 - Riscos: payload oficial varia por subtipo e deve ser revalidado imediatamente antes do codigo.
-- Status: implementada parcialmente na Fase 2.2B.1 para `price_quantity` local; subtipos `tax` e `import_addition` permanecem propostos e nao implementados.
+- Status: implementada e validada parcialmente na Fase 2.2B.1 para `price_quantity` local; subtipos `tax` e `import_addition` permanecem propostos e nao implementados.
 - Fase: 2.2B.
 
 ## ADR-021 - NF-e externa em Nota Complementar
@@ -146,7 +146,7 @@
 - Alternativas consideradas: bloquear toda complementar externa; permitir qualquer subtipo por entrada manual; consultar `/1/nfe/consulta/` como validador.
 - Consequencias: mantem capacidade fiscal com risco controlado e evita complemento de itens sem ordem fiscal original.
 - Riscos: usuarios podem precisar de fluxo futuro de importacao XML para casos reais externos.
-- Status: implementada negativamente na Fase 2.2B.1 para bloquear `complementary_price_quantity` externo minimo; complementar tributaria externa e importacao permanecem propostos e nao implementados.
+- Status: validada na Fase 2.2B.1 para bloquear `complementary_price_quantity` externo minimo; complementar tributaria externa e importacao permanecem propostos e nao implementados.
 - Fase: 2.2B.
 
 ## ADR-022 - Idempotencia da Nota Complementar
@@ -156,7 +156,7 @@
 - Alternativas consideradas: idempotencia por original+payload; cache; idempotencia por tela/formulario.
 - Consequencias: cada intencao complementar e auditavel, bloqueavel em `uncertain` e reconciliavel sem reemitir.
 - Riscos: documentos complementares iniciados e abandonados exigem limpeza/observabilidade futura.
-- Status: implementada parcialmente na Fase 2.2B.1 para `operation_type="complementary_price_quantity"`.
+- Status: implementada e validada parcialmente na Fase 2.2B.1 para `operation_type="complementary_price_quantity"`.
 - Fase: 2.2B.
 
 ## ADR-023 - Complementar de preco/quantidade local antes de complementar tributaria
@@ -166,7 +166,7 @@
 - Alternativas consideradas: liberar complemento externo por chave manual; misturar complemento tributario no mesmo formulario; implementar todo `/1/nfe/complementar/` em lote.
 - Consequencias: entrega incremental reduz risco e preserva caminho para `complementary_tax` e `complementary_import_addition` com nova autorizacao.
 - Riscos: casos reais de complemento tributario ou externo continuam sem atendimento ate subfase propria.
-- Status: implementada para revisao na Fase 2.2B.1.
+- Status: validada na Fase 2.2B.1.
 - Fase: 2.2B.1.
 
 ## ADR-017 - NF-e de credito e debito ficam em Fase 2.5

@@ -140,6 +140,8 @@ def _normalize_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _build_product_payload(*, original_product: dict[str, Any], complementary_item: dict[str, Any]) -> dict[str, Any]:
     product = dict(original_product)
+    for original_amount_key in ("quantidade", "subtotal", "total", "valor", "preco", "valor_unitario", "preco_unitario", "total_item"):
+        product.pop(original_amount_key, None)
     product["codigo_cfop"] = complementary_item["codigo_cfop"]
     product["situacao_tributaria"] = complementary_item["situacao_tributaria"]
     product["item_original"] = complementary_item["sequencial"]
@@ -148,7 +150,7 @@ def _build_product_payload(*, original_product: dict[str, Any], complementary_it
     if "valor_complementar" in complementary_item:
         product["subtotal"] = complementary_item["valor_complementar"]
         product["total"] = complementary_item["valor_complementar"]
-    for forbidden_key in ("impostos", "ibs", "cbs", "icms_st", "ipi", "issqn", "agropecuario"):
+    for forbidden_key in ("impostos", "ibs", "cbs", "icms_st", "ipi", "issqn", "agropecuario", "importacao", "adicao", "adicoes"):
         product.pop(forbidden_key, None)
     return product
 

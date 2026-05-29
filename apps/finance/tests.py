@@ -11182,7 +11182,7 @@ class FiscalPhaseTwoComplementaryPriceQuantityTests(TestCase):
             access_key=f"35{suffix:042d}"[-44:],
             number=str(suffix),
             series="1",
-            raw_payload={"cliente": {"cpf": "12345678901", "nome": "Cliente"}, "produtos": [{"codigo": "P1", "descricao": "Produto 1", "quantidade": "2", "subtotal": "100.00", "impostos": {"icms": "fora-do-escopo"}, "ibs": "fora-do-escopo", "cbs": "fora-do-escopo", "agropecuario": {"x": "fora-do-escopo"}}]},
+            raw_payload={"cliente": {"cpf": "12345678901", "nome": "Cliente"}, "produtos": [{"codigo": "P1", "descricao": "Produto 1", "ncm": "87089990", "quantidade": "2", "subtotal": "100.00", "total": "100.00", "valor_unitario": "50.00", "impostos": {"icms": "fora-do-escopo"}, "icms_st": {"valor": "1.00"}, "ipi": {"valor": "2.00"}, "issqn": {"valor": "3.00"}, "ibs": "fora-do-escopo", "cbs": "fora-do-escopo", "agropecuario": {"x": "fora-do-escopo"}, "importacao": {"adicao": "fora-do-escopo"}}]},
         )
 
     def _response(self, *, uuid: str = "ab895e61-c0da-46ee-a880-a03f8547a9bc", key: str = "35123456789012345678901234567890123456789901") -> dict[str, Any]:
@@ -11207,25 +11207,101 @@ class FiscalPhaseTwoComplementaryPriceQuantityTests(TestCase):
         self.assertEqual(post_mock.call_count, 1)
         return document
 
-    def test_complementary_price_local_valid_creates_link_and_payload(self) -> None:
+    def test_complementary_price_only_sends_only_increment_without_original_quantity_or_total(self) -> None:
+        from apps.finance.services.nfe_complementary import create_and_emit_nfe_complementary_price_quantity_from_item
+
         item = self._create_nfe_item(suffix=91)
 
-        document = self._emit_complementary(item)
+        with (
+            patch("apps.finance.services.nfe_complementary._build_headers", return_value={"X-Access-Token": "secret"}),
+            patch("apps.finance.services.nfe_complementary.requests.post", return_value=_mock_response(self._response())) as post_mock,
+        ):
+            document = create_and_emit_nfe_complementary_price_quantity_from_item(
+                item=item,
+                items=[{"sequencial": 1, "valor_complementar": "10.00", "codigo_cfop": "5102", "situacao_tributaria": "00"}],
+                requested_by=self.user,
+                operacao="1",
+                natureza_operacao="Nota Fiscal Complementar",
+                codigo_cfop="5102",
+                legal_confirmation=True,
+            )
 
         original = FiscalDocument.objects.get(legacy_nfe_item=item)
         link = FiscalDocumentLink.objects.get(document=document)
+        sent_payload = post_mock.call_args.kwargs["json"]
+        sent_product = sent_payload["produtos"][0]
         self.assertEqual(document.purpose, FiscalDocumentPurpose.COMPLEMENTARY)
         self.assertEqual(document.complementary_type, FiscalDocumentComplementaryType.PRICE_QUANTITY)
         self.assertEqual(link.related_document, original)
         self.assertEqual(link.role, FiscalDocumentLinkRole.COMPLEMENTS)
-        self.assertEqual(document.request_payload["produtos"][0]["item_original"], 1)
-        self.assertEqual(document.request_payload["produtos"][0]["subtotal"], "10")
-        self.assertNotIn("impostos", document.request_payload["produtos"][0])
-        self.assertNotIn("ibs", document.request_payload["produtos"][0])
-        self.assertNotIn("cbs", document.request_payload["produtos"][0])
-        self.assertNotIn("agropecuario", document.request_payload["produtos"][0])
+        self.assertEqual(sent_payload["chave"], item.access_key)
+        self.assertEqual(len(sent_payload["produtos"]), 1)
+        self.assertEqual(sent_product["codigo"], "P1")
+        self.assertEqual(sent_product["item_original"], 1)
+        self.assertEqual(sent_product["subtotal"], "10")
+        self.assertEqual(sent_product["total"], "10")
+        self.assertEqual(sent_product["codigo_cfop"], "5102")
+        self.assertEqual(sent_product["situacao_tributaria"], "00")
+        self.assertNotIn("quantidade", sent_product)
+        self.assertNotIn("valor_unitario", sent_product)
+        self.assertNotEqual(sent_product.get("subtotal"), "100.00")
+        self.assertNotIn("impostos", sent_product)
+        self.assertNotIn("icms_st", sent_product)
+        self.assertNotIn("ipi", sent_product)
+        self.assertNotIn("issqn", sent_product)
+        self.assertNotIn("ibs", sent_product)
+        self.assertNotIn("cbs", sent_product)
+        self.assertNotIn("agropecuario", sent_product)
+        self.assertNotIn("importacao", sent_product)
+        document.refresh_from_db()
+        self.assertEqual(document.response_payload["log"]["token"], "[REDACTED]")
         original.refresh_from_db()
         self.assertEqual(original.status, FiscalDocumentStatus.APPROVED)
+
+    def test_complementary_quantity_only_sends_only_additional_quantity_without_price_fields(self) -> None:
+        from apps.finance.services.nfe_complementary import create_and_emit_nfe_complementary_price_quantity_from_item
+
+        item = self._create_nfe_item(suffix=84)
+
+        with (
+            patch("apps.finance.services.nfe_complementary._build_headers", return_value={"X-Access-Token": "secret"}),
+            patch("apps.finance.services.nfe_complementary.requests.post", return_value=_mock_response(self._response())) as post_mock,
+        ):
+            document = create_and_emit_nfe_complementary_price_quantity_from_item(
+                item=item,
+                items=[{"sequencial": 1, "quantidade_complementar": "1", "codigo_cfop": "5102", "situacao_tributaria": "00"}],
+                requested_by=self.user,
+                operacao="1",
+                natureza_operacao="Nota Fiscal Complementar",
+                codigo_cfop="5102",
+                legal_confirmation=True,
+            )
+
+        sent_product = post_mock.call_args.kwargs["json"]["produtos"][0]
+        self.assertEqual(sent_product["codigo"], "P1")
+        self.assertEqual(sent_product["item_original"], 1)
+        self.assertEqual(sent_product["quantidade"], "1")
+        self.assertEqual(sent_product["codigo_cfop"], "5102")
+        self.assertEqual(sent_product["situacao_tributaria"], "00")
+        self.assertNotIn("subtotal", sent_product)
+        self.assertNotIn("total", sent_product)
+        self.assertNotIn("valor_unitario", sent_product)
+        self.assertEqual(document.request_payload["produtos"][0]["quantidade"], "1")
+
+    def test_complementary_quantity_zero_or_negative_is_blocked(self) -> None:
+        from apps.finance.services.nfe_complementary import NfeComplementaryError, create_nfe_complementary_price_quantity_draft_from_item
+
+        item = self._create_nfe_item(suffix=85)
+        for quantity in ("0", "-1"):
+            with self.subTest(quantity=quantity):
+                with self.assertRaisesMessage(NfeComplementaryError, "maior que zero"):
+                    create_nfe_complementary_price_quantity_draft_from_item(
+                        item=item,
+                        items=[{"sequencial": 1, "quantidade_complementar": quantity, "codigo_cfop": "5102", "situacao_tributaria": "00"}],
+                        requested_by=self.user,
+                        codigo_cfop="5102",
+                        legal_confirmation=True,
+                    )
 
     def test_complementary_quantity_and_price_simultaneous_are_explicit(self) -> None:
         item = self._create_nfe_item(suffix=92)
@@ -11235,6 +11311,7 @@ class FiscalPhaseTwoComplementaryPriceQuantityTests(TestCase):
         product = document.request_payload["produtos"][0]
         self.assertEqual(product["quantidade"], "1")
         self.assertEqual(product["subtotal"], "25.5")
+        self.assertEqual(product["total"], "25.5")
         self.assertEqual(product["codigo_cfop"], "5102")
         self.assertEqual(product["situacao_tributaria"], "00")
 
@@ -11242,9 +11319,11 @@ class FiscalPhaseTwoComplementaryPriceQuantityTests(TestCase):
         from apps.finance.services.nfe_complementary import NfeComplementaryError, create_nfe_complementary_price_quantity_draft
         from apps.finance.services.nfe_returns import ensure_external_original_document
 
-        item = self._create_nfe_item(suffix=93, status="cancelado")
-        with self.assertRaisesMessage(NfeComplementaryError, "autorizada"):
-            self._emit_complementary(item)
+        for index, status in enumerate(["cancelado", "reprovado", "denegado", "processando", "uncertain"], start=1):
+            with self.subTest(status=status):
+                item = self._create_nfe_item(suffix=86 + index, status=status)
+                with self.assertRaisesMessage(NfeComplementaryError, "autorizada"):
+                    self._emit_complementary(item)
 
         user, workshop = create_director_user_with_workshop(suffix=94)
         external = ensure_external_original_document(workshop=workshop, access_key="35123456789012345678901234567890123456789904", requested_by=user, confirmed_external=True)
@@ -11424,9 +11503,11 @@ class FiscalPhaseTwoComplementaryPriceQuantityTests(TestCase):
         with (
             patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
             patch("apps.workshops.mixin.has_workshop_perm", return_value=False),
+            patch("apps.finance.views.nfe.create_and_emit_nfe_complementary_price_quantity_from_item") as service_mock,
         ):
             with self.assertRaises(PermissionDenied):
                 NfeComplementaryPriceQuantityIssueView.as_view()(request, pk=item.request_id)
+        service_mock.assert_not_called()
 
     def test_two_legitimate_complementaries_create_independent_documents(self) -> None:
         item = self._create_nfe_item(suffix=80)

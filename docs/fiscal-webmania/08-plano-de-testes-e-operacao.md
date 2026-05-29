@@ -142,7 +142,7 @@ Testes transversais obrigatorios para cada subfase da Fase 2:
 - Testar webhook atualizando somente derivado e nao alterando a nota original.
 - Testar permissao, cross-workshop, downloads protegidos e payload/log sanitizados.
 
-Cobertura executada na Fase 2.2B.1: somente `complementary_price_quantity` local. Os testes cobrem complemento de preco, quantidade, preco+quantidade, link obrigatorio, bloqueio de original inelegivel, bloqueio de NF-e externa minima, ausencia de objetos tributarios/IBS-CBS fora do escopo, idempotencia por documento derivado, concorrencia com uma chamada remota, duas complementares independentes, timeout `uncertain`, payload congelado, webhook duplicado/fallback/ambiguidade, reconciliacao sem emissao, permissao especifica, cross-workshop, downloads protegidos e sanitizacao.
+Cobertura executada na Fase 2.2B.1: somente `complementary_price_quantity` local. Os testes cobrem complemento de preco, quantidade, preco+quantidade, link obrigatorio, bloqueio de original inelegivel, bloqueio de NF-e externa minima, ausencia de objetos tributarios/IBS-CBS fora do escopo, idempotencia por documento derivado, concorrencia com uma chamada remota, duas complementares independentes, timeout `uncertain`, payload congelado, webhook duplicado/fallback/ambiguidade, reconciliacao sem emissao, permissao especifica, cross-workshop, downloads protegidos e sanitizacao. A validacao final reforcou que complemento apenas de preco nao envia quantidade original, complemento apenas de quantidade nao envia valor original, e o payload nao repete silenciosamente `subtotal`, `total` ou `valor_unitario` da NF-e original.
 
 ### Fase 2.2C - Nota de ajuste
 
