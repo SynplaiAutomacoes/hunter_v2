@@ -17,7 +17,7 @@
     </div>
 
     <div class="crud-tabs-card mt-6">
-        <div x-data="{ activeTab: '{{ active_tab|default:"cadastro" }}'}">
+        <div x-data="{ activeTab: '{% if active_tab == "cadastro" or active_tab == "atribuicao_kit" or active_tab == "estoque" or active_tab == "historico" or active_tab == "movimentacao" %}{{ active_tab }}{% else %}cadastro{% endif %}'}">
             <div class="pl-2">
                 {% block crud_tabs_form %}{% endblock %}
             </div>
