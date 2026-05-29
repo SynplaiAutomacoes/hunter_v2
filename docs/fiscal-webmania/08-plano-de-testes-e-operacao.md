@@ -150,6 +150,13 @@ Cobertura executada na Fase 2.2B.1: somente `complementary_price_quantity` local
 - Ajuste com documento original usa `FiscalDocumentLink` opcional e nao obrigatorio.
 - Payload exige `operacao`, `natureza_operacao`, `codigo_cfop`, `valor_icms`, `ambiente` e `cliente`.
 - Timeout vira `uncertain`; retry automatico e proibido.
+- Regime tributario permite Lucro Real/Normal e Lucro Presumido; bloqueia Simples Nacional, MEI e regime ausente/desconhecido.
+- Payload nao envia `produtos`, `pedido`, `impostos`, IBS, CBS, `agropecuario`, importacao ou adicao.
+- Link `adjusts` opcional nao altera status do documento relacionado.
+- Webhook atualiza somente o ajuste por UUID/tentativa/fallback seguro; ambiguidade nao atualiza nada.
+- Reconciliacao consulta ajuste `uncertain` sem emissao.
+- Permissao `issue_nfe_adjustment` e exigida antes do gateway; downloads exigem `download_nfe_adjustment`.
+- Cobertura executada na validacao: Fases 1, 2.1, 2.2A, 2.2B.1 e 2.2C direcionadas com 68 testes OK; `makemigrations finance --check --dry-run`, `ruff check` nos arquivos Python tocados e `git diff --check` OK.
 
 ### Fase 2.3 - NFC-e
 

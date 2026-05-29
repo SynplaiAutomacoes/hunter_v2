@@ -179,6 +179,26 @@
 - Status: proposta.
 - Fase: 2.5.
 
+## ADR-024 - Nota Fiscal de Ajuste exige regime tributario explicito
+
+- Contexto: a Webmania documenta a Nota Fiscal de Ajuste como recurso para empresas de Lucro Normal ou Presumido, sem representar entrada ou saida de produtos. O Hunter V2 ja possui `WebmaniaCompany.regime_tributario` editavel nos fluxos de empresa/oficina.
+- Decisao: reutilizar `WebmaniaCompany.regime_tributario` como fonte local de elegibilidade. Permitir ajuste somente para `lucro_real`, `lucro_normal` ou `lucro_presumido`; bloquear Simples Nacional, MEI, vazio ou desconhecido antes do gateway.
+- Alternativas consideradas: inferir pelo tipo de tributacao; liberar quando ausente; criar novo campo duplicado. Rejeitadas por risco fiscal e duplicacao de configuracao.
+- Consequencias: oficinas precisam manter a empresa Webmania configurada corretamente antes de emitir ajuste.
+- Riscos: dados remotos antigos podem nao preencher `regime_tributario`; nesses casos a emissao fica bloqueada ate ajuste administrativo.
+- Status: implementada e validada na Fase 2.2C.
+- Fase: 2.2C.
+
+## ADR-025 - Ajuste como documento fiscal avulso com link opcional
+
+- Contexto: a API `/1/nfe/ajuste/` nao exige chave ou UUID de NF-e anterior; apenas cenarios de negocio podem relacionar o ajuste a outro documento.
+- Decisao: criar `FiscalDocument(purpose="adjustment")` antes do gateway e permitir `FiscalDocumentLink(role="adjusts")` apenas quando o usuario informar documento relacionado existente.
+- Alternativas consideradas: exigir documento original sempre; reaproveitar devolucao/estorno; guardar apenas payload sem documento.
+- Consequencias: ajuste avulso permanece auditavel, e relacoes reais podem ser rastreadas sem bloquear casos fiscais validos.
+- Riscos: UI deve deixar claro que estorno SC/ES usa devolucao/estorno, nao ajuste.
+- Status: implementada e validada na Fase 2.2C.
+- Fase: 2.2C.
+
 ## ADR-015 - Fase 2 dividida em subfases obrigatorias
 
 - Contexto: NF-e/NFC-e adicional combina eventos simples, documentos derivados, novo modelo NFC-e e eventos tributarios avancados.

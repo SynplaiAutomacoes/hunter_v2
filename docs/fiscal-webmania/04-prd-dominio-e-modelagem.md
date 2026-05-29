@@ -173,7 +173,7 @@ Essa abordagem evita tratar eventos como notas comuns e permite que documentos d
 | Complementar preco/quantidade | `POST /1/nfe/complementar/` | `FiscalDocument(kind="nfe", purpose="complementary")` | Obrigatorio | NF-e local ou externa por chave/UUID | `nfe:complementary:{workshop}:{original_identifier}:{hash_tipo_itens_valores}` | Form de tipo de complemento e itens/valores | Desabilitar action |
 | Complementar impostos | `POST /1/nfe/complementar/` | `FiscalDocument(kind="nfe", purpose="complementary_tax")` ou `purpose="complementary"` com subtipo | Obrigatorio | NF-e local ou externa por chave/UUID | `nfe:complementary_tax:{workshop}:{original_identifier}:{hash_impostos}` | Form fiscal restrito a usuarios autorizados | Desabilitar action |
 | Complementar adicao/importacao | `POST /1/nfe/complementar/` | `FiscalDocument(kind="nfe", purpose="complementary_import")` ou subtipo | Obrigatorio quando houver nota original | NF-e local ou externa por chave/UUID | `nfe:complementary_import:{workshop}:{original_identifier}:{hash_adicao}` | Form especifico, inicialmente atras de confirmacao administrativa se aplicavel | Desabilitar action |
-| Ajuste | `POST /1/nfe/ajuste/` | `FiscalDocument(kind="nfe", purpose="adjustment")` | Opcional | Emissao manual avulsa ou vinculada a NF-e local/externa quando houver relacao | `nfe:adjustment:{workshop}:{operacao}:{codigo_cfop}:{valor_icms}:{hash_cliente_payload}` | Form manual com `operacao`, natureza, CFOP, ICMS, cliente e ambiente | Desabilitar action sem afetar devolucao/complementar |
+| Ajuste | `POST /1/nfe/ajuste/` | `FiscalDocument(kind="nfe", purpose="adjustment", origin="manual")` | Opcional | Emissao manual avulsa ou vinculada a NF-e local quando houver relacao | `hash(workshop_id, adjustment_document_id, operation_type, request_generation)` | Form manual com `operacao`, natureza, CFOP, ICMS, cliente e ambiente; regime tributario obrigatorio | Desabilitar action sem afetar devolucao/complementar |
 
 NF-e externa: permitir informar chave manual de 44 digitos para devolucao e complemento. Validar apenas o formato da chave nesta fase, criar `FiscalDocument` externo minimo com `document_type="nfe"`, `origin="external"`, `access_key`, `workshop`, `account` e flag textual de que nao foi emitida localmente. Exigir confirmacao explicita do usuario autorizado antes da emissao derivada. Nao usar `/1/nfe/consulta/` como garantia de validacao de NF-e de outro emissor; importacao/validacao por XML ou API fiscal especifica fica fora da Fase 2.2A.
 
@@ -243,6 +243,37 @@ hash(workshop_id, complementary_document_id, operation_type, request_generation)
 ```
 
 O payload sanitizado deve ser congelado apos envio. Tentativa `uncertain` bloqueia reenvio automatico e exige consulta/reconciliacao.
+
+### Fase 2.2C - Nota Fiscal de Ajuste validada
+
+Implementacao validada somente para `POST /1/nfe/ajuste/`.
+
+Modelo aplicado:
+
+- Documento: `FiscalDocument(document_type="nfe", purpose="adjustment", origin="manual")`.
+- Link: `FiscalDocumentLink(role="adjusts")` opcional, criado apenas quando a acao parte do detalhe de uma NF-e local existente ou quando o usuario relacionar explicitamente um documento fiscal.
+- Tentativa: `FiscalEmissionAttempt(operation_type="adjustment")`, associada ao documento de ajuste criado antes do gateway.
+- Regime tributario: validado por `WebmaniaCompany.regime_tributario`; permitidos `lucro_real`, `lucro_normal` e `lucro_presumido`; bloqueados Simples Nacional, MEI e regime ausente/desconhecido.
+- Payload remoto: somente `operacao`, `natureza_operacao`, `codigo_cfop`, `valor_icms`, `valor_icms_st` quando preenchido, `ambiente`, `cliente`, `situacao_tributaria`, `informacoes_fisco`, `informacoes_complementares` e `url_notificacao` quando aplicavel.
+- Campos proibidos nesta fase: `produtos`, `pedido`, `impostos`, IBS, CBS, `agropecuario`, importacao e adicao.
+- Webhook e reconciliacao atualizam somente o documento de ajuste e nunca alteram a NF-e relacionada opcional.
+
+Idempotencia aplicada:
+
+```text
+criar FiscalDocument de ajuste
+-> criar/bloquear FiscalEmissionAttempt associado ao documento
+-> congelar payload sanitizado
+-> executar uma unica chamada POST /1/nfe/ajuste/
+-> persistir retorno no documento de ajuste
+-> webhook/reconciliacao atualizam somente o documento de ajuste
+```
+
+Chave usada:
+
+```text
+hash(workshop_id, adjustment_document_id, operation_type, request_generation)
+```
 
 ### Arquivos previstos para Fase 2.1
 

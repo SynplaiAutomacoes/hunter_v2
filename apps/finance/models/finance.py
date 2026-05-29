@@ -106,6 +106,7 @@ class FiscalEmissionOperationType(models.TextChoices):
     RETURN = "return", "Devolucao"
     REVERSAL = "reversal", "Estorno"
     COMPLEMENTARY_PRICE_QUANTITY = "complementary_price_quantity", "Complementar preco/quantidade"
+    ADJUSTMENT = "adjustment", "Ajuste"
 
 
 class FiscalDocumentType(models.TextChoices):
@@ -126,6 +127,7 @@ class FiscalDocumentOrigin(models.TextChoices):
     LOCAL = "local", "Local"
     EXTERNAL = "external", "Externo"
     DERIVED = "derived", "Derivado"
+    MANUAL = "manual", "Manual"
 
 
 class FiscalDocumentPurpose(models.TextChoices):
@@ -133,6 +135,7 @@ class FiscalDocumentPurpose(models.TextChoices):
     RETURN = "return", "Devolucao"
     REVERSAL = "reversal", "Estorno"
     COMPLEMENTARY = "complementary", "Complementar"
+    ADJUSTMENT = "adjustment", "Ajuste"
 
 
 class FiscalDocumentComplementaryType(models.TextChoices):
@@ -143,6 +146,7 @@ class FiscalDocumentLinkRole(models.TextChoices):
     RETURNS = "returns", "Devolve"
     REVERSES = "reverses", "Estorna"
     COMPLEMENTS = "complements", "Complementa"
+    ADJUSTS = "adjusts", "Ajusta"
 
 
 class FiscalDocumentEventType(models.TextChoices):
@@ -765,6 +769,10 @@ class FiscalDocument(TimeStampedModel):
             ("view_nfe_complementary", "Pode visualizar NF-e complementar"),
             ("download_nfe_complementary", "Pode baixar XML/DANFE de NF-e complementar"),
             ("view_nfe_complementary_payload", "Pode visualizar payload de NF-e complementar"),
+            ("issue_nfe_adjustment", "Pode emitir NF-e de ajuste"),
+            ("view_nfe_adjustment", "Pode visualizar NF-e de ajuste"),
+            ("download_nfe_adjustment", "Pode baixar XML/DANFE de NF-e de ajuste"),
+            ("view_nfe_adjustment_payload", "Pode visualizar payload de NF-e de ajuste"),
         ]
 
     def __str__(self) -> str:

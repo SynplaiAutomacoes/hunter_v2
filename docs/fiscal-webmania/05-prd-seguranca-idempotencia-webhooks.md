@@ -155,7 +155,7 @@ Onde:
 | Devolucao | `hash(workshop_id, derived_document_id, operation_type, request_generation)` | Timeout/resposta incompleta apos envio | Bloquear documento derivado e saldo reservado ate consulta/reconciliacao; nao reenviar automaticamente. |
 | Estorno via devolucao | `hash(workshop_id, derived_document_id, operation_type, request_generation)` | Timeout/resposta incompleta | Bloquear estorno derivado ate consulta/reconciliacao. |
 | Complementar | `hash(workshop_id, complementary_document_id, operation_type, request_generation)` | Timeout/resposta incompleta | Bloquear o documento complementar derivado em `uncertain`; nao reenviar automaticamente. |
-| Ajuste | `nfe:adjustment:{workshop}:{operacao}:{codigo_cfop}:{valor_icms}:{hash_cliente_payload}` | Timeout/resposta incompleta | Bloquear ajuste identico; nao exigir documento original. |
+| Ajuste | `hash(workshop_id, adjustment_document_id, operation_type, request_generation)` | Timeout/resposta incompleta | Bloquear o documento de ajuste derivado/avulso em `uncertain`; nao exigir documento original. |
 | Nota Fiscal de Credito | `nfe:credit_note:{workshop}:{tipo_credito}:{hash_payload}` | Timeout/resposta incompleta | Bloquear nota de credito identica ate consulta. |
 | Nota Fiscal de Debito | `nfe:debit_note:{workshop}:{tipo_debito}:{hash_payload}` | Timeout/resposta incompleta | Bloquear nota de debito identica ate consulta. |
 | NFC-e | `nfce:emission:{workshop}:{origin_type}:{origin_id}:{hash_itens_pagamento}` | Timeout/resposta incompleta | Bloquear emissao da mesma origem/intencao. |
@@ -227,6 +227,36 @@ Webhook complementar:
 - Documentos derivados devem ter tentativa propria e registro em `FiscalDocument`.
 - Webhook/reconciliacao devem atualizar a tentativa/evento/documento correspondente e nunca chamar endpoint de emissao/evento.
 - Payloads persistidos devem remover headers, tokens, certificados, secrets e dados sensiveis nao essenciais.
+
+### Idempotencia Fase 2.2C - Nota de ajuste
+
+Regra: a identidade operacional do ajuste e o `FiscalDocument` de ajuste criado antes do envio, nao o payload fiscal livre. Isso permite dois ajustes legitimos com valores semelhantes e impede que retry, concorrencia ou timeout transmitam a mesma intencao duas vezes.
+
+Fluxo validado:
+
+```text
+criar FiscalDocument de ajuste em estado inicial
+-> criar/bloquear FiscalEmissionAttempt associado ao ajuste
+-> executar uma unica chamada POST /1/nfe/ajuste/
+-> persistir retorno no ajuste
+-> webhook/reconciliacao atualizam apenas o ajuste
+```
+
+Chave:
+
+```text
+hash(workshop_id, adjustment_document_id, operation_type, request_generation)
+```
+
+Regras:
+
+- `uncertain` bloqueia reenvio automatico.
+- Payload sanitizado fica congelado apos envio.
+- Regime tributario deve ser validado antes do gateway.
+- Webhook resolve primeiro por UUID do ajuste e usa tentativa associada como fallback seguro.
+- Fallback ambiguo nao atualiza documento.
+- NF-e relacionada opcional nao pode ter status alterado por resposta, webhook ou reconciliacao do ajuste.
+- Cenarios de estorno SC/ES cobertos por devolucao devem ser direcionados/bloqueados antes de `/1/nfe/ajuste/`.
 
 ## Fase 2.0 - Webhooks e reconciliacao NF-e/NFC-e
 

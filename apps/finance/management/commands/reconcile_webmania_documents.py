@@ -4,7 +4,8 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
 
-from apps.finance.models.finance import FiscalDocument, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, NfeItem, NfseItem
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionOperationType, NfeItem, NfseItem
+from apps.finance.services.nfe_adjustment import NfeAdjustmentError, reconcile_nfe_adjustment_document
 from apps.finance.services.nfe_complementary import NfeComplementaryError, reconcile_nfe_complementary_document
 from apps.finance.services.nfe_consulta import NfeConsultaError, reconcile_nfe_item
 from apps.finance.services.nfe_returns import NfeReturnError, reconcile_nfe_return_document
@@ -25,6 +26,7 @@ class Command(BaseCommand):
         reconciled_nfe = 0
         reconciled_nfe_returns = 0
         reconciled_nfe_complementary = 0
+        reconciled_nfe_adjustment = 0
         reconciled_nfse = 0
         failed = 0
         pending_items = NfeItem.objects.filter(status__in=["processando", "contingencia"]).select_related("workshop", "request").order_by("pk")[:limit]
@@ -50,9 +52,9 @@ class Command(BaseCommand):
                 reconciled_nfe_returns += 1
 
         pending_nfe_complementary_documents = FiscalDocument.objects.filter(
-            origin="local",
+            origin=FiscalDocumentOrigin.LOCAL,
             purpose=FiscalDocumentPurpose.COMPLEMENTARY,
-            complementary_type="price_quantity",
+            complementary_type=FiscalDocumentComplementaryType.PRICE_QUANTITY,
             status__in=[FiscalDocumentStatus.PROCESSING, FiscalDocumentStatus.CONTINGENCY, FiscalDocumentStatus.UNCERTAIN],
         ).select_related("workshop").order_by("pk")[:limit]
         for pending_complementary_document in pending_nfe_complementary_documents:
@@ -62,6 +64,19 @@ class Command(BaseCommand):
                 failed += 1
             else:
                 reconciled_nfe_complementary += 1
+
+        pending_nfe_adjustment_documents = FiscalDocument.objects.filter(
+            origin=FiscalDocumentOrigin.MANUAL,
+            purpose=FiscalDocumentPurpose.ADJUSTMENT,
+            status__in=[FiscalDocumentStatus.PROCESSING, FiscalDocumentStatus.CONTINGENCY, FiscalDocumentStatus.UNCERTAIN],
+        ).select_related("workshop").order_by("pk")[:limit]
+        for pending_adjustment_document in pending_nfe_adjustment_documents:
+            try:
+                reconcile_nfe_adjustment_document(document=pending_adjustment_document)
+            except NfeAdjustmentError:
+                failed += 1
+            else:
+                reconciled_nfe_adjustment += 1
 
         pending_nfse_items = NfseItem.objects.filter(status__in=["processando", "contingencia", "agendado"]).select_related("workshop", "request").order_by("pk")[:limit]
         for pending_nfse_item in pending_nfse_items:
@@ -76,7 +91,16 @@ class Command(BaseCommand):
         uncertain_attempts = FiscalEmissionAttempt.objects.filter(status=FiscalEmissionAttemptStatus.UNCERTAIN).select_related("workshop", "fiscal_document").order_by("pk")[:limit]
         for attempt in uncertain_attempts:
             if attempt.document_kind == "nfe":
-                if attempt.fiscal_document_id and attempt.operation_type == "complementary_price_quantity":
+                if attempt.fiscal_document_id and attempt.operation_type == FiscalEmissionOperationType.ADJUSTMENT:
+                    try:
+                        reconcile_nfe_adjustment_document(document=attempt.fiscal_document)
+                    except (NfeAdjustmentError, AttributeError):
+                        failed += 1
+                    else:
+                        uncertain_checked += 1
+                    continue
+
+                if attempt.fiscal_document_id and attempt.operation_type == FiscalEmissionOperationType.COMPLEMENTARY_PRICE_QUANTITY:
                     try:
                         reconcile_nfe_complementary_document(document=attempt.fiscal_document)
                     except (NfeComplementaryError, AttributeError):
@@ -85,7 +109,7 @@ class Command(BaseCommand):
                         uncertain_checked += 1
                     continue
 
-                if attempt.fiscal_document_id and attempt.operation_type in {"return", "reversal"}:
+                if attempt.fiscal_document_id and attempt.operation_type in {FiscalEmissionOperationType.RETURN, FiscalEmissionOperationType.REVERSAL}:
                     try:
                         reconcile_nfe_return_document(document=attempt.fiscal_document)
                     except (NfeReturnError, AttributeError):
@@ -114,4 +138,4 @@ class Command(BaseCommand):
                     else:
                         uncertain_checked += 1
 
-        self.stdout.write(self.style.SUCCESS(f"Webhooks processados: {processed_webhooks}. NF-es reconciliadas: {reconciled_nfe}. Devolucoes/estornos reconciliados: {reconciled_nfe_returns}. Complementares reconciliadas: {reconciled_nfe_complementary}. NFS-es reconciliadas: {reconciled_nfse}. Tentativas incertas consultadas: {uncertain_checked}. Falhas: {failed}."))
+        self.stdout.write(self.style.SUCCESS(f"Webhooks processados: {processed_webhooks}. NF-es reconciliadas: {reconciled_nfe}. Devolucoes/estornos reconciliados: {reconciled_nfe_returns}. Complementares reconciliadas: {reconciled_nfe_complementary}. Ajustes reconciliados: {reconciled_nfe_adjustment}. NFS-es reconciliadas: {reconciled_nfse}. Tentativas incertas consultadas: {uncertain_checked}. Falhas: {failed}."))

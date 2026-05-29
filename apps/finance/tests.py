@@ -11586,3 +11586,280 @@ class FiscalPhaseTwoComplementaryConcurrentTests(TransactionTestCase):
         self.assertEqual(post_mock.call_count, 1)
         self.assertEqual(results, ["sent"])
         self.assertEqual(len(errors), 1)
+
+
+class FiscalPhaseTwoComplementaryTests(FiscalPhaseTwoComplementaryPriceQuantityTests):
+    pass
+
+
+class FiscalPhaseTwoAdjustmentTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=55)
+        WebmaniaCompany.objects.create(workshop=self.workshop, webmania_company_id="ADJ-55", regime_tributario="lucro_real")
+
+    def _client_payload(self) -> dict[str, Any]:
+        return {"cpf": "12345678901", "nome_completo": "Cliente Ajuste", "endereco": "Rua A", "numero": "1", "bairro": "Centro", "cidade": "Sao Paulo", "uf": "SP", "cep": "01001000"}
+
+    def _response(self, *, uuid: str = "ad895e61-c0da-46ee-a880-a03f8547a9bc", key: str = "35123456789012345678901234567890123456785501") -> dict[str, Any]:
+        return {"uuid": uuid, "modelo": "nfe", "status": "aprovado", "nfe": "9200", "serie": "1", "recibo": "REC-ADJ", "chave": key, "xml": "https://example.test/adj.xml", "danfe": "https://example.test/adj.pdf", "log": {"token": "secret"}}
+
+    def _create_original_document(self, *, suffix: int = 56) -> FiscalDocument:
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=timezone.now().date())
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=workorder, tax_class="REFNFE")
+        item = NfeItem.objects.create(workshop=self.workshop, workorder=workorder, request=nfe_request, uuid=f"{suffix:08d}-c0da-46ee-a880-a03f8547a9bc", status="aprovado", access_key=f"35{suffix:042d}"[-44:], number=str(suffix), series="1")
+        return FiscalDocument.objects.create(workshop=self.workshop, account=self.workshop.account, document_type="nfe", origin="local", purpose="normal", legacy_nfe_item=item, remote_uuid=item.uuid, access_key=item.access_key, status=FiscalDocumentStatus.APPROVED)
+
+    def _draft_kwargs(self, **overrides: Any) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {
+            "workshop": self.workshop,
+            "requested_by": self.user,
+            "operacao": "1",
+            "natureza_operacao": "CREDITO ICMS S/ ESTOQUE",
+            "codigo_cfop": "2.949",
+            "valor_icms": "100.00",
+            "situacao_tributaria": "090",
+            "cliente": self._client_payload(),
+            "legal_confirmation": True,
+            "estorno_sc_es_confirmation": True,
+        }
+        kwargs.update(overrides)
+        return kwargs
+
+    def _emit_adjustment(self, **overrides: Any) -> FiscalDocument:
+        from apps.finance.services.nfe_adjustment import create_and_emit_nfe_adjustment
+
+        with (
+            patch("apps.finance.services.nfe_adjustment._build_headers", return_value={"X-Access-Token": "secret"}),
+            patch("apps.finance.services.nfe_adjustment.requests.post", return_value=_mock_response(overrides.pop("response_payload", self._response()))) as post_mock,
+        ):
+            document = create_and_emit_nfe_adjustment(**self._draft_kwargs(**overrides))
+        self.assertEqual(post_mock.call_count, 1)
+        return document
+
+    def test_adjustment_valid_payload_only_authorized_fields(self) -> None:
+        from apps.finance.services.nfe_adjustment import create_and_emit_nfe_adjustment
+
+        with (
+            patch("apps.finance.services.nfe_adjustment._build_headers", return_value={"X-Access-Token": "secret"}),
+            patch("apps.finance.services.nfe_adjustment.requests.post", return_value=_mock_response(self._response())) as post_mock,
+        ):
+            document = create_and_emit_nfe_adjustment(**self._draft_kwargs(valor_icms_st="12.34", informacoes_fisco="Fisco", informacoes_complementares="Complementar"))
+
+        sent_payload = post_mock.call_args.kwargs["json"]
+        self.assertEqual(sent_payload["operacao"], 1)
+        self.assertEqual(sent_payload["natureza_operacao"], "CREDITO ICMS S/ ESTOQUE")
+        self.assertEqual(sent_payload["codigo_cfop"], "2.949")
+        self.assertEqual(sent_payload["valor_icms"], "100.00")
+        self.assertEqual(sent_payload["valor_icms_st"], "12.34")
+        self.assertEqual(sent_payload["situacao_tributaria"], "090")
+        self.assertEqual(sent_payload["cliente"]["cpf"], "12345678901")
+        for forbidden_key in ("produtos", "pedido", "impostos", "ibs", "cbs", "agropecuario", "importacao", "adicao"):
+            self.assertNotIn(forbidden_key, sent_payload)
+        document.refresh_from_db()
+        self.assertEqual(document.purpose, FiscalDocumentPurpose.ADJUSTMENT)
+        self.assertEqual(document.origin, FiscalDocumentOrigin.MANUAL)
+        self.assertEqual(document.response_payload["log"]["token"], "[REDACTED]")
+
+    def test_adjustment_required_values_and_optional_icms_st(self) -> None:
+        from apps.finance.services.nfe_adjustment import NfeAdjustmentError, create_nfe_adjustment_draft
+
+        document = create_nfe_adjustment_draft(**self._draft_kwargs(valor_icms_st=""))
+        self.assertNotIn("valor_icms_st", document.request_payload)
+        for field_name, value in {"valor_icms": "", "codigo_cfop": "", "situacao_tributaria": ""}.items():
+            with self.subTest(field_name=field_name):
+                with self.assertRaises(NfeAdjustmentError):
+                    create_nfe_adjustment_draft(**self._draft_kwargs(**{field_name: value}))
+
+    def test_adjustment_tax_regime_allows_real_normal_presumed_and_blocks_others(self) -> None:
+        from apps.finance.services.nfe_adjustment import NfeAdjustmentError, validate_adjustment_tax_regime
+
+        company = self.workshop.webmania_company
+        for regime in ("lucro_real", "lucro_normal", "lucro_presumido"):
+            company.regime_tributario = regime
+            company.save(update_fields=["regime_tributario"])
+            self.assertEqual(validate_adjustment_tax_regime(workshop=self.workshop), regime)
+        for regime in ("simples_nacional", "mei", ""):
+            company.regime_tributario = regime
+            company.save(update_fields=["regime_tributario"])
+            with self.subTest(regime=regime):
+                with self.assertRaises(NfeAdjustmentError):
+                    validate_adjustment_tax_regime(workshop=self.workshop)
+
+    def test_adjustment_avulso_without_original_and_optional_link(self) -> None:
+        from apps.finance.services.nfe_adjustment import create_nfe_adjustment_draft
+
+        avulso = create_nfe_adjustment_draft(**self._draft_kwargs())
+        self.assertFalse(FiscalDocumentLink.objects.filter(document=avulso).exists())
+        original = self._create_original_document()
+        linked = create_nfe_adjustment_draft(**self._draft_kwargs(related_document=original))
+        link = FiscalDocumentLink.objects.get(document=linked)
+        self.assertEqual(link.related_document, original)
+        self.assertEqual(link.role, FiscalDocumentLinkRole.ADJUSTS)
+        original.refresh_from_db()
+        self.assertEqual(original.status, FiscalDocumentStatus.APPROVED)
+
+    def test_adjustment_document_created_before_gateway_attempt_and_uncertain_blocks_retry(self) -> None:
+        from apps.finance.services.nfe_adjustment import NfeAdjustmentError, create_nfe_adjustment_draft, transmit_nfe_adjustment_document
+
+        document = create_nfe_adjustment_draft(**self._draft_kwargs())
+        self.assertEqual(document.status, FiscalDocumentStatus.PROCESSING)
+        with (
+            patch("apps.finance.services.nfe_adjustment._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_adjustment.requests.post", side_effect=requests.Timeout("timeout")) as post_mock,
+        ):
+            with self.assertRaisesMessage(NfeAdjustmentError, "estado remoto incerto"):
+                transmit_nfe_adjustment_document(document=document)
+            with self.assertRaisesMessage(NfeAdjustmentError, "estado remoto incerto"):
+                transmit_nfe_adjustment_document(document=document)
+        self.assertEqual(post_mock.call_count, 1)
+        document.refresh_from_db()
+        attempt = FiscalEmissionAttempt.objects.get(fiscal_document=document)
+        self.assertEqual(attempt.operation_type, FiscalEmissionOperationType.ADJUSTMENT)
+        self.assertEqual(attempt.status, FiscalEmissionAttemptStatus.UNCERTAIN)
+        self.assertEqual(document.status, FiscalDocumentStatus.UNCERTAIN)
+
+    def test_two_legitimate_adjustments_can_coexist(self) -> None:
+        first = self._emit_adjustment(response_payload=self._response(uuid="ae895e61-c0da-46ee-a880-a03f8547a9b1", key="35123456789012345678901234567890123456785511"))
+        second = self._emit_adjustment(response_payload=self._response(uuid="ae895e61-c0da-46ee-a880-a03f8547a9b2", key="35123456789012345678901234567890123456785512"))
+
+        self.assertNotEqual(first.pk, second.pk)
+        self.assertEqual(FiscalDocument.objects.filter(purpose=FiscalDocumentPurpose.ADJUSTMENT).count(), 2)
+
+    def test_adjustment_webhook_fallback_ambiguity_and_original_unchanged(self) -> None:
+        from apps.finance.services.nfe_adjustment import create_nfe_adjustment_draft
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        original = self._create_original_document(suffix=57)
+        document = self._emit_adjustment(related_document=original, response_payload=self._response(uuid="af895e61-c0da-46ee-a880-a03f8547a9bc", key="35123456789012345678901234567890123456785521"))
+        payload = {"modelo": "nfe", "uuid": document.remote_uuid, "status": "aprovado", "chave": document.access_key, "xml": "https://example.test/adj-webhook.xml", "danfe": "https://example.test/adj-webhook.pdf"}
+        event = store_webhook_event(payload=payload)
+        duplicate = store_webhook_event(payload=payload)
+        self.assertEqual(event.pk, duplicate.pk)
+        self.assertTrue(process_webhook_event(event))
+        document.refresh_from_db()
+        original.refresh_from_db()
+        self.assertEqual(document.xml_url, "https://example.test/adj-webhook.xml")
+        self.assertEqual(original.status, FiscalDocumentStatus.APPROVED)
+
+        first = create_nfe_adjustment_draft(**self._draft_kwargs())
+        second = create_nfe_adjustment_draft(**self._draft_kwargs())
+        for adjustment in (first, second):
+            FiscalEmissionAttempt.objects.create(workshop=self.workshop, document_kind=FiscalEmissionDocumentKind.NFE, operation_type=FiscalEmissionOperationType.ADJUSTMENT, request_model=FiscalDocument.__name__, request_id=adjustment.pk, fiscal_document=adjustment, idempotency_key=f"adjustment-test:{adjustment.pk}", status=FiscalEmissionAttemptStatus.SUCCEEDED, remote_key="35123456789012345678901234567890123456785522")
+        ambiguous = store_webhook_event(payload={"modelo": "nfe", "status": "aprovado", "chave": "35123456789012345678901234567890123456785522", "xml": "https://example.test/ambiguous.xml"})
+        self.assertFalse(process_webhook_event(ambiguous))
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(first.xml_url, "")
+        self.assertEqual(second.xml_url, "")
+
+    def test_adjustment_reconciliation_download_permission_cross_workshop_and_issue_permission(self) -> None:
+        from django.core.exceptions import PermissionDenied
+        from django.http import Http404
+
+        from apps.finance.views.nfe import NfeAdjustmentDownloadView, NfeAdjustmentIssueView
+
+        original = self._create_original_document(suffix=58)
+        document = self._emit_adjustment(related_document=original)
+        document.status = FiscalDocumentStatus.UNCERTAIN
+        document.save(update_fields=["status"])
+        with (
+            patch("apps.finance.management.commands.reconcile_webmania_documents.process_pending_webhook_events", return_value=0),
+            patch("apps.finance.management.commands.reconcile_webmania_documents.reconcile_nfe_adjustment_document", return_value=document) as reconcile_mock,
+            patch("apps.finance.services.nfe_adjustment.requests.post") as post_mock,
+        ):
+            call_command("reconcile_webmania_documents", limit=10)
+        reconcile_mock.assert_called()
+        post_mock.assert_not_called()
+
+        request = RequestFactory().get("/")
+        request.user = self.user
+        downloaded = SimpleNamespace(content=b"pdf", content_type="application/pdf")
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfe.download_webmania_document", return_value=downloaded),
+        ):
+            response = NfeAdjustmentDownloadView.as_view()(request, pk=original.legacy_nfe_item.request_id, document_pk=document.pk, document="danfe")
+        self.assertEqual(response.status_code, 200)
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=False),
+        ):
+            with self.assertRaises(PermissionDenied):
+                NfeAdjustmentDownloadView.as_view()(request, pk=original.legacy_nfe_item.request_id, document_pk=document.pk, document="danfe")
+
+        other_workshop = create_workshop(suffix=59)
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=other_workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            with self.assertRaises(Http404):
+                NfeAdjustmentDownloadView.as_view()(request, pk=original.legacy_nfe_item.request_id, document_pk=document.pk, document="danfe")
+
+        post_request = RequestFactory().post("/", data={"operacao": "1", "natureza_operacao": "CREDITO ICMS S/ ESTOQUE", "codigo_cfop": "2.949", "valor_icms": "10.00", "situacao_tributaria": "090", "cliente_json": '{"cpf":"12345678901","nome_completo":"Cliente"}', "confirm_adjustment": "on", "confirm_not_sc_es_reversal": "on"})
+        post_request.user = self.user
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=False),
+            patch("apps.finance.views.nfe.create_and_emit_nfe_adjustment") as service_mock,
+        ):
+            with self.assertRaises(PermissionDenied):
+                NfeAdjustmentIssueView.as_view()(post_request, pk=original.legacy_nfe_item.request_id)
+        service_mock.assert_not_called()
+
+    def test_adjustment_sc_es_reversal_guard_blocks_without_confirmation(self) -> None:
+        from apps.finance.services.nfe_adjustment import NfeAdjustmentError, create_nfe_adjustment_draft
+
+        with self.assertRaisesMessage(NfeAdjustmentError, "estorno SC/ES"):
+            create_nfe_adjustment_draft(**self._draft_kwargs(estorno_sc_es_confirmation=False))
+
+
+class FiscalPhaseTwoAdjustmentConcurrentTests(TransactionTestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=60)
+        WebmaniaCompany.objects.create(workshop=self.workshop, webmania_company_id="ADJ-60", regime_tributario="lucro_presumido")
+
+    def test_concurrent_same_adjustment_intention_calls_remote_once(self) -> None:
+        from apps.finance.services.nfe_adjustment import create_nfe_adjustment_draft, transmit_nfe_adjustment_document
+
+        document = create_nfe_adjustment_draft(workshop=self.workshop, requested_by=self.user, operacao="1", natureza_operacao="CREDITO ICMS S/ ESTOQUE", codigo_cfop="2.949", valor_icms="100.00", situacao_tributaria="090", cliente={"cpf": "12345678901", "nome_completo": "Cliente"}, legal_confirmation=True, estorno_sc_es_confirmation=True)
+        response_payload = {"uuid": "ba895e61-c0da-46ee-a880-a03f8547a9bc", "modelo": "nfe", "status": "aprovado", "chave": "35123456789012345678901234567890123456786001", "xml": "https://example.test/adj.xml", "danfe": "https://example.test/adj.pdf"}
+        start_barrier = threading.Barrier(2)
+        results: list[str] = []
+        errors: list[str] = []
+        results_lock = threading.Lock()
+
+        def post_side_effect(*args: Any, **kwargs: Any) -> Any:
+            time.sleep(0.1)
+            return _mock_response(response_payload)
+
+        def run_transmit() -> None:
+            close_old_connections()
+            try:
+                start_barrier.wait(timeout=5)
+                fresh_document = FiscalDocument.objects.get(pk=document.pk)
+                transmit_nfe_adjustment_document(document=fresh_document)
+            except Exception as exc:
+                with results_lock:
+                    errors.append(str(exc))
+            else:
+                with results_lock:
+                    results.append("sent")
+            finally:
+                close_old_connections()
+
+        with (
+            patch("apps.finance.services.nfe_adjustment._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_adjustment.requests.post", side_effect=post_side_effect) as post_mock,
+        ):
+            threads = [threading.Thread(target=run_transmit), threading.Thread(target=run_transmit)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=10)
+
+        self.assertEqual(post_mock.call_count, 1)
+        self.assertEqual(results, ["sent"])
+        self.assertEqual(len(errors), 1)

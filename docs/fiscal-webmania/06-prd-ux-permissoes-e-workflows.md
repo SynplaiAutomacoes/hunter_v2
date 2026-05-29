@@ -86,6 +86,9 @@ Eventos devem aparecer em timeline/historico do documento original. Documentos d
 | Baixar XML/DANFE complementar | Sim | Sim | Sim | Opcional | `download_nfe_complementary` | Obrigatorio |
 | Visualizar payload complementar | Sim | Opcional | Nao | Nao | `view_nfe_complementary_payload` | Obrigatorio |
 | Emitir ajuste | Sim | Sim | Nao | Nao | `issue_nfe_adjustment` | Obrigatorio |
+| Visualizar ajuste | Sim | Sim | Sim | Opcional | `view_nfe_adjustment` | Obrigatorio |
+| Baixar XML/DANFE ajuste | Sim | Sim | Sim | Opcional | `download_nfe_adjustment` | Obrigatorio |
+| Visualizar payload ajuste | Sim | Opcional | Nao | Nao | `view_nfe_adjustment_payload` | Obrigatorio |
 | Emitir NF-e de credito | Sim | Sim | Nao | Nao | `issue_nfe_credit_note` | Obrigatorio |
 | Emitir NF-e de debito | Sim | Sim | Nao | Nao | `issue_nfe_debit_note` | Obrigatorio |
 | Emitir NFC-e | Sim | Sim | Opcional | Nao | `issue_nfce` | Obrigatorio |
@@ -122,3 +125,21 @@ Bloqueios visuais:
 - Complementar tributaria externa deve exibir alerta de entrada manual auditada e exigir permissao `issue_nfe_complementary_tax`.
 
 Fase 2.2B.1 implementada para revisao: a UI minima ficou restrita ao detalhe da NF-e original local elegivel, com acao "Emitir Nota Complementar", formulario de itens em JSON, confirmacao explicita, historico de complementares e downloads XML/DANFE protegidos. Central fiscal, complementar tributaria e importacao/adicao nao foram iniciadas.
+
+### UI minima Fase 2.2C - Nota de ajuste
+
+Entrada implementada: detalhe da NF-e local existente, com link opcional `adjusts` para o documento relacionado. O service tambem permite ajuste avulso sem documento original, mas a central fiscal/entrada avulsa ampla permanece fora desta subfase.
+
+Controles implementados:
+
+- Botao "Emitir Nota de Ajuste" somente para usuario com `issue_nfe_adjustment`.
+- Formulario com operacao, natureza da operacao, CFOP, valor ICMS, valor ICMS-ST opcional, situacao tributaria, cliente em JSON, ambiente e informacoes opcionais.
+- Avisos sobre escrituração contabil, regime tributario permitido, ausencia de movimentacao de produtos e excecao de estorno SC/ES pelo fluxo de devolucao/estorno.
+- Confirmacao explicita antes da transmissao.
+- Historico de ajustes vinculados no detalhe da NF-e e downloads XML/DANFE protegidos por `download_nfe_adjustment`.
+
+Bloqueios visuais/funcionais:
+
+- Regime tributario ausente, Simples Nacional ou MEI bloqueia antes do gateway.
+- Cenário de estorno SC/ES identificado pelo usuario deve usar devolucao/estorno; a implementacao exige confirmacao de que a operacao nao pertence a esse caso.
+- Complementar tributaria, IBS/CBS, importacao/adicao, NFC-e, manifestacao e credito/debito nao foram iniciados.

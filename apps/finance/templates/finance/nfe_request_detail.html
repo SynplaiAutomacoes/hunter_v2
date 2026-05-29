@@ -48,6 +48,12 @@
             Nota Complementar
         </button>
     {% endif %}
+    {% if can_issue_adjustment %}
+        <button type="button" class="btn btn-sm btn-outline gap-2" onclick="adjustment_nfe_modal.showModal()">
+            <span class="material-icons text-sm">tune</span>
+            Nota de Ajuste
+        </button>
+    {% endif %}
 {% endblock %}
 
 {% block crud_detail_content %}
@@ -270,6 +276,42 @@
                         </div>
                     </div>
                 {% endif %}
+                {% if adjustment_documents %}
+                    <div class="mt-8">
+                        <h3 class="text-base font-semibold text-base-content mb-3">Notas de ajuste</h3>
+                        <div class="overflow-x-auto rounded-lg border border-base-200">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Status</th>
+                                        <th>UUID</th>
+                                        <th>Chave</th>
+                                        <th class="text-right">Documentos</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for document in adjustment_documents %}
+                                        <tr>
+                                            <td>{{ document.status }}</td>
+                                            <td class="break-all">{{ document.remote_uuid|default:'-' }}</td>
+                                            <td class="break-all">{{ document.access_key|default:'-' }}</td>
+                                            <td class="text-right">
+                                                <div class="flex flex-wrap justify-end gap-2">
+                                                    {% if document.xml_url %}
+                                                        <a href="{% url 'finance:nfe_adjustment_download' pk=nfe_request.pk document_pk=document.pk document='xml' %}" class="btn btn-outline btn-xs">XML</a>
+                                                    {% endif %}
+                                                    {% if document.danfe_url %}
+                                                        <a href="{% url 'finance:nfe_adjustment_download' pk=nfe_request.pk document_pk=document.pk document='danfe' %}" class="btn btn-outline btn-xs">DANFE</a>
+                                                    {% endif %}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                {% endif %}
             {% else %}
                 <div class="alert alert-warning">
                     <span>A Nota Fiscal ainda nao possui item sincronizado. Reenvie a consulta quando a Webmania retornar o processamento.</span>
@@ -409,6 +451,72 @@
                     <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
                         <button type="button" class="btn-form-cancel" onclick="complementary_nfe_modal.close()">Cancelar</button>
                         <button type="submit" class="btn btn-primary">Enviar complementar</button>
+                    </div>
+                </form>
+            </div>
+        </dialog>
+    {% endif %}
+    {% if can_issue_adjustment %}
+        <dialog id="adjustment_nfe_modal" class="modal" onclick="if (event.target === this) this.close()">
+            <div class="modal-box w-11/12 max-w-3xl border border-base-300 bg-base-100 shadow-2xl">
+                <form method="post" action="{% url 'finance:nfe_adjustment_issue' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
+                    {% csrf_token %}
+                    <h3 class="text-base font-semibold text-base-content">Emitir Nota de Ajuste</h3>
+                    <div class="alert alert-warning mt-4 text-sm">
+                        <span>A Nota de Ajuste e destinada a escrituracao contabil, somente para Lucro Real/Normal ou Lucro Presumido, e nao representa entrada ou saida de produtos. Estorno SC/ES deve usar o fluxo de devolucao/estorno.</span>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                        <div>
+                            <label for="nfe-adjustment-operation" class="label"><span class="label-text">Operação</span></label>
+                            <select id="nfe-adjustment-operation" name="operacao" class="select select-bordered w-full" required>
+                                <option value="1">Saída</option>
+                                <option value="0">Entrada</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="nfe-adjustment-cfop" class="label"><span class="label-text">CFOP de ajuste</span></label>
+                            <input id="nfe-adjustment-cfop" name="codigo_cfop" class="input input-bordered w-full" maxlength="10" required>
+                        </div>
+                        <div class="md:col-span-2">
+                            <label for="nfe-adjustment-nature" class="label"><span class="label-text">Natureza da operação</span></label>
+                            <input id="nfe-adjustment-nature" name="natureza_operacao" class="input input-bordered w-full" value="CREDITO ICMS S/ ESTOQUE" maxlength="60" required>
+                        </div>
+                        <div>
+                            <label for="nfe-adjustment-icms" class="label"><span class="label-text">Valor ICMS</span></label>
+                            <input id="nfe-adjustment-icms" name="valor_icms" class="input input-bordered w-full" type="number" step="0.01" min="0.01" required>
+                        </div>
+                        <div>
+                            <label for="nfe-adjustment-icms-st" class="label"><span class="label-text">Valor ICMS-ST</span></label>
+                            <input id="nfe-adjustment-icms-st" name="valor_icms_st" class="input input-bordered w-full" type="number" step="0.01" min="0">
+                        </div>
+                        <div>
+                            <label for="nfe-adjustment-tax-status" class="label"><span class="label-text">Situação tributária</span></label>
+                            <input id="nfe-adjustment-tax-status" name="situacao_tributaria" class="input input-bordered w-full" maxlength="4" required>
+                        </div>
+                        <div class="md:col-span-2">
+                            <label for="nfe-adjustment-client" class="label"><span class="label-text">Cliente em JSON</span></label>
+                            <textarea id="nfe-adjustment-client" name="cliente_json" class="textarea textarea-bordered w-full font-mono text-xs" rows="5" required>{"cpf":"00000000000","nome_completo":"Nome do Cliente"}</textarea>
+                        </div>
+                        <div class="md:col-span-2">
+                            <label for="nfe-adjustment-fisco" class="label"><span class="label-text">Informações ao fisco</span></label>
+                            <textarea id="nfe-adjustment-fisco" name="informacoes_fisco" class="textarea textarea-bordered w-full" rows="2" maxlength="2000"></textarea>
+                        </div>
+                        <div class="md:col-span-2">
+                            <label for="nfe-adjustment-info" class="label"><span class="label-text">Informações complementares</span></label>
+                            <textarea id="nfe-adjustment-info" name="informacoes_complementares" class="textarea textarea-bordered w-full" rows="2" maxlength="5000"></textarea>
+                        </div>
+                    </div>
+                    <label class="label cursor-pointer justify-start gap-3 mt-3">
+                        <input type="checkbox" name="confirm_adjustment" class="checkbox checkbox-sm" required>
+                        <span class="label-text">Confirmo que esta Nota de Ajuste e fiscalmente aplicavel e nao representa movimento de produtos.</span>
+                    </label>
+                    <label class="label cursor-pointer justify-start gap-3 mt-1">
+                        <input type="checkbox" name="confirm_not_sc_es_reversal" class="checkbox checkbox-sm" required>
+                        <span class="label-text">Confirmo que nao se trata de estorno SC/ES que deve usar devolucao/estorno.</span>
+                    </label>
+                    <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                        <button type="button" class="btn-form-cancel" onclick="adjustment_nfe_modal.close()">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Enviar ajuste</button>
                     </div>
                 </form>
             </div>

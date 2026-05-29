@@ -3,8 +3,8 @@
 ## Decisoes que exigem aprovacao
 
 - Manter models legados com camada de compatibilidade ou migrar diretamente para dominio unificado.
-- Fase 2.2B.1 implementada para revisao somente para complementar de preco/quantidade local; aprovar explicitamente a Fase 2.2B.2 antes de qualquer codigo de complementar tributaria.
-- Aprovar implementacao funcional da Fase 2.2C antes de qualquer codigo de ajuste.
+- Fase 2.2B.1 validada somente para complementar de preco/quantidade local; aprovar explicitamente a Fase 2.2B.2 antes de qualquer codigo de complementar tributaria.
+- Fase 2.2C validada somente para Nota Fiscal de Ajuste; aprovar explicitamente qualquer evolucao de UI avulsa ampla, ajuste com novas origens ou outras operacoes NF-e.
 - Aprovar politica final de permissoes fiscais para novas operacoes Fase 2.2+; Fase 2.1 nao concedeu emissao CC-e por fallback legado.
 - Evoluir `FiscalEmissionAttempt` minimo para dominio unificado futuro.
 - Politica final de permissoes fiscais.
@@ -42,7 +42,8 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Decidir se `complementary_tax` externa minima sera permitida na primeira implementacao ou bloqueada ate importacao/validacao documental.
 - Manter `complementary_import_addition` adiada salvo aprovacao explicita por baixa relevancia para oficinas.
 - Fase 2.2B.1 nao implementou complemento tributario, IBS/CBS, ICMS-ST, IPI, ISSQN, `agropecuario`, adicao/importacao ou NF-e externa minima para preco/quantidade.
-- Confirmar cenarios de ajuste que exigem ou dispensam documento original.
+- Confirmar em homologacao cenarios de ajuste que exigem ou dispensam documento original, embora a Fase 2.2C tenha implementado link opcional conforme endpoint oficial.
+- Automatizar deteccao de estorno SC/ES por UF/finalidade quando houver dados locais suficientes; hoje a Fase 2.2C exige confirmacao operacional e direciona/bloqueia o uso de ajuste quando o usuario identificar o cenario.
 - Confirmar tipos oficiais `tipo_credito` e `tipo_debito` antes da Fase 2.5.
 - Importacao/validacao de NF-e externa por XML ou API fiscal especifica fica fora da Fase 2.2A.
 - Habilitar devolucao parcial de NF-e externa somente depois de importar/validar XML ou fonte fiscal que preserve sequenciais fiscais e quantidades originais.

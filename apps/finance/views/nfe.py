@@ -22,6 +22,7 @@ from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.forms import NfeRequestStep1Form, NfeRequestStep2Form, NfeRequestStep3Form
 from apps.finance.models.finance import FiscalDocument, FiscalDocumentEvent, FiscalDocumentLinkRole, FiscalDocumentPurpose, NfeItem, NfeRequest, NfeRequestStatus
 from apps.finance.services.nfe_consulta import NfeConsultaError, reconcile_nfe_item
+from apps.finance.services.nfe_adjustment import NfeAdjustmentError, create_and_emit_nfe_adjustment, validate_adjustment_tax_regime
 from apps.finance.services.nfe_complementary import NfeComplementaryError, create_and_emit_nfe_complementary_price_quantity_from_item, is_local_nfe_eligible_for_complementary
 from apps.finance.services.nfe_emission import NfeEmissionError, cancel_nfe_document, download_nfe_preview_document, emit_nfe_request, invalidate_nfe_number, sync_nfe_emission_response
 from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction, is_nfe_item_eligible_for_cce
@@ -90,6 +91,30 @@ class NfeComplementaryPriceQuantityForm(CoreForm):
         if not isinstance(items, list):
             raise forms.ValidationError("Itens devem ser uma lista JSON.")
         return items
+
+
+class NfeAdjustmentForm(CoreForm):
+    operacao = forms.ChoiceField(choices=(("0", "Entrada"), ("1", "Saida")))
+    natureza_operacao = forms.CharField(max_length=60)
+    codigo_cfop = forms.CharField(max_length=10)
+    valor_icms = forms.DecimalField(min_value=0, decimal_places=2, max_digits=15)
+    valor_icms_st = forms.DecimalField(required=False, min_value=0, decimal_places=2, max_digits=15)
+    situacao_tributaria = forms.CharField(max_length=4)
+    cliente_json = forms.CharField(widget=forms.Textarea)
+    informacoes_fisco = forms.CharField(required=False, max_length=2000)
+    informacoes_complementares = forms.CharField(required=False, max_length=5000)
+    confirm_adjustment = forms.BooleanField(required=True)
+    confirm_not_sc_es_reversal = forms.BooleanField(required=True)
+
+    def clean_cliente_json(self):
+        raw_value = str(self.cleaned_data.get("cliente_json") or "").strip()
+        try:
+            client = json.loads(raw_value)
+        except ValueError as exc:
+            raise forms.ValidationError("Informe o cliente em JSON valido.") from exc
+        if not isinstance(client, dict) or not client:
+            raise forms.ValidationError("Cliente deve ser um objeto JSON.")
+        return client
 
 
 def _can_invalidate_nfe_request(*, nfe_request: NfeRequest, latest_item: NfeItem | None) -> bool:
@@ -194,6 +219,17 @@ def _user_can_issue_complementary_price_quantity(*, user, workshop, request) -> 
     )
 
 
+def _user_can_issue_adjustment(*, user, workshop, request) -> bool:
+    return has_workshop_perm(
+        user=user,
+        workshop=workshop,
+        app_label="finance",
+        model="fiscaldocument",
+        codename="issue_nfe_adjustment",
+        request=request,
+    )
+
+
 class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
     model = NfeRequest
     workshop_permission_model = "nferequest"
@@ -214,13 +250,16 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         can_issue_return = bool(latest_item and is_local_nfe_eligible_for_return(latest_item) and _user_can_issue_return(user=self.request.user, workshop=self.workshop, request=self.request))
         can_issue_reversal = bool(latest_item and is_local_nfe_eligible_for_return(latest_item) and _user_can_issue_reversal(user=self.request.user, workshop=self.workshop, request=self.request))
         can_issue_complementary_price_quantity = bool(latest_item and is_local_nfe_eligible_for_complementary(latest_item) and _user_can_issue_complementary_price_quantity(user=self.request.user, workshop=self.workshop, request=self.request))
+        can_issue_adjustment = _user_can_issue_adjustment(user=self.request.user, workshop=self.workshop, request=self.request)
         cce_events = FiscalDocumentEvent.objects.none()
         return_documents = FiscalDocument.objects.none()
         complementary_documents = FiscalDocument.objects.none()
+        adjustment_documents = FiscalDocument.objects.none()
         if latest_item is not None:
             cce_events = FiscalDocumentEvent.objects.filter(document__workshop=self.workshop, document__legacy_nfe_item=latest_item, event_type="cce").order_by("event_sequence")
             return_documents = FiscalDocument.objects.filter(links_from__related_document__legacy_nfe_item=latest_item, links_from__role__in=[FiscalDocumentLinkRole.RETURNS, FiscalDocumentLinkRole.REVERSES]).distinct().order_by("criado_em")
             complementary_documents = FiscalDocument.objects.filter(links_from__related_document__legacy_nfe_item=latest_item, links_from__role=FiscalDocumentLinkRole.COMPLEMENTS, purpose=FiscalDocumentPurpose.COMPLEMENTARY).distinct().order_by("criado_em")
+            adjustment_documents = FiscalDocument.objects.filter(links_from__related_document__legacy_nfe_item=latest_item, links_from__role=FiscalDocumentLinkRole.ADJUSTS, purpose=FiscalDocumentPurpose.ADJUSTMENT).distinct().order_by("criado_em")
         fallback_back_url = reverse("finance:nfe_list")
         context.update(
             {
@@ -243,12 +282,15 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
                 "can_issue_return": can_issue_return,
                 "can_issue_reversal": can_issue_reversal,
                 "can_issue_complementary_price_quantity": can_issue_complementary_price_quantity,
+                "can_issue_adjustment": can_issue_adjustment,
                 "cce_form": NfeCorrectionForm(),
                 "cce_events": cce_events,
                 "nfe_return_form": NfeReturnForm(),
                 "return_documents": return_documents,
                 "nfe_complementary_form": NfeComplementaryPriceQuantityForm(),
                 "complementary_documents": complementary_documents,
+                "nfe_adjustment_form": NfeAdjustmentForm(),
+                "adjustment_documents": adjustment_documents,
             }
         )
         return context
@@ -365,6 +407,48 @@ class NfeComplementaryPriceQuantityIssueView(LoginRequiredMixin, WorkshopScopedM
             messages.error(request, str(exc))
         else:
             messages.success(request, "Nota Fiscal Complementar enviada para a Webmania.")
+
+        return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+
+class NfeAdjustmentIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "fiscaldocument"
+    workshop_permission_codename = "issue_nfe_adjustment"
+
+    def post(self, request, *args, **kwargs):
+        nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+        latest_item = nfe_request.items.order_by("-id").first()
+        related_document = FiscalDocument.objects.filter(workshop=self.workshop, legacy_nfe_item=latest_item).first() if latest_item is not None else None
+
+        form = NfeAdjustmentForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Informe os dados obrigatorios da Nota Fiscal de Ajuste e confirme as restricoes fiscais.")
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+        try:
+            validate_adjustment_tax_regime(workshop=self.workshop)
+            create_and_emit_nfe_adjustment(
+                workshop=self.workshop,
+                requested_by=request.user,
+                operacao=form.cleaned_data["operacao"],
+                natureza_operacao=str(form.cleaned_data["natureza_operacao"]),
+                codigo_cfop=str(form.cleaned_data["codigo_cfop"]),
+                valor_icms=form.cleaned_data["valor_icms"],
+                valor_icms_st=form.cleaned_data.get("valor_icms_st"),
+                situacao_tributaria=str(form.cleaned_data["situacao_tributaria"]),
+                cliente=form.cleaned_data["cliente_json"],
+                informacoes_fisco=str(form.cleaned_data.get("informacoes_fisco") or ""),
+                informacoes_complementares=str(form.cleaned_data.get("informacoes_complementares") or ""),
+                related_document=related_document,
+                legal_confirmation=bool(form.cleaned_data["confirm_adjustment"]),
+                estorno_sc_es_confirmation=bool(form.cleaned_data["confirm_not_sc_es_reversal"]),
+                request=request,
+            )
+        except NfeAdjustmentError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, "Nota Fiscal de Ajuste enviada para a Webmania.")
 
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
@@ -643,6 +727,42 @@ class NfeComplementaryDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View
         response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
         identifier = str(document.number or document.access_key or document.remote_uuid or document.pk or "documento").strip().replace(" ", "-")
         response["Content-Disposition"] = f'attachment; filename="nfe-complementar-{document_kind}-{identifier}.{extension}"'
+        return response
+
+
+class NfeAdjustmentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "fiscaldocument"
+    workshop_permission_codename = "download_nfe_adjustment"
+
+    document_fields = {
+        "xml": ("xml_url", "xml"),
+        "danfe": ("danfe_url", "pdf"),
+    }
+
+    def get(self, request, *args, **kwargs):
+        nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+        document_kind = str(kwargs.get("document") or "").strip().lower()
+        if document_kind not in self.document_fields:
+            raise Http404("Documento nao suportado")
+
+        document = get_object_or_404(
+            FiscalDocument.objects.filter(links_from__related_document__legacy_nfe_item__request=nfe_request, links_from__role=FiscalDocumentLinkRole.ADJUSTS).distinct(),
+            pk=kwargs.get("document_pk"),
+            workshop=self.workshop,
+            purpose=FiscalDocumentPurpose.ADJUSTMENT,
+        )
+        field_name, extension = self.document_fields[document_kind]
+        document_url = str(getattr(document, field_name, "") or "").strip()
+
+        try:
+            downloaded = download_webmania_document(workshop=self.workshop, url=document_url)
+        except WebmaniaDocumentDownloadError as exc:
+            return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
+
+        response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
+        identifier = str(document.number or document.access_key or document.remote_uuid or document.pk or "documento").strip().replace(" ", "-")
+        response["Content-Disposition"] = f'attachment; filename="nfe-ajuste-{document_kind}-{identifier}.{extension}"'
         return response
 
 

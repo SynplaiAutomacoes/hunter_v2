@@ -141,7 +141,7 @@ Subtipos obrigatorios:
 | `complementary_tax` | Complemento de ICMS, ICMS-ST, IPI, ISSQN, IBS ou CBS | Deve ter formulario separado de produto; exige permissao fiscal mais restrita e payload auditavel. |
 | `complementary_import_addition` | Documento de adicao/importacao | Baixa prioridade para oficina; planejar, mas adiar salvo aprovacao explicita. |
 
-Status da Fase 2.2B.1: implementada para revisao somente para `complementary_price_quantity` de NF-e original local. NF-e externa minima continua bloqueada para preco/quantidade; complemento tributario, IBS/CBS e adicao/importacao continuam fora de escopo ate nova autorizacao.
+Status da Fase 2.2B.1: validada somente para `complementary_price_quantity` de NF-e original local. NF-e externa minima continua bloqueada para preco/quantidade; complemento tributario, IBS/CBS e adicao/importacao continuam fora de escopo ate nova autorizacao.
 
 Fluxo funcional futuro:
 
@@ -178,3 +178,25 @@ NFCom e DC-e sao tratadas como APIs beta no planejamento do Hunter V2. Ambas so 
 - sinalizacao visual de beta;
 - testes isolados;
 - capacidade de desativacao sem afetar os demais modelos fiscais.
+
+## Fase 2.2C - Nota Fiscal de Ajuste validada
+
+Objetivo implementado: emitir Nota Fiscal de Ajuste por `POST /1/nfe/ajuste/` como documento fiscal proprio, sem exigir documento original.
+
+Regras funcionais validadas:
+
+- Ajuste cria `FiscalDocument(document_type="nfe", purpose="adjustment", origin="manual")` antes da chamada remota.
+- `FiscalDocumentLink(role="adjusts")` e opcional e usado somente quando ha documento relacionado no contexto.
+- A NF-e relacionada opcional nao muda status, chave, XML ou DANFE por causa do ajuste.
+- Regime tributario usa `WebmaniaCompany.regime_tributario`; Lucro Real/Normal e Lucro Presumido permitem emissao; Simples Nacional, MEI e regime ausente/desconhecido bloqueiam antes do gateway.
+- O payload remoto fica limitado a campos de ajuste: operacao, natureza, CFOP, ICMS, ICMS-ST opcional, ambiente, cliente, situacao tributaria, informacoes opcionais e notificacao.
+- Produtos, pedido, complemento tributario separado, IBS/CBS, agropecuario, importacao e adicao permanecem fora de escopo.
+- Cenarios de estorno SC/ES tratados por devolucao/estorno nao devem usar `/1/nfe/ajuste/`; a Fase 2.2C implementa aviso e confirmacao operacional, mantendo deteccao automatica como backlog quando houver dados suficientes.
+
+Aceite funcional validado:
+
+- Permissao `issue_nfe_adjustment` e exigida antes do gateway.
+- Idempotencia e por documento de ajuste persistido e tentativa `operation_type="adjustment"`.
+- Timeout apos envio marca `uncertain` e bloqueia reenvio automatico.
+- Webhook e reconciliacao atualizam somente o ajuste.
+- Downloads XML/DANFE exigem oficina e permissao.

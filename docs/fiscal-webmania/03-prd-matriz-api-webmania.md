@@ -95,6 +95,23 @@ Observacoes condicionais:
 - CC-e, manifestacao e IBS/CBS sao eventos e nao devem consumir numeracao como nota comum.
 - Devolucao/estorno e complementar sao documentos novos com tentativa idempotente propria e vinculo obrigatorio ao documento original. Ajuste tambem e documento novo, mas o vinculo ao original e opcional porque o body oficial nao exige chave/UUID de nota original.
 
+### Detalhamento Fase 2.2C - `POST /1/nfe/ajuste/`
+
+| Item | Decisao validada |
+| ---- | ---------------- |
+| Tipo local | `FiscalDocument(document_type="nfe", purpose="adjustment", origin="manual")` |
+| Link | Opcional: `FiscalDocumentLink(role="adjusts")` quando houver documento relacionado no contexto |
+| Endpoint | `POST /1/nfe/ajuste/` |
+| Autenticacao | Headers v1 NF-e |
+| Body permitido | `operacao`, `natureza_operacao`, `codigo_cfop`, `valor_icms`, `valor_icms_st` opcional, `ambiente`, `cliente`, `situacao_tributaria`, `informacoes_fisco`, `informacoes_complementares`, `url_notificacao` |
+| Body proibido nesta fase | `produtos`, `pedido`, `impostos`, IBS, CBS, `agropecuario`, importacao, adicao |
+| Resposta persistida | `uuid`, `status`, `nfe`, `serie`, `recibo`, `chave`, `xml`, `danfe`, `log` sanitizado |
+| Regime tributario | Permitir Lucro Real/Normal e Lucro Presumido; bloquear Simples Nacional, MEI e regime ausente/desconhecido |
+| Idempotencia | `hash(workshop_id, adjustment_document_id, operation_type, request_generation)` |
+| Webhook/reconciliacao | Atualizam somente o ajuste; nao alteram documento relacionado opcional |
+| Excecao SC/ES | Cenario de estorno ja coberto por devolucao/estorno deve ser bloqueado/direcionado para `/1/nfe/devolucao/` |
+| Fora de escopo | Complementar tributaria, IBS/CBS, importacao/adicao, NFC-e, manifestacao e credito/debito |
+
 ### Detalhamento Fase 2.2B - `POST /1/nfe/complementar/`
 
 | Subtipo Hunter | Uso | Referencia original | Body principal planejado | Validacoes locais | Efeitos locais |
