@@ -188,6 +188,14 @@ class TaxClassNfe(TimeStampedModel):
     remote_updated_date = models.CharField(verbose_name="Data de atualização remota", max_length=40, blank=True, default="")
     informacoes_fisco = models.TextField(verbose_name="Informações ao Fisco", blank=True, default="")
     informacoes_complementares = models.TextField(verbose_name="Informações complementares", blank=True, default="")
+    ibs_cbs_enabled = models.BooleanField(verbose_name="IBS/CBS habilitado", default=False)
+    ibs_cbs_situacao_tributaria = models.CharField(verbose_name="IBS/CBS Situação tributária", max_length=3, blank=True, default="")
+    ibs_cbs_classificacao_tributaria = models.CharField(verbose_name="IBS/CBS Classificação tributária", max_length=6, blank=True, default="")
+    ibs_cbs_situacao_tributaria_regular = models.CharField(verbose_name="IBS/CBS Situação regular", max_length=3, blank=True, default="")
+    ibs_cbs_classificacao_tributaria_regular = models.CharField(verbose_name="IBS/CBS Classificação regular", max_length=6, blank=True, default="")
+    ibs_cbs_details = models.JSONField(verbose_name="IBS/CBS detalhes", blank=True, default=dict)
+    ibs_cbs_configured_by = models.ForeignKey("accounts.User", verbose_name="IBS/CBS configurado por", on_delete=models.SET_NULL, null=True, blank=True, related_name="configured_nfe_tax_classes_ibs_cbs")
+    ibs_cbs_configured_at = models.DateTimeField(verbose_name="IBS/CBS configurado em", null=True, blank=True)
 
     class Meta(TimeStampedModel.Meta):
         constraints = [
@@ -195,6 +203,11 @@ class TaxClassNfe(TimeStampedModel):
         ]
         indexes = [
             models.Index(fields=["workshop", "status"]),
+            models.Index(fields=["workshop", "ibs_cbs_enabled"]),
+        ]
+        permissions = [
+            ("manage_ibs_cbs_tax_classes", "Pode configurar IBS/CBS em classes fiscais"),
+            ("view_ibs_cbs_configuration", "Pode visualizar configuracao IBS/CBS"),
         ]
 
     def __str__(self) -> str:

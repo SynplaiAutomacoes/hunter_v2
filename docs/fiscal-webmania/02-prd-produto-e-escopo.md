@@ -118,8 +118,8 @@ Regras de produto:
 | 2.2B | Nota complementar | Emitir complementar de preco/quantidade, imposto ou documento de adicao/importacao, com vinculo obrigatorio a NF-e original ou externa. |
 | 2.2C | Nota de ajuste | Emitir ajuste fiscal sem exigir documento original, com vinculo opcional quando houver relacao real. |
 | 2.3 | NFC-e | Emitir NFC-e pelo endpoint v1 existente, com configuracao e permissoes proprias. |
-| 2.4 | Manifestacao e IBS/CBS | Registrar eventos avancados com historico auditavel e revalidacao da Reforma Tributaria. |
-| 2.5 | Nota Fiscal de Credito e Debito | Planejar e implementar finalidades 5 e 6 da NF-e com `tipo_credito` e `tipo_debito`. |
+| 2.4 | Conformidade IBS/CBS | Adequar classes fiscais, NF-e/NFC-e normais, documentos derivados e depois eventos IBS/CBS. |
+| 2.5 | Nota Fiscal de Credito e Debito | Implementar finalidades 5 e 6 somente depois da base IBS/CBS validada. |
 
 ## Fora de escopo por fase
 
@@ -272,3 +272,72 @@ Fora de escopo:
 - contingencia/offline;
 - validacao global de uso da faixa fora do Hunter;
 - webhook/reconciliacao remota de inutilizacao sem contrato oficial confirmado.
+
+## Fase 2.5.0 - Planejamento tecnico da Nota Fiscal de Credito e Nota Fiscal de Debito
+
+Status: planejamento documental em andamento apos validacao da Fase 2.3.3 no checkpoint `08b9bf2e`. O ciclo simples NFC-e fica encerrado neste ciclo com emissao manual simples, cancelamento padrao e inutilizacao de numeracao.
+
+Objetivo: planejar NF-e de credito e NF-e de debito sem implementar codigo funcional. Ambas usam `POST /1/nfe/emissao/`, mas nao devem ser tratadas como variacao visual de NF-e normal.
+
+Escopo planejado:
+
+- Nota Fiscal de Credito: `FiscalDocument(document_type="nfe", purpose="credit")`, `finalidade=5`, `tipo_credito` obrigatorio.
+- Nota Fiscal de Debito: `FiscalDocument(document_type="nfe", purpose="debit")`, `finalidade=6`, `tipo_debito` obrigatorio.
+- Persistir o tipo remoto em campo planejado `fiscal_purpose_type` ou equivalente, mantendo tambem o payload sanitizado bruto para auditoria.
+- Operacao manual administrativa/fiscal, nao vinculada por padrao a OS, orcamento ou NFC-e.
+- `FiscalDocumentLink` opcional/condicional, nunca obrigatorio sem exigencia oficial ou regra de negocio aprovada.
+
+Decisao de produto:
+
+- Valor para oficina automotiva: baixo a medio, majoritariamente contabil/fiscal e administrativo.
+- Risco fiscal: alto, pois a documentacao e a central de ajuda Webmania relacionam finalidades 5/6 a IBS/CBS/Reforma Tributaria.
+- Recomendacao: nao implementar codigo funcional de credito/debito imediatamente. A implementacao deve ficar atras de habilitacao administrativa por oficina e feature flag, e so avancar apos fase tributaria IBS/CBS ou aprovacao explicita de um subconjunto oficialmente seguro.
+
+Fora de escopo ate nova aprovacao:
+
+- qualquer transmissao real de credito/debito;
+- IBS/CBS funcional;
+- manifestacao;
+- complementar tributaria;
+- credito/debito sem feature flag/habilitacao administrativa;
+- vinculo obrigatorio a documento anterior sem evidencia oficial por tipo.
+
+## Fase 2.4.0 - Auditoria e conformidade IBS/CBS NF-e/NFC-e
+
+Motivo da prioridade: a documentacao oficial Webmania NF-e/NFC-e descreve `produtos[].impostos.ibs_cbs` e informa obrigatoriedade em producao para NF-e/NFC-e com data de emissao maior ou igual a `05/01/2026`. A central de ajuda Webmania tambem confirma que NF-e com `finalidade=5` ou `finalidade=6` deve se relacionar somente a IBS/CBS; enviar ICMS, ISSQN, IPI, II, PIS, COFINS e correlatos nessas finalidades gera rejeicao 1001.
+
+Diagnostico dos fluxos atuais:
+
+| Fluxo atual | Monta IBS/CBS hoje? | Fonte dos dados | Risco atual | Correcao necessaria | Prioridade |
+| ----------- | ------------------: | --------------- | ----------- | ------------------- | ---------- |
+| NF-e legada | Nao diretamente | Produtos usam `classe_imposto`; classes NF-e locais nao persistem `ibs_cbs` | Rejeicao ou emissao incompleta em producao quando IBS/CBS for obrigatorio | Modelar IBS/CBS em classe fiscal/produto e bloquear emissao sem configuracao minima | Critica |
+| NFC-e manual simples | Nao | Produtos usam `classe_imposto`; payload atual nao envia `impostos.ibs_cbs` | NFC-e manual simples pode ficar fiscalmente incompatível em producao | Atualizar base fiscal e emissao normal NFC-e com IBS/CBS | Critica |
+| Devolucao/estorno | Nao explicitamente | Chave original, sequenciais e quantidades | Tributacao derivada pode divergir sem regra documentada | Revalidar payload de devolucao/estorno na Fase 2.4C | Alta |
+| Complementar preco/quantidade | Nao; filtros removem IBS/CBS | Produto complementar derivado do item original, sem `impostos` | Complementar de produto pode exigir IBS/CBS e hoje o payload bloqueia campos | Revalidar complementar de preco/quantidade na Fase 2.4C | Alta |
+| Ajuste | Nao | Payload de ajuste usa ICMS/ICMS-ST e remove IBS/CBS | Regra de ajuste precisa ser confirmada para a transicao | Documentar aplicabilidade e bloqueio/ajuste de payload na Fase 2.4C | Alta |
+| Classes fiscais NF-e | Nao | `TaxClassNfe` guarda ICMS/IPI/PIS/COFINS | Fonte atual de tributacao NF-e/NFC-e nao tem IBS/CBS local | Fase 2.4A deve ser a primeira implementacao funcional | Critica |
+| Credito/debito | Nao implementado | Planejamento Fase 2.5.0 | Nao pode ser implementado com tributos antigos | Manter bloqueado ate 2.4E | Critica |
+
+Resultado implementado na Fase 2.4A+B:
+
+- `TaxClassNfe` passou a armazenar configuracao IBS/CBS auditavel e sincronizar `ibs_cbs` na classe fiscal Webmania.
+- NF-e normal e NFC-e manual simples continuam usando `classe_imposto`; a emissao e bloqueada antes do gateway quando a classe local nao estiver IBS/CBS-ready.
+- Homologacao tambem exige configuracao valida por padrao; nenhum bypass silencioso foi criado.
+- Derivados ja implementados permanecem pendentes da Fase 2.4C.
+
+Regras de bloqueio seguro:
+
+- Bloquear NF-e/NFC-e em producao quando a regra vigente exigir IBS/CBS e a classe fiscal/produto nao possuir configuracao minima validada.
+- Nao calcular `situacao_tributaria`, `classificacao_tributaria` ou valores IBS/CBS automaticamente sem fonte fiscal confiavel.
+- Homologacao deve usar configuracao IBS/CBS valida ou modo explicitamente controlado e documentado; nao mascarar ausencia de configuracao como emissao valida.
+- Fluxos de credito/debito, eventos IBS/CBS e complementar tributaria permanecem bloqueados ate a base 2.4A/2.4B estar validada.
+
+Subfases planejadas da Fase 2.4:
+
+| Subfase | Objetivo | Resultado esperado |
+| ------- | -------- | ------------------ |
+| 2.4A | Base IBS/CBS em classes fiscais e produtos | Modelagem local, UI/configuracao fiscal, serializers e bloqueio seguro quando ausente. |
+| 2.4B | Emissao NF-e/NFC-e normal conforme IBS/CBS | Payload normal com `produtos[].impostos.ibs_cbs` ou classe fiscal validada, coexistindo com tributos antigos quando aplicavel. |
+| 2.4C | Documentos derivados ja implementados | Revisar devolucao/estorno, complementar preco/quantidade e ajuste sem presumir payload unico. |
+| 2.4D | Eventos IBS/CBS | Planejar/implementar eventos e cancelamentos IBS/CBS somente depois da base de emissao. |
+| 2.4E | Credito e debito | Implementar finalidades 5/6 apenas com IBS/CBS validado, reaproveitando Fase 2.5.0. |

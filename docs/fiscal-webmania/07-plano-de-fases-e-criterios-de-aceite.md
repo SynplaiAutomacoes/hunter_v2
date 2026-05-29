@@ -33,7 +33,7 @@
 - Dependencias: Fase 1 validada.
 - Migrations: provaveis.
 - Testes: gateway mockado para cada operacao, permissoes e status.
-- Status: Fase 2.0 aprovada documentalmente; Fase 2.1 implementada somente para CC-e e aguardando revisao/validacao.
+- Status: Fase 2.0 aprovada documentalmente; Fases 2.1, 2.2A, 2.2B.1, 2.2C e ciclo simples 2.3 validado. Fase 2.4.0 aprovada documentalmente; Fase 2.4A+B validada para classes fiscais NF-e, NF-e normal e NFC-e manual; credito/debito adiado ate base tributaria completa.
 
 ### Fase 2.0 - Planejamento tecnico NF-e/NFC-e
 
@@ -120,7 +120,7 @@
 - Testes obrigatorios: oficina sem NFC-e bloqueia; ambiente exige campos corretos de serie/numero/CSC; emissao mockada com `modelo=2`; concorrencia da mesma intencao gera uma chamada; timeout `uncertain`; webhook `modelo=nfce` nao atualiza NF-e; reconciliacao consulta sem emitir; permissao; cross-workshop; downloads; payload/log sanitizados; separacao NF-e/NFC-e na UI.
 - Riscos: contingencia/offline, CSC/token, numeracao por ambiente, consumidor/pagamento, impressao DANFE NFC-e, cancelamento por substituicao ainda pendente de confirmacao operacional.
 - Rollback: desabilitar action NFC-e e manter documentos ja emitidos consultaveis; nao afetar NF-e.
-- Status: Fase 2.3.0 documentada em 2026-05-29; Fase 2.3.1 validada para emissao manual simples de NFC-e com `FiscalDocument(document_type="nfce")`, `WebmaniaCompany.nfce_enabled`, CSC/ID CSC protegidos como segredos, tentativa `nfce_emission`, webhook/reconciliacao e UI minima. Fase 2.3.2 validada para cancelamento padrao com evento `cancellation`, tentativa `nfce_cancellation`, webhook/reconciliacao sem reenvio e XML de cancelamento protegido. Fase 2.3.3 autorizada para inutilizacao de numeracao NFC-e, sem implementar substituicao, contingencia/offline, inutilizacao funcional de NF-e, PDV/TEF/SAT/MFE ou demais operacoes.
+- Status: Fase 2.3.0 documentada em 2026-05-29; Fase 2.3.1 validada para emissao manual simples de NFC-e com `FiscalDocument(document_type="nfce")`, `WebmaniaCompany.nfce_enabled`, CSC/ID CSC protegidos como segredos, tentativa `nfce_emission`, webhook/reconciliacao e UI minima. Fase 2.3.2 validada para cancelamento padrao com evento `cancellation`, tentativa `nfce_cancellation`, webhook/reconciliacao sem reenvio e XML de cancelamento protegido. Fase 2.3.3 validada no checkpoint `08b9bf2e` para inutilizacao de numeracao NFC-e. O ciclo simples NFC-e esta concluido com emissao manual, cancelamento padrao e inutilizacao; substituicao, contingencia/offline, inutilizacao funcional de NF-e, PDV/TEF/SAT/MFE e demais operacoes nao foram iniciadas.
 
 ### Fase 2.3.2 - Cancelamento padrao NFC-e
 
@@ -146,27 +146,74 @@
 - Rollback: desabilitar action de inutilizacao e preservar registros ja criados para auditoria; nao afeta emissao ou cancelamento NFC-e.
 - Status: validada em 2026-05-29. A implementacao adiciona entidade propria, idempotencia persistida, bloqueio de faixa local, permissao especifica e UI minima. Nao implementa webhook/reconciliacao remota para inutilizacao por ausencia de contrato oficial confirmado.
 
-### Fase 2.4 - Manifestacao e IBS/CBS
+### Fase 2.4 - Conformidade IBS/CBS NF-e/NFC-e
 
-- Escopo: eventos avancados de manifestacao do destinatario, IBS/CBS e cancelamento de IBS/CBS.
-- Dependencias: nucleo de eventos validado; revalidacao da documentacao Webmania e regras da Reforma Tributaria.
-- Modelagem necessaria: `FiscalDocumentEvent` com tipo, codigo, protocolo/status bruto, vinculo com evento original para cancelamento.
-- Endpoints Webmania: `POST /1/nfe/manifesta/`, `POST /1/nfe/evento-ibs-cbs/`, `PUT /1/nfe/evento-ibs-cbs/cancelar/`.
-- Arquivos previstos: services de eventos avancados, forms por evento, views/actions, URLs, testes de evento/cancelamento, docs.
-- Testes obrigatorios: evento autorizado; evento duplicado bloqueado; cancelamento referencia evento original; fora de ordem nao regride; permissao restrita; logs/payloads sanitizados.
-- Riscos: mudanca normativa IBS/CBS, codigos de evento novos, suporte remoto parcial.
-- Rollback: desligar actions avancadas mantendo historico ja recebido.
-- Status: nao iniciada.
+- Escopo: adequar NF-e/NFC-e existentes a IBS/CBS antes de eventos avancados, credito/debito ou complementar tributaria.
+- Dependencias: Fase 2.3.3 validada e Fase 2.5.0 documental aprovada com decisao de adiar credito/debito.
+- Status: Fase 2.4.0 aprovada documentalmente; Fase 2.4A+B implementada e validada em conjunto para classe fiscal NF-e, NF-e normal e NFC-e manual simples.
+
+#### Fase 2.4.0 - Auditoria e planejamento tecnico IBS/CBS
+
+- Alteracoes permitidas: somente `docs/fiscal-webmania/**` e OpenAPI validado.
+- Alteracoes proibidas: codigo funcional, migrations, services, views, templates e testes.
+- Aceite: diagnostico de conformidade dos fluxos atuais, matriz de risco, subfases 2.4A-2.4E, ADRs e bloqueio seguro documentados.
+- Status: aprovada documentalmente.
+
+#### Fase 2.4A - Base IBS/CBS em classes fiscais e produtos
+
+- Objetivo: modelar e configurar IBS/CBS local para NF-e/NFC-e.
+- Dependencias: Fase 2.4.0 aprovada.
+- Arquivos implementados: `apps/finance/models/finance.py`, migration `0049`, `apps/finance/services/ibs_cbs.py`, `apps/finance/services/tax_classes.py`, `apps/finance/forms/tax_class.py`, `apps/finance/views/tax_class.py`, `apps/finance/tests.py`, docs.
+- Alteracoes permitidas: campos/modelos de configuracao IBS/CBS, serializacao para classe de imposto, validadores e bloqueio seguro antes do gateway.
+- Alteracoes proibidas: emitir eventos IBS/CBS, credito/debito, complementar tributaria ou alterar endpoints de emissao sem gate.
+- Testes: classe fiscal com IBS/CBS, validacao de situacao/classificacao, permissao administrativa, cross-workshop, sanitizacao, bloqueio quando ausente.
+- Rollback: desabilitar uso da configuracao nova e manter classes antigas; dados novos permanecem auditaveis.
+- Status: validada em conjunto com 2.4B.
+
+#### Fase 2.4B - Emissao NF-e/NFC-e normal conforme IBS/CBS
+
+- Objetivo: adequar NF-e e NFC-e normais ao uso de classe fiscal IBS/CBS-ready, preservando coexistencia com tributos antigos no cadastro da classe.
+- Dependencias: Fase 2.4A implementada em conjunto.
+- Arquivos implementados: services `nfe_emission.py`, `nfce_emission.py`, validador `ibs_cbs.py`, testes de bloqueio/payload por `classe_imposto`, docs.
+- Alteracoes permitidas: classe fiscal validada com `ibs_cbs`; bloqueio antes do gateway sem configuracao; payload de emissao continua usando `classe_imposto`.
+- Alteracoes proibidas: credito/debito e eventos IBS/CBS.
+- Testes: producao/homologacao bloqueiam sem classe IBS/CBS-ready; sincronizacao de classe envia `ibs_cbs`; NF-e/NFC-e normais preservam idempotencia; NFC-e nao expõe CSC.
+- Rollback: feature flag/gate fiscal para desativar emissao com IBS/CBS sem reemitir documentos.
+- Status: validada em conjunto com 2.4A.
+
+#### Fase 2.4C - Documentos derivados ja implementados
+
+- Objetivo: revisar devolucao/estorno, complementar preco/quantidade e ajuste com regras IBS/CBS especificas por operacao.
+- Dependencias: Fase 2.4B validada.
+- Arquivos previstos: `nfe_returns.py`, `nfe_complementary.py`, `nfe_adjustment.py`, validadores por operacao, testes, docs.
+- Alteracoes permitidas: payloads IBS/CBS aplicaveis, bloqueios por operacao, snapshots tributarios.
+- Alteracoes proibidas: complementar tributaria geral sem autorizacao propria.
+- Testes: cada derivado com e sem IBS/CBS conforme regra, `uncertain` preservando payload, original nao alterado.
+
+#### Fase 2.4D - Eventos IBS/CBS
+
+- Objetivo: planejar e implementar `/1/nfe/evento-ibs-cbs/` e cancelamento de evento depois da base conformada.
+- Dependencias: Fase 2.4B e decisoes de evento aprovadas.
+- Modelagem necessaria: `FiscalDocumentEvent` com codigo de evento, sequencia, autor, status remoto e vinculo com evento original para cancelamento.
+- Testes: evento autorizado, duplicidade, fora de ordem, cancelamento referencia evento original, permissao restrita e payload sanitizado.
+
+#### Fase 2.4E - Credito e debito
+
+- Objetivo: implementar finalidades 5/6 somente apos base IBS/CBS validada.
+- Dependencias: Fase 2.4B validada e decisao 2.5 funcional aprovada.
+- Regras: produtos devem enviar somente `impostos.ibs_cbs`; tributos ICMS/ISSQN/IPI/II/PIS/COFINS e correlatos devem ser barrados preventivamente.
+- Testes: rejeicao preventiva de tributos incompatíveis, tipos oficiais, `dfe_referenciado` quando aplicavel, idempotencia e feature flag.
 
 ### Fase 2.5 - Nota Fiscal de Credito e Nota Fiscal de Debito
 
 - Escopo: NF-e de credito (`finalidade=5`, `tipo_credito`) e NF-e de debito (`finalidade=6`, `tipo_debito`).
-- Dependencias: revalidacao oficial da Reforma Tributaria, decisao de produto e permissao administrativa.
-- Modelagem necessaria: `FiscalDocument(kind="nfe", purpose="credit")` e `FiscalDocument(kind="nfe", purpose="debit")`; links opcionais/condicionais conforme tipo e `dfe_referenciado`.
+- Dependencias: revalidacao oficial da Reforma Tributaria, decisao de produto, feature flag, habilitacao administrativa por oficina e suporte IBS/CBS ou decisao formal de subconjunto seguro.
+- Modelagem necessaria: `FiscalDocument(document_type="nfe", purpose="credit")` e `FiscalDocument(document_type="nfe", purpose="debit")`; campo planejado `fiscal_purpose_type`; links `credits`/`debits` opcionais/condicionais conforme tipo e regra oficial.
 - Endpoint Webmania: `POST /1/nfe/emissao/`.
-- Testes obrigatorios: tipo_credito/tipo_debito obrigatorios; finalidade correta; documento referenciado quando tipo exigir; timeout `uncertain`; permissao restrita.
+- Idempotencia: `FiscalEmissionAttempt(operation_type="nfe_credit_emission")` ou `operation_type="nfe_debit_emission"` associado ao documento local criado antes do gateway.
+- Testes obrigatorios: `tipo_credito`/`tipo_debito` obrigatorios; finalidade correta; documento referenciado quando tipo exigir; bloqueio quando IBS/CBS for dependencia nao implementada; timeout `uncertain`; permissao restrita; cross-workshop; webhook/reconciliacao sem emissao; downloads e payload sanitizados.
 - Rollback: feature/action desligavel sem afetar NF-e normal.
-- Status: nao iniciada.
+- Status: Fase 2.5.0 aprovada documentalmente. Recomendacao atual aceita: adiar codigo funcional ate fase IBS/CBS ou aprovacao explicita de subconjunto seguro.
 
 ## Fase 3 - Completar NFS-e
 

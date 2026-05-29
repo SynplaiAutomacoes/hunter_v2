@@ -145,7 +145,7 @@ Chave recomendada:
 Onde:
 
 - `document_kind`: `nfe` ou `nfce`.
-- `operation`: `cce`, `return`, `reversal`, `complementary`, `complementary_tax`, `adjustment`, `credit_note`, `debit_note`, `nfce_emission`, `manifestation`, `ibs_cbs_event`, `ibs_cbs_cancel`, `nfce_replacement_cancel`.
+- `operation`: `cce`, `return`, `reversal`, `complementary`, `complementary_tax`, `adjustment`, `nfe_credit_emission`, `nfe_debit_emission`, `nfce_emission`, `manifestation`, `ibs_cbs_event`, `ibs_cbs_cancel`, `nfce_replacement_cancel`, `nfce_inutilization`.
 - `subject_identifier`: UUID/chave/documento original/evento original quando existir; para ajuste sem original, usar identificador deterministico da intencao manual, nunca texto livre mutavel isolado da UI.
 - `operation_fingerprint`: hash canonico dos campos fiscais essenciais, sanitizado e estavel.
 
@@ -156,8 +156,8 @@ Onde:
 | Estorno via devolucao | `hash(workshop_id, derived_document_id, operation_type, request_generation)` | Timeout/resposta incompleta | Bloquear estorno derivado ate consulta/reconciliacao. |
 | Complementar | `hash(workshop_id, complementary_document_id, operation_type, request_generation)` | Timeout/resposta incompleta | Bloquear o documento complementar derivado em `uncertain`; nao reenviar automaticamente. |
 | Ajuste | `hash(workshop_id, adjustment_document_id, operation_type, request_generation)` | Timeout/resposta incompleta | Bloquear o documento de ajuste derivado/avulso em `uncertain`; nao exigir documento original. |
-| Nota Fiscal de Credito | `nfe:credit_note:{workshop}:{tipo_credito}:{hash_payload}` | Timeout/resposta incompleta | Bloquear nota de credito identica ate consulta. |
-| Nota Fiscal de Debito | `nfe:debit_note:{workshop}:{tipo_debito}:{hash_payload}` | Timeout/resposta incompleta | Bloquear nota de debito identica ate consulta. |
+| Nota Fiscal de Credito | `hash(workshop_id, credit_document_id, "nfe_credit_emission", request_generation)` | Timeout/resposta incompleta | Bloquear a intencao persistida ate consulta/reconciliacao; nao usar somente payload como identidade. |
+| Nota Fiscal de Debito | `hash(workshop_id, debit_document_id, "nfe_debit_emission", request_generation)` | Timeout/resposta incompleta | Bloquear a intencao persistida ate consulta/reconciliacao; nao usar somente payload como identidade. |
 | NFC-e | `nfce:emission:{workshop}:{origin_type}:{origin_id}:{hash_itens_pagamento}` | Timeout/resposta incompleta | Bloquear emissao da mesma origem/intencao. |
 | Manifestacao | `nfe:manifestation:{workshop}:{chave}:{evento}` | Timeout/resposta sem protocolo/status | Bloquear mesma manifestacao ate consulta. |
 | IBS/CBS | `nfe:ibs_cbs_event:{workshop}:{original_key}:{event_code}:{hash_payload}` | Timeout/resposta sem evento | Bloquear evento identico. |
@@ -313,3 +313,58 @@ Regras:
 - Timeout apos possivel envio remoto marca tentativa e faixa como `uncertain` e bloqueia reenvio automatico.
 - A documentacao oficial consultada nao confirmou `url_notificacao` nem endpoint especifico de consulta para inutilizacao; portanto, a Fase 2.3.3 nao inventa webhook/reconciliacao remota para essa operacao.
 - A validacao local impede conflito apenas com documentos/faixas conhecidos pelo Hunter; a UI exige confirmacao de que numeros usados fora do Hunter dependem da aceitacao remota/SEFAZ.
+
+## Fase 2.5.0 - Idempotencia, Webhook e Seguranca para Credito/Debito
+
+Credito/debito devem seguir o padrao das fases 2.2A, 2.2B.1, 2.2C e 2.3: a identidade de transmissao nasce de um documento local persistido, nao do payload fiscal.
+
+Fluxo recomendado:
+
+```text
+criar FiscalDocument(document_type=nfe, purpose=credit|debit)
+-> criar/bloquear FiscalEmissionAttempt(operation_type=nfe_credit_emission|nfe_debit_emission)
+-> congelar payload sanitizado
+-> executar uma unica chamada POST /1/nfe/emissao/
+-> persistir resposta no FiscalDocument
+-> webhook/reconciliacao atualizam somente esse FiscalDocument
+```
+
+Regras:
+
+- `operation_type="nfe_credit_emission"` para `finalidade=5`.
+- `operation_type="nfe_debit_emission"` para `finalidade=6`.
+- `uncertain` bloqueia reenvio automatico e exige consulta/reconciliacao.
+- Duas notas legitimas com payloads iguais devem poder coexistir quando forem intencoes/documentos locais distintos.
+- Webhook resolve primeiro por UUID remoto. Fallback por tentativa/chave so pode ocorrer quando houver candidato unico da oficina, documento e finalidade esperada.
+- Resposta de credito/debito nao pode atualizar NF-e normal, CC-e, devolucao, estorno, complementar, ajuste, NFC-e ou inutilizacao por engano.
+- Payload/log nao devem persistir headers Webmania, segredos, certificado, CSC ou tokens.
+- Como finalidade 5/6 e ligada a IBS/CBS pela documentacao Webmania, a emissao funcional deve permanecer bloqueada por feature flag e habilitacao administrativa ate subfase tributaria aprovada.
+
+## Fase 2.4.0 - Bloqueio seguro IBS/CBS
+
+Regra principal: enquanto IBS/CBS nao estiver configurado localmente de forma auditavel para o fluxo afetado, o Hunter deve bloquear transmissao em producao antes do gateway. Falhar cedo e melhor do que transmitir payload sabidamente incompleto ou incompatível com a regra oficial.
+
+Politica recomendada:
+
+- NF-e/NFC-e em producao com data de emissao >= `05/01/2026`: bloquear se qualquer produto/classe fiscal exigir IBS/CBS e nao houver `situacao_tributaria` e `classificacao_tributaria` minimas, alem dos grupos condicionais aplicaveis.
+- Homologacao: permitir somente com configuracao IBS/CBS valida ou com modo controlado explicitamente habilitado por administracao fiscal; esse modo nao pode ser confundido com conformidade de producao.
+- Credito/debito: manter bloqueado ate que `produtos[].impostos.ibs_cbs` seja suportado e os tributos antigos sejam removidos preventivamente dessas finalidades.
+- Eventos IBS/CBS: manter bloqueados ate que a emissao base esteja conformada, para evitar historico de eventos sobre documentos com payload base incorreto.
+- Complementar tributaria: manter bloqueada ate haver modelagem tributaria separada e validada.
+
+Seguranca e auditoria:
+
+- Nao calcular situacao/classificacao tributaria automaticamente sem fonte fiscal confiavel.
+- Configuracao IBS/CBS deve exigir permissao fiscal administrativa e registrar usuario, oficina e timestamp.
+- Payloads persistidos devem conter somente dados fiscais necessarios e sanitizados; nunca headers, tokens, CSC, certificado ou credenciais Webmania.
+- Logs de bloqueio devem indicar documento/oficina/classe ausente sem imprimir payload completo sensivel.
+
+Idempotencia:
+
+- O bloqueio por configuracao ausente ocorre antes da criacao de tentativa remota.
+- Quando a tentativa ja estiver `sent` ou `uncertain`, a falta posterior de configuracao nao autoriza reenvio automatico; reconciliacao continua consultando sem emitir.
+
+Webhook/reconciliacao:
+
+- A adequacao IBS/CBS nao muda a regra permanente: webhook e reconciliacao nunca emitem.
+- Para documentos ja emitidos antes da conformidade, reconciliacao deve preservar o payload/resposta historicos e registrar lacuna apenas como pendencia operacional, sem tentar corrigir por nova emissao.

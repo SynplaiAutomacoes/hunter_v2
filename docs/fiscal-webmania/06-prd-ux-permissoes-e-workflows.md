@@ -89,8 +89,8 @@ Eventos devem aparecer em timeline/historico do documento original. Documentos d
 | Visualizar ajuste | Sim | Sim | Sim | Opcional | `view_nfe_adjustment` | Obrigatorio |
 | Baixar XML/DANFE ajuste | Sim | Sim | Sim | Opcional | `download_nfe_adjustment` | Obrigatorio |
 | Visualizar payload ajuste | Sim | Opcional | Nao | Nao | `view_nfe_adjustment_payload` | Obrigatorio |
-| Emitir NF-e de credito | Sim | Sim | Nao | Nao | `issue_nfe_credit_note` | Obrigatorio |
-| Emitir NF-e de debito | Sim | Sim | Nao | Nao | `issue_nfe_debit_note` | Obrigatorio |
+| Emitir NF-e de credito | Sim | Sim | Nao | Nao | `issue_nfe_credit` | Obrigatorio |
+| Emitir NF-e de debito | Sim | Sim | Nao | Nao | `issue_nfe_debit` | Obrigatorio |
 | Emitir NFC-e | Sim | Sim | Opcional | Nao | `issue_nfce` | Obrigatorio |
 | Cancelar NFC-e | Sim | Sim | Opcional | Nao | `cancel_nfce` | Obrigatorio |
 | Inutilizar NFC-e | Sim | Sim | Nao | Nao | `invalidate_nfce_number` | Obrigatorio |
@@ -182,8 +182,68 @@ Nao criar central fiscal completa na primeira subfase funcional de NFC-e.
 - O formulario exige confirmacao explicita de que a verificacao local nao cobre uso externo ao Hunter.
 - A listagem mostra historico de inutilizacoes separado das NFC-e emitidas, reforcando que inutilizacao nao e cancelamento.
 - Permissoes especificas:
-  - `inutilize_nfce_numbering`: transmitir inutilizacao.
-  - `view_nfce_inutilization`: visualizar registro de inutilizacao.
-  - `download_nfce_inutilization`: baixar XML retornado.
-  - `view_nfce_inutilization_payload`: visualizar payload sanitizado.
+- `inutilize_nfce_numbering`: transmitir inutilizacao.
+- `view_nfce_inutilization`: visualizar registro de inutilizacao.
+- `download_nfce_inutilization`: baixar XML retornado.
+- `view_nfce_inutilization_payload`: visualizar payload sanitizado.
 - `issue_nfce` e `cancel_nfce` nao concedem inutilizacao automaticamente.
+
+## Fase 2.5.0 - UX e Permissoes Planejadas para Credito/Debito
+
+Permissoes planejadas:
+
+- `issue_nfe_credit`: emitir Nota Fiscal de Credito.
+- `issue_nfe_debit`: emitir Nota Fiscal de Debito.
+- `view_nfe_credit_debit`: visualizar notas de credito/debito.
+- `download_nfe_credit_debit`: baixar XML/DANFE de credito/debito.
+- `view_nfe_credit_debit_payload`: visualizar payload sanitizado.
+
+Politica:
+
+- Emissao deve ser restrita a perfis administrativos/fiscais. Owner e Diretor podem receber por padrao de papel; Gerente somente com permissao explicita; Colaborador nao recebe.
+- A funcionalidade deve depender de feature flag e habilitacao administrativa por oficina.
+- Permissoes de NF-e normal, ajuste, complementar, NFC-e ou cancelamento nao concedem credito/debito automaticamente.
+- Acoes, payloads e downloads continuam escopados por oficina ativa.
+
+UI minima planejada:
+
+- Entrada manual administrativa "Emitir Nota Fiscal de Credito/Debito".
+- Escolha explicita entre credito e debito.
+- Campo obrigatorio para `tipo_credito` ou `tipo_debito`, com labels oficiais e aviso tributario.
+- Formulario de `cliente`, `produtos`, `pedido` e ambiente seguindo o contrato validado de NF-e.
+- Link opcional a documento anterior somente quando o usuario informar relacao real ou quando o tipo remoto exigir.
+- Confirmacao explicita informando que finalidades 5/6 se relacionam a IBS/CBS/Reforma Tributaria e exigem validacao contabil/fiscal.
+- Historico/downloads em tela existente de documentos fiscais, sem criar central fiscal nova nesta subfase.
+
+Bloqueios:
+
+- Sem feature flag/habilitacao administrativa, nao exibir action.
+- Sem suporte IBS/CBS aprovado, bloquear implementacao funcional ou limitar a subconjunto aprovado explicitamente.
+- Nao permitir emissao por usuario de outra oficina nem visualizar payload/download fora do escopo.
+
+## Fase 2.4.0 - UX e permissoes IBS/CBS
+
+UX planejada:
+
+- A configuracao fiscal da oficina deve exibir alerta quando NF-e/NFC-e estiverem em producao e classes/produtos ainda nao possuirem IBS/CBS minimo.
+- Formularios de emissao NF-e/NFC-e devem bloquear antes do envio quando a configuracao IBS/CBS obrigatoria estiver ausente.
+- Homologacao deve mostrar aviso claro quando estiver usando modo controlado de teste, sem afirmar conformidade produtiva.
+- Classes fiscais NF-e devem indicar visualmente se estao aptas para IBS/CBS e para quais modelos (`nfe`, `nfce` ou ambos).
+- Eventos IBS/CBS, credito/debito e complementar tributaria devem continuar ocultos/desabilitados ate subfase aprovada.
+
+Permissoes planejadas:
+
+| Acao | Owner | Diretor | Gerente | Colaborador | Permissao especifica | Escopo oficina |
+| ---- | ----: | ------: | ------: | ----------: | -------------------- | -------------- |
+| Configurar IBS/CBS em classe fiscal NF-e | Sim | Sim | Condicional | Nao | `manage_nfe_ibs_cbs_tax_classes` | Oficina ativa |
+| Visualizar configuracao IBS/CBS | Sim | Sim | Sim | Condicional | `view_nfe_ibs_cbs_tax_classes` | Oficina ativa |
+| Ver payload IBS/CBS enviado | Sim | Sim | Condicional | Nao | `view_nfe_ibs_cbs_payload` | Oficina/documento |
+| Liberar modo controlado de homologacao | Sim | Condicional | Nao | Nao | `manage_fiscal_compliance_overrides` | Oficina ativa |
+| Emitir evento IBS/CBS futuro | Sim | Condicional | Nao | Nao | `issue_nfe_ibs_cbs_event` | Oficina/documento |
+| Emitir credito/debito futuro | Sim | Condicional | Nao | Nao | `issue_nfe_credit` / `issue_nfe_debit` | Oficina ativa |
+
+Regras:
+
+- Nenhuma permissao IBS/CBS deve ser concedida por fallback legado de NF-e/NFS-e.
+- Bloqueios de configuracao devem ocorrer antes do gateway e devem ser compreensiveis para o usuario fiscal.
+- UI nao deve sugerir que a classificacao tributaria foi calculada pelo Hunter quando ela foi informada por usuario/admin.

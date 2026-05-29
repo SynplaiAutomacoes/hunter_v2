@@ -171,12 +171,12 @@
 
 ## ADR-017 - NF-e de credito e debito ficam em Fase 2.5
 
-- Contexto: a familia NF-e inclui finalidades 5 e 6 pelo endpoint `/1/nfe/emissao/`, com `tipo_credito` e `tipo_debito`.
-- Decisao: planejar subfase propria 2.5 para Nota Fiscal de Credito e Nota Fiscal de Debito, depois de derivados basicos e NFC-e/eventos avancados estarem encaminhados.
-- Alternativas consideradas: incluir credito/debito em 2.2 ou 2.3.
-- Consequencias: reduz risco da Fase 2.2 e permite revalidar regras da Reforma Tributaria antes do codigo.
-- Riscos: demanda fiscal pode antecipar prioridade; se isso ocorrer, exigir aprovacao explicita.
-- Status: proposta.
+- Contexto: a familia NF-e inclui finalidades 5 e 6 pelo endpoint `/1/nfe/emissao/`, com `tipo_credito` e `tipo_debito`. A documentacao oficial lista os tipos remotos e artigos Webmania de rejeicao indicam que finalidade credito/debito deve estar relacionada a IBS/CBS.
+- Decisao: planejar subfase propria 2.5 para Nota Fiscal de Credito e Nota Fiscal de Debito, usando `FiscalDocument(document_type="nfe", purpose="credit"|"debit")`, campo futuro `fiscal_purpose_type`, `FiscalEmissionAttempt(operation_type="nfe_credit_emission"|"nfe_debit_emission")`, feature flag e habilitacao administrativa por oficina. Codigo funcional deve ser adiado ate suporte IBS/CBS ou aprovacao explicita de subconjunto seguro.
+- Alternativas consideradas: incluir credito/debito em 2.2 ou 2.3; implementar como NF-e normal com finalidade diferente; usar apenas hash de payload como idempotencia.
+- Consequencias: reduz risco fiscal, evita duplicacao por payload equivalente e preserva separacao de dominio entre NF-e normal, derivados e documentos de credito/debito.
+- Riscos: demanda fiscal pode antecipar prioridade; se isso ocorrer, exigir aprovacao explicita e revalidacao tributaria imediata.
+- Status: revisada na Fase 2.5.0; funcionalidade nao implementada.
 - Fase: 2.5.
 
 ## ADR-024 - Nota Fiscal de Ajuste exige regime tributario explicito
@@ -248,3 +248,63 @@
 - Riscos: mais etapas de aprovacao e manutencao documental.
 - Status: aprovada documentalmente; Fase 2.1 validada.
 - Fase: 2.0.
+
+## ADR-030 - Modelagem IBS/CBS local em classes fiscais NF-e/NFC-e
+
+- Contexto: NF-e/NFC-e atuais usam `classe_imposto`, mas `TaxClassNfe` local nao guarda IBS/CBS. A Webmania documenta `produtos[].impostos.ibs_cbs` e suporte IBS/CBS em classes fiscais.
+- Decisao: evoluir `TaxClassNfe` com estrutura IBS/CBS local auditavel: campos normalizados para situacao/classificacao, campos de regime regular, `ibs_cbs_details` JSON validado para grupos condicionais oficiais, usuario/data de configuracao e sincronizacao `ibs_cbs` no payload da classe fiscal Webmania.
+- Alternativas consideradas: depender apenas da classe remota Webmania; inserir JSON livre direto no produto; calcular automaticamente por NCM/regime.
+- Consequencias: emissao pode ser bloqueada antes do gateway quando configuracao minima estiver ausente e o payload usado fica auditavel por oficina.
+- Riscos: schema IBS/CBS pode mudar com a Reforma Tributaria; por isso preservar payload bruto sanitizado e revalidar docs antes do codigo.
+- Status: implementada e validada na Fase 2.4A+B.
+- Fase: 2.4A.
+
+## ADR-031 - Fonte de classificacao tributaria IBS/CBS
+
+- Contexto: `situacao_tributaria` e `classificacao_tributaria` dependem de regra fiscal; inferencia automatica por produto/regime sem base confiavel cria risco fiscal.
+- Decisao: a fonte local deve ser configuracao administrativa/fiscal explicita por oficina/classe/produto, com auditoria de usuario e timestamp. `WebmaniaCompany.regime_tributario` auxilia validacoes, mas nao determina sozinho a classificacao.
+- Alternativas consideradas: inferir por NCM/CFOP; liberar campos vazios; deixar apenas a Webmania rejeitar.
+- Consequencias: aumenta trabalho de configuracao, mas evita emissao sabidamente incompleta.
+- Riscos: oficinas sem apoio fiscal podem ficar bloqueadas ate configurar corretamente.
+- Status: implementada e validada na Fase 2.4A+B para classes NF-e/NFC-e.
+- Fase: 2.4A.
+
+## ADR-032 - Bloqueio seguro quando IBS/CBS estiver ausente
+
+- Contexto: a Webmania informa obrigatoriedade IBS/CBS em producao para NF-e/NFC-e com data de emissao >= `05/01/2026`.
+- Decisao: bloquear transmissao NF-e/NFC-e normal antes do gateway quando a classe fiscal local nao estiver IBS/CBS-ready. Homologacao tambem exige configuracao valida por padrao; nenhum bypass silencioso foi criado.
+- Alternativas consideradas: tentar emitir e tratar rejeicao; permitir bypass silencioso em homologacao; preencher defaults.
+- Consequencias: reduz rejeicoes e falsas garantias de conformidade.
+- Riscos: pode interromper emissao ate configuracao fiscal ser concluida.
+- Status: implementada e validada na Fase 2.4A+B para NF-e normal e NFC-e manual simples.
+- Fase: 2.4A/2.4B.
+
+## ADR-033 - Coexistencia de tributos antigos e IBS/CBS na transicao
+
+- Contexto: emissoes normais podem coexistir com tributos antigos durante a transicao, mas finalidades de credito/debito devem usar somente IBS/CBS segundo rejeicao 1001.
+- Decisao: permitir coexistencia somente quando a operacao oficial permitir; bloquear preventivamente tributos antigos em credito/debito e em qualquer finalidade que exigir somente IBS/CBS.
+- Alternativas consideradas: remover tributos antigos de todos os fluxos; manter todos os tributos em todos os fluxos.
+- Consequencias: preserva NF-e/NFC-e normal e reduz risco de rejeicao 1001.
+- Riscos: exige validadores por finalidade e operacao.
+- Status: validada parcialmente na Fase 2.4A+B para emissao normal por `classe_imposto`; credito/debito seguem bloqueados ate 2.4E.
+- Fase: 2.4B/2.4E.
+
+## ADR-034 - Eventos IBS/CBS somente apos base de emissao
+
+- Contexto: eventos IBS/CBS sao operacoes posteriores vinculadas a NF-e/NFC-e, mas nao substituem o preenchimento IBS/CBS na emissao.
+- Decisao: implementar eventos e cancelamento IBS/CBS apenas depois de a base de classes/emissao NF-e/NFC-e estar conformada.
+- Alternativas consideradas: implementar eventos antes da base; misturar eventos em complemento tributario.
+- Consequencias: evita criar eventos sobre documentos base inconsistentes.
+- Riscos: adia cobertura de eventos avancados da Reforma Tributaria.
+- Status: proposta.
+- Fase: 2.4D.
+
+## ADR-035 - Credito/debito bloqueados ate base IBS/CBS aprovada
+
+- Contexto: finalidades 5/6 dependem de IBS/CBS e rejeitam tributos incompatíveis.
+- Decisao: manter Nota Fiscal de Credito e Debito sem codigo funcional ate Fase 2.4B validada e subfase 2.4E aprovada.
+- Alternativas consideradas: implementar credito/debito com payload NF-e normal; liberar atras de feature flag sem IBS/CBS.
+- Consequencias: evita rejeicao 1001 e preserva dominio planejado de `FiscalDocument(purpose=credit|debit)`.
+- Riscos: demanda contabil por credito/debito fica adiada.
+- Status: proposta.
+- Fase: 2.4E/2.5.

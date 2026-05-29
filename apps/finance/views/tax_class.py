@@ -6,9 +6,11 @@ from typing import Any
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect
 from django.urls import reverse
+from django.utils import timezone
 from django.views.generic import TemplateView
 
 from apps.core.query_filters import apply_is_active_filter
@@ -25,10 +27,11 @@ from apps.finance.forms import (
     PisScenarioFormSet,
     TaxClassPresetMetaForm,
 )
-from apps.finance.models.finance import NfseRequest, TaxClassPreset, TaxClassPresetKind
+from apps.finance.models.finance import NfseRequest, TaxClassNfe, TaxClassPreset, TaxClassPresetKind
 from apps.finance.services.tax_class_presets import normalize_tax_class_preset_payload
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
 from apps.workshops.mixin import WorkshopScopedMixin
+from apps.workshops.util.workshops import has_workshop_perm
 
 
 logger = logging.getLogger(__name__)
@@ -240,7 +243,36 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
             else:
                 payload.pop(section_key, None)
 
+        ibs_cbs_payload = form.build_ibs_cbs_payload()
+        if ibs_cbs_payload:
+            payload["ibs_cbs"] = ibs_cbs_payload
+        else:
+            payload.pop("ibs_cbs", None)
+
         return payload
+
+    def _can_manage_ibs_cbs_tax_classes(self) -> bool:
+        return has_workshop_perm(
+            user=self.request.user,
+            workshop=self.workshop,
+            app_label="finance",
+            model="taxclassnfe",
+            codename="manage_ibs_cbs_tax_classes",
+            request=self.request,
+        )
+
+    @staticmethod
+    def _is_ibs_cbs_edit_attempt(*, form: NfeTaxClassForm, editing_tax_class: dict[str, object] | None) -> bool:
+        if isinstance(editing_tax_class, dict) and isinstance(editing_tax_class.get("ibs_cbs"), dict):
+            return True
+        return bool(
+            form.cleaned_data.get("ibs_cbs_enabled")
+            or str(form.cleaned_data.get("ibs_cbs_situacao_tributaria") or "").strip()
+            or str(form.cleaned_data.get("ibs_cbs_classificacao_tributaria") or "").strip()
+            or str(form.cleaned_data.get("ibs_cbs_situacao_tributaria_regular") or "").strip()
+            or str(form.cleaned_data.get("ibs_cbs_classificacao_tributaria_regular") or "").strip()
+            or str(form.cleaned_data.get("ibs_cbs_details_json") or "").strip()
+        )
 
     @staticmethod
     def _formsets_are_valid(formsets: dict[str, Any]) -> bool:
@@ -445,6 +477,8 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
             if nfe_form.is_valid() and self._formsets_are_valid(nfe_formsets):
                 payload = self._build_nfe_payload(form=nfe_form, formsets=nfe_formsets)
                 is_update = bool(str(payload.get("referencia") or "").strip())
+                if self._is_ibs_cbs_edit_attempt(form=nfe_form, editing_tax_class=editing_tax_class) and not self._can_manage_ibs_cbs_tax_classes():
+                    raise PermissionDenied("Permissao insuficiente para configurar IBS/CBS em classe fiscal NF-e.")
 
                 try:
                     saved_tax_class = save_tax_class(workshop=self.workshop, payload=payload)
@@ -460,6 +494,8 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
                     messages.error(request, str(exc))
                 else:
                     reference = str(saved_tax_class.get("referencia") or payload.get("referencia") or "").strip()
+                    if reference and payload.get("ibs_cbs"):
+                        TaxClassNfe.objects.filter(workshop=self.workshop, reference=reference).update(ibs_cbs_configured_by=request.user, ibs_cbs_configured_at=timezone.now())
                     logger.info(
                         "tax_class_save_succeeded workshop_id=%s user_id=%s tab=%s reference=%s",
                         getattr(self.workshop, "pk", None),

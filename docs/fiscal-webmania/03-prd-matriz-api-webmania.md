@@ -144,7 +144,7 @@ Downloads: resposta esperada segue familia NF-e com `uuid`, `status`, `nfe`, `se
 Webhook: tratar `modelo=nfe` como documento derivado quando `uuid`/tentativa/chave resolverem uma complementar; nao atualizar `NfeItem` original nem outros derivados. Associacao ambigua deve ficar pendente.
 - NF-e externa: quando devolucao ou complemento referenciarem chave nao emitida pelo Hunter, criar projecao externa minima antes da emissao derivada, marcar `origin=external`, preservar chave informada e exigir confirmacao do usuario. A consulta padrao `/1/nfe/consulta/` pode ser usada para notas Webmania/Hunter da propria oficina, mas nao e garantia de validacao de NF-e de outro emissor.
 - Para NFC-e, cancelamento por substituicao deve ser tratado como variacao de cancelamento somente se a documentacao vigente e a configuracao da oficina confirmarem suporte; ate la, registrar como pendencia de validacao.
-- A matriz OpenAPI validada ja contem os endpoints da Fase 2.0; nenhuma correcao no JSON foi necessaria nesta etapa documental.
+- A matriz OpenAPI validada foi atualizada na Fase 2.4.0 para explicitar schemas `ibs_cbs`, dependencia de credito/debito e campos de classes fiscais NF-e/NFC-e.
 
 ## Validacao do arquivo OpenAPI recebido
 
@@ -219,10 +219,99 @@ Observacao: `nfce_referenciada` ativa cancelamento por substituicao e e explicit
 
 | Documento | Operacao | Metodo | Endpoint | Autenticacao | Body principal | Resposta principal | Downloads | Webhook | Fase |
 | --------- | -------- | ------ | -------- | ------------ | -------------- | ------------------ | --------- | ------- | ---- |
-| NFC-e | Inutilizacao de numeracao | PUT | `/1/nfe/inutilizar/` | API v1 com quatro headers Webmania | `sequencia`, `motivo`, `ambiente`, `serie`, `modelo=2` | `status`/log remoto, `xml` quando retornado; payload integral sanitizado | XML de inutilizacao quando retornado | Nao documentado para esta operacao | 2.3.3 implementada |
+| NFC-e | Inutilizacao de numeracao | PUT | `/1/nfe/inutilizar/` | API v1 com quatro headers Webmania | `sequencia`, `motivo`, `ambiente`, `serie`, `modelo=2` | `status`/log remoto, `xml` quando retornado; payload integral sanitizado | XML de inutilizacao quando retornado | Nao documentado para esta operacao | 2.3.3 validada |
 
 Observacoes:
 - A documentacao textual cita inutilizacao de numeracao de NF-e, mas o contrato inclui `modelo=1` para NF-e e `modelo=2` para NFC-e.
 - A Fase 2.3.3 implementa somente `modelo=2`; nenhuma view, form ou service funcional de inutilizacao NF-e foi criado.
 - O body nao envia `nfce_referenciada`, dados de cancelamento, contingencia/offline, documento emitido, produtos, pedido ou pagamento.
 - Sem webhook ou consulta especifica confirmada para inutilizacao, o Hunter persiste resposta sincrona sanitizada. Estado `uncertain` permanece reservado ate decisao administrativa/rechecagem segura futura.
+
+## Fase 2.5.0 - Matriz NF-e de Credito e Debito
+
+Fonte oficial reconferida em 2026-05-29: documentacao Webmania NF-e/NFC-e em `https://webmania.com.br/docs/rest-api-nfe/` e artigos de rejeicao Webmania para finalidades 5/6. A documentacao lista `finalidade=5` para Credito, `finalidade=6` para Debito, `tipo_credito` e `tipo_debito` como campos especificos, e reutiliza os blocos de emissao de NF-e (`cliente`, `produtos`, `pedido`, notificacao e downloads). A central de ajuda informa que NF-e com finalidade de credito/debito somente pode se relacionar ao imposto IBS/CBS; portanto a implementacao funcional deve ser bloqueada ate a fase IBS/CBS ou ate aprovacao explicita de um subconjunto seguro.
+
+| Documento | Operacao | Metodo | Endpoint | Autenticacao | Body principal | Resposta principal | Downloads | Webhook | Fase |
+| --------- | -------- | ------ | -------- | ------------ | -------------- | ------------------ | --------- | ------- | ---- |
+| NF-e | Nota Fiscal de Credito | POST | `/1/nfe/emissao/` | API v1 com quatro headers Webmania | `modelo=1`, `finalidade=5`, `tipo_credito`, `ambiente`, `cliente`, `produtos`, `pedido`, `url_notificacao` quando aplicavel | `uuid`, `status`, `motivo`, `nfe`, `serie`, `recibo`, `chave`, `xml`, `danfe`, `log` | XML/DANFE por URLs retornadas | Notificacao de NF-e por UUID quando `url_notificacao` for enviada | 2.5 futura; 2.5.0 documental |
+| NF-e | Nota Fiscal de Debito | POST | `/1/nfe/emissao/` | API v1 com quatro headers Webmania | `modelo=1`, `finalidade=6`, `tipo_debito`, `ambiente`, `cliente`, `produtos`, `pedido`, `url_notificacao` quando aplicavel | `uuid`, `status`, `motivo`, `nfe`, `serie`, `recibo`, `chave`, `xml`, `danfe`, `log` | XML/DANFE por URLs retornadas | Notificacao de NF-e por UUID quando `url_notificacao` for enviada | 2.5 futura; 2.5.0 documental |
+
+### Tipos oficiais de Nota Fiscal de Credito
+
+| Tipo remoto | Descricao oficial | Requer IBS/CBS? | Pode implementar antes da fase tributaria? | Evidencia oficial |
+| ----------- | ----------------- | --------------: | -----------------------------------------: | ----------------- |
+| `1` | Multa e juros | Sim, por regra de finalidade 5/6 somente para IBS/CBS | Nao recomendado | Documentacao NF-e lista `tipo_credito=1`; artigo Webmania rejeicao 1001 relaciona finalidade credito/debito a IBS/CBS |
+| `2` | Apropriacao de credito presumido de IBS sobre o saldo devedor na ZFM | Sim, explicitamente IBS | Nao | Documentacao NF-e menciona IBS e LC 214/25 no proprio tipo |
+| `3` | Retorno por recusa total na entrega ou por nao localizacao do destinatario na tentativa de entrega | Sim, por regra de finalidade 5/6 somente para IBS/CBS | Nao recomendado sem subfase tributaria | Documentacao NF-e lista `tipo_credito=3`; rejeicao 1001 exige relacao com IBS/CBS |
+| `4` | Reducao de valores | Sim, por regra de finalidade 5/6 somente para IBS/CBS | Nao recomendado | Documentacao NF-e lista `tipo_credito=4`; rejeicao 1001 exige relacao com IBS/CBS |
+| `5` | Transferencia de credito na sucessao | Sim, por regra de finalidade 5/6 somente para IBS/CBS | Nao recomendado | Documentacao NF-e lista `tipo_credito=5`; rejeicao 1001 exige relacao com IBS/CBS |
+
+### Tipos oficiais de Nota Fiscal de Debito
+
+| Tipo remoto | Descricao oficial | Requer IBS/CBS? | Pode implementar antes da fase tributaria? | Evidencia oficial |
+| ----------- | ----------------- | --------------: | -----------------------------------------: | ----------------- |
+| `1` | Transferencia de creditos para Cooperativas | Sim, por regra de finalidade 5/6 somente para IBS/CBS | Nao recomendado | Documentacao NF-e lista `tipo_debito=1`; rejeicao 1001 exige relacao com IBS/CBS |
+| `2` | Anulacao de Credito por Saidas Imunes/Isentas | Sim, por regra de finalidade 5/6 somente para IBS/CBS | Nao recomendado | Documentacao NF-e lista `tipo_debito=2`; rejeicao 1001 exige relacao com IBS/CBS |
+| `3` | Debitos de notas fiscais nao processadas na apuracao | Sim, por regra de finalidade 5/6 somente para IBS/CBS | Nao recomendado | Documentacao NF-e lista `tipo_debito=3`; rejeicao 1001 exige relacao com IBS/CBS |
+| `4` | Multa e juros | Sim, por regra de finalidade 5/6 somente para IBS/CBS | Nao recomendado | Documentacao NF-e lista `tipo_debito=4`; rejeicao 1001 exige relacao com IBS/CBS |
+| `5` | Transferencia de credito na sucessao | Sim, por regra de finalidade 5/6 somente para IBS/CBS | Nao recomendado | Documentacao NF-e lista `tipo_debito=5`; rejeicao 1001 exige relacao com IBS/CBS |
+| `6` | Pagamento antecipado | Sim, por regra de finalidade 5/6 somente para IBS/CBS | Nao recomendado | Documentacao NF-e lista `tipo_debito=6`; rejeicao 1001 exige relacao com IBS/CBS |
+| `7` | Perda em estoque | Sim, por regra de finalidade 5/6 somente para IBS/CBS | Nao recomendado | Documentacao NF-e lista `tipo_debito=7`; rejeicao 1001 exige relacao com IBS/CBS |
+| `8` | Desenquadramento do SN | Sim, por regra de finalidade 5/6 somente para IBS/CBS | Nao recomendado | Documentacao NF-e lista `tipo_debito=8`; rejeicao 1001 exige relacao com IBS/CBS |
+
+### Decisoes da Fase 2.5.0
+
+- Credito/debito devem usar `FiscalDocument(document_type="nfe", purpose="credit"|"debit")`, nao `NfeItem` legado nem variação visual de NF-e normal.
+- Campo planejado: `fiscal_purpose_type` para armazenar `tipo_credito` ou `tipo_debito` remoto, preservando valor bruto e descricao interna.
+- `FiscalDocumentLink(role="credits"|"debits")` sera opcional/condicional. Nao tornar obrigatorio sem exigencia oficial por tipo ou regra de negocio aprovada.
+- Emissao funcional deve exigir feature flag e habilitacao administrativa por oficina.
+- Recomendacao objetiva: adiar implementacao de codigo ate a fase IBS/CBS ou ate uma subfase tributaria aprovada confirmar payload seguro por tipo.
+
+## Fase 2.4.0 - Matriz IBS/CBS NF-e/NFC-e
+
+Fontes oficiais reconferidas em 2026-05-29:
+
+- Documentacao Webmania NF-e/NFC-e: `https://webmania.com.br/docs/rest-api-nfe/`.
+- Central de ajuda Webmania: rejeicao 1001 para NF-e com finalidade de credito/debito relacionada somente a IBS/CBS.
+
+### Emissao e classes fiscais com IBS/CBS
+
+| Documento | Operacao | Metodo | Endpoint | Autenticacao | Body principal | Resposta principal | Downloads | Webhook | Fase |
+| --------- | -------- | ------ | -------- | ------------ | -------------- | ------------------ | --------- | ------- | ---- |
+| NF-e/NFC-e | Emissao normal com IBS/CBS | POST | `/1/nfe/emissao/` | API v1 com quatro headers Webmania | `modelo`, `finalidade=1`, `cliente`, `produtos[].impostos.ibs_cbs` ou `classe_imposto` previamente configurada com IBS/CBS, `pedido` | `uuid`, `status`, `motivo`, `nfe`, `serie`, `recibo`, `chave`, `xml`, `danfe`, `log` | XML/DANFE por URL | Sim | 2.4B |
+| NF-e/NFC-e | Classe de imposto com IBS/CBS | POST | `/1/nfe/classe-imposto/` | API v1 com quatro headers Webmania | `referencia`, `descricao`, cenarios tributarios, `ibs_cbs` | classe salva/listada | N/A | Nao | 2.4A |
+| NF-e/NFC-e | Eventos IBS/CBS | POST | `/1/nfe/evento-ibs-cbs/` | API v1 com quatro headers Webmania | `chave`, `ambiente`, `cod_evento`, `evento`, `url_notificacao` e campos especificos do evento | `uuid`/evento, `status`, `modelo`, `xml`, `log` quando retornado | XML de evento quando retornado | Sim | 2.4D |
+| NF-e/NFC-e | Cancelar evento IBS/CBS | PUT | `/1/nfe/evento-ibs-cbs/cancelar/` | API v1 com quatro headers Webmania | identificador do evento, motivo/dados exigidos pelo evento | `status`, `xml`, `log` quando retornado | XML de evento quando retornado | Sim | 2.4D |
+| NF-e | Nota Fiscal de Credito | POST | `/1/nfe/emissao/` | API v1 com quatro headers Webmania | `finalidade=5`, `tipo_credito`, produtos com somente `impostos.ibs_cbs` | resposta NF-e padrao | XML/DANFE | Sim | 2.4E/2.5 |
+| NF-e | Nota Fiscal de Debito | POST | `/1/nfe/emissao/` | API v1 com quatro headers Webmania | `finalidade=6`, `tipo_debito`, produtos com somente `impostos.ibs_cbs`, `dfe_referenciado` quando o tipo exigir | resposta NF-e padrao | XML/DANFE | Sim | 2.4E/2.5 |
+
+### Campos IBS/CBS documentados para planejamento local
+
+| Grupo | Campos/documentos | Decisao Hunter |
+| ----- | ----------------- | -------------- |
+| Identificacao tributaria | `situacao_tributaria`, `classificacao_tributaria`, `situacao_tributaria_regular`, `classificacao_tributaria_regular` | Nao inferir automaticamente; exigir configuracao fiscal auditavel por classe/produto. |
+| IBS | `ibs_estadual`, `ibs_municipal` e respectivos valores/aliquotas condicionais | Modelar como estrutura tributaria versionada por classe fiscal NF-e/NFC-e. |
+| CBS | `cbs` e valores/aliquotas condicionais | Modelar junto a IBS/CBS, preservando payload bruto sanitizado. |
+| Monofasica/credito | `tributacao_monofasica`, `credito_presumido`, `transferencia_credito` | Implementar somente quando a situacao/classificacao exigir; validar contra tabela oficial antes de codigo. |
+| Ajustes | `ajuste_competencia`, `estorno_credito` | Planejar com validacoes por situacao tributaria; nao liberar UI generica sem regra fiscal. |
+
+### Cronograma e obrigatoriedade
+
+- A documentacao Webmania informa obrigatoriedade de preenchimento IBS/CBS em producao para NF-e/NFC-e com data de emissao maior ou igual a `05/01/2026`.
+- Essa regra afeta NF-e legada, NFC-e manual simples e possivelmente documentos derivados ja implementados.
+- Eventos IBS/CBS sao operacoes posteriores separadas e nao substituem o preenchimento de IBS/CBS na emissao normal.
+
+### Credito/debito e rejeicao 1001
+
+| Operacao | Tipo remoto | Requer IBS/CBS? | Pode implementar antes da fase tributaria? | Evidencia oficial |
+| -------- | ----------- | --------------: | -----------------------------------------: | ----------------- |
+| Credito | `tipo_credito=1..5` | Sim | Nao | Documentacao NF-e lista finalidade 5; artigo Webmania rejeicao 1001 determina finalidade 5/6 somente para IBS/CBS. |
+| Debito | `tipo_debito=1..8` | Sim | Nao | Documentacao NF-e lista finalidade 6; artigo Webmania rejeicao 1001 determina finalidade 5/6 somente para IBS/CBS e veda tributos incompatíveis. |
+
+Campos proibidos em credito/debito quando usados como tributos do item: ICMS, ISSQN, IPI, II, PIS, PIS ST, COFINS, COFINS ST, ICMS UF Destino e imposto devolvido. O payload deve ser restringido a `produtos[].impostos.ibs_cbs` nos itens conforme a regra oficial.
+
+### Separacao confirmada
+
+- Confirmado pela documentacao oficial: endpoints v1, `produtos[].impostos.ibs_cbs`, eventos IBS/CBS, tipos de credito/debito e rejeicao 1001.
+- Requisito interno Hunter: bloquear producao quando a configuracao local IBS/CBS estiver ausente para fluxo afetado.
+- Decisao pendente: quais situacoes/classificacoes IBS/CBS serao disponibilizadas primeiro na UI administrativa e se a emissao em homologacao podera usar modo controlado sem todos os campos produtivos.

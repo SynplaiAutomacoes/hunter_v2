@@ -330,3 +330,89 @@ Origem operacional 1:N FiscalDocument(nfce)
 - Constraints/indices: check `sequence_start <= sequence_end`, indice de escopo/status por oficina-modelo-ambiente-serie e indice de faixa por oficina-modelo-ambiente-serie-inicio-fim.
 - Sobreposicao de faixas e bloqueio contra NFC-e local conhecida sao garantidos por service transacional com lock da configuracao `WebmaniaCompany` da oficina.
 - `FiscalDocument`, `FiscalDocumentEvent`, `FiscalDocumentLink` e `NfeItem` nao sao criados nem alterados pela inutilizacao NFC-e.
+
+## Fase 2.5.0 - Modelagem planejada para Nota Fiscal de Credito e Debito
+
+Decisao recomendada:
+
+- Credito fiscal: `FiscalDocument(document_type="nfe", purpose="credit", origin="manual")`.
+- Debito fiscal: `FiscalDocument(document_type="nfe", purpose="debit", origin="manual")`.
+- Nao criar models legados paralelos (`NfeCreditRequest`, `NfeDebitRequest`) e nao reutilizar `NfeItem` como fonte operacional.
+- Adicionar campo futuro `fiscal_purpose_type` ou equivalente em `FiscalDocument` para preservar `tipo_credito` ou `tipo_debito` remoto. O valor deve ser armazenado como codigo bruto validado, com label interno versionado no codigo/documentacao.
+- Preservar payload sanitizado enviado e resposta sanitizada recebida, pois a semantica desses documentos pode mudar com IBS/CBS/Reforma Tributaria.
+
+Vinculo com documentos anteriores:
+
+- `FiscalDocumentLink(role="credits")` para nota de credito sera opcional/condicional.
+- `FiscalDocumentLink(role="debits")` para nota de debito sera opcional/condicional.
+- O link so deve ser obrigatorio quando o tipo remoto ou regra de negocio aprovada exigir referencia a documento anterior.
+- Sem evidencia oficial por tipo, uma nota de credito/debito manual administrativa nao deve ser bloqueada apenas por ausencia de documento original, mas tambem nao deve ser liberada sem a fase IBS/CBS quando o payload tributario for obrigatorio.
+
+Cardinalidade planejada:
+
+```text
+Workshop 1:N FiscalDocument(document_type=nfe, purpose=credit|debit)
+FiscalDocument(credit|debit) 1:N FiscalEmissionAttempt(operation_type=nfe_credit_emission|nfe_debit_emission)
+FiscalDocument(credit|debit) 0:N FiscalDocumentLink(role=credits|debits)
+```
+
+Idempotencia planejada:
+
+```text
+criar FiscalDocument local
+-> criar/bloquear FiscalEmissionAttempt
+-> congelar payload sanitizado
+-> executar uma unica chamada POST /1/nfe/emissao/
+-> persistir retorno no documento
+-> webhook/reconciliacao atualizam somente o documento emitido
+```
+
+Chaves:
+
+- Credito: `hash(workshop_id, credit_document_id, "nfe_credit_emission", request_generation)`.
+- Debito: `hash(workshop_id, debit_document_id, "nfe_debit_emission", request_generation)`.
+
+Dependencia IBS/CBS:
+
+- A fase funcional deve permanecer bloqueada ate haver suporte aprovado para IBS/CBS ou uma decisao tributaria documentada que identifique tipos seguros sem esses campos.
+- Como a documentacao/ajuda Webmania associa finalidade 5/6 a IBS/CBS, a modelagem deve prever campos tributarios sem implementa-los nesta fase documental.
+
+## Fase 2.4.0 - Modelagem recomendada IBS/CBS NF-e/NFC-e
+
+Problema de dominio: os fluxos atuais NF-e/NFC-e dependem de `classe_imposto` e classes fiscais NF-e locais sem campos IBS/CBS. A Webmania permite IBS/CBS no payload do produto e nas classes de imposto. Como classificacao tributaria nao deve ser inferida automaticamente, o Hunter precisa de fonte local administravel antes de enviar ou bloquear emissao.
+
+Decisao implementada para a Fase 2.4A+B:
+
+- Evoluir `TaxClassNfe` com suporte IBS/CBS, mantendo compatibilidade com ICMS/IPI/PIS/COFINS atuais.
+- Usar modelagem hibrida no proprio `TaxClassNfe`: campos normalizados para `ibs_cbs_enabled`, situacao/classificacao tributaria e campos de regime regular; `ibs_cbs_details` JSON validado para preservar grupos condicionais oficiais; usuario/data de configuracao; indice por oficina/habilitacao.
+- Nao criar `TaxClassNfeIbsCbsScenario` nesta fase. Se fases futuras exigirem multiplos cenarios IBS/CBS por classe, esse model deve ser planejado separadamente.
+- Manter `WebmaniaCompany.regime_tributario` como dado auxiliar de validacao, nao como fonte unica de classificacao IBS/CBS.
+- Permitir payload inline `produtos[].impostos.ibs_cbs` apenas quando a fase aprovada exigir; a primeira preferencia operacional deve ser classe fiscal configurada e validada.
+
+Relação com produtos:
+
+- Produto/servico de catalogo deve continuar podendo apontar para classe fiscal.
+- A classe fiscal deve indicar se esta apta para NF-e, NFC-e ou ambos.
+- A ausencia de IBS/CBS configurado deve ser detectavel antes do gateway para cada produto e ambiente.
+
+Estados e auditoria:
+
+- Alteracoes de configuracao IBS/CBS devem ser auditaveis por oficina e usuario.
+- Payload enviado para Webmania deve preservar o `ibs_cbs` efetivo na sincronizacao da classe fiscal. Como NF-e/NFC-e normal usam `classe_imposto`, o gate local exige classe IBS/CBS-ready antes do gateway.
+- Nao guardar headers, credenciais, CSC ou certificado junto aos payloads tributarios.
+
+Compatibilidade:
+
+- Nao remover `TaxClassNfeIcmsScenario`, `TaxClassNfeIpiScenario`, `TaxClassNfePisScenario` ou `TaxClassNfeCofinsScenario`.
+- Durante a transicao, NF-e/NFC-e normal pode precisar coexistir com tributos antigos e `ibs_cbs`; credito/debito e excecoes oficiais devem impedir tributos antigos quando a finalidade exigir somente IBS/CBS.
+- `TaxClassNfse` ja possui campos IBS/CBS, mas isso nao resolve NF-e/NFC-e; usar apenas como referencia de padrao, nao como substituto.
+
+Subfases de dominio:
+
+| Subfase | Modelagem minima | Observacao |
+| ------- | ---------------- | ---------- |
+| 2.4A | Classe fiscal/produto com IBS/CBS local e bloqueio seguro | Primeira subfase funcional recomendada. |
+| 2.4B | Emissao normal NF-e/NFC-e com snapshot do IBS/CBS usado | Deve proteger producao >= `05/01/2026`. |
+| 2.4C | Regras por documento derivado | Devolucao, complementar e ajuste nao devem reutilizar cegamente o payload normal. |
+| 2.4D | `FiscalDocumentEvent` para eventos IBS/CBS | Somente apos emissao base conformada. |
+| 2.4E | `FiscalDocument(purpose=credit|debit)` com `fiscal_purpose_type` | Somente apos base IBS/CBS validada. |

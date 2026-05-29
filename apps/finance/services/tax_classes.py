@@ -18,6 +18,7 @@ from apps.finance.models.finance import (
     TaxClassSyncState,
 )
 from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
+from apps.finance.services.ibs_cbs import IbsCbsConfigurationError, build_ibs_cbs_payload_from_values, build_tax_class_ibs_cbs_payload
 from apps.finance.services.webmania_auth import (
     WebmaniaAuthError,
     build_webmania_headers,
@@ -241,6 +242,22 @@ def _format_decimal(value: Decimal | None) -> str:
     return f"{value.quantize(Decimal('0.01')):f}"
 
 
+def _extract_ibs_cbs_payload(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    try:
+        return build_ibs_cbs_payload_from_values(
+            enabled=True,
+            situacao_tributaria=str(value.get("situacao_tributaria") or ""),
+            classificacao_tributaria=str(value.get("classificacao_tributaria") or ""),
+            situacao_tributaria_regular=str(value.get("situacao_tributaria_regular") or ""),
+            classificacao_tributaria_regular=str(value.get("classificacao_tributaria_regular") or ""),
+            details={key: item for key, item in value.items() if key not in {"situacao_tributaria", "classificacao_tributaria", "situacao_tributaria_regular", "classificacao_tributaria_regular"}},
+        )
+    except IbsCbsConfigurationError as exc:
+        raise TaxClassServiceError(str(exc)) from exc
+
+
 def _to_bool_or_none(value: Any) -> bool | None:
     if value in (None, ""):
         return None
@@ -444,6 +461,12 @@ def _serialize_nfe_tax_class(tax_class: TaxClassNfe) -> dict[str, Any]:
         payload["pis"] = pis_payload
     if cofins_payload:
         payload["cofins"] = cofins_payload
+    try:
+        ibs_cbs_payload = build_tax_class_ibs_cbs_payload(tax_class)
+    except IbsCbsConfigurationError:
+        ibs_cbs_payload = {}
+    if ibs_cbs_payload:
+        payload["ibs_cbs"] = ibs_cbs_payload
 
     return payload
 
@@ -518,6 +541,10 @@ def _upsert_local_nfe_tax_class(*, workshop: Workshop, payload: dict[str, Any]) 
     if not reference:
         raise TaxClassServiceError("Classe de imposto sem referência não pode ser salva localmente.")
 
+    ibs_cbs = _extract_ibs_cbs_payload(payload.get("ibs_cbs"))
+    ibs_cbs_enabled = bool(ibs_cbs)
+    ibs_cbs_details = {key: value for key, value in ibs_cbs.items() if key not in {"situacao_tributaria", "classificacao_tributaria", "situacao_tributaria_regular", "classificacao_tributaria_regular"}}
+
     with transaction.atomic():
         tax_class, _ = TaxClassNfe.objects.update_or_create(
             workshop=workshop,
@@ -529,6 +556,12 @@ def _upsert_local_nfe_tax_class(*, workshop: Workshop, payload: dict[str, Any]) 
                 "remote_updated_date": _clean_string(payload.get("updated_date")),
                 "informacoes_fisco": _clean_string(payload.get("informacoes_fisco")),
                 "informacoes_complementares": _clean_string(payload.get("informacoes_complementares")),
+                "ibs_cbs_enabled": ibs_cbs_enabled,
+                "ibs_cbs_situacao_tributaria": _clean_string(ibs_cbs.get("situacao_tributaria"))[:3],
+                "ibs_cbs_classificacao_tributaria": _clean_string(ibs_cbs.get("classificacao_tributaria"))[:6],
+                "ibs_cbs_situacao_tributaria_regular": _clean_string(ibs_cbs.get("situacao_tributaria_regular"))[:3],
+                "ibs_cbs_classificacao_tributaria_regular": _clean_string(ibs_cbs.get("classificacao_tributaria_regular"))[:6],
+                "ibs_cbs_details": ibs_cbs_details,
             },
         )
 

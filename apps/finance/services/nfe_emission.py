@@ -13,6 +13,7 @@ from django.http import HttpRequest
 
 from apps.finance.models.finance import NfeItem, NfeRequest
 from apps.finance.services.fiscal_attempts import FiscalEmissionAttemptBlocked, begin_emission_attempt, mark_attempt_failed, mark_attempt_sent, mark_attempt_succeeded, mark_attempt_uncertain
+from apps.finance.services.ibs_cbs import IbsCbsConfigurationError, require_ready_tax_class_for_normal_emission
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number
 from apps.finance.services.emission import build_webmania_webhook_url
 from apps.finance.services.pricing import SliderAllocation, build_emission_pricing_snapshot_for_workorder, build_slider_allocation_for_workorder, distribute_total_proportionally
@@ -137,6 +138,17 @@ def _validate_nfe_tax_class(*, nfe_request: NfeRequest, headers: dict[str, str])
         return item
 
     raise NfeEmissionError("A classe de imposto selecionada nao esta disponivel para estas credenciais da Webmania.")
+
+
+def _validate_local_ibs_cbs_tax_class(*, nfe_request: NfeRequest) -> None:
+    try:
+        require_ready_tax_class_for_normal_emission(
+            workshop=nfe_request.workshop,
+            reference=str(nfe_request.tax_class or ""),
+            product_label="Nota Fiscal normal",
+        )
+    except IbsCbsConfigurationError as exc:
+        raise NfeEmissionError(str(exc)) from exc
 
 
 def _normalize_document(value: str) -> str:
@@ -470,6 +482,7 @@ def preview_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None 
     emit_url = _build_emit_url()
 
     _validate_nfe_tax_class(nfe_request=nfe_request, headers=headers)
+    _validate_local_ibs_cbs_tax_class(nfe_request=nfe_request)
 
     payload = build_nfe_payload(nfe_request=nfe_request, request=request, slider_override=slider_override)
     payload["previa_danfe"] = True
@@ -505,6 +518,7 @@ def download_nfe_preview_document(*, nfe_request: NfeRequest, request: HttpReque
     emit_url = _build_emit_url()
 
     _validate_nfe_tax_class(nfe_request=nfe_request, headers=headers)
+    _validate_local_ibs_cbs_tax_class(nfe_request=nfe_request)
 
     payload = build_nfe_payload(nfe_request=nfe_request, request=request, slider_override=slider_override)
     payload["previa_danfe"] = True
@@ -551,6 +565,7 @@ def emit_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None = N
     emit_url = _build_emit_url()
 
     _validate_nfe_tax_class(nfe_request=nfe_request, headers=headers)
+    _validate_local_ibs_cbs_tax_class(nfe_request=nfe_request)
 
     try:
         reserve_nfe_request_number(nfe_request=nfe_request)

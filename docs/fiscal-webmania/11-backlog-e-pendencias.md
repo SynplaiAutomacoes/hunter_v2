@@ -47,7 +47,7 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Fase 2.2B.1 nao implementou complemento tributario, IBS/CBS, ICMS-ST, IPI, ISSQN, `agropecuario`, adicao/importacao ou NF-e externa minima para preco/quantidade.
 - Confirmar em homologacao cenarios de ajuste que exigem ou dispensam documento original, embora a Fase 2.2C tenha implementado link opcional conforme endpoint oficial.
 - Automatizar deteccao de estorno SC/ES por UF/finalidade quando houver dados locais suficientes; hoje a Fase 2.2C exige confirmacao operacional e direciona/bloqueia o uso de ajuste quando o usuario identificar o cenario.
-- Confirmar tipos oficiais `tipo_credito` e `tipo_debito` antes da Fase 2.5.
+- Revalidar tipos oficiais `tipo_credito` e `tipo_debito` antes de qualquer codigo da Fase 2.5, mesmo apos a matriz documental da Fase 2.5.0.
 - Importacao/validacao de NF-e externa por XML ou API fiscal especifica fica fora da Fase 2.2A.
 - Habilitar devolucao parcial de NF-e externa somente depois de importar/validar XML ou fonte fiscal que preserve sequenciais fiscais e quantidades originais.
 - Confirmar requisitos NFC-e por oficina: serie, CSC/token, ambiente, contingencia e DANFE NFC-e; Fase 2.3.0 recomenda reaproveitar `WebmaniaCompany`.
@@ -55,6 +55,33 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Avaliar fase futura para inutilizacao funcional de NF-e; a Fase 2.3.3 usa a generalidade do contrato apenas para NFC-e.
 - Avaliar importacao/consulta externa de numeros usados fora do Hunter; a validacao local de inutilizacao nao garante ausencia de uso no painel Webmania ou em outro emissor.
 - Definir operacao administrativa futura para resolver inutilizacao NFC-e `uncertain`, pois a Fase 2.3.3 nao confirmou endpoint oficial de consulta ou webhook para inutilizacao.
+
+## Pendencias Fase 2.5.0 - Credito/Debito
+
+- Nao implementar NF-e de credito/debito antes de decisao sobre IBS/CBS, pois a Webmania relaciona finalidades 5/6 a IBS/CBS/Reforma Tributaria.
+- Revalidar imediatamente antes do codigo a lista oficial de `tipo_credito` (`1` a `5`) e `tipo_debito` (`1` a `8`), incluindo eventuais mudancas normativas.
+- Definir se a primeira entrega funcional sera adiada para depois da Fase 2.4 ou se havera subfase tributaria dedicada antes de credito/debito.
+- Criar feature flag e habilitacao administrativa por oficina antes de expor qualquer action.
+- Definir campo `fiscal_purpose_type` ou equivalente em `FiscalDocument` somente quando a implementacao funcional for autorizada.
+- Validar quando `FiscalDocumentLink(role="credits"|"debits")` sera obrigatorio por tipo; ate haver evidencia oficial, manter opcional/condicional.
+- Confirmar com contabilidade/produto se oficinas automotivas precisam dessa operacao agora ou se o valor e estritamente administrativo/contabil.
+
+## Pendencias Fase 2.4 - IBS/CBS NF-e/NFC-e
+
+- Fase 2.4A+B implementou a primeira base: `TaxClassNfe` com campos IBS/CBS normalizados, `ibs_cbs_details` JSON validado, sincronizacao de classe fiscal Webmania e bloqueio de NF-e/NFC-e normal sem classe pronta.
+- A estrategia implementada usa `classe_imposto` como caminho operacional para emissao normal; payload inline `produtos[].impostos.ibs_cbs` permanece fora de uso ate fase aprovada exigir.
+- Deploy pode bloquear NF-e/NFC-e normais para oficinas que ainda nao configuraram classes fiscais IBS/CBS validas.
+- Validar tabela oficial de situacao/classificacao tributaria IBS/CBS imediatamente antes do codigo.
+- Definir politica futura de homologacao controlada se houver necessidade operacional; a Fase 2.4A+B exige configuracao valida tambem em homologacao por padrao.
+- Revisar devolucao/estorno, complementar preco/quantidade e ajuste na Fase 2.4C antes de ampliar suas operacoes.
+- Manter credito/debito bloqueados ate 2.4E; finalidades 5/6 devem enviar somente IBS/CBS e barrar tributos antigos para evitar rejeicao 1001.
+- Registrar em UI e logs que a classificacao tributaria e configurada por usuario/fiscal, nao inferida pelo Hunter.
+
+## Reforma Tributaria em outras familias
+
+- NFS-e tambem exige auditoria equivalente antes de qualquer expansao funcional: a documentacao Webmania NFS-e informa `ibs_cbs` em `servico.impostos` e campos `situacao_tributaria`/`classificacao_tributaria`.
+- CT-e deve ser planejado ja com IBS/CBS/Reforma Tributaria, evitando implementar fluxo legado incompatível antes da fase 4.
+- CT-e OS, MDF-e, NFCom e DC-e devem ser reconsultados antes de implementacao para identificar regras IBS/CBS ou substitutos aplicaveis.
 - Confirmar politica de consumidor/pagamento minimo para NFC-e manual.
 - Revalidar eventos IBS/CBS e cancelamento conforme documentacao vigente da Reforma Tributaria.
 - Campos obrigatorios completos de cada municipio/provedor NFS-e.

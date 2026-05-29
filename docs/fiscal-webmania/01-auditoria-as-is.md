@@ -123,3 +123,34 @@ NfeDocumentDownloadView/NfseDocumentDownloadView/IssuedDocumentsArchiveDownloadV
 -> build_webmania_headers
 -> URL remota retornada pela Webmania
 ```
+
+## Auditoria IBS/CBS - Fase 2.4.0
+
+Escopo desta auditoria: leitura de codigo em modo somente leitura para verificar se os fluxos NF-e/NFC-e ja implementados montam ou persistem dados IBS/CBS conforme a documentacao oficial Webmania para Reforma Tributaria.
+
+| Fluxo atual | Monta IBS/CBS hoje? | Fonte dos dados | Risco atual | Correcao necessaria | Prioridade |
+| ----------- | ------------------: | --------------- | ----------- | ------------------- | ---------- |
+| NF-e legada | Nao diretamente | `apps/finance/services/nfe_emission.py` monta produtos com `classe_imposto`; `TaxClassNfe` nao possui campos IBS/CBS locais | Critico para producao >= `05/01/2026` se a classe remota nao estiver conforme ou se for necessario payload inline | Fase 2.4A para modelar IBS/CBS em classes fiscais/produtos; Fase 2.4B para bloquear/emitir NF-e normal conforme regra | Critica |
+| NFC-e manual simples | Nao | `apps/finance/services/nfce_emission.py` monta `modelo=2` com produtos e `classe_imposto`; filtros removem `ibs`, `cbs` e `impostos` fora do escopo anterior | Critico para producao >= `05/01/2026`; NFC-e manual pode ser rejeitada sem IBS/CBS quando obrigatorio | Fase 2.4A/2.4B para configurar IBS/CBS e permitir payload conforme contrato | Critica |
+| Devolucao/estorno | Nao explicitamente | `apps/finance/services/nfe_returns.py` envia chave original, CFOP, natureza, sequenciais e quantidades | Alto; pode depender de tributacao da nota original/remota, mas o Hunter nao documenta nem valida IBS/CBS derivado | Fase 2.4C deve definir se reutiliza dados originais, classe fiscal ou payload IBS/CBS especifico por devolucao/estorno | Alta |
+| Complementar preco/quantidade | Nao; remove explicitamente | `apps/finance/services/nfe_complementary.py` remove `impostos`, `ibs`, `cbs` e tributos fora do escopo 2.2B.1 | Alto; complemento de produto pode exigir IBS/CBS na transicao e hoje o payload bloqueia esses campos | Fase 2.4C deve revalidar complementar de preco/quantidade com IBS/CBS sem misturar com complementar tributaria | Alta |
+| Ajuste | Nao; remove explicitamente | `apps/finance/services/nfe_adjustment.py` envia ICMS/ICMS-ST de ajuste e remove `produtos`, `impostos`, `ibs`, `cbs` | Medio/alto; ajuste pode continuar sem produto, mas precisa decisao fiscal sobre aplicabilidade IBS/CBS e coexistencia | Fase 2.4C deve confirmar se ajuste exige campos IBS/CBS ou se permanece separado por finalidade/endpoint | Alta |
+| Classes de imposto NF-e | Nao localmente | `TaxClassNfe`, `NfeTaxClassForm`, `_serialize_nfe_tax_class` e `_upsert_local_nfe_tax_class` cobrem ICMS/IPI/PIS/COFINS; nao guardam `ibs_cbs` | Critico; `classe_imposto` e a fonte atual dos produtos NF-e/NFC-e | Fase 2.4A deve adicionar modelagem/serializacao/localizacao dos campos IBS/CBS para classes NF-e | Critica |
+| Classes de imposto NFS-e | Parcial, fora da familia NF-e/NFC-e | `TaxClassNfse` e `NfseTaxClassForm` ja possuem campos `ibs_cbs` | Nao resolve NF-e/NFC-e; indica padrao reutilizavel para NFS-e futura | Auditar NFS-e em fase propria antes de expandir NFS-e | Media |
+| Credito/debito futuro | Nao implementado | Planejado na Fase 2.5.0 | Critico se implementado antes de IBS/CBS; finalidades 5/6 exigem somente IBS/CBS | Bloquear codigo funcional ate base IBS/CBS validada na Fase 2.4E | Critica |
+
+Campos pesquisados no codigo atual: `ibs_cbs`, `situacao_tributaria`, `classificacao_tributaria`, `situacao_tributaria_regular`, `classificacao_tributaria_regular`, `ibs_estadual`, `ibs_municipal`, `cbs`, `credito_presumido`, `transferencia_credito`, `ajuste_competencia` e `estorno_credito`.
+
+Achado principal: existe suporte local parcial a IBS/CBS apenas no lado NFS-e (`TaxClassNfse`). Para NF-e/NFC-e, a camada operacional atual depende de `classe_imposto` e de classes NF-e sem persistencia local IBS/CBS. Portanto, a conformidade NF-e/NFC-e nao pode ser presumida a partir do codigo atual.
+
+### Auditoria tecnica inicial Fase 2.4A+B
+
+| Item auditado | Estado real antes da implementacao | Decisao para 2.4A+B |
+| ------------- | ---------------------------------- | ------------------- |
+| Classe fiscal NF-e | `TaxClassNfe` guarda referencia, descricao, status, datas, informacoes e cenarios ICMS/IPI/PIS/COFINS; nao possui campos IBS/CBS | Evoluir `TaxClassNfe` existente, sem criar model paralelo |
+| Sincronizacao Webmania | `save_tax_class` envia `POST /1/nfe/classe-imposto/`; `_serialize_nfe_tax_class` monta payload da classe; `_upsert_local_nfe_tax_class` persiste retorno | Incluir `ibs_cbs` na criacao/edicao quando configurado e persistir retorno sanitizado |
+| NF-e normal | `_build_nfe_products_payload` envia `classe_imposto` por item; `_validate_nfe_tax_class` consulta/lista classes remotas | Manter caminho por classe fiscal e validar prontidao IBS/CBS local antes do gateway |
+| NFC-e manual | `_build_product_payload` envia `classe_imposto` por produto selecionado | Manter caminho por classe fiscal e validar prontidao IBS/CBS local antes de criar/enviar documento |
+| `impostos` inline | Nao e usado por NF-e normal/NFC-e manual atuais | Nao criar segundo caminho inline nesta fase |
+| Ambiente | NF-e usa `settings.WEBMANIA_AMBIENT`; NFC-e recebe `environment` no fluxo manual | Aplicar bloqueio em producao e homologacao por padrao |
+| Regime tributario | `WebmaniaCompany.regime_tributario` existe e ja e usado por ajuste | Usar apenas como dado auxiliar/contexto; nao inferir classificacao IBS/CBS |

@@ -36,7 +36,7 @@ from apps.collaborators.services import sync_collaborator_payroll, sync_workorde
 from apps.core.documents.contract import DocumentPayload
 from apps.customer.models import Customer, Vehicle
 from apps.finance.documents.provider import build_dre_excel_document, build_dre_pdf_render_request
-from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm
+from apps.finance.forms import NfeTaxClassForm, NfseTaxClassForm, WebmaniaCompanyUpdateForm
 from apps.finance.forms.dre import DreForm
 from apps.finance.forms.emission_ui import build_step5_pricing_panel_data
 from apps.finance.forms.financial_group import FinancialGroupForm
@@ -64,6 +64,7 @@ from apps.finance.services.emission import (
 )
 from apps.finance.services import nfe_emission as nfe_emission_service
 from apps.finance.services.dre import build_dre_calculation
+from apps.finance.services.ibs_cbs import IbsCbsConfigurationError, build_ibs_cbs_payload_from_values, require_ready_tax_class_for_normal_emission
 from apps.finance.services.nfe_emission import (
     NfeEmissionError,
     _build_nfe_products_payload,
@@ -159,6 +160,22 @@ def _mock_response(payload: Any) -> Mock:
     response.raise_for_status.return_value = None
     response.json.return_value = payload
     return response
+
+
+def create_ready_nfe_tax_class(*, workshop: Workshop, reference: str = "REFNFE") -> TaxClassNfe:
+    tax_class, _created = TaxClassNfe.objects.update_or_create(
+        workshop=workshop,
+        reference=reference,
+        defaults={
+            "description": f"Classe {reference}",
+            "status": "ativo",
+            "ibs_cbs_enabled": True,
+            "ibs_cbs_situacao_tributaria": "000",
+            "ibs_cbs_classificacao_tributaria": "000001",
+            "ibs_cbs_details": {"ibs_estadual": {"aliquota": "0.10"}, "cbs": {"aliquota": "0.90"}},
+        },
+    )
+    return tax_class
 
 
 class WebmaniaErrorMessageTests(TestCase):
@@ -746,6 +763,155 @@ class TaxClassServiceTests(TestCase):
 
         self.assertFalse(TaxClassNfe.objects.filter(workshop=workshop, reference="REF000030").exists())
         self.assertFalse(TaxClassNfse.objects.filter(workshop=workshop, reference="REF000031").exists())
+
+
+class FiscalPhaseTwoIbsCbsTaxClassTests(TestCase):
+    def test_ibs_cbs_payload_requires_minimum_fields_and_conditionals(self) -> None:
+        payload = build_ibs_cbs_payload_from_values(
+            enabled=True,
+            situacao_tributaria="000",
+            classificacao_tributaria="000001",
+            details={"ibs_estadual": {"aliquota": "0.10"}, "cbs": {"aliquota": "0.90"}},
+        )
+
+        self.assertEqual(payload["situacao_tributaria"], "000")
+        self.assertEqual(payload["classificacao_tributaria"], "000001")
+        self.assertEqual(payload["ibs_estadual"]["aliquota"], "0.10")
+
+        with self.assertRaisesMessage(IbsCbsConfigurationError, "situacao_tributaria deve conter 3 caracteres"):
+            build_ibs_cbs_payload_from_values(enabled=True, situacao_tributaria="00", classificacao_tributaria="000001")
+        with self.assertRaisesMessage(IbsCbsConfigurationError, "classificacao_tributaria deve conter 6 caracteres"):
+            build_ibs_cbs_payload_from_values(enabled=True, situacao_tributaria="000", classificacao_tributaria="00001")
+        with self.assertRaisesMessage(IbsCbsConfigurationError, "tributacao_monofasica"):
+            build_ibs_cbs_payload_from_values(enabled=True, situacao_tributaria="620", classificacao_tributaria="000001")
+        with self.assertRaisesMessage(IbsCbsConfigurationError, "ajuste_competencia"):
+            build_ibs_cbs_payload_from_values(enabled=True, situacao_tributaria="811", classificacao_tributaria="000001")
+        with self.assertRaisesMessage(IbsCbsConfigurationError, "chaves desconhecidas"):
+            build_ibs_cbs_payload_from_values(enabled=True, situacao_tributaria="000", classificacao_tributaria="000001", details={"campo_invalido": "x"})
+
+    def test_nfe_tax_class_form_builds_ibs_cbs_payload(self) -> None:
+        form = NfeTaxClassForm(
+            data={
+                "descricao": "Classe NF-e IBS",
+                "referencia": "REFIBS001",
+                "base_payload_json": "{}",
+                "ibs_cbs_enabled": "on",
+                "ibs_cbs_situacao_tributaria": "000",
+                "ibs_cbs_classificacao_tributaria": "000001",
+                "ibs_cbs_details_json": '{"ibs_estadual": {"aliquota": "0.10"}, "cbs": {"aliquota": "0.90"}}',
+                "icms-TOTAL_FORMS": "0",
+                "icms-INITIAL_FORMS": "0",
+                "ipi-TOTAL_FORMS": "0",
+                "ipi-INITIAL_FORMS": "0",
+                "pis-TOTAL_FORMS": "0",
+                "pis-INITIAL_FORMS": "0",
+                "cofins-TOTAL_FORMS": "0",
+                "cofins-INITIAL_FORMS": "0",
+            }
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        payload = form.build_ibs_cbs_payload()
+        self.assertEqual(payload["situacao_tributaria"], "000")
+        self.assertEqual(payload["classificacao_tributaria"], "000001")
+        self.assertIn("ibs_estadual", payload)
+
+    def test_save_nfe_tax_class_syncs_ibs_cbs_and_sanitizes_payload(self) -> None:
+        workshop = create_workshop(suffix=80)
+        payload = {
+            "descricao": "Classe NFE IBS",
+            "tipo": "nfe",
+            "ibs_cbs": {
+                "situacao_tributaria": "000",
+                "classificacao_tributaria": "000001",
+                "ibs_estadual": {"aliquota": "0.10"},
+                "cbs": {"aliquota": "0.90"},
+            },
+        }
+        response_payload = {
+            "referencia": "REFIBS002",
+            "tipo": "nfe",
+            "status": "ativo",
+            "data": "2026-05-29",
+            "ibs_cbs": payload["ibs_cbs"],
+        }
+
+        with (
+            patch("apps.finance.services.tax_classes._build_headers", return_value={}),
+            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)) as post_mock,
+        ):
+            saved = save_tax_class(workshop=workshop, payload=payload)
+
+        sent_payload = post_mock.call_args.kwargs.get("json", {})
+        self.assertEqual(sent_payload["ibs_cbs"]["situacao_tributaria"], "000")
+        self.assertEqual(saved["ibs_cbs"]["classificacao_tributaria"], "000001")
+        tax_class = TaxClassNfe.objects.get(workshop=workshop, reference="REFIBS002")
+        self.assertTrue(tax_class.ibs_cbs_enabled)
+        self.assertEqual(tax_class.ibs_cbs_situacao_tributaria, "000")
+        self.assertEqual(tax_class.ibs_cbs_classificacao_tributaria, "000001")
+        self.assertEqual(tax_class.ibs_cbs_details["cbs"]["aliquota"], "0.90")
+
+    def test_save_nfe_tax_class_without_ibs_cbs_does_not_send_block(self) -> None:
+        workshop = create_workshop(suffix=81)
+        response_payload = {"referencia": "REFNOIBS", "tipo": "nfe", "status": "ativo"}
+
+        with (
+            patch("apps.finance.services.tax_classes._build_headers", return_value={}),
+            patch("apps.finance.services.tax_classes.requests.post", return_value=_mock_response(response_payload)) as post_mock,
+        ):
+            save_tax_class(workshop=workshop, payload={"descricao": "Classe sem IBS", "tipo": "nfe"})
+
+        sent_payload = post_mock.call_args.kwargs.get("json", {})
+        self.assertNotIn("ibs_cbs", sent_payload)
+        tax_class = TaxClassNfe.objects.get(workshop=workshop, reference="REFNOIBS")
+        self.assertFalse(tax_class.ibs_cbs_enabled)
+
+    def test_ready_tax_class_is_scoped_by_workshop(self) -> None:
+        first = create_workshop(suffix=82)
+        second = create_workshop(suffix=83)
+        create_ready_nfe_tax_class(workshop=first, reference="REFSCOPE")
+
+        self.assertEqual(require_ready_tax_class_for_normal_emission(workshop=first, reference="REFSCOPE").workshop, first)
+        with self.assertRaisesMessage(IbsCbsConfigurationError, "nao encontrada"):
+            require_ready_tax_class_for_normal_emission(workshop=second, reference="REFSCOPE")
+
+    def test_ibs_cbs_tax_class_management_requires_specific_permission(self) -> None:
+        from apps.finance.views.tax_class import TaxClassManagerView
+
+        user, workshop = create_director_user_with_workshop(suffix=88)
+        request = RequestFactory().post(
+            "/",
+            data={
+                "tab": "nfe",
+                "descricao": "Classe NF-e IBS",
+                "referencia": "REFPERM",
+                "base_payload_json": "{}",
+                "ibs_cbs_enabled": "on",
+                "ibs_cbs_situacao_tributaria": "000",
+                "ibs_cbs_classificacao_tributaria": "000001",
+                "ibs_cbs_details_json": '{"ibs_estadual": {"aliquota": "0.10"}}',
+                "icms-TOTAL_FORMS": "0",
+                "icms-INITIAL_FORMS": "0",
+                "ipi-TOTAL_FORMS": "0",
+                "ipi-INITIAL_FORMS": "0",
+                "pis-TOTAL_FORMS": "0",
+                "pis-INITIAL_FORMS": "0",
+                "cofins-TOTAL_FORMS": "0",
+                "cofins-INITIAL_FORMS": "0",
+            },
+        )
+        request.user = user
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.tax_class.has_workshop_perm", return_value=False),
+            patch("apps.finance.views.tax_class.list_tax_classes", return_value=[]),
+            patch("apps.finance.views.tax_class.save_tax_class") as save_mock,
+        ):
+            with self.assertRaises(PermissionDenied):
+                TaxClassManagerView.as_view()(request)
+        save_mock.assert_not_called()
 
 
 class NfseTaxClassFormTests(TestCase):
@@ -10114,6 +10280,7 @@ class PaymentMethodViewsTests(TestCase):
 class FiscalPhaseOneStabilizationTests(TestCase):
     def _create_workorder(self, *, suffix: int = 910) -> WorkOrder:
         workshop = create_workshop(suffix=suffix)
+        create_ready_nfe_tax_class(workshop=workshop, reference="REFNFE")
         budget = Budget.objects.create(workshop=workshop, entry_date=timezone.now().date())
         return WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED)
 
@@ -10261,6 +10428,7 @@ class FiscalPhaseOneStabilizationTests(TestCase):
 class FiscalPhaseOneConcurrentEmissionTests(TransactionTestCase):
     def _create_workorder(self, *, suffix: int = 918) -> WorkOrder:
         workshop = create_workshop(suffix=suffix)
+        create_ready_nfe_tax_class(workshop=workshop, reference="REFNFE")
         budget = Budget.objects.create(workshop=workshop, entry_date=timezone.now().date())
         return WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED)
 
@@ -10314,6 +10482,114 @@ class FiscalPhaseOneConcurrentEmissionTests(TransactionTestCase):
         self.assertIn("tentativa fiscal remota registrada", errors[0])
         attempt = FiscalEmissionAttempt.objects.get(document_kind="nfe", request_id=nfe_request.pk)
         self.assertEqual(attempt.status, "succeeded")
+
+
+class FiscalPhaseTwoIbsCbsNormalEmissionTests(TestCase):
+    def _create_workorder(self, *, suffix: int = 84, tax_class_ready: bool = False) -> WorkOrder:
+        workshop = create_workshop(suffix=suffix)
+        if tax_class_ready:
+            create_ready_nfe_tax_class(workshop=workshop, reference="REFIBSNFE")
+        else:
+            TaxClassNfe.objects.create(workshop=workshop, reference="REFIBSNFE", description="Classe sem IBS", status="ativo")
+        budget = Budget.objects.create(workshop=workshop, entry_date=timezone.now().date())
+        return WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+
+    def _create_nfce_context(self, *, suffix: int = 85, tax_class_ready: bool = False) -> tuple[User, Workshop, Product]:
+        user, workshop = create_director_user_with_workshop(suffix=suffix)
+        WebmaniaCompany.objects.create(
+            workshop=workshop,
+            webmania_company_id=f"NFCE-{suffix}",
+            consumer_key="ck",
+            consumer_secret="cs",
+            access_token="at",
+            access_token_secret="ats",
+            nfce_enabled=True,
+            nfce_serie=1,
+            nfce_numero=100,
+            nfce_id_csc="prod-id",
+            nfce_codigo_csc="prod-token",
+            nfce_numero_dev=200,
+            nfce_id_csc_dev="dev-id",
+            nfce_codigo_csc_dev="dev-token",
+        )
+        if tax_class_ready:
+            create_ready_nfe_tax_class(workshop=workshop, reference="REFIBSNFCE")
+        else:
+            TaxClassNfe.objects.create(workshop=workshop, reference="REFIBSNFCE", description="Classe sem IBS", status="ativo")
+        group = CatalogGroup.objects.create(workshop=workshop, name=f"Grupo IBS {suffix}")
+        product = Product.objects.create(workshop=workshop, code=f"IBS-{suffix}", unit=Product.Unit.UND, name=f"Produto IBS {suffix}", ncm="87089990", group=group, cost_price=Money("10.00", "BRL"), selling_price=Money("25.00", "BRL"))
+        return user, workshop, product
+
+    def test_nfe_normal_blocks_before_gateway_when_tax_class_has_no_ibs_cbs(self) -> None:
+        from apps.finance.services.nfe_emission import emit_nfe_request
+
+        workorder = self._create_workorder(suffix=84, tax_class_ready=False)
+        nfe_request = NfeRequest.objects.create(workshop=workorder.workshop, workorder=workorder, tax_class="REFIBSNFE")
+
+        with (
+            patch("apps.finance.services.nfe_emission._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_emission._validate_nfe_tax_class", return_value={}),
+            patch("apps.finance.services.nfe_emission.requests.post") as post_mock,
+        ):
+            with self.assertRaisesMessage(NfeEmissionError, "sem configuracao IBS/CBS valida"):
+                emit_nfe_request(nfe_request=nfe_request)
+
+        post_mock.assert_not_called()
+
+    def test_nfe_normal_with_ready_tax_class_preserves_idempotency_and_sends_once(self) -> None:
+        from apps.finance.services.nfe_emission import emit_nfe_request
+
+        workorder = self._create_workorder(suffix=85, tax_class_ready=True)
+        nfe_request = NfeRequest.objects.create(workshop=workorder.workshop, workorder=workorder, tax_class="REFIBSNFE")
+        response_payload = {"uuid": "ea895e61-c0da-46ee-a880-a03f8547a9bc", "modelo": "nfe", "status": "aprovado", "chave": "NFEKEY-IBS"}
+
+        with (
+            patch("apps.finance.services.nfe_emission._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_emission._validate_nfe_tax_class", return_value={}),
+            patch("apps.finance.services.nfe_emission.reserve_nfe_request_number"),
+            patch("apps.finance.services.nfe_emission.build_nfe_payload", return_value={"ID": str(nfe_request.pk), "produtos": [{"classe_imposto": "REFIBSNFE"}]}),
+            patch("apps.finance.services.nfe_emission.requests.post", return_value=_mock_response(response_payload)) as post_mock,
+        ):
+            emit_nfe_request(nfe_request=nfe_request)
+            with self.assertRaisesMessage(NfeEmissionError, "tentativa remota concluida"):
+                emit_nfe_request(nfe_request=nfe_request)
+
+        self.assertEqual(post_mock.call_count, 1)
+        attempt = FiscalEmissionAttempt.objects.get(document_kind=FiscalEmissionDocumentKind.NFE, request_id=nfe_request.pk)
+        self.assertEqual(attempt.status, FiscalEmissionAttemptStatus.SUCCEEDED)
+
+    def test_nfce_manual_blocks_without_ready_tax_class_and_allows_ready_class(self) -> None:
+        _user, workshop, product = self._create_nfce_context(suffix=86, tax_class_ready=False)
+        products = [{"product_id": str(product.pk), "quantidade": "1", "valor_unitario": "25.00", "classe_imposto": "REFIBSNFCE"}]
+
+        with patch("apps.finance.services.nfce_emission._build_headers", return_value={}):
+            with self.assertRaisesMessage(NfceEmissionError, "sem configuracao IBS/CBS valida"):
+                build_nfce_payload(workshop=workshop, environment=2, natureza_operacao="Venda", products=products, payment_method="01")
+
+        create_ready_nfe_tax_class(workshop=workshop, reference="REFIBSNFCE")
+        with patch("apps.finance.services.nfce_emission._build_headers", return_value={}):
+            payload = build_nfce_payload(workshop=workshop, environment=2, natureza_operacao="Venda", products=products, payment_method="01")
+
+        self.assertEqual(payload["modelo"], 2)
+        self.assertEqual(payload["finalidade"], 1)
+        self.assertEqual(payload["operacao"], 1)
+        self.assertEqual(payload["produtos"][0]["classe_imposto"], "REFIBSNFCE")
+        self.assertIn("pedido", payload)
+        self.assertNotIn("prod-token", str(payload))
+        self.assertNotIn("dev-token", str(payload))
+
+    def test_nfce_homologation_requires_ibs_cbs_by_default(self) -> None:
+        _user, workshop, product = self._create_nfce_context(suffix=87, tax_class_ready=False)
+
+        with patch("apps.finance.services.nfce_emission._build_headers", return_value={}):
+            with self.assertRaisesMessage(NfceEmissionError, "sem configuracao IBS/CBS valida"):
+                build_nfce_payload(
+                    workshop=workshop,
+                    environment=2,
+                    natureza_operacao="Venda",
+                    products=[{"product_id": str(product.pk), "quantidade": "1", "valor_unitario": "25.00", "classe_imposto": "REFIBSNFCE"}],
+                    payment_method="01",
+                )
 
 
 class FiscalPhaseTwoCorrectionTests(TestCase):
@@ -11951,6 +12227,7 @@ class FiscalPhaseTwoNfceManualTests(TestCase):
             nfce_id_csc_dev="dev-id",
             nfce_codigo_csc_dev="dev-token",
         )
+        create_ready_nfe_tax_class(workshop=self.workshop, reference="REF000000")
         group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo NFC-e")
         self.product = Product.objects.create(
             workshop=self.workshop,
@@ -12159,6 +12436,7 @@ class FiscalPhaseTwoNfceManualConcurrentTests(TransactionTestCase):
             nfce_id_csc_dev="dev-id",
             nfce_codigo_csc_dev="dev-token",
         )
+        create_ready_nfe_tax_class(workshop=self.workshop, reference="REF000000")
         group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo NFC-e Conc")
         self.product = Product.objects.create(workshop=self.workshop, code="NFCE-C", unit=Product.Unit.UND, name="Produto NFC-e Conc", ncm="87089990", group=group, cost_price=Money("10.00", "BRL"), selling_price=Money("25.00", "BRL"))
 

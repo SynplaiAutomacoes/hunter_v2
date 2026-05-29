@@ -174,20 +174,44 @@ Cobertura executada na Fase 2.2B.1: somente `complementary_price_quantity` local
 - Reconciliacao de NFC-e `uncertain` usa consulta e nunca emite.
 - Payload/log nao persistem headers, consumer secret, access token secret, CSC ou codigo CSC.
 
-### Fase 2.4 - Manifestacao e IBS/CBS
+### Fase 2.4 - Conformidade IBS/CBS
 
-- Manifestacao exige chave/documento elegivel.
-- IBS/CBS exige codigo de evento e payload compativel com documentacao vigente.
-- Cancelamento IBS/CBS referencia evento original.
-- Evento duplicado e fora de ordem nao duplica nem regride historico.
-- Revalidar schemas com documentacao oficial imediatamente antes de codificar.
+- Base 2.4A exige classe/produto com situacao/classificacao IBS/CBS validas.
+- Emissao 2.4B deve bloquear producao sem configuracao minima.
+- Derivados 2.4C devem ter regra propria por operacao; nao reutilizar payload normal cegamente.
+- Eventos 2.4D exigem codigo de evento, sequencia e payload compativel com documentacao vigente.
+- Credito/debito 2.4E devem barrar tributos incompatíveis e enviar somente IBS/CBS.
+- Revalidar schemas com documentacao oficial imediatamente antes de codificar cada subfase.
 
 ### Fase 2.5 - Nota Fiscal de Credito e Debito
 
 - NF-e de credito usa `/1/nfe/emissao/`, `finalidade=5` e `tipo_credito`.
 - NF-e de debito usa `/1/nfe/emissao/`, `finalidade=6` e `tipo_debito`.
-- Validar documento referenciado quando o tipo oficial exigir `dfe_referenciado`.
-- Idempotencia por tipo e payload; timeout vira `uncertain`.
+- Validar documento referenciado quando o tipo oficial exigir relacao com documento anterior.
+- Idempotencia por `FiscalDocument` persistido e tentativa (`nfe_credit_emission`/`nfe_debit_emission`), nao por hash de payload.
+- Timeout vira `uncertain` e bloqueia reenvio automatico.
+- Bloquear implementacao funcional quando o tipo depender de IBS/CBS ainda nao implementado.
+
+Testes obrigatorios planejados:
+
+- Payload de credito envia `modelo=1`, `finalidade=5`, `tipo_credito` valido e nao envia `tipo_debito`.
+- Payload de debito envia `modelo=1`, `finalidade=6`, `tipo_debito` valido e nao envia `tipo_credito`.
+- Lista de `tipo_credito` aceita somente valores oficiais `1` a `5`.
+- Lista de `tipo_debito` aceita somente valores oficiais `1` a `8`.
+- Campos `cliente`, `produtos`, `pedido`, ambiente e notificacao seguem contrato validado da NF-e.
+- Campos de NFC-e, cancelamento, inutilizacao, ajuste, complementar, devolucao e contingencia nao entram no payload.
+- `FiscalDocument(document_type="nfe", purpose="credit"|"debit")` e criado antes do gateway.
+- `fiscal_purpose_type` preserva codigo remoto enviado.
+- `FiscalDocumentLink(role="credits"|"debits")` e opcional/condicional conforme tipo; quando informado, pertence a mesma oficina.
+- Feature flag/habilitacao administrativa bloqueia action e gateway quando desligada.
+- Permissoes `issue_nfe_credit`, `issue_nfe_debit`, `view_nfe_credit_debit`, `download_nfe_credit_debit` e `view_nfe_credit_debit_payload` sao respeitadas.
+- Usuario de outra oficina nao emite, consulta payload nem baixa XML/DANFE.
+- Concorrencia da mesma intencao gera uma chamada remota.
+- Duas intencoes legitimas com payload equivalente podem coexistir.
+- Timeout gera `uncertain`; `uncertain` bloqueia retry automatico.
+- Webhook e reconciliacao atualizam apenas o documento de credito/debito correto, sem afetar NF-e normal, derivados, eventos, NFC-e ou inutilizacao.
+- Payloads/logs nao expoem credenciais, certificados, CSC, headers ou tokens.
+- Quando IBS/CBS for dependencia ativa, teste deve provar bloqueio antes do gateway ate suporte tributario aprovado.
 ## Atualizacao Fase 2.3.2 - Testes Executados/Planejados
 
 Cobertura adicionada:
@@ -218,3 +242,38 @@ Testes direcionados adicionados/obrigatorios:
 - Rejeicao remota com XML nao e convertida em sucesso.
 - Permissao, cross-workshop, download e payload sanitizado sao verificados.
 - Reconcilacao nao reenvia inutilizacao e nao altera NFC-e emitida.
+
+## Fase 2.4.0 - Testes planejados IBS/CBS
+
+Testes transversais para futura implementacao:
+
+- Emissao normal NF-e em producao com data >= `05/01/2026` bloqueia quando classe/produto nao possuir IBS/CBS minimo.
+- Emissao normal NFC-e em producao com data >= `05/01/2026` bloqueia quando classe/produto nao possuir IBS/CBS minimo.
+- Payload NF-e/NFC-e normal inclui `produtos[].impostos.ibs_cbs` ou usa `classe_imposto` com IBS/CBS validado, conforme decisao da subfase.
+- Coexistencia de tributos antigos com IBS/CBS e permitida apenas nas operacoes normais em que a documentacao permitir.
+- Credito/debito enviam somente `impostos.ibs_cbs` nos itens e bloqueiam ICMS, ISSQN, IPI, II, PIS, COFINS, ICMS UF Destino e imposto devolvido.
+- Classe fiscal NF-e com IBS/CBS persiste `situacao_tributaria`, `classificacao_tributaria` e grupos condicionais.
+- Regime tributario de `WebmaniaCompany` participa da validacao quando aplicavel, mas nao substitui a classificacao tributaria.
+- Usuario sem permissao administrativa nao altera configuracao IBS/CBS.
+- Usuario de outra oficina nao visualiza nem usa classe IBS/CBS de outra oficina.
+- Payload/log sanitizados nao expoem credenciais, certificado, CSC, tokens ou headers.
+
+Testes por subfase:
+
+| Subfase | Testes obrigatorios |
+| ------- | ------------------- |
+| 2.4A | Criar/editar classe NF-e com IBS/CBS; validar situacao/classificacao; bloquear classe incompleta; permissao e cross-workshop. |
+| 2.4B | NF-e/NFC-e normal com IBS/CBS; bloqueio producao sem configuracao; homologacao controlada; snapshot do payload. |
+| 2.4C | Devolucao/estorno, complementar preco/quantidade e ajuste com regra propria; nenhum derivado altera original; `uncertain` preserva payload. |
+| 2.4D | Evento IBS/CBS e cancelamento com sequencia/idempotencia; webhook duplicado/fora de ordem; permissao restrita. |
+| 2.4E | Credito/debito com `finalidade=5/6`; tipos oficiais; tributos incompatíveis bloqueados antes do gateway; feature flag/habilitacao por oficina. |
+
+Resultado da Fase 2.4A+B:
+
+- Classes `FiscalPhaseTwoIbsCbsTaxClassTests` e `FiscalPhaseTwoIbsCbsNormalEmissionTests` cobrem validacao de situacao/classificacao, condicionais `620`/`811`, chave JSON desconhecida, sincronizacao de classe com `ibs_cbs`, permissao administrativa, escopo por oficina, bloqueio NF-e/NFC-e sem classe pronta, homologacao exigindo configuracao e preservacao de idempotencia.
+- A validacao direcionada executada com as fases fiscais anteriores totalizou 99 testes aprovados.
+
+Impacto operacional:
+
+- Antes de liberar nova emissao em producao, executar testes direcionados das fases 1, 2.1, 2.2A, 2.2B.1, 2.2C, 2.3.1, 2.3.2, 2.3.3 e a classe da subfase 2.4.
+- Rodar `makemigrations finance --check --dry-run`, `ruff check` nos Python tocados e `git diff --check`.
