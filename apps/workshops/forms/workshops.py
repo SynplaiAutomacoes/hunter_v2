@@ -343,6 +343,8 @@ class WorkshopAddressSectionForm(BaseWebmaniaCompanySectionForm):
 
 
 class WorkshopFiscalSectionForm(BaseWebmaniaCompanySectionForm):
+    secret_fields = ("nfce_id_csc", "nfce_codigo_csc", "nfce_id_csc_dev", "nfce_codigo_csc_dev")
+
     class Meta:
         model = WebmaniaCompany
         fields = [
@@ -376,11 +378,11 @@ class WorkshopFiscalSectionForm(BaseWebmaniaCompanySectionForm):
             "nfce_enabled": CheckboxInput(),
             "nfce_serie": NumberInput(),
             "nfce_numero": NumberInput(),
-            "nfce_id_csc": TextInput(),
-            "nfce_codigo_csc": TextInput(),
+            "nfce_id_csc": PasswordInput(),
+            "nfce_codigo_csc": PasswordInput(),
             "nfce_numero_dev": NumberInput(),
-            "nfce_id_csc_dev": TextInput(),
-            "nfce_codigo_csc_dev": TextInput(),
+            "nfce_id_csc_dev": PasswordInput(),
+            "nfce_codigo_csc_dev": PasswordInput(),
             "nfse_rps_serie": TextInput(),
             "nfse_rps_numero": NumberInput(),
             "nfse_lote_rps_numero": NumberInput(),

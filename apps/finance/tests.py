@@ -2387,6 +2387,49 @@ class WebmaniaCompanyUpdateFormTests(TestCase):
         self.assertEqual(decrypt_secret(kept_company.certificado), "CERT_ANTIGO")
         self.assertEqual(decrypt_secret(kept_company.certificado_senha), "SENHA_ANTIGA")
 
+    def test_nfce_csc_fields_are_secret_and_preserved_when_blank(self) -> None:
+        self.company.nfce_id_csc = encrypt_secret("CSC-ID-ANTIGO")
+        self.company.nfce_codigo_csc = encrypt_secret("CSC-CODIGO-ANTIGO")
+        self.company.nfce_id_csc_dev = encrypt_secret("CSC-ID-DEV-ANTIGO")
+        self.company.nfce_codigo_csc_dev = encrypt_secret("CSC-CODIGO-DEV-ANTIGO")
+        self.company.save(update_fields=["nfce_id_csc", "nfce_codigo_csc", "nfce_id_csc_dev", "nfce_codigo_csc_dev"])
+
+        form = WebmaniaCompanyUpdateForm(
+            data={
+                "email": "contato@empresa.com",
+                "cnpj": "11.222.333/0001-81",
+                "razao_social": "Empresa Teste",
+                "nfce_id_csc": "",
+                "nfce_codigo_csc": "",
+                "nfce_id_csc_dev": "",
+                "nfce_codigo_csc_dev": "",
+            },
+            instance=self.company,
+        )
+
+        self.assertEqual(form.initial.get("nfce_id_csc"), "")
+        self.assertNotIn("CSC-CODIGO-ANTIGO", form.as_p())
+        self.assertTrue(form.is_valid(), msg=form.errors)
+        kept_company = form.save()
+        self.assertEqual(decrypt_secret(kept_company.nfce_id_csc), "CSC-ID-ANTIGO")
+        self.assertEqual(decrypt_secret(kept_company.nfce_codigo_csc), "CSC-CODIGO-ANTIGO")
+        self.assertEqual(decrypt_secret(kept_company.nfce_id_csc_dev), "CSC-ID-DEV-ANTIGO")
+        self.assertEqual(decrypt_secret(kept_company.nfce_codigo_csc_dev), "CSC-CODIGO-DEV-ANTIGO")
+
+        update_form = WebmaniaCompanyUpdateForm(
+            data={
+                "email": "contato@empresa.com",
+                "cnpj": "11.222.333/0001-81",
+                "razao_social": "Empresa Teste",
+                "nfce_codigo_csc": "CSC-CODIGO-NOVO",
+            },
+            instance=kept_company,
+        )
+        self.assertTrue(update_form.is_valid(), msg=update_form.errors)
+        updated_company = update_form.save()
+        self.assertTrue(is_encrypted_secret(updated_company.nfce_codigo_csc))
+        self.assertEqual(decrypt_secret(updated_company.nfce_codigo_csc), "CSC-CODIGO-NOVO")
+
     @override_settings(WEBMANIA_AMBIENT="1")
     def test_hides_homolog_fields_when_not_in_homolog_environment(self) -> None:
         form = WebmaniaCompanyUpdateForm(instance=self.company)
@@ -2444,6 +2487,27 @@ class WebmaniaCompanyDetailViewTests(TestCase):
         consumer_key_field = next(field for field in credential_fields if str(field.get("label") or "") == "Consumer Key")
         self.assertTrue(bool(consumer_key_field.get("has_value")))
         self.assertEqual(str(consumer_key_field.get("value") or ""), "ck_real")
+
+    def test_detail_and_workshop_update_do_not_render_nfce_csc_plaintext(self) -> None:
+        company = WebmaniaCompany.objects.create(
+            workshop=self.workshop,
+            webmania_company_id="D-CSC",
+            nfce_enabled=True,
+            nfce_id_csc=encrypt_secret("CSC-ID-HTML"),
+            nfce_codigo_csc=encrypt_secret("CSC-CODIGO-HTML"),
+            nfce_id_csc_dev=encrypt_secret("CSC-ID-DEV-HTML"),
+            nfce_codigo_csc_dev=encrypt_secret("CSC-CODIGO-DEV-HTML"),
+        )
+
+        detail_response = self.client.get(reverse("finance:webmania_company_detail", kwargs={"pk": company.pk}))
+        workshop_response = self.client.get(reverse("workshops:update", kwargs={"pk": self.workshop.pk}) + "?tab=nota_fiscal&nf_tab=nfce")
+
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(workshop_response.status_code, 200)
+        for secret_value in ("CSC-ID-HTML", "CSC-CODIGO-HTML", "CSC-ID-DEV-HTML", "CSC-CODIGO-DEV-HTML"):
+            self.assertNotContains(detail_response, secret_value)
+            self.assertNotContains(workshop_response, secret_value)
+        self.assertContains(detail_response, "Configurado")
 
     @override_settings(WEBMANIA_AMBIENT="1")
     def test_detail_view_hides_homolog_fields_outside_homolog_environment(self) -> None:

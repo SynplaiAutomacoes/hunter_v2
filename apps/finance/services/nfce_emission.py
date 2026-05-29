@@ -16,6 +16,7 @@ from apps.finance.services.emission import build_webmania_webhook_url
 from apps.finance.services.fiscal_attempts import FiscalEmissionAttemptBlocked, begin_emission_attempt, build_fiscal_document_operation_idempotency_key, build_payload_hash, mark_attempt_failed, mark_attempt_sent, mark_attempt_succeeded, mark_attempt_uncertain, sanitize_fiscal_payload
 from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting, should_use_global_webmania_auth
 from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+from apps.finance.services.webmania_secrets import decrypt_secret
 
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,8 @@ def _company_for_workshop(*, workshop: Any) -> WebmaniaCompany | None:
 
 def _require_company_field(company: WebmaniaCompany, field_name: str, label: str) -> Any:
     value = getattr(company, field_name, None)
+    if field_name in {"nfce_id_csc", "nfce_codigo_csc", "nfce_id_csc_dev", "nfce_codigo_csc_dev"}:
+        value = decrypt_secret(value)
     if value in (None, ""):
         raise NfceEmissionError(f"Configure {label} da NFC-e antes de emitir.")
     return value

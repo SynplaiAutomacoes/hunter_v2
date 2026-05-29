@@ -156,6 +156,10 @@ class WebmaniaCompanyDetailView(LoginRequiredMixin, DirectorWorkshopAccessMixin,
             "value": normalized_value,
         }
 
+    @classmethod
+    def _configured_secret_status_field(cls, label: str, value: object) -> dict[str, str]:
+        return cls._regular_field(label, "Configurado" if decrypt_secret(value).strip() else "-")
+
     def _get_company(self) -> WebmaniaCompany:
         workshop_account_id = getattr(self.workshop, "account_id", None)
         return get_object_or_404(
@@ -182,8 +186,8 @@ class WebmaniaCompanyDetailView(LoginRequiredMixin, DirectorWorkshopAccessMixin,
             self._regular_field("NFC-e habilitada", company.nfce_enabled),
             self._regular_field("NFC-e Série", company.nfce_serie),
             self._regular_field("NFC-e Número", company.nfce_numero),
-            self._regular_field("NFC-e ID CSC", company.nfce_id_csc),
-            self._regular_field("NFC-e Código CSC", company.nfce_codigo_csc),
+            self._configured_secret_status_field("NFC-e ID CSC", company.nfce_id_csc),
+            self._configured_secret_status_field("NFC-e Código CSC", company.nfce_codigo_csc),
             self._regular_field("CNAE", company.cnae),
             self._regular_field("CNAE ISSQN", company.cnae_issqn),
             self._regular_field("Partilha ICMS contribuinte", company.partilha_icms_contribuinte),
@@ -207,8 +211,8 @@ class WebmaniaCompanyDetailView(LoginRequiredMixin, DirectorWorkshopAccessMixin,
             fiscal_fields[11:11] = [self._regular_field("NF-e Número Homologação", company.nfe_numero_dev)]
             fiscal_fields[15:15] = [
                 self._regular_field("NFC-e Número Homologação", company.nfce_numero_dev),
-                self._regular_field("NFC-e ID CSC Homologação", company.nfce_id_csc_dev),
-                self._regular_field("NFC-e Código CSC Homologação", company.nfce_codigo_csc_dev),
+                self._configured_secret_status_field("NFC-e ID CSC Homologação", company.nfce_id_csc_dev),
+                self._configured_secret_status_field("NFC-e Código CSC Homologação", company.nfce_codigo_csc_dev),
             ]
 
         context.update(

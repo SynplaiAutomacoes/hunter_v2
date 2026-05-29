@@ -8,8 +8,8 @@
 - Aprovar politica final de permissoes fiscais para novas operacoes Fase 2.2+; Fase 2.1 nao concedeu emissao CC-e por fallback legado.
 - Evoluir `FiscalEmissionAttempt` minimo para dominio unificado futuro.
 - Politica final de permissoes fiscais.
-- Aprovar explicitamente a Fase 2.3 funcional antes de qualquer codigo NFC-e.
-- Confirmar politica de habilitacao NFC-e por oficina usando configuracao existente em `WebmaniaCompany`.
+- Fase 2.3.1 validada somente para NFC-e manual simples; aprovar explicitamente contingencia/offline, cancelamento por substituicao, PDV/TEF/SAT/MFE ou novas origens antes de qualquer codigo.
+- Avaliar migration futura de criptografia/backfill para valores CSC antigos que possam ter sido armazenados em texto puro antes da Fase 2.3.1; formularios atuais nao exibem os valores e criptografam novos envios.
 - Prioridade real de CT-e/MDF-e para oficinas.
 - Se NFCom deve ficar apenas manual.
 - Criterios de ativacao de NFCom beta.

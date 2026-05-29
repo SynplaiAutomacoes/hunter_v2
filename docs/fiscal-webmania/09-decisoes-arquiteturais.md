@@ -206,17 +206,17 @@
 - Alternativas consideradas: reutilizar `NfeRequest` com flag de modelo; criar `NfceRequest`; implementar NFC-e apenas como payload manual sem documento local.
 - Consequencias: separa NF-e e NFC-e no dominio, reduz risco de confundir numeracao/status e aproxima a Fase 8.
 - Riscos: telas legadas de NF-e nao podem ser reaproveitadas sem filtros rigorosos por `document_type`.
-- Status: proposta na Fase 2.3.0.
+- Status: implementada e validada na Fase 2.3.1 para emissao manual simples.
 - Fase: 2.3.
 
 ## ADR-027 - Configuracao NFC-e reutiliza `WebmaniaCompany`
 
-- Contexto: o codigo atual ja possui `nfce_serie`, `nfce_numero`, `nfce_id_csc`, `nfce_codigo_csc`, `nfce_numero_dev`, `nfce_id_csc_dev` e `nfce_codigo_csc_dev` em `WebmaniaCompany` e forms de oficina/empresa, mas nao possuia flag explicita de habilitacao.
-- Decisao: usar esses campos como gate local de NFC-e e adicionar somente `WebmaniaCompany.nfce_enabled` como flag explicita por oficina. Nao criar model/configuracao paralela na primeira subfase funcional.
+- Contexto: o codigo atual ja possui `nfce_serie`, `nfce_numero`, `nfce_id_csc`, `nfce_codigo_csc`, `nfce_numero_dev`, `nfce_id_csc_dev` e `nfce_codigo_csc_dev` em `WebmaniaCompany` e forms de oficina/empresa, mas nao possuia flag explicita de habilitacao nem protecao suficiente de CSC em HTML/formularios.
+- Decisao: usar esses campos como gate local de NFC-e, adicionar somente `WebmaniaCompany.nfce_enabled` como flag explicita por oficina, tratar CSC/ID CSC como segredos nos formularios e ampliar os campos CSC para 255 caracteres para suportar criptografia local. Nao criar model/configuracao paralela na primeira subfase funcional.
 - Alternativas consideradas: criar `WorkshopNfceConfig`; guardar CSC em settings; inferir configuracao por resposta remota.
-- Consequencias: menor ruptura, reaproveitamento da UI/configuracao existente e bloqueio operacional por padrao ate habilitacao administrativa explicita.
-- Riscos: os campos atuais podem precisar de validação mais forte e mascaramento/sanitizacao de CSC antes da implementacao funcional.
-- Status: proposta na Fase 2.3.0.
+- Consequencias: menor ruptura, reaproveitamento da UI/configuracao existente, bloqueio operacional por padrao ate habilitacao administrativa explicita e ausencia de CSC em payload/HTML visivel.
+- Riscos: valores antigos em texto puro permanecem legiveis pelo backend ate serem substituidos; os formularios nao os exibem e preservam valor quando campo fica vazio.
+- Status: implementada e validada na Fase 2.3.1.
 - Fase: 2.3.
 
 ## ADR-015 - Fase 2 dividida em subfases obrigatorias

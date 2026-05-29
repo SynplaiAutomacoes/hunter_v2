@@ -55,7 +55,7 @@ def _format_decimal(value: Decimal, *, places: int = 2) -> str:
 
 
 class WebmaniaCompanyUpdateForm(CoreModelForm):
-    secret_fields = ("nfse_password", "nfse_token", "certificado", "certificado_senha")
+    secret_fields = ("nfse_password", "nfse_token", "certificado", "certificado_senha", "nfce_id_csc", "nfce_codigo_csc", "nfce_id_csc_dev", "nfce_codigo_csc_dev")
     nullable_boolean_fields = (
         "partilha_icms_contribuinte",
         "partilha_icms_isento",
@@ -170,10 +170,10 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
             "cidade": TextInput(),
             "uf": TextInput(),
             "cnae_issqn": TextInput(),
-            "nfce_id_csc": TextInput(),
-            "nfce_codigo_csc": TextInput(),
-            "nfce_id_csc_dev": TextInput(),
-            "nfce_codigo_csc_dev": TextInput(),
+            "nfce_id_csc": PasswordInput(),
+            "nfce_codigo_csc": PasswordInput(),
+            "nfce_id_csc_dev": PasswordInput(),
+            "nfce_codigo_csc_dev": PasswordInput(),
             "informacoes_fisco": TextareaInput(rows=3),
             "nfse_rps_serie": TextInput(),
             "cnae": TextInput(),

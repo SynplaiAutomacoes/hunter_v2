@@ -34,4 +34,24 @@ class Migration(migrations.Migration):
             name='operation_type',
             field=models.CharField(choices=[('emission', 'Emissao'), ('cce', 'Carta de correcao'), ('return', 'Devolucao'), ('reversal', 'Estorno'), ('complementary_price_quantity', 'Complementar preco/quantidade'), ('adjustment', 'Ajuste'), ('nfce_emission', 'Emissao NFC-e')], db_index=True, default='emission', max_length=32),
         ),
+        migrations.AlterField(
+            model_name='webmaniacompany',
+            name='nfce_codigo_csc',
+            field=models.CharField(blank=True, default='', max_length=255, verbose_name='Código CSC NFC-e'),
+        ),
+        migrations.AlterField(
+            model_name='webmaniacompany',
+            name='nfce_codigo_csc_dev',
+            field=models.CharField(blank=True, default='', max_length=255, verbose_name='Código CSC NFC-e homologação'),
+        ),
+        migrations.AlterField(
+            model_name='webmaniacompany',
+            name='nfce_id_csc',
+            field=models.CharField(blank=True, default='', max_length=255, verbose_name='ID CSC NFC-e'),
+        ),
+        migrations.AlterField(
+            model_name='webmaniacompany',
+            name='nfce_id_csc_dev',
+            field=models.CharField(blank=True, default='', max_length=255, verbose_name='ID CSC NFC-e homologação'),
+        ),
     ]
