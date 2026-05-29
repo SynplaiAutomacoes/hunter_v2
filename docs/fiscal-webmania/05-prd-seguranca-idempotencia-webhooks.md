@@ -302,3 +302,14 @@ Regras:
 - Webhook `modelo=nfce` com status de cancelamento tenta resolver evento de cancelamento antes de atualizar a NFC-e normal.
 - Associacao ambigua e rejeitada; webhook duplicado e idempotente por fingerprint.
 - CSC, tokens e credenciais continuam fora de payloads/logs persistidos.
+
+## Atualizacao Fase 2.3.3 - Inutilizacao NFC-e
+
+- A inutilizacao NFC-e nao usa `FiscalDocumentEvent`, pois nao existe NFC-e emitida a cancelar.
+- A intencao persistente e `FiscalNumberInutilization`, escopada por oficina, ambiente, serie e faixa.
+- A tentativa usa `FiscalEmissionAttempt(operation_type="nfce_inutilization")` associada a `FiscalNumberInutilization`.
+- Chave idempotente: `hash(workshop_id, inutilization_id, operation_type, request_generation)`.
+- Faixas com status `started`, `sent`, `succeeded` ou `uncertain` bloqueiam sobreposicao local; `failed` libera a faixa para nova decisao operacional.
+- Timeout apos possivel envio remoto marca tentativa e faixa como `uncertain` e bloqueia reenvio automatico.
+- A documentacao oficial consultada nao confirmou `url_notificacao` nem endpoint especifico de consulta para inutilizacao; portanto, a Fase 2.3.3 nao inventa webhook/reconciliacao remota para essa operacao.
+- A validacao local impede conflito apenas com documentos/faixas conhecidos pelo Hunter; a UI exige confirmacao de que numeros usados fora do Hunter dependem da aceitacao remota/SEFAZ.

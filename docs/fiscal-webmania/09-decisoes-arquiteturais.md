@@ -229,6 +229,16 @@
 - Status: implementada e validada na Fase 2.3.2.
 - Fase: 2.3.2.
 
+## ADR-029 - Inutilizacao NFC-e usa entidade propria de faixa
+
+- Contexto: inutilizacao de numeracao comunica a SEFAZ/Webmania que um numero ou intervalo nao sera utilizado. Diferente de cancelamento, nao existe NFC-e emitida a ser cancelada e, portanto, nao ha documento fiscal original ao qual vincular um evento.
+- Decisao: criar `FiscalNumberInutilization` para representar a faixa inutilizada, escopada por oficina, documento `nfce`, ambiente e serie. A idempotencia usara `FiscalEmissionAttempt(operation_type="nfce_inutilization")` associado a essa entidade. A Fase 2.3.3 usa somente `modelo=2`; embora o contrato aceite `modelo=1`, inutilizacao funcional de NF-e fica fora de escopo.
+- Alternativas consideradas: modelar como `FiscalDocumentEvent` de uma NFC-e existente; criar `FiscalDocument` ficticio para numeros nao emitidos; implementar inutilizacao NF-e/NFC-e generica no mesmo fluxo.
+- Consequencias: a modelagem evita confundir inutilizacao com cancelamento, permite bloquear faixas sobrepostas e preserva compatibilidade com futuras operacoes NF-e sem expor funcionalidade nao autorizada.
+- Riscos: a validacao local nao garante que a faixa nao tenha sido usada fora do Hunter; a UI deve exigir confirmacao explicita dessa limitacao e a resposta remota permanece a fonte final.
+- Status: implementada e validada na Fase 2.3.3.
+- Fase: 2.3.3.
+
 ## ADR-015 - Fase 2 dividida em subfases obrigatorias
 
 - Contexto: NF-e/NFC-e adicional combina eventos simples, documentos derivados, novo modelo NFC-e e eventos tributarios avancados.

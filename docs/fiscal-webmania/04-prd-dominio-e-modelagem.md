@@ -320,3 +320,13 @@ Origem operacional 1:N FiscalDocument(nfce)
 - `FiscalDocumentLink` nao e usado para cancelamento padrao.
 - A NFC-e original so altera `status` para `cancelado` apos resposta remota, webhook ou reconciliacao valida.
 - A migration da fase altera somente choices/permissoes; nao ha backfill nem alteracao destrutiva do legado.
+
+## Atualizacao Fase 2.3.3 - Modelagem da Inutilizacao NFC-e
+
+- Inutilizacao nao e evento de documento emitido; representa numero ou intervalo que nao deve existir como NFC-e.
+- Entidade criada: `FiscalNumberInutilization`.
+- Campos principais: oficina, conta, `document_type="nfce"`, ambiente, serie, sequencia inicial/final, motivo, status local, status remoto, payload enviado sanitizado, resposta sanitizada, UUID/protocolo/XML quando retornados, solicitante e timestamps.
+- `FiscalEmissionAttempt` foi estendido com FK opcional para `FiscalNumberInutilization` e `operation_type="nfce_inutilization"`.
+- Constraints/indices: check `sequence_start <= sequence_end`, indice de escopo/status por oficina-modelo-ambiente-serie e indice de faixa por oficina-modelo-ambiente-serie-inicio-fim.
+- Sobreposicao de faixas e bloqueio contra NFC-e local conhecida sao garantidos por service transacional com lock da configuracao `WebmaniaCompany` da oficina.
+- `FiscalDocument`, `FiscalDocumentEvent`, `FiscalDocumentLink` e `NfeItem` nao sao criados nem alterados pela inutilizacao NFC-e.

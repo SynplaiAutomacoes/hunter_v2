@@ -2,6 +2,7 @@ import logging
 
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.utils import timezone
 
 from apps.core.models import TimeStampedModel
 from apps.finance.services.webmania_status import normalize_nfe_request_status, normalize_nfse_request_status
@@ -110,6 +111,7 @@ class FiscalEmissionOperationType(models.TextChoices):
     ADJUSTMENT = "adjustment", "Ajuste"
     NFCE_EMISSION = "nfce_emission", "Emissao NFC-e"
     NFCE_CANCELLATION = "nfce_cancellation", "Cancelamento NFC-e"
+    NFCE_INUTILIZATION = "nfce_inutilization", "Inutilizacao NFC-e"
 
 
 class FiscalDocumentType(models.TextChoices):
@@ -167,6 +169,14 @@ class FiscalDocumentEventStatus(models.TextChoices):
     REPROVED = "reprovado", "Reprovado"
     FAILED = "failed", "Falhou"
     UNCERTAIN = "uncertain", "Incerto"
+
+
+class FiscalNumberInutilizationStatus(models.TextChoices):
+    STARTED = "started", "Iniciada"
+    SENT = "sent", "Enviada"
+    SUCCEEDED = "succeeded", "Concluida"
+    FAILED = "failed", "Falhou"
+    UNCERTAIN = "uncertain", "Incerta"
 
 
 class TaxClassNfe(TimeStampedModel):
@@ -865,6 +875,46 @@ class WebmaniaWebhookEvent(TimeStampedModel):
         return f"Webhook[{self.model}:{self.event_uuid or '-'}]"
 
 
+class FiscalNumberInutilization(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="fiscal_number_inutilizations")
+    account = models.ForeignKey("accounts.Account", verbose_name="Conta", on_delete=models.PROTECT, null=True, blank=True, related_name="fiscal_number_inutilizations")
+    document_type = models.CharField(max_length=12, choices=FiscalDocumentType.choices, default=FiscalDocumentType.NFCE, db_index=True)
+    environment = models.CharField(max_length=2, db_index=True)
+    series = models.CharField(max_length=10, db_index=True)
+    sequence_start = models.PositiveIntegerField()
+    sequence_end = models.PositiveIntegerField()
+    reason = models.TextField()
+    status = models.CharField(max_length=20, choices=FiscalNumberInutilizationStatus.choices, default=FiscalNumberInutilizationStatus.STARTED, db_index=True)
+    remote_status = models.CharField(max_length=64, blank=True, default="")
+    request_payload = models.JSONField(blank=True, default=dict)
+    response_payload = models.JSONField(blank=True, default=dict)
+    remote_uuid = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    protocol = models.CharField(max_length=80, blank=True, default="")
+    xml_url = models.URLField(blank=True, default="")
+    requested_by = models.ForeignKey("accounts.User", verbose_name="Solicitante", on_delete=models.SET_NULL, null=True, blank=True, related_name="fiscal_number_inutilizations")
+    requested_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.CheckConstraint(condition=models.Q(sequence_start__lte=models.F("sequence_end")), name="valid_fiscal_number_inutilization_range"),
+        ]
+        indexes = [
+            models.Index(fields=["workshop", "document_type", "environment", "series", "status"], name="fiscal_inutil_scope_status_idx"),
+            models.Index(fields=["workshop", "document_type", "environment", "series", "sequence_start", "sequence_end"], name="fiscal_inutil_range_idx"),
+        ]
+        permissions = [
+            ("inutilize_nfce_numbering", "Pode inutilizar numeracao NFC-e"),
+            ("view_nfce_inutilization", "Pode visualizar inutilizacao NFC-e"),
+            ("download_nfce_inutilization", "Pode baixar XML de inutilizacao NFC-e"),
+            ("view_nfce_inutilization_payload", "Pode visualizar payload de inutilizacao NFC-e"),
+        ]
+
+    def __str__(self) -> str:
+        sequence = str(self.sequence_start) if self.sequence_start == self.sequence_end else f"{self.sequence_start}-{self.sequence_end}"
+        return f"FiscalNumberInutilization[{self.document_type}:{self.series}:{sequence}:{self.status}]"
+
+
 class FiscalEmissionAttempt(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="fiscal_emission_attempts")
     document_kind = models.CharField(max_length=12, choices=FiscalEmissionDocumentKind.choices)
@@ -873,6 +923,7 @@ class FiscalEmissionAttempt(TimeStampedModel):
     request_id = models.PositiveIntegerField()
     fiscal_document = models.ForeignKey(FiscalDocument, verbose_name="Documento fiscal", on_delete=models.SET_NULL, null=True, blank=True, related_name="emission_attempts")
     fiscal_document_event = models.ForeignKey(FiscalDocumentEvent, verbose_name="Evento fiscal", on_delete=models.SET_NULL, null=True, blank=True, related_name="emission_attempts")
+    fiscal_number_inutilization = models.ForeignKey(FiscalNumberInutilization, verbose_name="Inutilizacao de numeracao", on_delete=models.SET_NULL, null=True, blank=True, related_name="emission_attempts")
     idempotency_key = models.CharField(max_length=160)
     payload_hash = models.CharField(max_length=64, blank=True, default="")
     status = models.CharField(max_length=20, choices=FiscalEmissionAttemptStatus.choices, default=FiscalEmissionAttemptStatus.STARTED, db_index=True)
@@ -894,6 +945,7 @@ class FiscalEmissionAttempt(TimeStampedModel):
             models.Index(fields=["request_model", "request_id"]),
             models.Index(fields=["operation_type", "status"]),
             models.Index(fields=["fiscal_document_event"]),
+            models.Index(fields=["fiscal_number_inutilization"]),
         ]
 
     def __str__(self) -> str:

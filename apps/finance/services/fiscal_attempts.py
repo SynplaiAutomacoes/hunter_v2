@@ -8,7 +8,7 @@ from typing import Any
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from apps.finance.models.finance import FiscalDocument, FiscalDocumentEvent, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionOperationType
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentEvent, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionOperationType, FiscalNumberInutilization
 
 
 SENSITIVE_PAYLOAD_KEYS = {
@@ -90,6 +90,7 @@ def begin_emission_attempt(
     operation_type: str = FiscalEmissionOperationType.EMISSION,
     fiscal_document: FiscalDocument | None = None,
     fiscal_document_event: FiscalDocumentEvent | None = None,
+    fiscal_number_inutilization: FiscalNumberInutilization | None = None,
     payload_hash: str = "",
 ) -> FiscalEmissionAttempt:
     idempotency_key = idempotency_key or build_fiscal_idempotency_key(document_kind=document_kind, request_id=request_id)
@@ -108,6 +109,7 @@ def begin_emission_attempt(
                     "operation_type": operation_type,
                     "fiscal_document": fiscal_document,
                     "fiscal_document_event": fiscal_document_event,
+                    "fiscal_number_inutilization": fiscal_number_inutilization,
                     "request_payload": sanitized_payload,
                     "payload_hash": payload_hash,
                     "status": FiscalEmissionAttemptStatus.STARTED,

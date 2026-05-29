@@ -203,3 +203,18 @@ Cobertura adicionada:
 - reconciliacao consulta cancelamento incerto sem reenviar;
 - permissao `cancel_nfce`, cross-workshop e download de XML de cancelamento sao protegidos;
 - payload/log permanecem sanitizados e sem segredos.
+
+## Atualizacao Fase 2.3.3 - Testes de Inutilizacao NFC-e
+
+Testes direcionados adicionados/obrigatorios:
+- Body remoto contem somente `sequencia`, `motivo`, `ambiente`, `serie` e `modelo=2`.
+- Campos de cancelamento, substituicao, contingencia/offline, pedido e pagamento nao entram no payload.
+- Motivo, ambiente, serie e intervalo invalidos sao bloqueados antes do gateway.
+- `FiscalNumberInutilization` e criado; `FiscalDocument`, `FiscalDocumentEvent` e `NfeItem` nao sao criados/alterados.
+- Faixa com NFC-e local aprovada, cancelada, denegada ou `uncertain` e bloqueada.
+- Faixa sobreposta a inutilizacao `succeeded` ou `uncertain` e bloqueada; faixa sobreposta a `failed` pode ser reavaliada.
+- Concorrencia da mesma faixa ou de faixas sobrepostas transmite apenas uma chamada remota.
+- Timeout gera `uncertain`, preserva payload e reserva a faixa.
+- Rejeicao remota com XML nao e convertida em sucesso.
+- Permissao, cross-workshop, download e payload sanitizado sao verificados.
+- Reconcilacao nao reenvia inutilizacao e nao altera NFC-e emitida.

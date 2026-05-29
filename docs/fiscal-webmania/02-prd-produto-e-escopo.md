@@ -253,3 +253,22 @@ Aceite funcional futuro:
 - A NFC-e original muda para `cancelado` somente apos resposta, webhook ou reconciliacao valida de cancelamento.
 - O cancelamento e registrado como evento fiscal, com XML de cancelamento protegido por permissao e oficina ativa.
 - Permanecem fora de escopo: contingencia/offline, inutilizacao NFC-e, PDV/TEF/SAT/MFE, IBS/CBS, manifestacao, credito/debito e complementar tributaria.
+
+## Atualizacao Fase 2.3.3 - Inutilizacao de Numeracao NFC-e
+
+A Fase 2.3.3 implementa inutilizacao manual de numeracao NFC-e para comunicar quebra de sequencia por `PUT /1/nfe/inutilizar/` com `modelo=2`.
+
+Escopo funcional:
+- usuario autorizado informa ambiente, serie, numero unico ou intervalo e motivo;
+- sistema valida configuracao NFC-e da oficina, formato de faixa e conflitos locais;
+- sistema cria registro proprio de inutilizacao antes da chamada remota;
+- tentativa idempotente impede dupla transmissao por retry/concorrencia;
+- `uncertain` reserva a faixa ate decisao administrativa segura;
+- historico/listagem de inutilizacoes fica separado das NFC-e emitidas.
+
+Fora de escopo:
+- inutilizacao funcional de NF-e (`modelo=1`);
+- cancelamento por substituicao;
+- contingencia/offline;
+- validacao global de uso da faixa fora do Hunter;
+- webhook/reconciliacao remota de inutilizacao sem contrato oficial confirmado.

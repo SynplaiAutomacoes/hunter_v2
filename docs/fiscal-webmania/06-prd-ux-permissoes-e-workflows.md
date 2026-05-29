@@ -175,3 +175,15 @@ Nao criar central fiscal completa na primeira subfase funcional de NFC-e.
 - A listagem mostra status do evento e download de XML de cancelamento quando disponivel.
 - Downloads usam `download_nfce` e continuam escopados pela oficina ativa.
 - A interface informa que cancelamento por substituicao, contingencia/offline e PDV/TEF/SAT/MFE permanecem fora de escopo.
+
+## Atualizacao Fase 2.3.3 - UX e Permissoes de Inutilizacao NFC-e
+
+- UI minima adicionada ao fluxo/listagem NFC-e: acao "Inutilizar numeracao NFC-e", formulario de ambiente, serie, sequencia inicial/final e motivo.
+- O formulario exige confirmacao explicita de que a verificacao local nao cobre uso externo ao Hunter.
+- A listagem mostra historico de inutilizacoes separado das NFC-e emitidas, reforcando que inutilizacao nao e cancelamento.
+- Permissoes especificas:
+  - `inutilize_nfce_numbering`: transmitir inutilizacao.
+  - `view_nfce_inutilization`: visualizar registro de inutilizacao.
+  - `download_nfce_inutilization`: baixar XML retornado.
+  - `view_nfce_inutilization_payload`: visualizar payload sanitizado.
+- `issue_nfce` e `cancel_nfce` nao concedem inutilizacao automaticamente.

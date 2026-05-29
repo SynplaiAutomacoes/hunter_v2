@@ -214,3 +214,15 @@ A versao validada para implementacao futura esta em `api/webmania_fiscal_openapi
 | NFC-e | Cancelamento padrao | PUT | `/1/nfe/cancelar/` | API v1 com quatro headers Webmania | `chave` ou `uuid`, `motivo` | `status=cancelado`, `xml`, `log` sanitizado | XML de cancelamento por URL retornada | `modelo=nfce`, `status=cancelado` resolve evento/documento | 2.3.2 validada |
 
 Observacao: `nfce_referenciada` ativa cancelamento por substituicao e e explicitamente proibido na Fase 2.3.2.
+
+## Atualizacao Fase 2.3.3 - Inutilizacao de Numeracao NFC-e
+
+| Documento | Operacao | Metodo | Endpoint | Autenticacao | Body principal | Resposta principal | Downloads | Webhook | Fase |
+| --------- | -------- | ------ | -------- | ------------ | -------------- | ------------------ | --------- | ------- | ---- |
+| NFC-e | Inutilizacao de numeracao | PUT | `/1/nfe/inutilizar/` | API v1 com quatro headers Webmania | `sequencia`, `motivo`, `ambiente`, `serie`, `modelo=2` | `status`/log remoto, `xml` quando retornado; payload integral sanitizado | XML de inutilizacao quando retornado | Nao documentado para esta operacao | 2.3.3 implementada |
+
+Observacoes:
+- A documentacao textual cita inutilizacao de numeracao de NF-e, mas o contrato inclui `modelo=1` para NF-e e `modelo=2` para NFC-e.
+- A Fase 2.3.3 implementa somente `modelo=2`; nenhuma view, form ou service funcional de inutilizacao NF-e foi criado.
+- O body nao envia `nfce_referenciada`, dados de cancelamento, contingencia/offline, documento emitido, produtos, pedido ou pagamento.
+- Sem webhook ou consulta especifica confirmada para inutilizacao, o Hunter persiste resposta sincrona sanitizada. Estado `uncertain` permanece reservado ate decisao administrativa/rechecagem segura futura.

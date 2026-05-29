@@ -43,7 +43,7 @@ from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.movement_group import MovementGroup
-from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentLink, FiscalDocumentLinkRole, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, NfeItem, NfeRequest, NfeRequestStatus, NfseItem, NfseRequest, NfseRequestStatus, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentLink, FiscalDocumentLinkRole, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, FiscalNumberInutilization, FiscalNumberInutilizationStatus, NfeItem, NfeRequest, NfeRequestStatus, NfseItem, NfseRequest, NfseRequestStatus, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
@@ -79,6 +79,7 @@ from apps.finance.services.nfe_emission import (
 )
 from apps.finance.services.nfce_emission import NfceEmissionError, build_nfce_payload, create_and_emit_nfce, create_nfce_draft, transmit_nfce_document, validate_nfce_configuration
 from apps.finance.services.nfce_cancellation import NfceCancellationError, cancel_nfce_document, create_nfce_cancellation_event_attempt
+from apps.finance.services.nfce_inutilization import NfceInutilizationError, create_and_transmit_nfce_inutilization, create_nfce_inutilization_draft, transmit_nfce_inutilization
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number, reserve_nfse_request_rps_number
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
@@ -12431,5 +12432,251 @@ class FiscalPhaseTwoNfceCancellationConcurrentTests(TransactionTestCase):
                 thread.join(timeout=10)
 
         self.assertEqual(put_mock.call_count, 1)
+        self.assertEqual(results, ["sent"])
+        self.assertEqual(len(errors), 1)
+
+
+class FiscalPhaseTwoNfceInutilizationTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=76)
+        self.company = WebmaniaCompany.objects.create(
+            workshop=self.workshop,
+            webmania_company_id="NFCE-76",
+            consumer_key="ck",
+            consumer_secret="cs",
+            access_token="at",
+            access_token_secret="ats",
+            nfce_enabled=True,
+            nfce_serie=1,
+            nfce_numero=100,
+            nfce_id_csc="prod-id",
+            nfce_codigo_csc="prod-token",
+            nfce_numero_dev=200,
+            nfce_id_csc_dev="dev-id",
+            nfce_codigo_csc_dev="dev-token",
+        )
+
+    def _response(self, *, status: str = "sucesso") -> dict[str, Any]:
+        return {"modelo": "nfce", "status": status, "xml": "https://example.test/nfce-inutilizacao.xml", "log": {"token": "secret"}}
+
+    def _inutilize(self, *, start: int = 101, end: int | None = None, response_payload: dict[str, Any] | None = None) -> FiscalNumberInutilization:
+        with (
+            patch("apps.finance.services.nfce_emission._build_headers", return_value={}),
+            patch("apps.finance.services.nfce_inutilization._build_headers", return_value={}),
+            patch("apps.finance.services.nfce_inutilization.requests.put", return_value=_mock_response(response_payload or self._response())),
+        ):
+            return create_and_transmit_nfce_inutilization(workshop=self.workshop, requested_by=self.user, environment=2, series="1", sequence_start=start, sequence_end=end or start, reason="Quebra de sequencia fiscal valida", local_limitation_confirmation=True)
+
+    def test_nfce_inutilization_payload_model_and_persistence(self) -> None:
+        with (
+            patch("apps.finance.services.nfce_emission._build_headers", return_value={}),
+            patch("apps.finance.services.nfce_inutilization._build_headers", return_value={"X-Access-Token": "secret"}),
+            patch("apps.finance.services.nfce_inutilization.requests.put", return_value=_mock_response(self._response())) as put_mock,
+        ):
+            inutilization = create_and_transmit_nfce_inutilization(workshop=self.workshop, requested_by=self.user, environment=2, series="1", sequence_start=101, sequence_end=109, reason="Quebra de sequencia fiscal valida", local_limitation_confirmation=True)
+
+        sent_payload = put_mock.call_args.kwargs["json"]
+        self.assertEqual(sent_payload, {"sequencia": "101-109", "motivo": "Quebra de sequencia fiscal valida", "ambiente": "2", "serie": "1", "modelo": "2"})
+        for forbidden_key in ("nfce_referenciada", "contingencia", "offline", "pedido", "pagamento", "chave", "uuid"):
+            self.assertNotIn(forbidden_key, sent_payload)
+        self.assertEqual(inutilization.document_type, FiscalDocumentType.NFCE)
+        self.assertEqual(inutilization.status, FiscalNumberInutilizationStatus.SUCCEEDED)
+        self.assertEqual(inutilization.xml_url, "https://example.test/nfce-inutilizacao.xml")
+        self.assertNotIn("secret", str(inutilization.response_payload))
+        self.assertFalse(FiscalDocumentEvent.objects.exists())
+        self.assertFalse(FiscalDocument.objects.filter(number__in=["101", "109"]).exists())
+        self.assertFalse(NfeItem.objects.exists())
+        attempt = FiscalEmissionAttempt.objects.get(fiscal_number_inutilization=inutilization)
+        self.assertEqual(attempt.operation_type, FiscalEmissionOperationType.NFCE_INUTILIZATION)
+        self.assertEqual(attempt.status, FiscalEmissionAttemptStatus.SUCCEEDED)
+        self.assertEqual(attempt.request_payload["modelo"], "2")
+
+    def test_nfce_inutilization_blocks_invalid_contract_inputs(self) -> None:
+        with patch("apps.finance.services.nfce_emission._build_headers", return_value={}):
+            with self.assertRaisesMessage(NfceInutilizationError, "entre 15 e 255"):
+                create_nfce_inutilization_draft(workshop=self.workshop, requested_by=self.user, environment=2, series="1", sequence_start=1, sequence_end=1, reason="curto", local_limitation_confirmation=True)
+            with self.assertRaisesMessage(NfceInutilizationError, "Ambiente"):
+                create_nfce_inutilization_draft(workshop=self.workshop, requested_by=self.user, environment=3, series="1", sequence_start=1, sequence_end=1, reason="Motivo fiscal valido", local_limitation_confirmation=True)
+            with self.assertRaisesMessage(NfceInutilizationError, "serie"):
+                create_nfce_inutilization_draft(workshop=self.workshop, requested_by=self.user, environment=2, series="99", sequence_start=1, sequence_end=1, reason="Motivo fiscal valido", local_limitation_confirmation=True)
+            with self.assertRaisesMessage(NfceInutilizationError, "inicial nao pode"):
+                create_nfce_inutilization_draft(workshop=self.workshop, requested_by=self.user, environment=2, series="1", sequence_start=10, sequence_end=9, reason="Motivo fiscal valido", local_limitation_confirmation=True)
+            with self.assertRaisesMessage(NfceInutilizationError, "verificacao local"):
+                create_nfce_inutilization_draft(workshop=self.workshop, requested_by=self.user, environment=2, series="1", sequence_start=1, sequence_end=1, reason="Motivo fiscal valido", local_limitation_confirmation=False)
+
+    def test_nfce_inutilization_range_validation_blocks_local_documents_and_active_overlaps(self) -> None:
+        FiscalDocument.objects.create(workshop=self.workshop, account=self.workshop.account, document_type=FiscalDocumentType.NFCE, origin=FiscalDocumentOrigin.MANUAL, purpose=FiscalDocumentPurpose.NORMAL, environment="2", series="1", number="120", status=FiscalDocumentStatus.APPROVED)
+        FiscalDocument.objects.create(workshop=self.workshop, account=self.workshop.account, document_type=FiscalDocumentType.NFCE, origin=FiscalDocumentOrigin.MANUAL, purpose=FiscalDocumentPurpose.NORMAL, environment="2", series="1", number="121", status=FiscalDocumentStatus.CANCELED)
+        FiscalDocument.objects.create(workshop=self.workshop, account=self.workshop.account, document_type=FiscalDocumentType.NFCE, origin=FiscalDocumentOrigin.MANUAL, purpose=FiscalDocumentPurpose.NORMAL, environment="2", series="1", number="122", status=FiscalDocumentStatus.DENIED)
+        FiscalDocument.objects.create(workshop=self.workshop, account=self.workshop.account, document_type=FiscalDocumentType.NFCE, origin=FiscalDocumentOrigin.MANUAL, purpose=FiscalDocumentPurpose.NORMAL, environment="2", series="1", number="123", status=FiscalDocumentStatus.UNCERTAIN)
+        with patch("apps.finance.services.nfce_emission._build_headers", return_value={}):
+            with self.assertRaisesMessage(NfceInutilizationError, "NFC-e conhecida"):
+                create_nfce_inutilization_draft(workshop=self.workshop, requested_by=self.user, environment=2, series="1", sequence_start=119, sequence_end=123, reason="Motivo fiscal valido", local_limitation_confirmation=True)
+
+        self._inutilize(start=130, end=135)
+        FiscalNumberInutilization.objects.create(workshop=self.workshop, account=self.workshop.account, document_type=FiscalDocumentType.NFCE, environment="2", series="1", sequence_start=140, sequence_end=145, reason="Incerta", status=FiscalNumberInutilizationStatus.UNCERTAIN)
+        FiscalNumberInutilization.objects.create(workshop=self.workshop, account=self.workshop.account, document_type=FiscalDocumentType.NFCE, environment="2", series="1", sequence_start=150, sequence_end=155, reason="Falhou", status=FiscalNumberInutilizationStatus.FAILED)
+        with patch("apps.finance.services.nfce_emission._build_headers", return_value={}):
+            with self.assertRaisesMessage(NfceInutilizationError, "sobrepondo"):
+                create_nfce_inutilization_draft(workshop=self.workshop, requested_by=self.user, environment=2, series="1", sequence_start=134, sequence_end=136, reason="Motivo fiscal valido", local_limitation_confirmation=True)
+            with self.assertRaisesMessage(NfceInutilizationError, "sobrepondo"):
+                create_nfce_inutilization_draft(workshop=self.workshop, requested_by=self.user, environment=2, series="1", sequence_start=144, sequence_end=146, reason="Motivo fiscal valido", local_limitation_confirmation=True)
+            allowed = create_nfce_inutilization_draft(workshop=self.workshop, requested_by=self.user, environment=2, series="1", sequence_start=152, sequence_end=156, reason="Motivo fiscal valido", local_limitation_confirmation=True)
+        self.assertEqual(allowed.sequence_start, 152)
+
+    def test_nfce_inutilization_timeout_uncertain_blocks_retry_and_reserves_range(self) -> None:
+        with patch("apps.finance.services.nfce_emission._build_headers", return_value={}):
+            inutilization = create_nfce_inutilization_draft(workshop=self.workshop, requested_by=self.user, environment=2, series="1", sequence_start=160, sequence_end=165, reason="Motivo fiscal valido", local_limitation_confirmation=True)
+        with (
+            patch("apps.finance.services.nfce_emission._build_headers", return_value={}),
+            patch("apps.finance.services.nfce_inutilization._build_headers", return_value={}),
+            patch("apps.finance.services.nfce_inutilization.requests.put", side_effect=requests.Timeout("timeout")) as put_mock,
+        ):
+            with self.assertRaisesMessage(NfceInutilizationError, "estado remoto incerto"):
+                transmit_nfce_inutilization(inutilization=inutilization)
+            with self.assertRaisesMessage(NfceInutilizationError, "estado remoto incerto"):
+                transmit_nfce_inutilization(inutilization=inutilization)
+        self.assertEqual(put_mock.call_count, 1)
+        inutilization.refresh_from_db()
+        self.assertEqual(inutilization.status, FiscalNumberInutilizationStatus.UNCERTAIN)
+        self.assertEqual(inutilization.request_payload["sequencia"], "160-165")
+        with patch("apps.finance.services.nfce_emission._build_headers", return_value={}):
+            with self.assertRaisesMessage(NfceInutilizationError, "sobrepondo"):
+                create_nfce_inutilization_draft(workshop=self.workshop, requested_by=self.user, environment=2, series="1", sequence_start=162, sequence_end=163, reason="Motivo fiscal valido", local_limitation_confirmation=True)
+
+    def test_nfce_inutilization_rejection_with_xml_is_not_success(self) -> None:
+        response_payload = {"modelo": "nfce", "status": "rejeitado", "xml": "https://example.test/not-success.xml", "log": {"token": "secret"}}
+        with (
+            patch("apps.finance.services.nfce_emission._build_headers", return_value={}),
+            patch("apps.finance.services.nfce_inutilization._build_headers", return_value={}),
+            patch("apps.finance.services.nfce_inutilization.requests.put", return_value=_mock_response(response_payload)),
+        ):
+            with self.assertRaisesMessage(NfceInutilizationError, "rejeitada"):
+                create_and_transmit_nfce_inutilization(workshop=self.workshop, requested_by=self.user, environment=2, series="1", sequence_start=170, sequence_end=170, reason="Motivo fiscal valido", local_limitation_confirmation=True)
+        inutilization = FiscalNumberInutilization.objects.get(sequence_start=170)
+        self.assertEqual(inutilization.status, FiscalNumberInutilizationStatus.FAILED)
+
+    def test_nfce_inutilization_permissions_download_payload_and_reconciliation_do_not_emit(self) -> None:
+        from django.http import Http404
+
+        from apps.finance.views.nfce import NfceInutilizationDownloadView, NfceInutilizationPayloadView, NfceInutilizationView
+
+        inutilization = self._inutilize(start=180)
+        request = RequestFactory().get("/")
+        request.user = self.user
+        downloaded = SimpleNamespace(content=b"<inutilizacao />", content_type="application/xml")
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfce.download_webmania_document", return_value=downloaded),
+        ):
+            response = NfceInutilizationDownloadView.as_view()(request, pk=inutilization.pk)
+        self.assertEqual(response.status_code, 200)
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            payload_response = NfceInutilizationPayloadView.as_view()(request, pk=inutilization.pk)
+        self.assertEqual(payload_response.status_code, 200)
+        self.assertNotIn("prod-token", payload_response.content.decode())
+        self.assertNotIn("dev-token", payload_response.content.decode())
+
+        _other_user, other_workshop = create_director_user_with_workshop(suffix=77)
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=other_workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            with self.assertRaises(Http404):
+                NfceInutilizationDownloadView.as_view()(request, pk=inutilization.pk)
+            with self.assertRaises(Http404):
+                NfceInutilizationPayloadView.as_view()(request, pk=inutilization.pk)
+
+        post_request = RequestFactory().post("/", data={"environment": "2", "series": "1", "sequence_start": "181", "sequence_end": "181", "reason": "Motivo fiscal valido", "confirm_local_limitation": "on"})
+        post_request.user = self.user
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=False),
+            patch("apps.finance.views.nfce.create_and_transmit_nfce_inutilization") as service_mock,
+        ):
+            with self.assertRaises(PermissionDenied):
+                NfceInutilizationView.as_view()(post_request)
+        service_mock.assert_not_called()
+
+        inutilization.status = FiscalNumberInutilizationStatus.UNCERTAIN
+        inutilization.save(update_fields=["status"])
+        with (
+            patch("apps.finance.management.commands.reconcile_webmania_documents.process_pending_webhook_events", return_value=0),
+            patch("apps.finance.services.nfce_inutilization.requests.put") as put_mock,
+        ):
+            call_command("reconcile_webmania_documents", limit=10)
+        put_mock.assert_not_called()
+
+
+class FiscalPhaseTwoNfceInutilizationConcurrentTests(TransactionTestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=78)
+        WebmaniaCompany.objects.create(
+            workshop=self.workshop,
+            webmania_company_id="NFCE-78",
+            consumer_key="ck",
+            consumer_secret="cs",
+            access_token="at",
+            access_token_secret="ats",
+            nfce_enabled=True,
+            nfce_serie=1,
+            nfce_numero=100,
+            nfce_id_csc="prod-id",
+            nfce_codigo_csc="prod-token",
+            nfce_numero_dev=200,
+            nfce_id_csc_dev="dev-id",
+            nfce_codigo_csc_dev="dev-token",
+        )
+
+    def _run_concurrent(self, ranges: list[tuple[int, int]]) -> tuple[list[str], list[str], int]:
+        start_barrier = threading.Barrier(len(ranges))
+        results: list[str] = []
+        errors: list[str] = []
+        results_lock = threading.Lock()
+
+        def put_side_effect(*args: Any, **kwargs: Any) -> Any:
+            time.sleep(0.1)
+            return _mock_response({"modelo": "nfce", "status": "sucesso", "xml": "https://example.test/inutilizacao.xml"})
+
+        def run_inutilization(sequence_start: int, sequence_end: int) -> None:
+            close_old_connections()
+            try:
+                start_barrier.wait(timeout=5)
+                create_and_transmit_nfce_inutilization(workshop=self.workshop, requested_by=self.user, environment=2, series="1", sequence_start=sequence_start, sequence_end=sequence_end, reason="Motivo fiscal valido", local_limitation_confirmation=True)
+            except Exception as exc:
+                with results_lock:
+                    errors.append(str(exc))
+            else:
+                with results_lock:
+                    results.append("sent")
+            finally:
+                close_old_connections()
+
+        with (
+            patch("apps.finance.services.nfce_emission._build_headers", return_value={}),
+            patch("apps.finance.services.nfce_inutilization._build_headers", return_value={}),
+            patch("apps.finance.services.nfce_inutilization.requests.put", side_effect=put_side_effect) as put_mock,
+        ):
+            threads = [threading.Thread(target=run_inutilization, args=item) for item in ranges]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=10)
+        return results, errors, put_mock.call_count
+
+    def test_concurrent_same_nfce_inutilization_range_calls_remote_once(self) -> None:
+        results, errors, call_count = self._run_concurrent([(201, 209), (201, 209)])
+        self.assertEqual(call_count, 1)
+        self.assertEqual(results, ["sent"])
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(FiscalNumberInutilization.objects.filter(sequence_start=201, sequence_end=209).count(), 1)
+
+    def test_concurrent_overlapping_nfce_inutilization_ranges_do_not_transmit_both(self) -> None:
+        results, errors, call_count = self._run_concurrent([(220, 225), (223, 229)])
+        self.assertEqual(call_count, 1)
         self.assertEqual(results, ["sent"])
         self.assertEqual(len(errors), 1)

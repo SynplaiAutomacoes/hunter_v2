@@ -120,7 +120,7 @@
 - Testes obrigatorios: oficina sem NFC-e bloqueia; ambiente exige campos corretos de serie/numero/CSC; emissao mockada com `modelo=2`; concorrencia da mesma intencao gera uma chamada; timeout `uncertain`; webhook `modelo=nfce` nao atualiza NF-e; reconciliacao consulta sem emitir; permissao; cross-workshop; downloads; payload/log sanitizados; separacao NF-e/NFC-e na UI.
 - Riscos: contingencia/offline, CSC/token, numeracao por ambiente, consumidor/pagamento, impressao DANFE NFC-e, cancelamento por substituicao ainda pendente de confirmacao operacional.
 - Rollback: desabilitar action NFC-e e manter documentos ja emitidos consultaveis; nao afetar NF-e.
-- Status: Fase 2.3.0 documentada em 2026-05-29; Fase 2.3.1 validada para emissao manual simples de NFC-e com `FiscalDocument(document_type="nfce")`, `WebmaniaCompany.nfce_enabled`, CSC/ID CSC protegidos como segredos, tentativa `nfce_emission`, webhook/reconciliacao e UI minima. Fase 2.3.2 validada para cancelamento padrao com evento `cancellation`, tentativa `nfce_cancellation`, webhook/reconciliacao sem reenvio e XML de cancelamento protegido. Contingencia/offline, cancelamento por substituicao, inutilizacao, PDV/TEF/SAT/MFE e demais operacoes permanecem nao iniciadas.
+- Status: Fase 2.3.0 documentada em 2026-05-29; Fase 2.3.1 validada para emissao manual simples de NFC-e com `FiscalDocument(document_type="nfce")`, `WebmaniaCompany.nfce_enabled`, CSC/ID CSC protegidos como segredos, tentativa `nfce_emission`, webhook/reconciliacao e UI minima. Fase 2.3.2 validada para cancelamento padrao com evento `cancellation`, tentativa `nfce_cancellation`, webhook/reconciliacao sem reenvio e XML de cancelamento protegido. Fase 2.3.3 autorizada para inutilizacao de numeracao NFC-e, sem implementar substituicao, contingencia/offline, inutilizacao funcional de NF-e, PDV/TEF/SAT/MFE ou demais operacoes.
 
 ### Fase 2.3.2 - Cancelamento padrao NFC-e
 
@@ -131,6 +131,20 @@
 - Alteracoes proibidas: cancelamento por substituicao, contingencia/offline, inutilizacao, PDV/TEF/SAT/MFE, manifestacao, IBS/CBS, credito/debito e complementar tributaria.
 - Testes obrigatorios: elegibilidade, motivo 15-255, body sem `nfce_referenciada`, idempotencia, concorrencia, `uncertain`, webhook/reconciliacao, permissao `cancel_nfce`, cross-workshop e downloads.
 - Status: validada em 2026-05-29. Implementacao limitada a cancelamento padrao; nao envia `nfce_referenciada`; nao implementa substituicao, contingencia/offline, inutilizacao ou PDV.
+
+### Fase 2.3.3 - Inutilizacao de numeracao NFC-e
+
+- Escopo: inutilizacao manual de numero ou intervalo de numeracao NFC-e pelo endpoint `PUT /1/nfe/inutilizar/`, sempre com `modelo=2`.
+- Dependencias: Fase 2.3.2 validada no checkpoint `a4ae87f7e3f4748369d0d68a90d30e21a0a3d71b`; configuracao NFC-e por oficina validada em `WebmaniaCompany`.
+- Modelagem necessaria: entidade propria `FiscalNumberInutilization` para faixa inutilizada, sem associar a `FiscalDocumentEvent` de NFC-e existente; tentativa `FiscalEmissionAttempt(operation_type="nfce_inutilization")`.
+- Endpoints Webmania: `PUT /1/nfe/inutilizar/` com `sequencia`, `motivo`, `ambiente`, `serie`, `modelo=2`.
+- Observacao oficial: a secao textual da Webmania descreve inutilizacao de numero de NF-e, mas o contrato da mesma secao aceita `modelo=1` para NF-e e `modelo=2` para NFC-e. Esta fase implementa somente `modelo=2`; NF-e permanece apenas possibilidade arquitetural futura.
+- Alteracoes permitidas: modelo minimo, migration, service, views/URLs/templates minimos, permissoes, testes, docs e extensao de idempotencia para inutilizacao NFC-e.
+- Alteracoes proibidas: cancelamento por substituicao, contingencia/offline, inutilizacao funcional de NF-e, PDV/TEF/SAT/MFE, manifestacao, IBS/CBS, credito/debito, complementar tributaria e demais documentos.
+- Testes obrigatorios: body fixo com `modelo=2`; motivo/serie/ambiente/faixa validos; bloqueio de faixa com NFC-e local conhecida; bloqueio de sobreposicao ativa ou `uncertain`; concorrencia; timeout `uncertain`; permissao; cross-workshop; payload/log sanitizados; nenhuma alteracao em `NfeItem` ou NFC-e emitida.
+- Riscos: a validacao local cobre apenas documentos/faixas conhecidos pelo Hunter; numeros usados fora do Hunter ou no painel Webmania so sao confirmados pela resposta remota/SEFAZ.
+- Rollback: desabilitar action de inutilizacao e preservar registros ja criados para auditoria; nao afeta emissao ou cancelamento NFC-e.
+- Status: validada em 2026-05-29. A implementacao adiciona entidade propria, idempotencia persistida, bloqueio de faixa local, permissao especifica e UI minima. Nao implementa webhook/reconciliacao remota para inutilizacao por ausencia de contrato oficial confirmado.
 
 ### Fase 2.4 - Manifestacao e IBS/CBS
 

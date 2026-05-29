@@ -9,7 +9,8 @@
 - Evoluir `FiscalEmissionAttempt` minimo para dominio unificado futuro.
 - Politica final de permissoes fiscais.
 - Fase 2.3.1 validada somente para NFC-e manual simples; aprovar explicitamente contingencia/offline, cancelamento por substituicao, PDV/TEF/SAT/MFE ou novas origens antes de qualquer codigo.
-- Fase 2.3.2 validada somente para cancelamento padrao; cancelamento por substituicao com `nfce_referenciada` e inutilizacao NFC-e permanecem fases futuras.
+- Fase 2.3.2 validada somente para cancelamento padrao; cancelamento por substituicao com `nfce_referenciada` permanece fase futura.
+- Fase 2.3.3 implementa somente inutilizacao NFC-e com `modelo=2`; inutilizacao funcional de NF-e, substituicao e contingencia/offline permanecem fora de escopo.
 - Regras estaduais/prazos adicionais de cancelamento NFC-e devem ser avaliados antes de bloqueio local por prazo fixo.
 - Avaliar migration futura de criptografia/backfill para valores CSC antigos que possam ter sido armazenados em texto puro antes da Fase 2.3.1; formularios atuais nao exibem os valores e criptografam novos envios.
 - Prioridade real de CT-e/MDF-e para oficinas.
@@ -51,7 +52,9 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Habilitar devolucao parcial de NF-e externa somente depois de importar/validar XML ou fonte fiscal que preserve sequenciais fiscais e quantidades originais.
 - Confirmar requisitos NFC-e por oficina: serie, CSC/token, ambiente, contingencia e DANFE NFC-e; Fase 2.3.0 recomenda reaproveitar `WebmaniaCompany`.
 - Confirmar suporte e semantica de cancelamento por substituicao de NFC-e antes de implementar essa variacao.
-- Confirmar se inutilizacao NFC-e entra na primeira subfase funcional ou fica para subfase propria.
+- Avaliar fase futura para inutilizacao funcional de NF-e; a Fase 2.3.3 usa a generalidade do contrato apenas para NFC-e.
+- Avaliar importacao/consulta externa de numeros usados fora do Hunter; a validacao local de inutilizacao nao garante ausencia de uso no painel Webmania ou em outro emissor.
+- Definir operacao administrativa futura para resolver inutilizacao NFC-e `uncertain`, pois a Fase 2.3.3 nao confirmou endpoint oficial de consulta ou webhook para inutilizacao.
 - Confirmar politica de consumidor/pagamento minimo para NFC-e manual.
 - Revalidar eventos IBS/CBS e cancelamento conforme documentacao vigente da Reforma Tributaria.
 - Campos obrigatorios completos de cada municipio/provedor NFS-e.

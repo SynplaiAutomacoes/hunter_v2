@@ -7,6 +7,9 @@
     {% if can_issue_nfce %}
         <a href="{% url 'finance:nfce_manual_emit' %}" class="btn btn-primary">Emitir NFC-e</a>
     {% endif %}
+    {% if can_inutilize_nfce %}
+        <a href="{% url 'finance:nfce_inutilization_create' %}" class="btn btn-outline">Inutilizar numeracao NFC-e</a>
+    {% endif %}
 {% endblock %}
 
 {% block crud_table_wrapper_id %}nfce-document-table-wrapper{% endblock %}
@@ -69,5 +72,44 @@
                 {% endfor %}
             </tbody>
         </table>
+    </div>
+
+    <div class="mt-8">
+        <h2 class="text-lg font-semibold">Inutilizacoes de numeracao</h2>
+        <div class="overflow-x-auto mt-3">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Ambiente</th>
+                        <th>Serie</th>
+                        <th>Sequencia</th>
+                        <th>Status</th>
+                        <th>Criado em</th>
+                        <th>Documentos</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for inutilization in nfce_inutilizations %}
+                        <tr>
+                            <td>{{ inutilization.pk }}</td>
+                            <td>{{ inutilization.environment }}</td>
+                            <td>{{ inutilization.series }}</td>
+                            <td>{{ inutilization.sequence_start }}{% if inutilization.sequence_end != inutilization.sequence_start %}-{{ inutilization.sequence_end }}{% endif %}</td>
+                            <td><span class="badge">{{ inutilization.status }}</span></td>
+                            <td>{{ inutilization.criado_em|date:"d/m/Y H:i" }}</td>
+                            <td>
+                                <div class="flex gap-2">
+                                    {% if can_download_nfce_inutilization and inutilization.xml_url %}<a class="btn btn-xs" href="{% url 'finance:nfce_inutilization_download' pk=inutilization.pk %}">XML</a>{% endif %}
+                                    {% if can_view_nfce_inutilization_payload %}<a class="btn btn-xs" href="{% url 'finance:nfce_inutilization_payload' pk=inutilization.pk %}">Payload</a>{% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="7" class="text-center text-base-content/60">Nenhuma inutilizacao registrada.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 {% endblock %}
