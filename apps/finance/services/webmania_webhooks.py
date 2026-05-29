@@ -15,6 +15,7 @@ from apps.finance.services.nfe_emission import apply_nfe_item_payload
 from apps.finance.services.nfe_adjustment import apply_nfe_adjustment_document_payload, is_ambiguous_nfe_adjustment_webhook, resolve_nfe_adjustment_document_for_webhook
 from apps.finance.services.nfe_complementary import apply_nfe_complementary_document_payload, is_ambiguous_nfe_complementary_webhook, resolve_nfe_complementary_document_for_webhook
 from apps.finance.services.nfe_returns import apply_nfe_return_document_payload, is_ambiguous_nfe_return_webhook, resolve_nfe_return_document_for_webhook
+from apps.finance.services.nfce_emission import apply_nfce_document_payload, is_ambiguous_nfce_webhook, resolve_nfce_document_for_webhook
 
 
 def _unique_or_none(queryset: Any) -> Any | None:
@@ -171,6 +172,22 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
 
         _mark_event_processed(event)
         return True
+
+    if model == "nfce":
+        nfce_document = resolve_nfce_document_for_webhook(payload=payload)
+        if nfce_document is not None:
+            with transaction.atomic():
+                nfce_document = nfce_document.__class__.objects.select_for_update().get(pk=nfce_document.pk)
+                if not _is_regressive_status(model="nfe", current_status=nfce_document.status, incoming_status=str(payload.get("status") or "")):
+                    apply_nfce_document_payload(document=nfce_document, response_payload=payload)
+
+            _mark_event_processed(event)
+            return True
+        if is_ambiguous_nfce_webhook(payload=payload):
+            _mark_event_deferred(event, error=f"NFC-e {event_uuid or str(payload.get('chave') or '').strip()} ambigua entre documentos.")
+            return False
+        _mark_event_deferred(event, error=f"NFC-e {event_uuid} ainda nao foi sincronizada localmente ou esta ambigua entre oficinas.")
+        return False
 
     if model == "nfe":
         adjustment_document = resolve_nfe_adjustment_document_for_webhook(payload=payload)

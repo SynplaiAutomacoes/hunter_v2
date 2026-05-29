@@ -14,6 +14,7 @@ Fonte oficial consultada:
 | Documento    | Operacao                  | Metodo          | Endpoint                              | Autenticacao | Body principal                              | Resposta principal              | Downloads         | Webhook | Fase |
 | ------------ | ------------------------- | --------------- | ------------------------------------- | ------------ | ------------------------------------------- | ------------------------------- | ----------------- | ------- | ---- |
 | NF-e/NFC-e   | Emissao                   | POST            | `/1/nfe/emissao/`                     | Headers v1   | cliente, produtos, pedido, modelo, ambiente | uuid, status, chave, xml, danfe | XML/DANFE por URL | Sim     | 1/2  |
+| NFC-e        | Emissao consumidor        | POST            | `/1/nfe/emissao/`                     | Headers v1   | `modelo=2`, cliente/consumidor, produtos, pedido/pagamento, ambiente | uuid, status, modelo `nfce`, chave, xml, danfe | XML/DANFE NFC-e | Sim | 2.3 |
 | NF-e/NFC-e   | Devolucao/estorno         | POST            | `/1/nfe/devolucao/`                   | Headers v1   | `chave`, produtos/quantidades, dados fiscais | uuid, status, chave             | XML/DANFE         | Sim     | 2.2A |
 | NF-e/NFC-e   | Ajuste                    | POST            | `/1/nfe/ajuste/`                      | Headers v1   | `operacao`, `natureza_operacao`, `codigo_cfop`, `valor_icms`, `ambiente`, `cliente` | uuid, status                    | XML/DANFE         | Sim     | 2.2C |
 | NF-e/NFC-e   | Complementar              | POST            | `/1/nfe/complementar/`                | Headers v1   | `chave` ou `uuid`, tipo de complemento, valores/quantidades/impostos | uuid, status                    | XML/DANFE         | Sim     | 2.2B |
@@ -111,6 +112,24 @@ Observacoes condicionais:
 | Webhook/reconciliacao | Atualizam somente o ajuste; nao alteram documento relacionado opcional |
 | Excecao SC/ES | Cenario de estorno ja coberto por devolucao/estorno deve ser bloqueado/direcionado para `/1/nfe/devolucao/` |
 | Fora de escopo | Complementar tributaria, IBS/CBS, importacao/adicao, NFC-e, manifestacao e credito/debito |
+
+### Detalhamento Fase 2.3.0 - NFC-e
+
+Fonte oficial reconferida em 2026-05-29: a documentacao NF-e/NFC-e usa API v1 em `https://webmania.com.br/api/`, `Content-Type: application/json`, quatro headers de autenticacao, `POST /1/nfe/emissao/`, notificacoes com `modelo` podendo retornar `nfce`, consulta/cancelamento/inutilizacao em endpoints comuns e configuracao de empresa com campos especificos de NFC-e/CSC.
+
+| Operacao | Endpoint | Modelo local | Body principal | Efeitos locais | Observacoes |
+| -------- | -------- | ------------ | -------------- | -------------- | ----------- |
+| Emissao NFC-e | `POST /1/nfe/emissao/` | `FiscalDocument(document_type="nfce", purpose="normal")` | `modelo=2`, `operacao`, `natureza_operacao`, `ambiente`, `cliente`, `produtos`, `pedido`/pagamento, `url_notificacao` | Criar documento NFC-e antes do gateway; tentativa `nfce_emission`; persistir UUID/chave/XML/DANFE/status | Nao reaproveitar numeracao NF-e; exigir configuracao NFC-e da oficina. |
+| Consulta NFC-e | `GET /1/nfe/consulta/` | Atualizacao do `FiscalDocument` NFC-e | query `uuid`, `chave` ou ID | Atualizar status/downloads sem emitir | Usar para reconciliacao e tentativa `uncertain`. |
+| Cancelamento NFC-e | `PUT /1/nfe/cancelar/` | `FiscalDocumentEvent(event_type="cancel")` ou status cancelado do documento | `uuid` ou `chave`, motivo, ambiente quando aplicavel | Atualizar documento/evento; preservar payload/log | Cancelamento por substituicao fica pendente de confirmacao oficial antes de codigo. |
+| Inutilizacao NFC-e | `PUT /1/nfe/inutilizar/` | Evento/documento operacional de inutilizacao | modelo `2`, serie, numero inicial/final, motivo, ambiente | Registrar evento fiscal auditavel | Implementar somente se aprovado na Fase 2.3, com permissao propria. |
+| Downloads | URLs retornadas | Download autorizado | URL `xml`/`danfe` retornada | Servir via view autorizada | Diferenciar DANFE NFC-e de DANFE NF-e na UI. |
+
+Riscos especificos:
+
+- CSC/token e numeracao por ambiente devem ser configurados corretamente antes da emissao.
+- NFC-e possui regra operacional de consumidor/pagamento diferente de NF-e.
+- Contingencia/offline e cancelamento por substituicao nao devem ser inferidos sem nova validacao oficial.
 
 ### Detalhamento Fase 2.2B - `POST /1/nfe/complementar/`
 

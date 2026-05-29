@@ -111,14 +111,16 @@
 ### Fase 2.3 - NFC-e
 
 - Escopo: emissao NFC-e pela API v1, separada de NF-e, com configuracao por oficina.
-- Dependencias: nucleo fiscal minimo e decisao sobre configuracao NFC-e por oficina.
-- Modelagem necessaria: `FiscalDocument(kind="nfce")`, tentativa idempotente por origem/intencao, configuracao de serie/modelo NFC-e.
-- Endpoints Webmania: `POST /1/nfe/emissao/` com modelo NFC-e; `PUT /1/nfe/cancelar/`; `GET /1/nfe/consulta/`; downloads por URLs retornadas.
-- Arquivos previstos: gateway NFC-e, forms/telas de emissao, views/URLs, templates, testes de configuracao e permissao, docs.
-- Testes obrigatorios: oficina sem NFC-e bloqueia; emissao mockada; concorrencia; timeout `uncertain`; cancelamento autorizado; downloads; separacao NF-e/NFC-e na UI.
-- Riscos: contingencia/offline, CSC/token, impressao DANFE NFC-e, cancelamento por substituicao ainda pendente de confirmacao operacional.
-- Rollback: feature/config desliga NFC-e sem afetar NF-e.
-- Status: nao iniciada.
+- Dependencias: Fase 2.3.0 documental aprovada, nucleo fiscal minimo validado e configuracao NFC-e da oficina revisada.
+- Modelagem necessaria: `FiscalDocument(document_type="nfce", purpose="normal")`, tentativa `operation_type="nfce_emission"` por documento local, configuracao NFC-e via `WebmaniaCompany`.
+- Endpoints Webmania: `POST /1/nfe/emissao/` com `modelo=2`; `PUT /1/nfe/cancelar/`; `GET /1/nfe/consulta/`; `PUT /1/nfe/inutilizar/` com `modelo=2` se aprovado; downloads por URLs retornadas.
+- Arquivos previstos: `apps/finance/models/finance.py`, migration de choices/permissoes se necessario, `apps/finance/services/nfce_emission.py`, extensoes controladas em `webmania_webhooks.py` e `reconcile_webmania_documents.py`, views/URLs/templates de NFC-e, forms de emissao, testes finance, docs.
+- Alteracoes permitidas na primeira subfase funcional: emissao NFC-e normal, consulta/reconciliacao, webhook, downloads e UI minima.
+- Alteracoes proibidas na primeira subfase funcional: contingencia/offline, cancelamento por substituicao, PDV completo, TEF/SAT/MFE, manifestacao, IBS/CBS, credito/debito e complementar tributaria.
+- Testes obrigatorios: oficina sem NFC-e bloqueia; ambiente exige campos corretos de serie/numero/CSC; emissao mockada com `modelo=2`; concorrencia da mesma intencao gera uma chamada; timeout `uncertain`; webhook `modelo=nfce` nao atualiza NF-e; reconciliacao consulta sem emitir; permissao; cross-workshop; downloads; payload/log sanitizados; separacao NF-e/NFC-e na UI.
+- Riscos: contingencia/offline, CSC/token, numeracao por ambiente, consumidor/pagamento, impressao DANFE NFC-e, cancelamento por substituicao ainda pendente de confirmacao operacional.
+- Rollback: desabilitar action NFC-e e manter documentos ja emitidos consultaveis; nao afetar NF-e.
+- Status: Fase 2.3.0 documentada em 2026-05-29; codigo funcional nao autorizado.
 
 ### Fase 2.4 - Manifestacao e IBS/CBS
 

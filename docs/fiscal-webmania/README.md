@@ -21,15 +21,15 @@ Transformar a camada fiscal do Hunter V2 em um modulo completo, seguro e extensi
 
 ## Status atual
 
-Fase atual: Fase 2.2C - Nota Fiscal de Ajuste validada.
+Fase atual: Fase 2.3.1 - Emissao manual simples de NFC-e em implementacao.
 
-Status geral: Fase 0 e Fase 0.1 aprovadas; Fase 1 validada tecnicamente em 2026-05-28 com aceite explicito das dividas preexistentes comprovadas no baseline anterior. A Fase 2.0 foi aprovada documentalmente, a Fase 2.1 foi validada somente para CC-e, a Fase 2.2.0 revisou documentalmente derivados NF-e, a Fase 2.2A foi validada para devolucao/estorno, a Fase 2.2B.0 planejou Nota Fiscal Complementar, e a Fase 2.2B.1 foi validada somente para complementar de preco/quantidade de NF-e original local no checkpoint `5faacd9c05960c153eaf69d239bf885da9985df7`. A Fase 2.2C foi implementada e validada somente para Nota Fiscal de Ajuste.
+Status geral: Fase 0 e Fase 0.1 aprovadas; Fase 1 validada tecnicamente em 2026-05-28 com aceite explicito das dividas preexistentes comprovadas no baseline anterior. A Fase 2.0 foi aprovada documentalmente, a Fase 2.1 foi validada somente para CC-e, a Fase 2.2.0 revisou documentalmente derivados NF-e, a Fase 2.2A foi validada para devolucao/estorno, a Fase 2.2B.0 planejou Nota Fiscal Complementar, a Fase 2.2B.1 foi validada somente para complementar de preco/quantidade de NF-e original local no checkpoint `5faacd9c05960c153eaf69d239bf885da9985df7`, e a Fase 2.2C foi validada no checkpoint `1910a0678754d3c6b44f2bdd22c65492a8e8b803` somente para Nota Fiscal de Ajuste. A Fase 2.3.0 foi aprovada documentalmente e a Fase 2.3.1 esta em implementacao controlada para emissao manual simples de NFC-e.
 
 A Fase 1 alterou somente os fluxos existentes de NF-e/NFS-e para estabilizacao, seguranca, idempotencia persistida, webhook, reconciliacao e permissoes conforme escopo aprovado. A revisao comprovou cobertura fiscal critica, incluindo teste transacional concorrente real. As falhas globais remanescentes em DRE, workshops, workorder, ruff/mypy e migrations nao fiscais foram aceitas como dividas preexistentes registradas em `11-backlog-e-pendencias.md`.
 
 A Fase 2.1 criou `FiscalDocument`, `FiscalDocumentEvent` e extensoes minimas de `FiscalEmissionAttempt` para CC-e. A Fase 2.2A introduziu e validou `FiscalDocumentLink` e documentos derivados para devolucao/estorno. A Fase 2.2B.1 adicionou complementar local de preco/quantidade com `FiscalDocument(purpose="complementary", complementary_type="price_quantity")`, link `complements`, tentativa idempotente e UI minima no detalhe da NF-e. A Fase 2.2C adicionou ajuste com `FiscalDocument(purpose="adjustment", origin="manual")`, link `adjusts` opcional, tentativa `adjustment`, validacao de regime tributario por `WebmaniaCompany.regime_tributario` e UI minima no detalhe da NF-e. Permanecem fora de escopo ate nova autorizacao: complementar tributaria, complementar de adicao/importacao, NFC-e, manifestacao, IBS/CBS, credito/debito e demais familias fiscais.
 
-Depois da Fase 2.2C, permanecem fora de escopo: complementar tributaria, IBS/CBS, adicao/importacao, NFC-e, manifestacao, credito/debito e demais familias fiscais.
+Durante a Fase 2.3.1, permanecem fora de escopo funcional: contingencia/offline, cancelamento por substituicao, PDV completo, TEF/SAT/MFE, complementar tributaria, IBS/CBS, adicao/importacao, manifestacao, credito/debito e demais familias fiscais.
 
 ## Documentos
 
@@ -72,7 +72,9 @@ Depois da Fase 2.2C, permanecem fora de escopo: complementar tributaria, IBS/CBS
 | 2.2A - Devolucao/estorno      | validada | `07-plano-de-fases-e-criterios-de-aceite.md`                         | 2026-05-28      | 2026-05-28  | 2.2B nao iniciada |
 | 2.2B - Complementar           | 2.2B.1 validada | `07-plano-de-fases-e-criterios-de-aceite.md`                         | 2026-05-28      | 2026-05-28  | 2.2B.2 tributaria e 2.2B.3 importacao nao iniciadas |
 | 2.2C - Ajuste                 | validada | `07-plano-de-fases-e-criterios-de-aceite.md`                         | 2026-05-28      | 2026-05-28  | Complementar tributaria, NFC-e, manifestacao, IBS/CBS e credito/debito nao iniciados |
-| 2.3 - NFC-e                  | nao iniciada         | `07-plano-de-fases-e-criterios-de-aceite.md`                         | N/A             | N/A         | Requer decisao de configuracao NFC-e |
+| 2.3.0 - Planejamento NFC-e   | aprovada documentalmente | `07-plano-de-fases-e-criterios-de-aceite.md`                         | N/A             | 2026-05-29  | Manter exclusoes da fase |
+| 2.3.1 - NFC-e manual simples | em implementacao     | `07-plano-de-fases-e-criterios-de-aceite.md`                         | N/A             | N/A         | Criar NFC-e direto em `FiscalDocument`; sem `NfceRequest` legado |
+| 2.3 - NFC-e                  | parcialmente autorizada | `07-plano-de-fases-e-criterios-de-aceite.md`                         | N/A             | N/A         | Apenas 2.3.1 autorizada |
 | 2.4 - Manifestacao e IBS/CBS | nao iniciada         | `07-plano-de-fases-e-criterios-de-aceite.md`                         | N/A             | N/A         | Revalidar Reforma Tributaria |
 | 2.5 - Credito/debito NF-e     | nao iniciada         | `07-plano-de-fases-e-criterios-de-aceite.md`                         | N/A             | N/A         | Revalidar finalidades 5/6 |
 | 3 - Completar NFS-e          | nao iniciada         | `03-prd-matriz-api-webmania.md`                                       | N/A             | N/A         | Fase 1 validada          |

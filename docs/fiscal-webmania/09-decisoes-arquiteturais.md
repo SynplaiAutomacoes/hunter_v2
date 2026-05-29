@@ -199,6 +199,26 @@
 - Status: implementada e validada na Fase 2.2C.
 - Fase: 2.2C.
 
+## ADR-026 - NFC-e nasce em `FiscalDocument`, nao em legado paralelo
+
+- Contexto: NF-e legada ainda usa `NfeRequest`/`NfeItem`, mas NFC-e ainda nao possui fluxo operacional. Criar `NfceRequest` paralelo aumentaria legado sem necessidade.
+- Decisao: planejar NFC-e diretamente em `FiscalDocument(document_type="nfce", purpose="normal")`, com `FiscalEmissionAttempt(operation_type="nfce_emission")` e configuracao por `WebmaniaCompany`.
+- Alternativas consideradas: reutilizar `NfeRequest` com flag de modelo; criar `NfceRequest`; implementar NFC-e apenas como payload manual sem documento local.
+- Consequencias: separa NF-e e NFC-e no dominio, reduz risco de confundir numeracao/status e aproxima a Fase 8.
+- Riscos: telas legadas de NF-e nao podem ser reaproveitadas sem filtros rigorosos por `document_type`.
+- Status: proposta na Fase 2.3.0.
+- Fase: 2.3.
+
+## ADR-027 - Configuracao NFC-e reutiliza `WebmaniaCompany`
+
+- Contexto: o codigo atual ja possui `nfce_serie`, `nfce_numero`, `nfce_id_csc`, `nfce_codigo_csc`, `nfce_numero_dev`, `nfce_id_csc_dev` e `nfce_codigo_csc_dev` em `WebmaniaCompany` e forms de oficina/empresa, mas nao possuia flag explicita de habilitacao.
+- Decisao: usar esses campos como gate local de NFC-e e adicionar somente `WebmaniaCompany.nfce_enabled` como flag explicita por oficina. Nao criar model/configuracao paralela na primeira subfase funcional.
+- Alternativas consideradas: criar `WorkshopNfceConfig`; guardar CSC em settings; inferir configuracao por resposta remota.
+- Consequencias: menor ruptura, reaproveitamento da UI/configuracao existente e bloqueio operacional por padrao ate habilitacao administrativa explicita.
+- Riscos: os campos atuais podem precisar de validação mais forte e mascaramento/sanitizacao de CSC antes da implementacao funcional.
+- Status: proposta na Fase 2.3.0.
+- Fase: 2.3.
+
 ## ADR-015 - Fase 2 dividida em subfases obrigatorias
 
 - Contexto: NF-e/NFC-e adicional combina eventos simples, documentos derivados, novo modelo NFC-e e eventos tributarios avancados.

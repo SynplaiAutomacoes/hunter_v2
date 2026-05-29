@@ -265,3 +265,32 @@ Regras:
 - Webhook de documento derivado deve atualizar o `FiscalDocument` derivado e manter link com o original.
 - Evento IBS/CBS fora de ordem nao pode regredir estado de evento ja autorizado/cancelado.
 - Reconciliacao Fase 2 deve consultar status por `GET /1/nfe/consulta/` e downloads por URLs retornadas, sem reenviar operacao.
+
+### Fase 2.3.0 - Idempotencia e webhook NFC-e
+
+Padrao recomendado:
+
+```text
+criar FiscalDocument NFC-e em estado inicial
+-> criar/bloquear FiscalEmissionAttempt(operation_type="nfce_emission")
+-> congelar payload sanitizado
+-> executar uma unica chamada POST /1/nfe/emissao/ com modelo=2
+-> persistir retorno no documento NFC-e
+-> webhook/reconciliacao atualizam somente o documento NFC-e
+```
+
+Chave recomendada:
+
+```text
+hash(workshop_id, nfce_document_id, operation_type, request_generation)
+```
+
+Regras:
+
+- Nao usar apenas itens/pagamento como identidade, porque duas vendas consumidor legitimas podem ter payload equivalente.
+- Documento `uncertain` bloqueia reenvio automatico e exige consulta/reconciliacao.
+- Webhook deve resolver primeiro por UUID; fallback por tentativa/chave somente se houver candidato unico na oficina.
+- `modelo=nfce` deve atualizar somente `FiscalDocument(document_type="nfce")`; nao atualizar `NfeItem` legado por engano.
+- Chave pode mudar em contingencia; UUID deve ser preferencial.
+- Downloads XML/DANFE NFC-e devem passar por view autorizada e nao expor URL remota sem permissao.
+- Credenciais CSC e headers Webmania nunca devem ser persistidos em payload/log.

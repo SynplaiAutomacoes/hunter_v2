@@ -31,6 +31,10 @@ from apps.finance.views import (
     NfeRequestUpdateView,
     NfeReturnDownloadView,
     NfeReturnIssueView,
+    NfceDocumentDownloadView,
+    NfceDocumentListView,
+    NfceManualEmissionView,
+    NfceDocumentPayloadView,
     NfseCreateRedirectView,
     NfseRequestCancelView,
     NfseDocumentDownloadView,
@@ -123,6 +127,11 @@ urlpatterns = [
     path("nfe/<int:pk>/documentos/<str:document>/", NfeDocumentDownloadView.as_view(), name="nfe_document_download"),
     path("nfe/<int:pk>/previa/pdf/", NfePreviewPdfView.as_view(), name="nfe_preview_pdf"),
     path("nfe/<int:pk>/edit/", NfeRequestUpdateView.as_view(), name="nfe_update"),
+    # NFC-e
+    path("nfce/", NfceDocumentListView.as_view(), name="nfce_list"),
+    path("nfce/manual/", NfceManualEmissionView.as_view(), name="nfce_manual_emit"),
+    path("nfce/<int:pk>/documentos/<str:document>/", NfceDocumentDownloadView.as_view(), name="nfce_document_download"),
+    path("nfce/<int:pk>/payload/", NfceDocumentPayloadView.as_view(), name="nfce_payload"),
     # Classe Imposto
     path("classe-imposto/", TaxClassListView.as_view(), name="tax_class_list"),
     path("classe-imposto/", TaxClassListView.as_view(), name="tax_class_manager"),

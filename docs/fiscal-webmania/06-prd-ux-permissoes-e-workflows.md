@@ -92,6 +92,10 @@ Eventos devem aparecer em timeline/historico do documento original. Documentos d
 | Emitir NF-e de credito | Sim | Sim | Nao | Nao | `issue_nfe_credit_note` | Obrigatorio |
 | Emitir NF-e de debito | Sim | Sim | Nao | Nao | `issue_nfe_debit_note` | Obrigatorio |
 | Emitir NFC-e | Sim | Sim | Opcional | Nao | `issue_nfce` | Obrigatorio |
+| Cancelar NFC-e | Sim | Sim | Opcional | Nao | `cancel_nfce` | Obrigatorio |
+| Inutilizar NFC-e | Sim | Sim | Nao | Nao | `invalidate_nfce_number` | Obrigatorio |
+| Baixar XML/DANFE NFC-e | Sim | Sim | Sim | Opcional | `download_nfce` | Obrigatorio |
+| Visualizar payload NFC-e | Sim | Opcional | Nao | Nao | `view_nfce_payload` | Obrigatorio |
 | Manifestar NF-e | Sim | Sim | Opcional | Nao | `manifest_nfe` | Obrigatorio |
 | Emitir evento IBS/CBS | Sim | Sim | Nao | Nao | `issue_nfe_ibs_cbs_event` | Obrigatorio |
 | Cancelar evento IBS/CBS | Sim | Sim | Nao | Nao | `cancel_nfe_ibs_cbs_event` | Obrigatorio |
@@ -143,3 +147,23 @@ Bloqueios visuais/funcionais:
 - Regime tributario ausente, Simples Nacional ou MEI bloqueia antes do gateway.
 - Cenário de estorno SC/ES identificado pelo usuario deve usar devolucao/estorno; a implementacao exige confirmacao de que a operacao nao pertence a esse caso.
 - Complementar tributaria, IBS/CBS, importacao/adicao, NFC-e, manifestacao e credito/debito nao foram iniciados.
+
+### UX Fase 2.3.0 - NFC-e planejada
+
+Entrada minima recomendada para a primeira implementacao:
+
+- Acao "Emitir NFC-e" somente quando a oficina ativa tiver configuracao NFC-e completa para o ambiente selecionado.
+- Emissao manual avulsa de venda consumidor e, se aprovado, emissao contextual a partir de OS/origem operacional com produtos.
+- Formulario separado de NF-e, com indicacao clara de modelo NFC-e, consumidor, itens, pagamento e ambiente.
+- Aviso de homologacao/producao destacado.
+- Historico/listagem distinguindo NF-e e NFC-e por modelo.
+- Tela/detalhe com status, chave, UUID, XML, DANFE NFC-e, payload autorizado e tentativas.
+
+Bloqueios:
+
+- Sem `issue_nfce`, nao exibir acao nem chamar gateway.
+- Sem serie/numero/CSC do ambiente, bloquear antes do gateway.
+- Cancelamento e inutilizacao exigem permissoes separadas.
+- Contingencia/offline e cancelamento por substituicao devem aparecer como indisponiveis ate nova aprovacao.
+
+Nao criar central fiscal completa na primeira subfase funcional de NFC-e.

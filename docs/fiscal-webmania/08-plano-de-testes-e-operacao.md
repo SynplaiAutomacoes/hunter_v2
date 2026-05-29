@@ -161,10 +161,18 @@ Cobertura executada na Fase 2.2B.1: somente `complementary_price_quantity` local
 ### Fase 2.3 - NFC-e
 
 - Oficina sem configuracao NFC-e bloqueia acao.
-- Payload NFC-e usa modelo/configuracao correta sem afetar NF-e.
+- `nfce_enabled=False` bloqueia emissao antes do gateway.
+- Payload NFC-e usa `modelo=2` e configuracao correta sem afetar NF-e.
 - NFC-e e NF-e da mesma origem nao compartilham chave idempotente.
 - Cancelamento NFC-e respeita status e permissao.
 - Downloads distinguem DANFE/NFC-e conforme retorno.
+- Ambiente producao exige `nfce_serie`, `nfce_numero`, `nfce_id_csc` e `nfce_codigo_csc`.
+- Ambiente homologacao exige serie, numero homologacao e CSC homologacao quando configuracao de teste estiver ativa.
+- Concorrencia da mesma intencao cria uma chamada remota.
+- Timeout marca documento/tentativa como `uncertain` e bloqueia retry.
+- Webhook `modelo=nfce` resolve `FiscalDocument(document_type="nfce")` por UUID antes de chave e nao atualiza `NfeItem`.
+- Reconciliacao de NFC-e `uncertain` usa consulta e nunca emite.
+- Payload/log nao persistem headers, consumer secret, access token secret, CSC ou codigo CSC.
 
 ### Fase 2.4 - Manifestacao e IBS/CBS
 

@@ -8,8 +8,8 @@
 - Aprovar politica final de permissoes fiscais para novas operacoes Fase 2.2+; Fase 2.1 nao concedeu emissao CC-e por fallback legado.
 - Evoluir `FiscalEmissionAttempt` minimo para dominio unificado futuro.
 - Politica final de permissoes fiscais.
-- Quando habilitar NFC-e.
-- Confirmar se NFC-e tera feature/config por oficina antes de aparecer na UI.
+- Aprovar explicitamente a Fase 2.3 funcional antes de qualquer codigo NFC-e.
+- Confirmar politica de habilitacao NFC-e por oficina usando configuracao existente em `WebmaniaCompany`.
 - Prioridade real de CT-e/MDF-e para oficinas.
 - Se NFCom deve ficar apenas manual.
 - Criterios de ativacao de NFCom beta.
@@ -47,8 +47,10 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Confirmar tipos oficiais `tipo_credito` e `tipo_debito` antes da Fase 2.5.
 - Importacao/validacao de NF-e externa por XML ou API fiscal especifica fica fora da Fase 2.2A.
 - Habilitar devolucao parcial de NF-e externa somente depois de importar/validar XML ou fonte fiscal que preserve sequenciais fiscais e quantidades originais.
-- Confirmar requisitos NFC-e por oficina: serie, CSC/token, ambiente, contingencia e DANFE NFC-e.
+- Confirmar requisitos NFC-e por oficina: serie, CSC/token, ambiente, contingencia e DANFE NFC-e; Fase 2.3.0 recomenda reaproveitar `WebmaniaCompany`.
 - Confirmar suporte e semantica de cancelamento por substituicao de NFC-e antes de implementar essa variacao.
+- Confirmar se inutilizacao NFC-e entra na primeira subfase funcional ou fica para subfase propria.
+- Confirmar politica de consumidor/pagamento minimo para NFC-e manual.
 - Revalidar eventos IBS/CBS e cancelamento conforme documentacao vigente da Reforma Tributaria.
 - Campos obrigatorios completos de cada municipio/provedor NFS-e.
 - Regras IBS/CBS por tipo documental.

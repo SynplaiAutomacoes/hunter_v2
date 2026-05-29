@@ -109,6 +109,7 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
             "nfe_numero",
             "nfe_numero_dev",
             "cnae_issqn",
+            "nfce_enabled",
             "nfce_serie",
             "nfce_numero",
             "nfce_id_csc",
@@ -194,6 +195,7 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
             "exclusao_difal_pis_cofins": CheckboxInput(),
             "deduzir_desconto_ipi": CheckboxInput(),
             "email_automatico_nfse": CheckboxInput(),
+            "nfce_enabled": CheckboxInput(),
         }
 
     def __init__(self, *args, **kwargs):
@@ -240,6 +242,7 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
         nfce_fields: list[Any] = [
             HTML("<div class='col-span-12 divider my-1'></div>"),
             HTML("<p class='col-span-12 text-sm font-semibold text-base-content/80'>NFC-e</p>"),
+            Field("nfce_enabled", wrapper_class="col-span-12 lg:col-span-3"),
             Field("nfce_serie", wrapper_class="col-span-12 lg:col-span-3"),
             Field("nfce_numero", wrapper_class="col-span-12 lg:col-span-3"),
         ]

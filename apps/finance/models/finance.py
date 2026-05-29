@@ -97,6 +97,7 @@ class FiscalEmissionAttemptStatus(models.TextChoices):
 
 class FiscalEmissionDocumentKind(models.TextChoices):
     NFE = "nfe", "NF-e"
+    NFCE = "nfce", "NFC-e"
     NFSE = "nfse", "NFS-e"
 
 
@@ -107,10 +108,12 @@ class FiscalEmissionOperationType(models.TextChoices):
     REVERSAL = "reversal", "Estorno"
     COMPLEMENTARY_PRICE_QUANTITY = "complementary_price_quantity", "Complementar preco/quantidade"
     ADJUSTMENT = "adjustment", "Ajuste"
+    NFCE_EMISSION = "nfce_emission", "Emissao NFC-e"
 
 
 class FiscalDocumentType(models.TextChoices):
     NFE = "nfe", "NF-e"
+    NFCE = "nfce", "NFC-e"
 
 
 class FiscalDocumentStatus(models.TextChoices):
@@ -389,6 +392,7 @@ class WebmaniaCompany(TimeStampedModel):
     nfe_numero_dev = models.PositiveIntegerField(verbose_name="Próximo número da Nota Fiscal homologação", null=True, blank=True)
     cnae_issqn = models.CharField(verbose_name="CNAE ISSQN", max_length=10, blank=True, default="")
 
+    nfce_enabled = models.BooleanField(verbose_name="NFC-e habilitada", default=False)
     nfce_serie = models.PositiveIntegerField(verbose_name="Série NFC-e", null=True, blank=True)
     nfce_numero = models.PositiveIntegerField(verbose_name="Próximo número NFC-e", null=True, blank=True)
     nfce_id_csc = models.CharField(verbose_name="ID CSC NFC-e", max_length=60, blank=True, default="")
@@ -773,6 +777,10 @@ class FiscalDocument(TimeStampedModel):
             ("view_nfe_adjustment", "Pode visualizar NF-e de ajuste"),
             ("download_nfe_adjustment", "Pode baixar XML/DANFE de NF-e de ajuste"),
             ("view_nfe_adjustment_payload", "Pode visualizar payload de NF-e de ajuste"),
+            ("issue_nfce", "Pode emitir NFC-e"),
+            ("view_nfce", "Pode visualizar NFC-e"),
+            ("download_nfce", "Pode baixar XML/DANFE de NFC-e"),
+            ("view_nfce_payload", "Pode visualizar payload de NFC-e"),
         ]
 
     def __str__(self) -> str:

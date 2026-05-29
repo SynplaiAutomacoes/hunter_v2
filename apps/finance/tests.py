@@ -43,7 +43,7 @@ from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.movement_group import MovementGroup
-from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentLink, FiscalDocumentLinkRole, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, NfeItem, NfeRequest, NfeRequestStatus, NfseItem, NfseRequest, NfseRequestStatus, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentLink, FiscalDocumentLinkRole, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, NfeItem, NfeRequest, NfeRequestStatus, NfseItem, NfseRequest, NfseRequestStatus, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
@@ -77,6 +77,7 @@ from apps.finance.services.nfe_emission import (
     preview_nfe_request,
     sync_nfe_emission_response,
 )
+from apps.finance.services.nfce_emission import NfceEmissionError, build_nfce_payload, create_and_emit_nfce, create_nfce_draft, transmit_nfce_document, validate_nfce_configuration
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number, reserve_nfse_request_rps_number
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
@@ -11853,6 +11854,279 @@ class FiscalPhaseTwoAdjustmentConcurrentTests(TransactionTestCase):
         with (
             patch("apps.finance.services.nfe_adjustment._build_headers", return_value={}),
             patch("apps.finance.services.nfe_adjustment.requests.post", side_effect=post_side_effect) as post_mock,
+        ):
+            threads = [threading.Thread(target=run_transmit), threading.Thread(target=run_transmit)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=10)
+
+        self.assertEqual(post_mock.call_count, 1)
+        self.assertEqual(results, ["sent"])
+        self.assertEqual(len(errors), 1)
+
+
+class FiscalPhaseTwoNfceManualTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=70)
+        self.company = WebmaniaCompany.objects.create(
+            workshop=self.workshop,
+            webmania_company_id="NFCE-70",
+            consumer_key="ck",
+            consumer_secret="cs",
+            access_token="at",
+            access_token_secret="ats",
+            nfce_enabled=True,
+            nfce_serie=1,
+            nfce_numero=100,
+            nfce_id_csc="prod-id",
+            nfce_codigo_csc="prod-token",
+            nfce_numero_dev=200,
+            nfce_id_csc_dev="dev-id",
+            nfce_codigo_csc_dev="dev-token",
+        )
+        group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo NFC-e")
+        self.product = Product.objects.create(
+            workshop=self.workshop,
+            code="NFCE-001",
+            unit=Product.Unit.UND,
+            name="Produto NFC-e",
+            ncm="87089990",
+            group=group,
+            cost_price=Money("10.00", "BRL"),
+            selling_price=Money("25.00", "BRL"),
+        )
+
+    def _products(self, *, quantity: str = "2", unit_value: str = "25.00") -> list[dict[str, str]]:
+        return [{"product_id": str(self.product.pk), "quantidade": quantity, "valor_unitario": unit_value, "classe_imposto": "REF000000"}]
+
+    def _response(self, *, uuid: str = "ca895e61-c0da-46ee-a880-a03f8547a9bc", key: str = "35123456789012345678901234567890123456787001") -> dict[str, Any]:
+        return {"uuid": uuid, "modelo": "nfce", "status": "aprovado", "nfe": "100", "serie": "1", "recibo": "", "chave": key, "xml": "https://example.test/nfce.xml", "danfe": "https://example.test/nfce.pdf", "danfe_simples": "https://example.test/nfce-simples.pdf", "danfe_etiqueta": "https://example.test/nfce-etiqueta.pdf", "log": {"token": "secret"}}
+
+    def _emit_nfce(self, *, response_payload: dict[str, Any] | None = None) -> FiscalDocument:
+        with (
+            patch("apps.finance.services.nfce_emission._build_headers", return_value={}),
+            patch("apps.finance.services.nfce_emission.requests.post", return_value=_mock_response(response_payload or self._response())),
+        ):
+            return create_and_emit_nfce(workshop=self.workshop, requested_by=self.user, environment=2, natureza_operacao="Venda ao consumidor", products=self._products(), customer={}, payment_method="01", legal_confirmation=True)
+
+    def test_nfce_configuration_blocks_missing_fields_and_sanitizes_csc(self) -> None:
+        self.company.nfce_codigo_csc_dev = ""
+        self.company.save(update_fields=["nfce_codigo_csc_dev"])
+        with patch("apps.finance.services.nfce_emission._build_headers", return_value={}):
+            with self.assertRaisesMessage(NfceEmissionError, "codigo CSC"):
+                validate_nfce_configuration(workshop=self.workshop, environment=2)
+        self.company.nfce_codigo_csc_dev = "dev-token"
+        self.company.save(update_fields=["nfce_codigo_csc_dev"])
+        self.company.nfce_enabled = False
+        self.company.save(update_fields=["nfce_enabled"])
+        with patch("apps.finance.services.nfce_emission._build_headers", return_value={}):
+            with self.assertRaisesMessage(NfceEmissionError, "Habilite a NFC-e"):
+                validate_nfce_configuration(workshop=self.workshop, environment=2)
+        self.company.nfce_enabled = True
+        self.company.save(update_fields=["nfce_enabled"])
+
+        with patch("apps.finance.services.nfce_emission._build_headers", return_value={}):
+            payload = build_nfce_payload(workshop=self.workshop, environment=2, natureza_operacao="Venda", products=self._products(), payment_method="01")
+        serialized = str(payload)
+        self.assertNotIn("dev-token", serialized)
+        self.assertNotIn("prod-token", serialized)
+
+    def test_nfce_payload_uses_only_simple_manual_scope(self) -> None:
+        with patch("apps.finance.services.nfce_emission._build_headers", return_value={}):
+            payload = build_nfce_payload(workshop=self.workshop, environment=2, natureza_operacao="Venda", products=self._products(), customer={}, payment_method="17")
+
+        self.assertEqual(payload["modelo"], 2)
+        self.assertEqual(payload["finalidade"], 1)
+        self.assertEqual(payload["operacao"], 1)
+        self.assertEqual(payload["produtos"][0]["codigo"], self.product.code)
+        self.assertEqual(payload["produtos"][0]["quantidade"], "2")
+        self.assertEqual(payload["produtos"][0]["subtotal"], "25.00")
+        self.assertEqual(payload["pedido"]["forma_pagamento"], "17")
+        for forbidden_key in ("impostos", "ibs", "cbs", "agropecuario", "tipo_credito", "tipo_debito", "nfce_referenciada", "contingencia", "offline"):
+            self.assertNotIn(forbidden_key, payload)
+
+    def test_nfce_document_attempt_response_and_payload_are_persisted(self) -> None:
+        document = self._emit_nfce()
+
+        self.assertEqual(document.document_type, FiscalDocumentType.NFCE)
+        self.assertEqual(document.purpose, FiscalDocumentPurpose.NORMAL)
+        self.assertEqual(document.origin, FiscalDocumentOrigin.MANUAL)
+        self.assertEqual(document.status, FiscalDocumentStatus.APPROVED)
+        self.assertEqual(document.remote_uuid, "ca895e61-c0da-46ee-a880-a03f8547a9bc")
+        self.assertEqual(document.xml_url, "https://example.test/nfce.xml")
+        self.assertEqual(document.danfe_url, "https://example.test/nfce.pdf")
+        self.assertNotIn("secret", str(document.response_payload))
+        attempt = FiscalEmissionAttempt.objects.get(fiscal_document=document)
+        self.assertEqual(attempt.document_kind, FiscalEmissionDocumentKind.NFCE)
+        self.assertEqual(attempt.operation_type, FiscalEmissionOperationType.NFCE_EMISSION)
+        self.assertEqual(attempt.status, FiscalEmissionAttemptStatus.SUCCEEDED)
+        self.assertEqual(attempt.request_payload["modelo"], 2)
+
+    def test_nfce_uncertain_blocks_retry_and_two_legitimate_documents_coexist(self) -> None:
+        with patch("apps.finance.services.nfce_emission._build_headers", return_value={}):
+            document = create_nfce_draft(workshop=self.workshop, requested_by=self.user, environment=2, natureza_operacao="Venda", products=self._products(), payment_method="01", legal_confirmation=True)
+        with (
+            patch("apps.finance.services.nfce_emission._build_headers", return_value={}),
+            patch("apps.finance.services.nfce_emission.requests.post", side_effect=requests.Timeout("timeout")) as post_mock,
+        ):
+            with self.assertRaisesMessage(NfceEmissionError, "estado remoto incerto"):
+                transmit_nfce_document(document=document)
+            with self.assertRaisesMessage(NfceEmissionError, "estado remoto incerto"):
+                transmit_nfce_document(document=document)
+        self.assertEqual(post_mock.call_count, 1)
+        document.refresh_from_db()
+        self.assertEqual(document.status, FiscalDocumentStatus.UNCERTAIN)
+        self._emit_nfce(response_payload=self._response(uuid="cb895e61-c0da-46ee-a880-a03f8547a9bc", key="35123456789012345678901234567890123456787002"))
+        self._emit_nfce(response_payload=self._response(uuid="cc895e61-c0da-46ee-a880-a03f8547a9bc", key="35123456789012345678901234567890123456787003"))
+        self.assertEqual(FiscalDocument.objects.filter(document_type=FiscalDocumentType.NFCE).count(), 3)
+
+    def test_nfce_does_not_collide_with_nfe_idempotency(self) -> None:
+        with patch("apps.finance.services.nfce_emission._build_headers", return_value={}):
+            nfce_document = create_nfce_draft(workshop=self.workshop, requested_by=self.user, environment=2, natureza_operacao="Venda", products=self._products(), payment_method="01", legal_confirmation=True)
+        nfe_document = FiscalDocument.objects.create(workshop=self.workshop, account=self.workshop.account, document_type=FiscalDocumentType.NFE, origin=FiscalDocumentOrigin.MANUAL, purpose=FiscalDocumentPurpose.NORMAL)
+        FiscalEmissionAttempt.objects.create(workshop=self.workshop, document_kind=FiscalEmissionDocumentKind.NFE, operation_type=FiscalEmissionOperationType.EMISSION, request_model=FiscalDocument.__name__, request_id=nfe_document.pk, fiscal_document=nfe_document, idempotency_key="shared", status=FiscalEmissionAttemptStatus.SUCCEEDED)
+        FiscalEmissionAttempt.objects.create(workshop=self.workshop, document_kind=FiscalEmissionDocumentKind.NFCE, operation_type=FiscalEmissionOperationType.NFCE_EMISSION, request_model=FiscalDocument.__name__, request_id=nfce_document.pk, fiscal_document=nfce_document, idempotency_key="shared", status=FiscalEmissionAttemptStatus.SUCCEEDED)
+        self.assertEqual(FiscalEmissionAttempt.objects.filter(idempotency_key="shared").count(), 2)
+
+    def test_nfce_webhook_reconciliation_download_permission_and_cross_workshop(self) -> None:
+        from django.http import Http404
+
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+        from apps.finance.views.nfce import NfceDocumentDownloadView, NfceDocumentPayloadView
+
+        document = self._emit_nfce()
+        payload = {"modelo": "nfce", "uuid": document.remote_uuid, "status": "aprovado", "chave": document.access_key, "xml": "https://example.test/nfce-webhook.xml", "danfe": "https://example.test/nfce-webhook.pdf"}
+        event = store_webhook_event(payload=payload)
+        duplicate = store_webhook_event(payload=payload)
+        self.assertEqual(event.pk, duplicate.pk)
+        self.assertTrue(process_webhook_event(event))
+        document.refresh_from_db()
+        self.assertEqual(document.xml_url, "https://example.test/nfce-webhook.xml")
+        self.assertFalse(NfeItem.objects.filter(uuid=document.remote_uuid).exists())
+
+        with patch("apps.finance.services.nfce_emission._build_headers", return_value={}):
+            ambiguous_first = create_nfce_draft(workshop=self.workshop, requested_by=self.user, environment=2, natureza_operacao="Venda", products=self._products(), payment_method="01", legal_confirmation=True)
+            ambiguous_second = create_nfce_draft(workshop=self.workshop, requested_by=self.user, environment=2, natureza_operacao="Venda", products=self._products(), payment_method="01", legal_confirmation=True)
+        for candidate in (ambiguous_first, ambiguous_second):
+            FiscalEmissionAttempt.objects.create(workshop=self.workshop, document_kind=FiscalEmissionDocumentKind.NFCE, operation_type=FiscalEmissionOperationType.NFCE_EMISSION, request_model=FiscalDocument.__name__, request_id=candidate.pk, fiscal_document=candidate, idempotency_key=f"nfce-ambiguous:{candidate.pk}", status=FiscalEmissionAttemptStatus.SUCCEEDED, remote_key="35123456789012345678901234567890123456787999")
+        ambiguous = store_webhook_event(payload={"modelo": "nfce", "status": "aprovado", "chave": "35123456789012345678901234567890123456787999", "xml": "https://example.test/ambiguous.xml"})
+        self.assertFalse(process_webhook_event(ambiguous))
+        ambiguous_first.refresh_from_db()
+        ambiguous_second.refresh_from_db()
+        self.assertEqual(ambiguous_first.xml_url, "")
+        self.assertEqual(ambiguous_second.xml_url, "")
+
+        document.status = FiscalDocumentStatus.UNCERTAIN
+        document.save(update_fields=["status"])
+        with (
+            patch("apps.finance.management.commands.reconcile_webmania_documents.process_pending_webhook_events", return_value=0),
+            patch("apps.finance.management.commands.reconcile_webmania_documents.reconcile_nfce_document", return_value=document) as reconcile_mock,
+            patch("apps.finance.services.nfce_emission.requests.post") as post_mock,
+        ):
+            call_command("reconcile_webmania_documents", limit=10)
+        reconcile_mock.assert_called()
+        post_mock.assert_not_called()
+
+        request = RequestFactory().get("/")
+        request.user = self.user
+        downloaded = SimpleNamespace(content=b"xml", content_type="application/xml")
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfce.download_webmania_document", return_value=downloaded),
+        ):
+            response = NfceDocumentDownloadView.as_view()(request, pk=document.pk, document="xml")
+        self.assertEqual(response.status_code, 200)
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            payload_response = NfceDocumentPayloadView.as_view()(request, pk=document.pk)
+        self.assertEqual(payload_response.status_code, 200)
+        self.assertNotIn("dev-token", payload_response.content.decode())
+        self.assertNotIn("prod-token", payload_response.content.decode())
+
+        other_workshop = create_workshop(suffix=71)
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=other_workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            with self.assertRaises(Http404):
+                NfceDocumentDownloadView.as_view()(request, pk=document.pk, document="xml")
+            with self.assertRaises(Http404):
+                NfceDocumentPayloadView.as_view()(request, pk=document.pk)
+
+    def test_nfce_issue_permission_has_no_nfe_fallback(self) -> None:
+        from django.core.exceptions import PermissionDenied
+
+        from apps.finance.views.nfce import NfceManualEmissionView
+
+        request = RequestFactory().post("/", data={"environment": "2", "natureza_operacao": "Venda", "produtos_json": "[]", "payment_method": "01", "confirm_nfce": "on"})
+        request.user = self.user
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=False),
+            patch("apps.finance.views.nfce.create_and_emit_nfce") as service_mock,
+        ):
+            with self.assertRaises(PermissionDenied):
+                NfceManualEmissionView.as_view()(request)
+        service_mock.assert_not_called()
+
+
+class FiscalPhaseTwoNfceManualConcurrentTests(TransactionTestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=72)
+        WebmaniaCompany.objects.create(
+            workshop=self.workshop,
+            webmania_company_id="NFCE-72",
+            consumer_key="ck",
+            consumer_secret="cs",
+            access_token="at",
+            access_token_secret="ats",
+            nfce_enabled=True,
+            nfce_serie=1,
+            nfce_numero=100,
+            nfce_id_csc="prod-id",
+            nfce_codigo_csc="prod-token",
+            nfce_numero_dev=200,
+            nfce_id_csc_dev="dev-id",
+            nfce_codigo_csc_dev="dev-token",
+        )
+        group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo NFC-e Conc")
+        self.product = Product.objects.create(workshop=self.workshop, code="NFCE-C", unit=Product.Unit.UND, name="Produto NFC-e Conc", ncm="87089990", group=group, cost_price=Money("10.00", "BRL"), selling_price=Money("25.00", "BRL"))
+
+    def test_concurrent_same_nfce_intention_calls_remote_once(self) -> None:
+        with patch("apps.finance.services.nfce_emission._build_headers", return_value={}):
+            document = create_nfce_draft(workshop=self.workshop, requested_by=self.user, environment=2, natureza_operacao="Venda", products=[{"product_id": str(self.product.pk), "quantidade": "1", "valor_unitario": "25.00", "classe_imposto": "REF000000"}], payment_method="01", legal_confirmation=True)
+        response_payload = {"uuid": "da895e61-c0da-46ee-a880-a03f8547a9bc", "modelo": "nfce", "status": "aprovado", "chave": "35123456789012345678901234567890123456787201", "xml": "https://example.test/nfce.xml", "danfe": "https://example.test/nfce.pdf"}
+        start_barrier = threading.Barrier(2)
+        results: list[str] = []
+        errors: list[str] = []
+        results_lock = threading.Lock()
+
+        def post_side_effect(*args: Any, **kwargs: Any) -> Any:
+            time.sleep(0.1)
+            return _mock_response(response_payload)
+
+        def run_transmit() -> None:
+            close_old_connections()
+            try:
+                start_barrier.wait(timeout=5)
+                fresh_document = FiscalDocument.objects.get(pk=document.pk)
+                transmit_nfce_document(document=fresh_document)
+            except Exception as exc:
+                with results_lock:
+                    errors.append(str(exc))
+            else:
+                with results_lock:
+                    results.append("sent")
+            finally:
+                close_old_connections()
+
+        with (
+            patch("apps.finance.services.nfce_emission._build_headers", return_value={}),
+            patch("apps.finance.services.nfce_emission.requests.post", side_effect=post_side_effect) as post_mock,
         ):
             threads = [threading.Thread(target=run_transmit), threading.Thread(target=run_transmit)]
             for thread in threads:

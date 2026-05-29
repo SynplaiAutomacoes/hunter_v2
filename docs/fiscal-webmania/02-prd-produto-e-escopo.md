@@ -200,3 +200,48 @@ Aceite funcional validado:
 - Timeout apos envio marca `uncertain` e bloqueia reenvio automatico.
 - Webhook e reconciliacao atualizam somente o ajuste.
 - Downloads XML/DANFE exigem oficina e permissao.
+
+## Fase 2.3.0 - PRD tecnico documental da NFC-e
+
+Objetivo: planejar NFC-e sem implementar codigo funcional. A implementacao futura deve usar a familia NF-e/NFC-e v1 da Webmania, mantendo isolamento por oficina e sem reutilizar fluxos NF-e de forma que confunda modelo, numeracao, permissao ou downloads.
+
+Escopo futuro recomendado para a Fase 2.3:
+
+- Emissao NFC-e normal por `POST /1/nfe/emissao/` com `modelo=2`.
+- Consulta por `GET /1/nfe/consulta/`.
+- Cancelamento por `PUT /1/nfe/cancelar/`.
+- Inutilizacao de numeracao NFC-e por `PUT /1/nfe/inutilizar/` com `modelo=2`, se aprovada na subfase.
+- Downloads XML e DANFE NFC-e por URLs retornadas.
+- Reconciliacao e webhook para `modelo=nfce`.
+- UI minima para emissao manual/operacional de venda consumidor, sem criar central fiscal completa.
+
+Fora de escopo da Fase 2.3 inicial:
+
+- NFC-e offline/contingencia offline com fila local.
+- Cancelamento por substituicao, salvo confirmacao oficial e aprovacao especifica.
+- Integracao PDV completa.
+- TEF, SAT/MFE ou impressao fiscal avancada.
+- Credito/debito, manifestacao, IBS/CBS e complementar tributaria.
+
+Configuracao:
+
+- Reutilizar `WebmaniaCompany.nfce_enabled`, `nfce_serie`, `nfce_numero`, `nfce_id_csc`, `nfce_codigo_csc`, `nfce_numero_dev`, `nfce_id_csc_dev` e `nfce_codigo_csc_dev`.
+- `nfce_enabled=False` bloqueia emissao e oculta acao operacional mesmo quando serie/CSC estiverem preenchidos.
+- Em producao, exigir serie, proximo numero e CSC de producao.
+- Em homologacao, exigir serie, numero de homologacao e CSC de homologacao quando o ambiente de teste estiver habilitado.
+- Nao criar configuracao paralela sem provar lacuna real no codigo atual.
+
+Origem de emissao:
+
+- Primeira entrega recomendada: emissao manual avulsa e emissao a partir de itens/produtos da OS com pagamento simples.
+- NFC-e nao deve depender obrigatoriamente de OS.
+- Uma mesma origem operacional pode futuramente gerar NF-e e NFC-e, mas a UI deve evitar dupla emissao acidental e exigir escolha explicita do modelo.
+
+Aceite funcional futuro:
+
+- Oficina sem configuracao NFC-e completa nao ve acao de emissao e nao chama Webmania.
+- NFC-e usa `FiscalDocument(document_type="nfce", purpose="normal")`.
+- Idempotencia cria documento local antes do gateway.
+- Timeout marca `uncertain` e bloqueia reenvio automatico.
+- Webhook/reconciliacao atualizam somente o documento NFC-e.
+- Downloads exigem oficina ativa e permissao especifica.

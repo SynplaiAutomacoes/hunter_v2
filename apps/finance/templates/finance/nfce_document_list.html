@@ -1,0 +1,52 @@
+{% extends 'crud/list_page.html' %}
+
+{% block crud_title %}NFC-e{% endblock %}
+{% block crud_subtitle %}Acompanhe NFC-e manuais emitidas pela oficina ativa.{% endblock %}
+
+{% block crud_header_actions %}
+    {% if can_issue_nfce %}
+        <a href="{% url 'finance:nfce_manual_emit' %}" class="btn btn-primary">Emitir NFC-e</a>
+    {% endif %}
+{% endblock %}
+
+{% block crud_table_wrapper_id %}nfce-document-table-wrapper{% endblock %}
+{% block crud_table_hx_get %}{% url 'finance:nfce_list' %}{% endblock %}
+{% block crud_table_hx_trigger %}nfce-document-table-refresh from:body{% endblock %}
+
+{% block crud_table %}
+    <div class="overflow-x-auto">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Numero</th>
+                    <th>Serie</th>
+                    <th>Status</th>
+                    <th>Chave</th>
+                    <th>Criado em</th>
+                    <th>Documentos</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for document in nfce_documents %}
+                    <tr>
+                        <td>{{ document.pk }}</td>
+                        <td>{{ document.number|default:"-" }}</td>
+                        <td>{{ document.series|default:"-" }}</td>
+                        <td><span class="badge">{{ document.status }}</span></td>
+                        <td class="font-mono text-xs">{{ document.access_key|default:"-" }}</td>
+                        <td>{{ document.criado_em|date:"d/m/Y H:i" }}</td>
+                        <td>
+                            <div class="flex gap-2">
+                                {% if document.xml_url %}<a class="btn btn-xs" href="{% url 'finance:nfce_document_download' pk=document.pk document='xml' %}">XML</a>{% endif %}
+                                {% if document.danfe_url %}<a class="btn btn-xs" href="{% url 'finance:nfce_document_download' pk=document.pk document='danfe' %}">DANFE</a>{% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="7" class="text-center text-base-content/60">Nenhuma NFC-e manual emitida.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endblock %}

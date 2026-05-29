@@ -275,6 +275,33 @@ Chave usada:
 hash(workshop_id, adjustment_document_id, operation_type, request_generation)
 ```
 
+### Fase 2.3.0 - Modelagem NFC-e
+
+Decisao recomendada:
+
+- Usar `FiscalDocument(document_type="nfce", purpose="normal", origin="manual" ou origem operacional aprovada)`.
+- Criar o documento local antes do gateway, com `workshop`, `account`, ambiente, origem, payload sanitizado, status local/remoto, UUID/chave/XML/DANFE e usuario solicitante.
+- Reutilizar `FiscalEmissionAttempt` com `operation_type="nfce_emission"` associado ao documento NFC-e.
+- Para cancelamento simples, usar status cancelado no documento e, se necessario para auditoria granular, `FiscalDocumentEvent(event_type="cancel")`.
+- Para cancelamento por substituicao, manter planejado como `FiscalDocumentEvent(event_type="replacement_cancel")`, mas nao implementar sem confirmacao oficial e nova aprovacao.
+- Para inutilizacao, preferir evento fiscal operacional proprio ou `FiscalDocumentEvent(event_type="invalidation")` vinculado a oficina/modelo/serie; definir na subfase de codigo se entrara no mesmo PR ou em subfase separada.
+
+Compatibilidade:
+
+- `NfeRequest`/`NfeItem` continuam fonte operacional da NF-e legada.
+- NFC-e deve nascer diretamente em `FiscalDocument`; nao criar `NfceRequest` legado salvo decisao futura muito justificada.
+- `WebmaniaCompany` ja possui campos NFC-e e deve ser fonte local de configuracao, evitando novo model paralelo.
+- NF-e e NFC-e devem ter chaves de idempotencia, filtros, permissoes e UI separados.
+
+Cardinalidade:
+
+```text
+Workshop 1:N FiscalDocument(document_type=nfce)
+FiscalDocument(nfce) 1:N FiscalEmissionAttempt(operation_type=nfce_emission)
+FiscalDocument(nfce) 1:N FiscalDocumentEvent(cancel/invalidation/replacement_cancel)
+Origem operacional 1:N FiscalDocument(nfce)
+```
+
 ### Arquivos previstos para Fase 2.1
 
 - Models/migrations: `apps/finance/models/finance.py`, nova migration para `FiscalDocument`, `FiscalDocumentEvent` e extensoes minimas de `FiscalEmissionAttempt`; sem `FiscalDocumentLink`.
