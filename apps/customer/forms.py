@@ -784,7 +784,14 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                     },
                     getFieldValue(container, fieldName) {
                         const input = this.getField(container, fieldName);
-                        return input ? String(input.value || '').trim() : '';
+                        if (!input) {
+                            return '';
+                        }
+                        const currentValue = String(input.value || '').trim();
+                        if (currentValue) {
+                            return currentValue;
+                        }
+                        return String(input.defaultValue || input.getAttribute('value') || '').trim();
                     },
                     getWidgetContainer(input) {
                         return input && input.type === 'hidden' ? input.closest('[x-data]') : null;
@@ -942,7 +949,7 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                             return;
                         }
                         this.setSearchableSelection(modelInput, preserveModel, preserveModel, options, { silent });
-                        await this.loadFuelsFor(container, { brand, model: preserveModel, preserveFuel, silent });
+                        await this.loadFuelsFor(container, { brand, model: preserveModel, preserveFuel, silent, showWarning: !silent });
                         this.syncEngine(container, preserveEngine, { silent, modelName: preserveModel });
                     },
                     async loadFuels(container, { preserveFuel = '', silent = false } = {}) {
@@ -950,7 +957,7 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                         const model = this.getFieldValue(container, 'model');
                         await this.loadFuelsFor(container, { brand, model, preserveFuel, silent });
                     },
-                    async loadFuelsFor(container, { brand = '', model = '', preserveFuel = '', silent = false } = {}) {
+                    async loadFuelsFor(container, { brand = '', model = '', preserveFuel = '', silent = false, showWarning = true } = {}) {
                         const fuelInput = this.getField(container, 'fuel');
                         const requestId = this.nextRequestId(container, 'fuel');
 
@@ -969,7 +976,7 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                         if (!this.isLatestRequest(container, 'fuel', requestId)) {
                             return;
                         }
-                        if (fuelPayload.warning) {
+                        if (showWarning && fuelPayload.warning) {
                             this.showToast(fuelPayload.warning);
                         }
                         this.setSearchableSelection(fuelInput, preserveFuel, preserveFuel, options, { silent });
@@ -997,6 +1004,7 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                             preserveModel: model,
                             preserveFuel: fuel,
                             preserveEngine: engine,
+                            silent: true,
                         });
                     },
                     fillTextFields(container, fieldsMap) {
