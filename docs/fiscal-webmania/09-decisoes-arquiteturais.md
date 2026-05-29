@@ -129,6 +129,46 @@
 - Status: implementada e validada na Fase 2.2A para devolucao/estorno.
 - Fase: 2.2A.
 
+## ADR-020 - Nota complementar por subtipos e documento derivado
+
+- Contexto: a Nota Fiscal Complementar pode complementar preco/quantidade, impostos ou documento de adicao/importacao. Misturar todos os cenarios no mesmo formulario/idempotencia aumenta risco fiscal e operacional.
+- Decisao: modelar a complementar como `FiscalDocument(purpose="complementary")` com subtipo explicito `complementary_type`: `price_quantity`, `tax` ou `import_addition`. O link `FiscalDocumentLink(role="complements")` e obrigatorio para a NF-e original local ou externa.
+- Alternativas consideradas: usar `purpose` separado para cada subtipo; armazenar tudo apenas no payload; tratar complementar como variacao de devolucao.
+- Consequencias: simplifica historico e downloads como documento derivado unico, mas requer campo/subtipo persistente ou estrutura equivalente aprovada na implementacao.
+- Riscos: payload oficial varia por subtipo e deve ser revalidado imediatamente antes do codigo.
+- Status: implementada parcialmente na Fase 2.2B.1 para `price_quantity` local; subtipos `tax` e `import_addition` permanecem propostos e nao implementados.
+- Fase: 2.2B.
+
+## ADR-021 - NF-e externa em Nota Complementar
+
+- Contexto: uma complementar pode referenciar NF-e externa por chave, mas a consulta padrao da Webmania nao deve ser tratada como validacao garantida de documento de outro emissor.
+- Decisao: permitir NF-e externa minima por chave de 44 digitos e confirmacao explicita. Bloquear `complementary_price_quantity` sem XML/importacao validada dos itens originais. Permitir `complementary_tax` externa somente se aprovado com confirmacao forte, payload auditavel e permissao restrita. Adiar `complementary_import_addition` externa ate haver importacao/validacao adequada.
+- Alternativas consideradas: bloquear toda complementar externa; permitir qualquer subtipo por entrada manual; consultar `/1/nfe/consulta/` como validador.
+- Consequencias: mantem capacidade fiscal com risco controlado e evita complemento de itens sem ordem fiscal original.
+- Riscos: usuarios podem precisar de fluxo futuro de importacao XML para casos reais externos.
+- Status: implementada negativamente na Fase 2.2B.1 para bloquear `complementary_price_quantity` externo minimo; complementar tributaria externa e importacao permanecem propostos e nao implementados.
+- Fase: 2.2B.
+
+## ADR-022 - Idempotencia da Nota Complementar
+
+- Contexto: duas complementares legitimas podem ter payload semelhante em momentos diferentes; usar apenas hash do payload/original bloquearia casos validos ou permitiria reenvio duplicado em timeout.
+- Decisao: seguir o padrao validado na Fase 2.2A: criar `FiscalDocument` complementar derivado antes do gateway e associar `FiscalEmissionAttempt` com chave `hash(workshop_id, complementary_document_id, operation_type, request_generation)`.
+- Alternativas consideradas: idempotencia por original+payload; cache; idempotencia por tela/formulario.
+- Consequencias: cada intencao complementar e auditavel, bloqueavel em `uncertain` e reconciliavel sem reemitir.
+- Riscos: documentos complementares iniciados e abandonados exigem limpeza/observabilidade futura.
+- Status: implementada parcialmente na Fase 2.2B.1 para `operation_type="complementary_price_quantity"`.
+- Fase: 2.2B.
+
+## ADR-023 - Complementar de preco/quantidade local antes de complementar tributaria
+
+- Contexto: o payload de complementar de preco/quantidade reaproveita itens fiscais locais conhecidos, enquanto complemento tributario, IBS/CBS e adicao/importacao exigem validacoes fiscais adicionais e UI propria.
+- Decisao: implementar primeiro somente `complementary_price_quantity` para NF-e original local autorizada, bloqueando NF-e externa minima e removendo do payload objetos tributarios fora do escopo.
+- Alternativas consideradas: liberar complemento externo por chave manual; misturar complemento tributario no mesmo formulario; implementar todo `/1/nfe/complementar/` em lote.
+- Consequencias: entrega incremental reduz risco e preserva caminho para `complementary_tax` e `complementary_import_addition` com nova autorizacao.
+- Riscos: casos reais de complemento tributario ou externo continuam sem atendimento ate subfase propria.
+- Status: implementada para revisao na Fase 2.2B.1.
+- Fase: 2.2B.1.
+
 ## ADR-017 - NF-e de credito e debito ficam em Fase 2.5
 
 - Contexto: a familia NF-e inclui finalidades 5 e 6 pelo endpoint `/1/nfe/emissao/`, com `tipo_credito` e `tipo_debito`.

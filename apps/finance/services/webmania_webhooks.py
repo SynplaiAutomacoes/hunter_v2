@@ -12,6 +12,7 @@ from apps.finance.services.emission import apply_nfse_batch_payload, apply_nfse_
 from apps.finance.services.mappers import extract_items_from_batch
 from apps.finance.services.nfe_events import apply_cce_event_payload
 from apps.finance.services.nfe_emission import apply_nfe_item_payload
+from apps.finance.services.nfe_complementary import apply_nfe_complementary_document_payload, is_ambiguous_nfe_complementary_webhook, resolve_nfe_complementary_document_for_webhook
 from apps.finance.services.nfe_returns import apply_nfe_return_document_payload, is_ambiguous_nfe_return_webhook, resolve_nfe_return_document_for_webhook
 
 
@@ -171,6 +172,19 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
         return True
 
     if model == "nfe":
+        complementary_document = resolve_nfe_complementary_document_for_webhook(payload=payload)
+        if complementary_document is not None:
+            with transaction.atomic():
+                complementary_document = complementary_document.__class__.objects.select_for_update().get(pk=complementary_document.pk)
+                if not _is_regressive_status(model="nfe", current_status=complementary_document.status, incoming_status=str(payload.get("status") or "")):
+                    apply_nfe_complementary_document_payload(document=complementary_document, response_payload=payload)
+
+            _mark_event_processed(event)
+            return True
+        if is_ambiguous_nfe_complementary_webhook(payload=payload):
+            _mark_event_deferred(event, error=f"Nota Fiscal Complementar {event_uuid or str(payload.get('chave') or '').strip()} ambigua entre documentos derivados.")
+            return False
+
         derived_document = resolve_nfe_return_document_for_webhook(payload=payload)
         if derived_document is not None:
             with transaction.atomic():

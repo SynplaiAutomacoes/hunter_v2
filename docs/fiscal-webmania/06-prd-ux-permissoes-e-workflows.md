@@ -64,8 +64,8 @@ Na Fase 1, preservar telas atuais de NF-e/NFS-e. A central unificada pode evolui
 A Fase 2 deve preservar as telas legadas de NF-e e adicionar acoes condicionais no detalhe/listagem do documento:
 
 - CC-e: disponivel somente para NF-e autorizada da oficina ativa.
-- Devolucao/estorno: disponivel para NF-e autorizada local ou NF-e externa validada por chave, com itens/quantidades selecionaveis e referencia obrigatoria.
-- Complementar: disponivel para NF-e autorizada local ou NF-e externa validada por chave/UUID, com tipo de complemento explicito: preco/quantidade, impostos ou adicao/importacao.
+- Devolucao/estorno: disponivel para NF-e autorizada local ou NF-e externa por chave confirmada, com itens/quantidades selecionaveis somente quando houver ordem fiscal validada e referencia obrigatoria.
+- Complementar: disponivel para NF-e autorizada local ou NF-e externa por chave confirmada, com tipo de complemento explicito: preco/quantidade, impostos ou adicao/importacao. Complementar de preco/quantidade externa exige itens importados/validados; complementar tributaria externa exige confirmacao forte e permissao restrita.
 - Ajuste: disponivel para usuario autorizado, com `operacao`, natureza, CFOP, valor ICMS, ambiente e cliente; nao exigir documento original quando a operacao for avulsa.
 - Nota Fiscal de Credito/Debito: planejada para Fase 2.5, com finalidade 5/6, `tipo_credito`/`tipo_debito` e UI propria.
 - NFC-e: disponivel em emissao manual/contextual somente se a oficina tiver configuracao NFC-e habilitada.
@@ -80,7 +80,11 @@ Eventos devem aparecer em timeline/historico do documento original. Documentos d
 | ---- | ----: | ------: | ------: | ----------: | -------------------- | -------------- |
 | Emitir CC-e | Sim | Sim | Opcional | Nao | `issue_nfe_correction` | Obrigatorio |
 | Emitir devolucao/estorno | Sim | Sim | Opcional | Nao | `issue_nfe_return` | Obrigatorio |
-| Emitir complementar | Sim | Sim | Opcional | Nao | `issue_nfe_complementary` | Obrigatorio |
+| Emitir complementar preco/quantidade | Sim | Sim | Opcional | Nao | `issue_nfe_complementary_price_quantity` | Obrigatorio |
+| Emitir complementar tributaria | Sim | Sim | Nao | Nao | `issue_nfe_complementary_tax` | Obrigatorio |
+| Visualizar complementar | Sim | Sim | Sim | Opcional | `view_nfe_complementary` | Obrigatorio |
+| Baixar XML/DANFE complementar | Sim | Sim | Sim | Opcional | `download_nfe_complementary` | Obrigatorio |
+| Visualizar payload complementar | Sim | Opcional | Nao | Nao | `view_nfe_complementary_payload` | Obrigatorio |
 | Emitir ajuste | Sim | Sim | Nao | Nao | `issue_nfe_adjustment` | Obrigatorio |
 | Emitir NF-e de credito | Sim | Sim | Nao | Nao | `issue_nfe_credit_note` | Obrigatorio |
 | Emitir NF-e de debito | Sim | Sim | Nao | Nao | `issue_nfe_debit_note` | Obrigatorio |
@@ -96,3 +100,25 @@ Compatibilidade:
 
 - Enquanto permissoes novas nao forem migradas para todos os usuarios, views Fase 2 podem manter fallback documentado para permissoes legadas apenas quando nao ampliar acesso.
 - Fallback nunca deve permitir acesso cross-workshop.
+
+### UI minima Fase 2.2B - Nota complementar
+
+Entrada principal: detalhe da NF-e original.
+
+Controles planejados:
+
+- Botao "Emitir Nota Complementar" somente para NF-e elegivel e usuario autorizado.
+- Seletor de subtipo: preco/quantidade, impostos, adicao/importacao.
+- Formulario preco/quantidade com sequencial fiscal do item original, valor complementar e/ou quantidade complementar.
+- Formulario tributario separado por imposto: ICMS, ICMS-ST, IPI, ISSQN, IBS/CBS.
+- Aviso de que a complementar acrescenta valores/dados e nao substitui a nota original.
+- Confirmacao explicita antes do envio.
+- Historico no detalhe da NF-e original listando complementares derivadas, status, UUID/chave e downloads.
+
+Bloqueios visuais:
+
+- NF-e externa minima sem itens validados bloqueia preco/quantidade.
+- `complementary_import_addition` aparece como planejado/indisponivel ate aprovacao especifica.
+- Complementar tributaria externa deve exibir alerta de entrada manual auditada e exigir permissao `issue_nfe_complementary_tax`.
+
+Fase 2.2B.1 implementada para revisao: a UI minima ficou restrita ao detalhe da NF-e original local elegivel, com acao "Emitir Nota Complementar", formulario de itens em JSON, confirmacao explicita, historico de complementares e downloads XML/DANFE protegidos. Central fiscal, complementar tributaria e importacao/adicao nao foram iniciadas.

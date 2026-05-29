@@ -129,9 +129,20 @@ Testes transversais obrigatorios para cada subfase da Fase 2:
 ### Fase 2.2B - Nota complementar
 
 - Complementar referencia obrigatoriamente NF-e original local ou externa por chave/UUID.
-- Testar complemento de preco/quantidade, impostos e adicao/importacao quando aplicavel.
-- Complemento identico e bloqueado por idempotencia; complemento distinto exige status remoto claro.
-- Usuario sem permissao especifica nao chama gateway.
+- Testar complemento de preco local.
+- Testar complemento de quantidade local.
+- Testar complemento tributario separado para ICMS, ICMS-ST, IPI, ISSQN e IBS/CBS conforme campos suportados no payload aprovado.
+- Testar documento externo minimo com chave de 44 digitos, confirmacao explicita e sem falsa validacao remota.
+- Testar bloqueio de `complementary_price_quantity` para NF-e externa minima sem XML/importacao validada dos itens.
+- Testar regra aprovada para `complementary_tax` externa: bloqueio ou permissao restrita com confirmacao forte e payload auditavel.
+- Testar que `complementary_import_addition` permanece indisponivel se for adiado.
+- Testar `FiscalDocumentLink(role="complements")` obrigatorio.
+- Testar idempotencia por documento complementar derivado e timeout `uncertain`.
+- Testar concorrencia da mesma intencao gerando uma chamada remota.
+- Testar webhook atualizando somente derivado e nao alterando a nota original.
+- Testar permissao, cross-workshop, downloads protegidos e payload/log sanitizados.
+
+Cobertura executada na Fase 2.2B.1: somente `complementary_price_quantity` local. Os testes cobrem complemento de preco, quantidade, preco+quantidade, link obrigatorio, bloqueio de original inelegivel, bloqueio de NF-e externa minima, ausencia de objetos tributarios/IBS-CBS fora do escopo, idempotencia por documento derivado, concorrencia com uma chamada remota, duas complementares independentes, timeout `uncertain`, payload congelado, webhook duplicado/fallback/ambiguidade, reconciliacao sem emissao, permissao especifica, cross-workshop, downloads protegidos e sanitizacao.
 
 ### Fase 2.2C - Nota de ajuste
 

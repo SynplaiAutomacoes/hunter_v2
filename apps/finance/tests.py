@@ -14,8 +14,8 @@ from urllib.parse import quote
 
 import requests
 from django.contrib.messages import get_messages
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.management import call_command
-from django.core.exceptions import ValidationError
 from django.contrib.auth.models import Permission
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.db import close_old_connections
@@ -43,7 +43,7 @@ from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.movement_group import MovementGroup
-from apps.finance.models.finance import FiscalDocument, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentLink, FiscalDocumentLinkRole, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalEmissionAttempt, NfeItem, NfeRequest, NfeRequestStatus, NfseItem, NfseRequest, NfseRequestStatus, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentLink, FiscalDocumentLinkRole, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, NfeItem, NfeRequest, NfeRequestStatus, NfseItem, NfseRequest, NfseRequestStatus, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
@@ -11165,3 +11165,343 @@ class FiscalPhaseTwoReturnConcurrentTests(TransactionTestCase):
         self.assertEqual(results, ["created"])
         self.assertEqual(len(errors), 1)
         self.assertIn("excede o saldo", errors[0])
+
+
+class FiscalPhaseTwoComplementaryPriceQuantityTests(TestCase):
+    def _create_nfe_item(self, *, suffix: int = 90, status: str = "aprovado") -> NfeItem:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=suffix)
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=timezone.now().date())
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=workorder, tax_class="REFNFE")
+        return NfeItem.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            request=nfe_request,
+            uuid=f"{suffix:08d}-c0da-46ee-a880-a03f8547a9bc",
+            status=status,
+            access_key=f"35{suffix:042d}"[-44:],
+            number=str(suffix),
+            series="1",
+            raw_payload={"cliente": {"cpf": "12345678901", "nome": "Cliente"}, "produtos": [{"codigo": "P1", "descricao": "Produto 1", "quantidade": "2", "subtotal": "100.00", "impostos": {"icms": "fora-do-escopo"}, "ibs": "fora-do-escopo", "cbs": "fora-do-escopo", "agropecuario": {"x": "fora-do-escopo"}}]},
+        )
+
+    def _response(self, *, uuid: str = "ab895e61-c0da-46ee-a880-a03f8547a9bc", key: str = "35123456789012345678901234567890123456789901") -> dict[str, Any]:
+        return {"uuid": uuid, "modelo": "nfe", "status": "aprovado", "nfe": "9100", "serie": "1", "recibo": "REC-COMP", "chave": key, "xml": "https://example.test/comp.xml", "danfe": "https://example.test/comp.pdf", "log": {"token": "secret"}}
+
+    def _emit_complementary(self, item: NfeItem, *, items: list[dict[str, Any]] | None = None, response_payload: dict[str, Any] | None = None) -> FiscalDocument:
+        from apps.finance.services.nfe_complementary import create_and_emit_nfe_complementary_price_quantity_from_item
+
+        with (
+            patch("apps.finance.services.nfe_complementary._build_headers", return_value={"X-Access-Token": "secret"}),
+            patch("apps.finance.services.nfe_complementary.requests.post", return_value=_mock_response(response_payload or self._response())) as post_mock,
+        ):
+            document = create_and_emit_nfe_complementary_price_quantity_from_item(
+                item=item,
+                items=items or [{"sequencial": 1, "quantidade_complementar": "0", "valor_complementar": "10.00", "codigo_cfop": "5102", "situacao_tributaria": "00"}],
+                requested_by=self.user,
+                operacao="1",
+                natureza_operacao="Nota Fiscal Complementar",
+                codigo_cfop="5102",
+                legal_confirmation=True,
+            )
+        self.assertEqual(post_mock.call_count, 1)
+        return document
+
+    def test_complementary_price_local_valid_creates_link_and_payload(self) -> None:
+        item = self._create_nfe_item(suffix=91)
+
+        document = self._emit_complementary(item)
+
+        original = FiscalDocument.objects.get(legacy_nfe_item=item)
+        link = FiscalDocumentLink.objects.get(document=document)
+        self.assertEqual(document.purpose, FiscalDocumentPurpose.COMPLEMENTARY)
+        self.assertEqual(document.complementary_type, FiscalDocumentComplementaryType.PRICE_QUANTITY)
+        self.assertEqual(link.related_document, original)
+        self.assertEqual(link.role, FiscalDocumentLinkRole.COMPLEMENTS)
+        self.assertEqual(document.request_payload["produtos"][0]["item_original"], 1)
+        self.assertEqual(document.request_payload["produtos"][0]["subtotal"], "10")
+        self.assertNotIn("impostos", document.request_payload["produtos"][0])
+        self.assertNotIn("ibs", document.request_payload["produtos"][0])
+        self.assertNotIn("cbs", document.request_payload["produtos"][0])
+        self.assertNotIn("agropecuario", document.request_payload["produtos"][0])
+        original.refresh_from_db()
+        self.assertEqual(original.status, FiscalDocumentStatus.APPROVED)
+
+    def test_complementary_quantity_and_price_simultaneous_are_explicit(self) -> None:
+        item = self._create_nfe_item(suffix=92)
+
+        document = self._emit_complementary(item, items=[{"sequencial": 1, "quantidade_complementar": "1", "valor_complementar": "25.50", "codigo_cfop": "5102", "situacao_tributaria": "00"}])
+
+        product = document.request_payload["produtos"][0]
+        self.assertEqual(product["quantidade"], "1")
+        self.assertEqual(product["subtotal"], "25.5")
+        self.assertEqual(product["codigo_cfop"], "5102")
+        self.assertEqual(product["situacao_tributaria"], "00")
+
+    def test_complementary_blocks_ineligible_original_and_external_minimal(self) -> None:
+        from apps.finance.services.nfe_complementary import NfeComplementaryError, create_nfe_complementary_price_quantity_draft
+        from apps.finance.services.nfe_returns import ensure_external_original_document
+
+        item = self._create_nfe_item(suffix=93, status="cancelado")
+        with self.assertRaisesMessage(NfeComplementaryError, "autorizada"):
+            self._emit_complementary(item)
+
+        user, workshop = create_director_user_with_workshop(suffix=94)
+        external = ensure_external_original_document(workshop=workshop, access_key="35123456789012345678901234567890123456789904", requested_by=user, confirmed_external=True)
+        with self.assertRaisesMessage(NfeComplementaryError, "somente para NF-e original local"):
+            create_nfe_complementary_price_quantity_draft(
+                original_document=external,
+                items=[{"sequencial": 1, "quantidade_complementar": "1", "codigo_cfop": "5102", "situacao_tributaria": "00"}],
+                requested_by=user,
+                codigo_cfop="5102",
+                legal_confirmation=True,
+            )
+
+    def test_complementary_timeout_uncertain_blocks_resend_and_freezes_payload(self) -> None:
+        from apps.finance.services.nfe_complementary import NfeComplementaryError, create_nfe_complementary_price_quantity_draft_from_item, transmit_nfe_complementary_document
+
+        item = self._create_nfe_item(suffix=95)
+        document = create_nfe_complementary_price_quantity_draft_from_item(
+            item=item,
+            items=[{"sequencial": 1, "quantidade_complementar": "1", "codigo_cfop": "5102", "situacao_tributaria": "00"}],
+            requested_by=self.user,
+            codigo_cfop="5102",
+            legal_confirmation=True,
+        )
+        frozen_payload = dict(document.request_payload)
+        with (
+            patch("apps.finance.services.nfe_complementary._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_complementary.requests.post", side_effect=requests.Timeout("timeout")) as post_mock,
+        ):
+            with self.assertRaisesMessage(NfeComplementaryError, "estado remoto incerto"):
+                transmit_nfe_complementary_document(document=document)
+            with self.assertRaisesMessage(NfeComplementaryError, "estado remoto incerto"):
+                transmit_nfe_complementary_document(document=document)
+        self.assertEqual(post_mock.call_count, 1)
+        document.refresh_from_db()
+        attempt = FiscalEmissionAttempt.objects.get(fiscal_document=document)
+        self.assertEqual(document.status, FiscalDocumentStatus.UNCERTAIN)
+        self.assertEqual(attempt.status, "uncertain")
+        self.assertEqual(document.request_payload, frozen_payload)
+
+    def test_complementary_webhook_idempotent_updates_derived_only(self) -> None:
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        item = self._create_nfe_item(suffix=96)
+        document = self._emit_complementary(item)
+        original = FiscalDocumentLink.objects.get(document=document).related_document
+        payload = {"modelo": "nfe", "uuid": document.remote_uuid, "status": "aprovado", "chave": document.access_key, "xml": "https://example.test/comp-webhook.xml", "danfe": "https://example.test/comp-webhook.pdf"}
+        event = store_webhook_event(payload=payload)
+        duplicate = store_webhook_event(payload=payload)
+
+        self.assertEqual(event.pk, duplicate.pk)
+        self.assertTrue(process_webhook_event(event))
+        self.assertTrue(process_webhook_event(duplicate))
+        document.refresh_from_db()
+        original.refresh_from_db()
+        item.refresh_from_db()
+        self.assertEqual(document.xml_url, "https://example.test/comp-webhook.xml")
+        self.assertEqual(original.status, FiscalDocumentStatus.APPROVED)
+        self.assertEqual(item.status, "aprovado")
+
+    def test_complementary_webhook_falls_back_to_attempt_key_when_document_has_no_remote_identity(self) -> None:
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        item = self._create_nfe_item(suffix=82)
+        document = self._emit_complementary(item, response_payload=self._response(uuid="dc895e61-c0da-46ee-a880-a03f8547a9bc", key="35123456789012345678901234567890123456789921"))
+        document.remote_uuid = ""
+        document.access_key = ""
+        document.save(update_fields=["remote_uuid", "access_key", "atualizado_em"])
+        original = FiscalDocumentLink.objects.get(document=document).related_document
+        payload = {"modelo": "nfe", "status": "aprovado", "chave": "35123456789012345678901234567890123456789921", "xml": "https://example.test/comp-attempt.xml", "danfe": "https://example.test/comp-attempt.pdf"}
+        event = store_webhook_event(payload=payload)
+
+        self.assertTrue(process_webhook_event(event))
+
+        document.refresh_from_db()
+        original.refresh_from_db()
+        self.assertEqual(document.access_key, "35123456789012345678901234567890123456789921")
+        self.assertEqual(document.xml_url, "https://example.test/comp-attempt.xml")
+        self.assertEqual(original.status, FiscalDocumentStatus.APPROVED)
+
+    def test_complementary_webhook_ambiguous_attempt_key_does_not_update_any_document(self) -> None:
+        from apps.finance.services.nfe_complementary import create_nfe_complementary_price_quantity_draft_from_item
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        item = self._create_nfe_item(suffix=83)
+        first = create_nfe_complementary_price_quantity_draft_from_item(
+            item=item,
+            items=[{"sequencial": 1, "valor_complementar": "10.00", "codigo_cfop": "5102", "situacao_tributaria": "00"}],
+            requested_by=self.user,
+            codigo_cfop="5102",
+            legal_confirmation=True,
+        )
+        second = create_nfe_complementary_price_quantity_draft_from_item(
+            item=item,
+            items=[{"sequencial": 1, "valor_complementar": "11.00", "codigo_cfop": "5102", "situacao_tributaria": "00"}],
+            requested_by=self.user,
+            codigo_cfop="5102",
+            legal_confirmation=True,
+        )
+        for document in (first, second):
+            FiscalEmissionAttempt.objects.create(
+                workshop=self.workshop,
+                document_kind=FiscalEmissionDocumentKind.NFE,
+                operation_type=FiscalEmissionOperationType.COMPLEMENTARY_PRICE_QUANTITY,
+                request_model=FiscalDocument.__name__,
+                request_id=document.pk,
+                fiscal_document=document,
+                idempotency_key=f"complementary-test:{document.pk}",
+                status=FiscalEmissionAttemptStatus.SUCCEEDED,
+                remote_key="35123456789012345678901234567890123456789922",
+                response_payload={"chave": "35123456789012345678901234567890123456789922"},
+            )
+        payload = {"modelo": "nfe", "status": "aprovado", "chave": "35123456789012345678901234567890123456789922", "xml": "https://example.test/ambiguous.xml"}
+        event = store_webhook_event(payload=payload)
+
+        self.assertFalse(process_webhook_event(event))
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        event.refresh_from_db()
+        self.assertEqual(first.xml_url, "")
+        self.assertEqual(second.xml_url, "")
+        self.assertIn("ambigua", event.processing_error)
+
+    def test_complementary_reconciliation_download_permissions_and_cross_workshop(self) -> None:
+        from django.core.exceptions import PermissionDenied
+        from django.http import Http404
+
+        from apps.finance.views.nfe import NfeComplementaryDownloadView
+
+        item = self._create_nfe_item(suffix=97)
+        document = self._emit_complementary(item)
+        document.status = FiscalDocumentStatus.UNCERTAIN
+        document.save(update_fields=["status"])
+        with (
+            patch("apps.finance.management.commands.reconcile_webmania_documents.process_pending_webhook_events", return_value=0),
+            patch("apps.finance.management.commands.reconcile_webmania_documents.reconcile_nfe_complementary_document", return_value=document) as reconcile_mock,
+            patch("apps.finance.services.nfe_complementary.requests.post") as post_mock,
+        ):
+            call_command("reconcile_webmania_documents", limit=10)
+        reconcile_mock.assert_called()
+        post_mock.assert_not_called()
+
+        request = RequestFactory().get("/")
+        request.user = self.user
+        downloaded = SimpleNamespace(content=b"pdf", content_type="application/pdf")
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfe.download_webmania_document", return_value=downloaded) as download_mock,
+        ):
+            response = NfeComplementaryDownloadView.as_view()(request, pk=item.request_id, document_pk=document.pk, document="danfe")
+        self.assertEqual(response.status_code, 200)
+        download_mock.assert_called_once_with(workshop=self.workshop, url=document.danfe_url)
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=False),
+        ):
+            with self.assertRaises(PermissionDenied):
+                NfeComplementaryDownloadView.as_view()(request, pk=item.request_id, document_pk=document.pk, document="danfe")
+
+        other_workshop = create_workshop(suffix=98)
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=other_workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            with self.assertRaises(Http404):
+                NfeComplementaryDownloadView.as_view()(request, pk=item.request_id, document_pk=document.pk, document="danfe")
+
+    def test_complementary_issue_view_requires_specific_permission(self) -> None:
+        from apps.finance.views.nfe import NfeComplementaryPriceQuantityIssueView
+
+        item = self._create_nfe_item(suffix=99)
+        request = RequestFactory().post("/", data={"operacao": "1", "natureza_operacao": "Nota Fiscal Complementar", "codigo_cfop": "5102", "itens_json": '[{"sequencial":1,"valor_complementar":"10.00","codigo_cfop":"5102","situacao_tributaria":"00"}]', "confirm_complementary": "on"})
+        request.user = self.user
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=False),
+        ):
+            with self.assertRaises(PermissionDenied):
+                NfeComplementaryPriceQuantityIssueView.as_view()(request, pk=item.request_id)
+
+    def test_two_legitimate_complementaries_create_independent_documents(self) -> None:
+        item = self._create_nfe_item(suffix=80)
+
+        first = self._emit_complementary(item, response_payload=self._response(uuid="bb895e61-c0da-46ee-a880-a03f8547a9b1", key="35123456789012345678901234567890123456789911"))
+        second = self._emit_complementary(item, response_payload=self._response(uuid="bb895e61-c0da-46ee-a880-a03f8547a9b2", key="35123456789012345678901234567890123456789912"))
+
+        self.assertNotEqual(first.pk, second.pk)
+        self.assertEqual(FiscalDocument.objects.filter(purpose=FiscalDocumentPurpose.COMPLEMENTARY, complementary_type=FiscalDocumentComplementaryType.PRICE_QUANTITY).count(), 2)
+
+
+class FiscalPhaseTwoComplementaryConcurrentTests(TransactionTestCase):
+    def _create_nfe_item(self) -> NfeItem:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=81)
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=timezone.now().date())
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=workorder, tax_class="REFNFE")
+        return NfeItem.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            request=nfe_request,
+            uuid="08100000-c0da-46ee-a880-a03f8547a9bc",
+            status="aprovado",
+            access_key="35123456789012345678901234567890123456789913",
+            number="81",
+            series="1",
+            raw_payload={"produtos": [{"codigo": "P1", "descricao": "Produto 1", "quantidade": "2", "subtotal": "100.00"}]},
+        )
+
+    def test_concurrent_same_complementary_intention_calls_remote_once(self) -> None:
+        from apps.finance.services.nfe_complementary import create_nfe_complementary_price_quantity_draft_from_item, transmit_nfe_complementary_document
+
+        item = self._create_nfe_item()
+        document = create_nfe_complementary_price_quantity_draft_from_item(
+            item=item,
+            items=[{"sequencial": 1, "valor_complementar": "10.00", "codigo_cfop": "5102", "situacao_tributaria": "00"}],
+            requested_by=self.user,
+            codigo_cfop="5102",
+            legal_confirmation=True,
+        )
+        response_payload = {"uuid": "cb895e61-c0da-46ee-a880-a03f8547a9bc", "modelo": "nfe", "status": "aprovado", "chave": "35123456789012345678901234567890123456789914", "xml": "https://example.test/comp.xml", "danfe": "https://example.test/comp.pdf"}
+        start_barrier = threading.Barrier(2)
+        results: list[str] = []
+        errors: list[str] = []
+        results_lock = threading.Lock()
+
+        def post_side_effect(*args: Any, **kwargs: Any) -> Any:
+            time.sleep(0.1)
+            return _mock_response(response_payload)
+
+        def run_transmit() -> None:
+            close_old_connections()
+            try:
+                start_barrier.wait(timeout=5)
+                fresh_document = FiscalDocument.objects.get(pk=document.pk)
+                transmit_nfe_complementary_document(document=fresh_document)
+            except Exception as exc:
+                with results_lock:
+                    errors.append(str(exc))
+            else:
+                with results_lock:
+                    results.append("sent")
+            finally:
+                close_old_connections()
+
+        with (
+            patch("apps.finance.services.nfe_complementary._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_complementary.requests.post", side_effect=post_side_effect) as post_mock,
+        ):
+            threads = [threading.Thread(target=run_transmit), threading.Thread(target=run_transmit)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=10)
+
+        self.assertEqual(post_mock.call_count, 1)
+        self.assertEqual(results, ["sent"])
+        self.assertEqual(len(errors), 1)

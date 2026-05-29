@@ -3,8 +3,7 @@
 ## Decisoes que exigem aprovacao
 
 - Manter models legados com camada de compatibilidade ou migrar diretamente para dominio unificado.
-- Fase 2.2A validada; aprovar explicitamente Fase 2.2B antes de qualquer codigo de nota complementar.
-- Aprovar implementacao funcional da Fase 2.2B antes de qualquer codigo de complementar.
+- Fase 2.2B.1 implementada para revisao somente para complementar de preco/quantidade local; aprovar explicitamente a Fase 2.2B.2 antes de qualquer codigo de complementar tributaria.
 - Aprovar implementacao funcional da Fase 2.2C antes de qualquer codigo de ajuste.
 - Aprovar politica final de permissoes fiscais para novas operacoes Fase 2.2+; Fase 2.1 nao concedeu emissao CC-e por fallback legado.
 - Evoluir `FiscalEmissionAttempt` minimo para dominio unificado futuro.
@@ -39,6 +38,10 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Revalidar em homologacao a CC-e implementada na Fase 2.1 contra respostas reais Webmania, sem emissao em testes automatizados.
 - Confirmar dados obrigatorios de devolucao/estorno por CFOP inverso e finalidade.
 - Confirmar variantes de NF-e complementar: preco/quantidade, impostos e adicao/importacao aplicaveis ao produto oficina.
+- Revalidar payload oficial de `POST /1/nfe/complementar/` imediatamente antes do codigo de cada subtipo ainda nao implementado.
+- Decidir se `complementary_tax` externa minima sera permitida na primeira implementacao ou bloqueada ate importacao/validacao documental.
+- Manter `complementary_import_addition` adiada salvo aprovacao explicita por baixa relevancia para oficinas.
+- Fase 2.2B.1 nao implementou complemento tributario, IBS/CBS, ICMS-ST, IPI, ISSQN, `agropecuario`, adicao/importacao ou NF-e externa minima para preco/quantidade.
 - Confirmar cenarios de ajuste que exigem ou dispensam documento original.
 - Confirmar tipos oficiais `tipo_credito` e `tipo_debito` antes da Fase 2.5.
 - Importacao/validacao de NF-e externa por XML ou API fiscal especifica fica fora da Fase 2.2A.

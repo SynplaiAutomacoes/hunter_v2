@@ -42,6 +42,12 @@
             Devolução/Estorno
         </button>
     {% endif %}
+    {% if can_issue_complementary_price_quantity %}
+        <button type="button" class="btn btn-sm btn-outline gap-2" onclick="complementary_nfe_modal.showModal()">
+            <span class="material-icons text-sm">add_notes</span>
+            Nota Complementar
+        </button>
+    {% endif %}
 {% endblock %}
 
 {% block crud_detail_content %}
@@ -226,6 +232,44 @@
                         </div>
                     </div>
                 {% endif %}
+                {% if complementary_documents %}
+                    <div class="mt-8">
+                        <h3 class="text-base font-semibold text-base-content mb-3">Notas complementares</h3>
+                        <div class="overflow-x-auto rounded-lg border border-base-200">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Tipo</th>
+                                        <th>Status</th>
+                                        <th>UUID</th>
+                                        <th>Chave</th>
+                                        <th class="text-right">Documentos</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for document in complementary_documents %}
+                                        <tr>
+                                            <td>{{ document.get_complementary_type_display }}</td>
+                                            <td>{{ document.status }}</td>
+                                            <td class="break-all">{{ document.remote_uuid|default:'-' }}</td>
+                                            <td class="break-all">{{ document.access_key|default:'-' }}</td>
+                                            <td class="text-right">
+                                                <div class="flex flex-wrap justify-end gap-2">
+                                                    {% if document.xml_url %}
+                                                        <a href="{% url 'finance:nfe_complementary_download' pk=nfe_request.pk document_pk=document.pk document='xml' %}" class="btn btn-outline btn-xs">XML</a>
+                                                    {% endif %}
+                                                    {% if document.danfe_url %}
+                                                        <a href="{% url 'finance:nfe_complementary_download' pk=nfe_request.pk document_pk=document.pk document='danfe' %}" class="btn btn-outline btn-xs">DANFE</a>
+                                                    {% endif %}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                {% endif %}
             {% else %}
                 <div class="alert alert-warning">
                     <span>A Nota Fiscal ainda nao possui item sincronizado. Reenvie a consulta quando a Webmania retornar o processamento.</span>
@@ -326,6 +370,45 @@
                     <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
                         <button type="button" class="btn-form-cancel" onclick="return_nfe_modal.close()">Cancelar</button>
                         <button type="submit" class="btn btn-primary">Enviar</button>
+                    </div>
+                </form>
+            </div>
+        </dialog>
+    {% endif %}
+    {% if can_issue_complementary_price_quantity %}
+        <dialog id="complementary_nfe_modal" class="modal" onclick="if (event.target === this) this.close()">
+            <div class="modal-box w-11/12 max-w-3xl border border-base-300 bg-base-100 shadow-2xl">
+                <form method="post" action="{% url 'finance:nfe_complementary_price_quantity_issue' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
+                    {% csrf_token %}
+                    <h3 class="text-base font-semibold text-base-content">Emitir Nota Complementar</h3>
+                    <div class="alert alert-warning mt-4 text-sm">
+                        <span>A Nota Complementar cria um novo documento fiscal e não altera a NF-e original. Nesta fase, somente preço e/ou quantidade estão disponíveis.</span>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                        <div>
+                            <label for="nfe-complementary-operation" class="label"><span class="label-text">Operação</span></label>
+                            <input id="nfe-complementary-operation" name="operacao" class="input input-bordered w-full" value="1" maxlength="20" required>
+                        </div>
+                        <div>
+                            <label for="nfe-complementary-cfop" class="label"><span class="label-text">CFOP geral</span></label>
+                            <input id="nfe-complementary-cfop" name="codigo_cfop" class="input input-bordered w-full" maxlength="10" required>
+                        </div>
+                        <div class="md:col-span-2">
+                            <label for="nfe-complementary-nature" class="label"><span class="label-text">Natureza da operação</span></label>
+                            <input id="nfe-complementary-nature" name="natureza_operacao" class="input input-bordered w-full" value="Nota Fiscal Complementar" maxlength="120" required>
+                        </div>
+                        <div class="md:col-span-2">
+                            <label for="nfe-complementary-items" class="label"><span class="label-text">Itens complementares em JSON</span></label>
+                            <textarea id="nfe-complementary-items" name="itens_json" class="textarea textarea-bordered w-full font-mono text-xs" rows="6" required>[{"sequencial":1, "quantidade_complementar":"0", "valor_complementar":"0.00", "codigo_cfop":"", "situacao_tributaria":""}]</textarea>
+                        </div>
+                    </div>
+                    <label class="label cursor-pointer justify-start gap-3 mt-3">
+                        <input type="checkbox" name="confirm_complementary" class="checkbox checkbox-sm" required>
+                        <span class="label-text">Confirmo que a Nota Complementar acrescenta preço e/ou quantidade à NF-e original.</span>
+                    </label>
+                    <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                        <button type="button" class="btn-form-cancel" onclick="complementary_nfe_modal.close()">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Enviar complementar</button>
                     </div>
                 </form>
             </div>

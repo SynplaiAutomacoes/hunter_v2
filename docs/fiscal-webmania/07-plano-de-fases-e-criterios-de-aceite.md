@@ -78,11 +78,23 @@
 
 - Escopo: complementar preco/quantidade, complementar impostos e documento de adicao/importacao quando aplicavel.
 - Dependencias: Fase 2.2A validada ou decisao explicita para executar em paralelo documentalmente aprovada.
-- Modelagem necessaria: `FiscalDocument(kind="nfe", purpose="complementary")` com subtipo; `FiscalDocumentLink` obrigatorio para NF-e original local ou externa.
+- Modelagem necessaria: `FiscalDocument(kind="nfe", purpose="complementary")` com `complementary_type`; `FiscalDocumentLink(role="complements")` obrigatorio para NF-e original local ou externa.
 - Endpoint Webmania: `POST /1/nfe/complementar/`.
-- Testes obrigatorios: referencia por chave/UUID; tipos de complemento; timeout `uncertain`; complemento distinto versus duplicado; permissao restrita; NF-e externa marcada.
+- Subtipos: `complementary_price_quantity`, `complementary_tax`, `complementary_import_addition`.
+- Decisao externa: bloquear `complementary_price_quantity` para NF-e externa minima sem XML/importacao validada; permitir `complementary_tax` externa somente se aprovado com confirmacao forte, payload auditavel e permissao restrita; adiar `complementary_import_addition` por baixa prioridade.
+- Idempotencia: criar documento complementar derivado antes do gateway; chave `hash(workshop_id, complementary_document_id, operation_type, request_generation)`; payload congelado apos envio.
+- Testes obrigatorios: complemento de preco local; complemento de quantidade local; complemento tributario por imposto suportado; vinculo obrigatorio ao original; documento externo minimo; bloqueio de preco/quantidade externa sem itens validados; regra para imposto complementar externo; webhook; idempotencia; concorrencia; timeout `uncertain`; permissao; cross-workshop; downloads; payload sanitizado.
 - Rollback: desabilitar action complementar.
-- Status: nao iniciada.
+- Status: Fase 2.2B.0 aprovada documentalmente; Fase 2.2B.1 implementada para revisao somente para preco/quantidade local. Complementar tributaria, IBS/CBS e adicao/importacao permanecem nao implementadas e exigem nova autorizacao.
+
+#### Fase 2.2B.1 - Complementar de preco/quantidade para NF-e local
+
+- Escopo implementado: `POST /1/nfe/complementar/` para NF-e original local autorizada/elegivel, com itens fiscais conhecidos, permissao especifica e confirmacao explicita.
+- Modelagem implementada: `FiscalDocument(purpose="complementary", complementary_type="price_quantity", origin="local")`; `FiscalDocumentLink(role="complements")`; `FiscalEmissionAttempt(operation_type="complementary_price_quantity")`.
+- Payload permitido: `chave` ou `uuid`, `operacao`, `natureza_operacao`, `codigo_cfop`, `ambiente`, `cliente`, `produtos`, `url_notificacao`. Cada produto preserva dados fiscais do item original, substituindo apenas quantidade/valor complementar, CFOP e situacao tributaria ICMS informados.
+- Alteracoes proibidas ainda vigentes: objeto `impostos`, ICMS-ST, IPI, ISSQN, IBS/CBS, `agropecuario`, documento de adicao/importacao, NF-e externa minima para preco/quantidade, central fiscal nova.
+- Testes executados: Fases 1, 2.1, 2.2A e 2.2B.1 direcionadas com 56 testes OK; `makemigrations finance --check --dry-run` OK; `ruff check` nos Python tocados OK.
+- Rollback: desabilitar rota/action `nfe_complementary_price_quantity_issue`; documentos complementares emitidos seguem consultaveis por `FiscalDocument`.
 
 ### Fase 2.2C - Nota de ajuste
 

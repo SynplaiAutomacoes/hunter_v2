@@ -6,7 +6,7 @@ from .common import DirectorWorkshopAccessMixin
 from .emission import EmissionPreviewView, EmissionRequestCreateView, EmissionWorkOrderItemUpdateView, EmissionWorkOrderKitComponentUpdateView, NfeCreateRedirectView, NfseCreateRedirectView
 from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocumentsListView
 from .commissions import CommissionReportView
-from .nfe import NfeCorrectionDownloadView, NfeCorrectionIssueView, NfeDocumentDownloadView, NfePreviewPdfView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestInvalidateView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView, NfeReturnDownloadView, NfeReturnIssueView
+from .nfe import NfeComplementaryDownloadView, NfeComplementaryPriceQuantityIssueView, NfeCorrectionDownloadView, NfeCorrectionIssueView, NfeDocumentDownloadView, NfePreviewPdfView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestInvalidateView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView, NfeReturnDownloadView, NfeReturnIssueView
 from .nfse import NfseDocumentDownloadView, NfsePreviewPdfView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestReconcileView, NfseRequestUpdateView
 from .reports import FinancialReportsHomeView, ReportMovementEditView, ReportMovementDeleteView
 from .tax_class import TaxClassCreateView, TaxClassListView, TaxClassManagerView, TaxClassPresetCreateView, TaxClassPresetListView, TaxClassPresetUpdateView, TaxClassUpdateView
@@ -38,6 +38,8 @@ __all__ = [
     "IssuedDocumentsListView",
     "CommissionReportView",
     "NfeCreateRedirectView",
+    "NfeComplementaryDownloadView",
+    "NfeComplementaryPriceQuantityIssueView",
     "NfeCorrectionDownloadView",
     "NfeCorrectionIssueView",
     "NfeDocumentDownloadView",

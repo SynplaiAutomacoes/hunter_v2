@@ -154,7 +154,7 @@ Onde:
 | CC-e | `nfe:cce:{workshop}:{original_uuid_or_key}:{hash_correcao}` | Timeout apos envio ou resposta sem identificador/evento | Bloquear mesma correcao para mesma nota ate reconciliar. |
 | Devolucao | `hash(workshop_id, derived_document_id, operation_type, request_generation)` | Timeout/resposta incompleta apos envio | Bloquear documento derivado e saldo reservado ate consulta/reconciliacao; nao reenviar automaticamente. |
 | Estorno via devolucao | `hash(workshop_id, derived_document_id, operation_type, request_generation)` | Timeout/resposta incompleta | Bloquear estorno derivado ate consulta/reconciliacao. |
-| Complementar | `nfe:complementary:{workshop}:{original_identifier}:{hash_tipo_itens_valores_impostos}` | Timeout/resposta incompleta | Bloquear complemento identico; permitir complemento distinto somente apos status claro. |
+| Complementar | `hash(workshop_id, complementary_document_id, operation_type, request_generation)` | Timeout/resposta incompleta | Bloquear o documento complementar derivado em `uncertain`; nao reenviar automaticamente. |
 | Ajuste | `nfe:adjustment:{workshop}:{operacao}:{codigo_cfop}:{valor_icms}:{hash_cliente_payload}` | Timeout/resposta incompleta | Bloquear ajuste identico; nao exigir documento original. |
 | Nota Fiscal de Credito | `nfe:credit_note:{workshop}:{tipo_credito}:{hash_payload}` | Timeout/resposta incompleta | Bloquear nota de credito identica ate consulta. |
 | Nota Fiscal de Debito | `nfe:debit_note:{workshop}:{tipo_debito}:{hash_payload}` | Timeout/resposta incompleta | Bloquear nota de debito identica ate consulta. |
@@ -179,6 +179,50 @@ Regras adicionais:
 - Payload sanitizado de devolucao/estorno deve ser congelado apos o envio; nova tentativa para o mesmo derivado com payload diferente e conflito.
 - Devolucao parcial usa sequenciais fiscais da NF-e original em `produtos` e vetor `quantidade` alinhado por indice; IDs internos de catalogo/banco nao podem compor o contrato remoto.
 - NF-e externa minima por chave manual nao permite devolucao parcial enquanto a ordem fiscal dos itens nao for importada/validada por XML ou fonte fiscal especifica.
+
+### Idempotencia Fase 2.2B - Nota complementar
+
+Regra: a identidade operacional da complementar e o `FiscalDocument` complementar derivado, nao apenas o payload fiscal. Isso permite complementares legitimas distintas com payload parecido em momentos diferentes e evita retry duplicado em timeout.
+
+Fluxo obrigatorio:
+
+```text
+criar FiscalDocument complementar em estado inicial
+-> criar/bloquear FiscalEmissionAttempt associado ao derivado
+-> executar uma unica chamada POST /1/nfe/complementar/
+-> persistir retorno no derivado
+-> webhook/reconciliacao atualizam apenas o derivado
+```
+
+Chave recomendada:
+
+```text
+hash(workshop_id, complementary_document_id, operation_type, request_generation)
+```
+
+Estados:
+
+- `started`: documento complementar criado e tentativa aberta.
+- `sent`: chamada remota iniciada.
+- `succeeded`: resposta remota clara e persistida.
+- `failed`: erro antes de envio efetivo ou rejeicao clara.
+- `uncertain`: timeout/resposta invalida apos possivel envio; bloqueia reenvio e exige consulta/reconciliacao.
+
+Payload:
+
+- Congelar `request_payload` sanitizado apos envio.
+- Nao persistir headers ou credenciais.
+- Separar `complementary_price_quantity`, `complementary_tax` e `complementary_import_addition` para idempotencia, auditoria e UI.
+- Fase 2.2B.1 implementa somente `complementary_price_quantity`; `complementary_tax`, IBS/CBS e `complementary_import_addition` permanecem sem codigo.
+
+Webhook complementar:
+
+- Resolver primeiro por `remote_uuid` do derivado.
+- Fallback por tentativa associada (`FiscalEmissionAttempt.remote_uuid`).
+- Fallback por chave somente se resolver um unico documento complementar derivado na oficina.
+- Rejeitar associacao ambigua.
+- Atualizar XML/DANFE/status/log somente no derivado.
+- Nunca alterar status da NF-e original.
 - Eventos devem ter tentativa propria e registro em `FiscalDocumentEvent`.
 - Documentos derivados devem ter tentativa propria e registro em `FiscalDocument`.
 - Webhook/reconciliacao devem atualizar a tentativa/evento/documento correspondente e nunca chamar endpoint de emissao/evento.

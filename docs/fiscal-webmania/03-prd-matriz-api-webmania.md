@@ -94,6 +94,18 @@ Observacoes condicionais:
 - A Webmania usa o mesmo endpoint de emissao para NF-e e NFC-e; o Hunter deve diferenciar o modelo localmente antes do payload.
 - CC-e, manifestacao e IBS/CBS sao eventos e nao devem consumir numeracao como nota comum.
 - Devolucao/estorno e complementar sao documentos novos com tentativa idempotente propria e vinculo obrigatorio ao documento original. Ajuste tambem e documento novo, mas o vinculo ao original e opcional porque o body oficial nao exige chave/UUID de nota original.
+
+### Detalhamento Fase 2.2B - `POST /1/nfe/complementar/`
+
+| Subtipo Hunter | Uso | Referencia original | Body principal planejado | Validacoes locais | Efeitos locais |
+| -------------- | --- | ------------------- | ------------------------ | ----------------- | -------------- |
+| `complementary_price_quantity` | Complementar preco e/ou quantidade | `chave` ou `uuid`; link `complements` obrigatorio | `chave`/`uuid`, `operacao`, `natureza_operacao`, `codigo_cfop`, `ambiente`, `cliente`, `produtos` com sequenciais fiscais, valores e/ou quantidades | NF-e local autorizada; sequenciais fiscais conhecidos; bloquear NF-e externa minima sem XML/importacao validada | Criar `FiscalDocument(purpose="complementary")`, `complementary_type="price_quantity"`, tentativa `complementary` |
+| `complementary_tax` | Complementar ICMS, ICMS-ST, IPI, ISSQN, IBS/CBS | `chave` ou `uuid`; link `complements` obrigatorio | `chave`/`uuid`, `operacao`, `natureza_operacao`, `codigo_cfop`, `ambiente`, `cliente`, `impostos`, possivelmente `produtos` quando imposto for itemizado | Permissao restrita; formulario por imposto; NF-e externa minima somente com confirmacao forte e entrada manual auditada | Criar derivado complementar tributario; webhook/reconciliacao atualizam apenas derivado |
+| `complementary_import_addition` | Documento de adicao/importacao | `chave` ou `uuid` quando houver nota original | Campos de adicao/importacao conforme payload oficial validado antes do codigo | Baixa prioridade; exigir aprovacao explicita e, para externa, importacao/validacao adequada | Planejado; recomendacao de adiar a implementacao |
+
+Downloads: resposta esperada segue familia NF-e com `uuid`, `status`, `nfe`, `serie`, `recibo`, `chave`, `xml`, `danfe` e `log`, quando disponibilizados pela Webmania.
+
+Webhook: tratar `modelo=nfe` como documento derivado quando `uuid`/tentativa/chave resolverem uma complementar; nao atualizar `NfeItem` original nem outros derivados. Associacao ambigua deve ficar pendente.
 - NF-e externa: quando devolucao ou complemento referenciarem chave nao emitida pelo Hunter, criar projecao externa minima antes da emissao derivada, marcar `origin=external`, preservar chave informada e exigir confirmacao do usuario. A consulta padrao `/1/nfe/consulta/` pode ser usada para notas Webmania/Hunter da propria oficina, mas nao e garantia de validacao de NF-e de outro emissor.
 - Para NFC-e, cancelamento por substituicao deve ser tratado como variacao de cancelamento somente se a documentacao vigente e a configuracao da oficina confirmarem suporte; ate la, registrar como pendencia de validacao.
 - A matriz OpenAPI validada ja contem os endpoints da Fase 2.0; nenhuma correcao no JSON foi necessaria nesta etapa documental.

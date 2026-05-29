@@ -7,7 +7,7 @@ Entidades propostas:
 - `FiscalDocument`: documento fiscal unificado.
 - `FiscalDocumentEvent`: eventos de webhook, eventos fiscais e transicoes locais.
 - `FiscalEmissionAttempt`: tentativa persistida de emissao.
-- `FiscalDocumentLink`: vinculos entre documento fiscal, origem e documentos derivados. Nao foi criado na Fase 2.1; fica reservado para a Fase 2.2.
+- `FiscalDocumentLink`: vinculos entre documento fiscal, origem e documentos derivados. Foi introduzido e validado na Fase 2.2A para devolucao/estorno; sera reaproveitado na Fase 2.2B com `role="complements"`.
 - `NfseProviderCapabilitySnapshot`: snapshot de capacidades municipais/provedor.
 - `WorkshopFiscalModelConfig`: habilitacoes por oficina/modelo.
 
@@ -126,9 +126,9 @@ Introduzir um nucleo unificado minimo em `apps.finance` para a Fase 2, sem backf
 
 - `FiscalDocument`: projecao local para documentos NF-e/NFC-e novos da Fase 2 e, opcionalmente, espelho criado no momento em que uma acao Fase 2 parte de `NfeItem` legado.
 - `FiscalDocumentEvent`: eventos fiscais e operacionais vinculados a um documento, incluindo CC-e, manifestacao, IBS/CBS, cancelamento de IBS/CBS e cancelamento de NFC-e.
-- `FiscalDocumentLink`: vinculos entre documento original, documento derivado e origem operacional, somente a partir da Fase 2.2.
+- `FiscalDocumentLink`: vinculos entre documento original, documento derivado e origem operacional, introduzido na Fase 2.2A.
 
-Decisao aplicada na Fase 2.1: criar apenas `FiscalDocument`, `FiscalDocumentEvent` e extensoes minimas de `FiscalEmissionAttempt`. `FiscalDocument` e uma projecao sob demanda de `NfeItem` quando CC-e e solicitada; `FiscalDocumentLink` nao existe nessa fase.
+Decisao aplicada na Fase 2.1: criar apenas `FiscalDocument`, `FiscalDocumentEvent` e extensoes minimas de `FiscalEmissionAttempt`. `FiscalDocument` e uma projecao sob demanda de `NfeItem` quando CC-e e solicitada; `FiscalDocumentLink` nao existe nessa fase. Decisao aplicada na Fase 2.2A: criar `FiscalDocumentLink` para documentos derivados de devolucao/estorno.
 
 Essa abordagem evita tratar eventos como notas comuns e permite que documentos derivados tenham vinculo auditavel com a nota original.
 
@@ -160,7 +160,7 @@ Essa abordagem evita tratar eventos como notas comuns e permite que documentos d
 ### Anti-duplicidade
 
 - Documento original legado e espelho unificado nao podem virar duas fontes independentes de emissao.
-- Na Fase 2.1, a relacao de espelho e o `OneToOne`/referencia segura com `NfeItem`; `FiscalDocumentLink` sera usado somente quando existirem documentos derivados reais na Fase 2.2.
+- Na Fase 2.1, a relacao de espelho e o `OneToOne`/referencia segura com `NfeItem`; a Fase 2.2A ja usa `FiscalDocumentLink` para documentos derivados reais.
 - Devolucao/estorno e complementar devem usar a chave/UUID do documento original e chave idempotente propria por operacao. Ajuste nao deve ser bloqueado por ausencia de original.
 - Documento derivado nao substitui documento original; ele aponta para ele.
 
@@ -178,6 +178,71 @@ Essa abordagem evita tratar eventos como notas comuns e permite que documentos d
 NF-e externa: permitir informar chave manual de 44 digitos para devolucao e complemento. Validar apenas o formato da chave nesta fase, criar `FiscalDocument` externo minimo com `document_type="nfe"`, `origin="external"`, `access_key`, `workshop`, `account` e flag textual de que nao foi emitida localmente. Exigir confirmacao explicita do usuario autorizado antes da emissao derivada. Nao usar `/1/nfe/consulta/` como garantia de validacao de NF-e de outro emissor; importacao/validacao por XML ou API fiscal especifica fica fora da Fase 2.2A.
 
 Idempotencia da Fase 2.2A: a identidade da transmissao deve ser o documento derivado persistido, nao apenas `original + itens + quantidades + CFOP`, porque duas devolucoes parciais legitimas podem ter payload equivalente em momentos distintos. Fluxo obrigatorio: criar documento derivado local em estado inicial; criar/bloquear `FiscalEmissionAttempt` associado ao derivado; executar uma unica chamada `POST /1/nfe/devolucao/`; atualizar somente o derivado; webhook/reconciliacao atualizam o derivado. O payload sanitizado fica congelado apos o envio.
+
+### Fase 2.2B.0 - Planejamento da Nota Fiscal Complementar
+
+Endpoint alvo: `POST /1/nfe/complementar/`.
+
+Modelo recomendado para implementacao futura:
+
+- Documento derivado: `FiscalDocument(document_type="nfe", purpose="complementary")`.
+- Subtipo: novo campo ou estrutura equivalente `complementary_type` com valores `price_quantity`, `tax` e `import_addition`. Se a implementacao optar por campo persistente, usar `CharField` indexado; se usar payload inicialmente, documentar migracao futura antes de ampliar UI.
+- Vinculo obrigatorio: `FiscalDocumentLink(role="complements")` do documento complementar para a NF-e original local ou externa.
+- Tentativa: `FiscalEmissionAttempt(operation_type="complementary")`, associado ao `FiscalDocument` complementar derivado.
+- Status/downloads: o derivado guarda `remote_uuid`, `access_key`, `series`, `number`, `receipt`, `status`, `remote_status`, `xml_url`, `danfe_url`, `request_payload` e `response_payload`. A NF-e original nao muda status por emissao, webhook ou reconciliacao da complementar.
+
+Subtipos:
+
+| Subtipo | Objetivo | Modelo local | Link | NF-e local | NF-e externa minima | Prioridade |
+| ------- | -------- | ------------ | ---- | ---------- | ------------------- | ---------- |
+| `complementary_price_quantity` | Complementar preco e/ou quantidade de itens da NF-e original | `FiscalDocument(purpose="complementary", complementary_type="price_quantity")` | Obrigatorio `complements` | Permitido com pre-preenchimento por itens fiscais originais e validacao de sequenciais/valores/quantidades | Bloqueado sem XML/importacao validada dos itens e ordem fiscal original | Alta dentro da 2.2B |
+| `complementary_tax` | Complementar impostos nao destacados ou destacados a menor | `FiscalDocument(purpose="complementary", complementary_type="tax")` | Obrigatorio `complements` | Permitido com formulario tributario separado por imposto | Pode ser permitido somente com confirmacao forte, payload totalmente auditavel e permissao restrita; nao assumir validacao remota | Media/alta |
+| `complementary_import_addition` | Complementar documento de adicao/importacao | `FiscalDocument(purpose="complementary", complementary_type="import_addition")` | Obrigatorio quando houver nota original | Planejado, mas baixa relevancia para oficina | Adiado ate existir fluxo de importacao/validacao adequado | Baixa; adiar por padrao |
+
+Implementacao Fase 2.2B.1: somente `complementary_price_quantity` local foi materializado. O derivado nasce antes da chamada remota com `origin="local"`, `purpose="complementary"`, `complementary_type="price_quantity"` e link obrigatorio `FiscalDocumentLink(role="complements")`. A NF-e original nao tem status, chave, XML ou DANFE alterados pela complementar.
+
+Complemento tributario deve separar explicitamente:
+
+- ICMS.
+- ICMS-ST.
+- IPI.
+- ISSQN.
+- IBS/CBS.
+
+Nao misturar complemento tributario com complemento de produto na mesma intencao inicial. Caso a Webmania aceite payloads combinados, o Hunter V2 ainda deve usar uma intencao e idempotencia por subtipo para reduzir risco operacional.
+
+NF-e original local:
+
+- Reutilizar `FiscalDocument` local existente ou projetar sob demanda a partir de `NfeItem` elegivel.
+- Exigir oficina ativa e ownership do documento.
+- Usar chave ou UUID local conforme payload validado.
+- Preencher formularios com dados originais quando existirem itens fiscais, sequenciais e impostos salvos.
+
+NF-e original externa minima:
+
+- Permitir chave manual de 44 digitos e criar `FiscalDocument(origin="external")` minimo.
+- Exigir confirmacao explicita: "Esta NF-e nao foi emitida pelo Hunter e nao foi validada remotamente pela consulta padrao".
+- Bloquear `complementary_price_quantity` sem XML/importacao validada.
+- Permitir `complementary_tax` externa apenas se a fase aprovada aceitar entrada manual auditada, confirmacao forte e permissao restrita.
+- Adiar `complementary_import_addition` externa ate existir importacao/validacao adequada.
+
+Idempotencia da complementar:
+
+```text
+criar FiscalDocument complementar em estado inicial
+-> criar/bloquear FiscalEmissionAttempt associado ao derivado
+-> executar uma unica chamada POST /1/nfe/complementar/
+-> persistir retorno no derivado
+-> webhook/reconciliacao atualizam apenas o derivado
+```
+
+Chave recomendada:
+
+```text
+hash(workshop_id, complementary_document_id, operation_type, request_generation)
+```
+
+O payload sanitizado deve ser congelado apos envio. Tentativa `uncertain` bloqueia reenvio automatico e exige consulta/reconciliacao.
 
 ### Arquivos previstos para Fase 2.1
 

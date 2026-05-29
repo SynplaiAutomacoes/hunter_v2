@@ -129,6 +129,45 @@ Regras de produto:
 - Fase 6: NFCom sem feature flag, permissao e habilitacao administrativa por oficina.
 - Fase 7: DC-e sem feature flag, permissao e habilitacao administrativa por oficina.
 
+## Fase 2.2B.0 - PRD Funcional da Nota Fiscal Complementar
+
+Objetivo: planejar a Nota Fiscal Complementar da familia NF-e sem implementar codigo funcional. A operacao futura usara `POST /1/nfe/complementar/` e criara uma NF-e derivada para acrescentar dados, valores ou impostos nao informados corretamente na nota original.
+
+Subtipos obrigatorios:
+
+| Subtipo | Uso no Hunter V2 | Regra de produto |
+| ------- | ---------------- | ---------------- |
+| `complementary_price_quantity` | Complemento de preco e/ou quantidade de itens da NF-e original | Primeira entrega recomendada da 2.2B para NF-e local com itens fiscais conhecidos. |
+| `complementary_tax` | Complemento de ICMS, ICMS-ST, IPI, ISSQN, IBS ou CBS | Deve ter formulario separado de produto; exige permissao fiscal mais restrita e payload auditavel. |
+| `complementary_import_addition` | Documento de adicao/importacao | Baixa prioridade para oficina; planejar, mas adiar salvo aprovacao explicita. |
+
+Status da Fase 2.2B.1: implementada para revisao somente para `complementary_price_quantity` de NF-e original local. NF-e externa minima continua bloqueada para preco/quantidade; complemento tributario, IBS/CBS e adicao/importacao continuam fora de escopo ate nova autorizacao.
+
+Fluxo funcional futuro:
+
+1. Usuario abre detalhe da NF-e original local ou informa chave de NF-e externa.
+2. Sistema valida oficina, permissao e elegibilidade.
+3. Usuario seleciona subtipo da complementar.
+4. Sistema cria documento derivado local em estado inicial e link `complements`.
+5. Sistema congela payload sanitizado e cria tentativa idempotente.
+6. Gateway envia uma unica chamada `POST /1/nfe/complementar/`.
+7. Retorno, webhook e reconciliacao atualizam somente o documento complementar.
+
+NF-e externa:
+
+- Chave manual de 44 digitos permitida como referencia minima.
+- `/1/nfe/consulta/` nao e garantia de validacao para nota de outro emissor.
+- `complementary_price_quantity` deve ficar bloqueada sem XML/importacao validada dos itens fiscais originais.
+- `complementary_tax` externa pode ser planejada com entrada manual auditada, confirmacao forte e permissao restrita.
+- `complementary_import_addition` externa deve ser adiada ate existir importacao/validacao adequada.
+
+Aceite funcional da fase futura:
+
+- A NF-e original nao muda status quando uma complementar e emitida, reconciliada ou atualizada por webhook.
+- A complementar fica vinculada por `FiscalDocumentLink(role="complements")`.
+- Complemento de produto e complemento tributario nao compartilham o mesmo formulario nem a mesma regra de idempotencia operacional.
+- Downloads XML/DANFE da complementar exigem oficina e permissao.
+
 ## Politica beta NFCom e DC-e
 
 NFCom e DC-e sao tratadas como APIs beta no planejamento do Hunter V2. Ambas so podem ser implementadas futuramente atras de:
