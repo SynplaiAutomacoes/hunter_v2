@@ -188,3 +188,18 @@ Cobertura executada na Fase 2.2B.1: somente `complementary_price_quantity` local
 - NF-e de debito usa `/1/nfe/emissao/`, `finalidade=6` e `tipo_debito`.
 - Validar documento referenciado quando o tipo oficial exigir `dfe_referenciado`.
 - Idempotencia por tipo e payload; timeout vira `uncertain`.
+## Atualizacao Fase 2.3.2 - Testes Executados/Planejados
+
+Cobertura adicionada:
+
+- cancelamento valido envia somente `chave`/`uuid` e `motivo`;
+- `nfce_referenciada` nao e enviado;
+- motivo fora de 15 a 255 caracteres bloqueia;
+- NFC-e processando, reprovada, denegada, cancelada, incerta ou sem chave/UUID bloqueia antes do gateway;
+- evento `cancellation` e tentativa `nfce_cancellation` sao criados sem novo documento e sem `FiscalDocumentLink`;
+- timeout gera `uncertain` e bloqueia retry automatico;
+- concorrencia da mesma intencao faz uma chamada remota;
+- webhook duplica sem duplicar efeitos, rejeita ambiguidade e atualiza somente evento/documento NFC-e;
+- reconciliacao consulta cancelamento incerto sem reenviar;
+- permissao `cancel_nfce`, cross-workshop e download de XML de cancelamento sao protegidos;
+- payload/log permanecem sanitizados e sem segredos.

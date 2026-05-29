@@ -25,6 +25,8 @@
                     <th>Chave</th>
                     <th>Criado em</th>
                     <th>Documentos</th>
+                    <th>Cancelamento</th>
+                    <th>Acoes</th>
                 </tr>
             </thead>
             <tbody>
@@ -42,9 +44,28 @@
                                 {% if document.danfe_url %}<a class="btn btn-xs" href="{% url 'finance:nfce_document_download' pk=document.pk document='danfe' %}">DANFE</a>{% endif %}
                             </div>
                         </td>
+                        <td>
+                            <div class="flex flex-col gap-1">
+                                {% for event in document.events.all %}
+                                    {% if event.event_type == 'cancellation' %}
+                                        <span class="badge">{{ event.status }}</span>
+                                        {% if event.xml_url %}<a class="btn btn-xs" href="{% url 'finance:nfce_cancellation_download' pk=document.pk event_pk=event.pk %}">XML cancelamento</a>{% endif %}
+                                    {% endif %}
+                                {% empty %}
+                                    -
+                                {% endfor %}
+                            </div>
+                        </td>
+                        <td>
+                            {% if can_cancel_nfce and document.status == 'aprovado' %}
+                                <a class="btn btn-xs btn-warning" href="{% url 'finance:nfce_cancel' pk=document.pk %}">Cancelar NFC-e</a>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
                     </tr>
                 {% empty %}
-                    <tr><td colspan="7" class="text-center text-base-content/60">Nenhuma NFC-e manual emitida.</td></tr>
+                    <tr><td colspan="9" class="text-center text-base-content/60">Nenhuma NFC-e manual emitida.</td></tr>
                 {% endfor %}
             </tbody>
         </table>

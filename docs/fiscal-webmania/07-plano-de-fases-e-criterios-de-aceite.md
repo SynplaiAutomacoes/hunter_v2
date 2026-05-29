@@ -120,7 +120,17 @@
 - Testes obrigatorios: oficina sem NFC-e bloqueia; ambiente exige campos corretos de serie/numero/CSC; emissao mockada com `modelo=2`; concorrencia da mesma intencao gera uma chamada; timeout `uncertain`; webhook `modelo=nfce` nao atualiza NF-e; reconciliacao consulta sem emitir; permissao; cross-workshop; downloads; payload/log sanitizados; separacao NF-e/NFC-e na UI.
 - Riscos: contingencia/offline, CSC/token, numeracao por ambiente, consumidor/pagamento, impressao DANFE NFC-e, cancelamento por substituicao ainda pendente de confirmacao operacional.
 - Rollback: desabilitar action NFC-e e manter documentos ja emitidos consultaveis; nao afetar NF-e.
-- Status: Fase 2.3.0 documentada em 2026-05-29; Fase 2.3.1 validada para emissao manual simples de NFC-e com `FiscalDocument(document_type="nfce")`, `WebmaniaCompany.nfce_enabled`, CSC/ID CSC protegidos como segredos, tentativa `nfce_emission`, webhook/reconciliacao e UI minima. Contingencia/offline, cancelamento por substituicao, PDV/TEF/SAT/MFE e demais operacoes permanecem nao iniciadas.
+- Status: Fase 2.3.0 documentada em 2026-05-29; Fase 2.3.1 validada para emissao manual simples de NFC-e com `FiscalDocument(document_type="nfce")`, `WebmaniaCompany.nfce_enabled`, CSC/ID CSC protegidos como segredos, tentativa `nfce_emission`, webhook/reconciliacao e UI minima. Fase 2.3.2 validada para cancelamento padrao com evento `cancellation`, tentativa `nfce_cancellation`, webhook/reconciliacao sem reenvio e XML de cancelamento protegido. Contingencia/offline, cancelamento por substituicao, inutilizacao, PDV/TEF/SAT/MFE e demais operacoes permanecem nao iniciadas.
+
+### Fase 2.3.2 - Cancelamento padrao NFC-e
+
+- Escopo: cancelamento padrao de NFC-e autorizada via `PUT /1/nfe/cancelar/`.
+- Body permitido: `chave` ou `uuid`, `motivo`.
+- Campo proibido: `nfce_referenciada`, pois ativa cancelamento por substituicao e permanece fora de escopo.
+- Modelagem: reutilizar `FiscalDocument(document_type="nfce", purpose="normal")`; registrar `FiscalDocumentEvent(event_type="cancellation")`; tentativa `operation_type="nfce_cancellation"`.
+- Alteracoes proibidas: cancelamento por substituicao, contingencia/offline, inutilizacao, PDV/TEF/SAT/MFE, manifestacao, IBS/CBS, credito/debito e complementar tributaria.
+- Testes obrigatorios: elegibilidade, motivo 15-255, body sem `nfce_referenciada`, idempotencia, concorrencia, `uncertain`, webhook/reconciliacao, permissao `cancel_nfce`, cross-workshop e downloads.
+- Status: validada em 2026-05-29. Implementacao limitada a cancelamento padrao; nao envia `nfce_referenciada`; nao implementa substituicao, contingencia/offline, inutilizacao ou PDV.
 
 ### Fase 2.4 - Manifestacao e IBS/CBS
 

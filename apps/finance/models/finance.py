@@ -109,6 +109,7 @@ class FiscalEmissionOperationType(models.TextChoices):
     COMPLEMENTARY_PRICE_QUANTITY = "complementary_price_quantity", "Complementar preco/quantidade"
     ADJUSTMENT = "adjustment", "Ajuste"
     NFCE_EMISSION = "nfce_emission", "Emissao NFC-e"
+    NFCE_CANCELLATION = "nfce_cancellation", "Cancelamento NFC-e"
 
 
 class FiscalDocumentType(models.TextChoices):
@@ -154,11 +155,13 @@ class FiscalDocumentLinkRole(models.TextChoices):
 
 class FiscalDocumentEventType(models.TextChoices):
     CCE = "cce", "Carta de correcao"
+    CANCELLATION = "cancellation", "Cancelamento"
 
 
 class FiscalDocumentEventStatus(models.TextChoices):
     STARTED = "started", "Iniciado"
     SENT = "sent", "Enviado"
+    SUCCEEDED = "succeeded", "Concluido"
     PROCESSING = "processando", "Processando"
     APPROVED = "aprovado", "Aprovado"
     REPROVED = "reprovado", "Reprovado"
@@ -781,6 +784,7 @@ class FiscalDocument(TimeStampedModel):
             ("view_nfce", "Pode visualizar NFC-e"),
             ("download_nfce", "Pode baixar XML/DANFE de NFC-e"),
             ("view_nfce_payload", "Pode visualizar payload de NFC-e"),
+            ("cancel_nfce", "Pode cancelar NFC-e"),
         ]
 
     def __str__(self) -> str:

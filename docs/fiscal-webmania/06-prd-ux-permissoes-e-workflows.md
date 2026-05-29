@@ -167,3 +167,11 @@ Bloqueios:
 - Contingencia/offline e cancelamento por substituicao devem aparecer como indisponiveis ate nova aprovacao.
 
 Nao criar central fiscal completa na primeira subfase funcional de NFC-e.
+## Atualizacao Fase 2.3.2 - UX E Permissao Cancelamento NFC-e
+
+- Permissao nova: `finance.fiscaldocument.cancel_nfce`.
+- `issue_nfce` nao concede cancelamento.
+- UI minima: acao "Cancelar NFC-e" apenas em NFC-e manual autorizada/elegivel, formulario com motivo, aviso de irreversibilidade e confirmacao explicita.
+- A listagem mostra status do evento e download de XML de cancelamento quando disponivel.
+- Downloads usam `download_nfce` e continuam escopados pela oficina ativa.
+- A interface informa que cancelamento por substituicao, contingencia/offline e PDV/TEF/SAT/MFE permanecem fora de escopo.

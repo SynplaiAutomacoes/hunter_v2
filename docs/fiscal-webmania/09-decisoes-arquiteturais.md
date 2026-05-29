@@ -219,6 +219,16 @@
 - Status: implementada e validada na Fase 2.3.1.
 - Fase: 2.3.
 
+## ADR-028 - Cancelamento padrao de NFC-e como evento do documento
+
+- Contexto: a Webmania usa `PUT /1/nfe/cancelar/` para NF-e/NFC-e. Quando `nfce_referenciada` e informado, a API processa cancelamento por substituicao; a Fase 2.3.2 autoriza somente cancelamento padrao.
+- Decisao: modelar cancelamento padrao NFC-e como `FiscalDocumentEvent(event_type="cancellation")` associado ao `FiscalDocument(document_type="nfce")`, com `FiscalEmissionAttempt(operation_type="nfce_cancellation")`. O documento original muda para `cancelado` apenas depois de resposta/webhook/reconciliacao valida de cancelamento.
+- Alternativas consideradas: alterar diretamente `FiscalDocument` sem evento; criar documento derivado; reaproveitar cancelamento NF-e legado.
+- Consequencias: preserva historico auditavel, idempotencia por evento e separacao de substituicao/inutilizacao.
+- Riscos: regras estaduais/prazos de cancelamento podem exigir validacoes futuras; nao impor prazo local fixo nesta fase sem validacao oficial aplicavel.
+- Status: implementada e validada na Fase 2.3.2.
+- Fase: 2.3.2.
+
 ## ADR-015 - Fase 2 dividida em subfases obrigatorias
 
 - Contexto: NF-e/NFC-e adicional combina eventos simples, documentos derivados, novo modelo NFC-e e eventos tributarios avancados.

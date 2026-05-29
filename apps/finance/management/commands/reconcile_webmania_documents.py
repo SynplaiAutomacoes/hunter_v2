@@ -4,11 +4,12 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
 
-from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionOperationType, NfeItem, NfseItem
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionOperationType, NfeItem, NfseItem
 from apps.finance.services.nfe_adjustment import NfeAdjustmentError, reconcile_nfe_adjustment_document
 from apps.finance.services.nfe_complementary import NfeComplementaryError, reconcile_nfe_complementary_document
 from apps.finance.services.nfe_consulta import NfeConsultaError, reconcile_nfe_item
 from apps.finance.services.nfe_returns import NfeReturnError, reconcile_nfe_return_document
+from apps.finance.services.nfce_cancellation import NfceCancellationError, reconcile_nfce_cancellation_event
 from apps.finance.services.nfce_emission import NfceEmissionError, reconcile_nfce_document
 from apps.finance.services.nfse_consulta import NfseConsultaError, reconcile_nfse_item
 from apps.finance.services.webmania_webhooks import process_pending_webhook_events
@@ -29,6 +30,7 @@ class Command(BaseCommand):
         reconciled_nfe_complementary = 0
         reconciled_nfe_adjustment = 0
         reconciled_nfce = 0
+        reconciled_nfce_cancellations = 0
         reconciled_nfse = 0
         failed = 0
         pending_items = NfeItem.objects.filter(status__in=["processando", "contingencia"]).select_related("workshop", "request").order_by("pk")[:limit]
@@ -94,6 +96,19 @@ class Command(BaseCommand):
             else:
                 reconciled_nfce += 1
 
+        pending_nfce_cancellation_events = FiscalDocumentEvent.objects.filter(
+            event_type=FiscalDocumentEventType.CANCELLATION,
+            document__document_type=FiscalDocumentType.NFCE,
+            status__in=[FiscalDocumentEventStatus.SENT, FiscalDocumentEventStatus.PROCESSING, FiscalDocumentEventStatus.UNCERTAIN],
+        ).select_related("document", "document__workshop").order_by("pk")[:limit]
+        for pending_cancellation_event in pending_nfce_cancellation_events:
+            try:
+                reconcile_nfce_cancellation_event(event=pending_cancellation_event)
+            except NfceCancellationError:
+                failed += 1
+            else:
+                reconciled_nfce_cancellations += 1
+
         pending_nfse_items = NfseItem.objects.filter(status__in=["processando", "contingencia", "agendado"]).select_related("workshop", "request").order_by("pk")[:limit]
         for pending_nfse_item in pending_nfse_items:
             try:
@@ -145,6 +160,15 @@ class Command(BaseCommand):
                 continue
 
             if attempt.document_kind == "nfce":
+                if attempt.fiscal_document_event_id and attempt.operation_type == FiscalEmissionOperationType.NFCE_CANCELLATION:
+                    try:
+                        reconcile_nfce_cancellation_event(event=attempt.fiscal_document_event)
+                    except (NfceCancellationError, AttributeError):
+                        failed += 1
+                    else:
+                        uncertain_checked += 1
+                    continue
+
                 if attempt.fiscal_document_id and attempt.operation_type == FiscalEmissionOperationType.NFCE_EMISSION:
                     try:
                         reconcile_nfce_document(document=attempt.fiscal_document)
@@ -164,4 +188,4 @@ class Command(BaseCommand):
                     else:
                         uncertain_checked += 1
 
-        self.stdout.write(self.style.SUCCESS(f"Webhooks processados: {processed_webhooks}. NF-es reconciliadas: {reconciled_nfe}. Devolucoes/estornos reconciliados: {reconciled_nfe_returns}. Complementares reconciliadas: {reconciled_nfe_complementary}. Ajustes reconciliados: {reconciled_nfe_adjustment}. NFC-es reconciliadas: {reconciled_nfce}. NFS-es reconciliadas: {reconciled_nfse}. Tentativas incertas consultadas: {uncertain_checked}. Falhas: {failed}."))
+        self.stdout.write(self.style.SUCCESS(f"Webhooks processados: {processed_webhooks}. NF-es reconciliadas: {reconciled_nfe}. Devolucoes/estornos reconciliados: {reconciled_nfe_returns}. Complementares reconciliadas: {reconciled_nfe_complementary}. Ajustes reconciliados: {reconciled_nfe_adjustment}. NFC-es reconciliadas: {reconciled_nfce}. Cancelamentos NFC-e reconciliados: {reconciled_nfce_cancellations}. NFS-es reconciliadas: {reconciled_nfse}. Tentativas incertas consultadas: {uncertain_checked}. Falhas: {failed}."))

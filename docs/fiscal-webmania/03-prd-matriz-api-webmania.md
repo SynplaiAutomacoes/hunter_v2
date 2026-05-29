@@ -207,3 +207,10 @@ O OpenAPI validado inclui `WebhookPayload` e responses por familia contendo, qua
 ## Versao validada
 
 A versao validada para implementacao futura esta em `api/webmania_fiscal_openapi_validated.json`. Ela deve ser usada como mapa tecnico inicial de gateways e testes, ainda subordinada a nova checagem da documentacao oficial antes de cada fase de codigo.
+## Atualizacao Fase 2.3.2 - NFC-e Cancelamento Padrao
+
+| Documento | Operacao | Metodo | Endpoint | Autenticacao | Body principal | Resposta principal | Downloads | Webhook | Fase |
+| --------- | -------- | ------ | -------- | ------------ | -------------- | ------------------ | --------- | ------- | ---- |
+| NFC-e | Cancelamento padrao | PUT | `/1/nfe/cancelar/` | API v1 com quatro headers Webmania | `chave` ou `uuid`, `motivo` | `status=cancelado`, `xml`, `log` sanitizado | XML de cancelamento por URL retornada | `modelo=nfce`, `status=cancelado` resolve evento/documento | 2.3.2 validada |
+
+Observacao: `nfce_referenciada` ativa cancelamento por substituicao e e explicitamente proibido na Fase 2.3.2.

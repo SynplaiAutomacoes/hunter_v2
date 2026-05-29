@@ -43,7 +43,7 @@ from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.movement_group import MovementGroup
-from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentLink, FiscalDocumentLinkRole, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, NfeItem, NfeRequest, NfeRequestStatus, NfseItem, NfseRequest, NfseRequestStatus, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentLink, FiscalDocumentLinkRole, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, NfeItem, NfeRequest, NfeRequestStatus, NfseItem, NfseRequest, NfseRequestStatus, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
@@ -78,6 +78,7 @@ from apps.finance.services.nfe_emission import (
     sync_nfe_emission_response,
 )
 from apps.finance.services.nfce_emission import NfceEmissionError, build_nfce_payload, create_and_emit_nfce, create_nfce_draft, transmit_nfce_document, validate_nfce_configuration
+from apps.finance.services.nfce_cancellation import NfceCancellationError, cancel_nfce_document, create_nfce_cancellation_event_attempt
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number, reserve_nfse_request_rps_number
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
@@ -12199,5 +12200,236 @@ class FiscalPhaseTwoNfceManualConcurrentTests(TransactionTestCase):
                 thread.join(timeout=10)
 
         self.assertEqual(post_mock.call_count, 1)
+        self.assertEqual(results, ["sent"])
+        self.assertEqual(len(errors), 1)
+
+
+class FiscalPhaseTwoNfceCancellationTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=73)
+
+    def _document(self, *, status: str = FiscalDocumentStatus.APPROVED, suffix: int = 7301, uuid: str = "ea895e61-c0da-46ee-a880-a03f8547a9bc", key: str | None = None) -> FiscalDocument:
+        return FiscalDocument.objects.create(
+            workshop=self.workshop,
+            account=self.workshop.account,
+            document_type=FiscalDocumentType.NFCE,
+            origin=FiscalDocumentOrigin.MANUAL,
+            purpose=FiscalDocumentPurpose.NORMAL,
+            environment="2",
+            status=status,
+            remote_status=status,
+            remote_uuid=uuid,
+            access_key=key if key is not None else f"35{suffix:042d}"[-44:],
+            number=str(suffix),
+            series="1",
+            requested_by=self.user,
+            response_payload={"status": status, "log": {"token": "secret"}},
+        )
+
+    def _cancel_response(self, *, uuid: str = "ea895e61-c0da-46ee-a880-a03f8547a9bc", key: str = "35123456789012345678901234567890123456787301") -> dict[str, Any]:
+        return {"uuid": uuid, "modelo": "nfce", "status": "cancelado", "chave": key, "xml": "https://example.test/nfce-cancel.xml", "log": {"token": "secret"}}
+
+    def test_nfce_cancellation_payload_event_attempt_and_status(self) -> None:
+        document = self._document(key="35123456789012345678901234567890123456787301")
+
+        with (
+            patch("apps.finance.services.nfce_cancellation._build_headers", return_value={"X-Access-Token": "secret"}),
+            patch("apps.finance.services.nfce_cancellation.requests.put", return_value=_mock_response(self._cancel_response())) as put_mock,
+        ):
+            event = cancel_nfce_document(document=document, reason="Motivo fiscal valido", requested_by=self.user)
+
+        sent_payload = put_mock.call_args.kwargs["json"]
+        self.assertEqual(set(sent_payload.keys()), {"chave", "motivo"})
+        self.assertEqual(sent_payload["chave"], document.access_key)
+        self.assertNotIn("nfce_referenciada", sent_payload)
+        self.assertEqual(event.event_type, FiscalDocumentEventType.CANCELLATION)
+        self.assertEqual(event.status, FiscalDocumentEventStatus.SUCCEEDED)
+        self.assertEqual(event.xml_url, "https://example.test/nfce-cancel.xml")
+        self.assertNotIn("secret", str(event.response_payload))
+        self.assertEqual(FiscalDocument.objects.filter(document_type=FiscalDocumentType.NFCE).count(), 1)
+        self.assertFalse(FiscalDocumentLink.objects.exists())
+        attempt = FiscalEmissionAttempt.objects.get(fiscal_document_event=event)
+        self.assertEqual(attempt.operation_type, FiscalEmissionOperationType.NFCE_CANCELLATION)
+        self.assertEqual(attempt.status, FiscalEmissionAttemptStatus.SUCCEEDED)
+        self.assertEqual(attempt.request_payload, event.request_payload)
+        document.refresh_from_db()
+        self.assertEqual(document.status, FiscalDocumentStatus.CANCELED)
+        self.assertIn("cancelamento", document.response_payload)
+
+    def test_nfce_cancellation_blocks_invalid_reason_and_ineligible_statuses(self) -> None:
+        document = self._document()
+        with self.assertRaisesMessage(NfceCancellationError, "entre 15 e 255"):
+            cancel_nfce_document(document=document, reason="curto", requested_by=self.user)
+        with self.assertRaisesMessage(NfceCancellationError, "entre 15 e 255"):
+            cancel_nfce_document(document=document, reason="x" * 256, requested_by=self.user)
+
+        for index, status in enumerate([FiscalDocumentStatus.PROCESSING, FiscalDocumentStatus.REPROVED, FiscalDocumentStatus.DENIED, FiscalDocumentStatus.CANCELED, FiscalDocumentStatus.UNCERTAIN], start=1):
+            blocked = self._document(status=status, suffix=7310 + index, uuid=f"{status}-uuid")
+            with self.assertRaises(NfceCancellationError):
+                cancel_nfce_document(document=blocked, reason="Motivo fiscal valido", requested_by=self.user)
+
+        without_identifier = self._document(suffix=7350, uuid="", key="")
+        with self.assertRaisesMessage(NfceCancellationError, "sem UUID ou chave"):
+            cancel_nfce_document(document=without_identifier, reason="Motivo fiscal valido", requested_by=self.user)
+
+    def test_nfce_cancellation_uncertain_blocks_retry_and_freezes_payload(self) -> None:
+        document = self._document(key="35123456789012345678901234567890123456787302")
+        with (
+            patch("apps.finance.services.nfce_cancellation._build_headers", return_value={}),
+            patch("apps.finance.services.nfce_cancellation.requests.put", side_effect=requests.Timeout("timeout")) as put_mock,
+        ):
+            with self.assertRaisesMessage(NfceCancellationError, "estado remoto incerto"):
+                cancel_nfce_document(document=document, reason="Motivo fiscal valido", requested_by=self.user)
+            with self.assertRaisesMessage(NfceCancellationError, "estado incerto"):
+                cancel_nfce_document(document=document, reason="Motivo fiscal alterado valido", requested_by=self.user)
+
+        self.assertEqual(put_mock.call_count, 1)
+        event = FiscalDocumentEvent.objects.get(document=document, event_type=FiscalDocumentEventType.CANCELLATION)
+        attempt = FiscalEmissionAttempt.objects.get(fiscal_document_event=event)
+        self.assertEqual(event.status, FiscalDocumentEventStatus.UNCERTAIN)
+        self.assertEqual(attempt.status, FiscalEmissionAttemptStatus.UNCERTAIN)
+        self.assertEqual(event.request_payload["motivo"], "Motivo fiscal valido")
+        document.refresh_from_db()
+        self.assertEqual(document.status, FiscalDocumentStatus.APPROVED)
+
+    def test_nfce_cancellation_webhook_reconciliation_download_permission_and_security(self) -> None:
+        from django.http import Http404
+
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+        from apps.finance.views.nfce import NfceCancellationDownloadView, NfceCancellationView
+
+        document = self._document(key="35123456789012345678901234567890123456787303")
+        event, attempt, _payload = create_nfce_cancellation_event_attempt(document=document, reason="Motivo fiscal valido", requested_by=self.user)
+        attempt.status = FiscalEmissionAttemptStatus.SENT
+        attempt.remote_uuid = document.remote_uuid
+        attempt.remote_key = document.access_key
+        attempt.save(update_fields=["status", "remote_uuid", "remote_key"])
+
+        payload = self._cancel_response(uuid=document.remote_uuid, key=document.access_key)
+        webhook_event = store_webhook_event(payload=payload)
+        duplicate = store_webhook_event(payload=payload)
+        self.assertEqual(webhook_event.pk, duplicate.pk)
+        self.assertTrue(process_webhook_event(webhook_event))
+        self.assertTrue(process_webhook_event(duplicate))
+        event.refresh_from_db()
+        document.refresh_from_db()
+        self.assertEqual(event.status, FiscalDocumentEventStatus.SUCCEEDED)
+        self.assertEqual(document.status, FiscalDocumentStatus.CANCELED)
+        self.assertEqual(event.xml_url, "https://example.test/nfce-cancel.xml")
+        self.assertFalse(NfeItem.objects.filter(uuid=document.remote_uuid).exists())
+
+        first = self._document(suffix=7361, uuid="", key="35123456789012345678901234567890123456787361")
+        second = self._document(suffix=7362, uuid="", key="35123456789012345678901234567890123456787362")
+        for candidate in (first, second):
+            candidate_event, candidate_attempt, _ = create_nfce_cancellation_event_attempt(document=candidate, reason="Motivo fiscal valido", requested_by=self.user)
+            candidate_attempt.remote_uuid = "ambiguous-cancel-uuid"
+            candidate_attempt.save(update_fields=["remote_uuid"])
+            candidate_event.status = FiscalDocumentEventStatus.SENT
+            candidate_event.save(update_fields=["status"])
+        ambiguous = store_webhook_event(payload={"modelo": "nfce", "uuid": "ambiguous-cancel-uuid", "status": "cancelado", "xml": "https://example.test/ambiguous.xml"})
+        self.assertFalse(process_webhook_event(ambiguous))
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(first.status, FiscalDocumentStatus.APPROVED)
+        self.assertEqual(second.status, FiscalDocumentStatus.APPROVED)
+
+        event.status = FiscalDocumentEventStatus.UNCERTAIN
+        event.save(update_fields=["status"])
+        with (
+            patch("apps.finance.management.commands.reconcile_webmania_documents.process_pending_webhook_events", return_value=0),
+            patch("apps.finance.management.commands.reconcile_webmania_documents.reconcile_nfce_cancellation_event", return_value=event) as reconcile_mock,
+            patch("apps.finance.services.nfce_cancellation.requests.put") as put_mock,
+        ):
+            call_command("reconcile_webmania_documents", limit=10)
+        reconcile_mock.assert_called()
+        put_mock.assert_not_called()
+
+        request = RequestFactory().get("/")
+        request.user = self.user
+        downloaded = SimpleNamespace(content=b"<cancelamento />", content_type="application/xml")
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfce.download_webmania_document", return_value=downloaded),
+        ):
+            response = NfceCancellationDownloadView.as_view()(request, pk=document.pk, event_pk=event.pk)
+        self.assertEqual(response.status_code, 200)
+
+        _other_user, other_workshop = create_director_user_with_workshop(suffix=75)
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=other_workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            with self.assertRaises(Http404):
+                NfceCancellationDownloadView.as_view()(request, pk=document.pk, event_pk=event.pk)
+
+        request = RequestFactory().post("/", data={"motivo": "Motivo fiscal valido", "confirm_cancel": "on"})
+        request.user = self.user
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=False),
+            patch("apps.finance.views.nfce.cancel_nfce_document") as cancel_mock,
+        ):
+            with self.assertRaises(PermissionDenied):
+                NfceCancellationView.as_view()(request, pk=document.pk)
+        cancel_mock.assert_not_called()
+
+
+class FiscalPhaseTwoNfceCancellationConcurrentTests(TransactionTestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=74)
+        self.document = FiscalDocument.objects.create(
+            workshop=self.workshop,
+            account=self.workshop.account,
+            document_type=FiscalDocumentType.NFCE,
+            origin=FiscalDocumentOrigin.MANUAL,
+            purpose=FiscalDocumentPurpose.NORMAL,
+            environment="2",
+            status=FiscalDocumentStatus.APPROVED,
+            remote_status=FiscalDocumentStatus.APPROVED,
+            remote_uuid="fa895e61-c0da-46ee-a880-a03f8547a9bc",
+            access_key="35123456789012345678901234567890123456787401",
+            number="7401",
+            series="1",
+            requested_by=self.user,
+        )
+
+    def test_concurrent_same_nfce_cancellation_intention_calls_remote_once(self) -> None:
+        response_payload = {"uuid": self.document.remote_uuid, "modelo": "nfce", "status": "cancelado", "chave": self.document.access_key, "xml": "https://example.test/nfce-cancel.xml"}
+        start_barrier = threading.Barrier(2)
+        results: list[str] = []
+        errors: list[str] = []
+        results_lock = threading.Lock()
+
+        def put_side_effect(*args: Any, **kwargs: Any) -> Any:
+            time.sleep(0.1)
+            return _mock_response(response_payload)
+
+        def run_cancel() -> None:
+            close_old_connections()
+            try:
+                start_barrier.wait(timeout=5)
+                fresh_document = FiscalDocument.objects.get(pk=self.document.pk)
+                cancel_nfce_document(document=fresh_document, reason="Motivo fiscal valido", requested_by=self.user)
+            except Exception as exc:
+                with results_lock:
+                    errors.append(str(exc))
+            else:
+                with results_lock:
+                    results.append("sent")
+            finally:
+                close_old_connections()
+
+        with (
+            patch("apps.finance.services.nfce_cancellation._build_headers", return_value={}),
+            patch("apps.finance.services.nfce_cancellation.requests.put", side_effect=put_side_effect) as put_mock,
+        ):
+            threads = [threading.Thread(target=run_cancel), threading.Thread(target=run_cancel)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=10)
+
+        self.assertEqual(put_mock.call_count, 1)
         self.assertEqual(results, ["sent"])
         self.assertEqual(len(errors), 1)

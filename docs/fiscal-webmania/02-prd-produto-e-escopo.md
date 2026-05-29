@@ -245,3 +245,11 @@ Aceite funcional futuro:
 - Timeout marca `uncertain` e bloqueia reenvio automatico.
 - Webhook/reconciliacao atualizam somente o documento NFC-e.
 - Downloads exigem oficina ativa e permissao especifica.
+## Atualizacao Fase 2.3.2 - Cancelamento padrao NFC-e
+
+- Implementado somente cancelamento padrao de NFC-e manual simples emitida pelo Hunter.
+- A operacao usa `PUT /1/nfe/cancelar/` com `chave` ou `uuid` e `motivo` entre 15 e 255 caracteres.
+- Cancelamento por substituicao permanece fora de escopo: o payload nao envia `nfce_referenciada`.
+- A NFC-e original muda para `cancelado` somente apos resposta, webhook ou reconciliacao valida de cancelamento.
+- O cancelamento e registrado como evento fiscal, com XML de cancelamento protegido por permissao e oficina ativa.
+- Permanecem fora de escopo: contingencia/offline, inutilizacao NFC-e, PDV/TEF/SAT/MFE, IBS/CBS, manifestacao, credito/debito e complementar tributaria.

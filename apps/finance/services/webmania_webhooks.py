@@ -15,6 +15,7 @@ from apps.finance.services.nfe_emission import apply_nfe_item_payload
 from apps.finance.services.nfe_adjustment import apply_nfe_adjustment_document_payload, is_ambiguous_nfe_adjustment_webhook, resolve_nfe_adjustment_document_for_webhook
 from apps.finance.services.nfe_complementary import apply_nfe_complementary_document_payload, is_ambiguous_nfe_complementary_webhook, resolve_nfe_complementary_document_for_webhook
 from apps.finance.services.nfe_returns import apply_nfe_return_document_payload, is_ambiguous_nfe_return_webhook, resolve_nfe_return_document_for_webhook
+from apps.finance.services.nfce_cancellation import apply_nfce_cancellation_event_payload, is_ambiguous_nfce_cancellation_webhook, resolve_nfce_cancellation_event_for_webhook
 from apps.finance.services.nfce_emission import apply_nfce_document_payload, is_ambiguous_nfce_webhook, resolve_nfce_document_for_webhook
 
 
@@ -86,6 +87,19 @@ def _status_rank(model: str, status: str) -> int:
             "uncertain": 15,
             "aprovado": 30,
             "reprovado": 40,
+            "failed": 40,
+        }.get(normalized, 0)
+    if model == "nfce_cancellation":
+        return {
+            "started": 5,
+            "sent": 8,
+            "processando": 10,
+            "uncertain": 15,
+            "cancelado": 30,
+            "cancelada": 30,
+            "canceled": 30,
+            "reprovado": 40,
+            "rejeitado": 40,
             "failed": 40,
         }.get(normalized, 0)
     return 0
@@ -174,6 +188,20 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
         return True
 
     if model == "nfce":
+        if str(payload.get("status") or "").strip().lower() in {"cancelado", "cancelada", "canceled"}:
+            cancellation_event = resolve_nfce_cancellation_event_for_webhook(payload=payload)
+            if cancellation_event is not None:
+                with transaction.atomic():
+                    cancellation_event = FiscalDocumentEvent.objects.select_for_update().select_related("document").get(pk=cancellation_event.pk)
+                    if not _is_regressive_status(model="nfce_cancellation", current_status=cancellation_event.status, incoming_status=str(payload.get("status") or "")):
+                        apply_nfce_cancellation_event_payload(event=cancellation_event, response_payload=payload)
+
+                _mark_event_processed(event)
+                return True
+            if is_ambiguous_nfce_cancellation_webhook(payload=payload):
+                _mark_event_deferred(event, error=f"Cancelamento NFC-e {event_uuid or str(payload.get('chave') or '').strip()} ambiguo entre eventos.")
+                return False
+
         nfce_document = resolve_nfce_document_for_webhook(payload=payload)
         if nfce_document is not None:
             with transaction.atomic():

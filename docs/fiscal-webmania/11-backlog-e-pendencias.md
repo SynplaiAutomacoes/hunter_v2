@@ -9,6 +9,8 @@
 - Evoluir `FiscalEmissionAttempt` minimo para dominio unificado futuro.
 - Politica final de permissoes fiscais.
 - Fase 2.3.1 validada somente para NFC-e manual simples; aprovar explicitamente contingencia/offline, cancelamento por substituicao, PDV/TEF/SAT/MFE ou novas origens antes de qualquer codigo.
+- Fase 2.3.2 validada somente para cancelamento padrao; cancelamento por substituicao com `nfce_referenciada` e inutilizacao NFC-e permanecem fases futuras.
+- Regras estaduais/prazos adicionais de cancelamento NFC-e devem ser avaliados antes de bloqueio local por prazo fixo.
 - Avaliar migration futura de criptografia/backfill para valores CSC antigos que possam ter sido armazenados em texto puro antes da Fase 2.3.1; formularios atuais nao exibem os valores e criptografam novos envios.
 - Prioridade real de CT-e/MDF-e para oficinas.
 - Se NFCom deve ficar apenas manual.

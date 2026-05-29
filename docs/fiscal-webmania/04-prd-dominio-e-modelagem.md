@@ -312,3 +312,11 @@ Origem operacional 1:N FiscalDocument(nfce)
 - Templates: modal/form de CC-e em `apps/finance/templates/finance/`.
 - Testes: `apps/finance/tests.py` ou pacote futuro de testes finance para CC-e, idempotencia, permissao, tenancy e webhook.
 - Docs: atualizar `docs/fiscal-webmania/*` e log.
+## Atualizacao Fase 2.3.2 - Evento De Cancelamento NFC-e
+
+- Cancelamento padrao NFC-e nao cria novo `FiscalDocument`.
+- O evento e representado em `FiscalDocumentEvent(event_type="cancellation")`, associado ao `FiscalDocument(document_type="nfce", purpose="normal", origin="manual")`.
+- `FiscalEmissionAttempt(operation_type="nfce_cancellation")` referencia documento e evento.
+- `FiscalDocumentLink` nao e usado para cancelamento padrao.
+- A NFC-e original so altera `status` para `cancelado` apos resposta remota, webhook ou reconciliacao valida.
+- A migration da fase altera somente choices/permissoes; nao ha backfill nem alteracao destrutiva do legado.

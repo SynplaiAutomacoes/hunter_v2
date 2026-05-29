@@ -34,6 +34,8 @@ from apps.finance.views import (
     NfceDocumentDownloadView,
     NfceDocumentListView,
     NfceManualEmissionView,
+    NfceCancellationDownloadView,
+    NfceCancellationView,
     NfceDocumentPayloadView,
     NfseCreateRedirectView,
     NfseRequestCancelView,
@@ -130,6 +132,8 @@ urlpatterns = [
     # NFC-e
     path("nfce/", NfceDocumentListView.as_view(), name="nfce_list"),
     path("nfce/manual/", NfceManualEmissionView.as_view(), name="nfce_manual_emit"),
+    path("nfce/<int:pk>/cancelar/", NfceCancellationView.as_view(), name="nfce_cancel"),
+    path("nfce/<int:pk>/cancelamento/<int:event_pk>/xml/", NfceCancellationDownloadView.as_view(), name="nfce_cancellation_download"),
     path("nfce/<int:pk>/documentos/<str:document>/", NfceDocumentDownloadView.as_view(), name="nfce_document_download"),
     path("nfce/<int:pk>/payload/", NfceDocumentPayloadView.as_view(), name="nfce_payload"),
     # Classe Imposto

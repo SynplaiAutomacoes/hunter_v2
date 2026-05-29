@@ -294,3 +294,11 @@ Regras:
 - Chave pode mudar em contingencia; UUID deve ser preferencial.
 - Downloads XML/DANFE NFC-e devem passar por view autorizada e nao expor URL remota sem permissao.
 - Credenciais CSC e headers Webmania nunca devem ser persistidos em payload/log.
+## Atualizacao Fase 2.3.2 - Idempotencia E Webhook NFC-e Cancelamento
+
+- Chave de idempotencia: `hash(workshop_id, nfce_document_id, nfce_cancellation, cancellation_event_id, request_generation)`.
+- Fluxo: validar documento elegivel, criar evento, criar tentativa, congelar payload sanitizado, chamar `PUT /1/nfe/cancelar/` uma unica vez, persistir retorno no evento e atualizar documento apenas quando cancelamento for confirmado.
+- Timeout marca evento e tentativa como `uncertain`; novo cancelamento automatico fica bloqueado ate reconciliacao.
+- Webhook `modelo=nfce` com status de cancelamento tenta resolver evento de cancelamento antes de atualizar a NFC-e normal.
+- Associacao ambigua e rejeitada; webhook duplicado e idempotente por fingerprint.
+- CSC, tokens e credenciais continuam fora de payloads/logs persistidos.

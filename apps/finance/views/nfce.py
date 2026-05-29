@@ -13,7 +13,8 @@ from django.views import View
 from django.views.generic import FormView, ListView
 
 from apps.core.forms import CoreForm
-from apps.finance.models.finance import FiscalDocument, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentType
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentEvent, FiscalDocumentEventType, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentType
+from apps.finance.services.nfce_cancellation import NfceCancellationError, cancel_nfce_document, is_nfce_document_eligible_for_cancellation
 from apps.finance.services.nfce_emission import NfceEmissionError, create_and_emit_nfce, validate_nfce_configuration
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -51,8 +52,17 @@ class NfceManualEmissionForm(CoreForm):
         return products
 
 
+class NfceCancellationForm(CoreForm):
+    motivo = forms.CharField(min_length=15, max_length=255, widget=forms.Textarea)
+    confirm_cancel = forms.BooleanField(required=True)
+
+
 def _user_can_issue_nfce(*, user, workshop, request) -> bool:
     return has_workshop_perm(user=user, workshop=workshop, app_label="finance", model="fiscaldocument", codename="issue_nfce", request=request)
+
+
+def _user_can_cancel_nfce(*, user, workshop, request) -> bool:
+    return has_workshop_perm(user=user, workshop=workshop, app_label="finance", model="fiscaldocument", codename="cancel_nfce", request=request)
 
 
 class NfceDocumentListView(LoginRequiredMixin, WorkshopScopedMixin, ListView):
@@ -72,6 +82,7 @@ class NfceDocumentListView(LoginRequiredMixin, WorkshopScopedMixin, ListView):
                 purpose=FiscalDocumentPurpose.NORMAL,
             )
             .select_related("requested_by")
+            .prefetch_related("events")
             .order_by("-criado_em", "-pk")
         )
 
@@ -87,6 +98,7 @@ class NfceDocumentListView(LoginRequiredMixin, WorkshopScopedMixin, ListView):
             else:
                 config_ready = True
         context["can_issue_nfce"] = can_issue and config_ready
+        context["can_cancel_nfce"] = _user_can_cancel_nfce(user=self.request.user, workshop=self.workshop, request=self.request)
         return context
 
 
@@ -121,6 +133,43 @@ class NfceManualEmissionView(LoginRequiredMixin, WorkshopScopedMixin, FormView):
         return redirect(self.get_success_url())
 
 
+class NfceCancellationView(LoginRequiredMixin, WorkshopScopedMixin, FormView):
+    form_class = NfceCancellationForm
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "fiscaldocument"
+    workshop_permission_codename = "cancel_nfce"
+    template_name = "finance/nfce_cancellation_form.html"
+
+    def get_document(self) -> FiscalDocument:
+        return get_object_or_404(
+            FiscalDocument,
+            pk=self.kwargs.get("pk"),
+            workshop=self.workshop,
+            document_type=FiscalDocumentType.NFCE,
+            origin=FiscalDocumentOrigin.MANUAL,
+            purpose=FiscalDocumentPurpose.NORMAL,
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["document"] = self.get_document()
+        context["eligible"] = is_nfce_document_eligible_for_cancellation(context["document"])
+        return context
+
+    def get_success_url(self) -> str:
+        return reverse("finance:nfce_list")
+
+    def form_valid(self, form):
+        document = self.get_document()
+        try:
+            cancel_nfce_document(document=document, reason=str(form.cleaned_data["motivo"]), requested_by=self.request.user, request=self.request)
+        except NfceCancellationError as exc:
+            messages.error(self.request, str(exc))
+            return self.form_invalid(form)
+        messages.success(self.request, "Cancelamento da NFC-e enviado para a Webmania.")
+        return redirect(self.get_success_url())
+
+
 class NfceDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_app_label = "finance"
     workshop_permission_model = "fiscaldocument"
@@ -152,6 +201,32 @@ class NfceDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
         response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
         identifier = str(document.number or document.access_key or document.remote_uuid or document.pk or "documento").strip().replace(" ", "-")
         response["Content-Disposition"] = f'attachment; filename="nfce-{document_kind}-{identifier}.{extension}"'
+        return response
+
+
+class NfceCancellationDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "fiscaldocument"
+    workshop_permission_codename = "download_nfce"
+
+    def get(self, request, *args, **kwargs):
+        event = get_object_or_404(
+            FiscalDocumentEvent.objects.select_related("document"),
+            pk=kwargs.get("event_pk"),
+            document_id=kwargs.get("pk"),
+            document__workshop=self.workshop,
+            document__document_type=FiscalDocumentType.NFCE,
+            document__origin=FiscalDocumentOrigin.MANUAL,
+            document__purpose=FiscalDocumentPurpose.NORMAL,
+            event_type=FiscalDocumentEventType.CANCELLATION,
+        )
+        try:
+            downloaded = download_webmania_document(workshop=self.workshop, url=str(event.xml_url or "").strip())
+        except WebmaniaDocumentDownloadError as exc:
+            return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
+        response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
+        identifier = str(event.document.number or event.document.access_key or event.document.remote_uuid or event.document.pk or "documento").strip().replace(" ", "-")
+        response["Content-Disposition"] = f'attachment; filename="nfce-cancelamento-{identifier}.xml"'
         return response
 
 
