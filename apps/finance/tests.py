@@ -1257,6 +1257,24 @@ class EmissionRequestNumberReservationTests(TestCase):
         self.assertEqual(product_payload["subtotal"], "26.67")
 
     @override_settings(WEBMANIA_AMBIENT="2")
+    def test_build_nfe_payload_sets_ie_as_isento_for_cnpj_without_state_registration(self) -> None:
+        _, _, nfe_request, _ = self._build_requests(suffix=79)
+        reserve_nfe_request_number(nfe_request=nfe_request)
+
+        customer = nfe_request.workorder.budget.customer
+        self.assertIsNotNone(customer)
+        assert customer is not None
+        customer.customer_type = "PJ"
+        customer.cpf_or_cnpj = "12.345.678/0001-90"
+        customer.state_registration = ""
+        customer.save(update_fields=["customer_type", "cpf_or_cnpj", "state_registration"])
+
+        payload = build_nfe_payload(nfe_request=nfe_request)
+
+        self.assertEqual(payload.get("cliente", {}).get("cnpj"), "12.345.678/0001-90")
+        self.assertEqual(payload.get("cliente", {}).get("ie"), "ISENTO")
+
+    @override_settings(WEBMANIA_AMBIENT="2")
     def test_build_nfse_payload_includes_reserved_rps_number_and_series(self) -> None:
         _, _, _, nfse_request = self._build_requests(suffix=73)
         reserve_nfse_request_rps_number(nfse_request=nfse_request)

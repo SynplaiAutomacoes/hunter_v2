@@ -179,8 +179,8 @@ def _build_customer_payload(nfe_request: NfeRequest) -> dict[str, Any]:
     if len(document) == 14:
         payload["cnpj"] = customer.cpf_or_cnpj
         payload["razao_social"] = _require_customer_field(value=customer.name, field_name="razao_social")
-        if customer.state_registration:
-            payload["ie"] = str(customer.state_registration).strip()
+        state_registration = str(customer.state_registration or "").strip()
+        payload["ie"] = state_registration or "ISENTO"
         return payload
 
     raise NfeEmissionError("Documento do cliente invalido para emissao de Nota Fiscal.")
