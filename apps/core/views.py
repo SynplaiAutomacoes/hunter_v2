@@ -421,6 +421,8 @@ INDICATOR_LABELS: dict[str, tuple[str, str]] = {
     "aguardando_aprovacao_mes_atual": ("Mês Atual (Aguardando Aprovação)", "Orçamentos"),
     "aguardando_aprovacao_meses_anteriores": ("Meses Anteriores (Aguardando Aprovação)", "Orçamentos"),
     "reprovados": ("Total Reprovados", "Orçamentos"),
+    "carros_mes": ("Carros no Mês", "Ordens de Serviço"),
+    "garantia_cortesia_mes": ("Garantia + Cortesia", "Ordens de Serviço"),
 }
 
 
@@ -534,6 +536,30 @@ class DashboardFinancialReportView(View):
             ).select_related("customer", "vehicle").order_by("entry_date")
             total = sum(getattr(b.display_total_budget_value, "amount", b.display_total_budget_value) or 0 for b in budgets)
             return list(budgets), True, f"R$ {total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        if indicador == "carros_mes":
+            workorders = WorkOrder.objects.filter(
+                workshop=workshop,
+                budget_type="sale",
+                status=WorkOrderStatus.APPROVED,
+                delivered_at__month=mes,
+                delivered_at__year=ano,
+                budget__reference_budget__isnull=True,
+            ).select_related("budget__customer", "budget__vehicle").order_by("delivered_at")
+            total = f"{len(workorders)} veículo(s)"
+            return list(workorders), False, total
+
+        if indicador == "garantia_cortesia_mes":
+            workorders = WorkOrder.objects.filter(
+                workshop=workshop,
+                budget_type__in=["warranty", "courtesy"],
+                status=WorkOrderStatus.APPROVED,
+                delivered_at__month=mes,
+                delivered_at__year=ano,
+                budget__reference_budget__isnull=True,
+            ).select_related("budget__customer", "budget__vehicle").order_by("delivered_at")
+            total = f"{len(workorders)} veículo(s)"
+            return list(workorders), False, total
 
         return [], False, "R$ 0,00"
 
