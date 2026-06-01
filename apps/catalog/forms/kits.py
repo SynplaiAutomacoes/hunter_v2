@@ -494,6 +494,7 @@ class KitForm(CoreModelForm):
                                                     </label>
                                                     <select name="kit_application_model" class="input-theme w-full" x-model="application.model" @change="onApplicationModelChange(index)" :disabled="!application.brand || application.loadingModels">
                                                         <option value="" x-text="application.loadingModels ? 'Carregando...' : 'Selecione...' "></option>
+                                                        <option x-show="application.model" :value="application.model" x-text="application.model"></option>
                                                         <template x-for="option in application.modelOptions" :key="`model-${{index}}-${{option.id}}`">
                                                             <option :value="option.id" x-text="option.label"></option>
                                                         </template>

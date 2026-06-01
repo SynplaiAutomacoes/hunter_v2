@@ -633,6 +633,7 @@ class KitTests(TestCase):
         self.assertIn('"modelOptions": [{"id": "Renegade", "label": "Renegade"}]', html)
         self.assertIn('"fuelOptions": [{"id": "Diesel", "label": "Diesel"}]', html)
         self.assertIn('<option value="Jeep">Jeep</option>', html)
+        self.assertIn('<option x-show="application.model" :value="application.model" x-text="application.model"></option>', html)
 
 
 class CatalogFipeServiceTests(TestCase):
