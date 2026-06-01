@@ -36,31 +36,31 @@
 
         <!-- KPI Stats Section -->
         <div class="flex flex-wrap gap-6 items-start">
-            <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(25%-18px)]">
+            <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(20%-19.2px)]">
                 <div class="stat-title text-base-content/70">Carros no Mês <p class="text-sm text-success font-semibold">Venda</p></div>
                 <div class="stat-value text-primary mt-2">{{ qtd_carros_mes }}</div>
                 <div class="stat-desc">Veículos entregues</div>
             </div>
 
-            <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(25%-18px)]">
+            <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(20%-19.2px)]">
                 <div class="stat-title text-base-content/70">Garantia + Cortesia <p class="text-sm text-error font-semibold">Não faturado</p></div>
                 <div class="stat-value text-error mt-2">{{ qtd_carros_garantia_cortesia_mes }}</div>
                 <div class="stat-desc">Veículos do mês</div>
             </div>
 
-            <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(25%-18px)]">
+            <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(20%-19.2px)]">
                 <div class="stat-title">Ticket Médio <p class="text-sm font-semibold">&nbsp;</p></div>
                 <div class="stat-value text-secondary mt-2">R$ {{ ticket_medio|floatformat:2 }}</div>
                 <div class="stat-desc">Faturamento / Qtd Carros</div>
             </div>
 
-            <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(25%-18px)]">
+            <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(20%-19.2px)]">
                 <div class="stat-title">Total Vendido <p class="text-sm font-semibold">&nbsp;</p></div>
                 <div class="stat-value text-success mt-2">R$ {{ total_vendido_ate_a_data|floatformat:2 }}</div>
                 <div class="stat-desc">Pago até o momento</div>
             </div>
 
-            <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(25%-18px)]">
+            <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(20%-19.2px)]">
                 <div class="stat-title">Projeção <p class="text-sm font-semibold">&nbsp;</p></div>
                 <div class="stat-value text-primary">{% if projecao is not None %}R$ {{ projecao|floatformat:2 }}{% endif %}</div>
                 <div class="stat-desc">Estimativa para o fim do mês</div>
