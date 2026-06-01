@@ -77,6 +77,9 @@ def send_budget_for_signature(*, budget, request=None) -> SignatureDeliveryResul
     customer_email = getattr(budget.customer, "email", "") if budget.customer else ""
     customer_phone = getattr(budget.customer, "phone", "") if budget.customer else ""
 
+    if not budget.service_expected_completion_at:
+        raise SuperSignError("Não é possível enviar para assinatura antes de definir a data prevista de término do serviço.")
+
     if not budget.customer:
         raise SuperSignError("Orçamento sem cliente vinculado para assinatura")
 

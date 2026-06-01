@@ -3445,7 +3445,7 @@ class BudgetStep6Form(CoreModelForm):
                                 :data-is-resend="isSignatureResend ? 'true' : 'false'"
                                 :data-blocked="signatureBlocked ? 'true' : 'false'"
                                 :data-blocked-reason="signatureBlockedReason"
-                                :class="signatureBlocked ? 'opacity-60 cursor-not-allowed' : 'btn-primary'"
+                                :class="signatureBlocked ? 'btn-neutral opacity-60 pointer-events-none' : 'btn-primary'"
                                 :aria-disabled="signatureBlocked ? 'true' : 'false'"
                                 :title="signatureBlockedReason"
                                 onclick="if (this.dataset.blocked === 'true') { showBlockedStep6Action(this.dataset.blockedReason); return; } sendBudgetForSignature(this)">

@@ -392,6 +392,86 @@ def _extract_fuel_values(payload: list[dict[str, object]]) -> list[str]:
     return values
 
 
+def _extract_year_range(payload: list[dict[str, object]]) -> tuple[int | None, int | None]:
+    years: list[int] = []
+    for entry in payload:
+        for field in ("ano", "ano_modelo"):
+            raw_year = str(entry.get(field) or "").strip()
+            if not raw_year:
+                continue
+            try:
+                year = int(raw_year)
+                if 1900 <= year <= 2100:
+                    years.append(year)
+            except (TypeError, ValueError):
+                pass
+    if not years:
+        return None, None
+    return min(years), max(years)
+
+
+def get_vehicle_model_metadata(
+    *,
+    brand_name: str,
+    model_name: str,
+    vehicle_type: str = FipeVehicleType.CARROS,
+) -> dict[str, object]:
+    inferred_fuel = extract_fuel_from_model_name(model_name)
+    if inferred_fuel:
+        return {"fuels": [inferred_fuel], "year_start": None, "year_end": None}
+
+    model = _get_catalog_model(brand_name=brand_name, model_name=model_name, vehicle_type=vehicle_type)
+    if model is None:
+        return {"fuels": [], "year_start": None, "year_end": None}
+
+    cache = FipeModelFuelCache.objects.filter(vehicle_type=vehicle_type, model=model).first()
+    if cache is not None and not _fuel_cache_is_expired(cache):
+        return {"fuels": [str(value) for value in cache.fuel_values if str(value).strip()], "year_start": None, "year_end": None}
+
+    with _scoped_lock(f"fuels:{vehicle_type}:{model.brand.external_id}:{model.external_id}"):
+        cache = FipeModelFuelCache.objects.filter(vehicle_type=vehicle_type, model=model).first()
+        if cache is not None and not _fuel_cache_is_expired(cache):
+            return {"fuels": [str(value) for value in cache.fuel_values if str(value).strip()], "year_start": None, "year_end": None}
+
+        payload = _request_json(f"{vehicle_type}/{model.brand.external_id}/{model.external_id}")
+        fuel_values = _extract_fuel_values(payload)
+        year_start, year_end = _extract_year_range(payload)
+
+        logger.info(
+            "[FIPE fuels] raw data received",
+            extra={
+                "brand_name": brand_name,
+                "model_name": model_name,
+                "entry_count": len(payload),
+                "raw_payload": payload[:20],
+                "fuel_values": fuel_values,
+                "year_start": year_start,
+                "year_end": year_end,
+            },
+        )
+
+        if cache is None:
+            cache = FipeModelFuelCache(model=model, vehicle_type=vehicle_type)
+
+        cache.fuel_values = fuel_values
+        cache.source_year_count = len(payload)
+        cache.last_synced_at = timezone.now()
+        cache.save()
+        logger.info(
+            "FIPE fuel cache updated",
+            extra={
+                "vehicle_type": vehicle_type,
+                "brand_name": brand_name,
+                "model_name": model_name,
+                "source_year_count": len(payload),
+                "fuel_count": len(fuel_values),
+                "year_start": year_start,
+                "year_end": year_end,
+            },
+        )
+        return {"fuels": fuel_values, "year_start": year_start, "year_end": year_end}
+
+
 def _request_json(path: str) -> list[dict[str, object]]:
     url = _build_url(path)
     started_at = time.monotonic()

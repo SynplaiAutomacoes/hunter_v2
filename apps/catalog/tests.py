@@ -568,7 +568,7 @@ class KitTests(TestCase):
         )
 
         self.assertFalse(form.is_valid())
-        self.assertIn("Selecione um combustível válido em todas as aplicações do kit.", form.non_field_errors())
+        self.assertIn("Aplicação 1: Selecione um combustível válido.", form.non_field_errors())
 
     def test_kit_form_preserves_dynamic_engine_and_blanks_unsupported_fuel_for_existing_application(self):
         kit = Kit.objects.create(workshop=self.workshop, name="Kit Legado", description="", is_active=True)
@@ -607,7 +607,7 @@ class KitTests(TestCase):
         )
 
         self.assertFalse(form.is_valid())
-        self.assertIn("O ano inicial da aplicação não pode ser maior que o ano final.", form.non_field_errors())
+        self.assertIn("Aplicação 1: O ano inicial não pode ser maior que o ano final.", form.non_field_errors())
 
     def test_kit_form_renders_existing_fipe_brand_option(self):
         FipeVehicleBrand.objects.create(name="Jeep", external_id="1")
@@ -617,6 +617,23 @@ class KitTests(TestCase):
 
         self.assertIn("brandOptions", html)
         self.assertIn("Jeep", html)
+
+    def test_kit_form_renders_existing_application_initial_values(self):
+        kit = Kit.objects.create(workshop=self.workshop, name="Kit Aplicacao Existente", description="", is_active=True)
+        KitApplication.objects.create(kit=kit, brand="Jeep", model="Renegade", engine="2.0", fuel="Diesel", year_start=2015, year_end=2021)
+
+        html = render_crispy_form(KitForm(instance=kit, workshop=self.workshop))
+
+        self.assertIn('"brand": "Jeep"', html)
+        self.assertIn('"model": "Renegade"', html)
+        self.assertIn('"engine": "2.0"', html)
+        self.assertIn('"fuel": "Diesel"', html)
+        self.assertIn('"year_start": "2015"', html)
+        self.assertIn('"year_end": "2021"', html)
+        self.assertIn('"modelOptions": [{"id": "Renegade", "label": "Renegade"}]', html)
+        self.assertIn('"fuelOptions": [{"id": "Diesel", "label": "Diesel"}]', html)
+        self.assertIn('<option value="Jeep">Jeep</option>', html)
+        self.assertIn('<option x-show="application.model" :value="application.model" x-text="application.model"></option>', html)
 
 
 class CatalogFipeServiceTests(TestCase):
@@ -815,15 +832,21 @@ class CatalogFipeApiTests(TestCase):
         response = self.client.get(reverse("catalog:fipe-fuels"), {"brand": "Ford", "model": "Ka"})
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), [{"id": "Gasolina", "label": "Gasolina"}, {"id": "Flex", "label": "Flex"}])
+        self.assertEqual(
+            response.json(),
+            {"fuels": [{"id": "Gasolina", "label": "Gasolina"}, {"id": "Flex", "label": "Flex"}], "year_start": None, "year_end": None},
+        )
 
-    @patch("apps.catalog.views.kits.get_fuel_options_for_model")
-    def test_fipe_fuels_endpoint_returns_inferred_fuel_without_fipe_fallback(self, get_fuel_options_mock: Mock) -> None:
+    @patch("apps.catalog.views.kits.get_vehicle_model_metadata")
+    def test_fipe_fuels_endpoint_returns_inferred_fuel_without_fipe_fallback(self, get_metadata_mock: Mock) -> None:
         response = self.client.get(reverse("catalog:fipe-fuels"), {"brand": "Jeep", "model": "Commander 2.2 TD 4x4 Diesel Aut"})
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), [{"id": "Diesel", "label": "Diesel"}])
-        get_fuel_options_mock.assert_not_called()
+        self.assertEqual(
+            response.json(),
+            {"fuels": [{"id": "Diesel", "label": "Diesel"}], "year_start": None, "year_end": None},
+        )
+        get_metadata_mock.assert_not_called()
 
     def test_service_money_fields_work_with_only_including_currency_fields(self):
         """Regressão: `djmoney` precisa do campo `*_currency` junto com o valor.
@@ -898,6 +921,14 @@ class KitFormPageTests(TestCase):
         self.assertContains(response, 'name="kit_application_engine"', html=False)
         self.assertContains(response, "application.engineLocked", html=False)
         self.assertContains(response, 'name="kit_application_fuel"', html=False)
+        self.assertContains(response, '<span class="text-error" aria-hidden="true">*</span>', count=4, html=False)
+        self.assertContains(response, 'Marca <span class="text-error" aria-hidden="true">*</span>', html=False)
+        self.assertNotContains(response, 'Motor <span class="text-error" aria-hidden="true">*</span>', html=False)
+        self.assertNotContains(response, 'Combustível <span class="text-error" aria-hidden="true">*</span>', html=False)
+        self.assertContains(response, "Motor não identificado pela FIPE. Selecione manualmente.")
+        self.assertContains(response, "Combustível não identificado pela FIPE. Selecione manualmente.")
+        self.assertContains(response, '!application.engineLocked && application.model', html=False)
+        self.assertContains(response, '!application.fuelLocked && application.model && !application.loadingFuels', html=False)
         self.assertContains(response, "onApplicationBrandChange(index)", html=False)
         self.assertContains(response, "/catalog/fipe/fuels/", html=False)
         self.assertNotContains(response, "window.htmx.trigger(list, 'load');", html=False)

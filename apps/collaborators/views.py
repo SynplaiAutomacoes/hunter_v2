@@ -22,6 +22,7 @@ from apps.core.navigation import COLLABORATOR_CREATE_FAVORITE_PAGE
 from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
+from apps.core.utils import clean_id
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -381,11 +382,11 @@ class CollaboratorBenefitDeleteView(LoginRequiredMixin, WorkshopScopedMixin, Vie
     workshop_permission_codename = "change_workshopcollaborator"
 
     def post(self, request, pk, benefit_id):
-        collaborator = get_object_or_404(WorkshopCollaborator, pk=pk, workshop=self.workshop)
-        benefit = get_object_or_404(CollaboratorBenefit, pk=benefit_id, collaborator=collaborator)
+        collaborator = get_object_or_404(WorkshopCollaborator, pk=clean_id(pk), workshop=self.workshop)
+        benefit = get_object_or_404(CollaboratorBenefit, pk=clean_id(benefit_id), collaborator=collaborator)
         benefit.delete()
         sync_collaborator_payroll(collaborator=collaborator)
-        return HttpResponseRedirect(f"{reverse('collaborators:collaborator_update', kwargs={'pk': collaborator.pk})}?tab=cadastro")
+        return HttpResponseRedirect(f"{reverse('collaborators:collaborator_update', kwargs={'pk': clean_id(collaborator.pk)})}?tab=cadastro")
 
 
 class WorkshopCollaboratorModalCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):

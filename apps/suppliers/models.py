@@ -1,12 +1,13 @@
 from django.db import models
 from phonenumber_field.modelfields import PhoneNumberField
+
+from apps.core.fields import BRCPFCNPJField
 from apps.core.models import TimeStampedModel, Address
 from django.utils import timezone
-from localflavor.br.models import BRCNPJField
 
 class Supplier(TimeStampedModel, Address):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="suppliers")
-    cnpj = BRCNPJField(verbose_name="CNPJ")
+    cnpj = BRCPFCNPJField(verbose_name="Documento")
     name = models.CharField(verbose_name="Razão Social", max_length=255)
     contact_person = models.CharField(verbose_name="Responsável", max_length=255, default="", blank=True)
     phone = PhoneNumberField(region="BR", verbose_name="Telefone", max_length=20, default="", blank=True)

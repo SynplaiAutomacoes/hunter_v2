@@ -24,7 +24,7 @@ from apps.finance.models.financial_movement import FinancialMovement
 from apps.iam.utils import get_or_create_director_role
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostHoliday
 from apps.workshops.models.workshops import Workshop
-from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderStatus
 
 
 def create_workshop(**kwargs):
@@ -1491,27 +1491,6 @@ class DashboardMetricsTests(TestCase):
         self.assertEqual(response.context["ticket_medio"], Decimal("500.00"))
         self.assertContains(response, "R$ 500,00")
 
-    def test_dashboard_counts_approved_workorders_without_delivery_date_using_signature_date_fallback(self):
-        today = timezone.localdate()
-        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
-
-        budget = Budget.objects.create(workshop=self.workshop, entry_date=today, status=BudgetStatus.APPROVED)
-        workorder = WorkOrder.objects.create(
-            workshop=self.workshop,
-            budget=budget,
-            status=WorkOrderStatus.APPROVED,
-            signature_request_status=WorkOrderSignatureStatus.APPROVED,
-            delivered_at=None,
-        )
-        WorkOrder.objects.filter(pk=workorder.pk).update(
-            atualizado_em=timezone.make_aware(datetime.combine(today, datetime.min.time())),
-        )
-
-        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["qtd_carros_mes"], 1)
-
     def test_dashboard_does_not_count_child_workorders_in_vehicle_total(self):
         today = timezone.localdate()
         self._create_workshop_cost(reference_date=today, work_days_per_month=22)
@@ -1840,3 +1819,176 @@ class DashboardMetricsTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["taxa_aprovacao"], 50)
+
+    def test_dashboard_qtd_carros_mes_counts_sale_workorder_delivered_in_month(self):
+        today = timezone.localdate()
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
+
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=today, budget_type=BudgetType.SALE)
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            budget_type="sale",
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.context["qtd_carros_mes"], 1)
+
+    def test_dashboard_qtd_carros_mes_excludes_workorder_without_delivered_at(self):
+        today = timezone.localdate()
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
+
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=today, budget_type=BudgetType.SALE)
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            budget_type="sale",
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=None,
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.context["qtd_carros_mes"], 0)
+
+    def test_dashboard_qtd_carros_mes_excludes_workorder_delivered_in_other_month(self):
+        today = timezone.localdate()
+        other_month = today.replace(day=1) - timedelta(days=5)
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
+
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=today, budget_type=BudgetType.SALE)
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            budget_type="sale",
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.make_aware(datetime.combine(other_month, datetime.min.time())),
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.context["qtd_carros_mes"], 0)
+
+    def test_dashboard_qtd_carros_mes_excludes_warranty_and_courtesy_workorders(self):
+        today = timezone.localdate()
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
+
+        warranty_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, budget_type=BudgetType.WARRANTY)
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=warranty_budget,
+            budget_type="warranty",
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+        courtesy_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, budget_type=BudgetType.COURTESY)
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=courtesy_budget,
+            budget_type="courtesy",
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.context["qtd_carros_mes"], 0)
+        self.assertEqual(response.context["qtd_carros_garantia_cortesia_mes"], 2)
+
+    def test_dashboard_qtd_carros_garantia_cortesia_counts_warranty_and_courtesy(self):
+        today = timezone.localdate()
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
+
+        warranty_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, budget_type=BudgetType.WARRANTY)
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=warranty_budget,
+            budget_type="warranty",
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+        courtesy_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, budget_type=BudgetType.COURTESY)
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=courtesy_budget,
+            budget_type="courtesy",
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.context["qtd_carros_garantia_cortesia_mes"], 2)
+
+    def test_dashboard_qtd_carros_garantia_cortesia_excludes_sale(self):
+        today = timezone.localdate()
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
+
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=today, budget_type=BudgetType.SALE)
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            budget_type="sale",
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.context["qtd_carros_mes"], 1)
+        self.assertEqual(response.context["qtd_carros_garantia_cortesia_mes"], 0)
+
+    def test_dashboard_retorno_em_garantia_counts_delivered_warranty(self):
+        today = timezone.localdate()
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
+
+        sale_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, budget_type=BudgetType.SALE)
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=sale_budget,
+            budget_type="sale",
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+        warranty_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, budget_type=BudgetType.WARRANTY)
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=warranty_budget,
+            budget_type="warranty",
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.context["qtd_carros_mes"], 1)
+        self.assertEqual(response.context["indice_retorno_em_garantia_mes"], 100)
+
+    def test_dashboard_retorno_em_garantia_excludes_warranty_without_delivered_at(self):
+        today = timezone.localdate()
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
+
+        sale_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, budget_type=BudgetType.SALE)
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=sale_budget,
+            budget_type="sale",
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=timezone.now(),
+        )
+        warranty_budget = Budget.objects.create(workshop=self.workshop, entry_date=today, budget_type=BudgetType.WARRANTY)
+        WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=warranty_budget,
+            budget_type="warranty",
+            status=WorkOrderStatus.APPROVED,
+            delivered_at=None,
+        )
+
+        response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
+
+        self.assertEqual(response.context["qtd_carros_mes"], 1)
+        self.assertEqual(response.context["indice_retorno_em_garantia_mes"], 0)

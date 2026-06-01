@@ -81,6 +81,9 @@ def send_workorder_for_signature(*, workorder) -> SignatureDeliveryResult:
     customer_email = getattr(customer, "email", "") if customer else ""
     customer_phone = getattr(customer, "phone", "") if customer else ""
 
+    if not budget.service_expected_completion_at:
+        raise WorkOrderSignatureError("Não é possível enviar para assinatura antes de definir a data prevista de término do serviço.")
+
     if not customer:
         raise WorkOrderSignatureError("Ordem de serviço sem cliente vinculado para assinatura")
 
