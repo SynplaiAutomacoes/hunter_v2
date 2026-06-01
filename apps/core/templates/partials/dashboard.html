@@ -72,7 +72,14 @@
 
             <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(20%-19.2px)]">
                 <div class="stat-title">Projeção <p class="text-sm font-semibold">&nbsp;</p></div>
-                <div class="stat-value text-primary">{% if projecao is not None %}R$ {{ projecao|floatformat:2 }}{% endif %}</div>
+                <div class="stat-value text-primary flex items-center gap-2">
+                    {% if projecao is not None %}R$ {{ projecao|floatformat:2 }}{% endif %}
+                    {% if projecao_vs_meta %}
+                        <div class="tooltip" data-tip="{{ projecao_vs_meta.percentual|floatformat:1 }}% da meta">
+                            <span class="material-icons text-{{ projecao_vs_meta.cor }} text-2xl">{{ projecao_vs_meta.seta }}</span>
+                        </div>
+                    {% endif %}
+                </div>
                 <div class="stat-desc">Estimativa para o fim do mês</div>
             </div>
         </div>
@@ -204,6 +211,31 @@
             </div>
         </div>
     </div>
+
+    {% if meta_faturamento_bruto is not None %}
+    <!-- Financial Goals Section -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
+        <div class="stat bg-base-100 shadow rounded-box">
+            <div class="stat-title text-base-content/70">Meta de Faturamento Bruto</div>
+            <div class="stat-value text-accent mt-2">R$ {{ meta_faturamento_bruto|floatformat:2 }}</div>
+            <div class="stat-desc">Meta mensal definida para a oficina.</div>
+        </div>
+
+        <div class="stat bg-base-100 shadow rounded-box">
+            <div class="stat-title text-base-content/70">Meta de Faturamento Diário</div>
+            <div class="stat-value text-accent mt-2">{% if meta_faturamento_diario is not None %}R$ {{ meta_faturamento_diario|floatformat:2 }}{% else %}-{% endif %}</div>
+            <div class="stat-desc">Valor médio necessário por dia útil para atingir a meta mensal.</div>
+        </div>
+
+        <div class="stat bg-base-100 shadow rounded-box">
+            <div class="stat-title text-base-content/70">Faturamento Real Diário</div>
+            <div class="stat-value mt-2 {% if faturamento_real_diario is not None and meta_faturamento_diario is not None and faturamento_real_diario >= meta_faturamento_diario %}text-success{% else %}text-primary{% endif %}">
+                {% if faturamento_real_diario is not None %}R$ {{ faturamento_real_diario|floatformat:2 }}{% else %}-{% endif %}
+            </div>
+            <div class="stat-desc">Média diária de faturamento realizada até o momento.</div>
+        </div>
+    </div>
+    {% endif %}
 
     {% if projecao_warning %}
         <script>

@@ -362,6 +362,44 @@ def metricas_dashboard(request) -> dict[str, Any]:
 
     total_orcamentos_reprovados = sum(getattr(b.display_total_budget_value, "amount", b.display_total_budget_value) or 0 for b in orcamentos_reprovados)
 
+    ## Indicadores de Meta
+    meta_faturamento_bruto = None
+    meta_faturamento_diario = None
+    faturamento_real_diario = None
+    projecao_vs_meta = None
+
+    if workshop_cost is not None and workshop_cost.gross_revenue_target is not None:
+        meta_bruto = _resolve_decimal_amount(workshop_cost.gross_revenue_target)
+        meta_bruto_val = meta_bruto if isinstance(meta_bruto, Decimal) else Decimal(meta_bruto)
+        meta_faturamento_bruto = meta_bruto_val
+
+        dias_uteis = int(workshop_cost.work_days_per_month or 0)
+        if dias_uteis > 0:
+            meta_faturamento_diario = (meta_bruto_val / Decimal(dias_uteis)).quantize(Decimal("0.01"))
+
+        if dias_transcorridos > 0:
+            faturamento_real_diario = (total_vendido_ate_a_data / Decimal(dias_transcorridos)).quantize(Decimal("0.01"))
+
+        if projecao is not None and meta_bruto_val > 0:
+            percentual_atingido = (projecao / meta_bruto_val) * Decimal("100")
+            percentual_atingido = percentual_atingido.quantize(Decimal("0.1"))
+
+            if percentual_atingido >= 100:
+                cor = "success"
+                seta = "arrow_upward"
+            elif percentual_atingido >= 90:
+                cor = "warning"
+                seta = "arrow_upward"
+            else:
+                cor = "error"
+                seta = "arrow_downward"
+
+            projecao_vs_meta = {
+                "percentual": percentual_atingido,
+                "cor": cor,
+                "seta": seta,
+            }
+
     return {
         "workshop": workshop,
         "mes_selecionado": mes_selecionado,
@@ -390,6 +428,10 @@ def metricas_dashboard(request) -> dict[str, Any]:
         "total_mensal_orcamentos_aguardando_aprovacao": total_mensal_orcamentos_aguardando_aprovacao,
         "total_meses_anteriores_orcamentos_aguardando_aprovacao": total_meses_anteriores_orcamentos_aguardando_aprovacao,
         "total_orcamentos_reprovados": total_orcamentos_reprovados,
+        "meta_faturamento_bruto": meta_faturamento_bruto,
+        "meta_faturamento_diario": meta_faturamento_diario,
+        "faturamento_real_diario": faturamento_real_diario,
+        "projecao_vs_meta": projecao_vs_meta,
     }
 
 
