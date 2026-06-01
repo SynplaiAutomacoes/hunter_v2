@@ -426,6 +426,7 @@ class KitForm(CoreModelForm):
         applications_json = json.dumps(self._build_initial_applications())
         brand_options_json = json.dumps([{"id": option.value, "label": option.label} for option in get_brand_options(vehicle_type=FipeVehicleType.CARROS)])
         engine_options_json = json.dumps([{"id": value, "label": label} for value, label in vehicle_engine_form_choices() if value])
+        fuel_options_json = json.dumps([{"id": value, "label": label} for value, label in vehicle_fuel_form_choices() if value])
 
         return Layout(
             Div(
@@ -480,19 +481,19 @@ class KitForm(CoreModelForm):
                                                     <label class="label p-0 mb-1">
                                                         <span class="label-text">Ano inicial</span>
                                                     </label>
-                                                    <input type="number" name="kit_application_year_start" class="input-theme w-full" min="1900" max="2100" x-model="application.year_start" placeholder="2015" />
+                                                    <input type="number" name="kit_application_year_start" class="input-theme w-full [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0" min="1900" max="2100" x-model="application.year_start" placeholder="2015" />
                                                 </div>
                                                 <div class="lg:col-span-1">
                                                     <label class="label p-0 mb-1">
                                                         <span class="label-text">Ano final</span>
                                                     </label>
-                                                    <input type="number" name="kit_application_year_end" class="input-theme w-full" min="1900" max="2100" x-model="application.year_end" placeholder="2021" />
+                                                    <input type="number" name="kit_application_year_end" class="input-theme w-full [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0" min="1900" max="2100" x-model="application.year_end" placeholder="2021" />
                                                 </div>
                                                 <div class="lg:col-span-2">
                                                     <label class="label p-0 mb-1">
                                                         <span class="label-text">Motor</span>
                                                     </label>
-                                                    <input type="hidden" name="kit_application_engine" :value="application.engine">
+                                                    <input type="hidden" :name="application.engineLocked ? 'kit_application_engine' : null" :value="application.engine">
                                                     <input
                                                         x-show="application.engineLocked"
                                                         type="text"
@@ -500,7 +501,7 @@ class KitForm(CoreModelForm):
                                                         :value="application.engine || ''"
                                                         disabled
                                                     />
-                                                    <select x-show="!application.engineLocked" class="input-theme w-full" x-model="application.engine" :disabled="!application.model">
+                                                    <select x-show="!application.engineLocked" name="kit_application_engine" class="input-theme w-full" x-model="application.engine" :disabled="!application.model">
                                                         <option value="">Selecione...</option>
                                                         <template x-for="option in application.engineOptions" :key="`engine-${{index}}-${{option.id}}`">
                                                             <option :value="option.id" x-text="option.label"></option>
@@ -511,7 +512,15 @@ class KitForm(CoreModelForm):
                                                     <label class="label p-0 mb-1">
                                                         <span class="label-text">Combustível</span>
                                                     </label>
-                                                    <select name="kit_application_fuel" class="input-theme w-full" x-model="application.fuel" :disabled="!application.model || application.loadingFuels">
+                                                    <input type="hidden" :name="application.fuelLocked ? 'kit_application_fuel' : null" :value="application.fuel">
+                                                    <input
+                                                        x-show="application.fuelLocked"
+                                                        type="text"
+                                                        class="input-theme w-full"
+                                                        :value="application.fuel || ''"
+                                                        disabled
+                                                    />
+                                                    <select x-show="!application.fuelLocked" name="kit_application_fuel" class="input-theme w-full" x-model="application.fuel" :disabled="!application.model || application.loadingFuels">
                                                         <option value="" x-text="application.loadingFuels ? 'Carregando...' : 'Selecione...' "></option>
                                                         <template x-for="option in application.fuelOptions" :key="`fuel-${{index}}-${{option.id}}`">
                                                             <option :value="option.id" x-text="option.label"></option>
@@ -969,6 +978,7 @@ class KitForm(CoreModelForm):
                                     applications: {applications_json},
                                     brandOptions: {brand_options_json},
                                     baseEngineOptions: {engine_options_json},
+                                    baseFuelOptions: {fuel_options_json},
                                     modalSelectedProducts: [],
                                     modalSelectedServices: [],
                                     serviceEditForm: {{
@@ -1005,6 +1015,7 @@ class KitForm(CoreModelForm):
                                             engineOptions: this.buildEngineOptions(application.engine || ''),
                                             fuelOptions: Array.isArray(application.fuelOptions) ? application.fuelOptions : [],
                                             engineLocked: !!application.engineLocked,
+                                            fuelLocked: !!application.fuelLocked,
                                             loadingModels: false,
                                             loadingFuels: false,
                                         }};
@@ -1051,8 +1062,7 @@ class KitForm(CoreModelForm):
                                         if (!response.ok) {{
                                             throw new Error('Falha ao carregar opções da FIPE.');
                                         }}
-                                        const payload = await response.json();
-                                        return Array.isArray(payload) ? payload : [];
+                                        return await response.json();
                                     }},
                                     ensureSelectedOption(options, selectedValue) {{
                                         if (!selectedValue) return options;
@@ -1081,6 +1091,7 @@ class KitForm(CoreModelForm):
                                             application.engine = '';
                                             application.engineLocked = false;
                                             application.fuel = '';
+                                            application.fuelLocked = false;
                                             return;
                                         }}
 
@@ -1098,6 +1109,7 @@ class KitForm(CoreModelForm):
                                             }}
                                             if (!preserveFuel) {{
                                                 application.fuel = '';
+                                                application.fuelLocked = false;
                                             }}
                                             this.syncApplicationEngineFromModel(index);
                                             application.fuelOptions = [];
@@ -1115,16 +1127,41 @@ class KitForm(CoreModelForm):
                                         if (!application.brand || !application.model) {{
                                             application.fuelOptions = [];
                                             application.fuel = '';
+                                            application.fuelLocked = false;
                                             return;
                                         }}
 
                                         application.loadingFuels = true;
                                         try {{
-                                            let options = await this.fetchCatalogOptions(`/catalog/fipe/fuels/?brand=${{encodeURIComponent(application.brand)}}&model=${{encodeURIComponent(application.model)}}`);
-                                            options = this.ensureSelectedOption(options, preserveFuel ? application.fuel : '');
-                                            application.fuelOptions = options;
-                                            if (!preserveFuel) {{
+                                            const payload = await this.fetchCatalogOptions(`/catalog/fipe/fuels/?brand=${{encodeURIComponent(application.brand)}}&model=${{encodeURIComponent(application.model)}}`);
+                                            console.log('[FIPE fuels] payload:', payload);
+                                            const rawFuelOptions = Array.isArray(payload.fuels) ? payload.fuels : [];
+                                            let options;
+                                            if (rawFuelOptions.length === 0 && !preserveFuel) {{
+                                                options = Array.isArray(this.baseFuelOptions) ? [...this.baseFuelOptions] : [];
                                                 application.fuel = '';
+                                                application.fuelLocked = false;
+                                            }} else if (rawFuelOptions.length === 0 && preserveFuel) {{
+                                                options = this.ensureSelectedOption([], application.fuel);
+                                                application.fuelLocked = false;
+                                            }} else {{
+                                                options = this.ensureSelectedOption(rawFuelOptions, preserveFuel ? application.fuel : '');
+                                                if (!preserveFuel) {{
+                                                    if (options.length === 1) {{
+                                                        application.fuel = options[0].id;
+                                                        application.fuelLocked = true;
+                                                    }} else {{
+                                                        application.fuel = '';
+                                                        application.fuelLocked = false;
+                                                    }}
+                                                }} else {{
+                                                    application.fuelLocked = options.length === 1;
+                                                }}
+                                            }}
+                                            application.fuelOptions = options;
+                                            if (!preserveFuel && payload.year_start != null && payload.year_end != null) {{
+                                                application.year_start = String(payload.year_start);
+                                                application.year_end = String(payload.year_end);
                                             }}
                                         }} catch (error) {{
                                             console.error('Erro ao carregar combustíveis da FIPE:', error);
@@ -1994,16 +2031,18 @@ class KitForm(CoreModelForm):
             "year_end": "ano final",
         }
 
-        for application in raw_applications:
+        for app_index, application in enumerate(raw_applications, start=1):
+            app_label = f"Aplicação {app_index}"
+
             normalized_engine = normalize_vehicle_engine_choice(application.get("engine", ""))
             normalized_fuel = normalize_vehicle_fuel_choice(application.get("fuel", ""))
 
             if application.get("engine") and not normalized_engine:
-                self.add_error(None, "Selecione um motor válido em todas as aplicações do kit.")
+                self.add_error(None, f"{app_label}: Selecione um motor válido.")
                 continue
 
             if application.get("fuel") and not normalized_fuel:
-                self.add_error(None, "Selecione um combustível válido em todas as aplicações do kit.")
+                self.add_error(None, f"{app_label}: Selecione um combustível válido.")
                 continue
 
             normalized_application = {
@@ -2014,22 +2053,22 @@ class KitForm(CoreModelForm):
 
             missing_fields = [label for field_name, label in required_application_fields.items() if not str(normalized_application.get(field_name, "")).strip()]
             if missing_fields:
-                self.add_error(None, "Preencha marca, modelo, motor, combustível, ano inicial e ano final em todas as aplicações do kit.")
+                self.add_error(None, f"{app_label}: Preencha {', '.join(missing_fields)}.")
                 continue
 
             try:
                 year_start = int(str(normalized_application.get("year_start", "")).strip())
                 year_end = int(str(normalized_application.get("year_end", "")).strip())
             except (TypeError, ValueError):
-                self.add_error(None, "Informe anos válidos em todas as aplicações do kit.")
+                self.add_error(None, f"{app_label}: Informe anos válidos.")
                 continue
 
             if year_start > year_end:
-                self.add_error(None, "O ano inicial da aplicação não pode ser maior que o ano final.")
+                self.add_error(None, f"{app_label}: O ano inicial não pode ser maior que o ano final.")
                 continue
 
             if year_start < 1900 or year_end > 2100:
-                self.add_error(None, "Os anos de aplicação do kit devem estar entre 1900 e 2100.")
+                self.add_error(None, f"{app_label}: Os anos devem estar entre 1900 e 2100.")
                 continue
 
             normalized_key = (
@@ -2042,7 +2081,7 @@ class KitForm(CoreModelForm):
             )
 
             if normalized_key in seen_applications:
-                self.add_error(None, "Existem aplicações repetidas no kit.")
+                self.add_error(None, f"{app_label}: Aplicação repetida no kit.")
                 continue
 
             seen_applications.add(normalized_key)

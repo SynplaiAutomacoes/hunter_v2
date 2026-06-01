@@ -15,7 +15,7 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from djmoney.money import Money
 
-from apps.catalog.fipe_service import get_brand_options, get_cached_fuel_options_for_model, get_fuel_options_for_model, get_model_options, register_catalog_access_and_maybe_sync
+from apps.catalog.fipe_service import get_brand_options, get_cached_fuel_options_for_model, get_model_options, get_vehicle_model_metadata, register_catalog_access_and_maybe_sync
 from apps.catalog.forms.kits import KitForm, QuickProductEditForm, QuickServiceEditForm
 from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
@@ -73,15 +73,22 @@ def api_fipe_fuels(request):
     brand_name = str(request.GET.get("brand") or "").strip()
     model_name = str(request.GET.get("model") or "").strip()
     if not brand_name or not model_name:
-        return JsonResponse([], safe=False)
+        return JsonResponse({"fuels": [], "year_start": None, "year_end": None})
 
     try:
-        options = get_cached_fuel_options_for_model(brand_name=brand_name, model_name=model_name)
-        if not options:
-            options = get_fuel_options_for_model(brand_name=brand_name, model_name=model_name)
+        cached = get_cached_fuel_options_for_model(brand_name=brand_name, model_name=model_name)
+        if cached:
+            return JsonResponse({"fuels": [{"id": option, "label": option} for option in cached], "year_start": None, "year_end": None})
+
+        metadata = get_vehicle_model_metadata(brand_name=brand_name, model_name=model_name)
     except Exception:  # noqa: BLE001
-        options = []
-    return JsonResponse([{"id": option, "label": option} for option in options], safe=False)
+        metadata = {"fuels": [], "year_start": None, "year_end": None}
+
+    return JsonResponse({
+        "fuels": [{"id": option, "label": option} for option in metadata["fuels"]],
+        "year_start": metadata["year_start"],
+        "year_end": metadata["year_end"],
+    })
 
 
 class FipeCatalogAccessMixin:
