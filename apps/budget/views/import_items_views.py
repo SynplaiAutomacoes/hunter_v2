@@ -90,7 +90,7 @@ class BudgetImportItemsProcessView(LoginRequiredMixin, WorkshopScopedMixin, View
     def post(self, request, pk):
         budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
 
-        selected_item_ids = request.POST.getlist("selected_items")
+        selected_item_ids = [int(clean_id(item)) for item in request.POST.getlist("selected_items") if clean_id(item)]
 
         if not selected_item_ids:
             return HttpResponse(status=204)
