@@ -7,7 +7,7 @@ import logging
 import time
 from datetime import date
 from typing import Any
-from django.db.models import Q
+
 
 import requests
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -20,7 +20,7 @@ from django.views.generic import TemplateView
 from apps.budget.models import Budget, BudgetStatus, BudgetType
 from apps.core.favorites import FavoritePageLimitError, InvalidFavoritePageError, reorder_favorite_pages, toggle_favorite_page
 from apps.core.navigation import build_favoritable_page
-from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.workshops import get_active_workshop_or_404
@@ -278,38 +278,35 @@ def metricas_dashboard(request) -> dict[str, Any]:
     rentabilidades = [b.rentability for b in orcamentos_aprovados_mes if b.rentability is not None]
 
     # Métricas
-    qtd_carros_mes = Budget.objects.filter(
-        workshop=workshop,
-        status=BudgetStatus.APPROVED,
-        reference_budget__isnull=True,
-        entry_date__month=mes_selecionado,
-        entry_date__year=ano_selecionado,
-    ).count()
-    qtd_carros_garantia_cortesia_mes = Budget.objects.filter(
-        workshop=workshop,
-        status=BudgetStatus.APPROVED,
-        budget_type__in=[BudgetType.WARRANTY, BudgetType.COURTESY],
-        reference_budget__isnull=True,
-        entry_date__month=mes_selecionado,
-        entry_date__year=ano_selecionado,
-    ).count()
+    qtd_carros_mes = (
+        WorkOrder.objects.filter(
+            workshop=workshop,
+            budget_type="sale",
+            status=WorkOrderStatus.APPROVED,
+            delivered_at__month=mes_selecionado,
+            delivered_at__year=ano_selecionado,
+            budget__reference_budget__isnull=True,
+        )
+        .count()
+    )
+    qtd_carros_garantia_cortesia_mes = (
+        WorkOrder.objects.filter(
+            workshop=workshop,
+            budget_type__in=["warranty", "courtesy"],
+            status=WorkOrderStatus.APPROVED,
+            delivered_at__month=mes_selecionado,
+            delivered_at__year=ano_selecionado,
+            budget__reference_budget__isnull=True,
+        )
+        .count()
+    )
     qtd_garantias_mes = (
         WorkOrder.objects.filter(
             workshop=workshop,
             budget_type="warranty",
             status=WorkOrderStatus.APPROVED,
-        )
-        .filter(
-            Q(
-                delivered_at__month=mes_selecionado,
-                delivered_at__year=ano_selecionado,
-            )
-            | Q(
-                delivered_at__isnull=True,
-                signature_request_status=WorkOrderSignatureStatus.APPROVED,
-                atualizado_em__month=mes_selecionado,
-                atualizado_em__year=ano_selecionado,
-            )
+            delivered_at__month=mes_selecionado,
+            delivered_at__year=ano_selecionado,
         )
         .count()
     )
