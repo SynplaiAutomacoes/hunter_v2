@@ -313,7 +313,7 @@ class ServiceQuickUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView
         response["HX-Trigger"] = json.dumps(
             {
                 "kit-service-updated": {
-                    "id": service.pk,
+                    "id": clean_id(service.pk),
                     "name": service.name,
                     "cost": KitForm._format_money_display(service.suggested_cost),
                     "sell": KitForm._format_money_display(service.selling_price),

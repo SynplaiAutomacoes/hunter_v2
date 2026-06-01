@@ -42,6 +42,7 @@ from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _get_budget_for_workshop, _is_budget_edit_locked, logger
+from ...core.utils import clean_id
 
 
 def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, str, str | None]:
@@ -982,14 +983,14 @@ class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "change_budget"
 
     def get(self, request, pk):
-        budget = _get_budget_for_workshop(self.workshop, pk)
+        budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
         context = {
             "budget": budget,
         }
         return render(request, "budget/partials/budget_reference_modal.html", context)
 
     def post(self, request, pk):
-        current_budget = _get_budget_for_workshop(self.workshop, pk)
+        current_budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
         relate = request.POST.get("relate_budget") == "yes"
 
         try:
@@ -1030,7 +1031,7 @@ class BudgetLinkModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "change_budget"
 
     def get(self, request, pk):
-        budget = _get_budget_for_workshop(self.workshop, pk)
+        budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
         query = str(request.GET.get("q") or "").strip()
         page_number = request.GET.get("page", "1")
         results_page = self._build_results_page(budget=budget, query=query, page_number=page_number)
@@ -1062,7 +1063,7 @@ class BudgetLinkSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "change_budget"
 
     def get(self, request, pk):
-        budget = _get_budget_for_workshop(self.workshop, pk)
+        budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
         query = str(request.GET.get("q") or "").strip()
         page_number = request.GET.get("page", "1")
 
@@ -1091,7 +1092,7 @@ class BudgetLinkProcessView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "change_budget"
 
     def post(self, request, pk):
-        budget = _get_budget_for_workshop(self.workshop, pk)
+        budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
         reference_budget_id_raw = str(request.POST.get("reference_budget_id") or "").strip()
 
         if not reference_budget_id_raw:
@@ -1131,7 +1132,7 @@ class BudgetUnlinkModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "change_budget"
 
     def get(self, request, pk):
-        budget = _get_budget_for_workshop(self.workshop, pk)
+        budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
         return render(request, "budget/partials/budget_unlink_confirm_modal.html", {"budget": budget})
 
 
@@ -1141,7 +1142,7 @@ class BudgetUnlinkProcessView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk):
         with transaction.atomic():
-            budget = Budget.objects.select_for_update().filter(pk=pk, workshop=self.workshop).first()
+            budget = Budget.objects.select_for_update().filter(pk=clean_id(pk), workshop=self.workshop).first()
             if budget is None:
                 return JsonResponse({"success": False, "error": "Orçamento não encontrado."}, status=404)
 
