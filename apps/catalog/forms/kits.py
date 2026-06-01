@@ -128,6 +128,17 @@ class KitForm(CoreModelForm):
         }
 
     @staticmethod
+    def _build_application_widget_state(application: dict[str, str]) -> dict[str, object]:
+        state: dict[str, object] = {**application}
+        model = str(application.get("model", "")).strip()
+        fuel = str(application.get("fuel", "")).strip()
+
+        state["modelOptions"] = [{"id": model, "label": model}] if model else []
+        state["fuelOptions"] = [{"id": fuel, "label": fuel}] if fuel else []
+        state["fuelLocked"] = bool(fuel)
+        return state
+
+    @staticmethod
     def _build_application_select_options_html(*, target_expression: str, choices: list[tuple[str, str]]) -> str:
         options_html: list[str] = []
         for option_value, option_label in choices:
@@ -421,10 +432,23 @@ class KitForm(CoreModelForm):
                     }
                 )
 
+        initial_applications = self._build_initial_applications()
         products_json = json.dumps(initial_products)
         services_json = json.dumps(initial_services)
-        applications_json = json.dumps(self._build_initial_applications())
-        brand_options_json = json.dumps([{"id": option.value, "label": option.label} for option in get_brand_options(vehicle_type=FipeVehicleType.CARROS)])
+        applications_json = json.dumps([self._build_application_widget_state(application) for application in initial_applications])
+        brand_options = get_brand_options(vehicle_type=FipeVehicleType.CARROS)
+        brand_option_items = [{"id": option.value, "label": option.label} for option in brand_options]
+        existing_brand_values = {str(option["id"]) for option in brand_option_items}
+        for application in initial_applications:
+            brand = str(application.get("brand", "")).strip()
+            if brand and brand not in existing_brand_values:
+                brand_option_items.append({"id": brand, "label": brand})
+                existing_brand_values.add(brand)
+        brand_options_json = json.dumps(brand_option_items)
+        brand_options_html = "\n".join(
+            f'<option value="{escape(str(option["id"]), quote=True)}">{escape(str(option["label"]))}</option>'
+            for option in brand_option_items
+        )
         engine_options_json = json.dumps([{"id": value, "label": label} for value, label in vehicle_engine_form_choices() if value])
         fuel_options_json = json.dumps([{"id": value, "label": label} for value, label in vehicle_fuel_form_choices() if value])
 
@@ -457,18 +481,16 @@ class KitForm(CoreModelForm):
                                             <div class="grid grid-cols-1 lg:grid-cols-12 gap-3 items-start">
                                                 <div class="lg:col-span-2">
                                                     <label class="label p-0 mb-1">
-                                                        <span class="label-text">Marca</span>
+                                                        <span class="label-text">Marca <span class="text-error" aria-hidden="true">*</span></span>
                                                     </label>
                                                     <select name="kit_application_brand" class="input-theme w-full" x-model="application.brand" @change="onApplicationBrandChange(index)">
                                                         <option value="">Selecione...</option>
-                                                        <template x-for="option in brandOptions" :key="`brand-${{option.id}}`">
-                                                            <option :value="option.id" x-text="option.label"></option>
-                                                        </template>
+                                                        {brand_options_html}
                                                     </select>
                                                 </div>
                                                 <div class="lg:col-span-3">
                                                     <label class="label p-0 mb-1">
-                                                        <span class="label-text">Modelo</span>
+                                                        <span class="label-text">Modelo <span class="text-error" aria-hidden="true">*</span></span>
                                                     </label>
                                                     <select name="kit_application_model" class="input-theme w-full" x-model="application.model" @change="onApplicationModelChange(index)" :disabled="!application.brand || application.loadingModels">
                                                         <option value="" x-text="application.loadingModels ? 'Carregando...' : 'Selecione...' "></option>
@@ -479,13 +501,13 @@ class KitForm(CoreModelForm):
                                                 </div>
                                                 <div class="lg:col-span-1">
                                                     <label class="label p-0 mb-1">
-                                                        <span class="label-text">Ano inicial</span>
+                                                        <span class="label-text">Ano inicial <span class="text-error" aria-hidden="true">*</span></span>
                                                     </label>
                                                     <input type="number" name="kit_application_year_start" class="input-theme w-full [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0" min="1900" max="2100" x-model="application.year_start" placeholder="2015" />
                                                 </div>
                                                 <div class="lg:col-span-1">
                                                     <label class="label p-0 mb-1">
-                                                        <span class="label-text">Ano final</span>
+                                                        <span class="label-text">Ano final <span class="text-error" aria-hidden="true">*</span></span>
                                                     </label>
                                                     <input type="number" name="kit_application_year_end" class="input-theme w-full [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0" min="1900" max="2100" x-model="application.year_end" placeholder="2021" />
                                                 </div>
@@ -507,6 +529,10 @@ class KitForm(CoreModelForm):
                                                             <option :value="option.id" x-text="option.label"></option>
                                                         </template>
                                                     </select>
+                                                    <p x-show="!application.engineLocked && application.model" style="display: none;" class="mt-1 flex items-start gap-1 text-xs text-warning">
+                                                        <span class="material-icons text-sm leading-none">warning</span>
+                                                        <span>Motor não identificado pela FIPE. Selecione manualmente.</span>
+                                                    </p>
                                                 </div>
                                                 <div class="lg:col-span-2">
                                                     <label class="label p-0 mb-1">
@@ -526,6 +552,10 @@ class KitForm(CoreModelForm):
                                                             <option :value="option.id" x-text="option.label"></option>
                                                         </template>
                                                     </select>
+                                                    <p x-show="!application.fuelLocked && application.model && !application.loadingFuels" style="display: none;" class="mt-1 flex items-start gap-1 text-xs text-warning">
+                                                        <span class="material-icons text-sm leading-none">warning</span>
+                                                        <span>Combustível não identificado pela FIPE. Selecione manualmente.</span>
+                                                    </p>
                                                 </div>
                                                 <div class="lg:col-span-1 flex justify-end lg:pt-7">
                                                     <button type="button" class="btn btn-ghost btn-sm text-error" @click="removeApplication(index)">

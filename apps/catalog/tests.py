@@ -618,6 +618,22 @@ class KitTests(TestCase):
         self.assertIn("brandOptions", html)
         self.assertIn("Jeep", html)
 
+    def test_kit_form_renders_existing_application_initial_values(self):
+        kit = Kit.objects.create(workshop=self.workshop, name="Kit Aplicacao Existente", description="", is_active=True)
+        KitApplication.objects.create(kit=kit, brand="Jeep", model="Renegade", engine="2.0", fuel="Diesel", year_start=2015, year_end=2021)
+
+        html = render_crispy_form(KitForm(instance=kit, workshop=self.workshop))
+
+        self.assertIn('"brand": "Jeep"', html)
+        self.assertIn('"model": "Renegade"', html)
+        self.assertIn('"engine": "2.0"', html)
+        self.assertIn('"fuel": "Diesel"', html)
+        self.assertIn('"year_start": "2015"', html)
+        self.assertIn('"year_end": "2021"', html)
+        self.assertIn('"modelOptions": [{"id": "Renegade", "label": "Renegade"}]', html)
+        self.assertIn('"fuelOptions": [{"id": "Diesel", "label": "Diesel"}]', html)
+        self.assertIn('<option value="Jeep">Jeep</option>', html)
+
 
 class CatalogFipeServiceTests(TestCase):
     @override_settings(FIPE_API_TOKEN="token-teste")
@@ -904,6 +920,14 @@ class KitFormPageTests(TestCase):
         self.assertContains(response, 'name="kit_application_engine"', html=False)
         self.assertContains(response, "application.engineLocked", html=False)
         self.assertContains(response, 'name="kit_application_fuel"', html=False)
+        self.assertContains(response, '<span class="text-error" aria-hidden="true">*</span>', count=4, html=False)
+        self.assertContains(response, 'Marca <span class="text-error" aria-hidden="true">*</span>', html=False)
+        self.assertNotContains(response, 'Motor <span class="text-error" aria-hidden="true">*</span>', html=False)
+        self.assertNotContains(response, 'Combustível <span class="text-error" aria-hidden="true">*</span>', html=False)
+        self.assertContains(response, "Motor não identificado pela FIPE. Selecione manualmente.")
+        self.assertContains(response, "Combustível não identificado pela FIPE. Selecione manualmente.")
+        self.assertContains(response, '!application.engineLocked && application.model', html=False)
+        self.assertContains(response, '!application.fuelLocked && application.model && !application.loadingFuels', html=False)
         self.assertContains(response, "onApplicationBrandChange(index)", html=False)
         self.assertContains(response, "/catalog/fipe/fuels/", html=False)
         self.assertNotContains(response, "window.htmx.trigger(list, 'load');", html=False)
