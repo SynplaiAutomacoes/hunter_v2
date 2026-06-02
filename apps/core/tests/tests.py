@@ -22,7 +22,7 @@ from apps.core.documents.signature import SIGNATURE_POSITION, build_absolute_app
 from apps.core.templatetags.table_tags import TableColumn, render_table
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.iam.utils import get_or_create_director_role
-from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostHoliday
+from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostWorkDay
 from apps.workshops.models.workshops import Workshop
 from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderStatus
 
@@ -1251,7 +1251,7 @@ class DashboardMetricsTests(TestCase):
             due_date=due_date,
         )
 
-    def _create_workshop_cost(self, *, reference_date: date, work_days_per_month: int, holiday_dates: list[date] | None = None) -> WorkshopCost:
+    def _create_workshop_cost(self, *, reference_date: date, work_days_per_month: int, work_day_dates: list[date] | None = None) -> WorkshopCost:
         workshop_cost = WorkshopCost.objects.create(
             workshop=self.workshop,
             month=reference_date.month,
@@ -1259,16 +1259,16 @@ class DashboardMetricsTests(TestCase):
             mechanic_quantity=1,
             work_days_per_month=work_days_per_month,
         )
-        for holiday_date in holiday_dates or []:
-            WorkshopCostHoliday.objects.create(workshop_cost=workshop_cost, date=holiday_date)
+        for work_day_date in work_day_dates or []:
+            WorkshopCostWorkDay.objects.create(workshop_cost=workshop_cost, date=work_day_date)
         return workshop_cost
 
-    def _count_business_days(self, *, start_date: date, end_date: date, holiday_dates: set[date] | None = None) -> int:
+    def _count_business_days(self, *, start_date: date, end_date: date, work_day_dates: set[date] | None = None) -> int:
         if end_date < start_date:
             return 0
 
-        excluded_holidays = holiday_dates or set()
-        return sum(1 for day in range(start_date.day, end_date.day + 1) if (current_date := date(start_date.year, start_date.month, day)).weekday() < 5 and current_date not in excluded_holidays)
+        days = work_day_dates or set()
+        return sum(1 for day in range(start_date.day, end_date.day + 1) if (current_date := date(start_date.year, start_date.month, day)) in days and current_date <= end_date)
 
     def test_dashboard_counts_open_budgets_from_all_open_statuses_even_from_previous_months(self):
         today = timezone.localdate()
@@ -1614,33 +1614,43 @@ class DashboardMetricsTests(TestCase):
 
     def test_dashboard_projection_uses_elapsed_business_days_for_current_month(self):
         today = timezone.localdate()
-        self._create_workshop_cost(reference_date=today, work_days_per_month=22)
+        work_day_dates = [today.replace(day=day_number) for day_number in range(1, today.day + 1) if today.replace(day=day_number).weekday() < 5]
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22, work_day_dates=work_day_dates)
         self._create_workorder_payment(workshop=self.workshop, amount="220.00", due_date=today)
 
         response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
 
-        elapsed_business_days = self._count_business_days(start_date=today.replace(day=1), end_date=today)
+        elapsed_business_days = self._count_business_days(start_date=today.replace(day=1), end_date=today, work_day_dates=set(work_day_dates))
         remaining_business_days = max(22 - elapsed_business_days, 0)
         expected_projection = (Decimal("220.00") / Decimal(elapsed_business_days) * Decimal(remaining_business_days)) + Decimal("220.00")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["projecao"], expected_projection)
 
-    def test_dashboard_projection_excludes_business_holidays_from_elapsed_and_effective_days(self):
+    def test_dashboard_projection_excludes_non_work_days_from_elapsed_and_effective_days(self):
         today = timezone.localdate()
-        holiday_date = next(day for day in (today.replace(day=day_number) for day_number in range(1, today.day + 1)) if day.weekday() < 5)
-        self._create_workshop_cost(reference_date=today, work_days_per_month=22, holiday_dates=[holiday_date])
+        all_weekdays_so_far = [today.replace(day=day_number) for day_number in range(1, today.day + 1) if today.replace(day=day_number).weekday() < 5]
+        if len(all_weekdays_so_far) < 2:
+            non_work_day = all_weekdays_so_far[0] if all_weekdays_so_far else None
+            work_day_dates = []
+        else:
+            non_work_day = all_weekdays_so_far[0]
+            work_day_dates = [d for d in all_weekdays_so_far if d != non_work_day]
+        self._create_workshop_cost(reference_date=today, work_days_per_month=22, work_day_dates=work_day_dates)
         self._create_workorder_payment(workshop=self.workshop, amount="220.00", due_date=today)
 
         response = self.client.get(reverse("core:dashboard"), {"mes": today.month, "ano": today.year})
 
-        elapsed_business_days = self._count_business_days(start_date=today.replace(day=1), end_date=today, holiday_dates={holiday_date})
+        elapsed_business_days = self._count_business_days(start_date=today.replace(day=1), end_date=today, work_day_dates=set(work_day_dates))
         remaining_business_days = max(22 - elapsed_business_days, 0)
-        expected_projection = (Decimal("220.00") / Decimal(elapsed_business_days) * Decimal(remaining_business_days)) + Decimal("220.00")
+        if elapsed_business_days > 0:
+            expected_projection = (Decimal("220.00") / Decimal(elapsed_business_days) * Decimal(remaining_business_days)) + Decimal("220.00")
+        else:
+            expected_projection = Decimal("220.00")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["dias_transcorridos"], elapsed_business_days)
-        self.assertEqual(response.context["feriados_uteis"], 1)
+        self.assertEqual(response.context["feriados_uteis"], len(work_day_dates))
         self.assertEqual(response.context["projecao"], expected_projection)
 
     def test_dashboard_projection_uses_zero_remaining_days_for_past_month(self):
