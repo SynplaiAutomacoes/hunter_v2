@@ -76,6 +76,11 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Revisar devolucao/estorno, complementar preco/quantidade e ajuste na Fase 2.4C antes de ampliar suas operacoes.
 - Manter credito/debito bloqueados ate 2.4E; finalidades 5/6 devem enviar somente IBS/CBS e barrar tributos antigos para evitar rejeicao 1001.
 - Registrar em UI e logs que a classificacao tributaria e configurada por usuario/fiscal, nao inferida pelo Hunter.
+- Fase 2.4C.0 decidiu que derivados IBS/CBS devem usar snapshot fiscal original; implementar captura/uso explicito desse snapshot antes de qualquer payload derivado com IBS/CBS.
+- Criar fluxo de importacao/validacao XML para NF-e externa antes de permitir devolucao parcial ou complementar preco/quantidade com IBS/CBS.
+- Revalidar oficialmente se `/1/nfe/devolucao/` e `/1/nfe/complementar/` aceitam `produtos[].impostos.ibs_cbs`, `classe_imposto` com IBS/CBS ou outra estrutura especifica para derivados.
+- Revalidar `/1/nfe/ajuste/` frente a Reforma Tributaria; nao inserir produtos/IBS-CBS no ajuste sem contrato oficial.
+- Resolver divergencia documental de cronograma IBS/CBS com decisao fiscal final: PRDs aprovados citam `05/01/2026`, enquanto a pagina oficial REST consultada em 2026-06-02 exibiu producao obrigatoria a partir de `01/01/2026`. A Fase 2.4C.1 deve usar temporariamente a regra conservadora desde `01/01/2026`.
 
 ## Reforma Tributaria em outras familias
 

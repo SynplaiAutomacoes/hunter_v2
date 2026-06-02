@@ -315,3 +315,21 @@ Campos proibidos em credito/debito quando usados como tributos do item: ICMS, IS
 - Confirmado pela documentacao oficial: endpoints v1, `produtos[].impostos.ibs_cbs`, eventos IBS/CBS, tipos de credito/debito e rejeicao 1001.
 - Requisito interno Hunter: bloquear producao quando a configuracao local IBS/CBS estiver ausente para fluxo afetado.
 - Decisao pendente: quais situacoes/classificacoes IBS/CBS serao disponibilizadas primeiro na UI administrativa e se a emissao em homologacao podera usar modo controlado sem todos os campos produtivos.
+
+## Fase 2.4C.0 - Matriz API para derivados com IBS/CBS
+
+Fontes oficiais reconsultadas nesta fase documental:
+
+- Documentacao REST NF-e/NFC-e: guia rapido lista `/1/nfe/devolucao/`, `/1/nfe/ajuste/`, `/1/nfe/complementar/` e `/1/nfe/evento-ibs-cbs/` como endpoints separados.
+- A mesma documentacao separa Nota Fiscal de Ajuste e Complementar da emissao normal por `/1/nfe/emissao/`.
+- Eventos IBS/CBS sao vinculados a NF-e/NFC-e e enviados por `/1/nfe/evento-ibs-cbs/`; isso nao substitui o preenchimento IBS/CBS na emissao quando aplicavel.
+- O artigo oficial de rejeicao 1001 confirma que finalidades 5/6 devem se relacionar somente a IBS/CBS e rejeitam ICMS, ISSQN, IPI, II, PIS, COFINS e correlatos.
+
+| Operacao Hunter | Endpoint Webmania | Campos atuais do contrato validado | IBS/CBS oficialmente confirmado para esta operacao derivada? | Decisao 2.4C.0 |
+| ---------------- | ----------------- | ---------------------------------- | ----------------------------------------------------------- | -------------- |
+| Devolucao | `POST /1/nfe/devolucao/` | `chave`, natureza, ambiente, CFOP, produtos/quantidades quando parcial, informacoes opcionais | A documentacao geral confirma `ibs_cbs` em produtos NF-e/NFC-e, mas a fase precisa revalidar sua aplicacao especifica em devolucao | Planejar 2.4C.1 com snapshot original e bloqueio seguro |
+| Estorno | `POST /1/nfe/devolucao/` | Mesmo endpoint de devolucao, com semantica de estorno | Nao confirmado como simples copia de IBS/CBS de devolucao parcial | Planejar payload proprio e manter excecao SC/ES fora de ajuste |
+| Complementar preco/quantidade | `POST /1/nfe/complementar/` | `chave`/`uuid`, operacao, natureza, CFOP, ambiente, cliente, produtos | Complementar tributaria e IBS/CBS existem no contexto de Reforma, mas preco/quantidade nao deve abrir complemento tributario automaticamente | Planejar 2.4C.2 com IBS/CBS apenas do acrescimo e sem `impostos` amplos fora do escopo |
+| Ajuste | `POST /1/nfe/ajuste/` | A documentacao descreve `operacao`, `natureza_operacao`, `codigo_cfop`, `valor_icms`, `ambiente`, `cliente`; estorno SC/ES deve usar devolucao | Nao confirmado para `produtos[].impostos.ibs_cbs` no fluxo de ajuste atual | Planejar 2.4C.3 com bloqueio/revisao fiscal, sem inserir produtos/IBS-CBS por inferencia |
+
+Nota de OpenAPI: `webmania_fiscal_openapi_validated.json` nao foi alterado nesta Fase 2.4C.0 porque a consulta oficial nao confirmou novos campos exclusivos para os endpoints derivados alem dos schemas IBS/CBS ja documentados genericamente para produtos NF-e/NFC-e. A implementacao funcional de cada subfase deve revalidar se o endpoint derivado aceita `produtos[].impostos.ibs_cbs` ou depende de `classe_imposto`/snapshot.

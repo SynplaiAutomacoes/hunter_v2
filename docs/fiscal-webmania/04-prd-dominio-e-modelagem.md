@@ -416,3 +416,50 @@ Subfases de dominio:
 | 2.4C | Regras por documento derivado | Devolucao, complementar e ajuste nao devem reutilizar cegamente o payload normal. |
 | 2.4D | `FiscalDocumentEvent` para eventos IBS/CBS | Somente apos emissao base conformada. |
 | 2.4E | `FiscalDocument(purpose=credit|debit)` com `fiscal_purpose_type` | Somente apos base IBS/CBS validada. |
+
+## Fase 2.4C.0 - Modelagem planejada para derivados com IBS/CBS
+
+Problema de dominio: documentos derivados nao sao uma reemissao da nota normal. Devolucao, estorno, complementar e ajuste possuem semanticas fiscais distintas e nao podem reutilizar automaticamente o payload normal nem a classe fiscal atual do produto.
+
+### Decisao recomendada
+
+- Manter `FiscalDocument` e `FiscalDocumentLink` ja validados nas Fases 2.2A, 2.2B.1 e 2.2C.
+- Preservar a idempotencia por documento derivado local e `FiscalEmissionAttempt`, sem usar hash de payload como identidade final.
+- Para devolucao/estorno e complementar preco/quantidade, usar snapshot fiscal da NF-e original local como primeira fonte.
+- Para ajuste, manter documento avulso `FiscalDocument(purpose="adjustment", origin="manual")` e link opcional `adjusts`; nao exigir documento original nem produtos.
+- Bloquear derivados quando a fonte fiscal IBS/CBS nao for auditavel.
+
+### Snapshot tributario
+
+Fonte preferencial futura:
+
+```text
+FiscalDocument original
+-> request_payload_sanitized/response_payload_sanitized
+-> NfeItem.raw_payload/log_payload legado quando aplicavel
+-> item fiscal original por sequencial
+-> classe TaxClassNfe atual apenas como validacao auxiliar confirmada
+```
+
+Regras:
+
+- O snapshot deve preservar `classe_imposto`, `impostos.ibs_cbs`, situacao/classificacao e grupos condicionais usados na nota original quando disponiveis.
+- A classe fiscal atual pode ter mudado depois da NF-e original; por isso ela nao pode substituir automaticamente o snapshot.
+- Quando o snapshot nao tiver IBS/CBS e a operacao exigir IBS/CBS, bloquear antes do gateway ou exigir fluxo aprovado de reconstrucao fiscal com confirmacao.
+
+### NF-e externa
+
+Para `FiscalDocument(origin="external")` criado somente por chave:
+
+- nao ha itens, sequenciais, quantidades nem snapshot tributario confiavel;
+- devolucao parcial e complementar preco/quantidade devem permanecer bloqueadas;
+- estorno/devolucao total so devem ser liberados em fase funcional se o contrato oficial e a regra fiscal permitirem sem detalhe de itens, com confirmacao forte e permissao restrita;
+- backlog obrigatorio: importacao/validacao por XML ou API fiscal especifica para criar snapshot externo minimo.
+
+### Subfases de modelagem
+
+| Subfase | Modelagem | Dependencia | Risco principal |
+| ------- | --------- | ----------- | --------------- |
+| 2.4C.1 | Reusar `FiscalDocument(purpose=return|reversal)`, `FiscalDocumentLink(role=returns|reverses)` e tentativa existente; adicionar validadores IBS/CBS por item/snapshot | 2.4A+B validada | Copiar tributacao atual em vez da original |
+| 2.4C.2 | Reusar `FiscalDocument(purpose=complementary, complementary_type=price_quantity)` e link `complements`; permitir IBS/CBS somente para o acrescimo | 2.4C.1 preferencialmente validada | Misturar complemento de produto com complementar tributaria |
+| 2.4C.3 | Reusar `FiscalDocument(purpose=adjustment)` e link opcional `adjusts`; decidir se ha bloqueio por operacao/CFOP/regime | 2.4A+B validada e revalidacao oficial do ajuste | Inserir produtos/IBS-CBS sem contrato oficial |

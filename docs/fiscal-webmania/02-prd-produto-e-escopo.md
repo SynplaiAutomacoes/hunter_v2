@@ -341,3 +341,69 @@ Subfases planejadas da Fase 2.4:
 | 2.4C | Documentos derivados ja implementados | Revisar devolucao/estorno, complementar preco/quantidade e ajuste sem presumir payload unico. |
 | 2.4D | Eventos IBS/CBS | Planejar/implementar eventos e cancelamentos IBS/CBS somente depois da base de emissao. |
 | 2.4E | Credito e debito | Implementar finalidades 5/6 apenas com IBS/CBS validado, reaproveitando Fase 2.5.0. |
+
+## Fase 2.4C.0 - Planejamento tecnico dos derivados com IBS/CBS
+
+Status: em planejamento documental apos validacao da Fase 2.4A+B no checkpoint `9eb217f2b5de2f834eb137305de1216d47e4b36e`. NF-e normal e NFC-e manual simples estao adequadas ou bloqueadas com seguranca por classe fiscal IBS/CBS-ready; documentos derivados continuam pendentes de regra propria.
+
+Escopo desta fase documental:
+
+- Devolucao e estorno emitidos por `/1/nfe/devolucao/`.
+- Nota complementar de preco/quantidade emitida por `/1/nfe/complementar/`.
+- Nota de ajuste emitida por `/1/nfe/ajuste/`.
+- Decisoes de snapshot tributario original, NF-e externa e bloqueios seguros antes do gateway.
+
+Fora de escopo funcional e documental de implementacao:
+
+- Eventos IBS/CBS por `/1/nfe/evento-ibs-cbs/`.
+- Nota Fiscal de Credito/Debito.
+- Complementar tributaria ampla, IBS/CBS de complemento tributario, adicao/importacao.
+- NFS-e, CT-e, MDF-e, NFCom, DC-e e demais familias.
+
+### Matriz de decisao 2.4C.0
+
+| Documento derivado | Endpoint | IBS/CBS deve ser tratado como | Fonte preferencial | NF-e externa minima | Decisao recomendada |
+| ------------------ | -------- | ----------------------------- | ------------------ | ------------------- | ------------------- |
+| Devolucao parcial/total | `POST /1/nfe/devolucao/` | Tributacao derivada da nota original e dos itens devolvidos; nao e evento IBS/CBS | Snapshot fiscal do item original local; classe atual apenas com confirmacao fiscal | Bloquear parcial; permitir avaliar total somente com confirmacao forte e sem afirmar validacao externa | Implementar primeiro na 2.4C.1, preservando sequenciais fiscais e saldo |
+| Estorno | `POST /1/nfe/devolucao/` | Fluxo proprio de estorno, nao devolucao parcial comum | Dados do documento original local e regras de estorno ja aprovadas | Bloquear quando nao houver dados suficientes para regra fiscal segura | Implementar junto da devolucao na 2.4C.1, sem duplicar ajuste |
+| Complementar preco/quantidade | `POST /1/nfe/complementar/` | IBS/CBS aplicavel ao acrescimo de preco/quantidade, sem abrir complementar tributaria | Snapshot do item original local e valor/quantidade complementar | Bloquear sem XML/importacao validada dos itens | Implementar na 2.4C.2 apos devolucao/estorno |
+| Ajuste | `POST /1/nfe/ajuste/` | Reavaliacao fiscal separada; endpoint atual nao usa `produtos[].impostos.ibs_cbs` no fluxo implementado | `WebmaniaCompany.regime_tributario` e payload de ajuste validado; eventual regra IBS/CBS depende de contrato oficial | Nao aplicavel por padrao, pois ajuste pode ser avulso | Planejar na 2.4C.3 com bloqueio seguro se a operacao exigir Reforma Tributaria |
+
+### Snapshot original versus classe atual
+
+Decisao: nao reutilizar cegamente a classe fiscal atual do produto para documentos derivados. Uma devolucao ou complementar deve refletir a tributacao da NF-e original, nao necessariamente a configuracao vigente no dia do derivado.
+
+Ordem recomendada de fonte:
+
+1. Snapshot fiscal persistido no `FiscalDocument.request_payload_sanitized`, payload legado do `NfeItem` ou resposta remota da nota original.
+2. Classe fiscal local `TaxClassNfe` IBS/CBS-ready vinculada ao item original, somente como apoio quando o snapshot nao tiver o bloco e o usuario fiscal confirmar a equivalencia.
+3. Bloqueio antes do gateway quando nenhuma fonte auditavel existir.
+
+### NF-e externa
+
+Para NF-e externa minima criada apenas por chave de 44 digitos, o Hunter nao conhece itens, sequenciais fiscais nem tributacao original. Portanto:
+
+- devolucao parcial com IBS/CBS permanece bloqueada ate importacao/validacao por XML ou fonte fiscal equivalente;
+- complementar preco/quantidade permanece bloqueada;
+- estorno ou devolucao total so podem avancar em fase funcional se houver confirmacao forte, permissao restrita e regra oficial que nao exija detalhe de itens/IBS-CBS local;
+- `/1/nfe/consulta/` nao deve ser usado como garantia de validade de NF-e de outro emissor.
+
+### Observacao sobre datas oficiais
+
+Os PRDs registram a obrigatoriedade aprovada pelo usuario para NF-e/NFC-e de producao com data de emissao maior ou igual a `05/01/2026`. A consulta atual da pagina oficial REST NF-e/NFC-e exibiu cronograma textual com producao obrigatoria a partir de `01/01/2026`. Antes de qualquer codigo da 2.4C, a data aplicavel deve ser revalidada e, em caso de divergencia, deve prevalecer o bloqueio mais conservador ou decisao fiscal explicita.
+
+## Fase 2.4C.1 - Devolucao e estorno com IBS/CBS
+
+Resultado implementado: devolucao total, devolucao parcial e estorno por `/1/nfe/devolucao/` passam a usar snapshot IBS/CBS da NF-e original local quando o documento original esta em producao e a regra conservadora de obrigatoriedade esta ativa desde `01/01/2026`.
+
+Regras implementadas:
+
+- Snapshot fiscal original e lido de `FiscalDocument.request_payload`, `FiscalDocument.response_payload`, `NfeItem.raw_payload` e `NfeItem.log_payload`.
+- Para devolucao parcial, o payload preserva os sequenciais fiscais selecionados e associa `impostos.ibs_cbs` ao item correspondente.
+- Para devolucao total e estorno em producao, o payload usa todos os itens do snapshot original local com suas quantidades originais e IBS/CBS validado.
+- Quando snapshot IBS/CBS estiver ausente ou incompleto em producao, a operacao bloqueia antes do gateway.
+- `TaxClassNfe` atual nao e consultada como fallback automatico; divergencia entre classe atual e snapshot original nao altera o payload derivado.
+- NF-e externa minima continua bloqueada para devolucao parcial sem XML/importacao validada e nao presume IBS/CBS.
+- Complementar preco/quantidade com IBS/CBS, ajuste com IBS/CBS, eventos IBS/CBS e credito/debito permanecem fora de escopo.
+
+Nao houve migration. A estrategia usa payloads/snapshots ja persistidos e helpers de validacao IBS/CBS existentes.

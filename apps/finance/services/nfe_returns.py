@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -38,6 +39,7 @@ from apps.finance.services.fiscal_attempts import (
     mark_attempt_uncertain,
     sanitize_fiscal_payload,
 )
+from apps.finance.services.ibs_cbs import IbsCbsConfigurationError, build_ibs_cbs_payload_from_values
 from apps.finance.services.nfe_emission import NfeEmissionError
 from apps.finance.services.nfe_events import ensure_fiscal_document_for_nfe_item
 from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting, should_use_global_webmania_auth
@@ -53,6 +55,7 @@ RESERVING_RETURN_STATUSES = {
     FiscalDocumentStatus.CONTINGENCY,
     FiscalDocumentStatus.UNCERTAIN,
 }
+IBS_CBS_CONSERVATIVE_CUTOFF_DATE = date(2026, 1, 1)
 
 
 class NfeReturnError(NfeEmissionError):
@@ -133,6 +136,79 @@ def _extract_products_from_payload(payload: Any) -> list[dict[str, Any]]:
     if isinstance(nested_products, list):
         return [product for product in nested_products if isinstance(product, dict)]
     return []
+
+
+def _return_requires_ibs_cbs(*, original_document: FiscalDocument) -> bool:
+    if str(original_document.environment or "").strip() != "1":
+        return False
+    return timezone.localdate() >= IBS_CBS_CONSERVATIVE_CUTOFF_DATE
+
+
+def _extract_ibs_cbs_payload_from_product(product: dict[str, Any], *, sequence: int) -> dict[str, Any]:
+    raw_ibs_cbs = product.get("ibs_cbs")
+    taxes = product.get("impostos")
+    if raw_ibs_cbs in (None, "", {}) and isinstance(taxes, dict):
+        raw_ibs_cbs = taxes.get("ibs_cbs")
+    if not isinstance(raw_ibs_cbs, dict):
+        raise NfeReturnError(f"Item fiscal {sequence} nao possui snapshot IBS/CBS confiavel para devolucao ou estorno.")
+
+    details = {key: value for key, value in raw_ibs_cbs.items() if key not in {"situacao_tributaria", "classificacao_tributaria", "situacao_tributaria_regular", "classificacao_tributaria_regular"}}
+    try:
+        return build_ibs_cbs_payload_from_values(
+            enabled=True,
+            situacao_tributaria=str(raw_ibs_cbs.get("situacao_tributaria") or ""),
+            classificacao_tributaria=str(raw_ibs_cbs.get("classificacao_tributaria") or ""),
+            situacao_tributaria_regular=str(raw_ibs_cbs.get("situacao_tributaria_regular") or ""),
+            classificacao_tributaria_regular=str(raw_ibs_cbs.get("classificacao_tributaria_regular") or ""),
+            details=details,
+        )
+    except IbsCbsConfigurationError as exc:
+        raise NfeReturnError(f"Item fiscal {sequence} possui snapshot IBS/CBS incompleto: {exc}") from exc
+
+
+def _original_products_by_sequence(document: FiscalDocument) -> dict[int, dict[str, Any]]:
+    payload_sources = [
+        document.request_payload,
+        document.response_payload,
+    ]
+    if document.legacy_nfe_item_id:
+        payload_sources.extend([document.legacy_nfe_item.raw_payload, document.legacy_nfe_item.log_payload])
+
+    products_by_sequence: dict[int, dict[str, Any]] = {}
+    for payload in payload_sources:
+        for index, product in enumerate(_extract_products_from_payload(payload), start=1):
+            try:
+                sequence = _product_sequence(product, fallback_index=index)
+            except NfeReturnError:
+                continue
+            products_by_sequence.setdefault(sequence, product)
+    return products_by_sequence
+
+
+def _build_products_with_ibs_cbs(
+    *,
+    original_document: FiscalDocument,
+    selected_products: list[dict[str, Any]],
+    include_all_original_items: bool,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    original_products = _original_products_by_sequence(original_document)
+    if include_all_original_items:
+        source_quantities = _original_quantities(original_document)
+        selected_products = [{"sequencial": sequence, "quantidade": str(quantity.normalize())} for sequence, quantity in sorted(source_quantities.items())]
+
+    enriched_products: list[dict[str, Any]] = []
+    quantities: list[str] = []
+    for product in selected_products:
+        sequence = _product_sequence(product)
+        original_product = original_products.get(sequence)
+        if original_product is None:
+            raise NfeReturnError(f"Item fiscal {sequence} nao foi encontrado no snapshot da NF-e original.")
+        ibs_cbs = _extract_ibs_cbs_payload_from_product(original_product, sequence=sequence)
+        enriched_products.append({"sequencial": sequence, "impostos": {"ibs_cbs": ibs_cbs}})
+        quantities.append(str(_decimal(product.get("quantidade")).normalize()))
+    if include_all_original_items and not enriched_products:
+        raise NfeReturnError("Documento original nao possui itens fiscais no snapshot para montar devolucao ou estorno com IBS/CBS.")
+    return enriched_products, quantities
 
 
 def _original_quantities(document: FiscalDocument) -> dict[int, Decimal]:
@@ -267,6 +343,7 @@ def _build_return_payload(
     informacoes_complementares: str = "",
     request: HttpRequest | None = None,
 ) -> dict[str, Any]:
+    requires_ibs_cbs = _return_requires_ibs_cbs(original_document=original_document)
     payload: dict[str, Any] = {
         "chave": validate_access_key(original_document.access_key),
         "natureza_operacao": str(natureza_operacao or ("Estorno de NF-e" if purpose == FiscalDocumentPurpose.REVERSAL else "Devolucao de mercadoria")).strip(),
@@ -274,8 +351,17 @@ def _build_return_payload(
         "codigo_cfop": str(codigo_cfop or "").strip(),
     }
     if purpose == FiscalDocumentPurpose.RETURN and products:
-        payload["produtos"] = [_product_sequence(product) for product in products]
-        payload["quantidade"] = [str(_decimal(product.get("quantidade")).normalize()) for product in products]
+        if requires_ibs_cbs:
+            enriched_products, quantities = _build_products_with_ibs_cbs(original_document=original_document, selected_products=products, include_all_original_items=False)
+            payload["produtos"] = enriched_products
+            payload["quantidade"] = quantities
+        else:
+            payload["produtos"] = [_product_sequence(product) for product in products]
+            payload["quantidade"] = [str(_decimal(product.get("quantidade")).normalize()) for product in products]
+    elif requires_ibs_cbs and original_document.origin == FiscalDocumentOrigin.LOCAL:
+        enriched_products, quantities = _build_products_with_ibs_cbs(original_document=original_document, selected_products=[], include_all_original_items=True)
+        payload["produtos"] = enriched_products
+        payload["quantidade"] = quantities
     if purpose == FiscalDocumentPurpose.REVERSAL:
         payload["tipo_operacao_hunter"] = "estorno"
     if volume:

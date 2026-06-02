@@ -368,3 +368,33 @@ Webhook/reconciliacao:
 
 - A adequacao IBS/CBS nao muda a regra permanente: webhook e reconciliacao nunca emitem.
 - Para documentos ja emitidos antes da conformidade, reconciliacao deve preservar o payload/resposta historicos e registrar lacuna apenas como pendencia operacional, sem tentar corrigir por nova emissao.
+
+## Fase 2.4C.0 - Seguranca e idempotencia dos derivados com IBS/CBS
+
+Regra principal: IBS/CBS em documentos derivados nao cria uma nova identidade de retry. A identidade continua sendo o documento derivado local ja validado nas fases anteriores.
+
+Fluxo recomendado por derivado:
+
+```text
+validar original/snapshot IBS-CBS
+-> validar permissoes e oficina
+-> criar ou bloquear FiscalDocument derivado existente
+-> criar/bloquear FiscalEmissionAttempt da operacao
+-> congelar payload sanitizado com IBS/CBS efetivo
+-> transmitir uma unica vez
+-> webhook/reconciliacao atualizam somente o derivado
+```
+
+Regras:
+
+- Falta de snapshot IBS/CBS bloqueia antes do gateway e antes de tentativa remota nova.
+- Payload congelado nao pode ser reconstruido com classe fiscal atual apos timeout; `uncertain` preserva o snapshot/payload enviado.
+- Webhook de devolucao, estorno, complementar ou ajuste deve resolver o `FiscalDocument` derivado por UUID/tentativa e nunca atualizar a NF-e original por chave.
+- Reconciliacao continua consultando sem emitir. Ela pode preencher XML/DANFE/status do derivado, mas nao recalcular IBS/CBS nem substituir payload historico.
+- Logs de bloqueio podem citar oficina, documento, sequencial fiscal e classe pendente, mas nao devem imprimir payload completo, credenciais, headers, CSC, certificado ou tokens.
+
+Bloqueios seguros:
+
+- NF-e externa minima sem XML/importacao validada nao pode gerar devolucao parcial nem complementar preco/quantidade com IBS/CBS.
+- Classe fiscal atual divergente do snapshot original deve exigir confirmacao fiscal explicita ou bloquear.
+- Ajuste nao deve receber `produtos[].impostos.ibs_cbs` por inferencia; se a operacao depender de Reforma Tributaria, bloquear ate contrato oficial aprovado.

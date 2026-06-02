@@ -11066,6 +11066,14 @@ class FiscalPhaseTwoReturnTests(TestCase):
     def _return_response(self, *, uuid: str = "af895e61-c0da-46ee-a880-a03f8547a9bc", key: str = "35123456789012345678901234567890123456789077") -> dict[str, Any]:
         return {"uuid": uuid, "modelo": "nfe", "status": "aprovado", "nfe": "9001", "serie": "1", "recibo": "REC", "chave": key, "xml": "https://example.test/return.xml", "danfe": "https://example.test/return.pdf", "log": {"token": "secret"}}
 
+    def _ibs_cbs_snapshot(self, *, classificacao: str = "000001") -> dict[str, Any]:
+        return {
+            "situacao_tributaria": "000",
+            "classificacao_tributaria": classificacao,
+            "ibs_estadual": {"aliquota": "0.10"},
+            "cbs": {"aliquota": "0.90"},
+        }
+
     def _emit_return(self, item: NfeItem, *, purpose: str = FiscalDocumentPurpose.RETURN, quantity: str | None = "1", response_payload: dict[str, Any] | None = None) -> FiscalDocument:
         from apps.finance.services.nfe_returns import create_and_emit_nfe_return_from_item
 
@@ -11135,6 +11143,90 @@ class FiscalPhaseTwoReturnTests(TestCase):
         self.assertEqual(document.request_payload["produtos"], [2, 1])
         self.assertEqual(document.request_payload["quantidade"], ["3", "4"])
         self.assertNotIn("CATALOG-10", str(document.request_payload))
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_total_return_in_production_uses_original_ibs_cbs_snapshot(self) -> None:
+        from apps.finance.services.nfe_returns import create_and_emit_nfe_return_from_item
+
+        item = self._create_nfe_item(suffix=91, quantity="2")
+        item.raw_payload = {"produtos": [{"sequencial": 1, "codigo": "P1", "quantidade": "2", "impostos": {"ibs_cbs": self._ibs_cbs_snapshot()}}]}
+        item.save(update_fields=["raw_payload"])
+
+        with (
+            patch("apps.finance.services.nfe_returns._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_returns.requests.post", return_value=_mock_response(self._return_response())) as post_mock,
+        ):
+            document = create_and_emit_nfe_return_from_item(item=item, purpose=FiscalDocumentPurpose.RETURN, products=[], requested_by=self.user, natureza_operacao="Devolucao", codigo_cfop="1202")
+
+        sent_payload = post_mock.call_args.kwargs["json"]
+        self.assertEqual(sent_payload["produtos"][0]["sequencial"], 1)
+        self.assertEqual(sent_payload["produtos"][0]["impostos"]["ibs_cbs"]["classificacao_tributaria"], "000001")
+        self.assertEqual(sent_payload["quantidade"], ["2"])
+        self.assertNotIn("tipo_credito", sent_payload)
+        self.assertNotIn("tipo_debito", sent_payload)
+        self.assertNotIn("evento_ibs_cbs", sent_payload)
+        self.assertEqual(document.request_payload["produtos"], sent_payload["produtos"])
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_partial_return_in_production_uses_selected_sequence_ibs_cbs_snapshot(self) -> None:
+        from apps.finance.services.nfe_returns import create_nfe_return_draft_from_item
+
+        item = self._create_nfe_item(suffix=92, quantity="10")
+        item.raw_payload = {
+            "produtos": [
+                {"sequencial": 1, "codigo": "CATALOG-10", "quantidade": "10", "impostos": {"ibs_cbs": self._ibs_cbs_snapshot(classificacao="000001")}},
+                {"sequencial": 2, "codigo": "CATALOG-20", "quantidade": "5", "impostos": {"ibs_cbs": self._ibs_cbs_snapshot(classificacao="000002")}},
+            ]
+        }
+        item.save(update_fields=["raw_payload"])
+
+        document = create_nfe_return_draft_from_item(item=item, purpose=FiscalDocumentPurpose.RETURN, products=[{"sequencial": 2, "quantidade": "3"}], requested_by=self.user, natureza_operacao="Devolucao", codigo_cfop="1202")
+
+        self.assertEqual(document.request_payload["produtos"][0]["sequencial"], 2)
+        self.assertEqual(document.request_payload["produtos"][0]["impostos"]["ibs_cbs"]["classificacao_tributaria"], "000002")
+        self.assertEqual(document.request_payload["quantidade"], ["3"])
+        self.assertNotIn("CATALOG-20", str(document.request_payload))
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_return_in_production_does_not_use_current_tax_class_when_snapshot_differs(self) -> None:
+        from apps.finance.services.nfe_returns import create_nfe_return_draft_from_item
+
+        item = self._create_nfe_item(suffix=93, quantity="1")
+        item.raw_payload = {"produtos": [{"sequencial": 1, "codigo": "P1", "quantidade": "1", "impostos": {"ibs_cbs": self._ibs_cbs_snapshot(classificacao="000001")}}]}
+        item.save(update_fields=["raw_payload"])
+        TaxClassNfe.objects.create(workshop=self.workshop, reference="REFNFE", description="Classe atual divergente", ibs_cbs_enabled=True, ibs_cbs_situacao_tributaria="000", ibs_cbs_classificacao_tributaria="999999")
+
+        document = create_nfe_return_draft_from_item(item=item, purpose=FiscalDocumentPurpose.RETURN, products=[{"sequencial": 1, "quantidade": "1"}], requested_by=self.user, natureza_operacao="Devolucao", codigo_cfop="1202")
+
+        self.assertEqual(document.request_payload["produtos"][0]["impostos"]["ibs_cbs"]["classificacao_tributaria"], "000001")
+        self.assertNotIn("999999", str(document.request_payload))
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_return_in_production_blocks_missing_or_incomplete_ibs_cbs_snapshot(self) -> None:
+        from apps.finance.services.nfe_returns import NfeReturnError, create_and_emit_nfe_return_from_item, create_nfe_return_draft_from_item
+
+        item = self._create_nfe_item(suffix=94, quantity="1")
+        with patch("apps.finance.services.nfe_returns.requests.post") as post_mock:
+            with self.assertRaisesMessage(NfeReturnError, "snapshot IBS/CBS"):
+                create_and_emit_nfe_return_from_item(item=item, purpose=FiscalDocumentPurpose.RETURN, products=[{"sequencial": 1, "quantidade": "1"}], requested_by=self.user, natureza_operacao="Devolucao", codigo_cfop="1202")
+        post_mock.assert_not_called()
+
+        item.raw_payload = {"produtos": [{"sequencial": 1, "codigo": "P1", "quantidade": "1", "impostos": {"ibs_cbs": {"situacao_tributaria": "000"}}}]}
+        item.save(update_fields=["raw_payload"])
+        with self.assertRaisesMessage(NfeReturnError, "incompleto"):
+            create_nfe_return_draft_from_item(item=item, purpose=FiscalDocumentPurpose.RETURN, products=[{"sequencial": 1, "quantidade": "1"}], requested_by=self.user, natureza_operacao="Devolucao", codigo_cfop="1202")
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_reversal_in_production_uses_own_payload_with_original_ibs_cbs_snapshot(self) -> None:
+        item = self._create_nfe_item(suffix=95, quantity="1")
+        item.raw_payload = {"produtos": [{"sequencial": 1, "codigo": "P1", "quantidade": "1", "impostos": {"ibs_cbs": self._ibs_cbs_snapshot()}}]}
+        item.save(update_fields=["raw_payload"])
+
+        document = self._emit_return(item, purpose=FiscalDocumentPurpose.REVERSAL, quantity="1")
+
+        self.assertEqual(document.request_payload["tipo_operacao_hunter"], "estorno")
+        self.assertEqual(document.request_payload["produtos"][0]["sequencial"], 1)
+        self.assertEqual(document.request_payload["produtos"][0]["impostos"]["ibs_cbs"]["situacao_tributaria"], "000")
 
     def test_partial_return_blocks_quantity_above_available_and_uncertain_reserves_balance(self) -> None:
         from apps.finance.services.nfe_returns import NfeReturnError, create_and_emit_nfe_return_from_item

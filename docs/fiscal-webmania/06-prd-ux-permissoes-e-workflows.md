@@ -247,3 +247,22 @@ Regras:
 - Nenhuma permissao IBS/CBS deve ser concedida por fallback legado de NF-e/NFS-e.
 - Bloqueios de configuracao devem ocorrer antes do gateway e devem ser compreensiveis para o usuario fiscal.
 - UI nao deve sugerir que a classificacao tributaria foi calculada pelo Hunter quando ela foi informada por usuario/admin.
+
+## Fase 2.4C.0 - UX, permissoes e bloqueios para derivados com IBS/CBS
+
+Permissoes: a Fase 2.4C deve reutilizar as permissoes especificas ja existentes de cada operacao (`issue_nfe_return`, `issue_nfe_complementary_price_quantity`, `issue_nfe_adjustment` e permissoes de visualizacao/download/payload correspondentes). Configuracao ou correcao de IBS/CBS em classe fiscal continua restrita a permissao administrativa fiscal. Nenhuma permissao de NF-e normal deve liberar automaticamente complementar tributaria, evento IBS/CBS ou credito/debito.
+
+Mensagens de bloqueio planejadas:
+
+- Devolucao/estorno local: "A NF-e original nao possui snapshot IBS/CBS suficiente para gerar o documento derivado. Revise/importe a tributacao original antes de transmitir."
+- Devolucao parcial externa: "NF-e externa informada por chave nao possui itens fiscais importados; devolucao parcial com IBS/CBS permanece bloqueada."
+- Complementar preco/quantidade: "A nota complementar deve usar apenas os acrescimos informados. IBS/CBS sera aplicado somente quando houver snapshot fiscal do item original e configuracao validada."
+- Ajuste: "Nota de ajuste nao usa automaticamente IBS/CBS de produtos. Se esta operacao depender da Reforma Tributaria, aguarde fase fiscal especifica ou revise com responsavel fiscal."
+
+UI minima futura:
+
+- Exibir, no detalhe da NF-e original, indicador de snapshot tributario disponivel para derivados.
+- Em devolucao/complementar, mostrar sequencial fiscal do item original, status IBS/CBS do snapshot e classe fiscal atual apenas como informacao auxiliar.
+- Para NF-e externa minima, mostrar que a chave foi validada apenas por formato e que XML/importacao ainda nao ocorreu.
+- Para ajuste, manter aviso de escrituração contabil e regime tributario; adicionar aviso de que IBS/CBS nao foi liberado para ajuste sem regra oficial aprovada.
+- Nao criar central fiscal nova nem expor eventos IBS/CBS/credito/debito nesta fase.

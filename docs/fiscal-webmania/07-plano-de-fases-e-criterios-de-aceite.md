@@ -190,6 +190,42 @@
 - Alteracoes proibidas: complementar tributaria geral sem autorizacao propria.
 - Testes: cada derivado com e sem IBS/CBS conforme regra, `uncertain` preservando payload, original nao alterado.
 
+##### Fase 2.4C.0 - Planejamento tecnico documental
+
+- Status: em planejamento documental.
+- Escopo: auditar os services `nfe_returns.py`, `nfe_complementary.py` e `nfe_adjustment.py`; decidir snapshot original, NF-e externa e bloqueios seguros.
+- Alteracoes permitidas: somente `docs/fiscal-webmania/**` e OpenAPI validado se houver correcao oficial.
+- Aceite: matriz de risco por derivado, subfases 2.4C.1 a 2.4C.3, testes planejados e ADRs atualizados.
+
+##### Fase 2.4C.1 - Devolucao e estorno com IBS/CBS
+
+- Status: validada em 2026-06-02.
+- Escopo implementado: adequar `POST /1/nfe/devolucao/` para devolucao total/parcial e estorno quando a operacao exigir IBS/CBS.
+- Dependencias: Fase 2.4A+B validada e snapshot fiscal original disponivel.
+- Modelagem: reusar `FiscalDocument(purpose=return|reversal)`, `FiscalDocumentLink(role=returns|reverses)` e `FiscalEmissionAttempt(operation_type=return|reversal)`.
+- Criterios de aceite: parcial usa sequenciais fiscais e quantidades alinhadas; IBS/CBS vem do snapshot original ou bloqueia; NF-e externa minima nao permite parcial; estorno usa payload proprio; original nao altera status.
+- Rollback: desabilitar gate IBS/CBS de derivados e manter documentos existentes consultaveis.
+- Arquivos alterados: `apps/finance/services/nfe_returns.py`, `apps/finance/tests.py` e docs. Sem migration.
+- Validacao: 100 testes direcionados das fases fiscais 1, 2.1, 2.2A, 2.2B.1, 2.2C, 2.3.1, 2.3.2, 2.3.3, 2.4A+B e 2.4C.1 passaram com `--keepdb`; `makemigrations finance --check --dry-run`, `ruff check` nos Python tocados e `git diff --check` passaram.
+
+##### Fase 2.4C.2 - Complementar preco/quantidade com IBS/CBS
+
+- Escopo: permitir IBS/CBS somente no complemento de preco/quantidade local ja validado.
+- Dependencias: snapshot fiscal original local e Fase 2.2B.1 validada; 2.4C.1 recomendada antes para consolidar regra de snapshot.
+- Modelagem: reusar `FiscalDocument(purpose=complementary, complementary_type=price_quantity)`, link `complements` e tentativa `complementary_price_quantity`.
+- Criterios de aceite: produto complementar envia apenas acrescimo; nao copia valores originais; IBS/CBS aplica ao acrescimo; complementar tributaria, ICMS-ST, IPI, ISSQN, importacao e IBS/CBS amplo continuam fora de escopo.
+- Rollback: bloquear complementar IBS/CBS e preservar complementar sem IBS/CBS ja emitida.
+- Arquivos previstos: `apps/finance/services/nfe_complementary.py`, forms/templates de aviso, testes e docs.
+
+##### Fase 2.4C.3 - Ajuste frente a Reforma Tributaria
+
+- Escopo: revisar `POST /1/nfe/ajuste/` diante de IBS/CBS sem presumir produtos.
+- Dependencias: revalidacao oficial do contrato de ajuste e regime tributario local configurado.
+- Modelagem: manter `FiscalDocument(purpose=adjustment, origin=manual)` e link `adjusts` opcional.
+- Criterios de aceite: ajuste continua sem documento original obrigatorio; nao envia produtos/IBS-CBS sem contrato oficial; se operacao depender de IBS/CBS/Reforma, bloquear com mensagem fiscal; estorno SC/ES continua no fluxo de devolucao.
+- Rollback: manter ajuste ICMS/ICMS-ST validado e bloquear qualquer ampliacao IBS/CBS.
+- Arquivos previstos: `apps/finance/services/nfe_adjustment.py`, views/templates de aviso, testes e docs.
+
 #### Fase 2.4D - Eventos IBS/CBS
 
 - Objetivo: planejar e implementar `/1/nfe/evento-ibs-cbs/` e cancelamento de evento depois da base conformada.

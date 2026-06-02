@@ -308,3 +308,43 @@
 - Riscos: demanda contabil por credito/debito fica adiada.
 - Status: proposta.
 - Fase: 2.4E/2.5.
+
+## ADR-036 - Derivados IBS/CBS usam snapshot fiscal original
+
+- Contexto: devolucao, estorno e complementar de preco/quantidade derivam de uma NF-e anterior. A classe fiscal atual do produto pode ter sido alterada apos a emissao original, especialmente durante a migracao IBS/CBS.
+- Decisao: a fonte primaria para IBS/CBS em derivados deve ser o snapshot fiscal da NF-e original local. `TaxClassNfe` atual pode ser usado apenas como apoio/validacao quando houver confirmacao fiscal explicita e registro auditavel.
+- Alternativas consideradas: usar sempre a classe fiscal atual; copiar integralmente o produto original; bloquear todos os derivados ate backfill completo.
+- Consequencias: reduz risco de gerar derivado com tributacao diferente da nota original, mas exige preservar ou reconstruir snapshot fiscal antes do gateway.
+- Riscos: notas legadas sem snapshot suficiente podem ficar bloqueadas ate importacao/revisao fiscal.
+- Status: implementada e validada na Fase 2.4C.1 para devolucao/estorno.
+- Fase: 2.4C.
+
+## ADR-037 - NF-e externa minima nao suporta derivados IBS/CBS por item
+
+- Contexto: NF-e externa criada por chave manual nao possui itens, sequenciais fiscais, quantidades nem tributacao original no Hunter.
+- Decisao: bloquear devolucao parcial e complementar preco/quantidade com IBS/CBS para NF-e externa minima. Estorno/devolucao total so podem ser avaliados em fase funcional com confirmacao forte, permissao restrita e contrato oficial que dispense detalhe de itens.
+- Alternativas consideradas: permitir entrada manual de itens/IBS-CBS; usar `/1/nfe/consulta/` como garantia; bloquear toda NF-e externa.
+- Consequencias: evita emissao derivada com base fiscal incompleta e cria backlog claro para importacao/validacao XML.
+- Riscos: usuarios com notas externas reais precisarao de fluxo futuro antes de operar parcialmente.
+- Status: implementada e validada parcialmente na Fase 2.4C.1 para manter devolucao parcial externa bloqueada; importacao/XML permanece backlog.
+- Fase: 2.4C.
+
+## ADR-038 - Complementar preco/quantidade IBS/CBS nao e complementar tributaria
+
+- Contexto: a Fase 2.2B.1 implementou apenas complementar de preco/quantidade e removeu objetos tributarios amplos do payload. A Reforma Tributaria pode exigir IBS/CBS no item, mas isso nao autoriza abrir complemento tributario geral.
+- Decisao: na 2.4C.2, IBS/CBS deve ser aplicado somente ao acrescimo de preco/quantidade quando o contrato e o snapshot permitirem. Complementar tributaria ampla permanece subfase separada e nao implementada.
+- Alternativas consideradas: reintroduzir todo objeto `impostos`; manter bloqueio total; misturar preco/quantidade e impostos no mesmo formulario.
+- Consequencias: preserva escopo incremental e evita rejeicoes por payload tributario incompatível.
+- Riscos: alguns cenarios fiscais podem exigir complementar tributaria antes de preco/quantidade com IBS/CBS; nesses casos deve haver nova aprovacao.
+- Status: proposta na Fase 2.4C.0.
+- Fase: 2.4C.2.
+
+## ADR-039 - Ajuste IBS/CBS exige revalidacao especifica
+
+- Contexto: o fluxo implementado de ajuste usa `/1/nfe/ajuste/` com ICMS/ICMS-ST, cliente, CFOP e regime tributario. O endpoint oficial de eventos IBS/CBS e separado e credito/debito usa finalidades proprias.
+- Decisao: nao inserir `produtos[].impostos.ibs_cbs` no ajuste por inferencia. A Fase 2.4C.3 deve revalidar o contrato oficial do ajuste e bloquear operacoes que dependam de Reforma Tributaria ate regra aprovada.
+- Alternativas consideradas: transformar ajuste em emissao normal com IBS/CBS; reutilizar evento IBS/CBS; liberar ajuste sem revisao.
+- Consequencias: evita payload fora do contrato e mantem ajuste avulso com link opcional.
+- Riscos: pode bloquear casos fiscais de ajuste ate esclarecimento oficial/contabil.
+- Status: proposta na Fase 2.4C.0.
+- Fase: 2.4C.3.

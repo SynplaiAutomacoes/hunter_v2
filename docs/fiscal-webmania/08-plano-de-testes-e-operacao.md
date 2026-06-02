@@ -277,3 +277,46 @@ Impacto operacional:
 
 - Antes de liberar nova emissao em producao, executar testes direcionados das fases 1, 2.1, 2.2A, 2.2B.1, 2.2C, 2.3.1, 2.3.2, 2.3.3 e a classe da subfase 2.4.
 - Rodar `makemigrations finance --check --dry-run`, `ruff check` nos Python tocados e `git diff --check`.
+
+### Fase 2.4C.0 - Testes planejados para derivados com IBS/CBS
+
+Testes transversais:
+
+- Documento derivado usa snapshot tributario da NF-e original local, nao a classe fiscal atual alterada depois da emissao.
+- Classe fiscal atual IBS/CBS-ready so pode ser usada como apoio quando o snapshot original estiver ausente e houver confirmacao fiscal explicita.
+- NF-e externa minima por chave bloqueia operacoes que dependam de itens/sequenciais/snapshot IBS-CBS.
+- Payload congelado com IBS/CBS nao muda apos tentativa `sent` ou `uncertain`.
+- Webhook e reconciliacao atualizam somente o derivado e nao recalculam IBS/CBS.
+- Usuario de outra oficina nao acessa snapshot, payload, XML/DANFE nem action derivada.
+- Logs de bloqueio nao expoem payload completo, credenciais, CSC, certificado, headers ou tokens.
+
+Testes 2.4C.1 - Devolucao/estorno:
+
+- Devolucao parcial local inclui IBS/CBS derivado do item original e preserva `produtos` como sequenciais fiscais.
+- `quantidade[i]` continua alinhada a `produtos[i]` apos incluir IBS/CBS.
+- Devolucao total nao envia selecao parcial desnecessaria.
+- Faixa de saldo considera derivado `uncertain` com payload IBS/CBS congelado.
+- NF-e externa minima bloqueia devolucao parcial.
+- Estorno usa payload proprio e nao e tratado como devolucao parcial comum.
+
+Resultado da Fase 2.4C.1:
+
+- `FiscalPhaseTwoReturnTests` passou com 21 testes, incluindo novos cenarios de devolucao total/parcial em producao com snapshot IBS/CBS, bloqueio de snapshot ausente/incompleto, nao uso de `TaxClassNfe` atual divergente e estorno com payload proprio.
+- `FiscalPhaseTwoReturnConcurrentTests` passou apos recriacao limpa da base de teste e tambem dentro da suite direcionada final com `--keepdb`.
+- A suite fiscal direcionada final passou com 100 testes.
+- `makemigrations finance --check --dry-run`, `ruff check apps/finance/services/nfe_returns.py apps/finance/tests.py` e `git diff --check` passaram.
+
+Testes 2.4C.2 - Complementar preco/quantidade:
+
+- Complemento apenas de preco envia somente acrescimo e IBS/CBS aplicavel ao acrescimo.
+- Complemento apenas de quantidade envia somente quantidade adicional e IBS/CBS aplicavel.
+- Complemento simultaneo, se autorizado, prova payload explicito para os dois acrescimos.
+- Payload nao envia objeto de complementar tributaria ampla, ICMS-ST/IPI/ISSQN/IBS-CBS fora do subtipo aprovado, agropecuario ou importacao/adicao.
+- NF-e externa minima permanece bloqueada sem XML/importacao validada.
+
+Testes 2.4C.3 - Ajuste:
+
+- Ajuste continua sem `produtos`, `pedido`, `impostos`, `ibs_cbs` ou grupos de produto quando o contrato oficial nao confirmar esses campos.
+- Regime tributario continua bloqueando Simples Nacional, MEI e desconhecido.
+- Cenario de estorno SC/ES continua direcionado para devolucao/estorno.
+- Se a operacao fiscal selecionada depender de Reforma Tributaria, o service bloqueia antes do gateway ate regra IBS/CBS aprovada.
