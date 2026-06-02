@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import calendar
 import io
 from datetime import date
 from decimal import Decimal
@@ -21,7 +20,7 @@ from apps.finance.models.finance import WebmaniaCompany
 from apps.iam.models import WorkshopRole
 from apps.iam.utils import get_or_create_director_role
 from apps.workshops.forms.workshop_costs import WorkshopCostForm
-from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostHoliday
+from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostWorkDay
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.services.files import StoredWorkshopFile, WorkshopFileSyncError
 from apps.workshops.util.workshops import is_workshop_director, is_workshop_manager
@@ -595,7 +594,7 @@ class WorkshopRoleFormReservedNameTests(TestCase):
             self.assertNotIn("name", form.errors)
 
 
-class WorkshopCostHolidayTests(TestCase):
+class WorkshopCostWorkDayTests(TestCase):
     def setUp(self) -> None:
         self.user, self.workshop = create_director_user_with_workshop(suffix=90)
         self.client.force_login(self.user)
@@ -613,31 +612,31 @@ class WorkshopCostHolidayTests(TestCase):
             productivity_average=Decimal("0.60"),
         )
 
-    def test_effective_work_days_ignore_weekend_holidays(self) -> None:
-        WorkshopCostHoliday.objects.create(workshop_cost=self.workshop_cost, date=date(2026, 5, 1))
-        WorkshopCostHoliday.objects.create(workshop_cost=self.workshop_cost, date=date(2026, 5, 2))
+    def test_work_day_count_returns_correct_value(self) -> None:
+        WorkshopCostWorkDay.objects.create(workshop_cost=self.workshop_cost, date=date(2026, 5, 1))
+        WorkshopCostWorkDay.objects.create(workshop_cost=self.workshop_cost, date=date(2026, 5, 4))
 
-        self.assertEqual(self.workshop_cost.get_business_holiday_count(), 1)
-        self.assertEqual(self.workshop_cost.calculate_working_hours_per_month(), Decimal("105.60"))
+        self.assertEqual(self.workshop_cost.get_work_day_count(), 2)
 
-    def test_holiday_validation_rejects_date_outside_reference_month(self) -> None:
-        holiday = WorkshopCostHoliday(workshop_cost=self.workshop_cost, date=date(2026, 6, 1))
+    def test_work_day_validation_rejects_date_outside_reference_month(self) -> None:
+        work_day = WorkshopCostWorkDay(workshop_cost=self.workshop_cost, date=date(2026, 6, 1))
 
         with self.assertRaises(ValidationError):
-            holiday.full_clean()
+            work_day.full_clean()
 
-    def test_workshop_cost_create_page_renders_holiday_calendar(self) -> None:
+    def test_workshop_cost_create_page_renders_work_day_calendar(self) -> None:
         response = self.client.get(reverse("workshops:workshop_cost_create"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Calendário de Feriados")
-        self.assertContains(response, "holiday-calendar")
+        self.assertContains(response, "Calendário de Dias Trabalhados")
+        self.assertContains(response, "work-day-calendar")
 
-    def test_workshop_cost_form_preloads_sp_holidays_and_calculates_work_days(self) -> None:
+    def test_workshop_cost_form_preloads_work_days_and_calculates_work_days_per_month(self) -> None:
         form = WorkshopCostForm(workshop=self.workshop, initial={"month": 1, "year": 2026})
-        auto_dates = [date.fromisoformat(raw) for raw in str(form.initial.get("holiday_dates") or "").split(",") if raw]
+        work_day_dates = [date.fromisoformat(raw) for raw in str(form.initial.get("work_day_dates") or "").split(",") if raw]
         expected_sp_holidays = sorted(holiday_date for holiday_date in holidays.Brazil(state="SP", years=2026).keys() if holiday_date.month == 1 and holiday_date.weekday() < 5)
-        self.assertEqual(auto_dates, expected_sp_holidays)
+        expected_work_days = sorted(date(2026, 1, day) for day in range(1, 32) if date(2026, 1, day).weekday() < 5 and date(2026, 1, day) not in expected_sp_holidays)
+        self.assertEqual(work_day_dates, expected_work_days)
 
         no_holiday_month = next(month for month in range(1, 13) if not [holiday_date for holiday_date in holidays.Brazil(state="SP", years=2026).keys() if holiday_date.month == month and holiday_date.weekday() < 5])
         form_no_holiday = WorkshopCostForm(
@@ -648,13 +647,16 @@ class WorkshopCostHolidayTests(TestCase):
                 "work_hours_per_day": "08:00",
                 "work_days_per_month": "99",
                 "productivity_average": "0.60",
-                "holiday_dates": "",
+                "work_day_dates": "",
+                "state": "SP",
             },
             workshop=self.workshop,
         )
         self.assertTrue(form_no_holiday.is_valid(), form_no_holiday.errors)
-        self.assertEqual(form_no_holiday.cleaned_data["work_days_per_month"], calendar.monthrange(2026, no_holiday_month)[1])
+        self.assertEqual(form_no_holiday.cleaned_data["work_days_per_month"], 0)
 
+        all_work_days_jan = sorted(date(2026, 1, day) for day in range(1, 32) if date(2026, 1, day).weekday() < 5)
+        work_day_dates_str = ",".join(d.isoformat() for d in all_work_days_jan[:20])
         form_manual = WorkshopCostForm(
             data={
                 "month": "1",
@@ -663,9 +665,10 @@ class WorkshopCostHolidayTests(TestCase):
                 "work_hours_per_day": "08:00",
                 "work_days_per_month": "99",
                 "productivity_average": "0.60",
-                "holiday_dates": "2026-01-01,2026-01-15",
+                "work_day_dates": work_day_dates_str,
+                "state": "SP",
             },
             workshop=self.workshop,
         )
         self.assertTrue(form_manual.is_valid(), form_manual.errors)
-        self.assertEqual(form_manual.cleaned_data["work_days_per_month"], 29)
+        self.assertEqual(form_manual.cleaned_data["work_days_per_month"], 20)

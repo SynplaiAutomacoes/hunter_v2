@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import calendar
 from decimal import Decimal
 import json
 import logging
@@ -265,7 +264,7 @@ def metricas_dashboard(request) -> dict[str, Any]:
     projecao: Decimal | None = None
     projecao_warning = ""
     dias_uteis_mes_configurados = int(workshop_cost.work_days_per_month) if workshop_cost is not None else None
-    feriados_uteis = workshop_cost.get_business_holiday_count() if workshop_cost is not None else 0
+    feriados_uteis = workshop_cost.get_work_day_count() if workshop_cost is not None else 0
 
     if workshop_cost is not None:
         dias_transcorridos = _count_elapsed_business_days(workshop_cost=workshop_cost, today=hoje)
@@ -435,24 +434,9 @@ def metricas_dashboard(request) -> dict[str, Any]:
     }
 
 
-def _count_business_days(*, start_date: date, end_date: date, holiday_dates: set[date] | None = None) -> int:
-    if end_date < start_date:
-        return 0
-
-    excluded_holidays = holiday_dates or set()
-    return sum(1 for day in range(start_date.day, end_date.day + 1) if (current_date := date(start_date.year, start_date.month, day)).weekday() < 5 and current_date not in excluded_holidays)
-
-
 def _count_elapsed_business_days(*, workshop_cost: WorkshopCost, today: date) -> int:
-    first_day = date(workshop_cost.year, workshop_cost.month, 1)
-    last_day = date(workshop_cost.year, workshop_cost.month, calendar.monthrange(workshop_cost.year, workshop_cost.month)[1])
-
-    if first_day > today:
-        return 0
-
-    period_end = min(today, last_day)
-    holiday_dates = {holiday_date for holiday_date in workshop_cost.get_business_holiday_dates() if holiday_date <= period_end}
-    return _count_business_days(start_date=first_day, end_date=period_end, holiday_dates=holiday_dates)
+    work_day_dates = workshop_cost.get_work_day_dates()
+    return sum(1 for d in work_day_dates if d <= today)
 
 
 INDICATOR_LABELS: dict[str, tuple[str, str]] = {
