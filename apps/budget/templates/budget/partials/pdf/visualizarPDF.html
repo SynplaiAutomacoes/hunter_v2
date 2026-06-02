@@ -61,8 +61,7 @@
 
         .header-section {
             min-height: 120px;
-            max-height: 120px;
-            overflow: hidden;
+            height: auto;
         }
 
         .workshop-logo-box {
@@ -227,7 +226,8 @@
                 <p class="text-[11px]">{{ budget.created|date:"d/m/Y H:i" }}</p>
                 {% endif %}
                 {% if budget.customer_agreed_departure_at %}
-                <p class="text-[11px] mt-0.5">Previsão: {{ budget.customer_agreed_departure_at|date:"d/m/Y H:i" }}</p>
+                <p class="text-[11px] mt-1">Data prevista de entrega: {{ budget.customer_agreed_departure_at|date:"d/m/Y" }}</p>
+                <small class="block text-[10px] text-gray-500 leading-tight mt-1">Essa data pode ser alterada caso haja algum imprevisto. O cliente será informado caso ocorra qualquer mudança.</small>
                 {% endif %}
                 {% if is_warranty_or_courtesy %}
                 <div class="mt-2 inline-block rounded border border-amber-400 bg-amber-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-900">
@@ -255,9 +255,6 @@
                     <p class="field-row"><span class="field-label">Motor:</span> <span class="field-value">{{ budget.vehicle.engine|default:"-" }}</span></p>
                     <p class="field-row"><span class="field-label">Combustível:</span> <span class="field-value">{{ budget.vehicle.fuel|default:"-" }}</span></p>
                     <p class="field-row"><span class="field-label">Cor:</span> <span class="field-value">{{ budget.vehicle.color|default:"-" }}</span></p>
-                    {% if budget.customer_agreed_departure_at %}
-                        <p class="field-row"><span class="field-label">Prev. Entrega:</span> <span class="field-value">{{ budget.customer_agreed_departure_at|date:"d/m/Y H:i" }}</span></p>
-                    {% endif %}
                 </div>
             </div>
             <div class="signature-block">
