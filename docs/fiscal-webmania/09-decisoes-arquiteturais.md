@@ -342,9 +342,9 @@
 ## ADR-039 - Ajuste IBS/CBS exige revalidacao especifica
 
 - Contexto: o fluxo implementado de ajuste usa `/1/nfe/ajuste/` com ICMS/ICMS-ST, cliente, CFOP e regime tributario. O endpoint oficial de eventos IBS/CBS e separado e credito/debito usa finalidades proprias.
-- Decisao: nao inserir `produtos[].impostos.ibs_cbs` no ajuste por inferencia. A Fase 2.4C.3 deve revalidar o contrato oficial do ajuste e bloquear operacoes que dependam de Reforma Tributaria ate regra aprovada.
+- Decisao: nao inserir `produtos[].impostos.ibs_cbs` no ajuste por inferencia. Na Fase 2.4C.3, a revalidacao oficial confirmou que `/1/nfe/ajuste/` documenta `operacao`, `natureza_operacao`, `codigo_cfop`, `valor_icms`, `valor_icms_st`, `ambiente`, `cliente`, `situacao_tributaria` e informacoes textuais; nao documenta produtos, IBS/CBS, credito/debito ou eventos. Portanto, qualquer tentativa de usar ajuste como credito/debito, evento IBS/CBS, complemento tributario ou estorno deve ser bloqueada antes do gateway.
 - Alternativas consideradas: transformar ajuste em emissao normal com IBS/CBS; reutilizar evento IBS/CBS; liberar ajuste sem revisao.
 - Consequencias: evita payload fora do contrato e mantem ajuste avulso com link opcional.
 - Riscos: pode bloquear casos fiscais de ajuste ate esclarecimento oficial/contabil.
-- Status: proposta na Fase 2.4C.0.
+- Status: implementada e validada na Fase 2.4C.3.
 - Fase: 2.4C.3.

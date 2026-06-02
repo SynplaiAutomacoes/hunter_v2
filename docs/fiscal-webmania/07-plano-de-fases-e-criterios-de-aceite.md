@@ -221,12 +221,14 @@
 
 ##### Fase 2.4C.3 - Ajuste frente a Reforma Tributaria
 
+- Status: validada em 2026-06-02.
 - Escopo: revisar `POST /1/nfe/ajuste/` diante de IBS/CBS sem presumir produtos.
 - Dependencias: revalidacao oficial do contrato de ajuste e regime tributario local configurado.
 - Modelagem: manter `FiscalDocument(purpose=adjustment, origin=manual)` e link `adjusts` opcional.
-- Criterios de aceite: ajuste continua sem documento original obrigatorio; nao envia produtos/IBS-CBS sem contrato oficial; se operacao depender de IBS/CBS/Reforma, bloquear com mensagem fiscal; estorno SC/ES continua no fluxo de devolucao.
+- Criterios de aceite: ajuste continua sem documento original obrigatorio; nao envia produtos/IBS-CBS sem contrato oficial; bloqueia tentativa de usar ajuste como credito/debito, evento IBS/CBS ou estorno; estorno SC/ES continua no fluxo de devolucao.
 - Rollback: manter ajuste ICMS/ICMS-ST validado e bloquear qualquer ampliacao IBS/CBS.
-- Arquivos previstos: `apps/finance/services/nfe_adjustment.py`, views/templates de aviso, testes e docs.
+- Arquivos alterados: `apps/finance/services/nfe_adjustment.py`, `apps/finance/templates/finance/nfe_request_detail.html`, `apps/finance/tests.py` e docs. Sem migration.
+- Validacao: `makemigrations finance --check --dry-run`, 145 testes direcionados fiscais com `--keepdb`, `ruff check` nos Python tocados e `git diff --check` passaram.
 
 #### Fase 2.4D - Eventos IBS/CBS
 

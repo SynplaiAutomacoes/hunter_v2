@@ -73,12 +73,13 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Deploy pode bloquear NF-e/NFC-e normais para oficinas que ainda nao configuraram classes fiscais IBS/CBS validas.
 - Validar tabela oficial de situacao/classificacao tributaria IBS/CBS imediatamente antes do codigo.
 - Definir politica futura de homologacao controlada se houver necessidade operacional; a Fase 2.4A+B exige configuracao valida tambem em homologacao por padrao.
-- Fase 2.4C.1 validou devolucao/estorno com IBS/CBS por snapshot original local; Fase 2.4C.2 validou complementar preco/quantidade local com `produtos[].impostos.ibs_cbs` vindo do snapshot original e `base_calculo` obrigatorio. Ajuste permanece pendente da Fase 2.4C.3.
+- Fase 2.4C.1 validou devolucao/estorno com IBS/CBS por snapshot original local; Fase 2.4C.2 validou complementar preco/quantidade local com `produtos[].impostos.ibs_cbs` vindo do snapshot original e `base_calculo` obrigatorio. Fase 2.4C.3 protege ajuste sem inserir IBS/CBS por ausencia de contrato seguro no endpoint `/1/nfe/ajuste/`.
 - Manter credito/debito bloqueados ate 2.4E; finalidades 5/6 devem enviar somente IBS/CBS e barrar tributos antigos para evitar rejeicao 1001.
 - Registrar em UI e logs que a classificacao tributaria e configurada por usuario/fiscal, nao inferida pelo Hunter.
 - Fase 2.4C.0 decidiu que derivados IBS/CBS devem usar snapshot fiscal original. Devolucao/estorno e complementar preco/quantidade ja seguem essa decisao; qualquer derivado futuro ainda deve implementar captura/uso explicito do snapshot antes do gateway.
 - Criar fluxo de importacao/validacao XML para NF-e externa antes de permitir devolucao parcial ou complementar preco/quantidade com IBS/CBS.
 - Revalidar oficialmente antes de novas subfases se `/1/nfe/complementar/` mudou campos de IBS/CBS. Na validacao da Fase 2.4C.2, o contrato consultado aceitava `produtos[].impostos.ibs_cbs` por item para preco/quantidade e exigia `base_calculo`; `classe_imposto` atual nao foi usado como fallback.
+- Revalidar oficialmente antes de qualquer ampliacao de ajuste. Na Fase 2.4C.3, `/1/nfe/ajuste/` permaneceu restrito a ICMS/ICMS-ST e dados de cliente/operacao; credito/debito, eventos IBS/CBS, complementar tributaria e produtos seguem pendentes de fases proprias.
 - Revalidar `/1/nfe/ajuste/` frente a Reforma Tributaria; nao inserir produtos/IBS-CBS no ajuste sem contrato oficial.
 - Resolver divergencia documental de cronograma IBS/CBS com decisao fiscal final: PRDs aprovados citam `05/01/2026`, enquanto a pagina oficial REST consultada em 2026-06-02 exibiu producao obrigatoria a partir de `01/01/2026`. A Fase 2.4C.1 deve usar temporariamente a regra conservadora desde `01/01/2026`.
 

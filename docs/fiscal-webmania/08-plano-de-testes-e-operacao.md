@@ -317,6 +317,8 @@ Testes 2.4C.2 - Complementar preco/quantidade:
 Testes 2.4C.3 - Ajuste:
 
 - Ajuste continua sem `produtos`, `pedido`, `impostos`, `ibs_cbs` ou grupos de produto quando o contrato oficial nao confirmar esses campos.
+- Ajuste bloqueia `tipo_credito`, `tipo_debito`, `finalidade=5/6`, `dfe_referenciado`, `evento_ibs_cbs`, `cod_evento`, `produtos` e `impostos.ibs_cbs` antes do gateway.
 - Regime tributario continua bloqueando Simples Nacional, MEI e desconhecido.
 - Cenario de estorno SC/ES continua direcionado para devolucao/estorno.
 - Se a operacao fiscal selecionada depender de Reforma Tributaria, o service bloqueia antes do gateway ate regra IBS/CBS aprovada.
+- Regressao: idempotencia, concorrencia, timeout `uncertain`, webhook, reconciliacao, documento vinculado, cross-workshop, downloads e sanitizacao devem continuar passando na suite de ajuste existente.

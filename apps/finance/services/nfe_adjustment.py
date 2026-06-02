@@ -33,6 +33,25 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_ADJUSTMENT_REGIMES = {"lucro_real", "lucro_normal", "lucro_presumido"}
 BLOCKED_ADJUSTMENT_REGIMES = {"simples_nacional", "simples_nacional_sublimite", "mei"}
+FORBIDDEN_ADJUSTMENT_PAYLOAD_KEYS = {
+    "adicao",
+    "adicoes",
+    "agropecuario",
+    "cbs",
+    "cod_evento",
+    "dfe_referenciado",
+    "evento",
+    "evento_ibs_cbs",
+    "finalidade",
+    "ibs",
+    "ibs_cbs",
+    "importacao",
+    "impostos",
+    "pedido",
+    "produtos",
+    "tipo_credito",
+    "tipo_debito",
+}
 
 
 class NfeAdjustmentError(Exception):
@@ -120,6 +139,22 @@ def validate_adjustment_tax_regime(*, workshop: Any) -> str:
     raise NfeAdjustmentError("Configure o regime tributario da empresa Webmania antes de emitir Nota Fiscal de Ajuste.")
 
 
+def _assert_adjustment_scope(payload: dict[str, Any], *, source: str = "payload") -> None:
+    forbidden_keys = sorted(str(key) for key in payload if str(key) in FORBIDDEN_ADJUSTMENT_PAYLOAD_KEYS)
+    if forbidden_keys:
+        if "finalidade" in forbidden_keys and str(payload.get("finalidade") or "").strip() in {"5", "6"}:
+            raise NfeAdjustmentError("Nota Fiscal de Ajuste nao pode ser usada para Nota Fiscal de Credito ou Debito. Use a fase propria de IBS/CBS quando aprovada.")
+        if any(key in forbidden_keys for key in ("evento", "evento_ibs_cbs", "cod_evento")):
+            raise NfeAdjustmentError("Nota Fiscal de Ajuste nao pode registrar eventos IBS/CBS. Use o fluxo proprio de eventos quando aprovado.")
+        if "produtos" in forbidden_keys:
+            raise NfeAdjustmentError("Nota Fiscal de Ajuste nao pode conter produtos. Estorno deve usar o fluxo de devolucao/estorno.")
+        if any(key in forbidden_keys for key in ("ibs", "cbs", "ibs_cbs", "impostos")):
+            raise NfeAdjustmentError("Nota Fiscal de Ajuste nao aceita IBS/CBS ou impostos de produto sem contrato oficial.")
+        if any(key in forbidden_keys for key in ("tipo_credito", "tipo_debito", "dfe_referenciado")):
+            raise NfeAdjustmentError("Nota Fiscal de Ajuste nao pode ser usada para credito/debito fiscal.")
+        raise NfeAdjustmentError(f"Campo fora do contrato de ajuste em {source}: {', '.join(forbidden_keys)}.")
+
+
 def _build_adjustment_payload(
     *,
     workshop: Any,
@@ -132,10 +167,15 @@ def _build_adjustment_payload(
     valor_icms_st: Any | None = None,
     informacoes_fisco: str = "",
     informacoes_complementares: str = "",
+    extra_payload: dict[str, Any] | None = None,
     request: HttpRequest | None = None,
 ) -> dict[str, Any]:
     if not isinstance(cliente, dict) or not cliente:
         raise NfeAdjustmentError("Cliente e obrigatorio para Nota Fiscal de Ajuste.")
+    if extra_payload is not None:
+        if not isinstance(extra_payload, dict):
+            raise NfeAdjustmentError("Campos adicionais da Nota Fiscal de Ajuste devem ser informados como objeto.")
+        _assert_adjustment_scope(extra_payload, source="campos adicionais")
     payload: dict[str, Any] = {
         "operacao": _normalize_operation(operacao),
         "natureza_operacao": _normalize_required_text(natureza_operacao, field_name="Natureza da operacao", max_length=60),
@@ -156,6 +196,7 @@ def _build_adjustment_payload(
     notification_url = build_webmania_webhook_url(request=request)
     if notification_url:
         payload["url_notificacao"] = notification_url
+    _assert_adjustment_scope(payload)
     return payload
 
 
@@ -172,6 +213,7 @@ def create_nfe_adjustment_draft(
     valor_icms_st: Any | None = None,
     informacoes_fisco: str = "",
     informacoes_complementares: str = "",
+    extra_payload: dict[str, Any] | None = None,
     related_document: FiscalDocument | None = None,
     legal_confirmation: bool = False,
     estorno_sc_es_confirmation: bool = False,
@@ -193,10 +235,10 @@ def create_nfe_adjustment_draft(
         cliente=cliente,
         informacoes_fisco=informacoes_fisco,
         informacoes_complementares=informacoes_complementares,
+        extra_payload=extra_payload,
         request=request,
     )
-    for forbidden_key in ("produtos", "pedido", "impostos", "ibs", "cbs", "agropecuario", "importacao", "adicao", "adicoes"):
-        payload.pop(forbidden_key, None)
+    _assert_adjustment_scope(payload)
     with transaction.atomic():
         locked_related: FiscalDocument | None = None
         if related_document is not None:
@@ -274,6 +316,7 @@ def transmit_nfe_adjustment_document(*, document: FiscalDocument) -> FiscalDocum
         validate_adjustment_tax_regime(workshop=locked_document.workshop)
         payload = dict(locked_document.request_payload or {})
         payload.pop("tax_regime", None)
+        _assert_adjustment_scope(payload)
         idempotency_key = build_fiscal_document_operation_idempotency_key(workshop_id=locked_document.workshop_id, derived_document_id=locked_document.pk, operation_type=FiscalEmissionOperationType.ADJUSTMENT, request_generation=1)
         try:
             attempt = begin_emission_attempt(

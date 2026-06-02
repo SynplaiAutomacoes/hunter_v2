@@ -398,3 +398,11 @@ Bloqueios seguros:
 - NF-e externa minima sem XML/importacao validada nao pode gerar devolucao parcial nem complementar preco/quantidade com IBS/CBS.
 - Classe fiscal atual divergente do snapshot original deve exigir confirmacao fiscal explicita ou bloquear.
 - Ajuste nao deve receber `produtos[].impostos.ibs_cbs` por inferencia; se a operacao depender de Reforma Tributaria, bloquear ate contrato oficial aprovado.
+
+Resultado 2.4C.3 para ajuste:
+
+- `FiscalEmissionAttempt(operation_type=adjustment)` permanece a fonte de idempotencia.
+- `uncertain` continua bloqueando reenvio automatico.
+- Payload persistido e transmitido e revalidado contra campos fora do contrato antes do gateway.
+- Campos de credito/debito, eventos IBS/CBS, produtos e IBS/CBS sao bloqueados antes de qualquer chamada remota.
+- Webhook e reconciliacao continuam atualizando somente o `FiscalDocument(purpose=adjustment)` correspondente.

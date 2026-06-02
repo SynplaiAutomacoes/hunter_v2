@@ -266,3 +266,10 @@ UI minima futura:
 - Para NF-e externa minima, mostrar que a chave foi validada apenas por formato e que XML/importacao ainda nao ocorreu.
 - Para ajuste, manter aviso de escrituração contabil e regime tributario; adicionar aviso de que IBS/CBS nao foi liberado para ajuste sem regra oficial aprovada.
 - Nao criar central fiscal nova nem expor eventos IBS/CBS/credito/debito nesta fase.
+
+Resultado 2.4C.3:
+
+- A UI de ajuste passa a avisar que ajuste nao e credito/debito fiscal nem evento IBS/CBS.
+- Nao ha campos de produto ou IBS/CBS no formulario.
+- `issue_nfe_adjustment` segue obrigatoria antes do gateway; permissoes de emissao NF-e normal, credito/debito ou IBS/CBS nao concedem ajuste.
+- Estorno SC/ES permanece direcionado ao fluxo de devolucao/estorno ja implementado.

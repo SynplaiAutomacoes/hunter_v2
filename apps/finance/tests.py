@@ -11504,6 +11504,10 @@ class FiscalPhaseTwoReturnTests(TestCase):
         post_mock.assert_not_called()
 
 
+class FiscalPhaseTwoReturnIbsCbsTests(FiscalPhaseTwoReturnTests):
+    pass
+
+
 class FiscalPhaseTwoReturnConcurrentTests(TransactionTestCase):
     def _create_nfe_item(self, *, suffix: int = 80, quantity: str = "2") -> NfeItem:
         self.user, self.workshop = create_director_user_with_workshop(suffix=suffix)
@@ -12136,6 +12140,10 @@ class FiscalPhaseTwoComplementaryTests(FiscalPhaseTwoComplementaryPriceQuantityT
     pass
 
 
+class FiscalPhaseTwoComplementaryIbsCbsTests(FiscalPhaseTwoComplementaryPriceQuantityTests):
+    pass
+
+
 class FiscalPhaseTwoAdjustmentTests(TestCase):
     def setUp(self) -> None:
         self.user, self.workshop = create_director_user_with_workshop(suffix=55)
@@ -12198,12 +12206,45 @@ class FiscalPhaseTwoAdjustmentTests(TestCase):
         self.assertEqual(sent_payload["valor_icms_st"], "12.34")
         self.assertEqual(sent_payload["situacao_tributaria"], "090")
         self.assertEqual(sent_payload["cliente"]["cpf"], "12345678901")
-        for forbidden_key in ("produtos", "pedido", "impostos", "ibs", "cbs", "agropecuario", "importacao", "adicao"):
+        for forbidden_key in ("produtos", "pedido", "impostos", "ibs", "cbs", "ibs_cbs", "evento_ibs_cbs", "tipo_credito", "tipo_debito", "finalidade", "dfe_referenciado", "agropecuario", "importacao", "adicao"):
             self.assertNotIn(forbidden_key, sent_payload)
         document.refresh_from_db()
         self.assertEqual(document.purpose, FiscalDocumentPurpose.ADJUSTMENT)
         self.assertEqual(document.origin, FiscalDocumentOrigin.MANUAL)
         self.assertEqual(document.response_payload["log"]["token"], "[REDACTED]")
+
+    def test_adjustment_blocks_reform_credit_debit_event_products_and_ibs_cbs_scope(self) -> None:
+        from apps.finance.services.nfe_adjustment import NfeAdjustmentError, create_nfe_adjustment_draft
+
+        blocked_cases = (
+            ({"finalidade": 5, "tipo_credito": "1"}, "Credito ou Debito"),
+            ({"finalidade": 6, "tipo_debito": "1"}, "Credito ou Debito"),
+            ({"evento_ibs_cbs": {"cod_evento": "112110"}}, "eventos IBS/CBS"),
+            ({"cod_evento": "112110"}, "eventos IBS/CBS"),
+            ({"produtos": [{"nome": "Produto indevido"}]}, "nao pode conter produtos"),
+            ({"impostos": {"ibs_cbs": {"situacao_tributaria": "000"}}}, "nao aceita IBS/CBS"),
+            ({"ibs_cbs": {"situacao_tributaria": "000"}}, "nao aceita IBS/CBS"),
+            ({"dfe_referenciado": {"chave": "1" * 44}}, "credito/debito fiscal"),
+        )
+        for extra_payload, expected_message in blocked_cases:
+            with self.subTest(extra_payload=extra_payload):
+                with self.assertRaisesMessage(NfeAdjustmentError, expected_message):
+                    create_nfe_adjustment_draft(**self._draft_kwargs(extra_payload=extra_payload))
+
+    def test_adjustment_transmission_rejects_persisted_out_of_scope_payload_before_gateway(self) -> None:
+        from apps.finance.services.nfe_adjustment import NfeAdjustmentError, create_nfe_adjustment_draft, transmit_nfe_adjustment_document
+
+        document = create_nfe_adjustment_draft(**self._draft_kwargs())
+        document.request_payload["produtos"] = [{"nome": "Produto indevido"}]
+        document.save(update_fields=["request_payload"])
+
+        with (
+            patch("apps.finance.services.nfe_adjustment._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_adjustment.requests.post") as post_mock,
+        ):
+            with self.assertRaisesMessage(NfeAdjustmentError, "nao pode conter produtos"):
+                transmit_nfe_adjustment_document(document=document)
+        post_mock.assert_not_called()
 
     def test_adjustment_required_values_and_optional_icms_st(self) -> None:
         from apps.finance.services.nfe_adjustment import NfeAdjustmentError, create_nfe_adjustment_draft

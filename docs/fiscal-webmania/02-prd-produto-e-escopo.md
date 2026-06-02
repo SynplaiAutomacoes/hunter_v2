@@ -369,6 +369,8 @@ Fora de escopo funcional e documental de implementacao:
 | Complementar preco/quantidade | `POST /1/nfe/complementar/` | IBS/CBS aplicavel ao acrescimo de preco/quantidade, sem abrir complementar tributaria | Snapshot do item original local e valor/quantidade complementar | Bloquear sem XML/importacao validada dos itens | Implementar na 2.4C.2 apos devolucao/estorno |
 | Ajuste | `POST /1/nfe/ajuste/` | Reavaliacao fiscal separada; endpoint atual nao usa `produtos[].impostos.ibs_cbs` no fluxo implementado | `WebmaniaCompany.regime_tributario` e payload de ajuste validado; eventual regra IBS/CBS depende de contrato oficial | Nao aplicavel por padrao, pois ajuste pode ser avulso | Planejar na 2.4C.3 com bloqueio seguro se a operacao exigir Reforma Tributaria |
 
+Decisao 2.4C.3: Nota Fiscal de Ajuste permanece uma operacao avulsa de ICMS/ICMS-ST, sem produtos e sem `produtos[].impostos.ibs_cbs`. O produto deve bloquear uso de ajuste como credito/debito, evento IBS/CBS, complementar tributaria ou estorno. Estorno segue em devolucao/estorno; credito/debito e eventos IBS/CBS seguem bloqueados ate fases proprias.
+
 ### Snapshot original versus classe atual
 
 Decisao: nao reutilizar cegamente a classe fiscal atual do produto para documentos derivados. Uma devolucao ou complementar deve refletir a tributacao da NF-e original, nao necessariamente a configuracao vigente no dia do derivado.
