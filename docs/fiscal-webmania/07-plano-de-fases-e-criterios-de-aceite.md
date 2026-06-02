@@ -210,12 +210,14 @@
 
 ##### Fase 2.4C.2 - Complementar preco/quantidade com IBS/CBS
 
-- Escopo: permitir IBS/CBS somente no complemento de preco/quantidade local ja validado.
+- Status: validada em 2026-06-02.
+- Escopo implementado: permitir IBS/CBS somente no complemento de preco/quantidade local ja validado.
 - Dependencias: snapshot fiscal original local e Fase 2.2B.1 validada; 2.4C.1 recomendada antes para consolidar regra de snapshot.
 - Modelagem: reusar `FiscalDocument(purpose=complementary, complementary_type=price_quantity)`, link `complements` e tentativa `complementary_price_quantity`.
-- Criterios de aceite: produto complementar envia apenas acrescimo; nao copia valores originais; IBS/CBS aplica ao acrescimo; complementar tributaria, ICMS-ST, IPI, ISSQN, importacao e IBS/CBS amplo continuam fora de escopo.
+- Criterios de aceite: produto complementar envia apenas acrescimo; nao copia valores originais; IBS/CBS aplica ao acrescimo por `produtos[].impostos.ibs_cbs`; `base_calculo` e obrigatorio no snapshot usado para complementar; `TaxClassNfe` atual nao e fallback automatico; complementar tributaria, ICMS-ST, IPI, ISSQN, importacao e IBS/CBS amplo continuam fora de escopo.
 - Rollback: bloquear complementar IBS/CBS e preservar complementar sem IBS/CBS ja emitida.
-- Arquivos previstos: `apps/finance/services/nfe_complementary.py`, forms/templates de aviso, testes e docs.
+- Arquivos alterados: `apps/finance/services/nfe_complementary.py`, `apps/finance/tests.py` e docs. Sem migration.
+- Validacao: `makemigrations finance --check --dry-run`, 105 testes direcionados fiscais com `--keepdb`, `ruff check` nos Python tocados e `git diff --check` passaram.
 
 ##### Fase 2.4C.3 - Ajuste frente a Reforma Tributaria
 

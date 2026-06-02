@@ -11623,6 +11623,27 @@ class FiscalPhaseTwoComplementaryPriceQuantityTests(TestCase):
     def _response(self, *, uuid: str = "ab895e61-c0da-46ee-a880-a03f8547a9bc", key: str = "35123456789012345678901234567890123456789901") -> dict[str, Any]:
         return {"uuid": uuid, "modelo": "nfe", "status": "aprovado", "nfe": "9100", "serie": "1", "recibo": "REC-COMP", "chave": key, "xml": "https://example.test/comp.xml", "danfe": "https://example.test/comp.pdf", "log": {"token": "secret"}}
 
+    def _ibs_cbs_snapshot(self, *, classificacao: str = "000001") -> dict[str, Any]:
+        return {
+            "situacao_tributaria": "000",
+            "classificacao_tributaria": classificacao,
+            "base_calculo": "0.00",
+            "ibs_estadual": {"aliquota": "0.10"},
+            "cbs": {"aliquota": "0.90"},
+        }
+
+    def _with_ibs_cbs_snapshot(self, item: NfeItem, *, snapshot: dict[str, Any] | None = None) -> NfeItem:
+        raw_payload = dict(item.raw_payload or {})
+        products = [dict(product) for product in raw_payload.get("produtos", []) if isinstance(product, dict)]
+        products[0]["sequencial"] = 1
+        taxes = dict(products[0].get("impostos") or {})
+        taxes["ibs_cbs"] = snapshot or self._ibs_cbs_snapshot()
+        products[0]["impostos"] = taxes
+        raw_payload["produtos"] = products
+        item.raw_payload = raw_payload
+        item.save(update_fields=["raw_payload"])
+        return item
+
     def _emit_complementary(self, item: NfeItem, *, items: list[dict[str, Any]] | None = None, response_payload: dict[str, Any] | None = None) -> FiscalDocument:
         from apps.finance.services.nfe_complementary import create_and_emit_nfe_complementary_price_quantity_from_item
 
@@ -11749,6 +11770,94 @@ class FiscalPhaseTwoComplementaryPriceQuantityTests(TestCase):
         self.assertEqual(product["total"], "25.5")
         self.assertEqual(product["codigo_cfop"], "5102")
         self.assertEqual(product["situacao_tributaria"], "00")
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_complementary_price_in_production_uses_original_ibs_cbs_snapshot(self) -> None:
+        item = self._with_ibs_cbs_snapshot(self._create_nfe_item(suffix=70))
+
+        document = self._emit_complementary(item, items=[{"sequencial": 1, "valor_complementar": "10.00", "codigo_cfop": "5102", "situacao_tributaria": "00"}])
+
+        product = document.request_payload["produtos"][0]
+        self.assertEqual(product["subtotal"], "10")
+        self.assertEqual(product["total"], "10")
+        self.assertNotIn("quantidade", product)
+        self.assertEqual(product["impostos"]["ibs_cbs"]["classificacao_tributaria"], "000001")
+        self.assertEqual(product["impostos"]["ibs_cbs"]["base_calculo"], "0")
+        self.assertNotIn("icms_st", product)
+        self.assertNotIn("ipi", product)
+        self.assertNotIn("issqn", product)
+        self.assertNotIn("ibs", product)
+        self.assertNotIn("cbs", product)
+        self.assertNotIn("agropecuario", product)
+        self.assertNotIn("importacao", product)
+        self.assertNotIn("tipo_credito", document.request_payload)
+        self.assertNotIn("tipo_debito", document.request_payload)
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_complementary_quantity_in_production_uses_original_ibs_cbs_snapshot(self) -> None:
+        item = self._with_ibs_cbs_snapshot(self._create_nfe_item(suffix=71))
+
+        document = self._emit_complementary(item, items=[{"sequencial": 1, "quantidade_complementar": "1", "codigo_cfop": "5102", "situacao_tributaria": "00"}])
+
+        product = document.request_payload["produtos"][0]
+        self.assertEqual(product["quantidade"], "1")
+        self.assertNotIn("subtotal", product)
+        self.assertNotIn("total", product)
+        self.assertEqual(product["impostos"]["ibs_cbs"]["situacao_tributaria"], "000")
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_complementary_quantity_and_price_in_production_use_original_ibs_cbs_snapshot(self) -> None:
+        item = self._with_ibs_cbs_snapshot(self._create_nfe_item(suffix=72))
+
+        document = self._emit_complementary(item, items=[{"sequencial": 1, "quantidade_complementar": "1", "valor_complementar": "25.50", "codigo_cfop": "5102", "situacao_tributaria": "00"}])
+
+        product = document.request_payload["produtos"][0]
+        self.assertEqual(product["quantidade"], "1")
+        self.assertEqual(product["subtotal"], "25.5")
+        self.assertEqual(product["total"], "25.5")
+        self.assertEqual(product["impostos"]["ibs_cbs"]["classificacao_tributaria"], "000001")
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_complementary_in_production_does_not_use_current_tax_class_when_snapshot_differs(self) -> None:
+        from apps.finance.services.nfe_complementary import create_nfe_complementary_price_quantity_draft_from_item
+
+        item = self._with_ibs_cbs_snapshot(self._create_nfe_item(suffix=73))
+        TaxClassNfe.objects.create(workshop=self.workshop, reference="REFNFE", description="Classe atual divergente", ibs_cbs_enabled=True, ibs_cbs_situacao_tributaria="000", ibs_cbs_classificacao_tributaria="999999")
+
+        document = create_nfe_complementary_price_quantity_draft_from_item(
+            item=item,
+            items=[{"sequencial": 1, "valor_complementar": "10.00", "codigo_cfop": "5102", "situacao_tributaria": "00"}],
+            requested_by=self.user,
+            codigo_cfop="5102",
+            legal_confirmation=True,
+        )
+
+        self.assertEqual(document.request_payload["produtos"][0]["impostos"]["ibs_cbs"]["classificacao_tributaria"], "000001")
+        self.assertNotIn("999999", str(document.request_payload))
+
+    @override_settings(WEBMANIA_AMBIENT="1")
+    def test_complementary_in_production_blocks_missing_or_incomplete_ibs_cbs_snapshot(self) -> None:
+        from apps.finance.services.nfe_complementary import NfeComplementaryError, create_nfe_complementary_price_quantity_draft_from_item
+
+        item = self._create_nfe_item(suffix=74)
+        with self.assertRaisesMessage(NfeComplementaryError, "snapshot IBS/CBS confiavel"):
+            create_nfe_complementary_price_quantity_draft_from_item(
+                item=item,
+                items=[{"sequencial": 1, "valor_complementar": "10.00", "codigo_cfop": "5102", "situacao_tributaria": "00"}],
+                requested_by=self.user,
+                codigo_cfop="5102",
+                legal_confirmation=True,
+            )
+
+        incomplete_item = self._with_ibs_cbs_snapshot(self._create_nfe_item(suffix=75), snapshot={"situacao_tributaria": "000"})
+        with self.assertRaisesMessage(NfeComplementaryError, "snapshot IBS/CBS incompleto"):
+            create_nfe_complementary_price_quantity_draft_from_item(
+                item=incomplete_item,
+                items=[{"sequencial": 1, "valor_complementar": "10.00", "codigo_cfop": "5102", "situacao_tributaria": "00"}],
+                requested_by=self.user,
+                codigo_cfop="5102",
+                legal_confirmation=True,
+            )
 
     def test_complementary_blocks_ineligible_original_and_external_minimal(self) -> None:
         from apps.finance.services.nfe_complementary import NfeComplementaryError, create_nfe_complementary_price_quantity_draft

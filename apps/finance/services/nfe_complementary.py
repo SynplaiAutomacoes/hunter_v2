@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -9,6 +10,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.http import HttpRequest
+from django.utils import timezone
 
 from apps.finance.models.finance import (
     FiscalDocument,
@@ -27,6 +29,7 @@ from apps.finance.models.finance import (
 )
 from apps.finance.services.emission import build_webmania_webhook_url
 from apps.finance.services.fiscal_attempts import FiscalEmissionAttemptBlocked, begin_emission_attempt, build_fiscal_document_operation_idempotency_key, build_payload_hash, mark_attempt_failed, mark_attempt_sent, mark_attempt_succeeded, mark_attempt_uncertain, sanitize_fiscal_payload
+from apps.finance.services.ibs_cbs import IbsCbsConfigurationError, build_ibs_cbs_payload_from_values
 from apps.finance.services.nfe_events import ensure_fiscal_document_for_nfe_item
 from apps.finance.services.nfe_returns import validate_access_key
 from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting, should_use_global_webmania_auth
@@ -34,6 +37,7 @@ from apps.finance.services.webmania_errors import build_webmania_request_excepti
 
 
 logger = logging.getLogger(__name__)
+IBS_CBS_CONSERVATIVE_CUTOFF_DATE = date(2026, 1, 1)
 
 
 class NfeComplementaryError(Exception):
@@ -98,14 +102,30 @@ def _extract_products_from_payload(payload: Any) -> list[dict[str, Any]]:
     return []
 
 
+def _product_sequence(product: dict[str, Any], *, fallback_index: int | None = None) -> int:
+    for key in ("sequencial", "sequencia", "numero_item", "item", "produto", "item_original"):
+        value = str(product.get(key) or "").strip()
+        if value.isdigit() and int(value) > 0:
+            return int(value)
+    if fallback_index is not None:
+        return fallback_index
+    raise NfeComplementaryError("Cada item complementar deve informar o sequencial fiscal original.")
+
+
 def _original_product_by_sequence(document: FiscalDocument, sequence: int) -> dict[str, Any]:
-    payload_sources = [document.request_payload, document.response_payload]
+    payload_sources: list[Any] = []
     if document.legacy_nfe_item_id:
         payload_sources.extend([document.legacy_nfe_item.raw_payload, document.legacy_nfe_item.log_payload])
+    payload_sources.extend([document.request_payload, document.response_payload])
     for payload in payload_sources:
         products = _extract_products_from_payload(payload)
-        if 1 <= sequence <= len(products):
-            return dict(products[sequence - 1])
+        for index, product in enumerate(products, start=1):
+            try:
+                product_sequence = _product_sequence(product, fallback_index=index)
+            except NfeComplementaryError:
+                continue
+            if product_sequence == sequence:
+                return dict(product)
     raise NfeComplementaryError("NF-e original nao possui itens fiscais conhecidos para complementar preco/quantidade.")
 
 
@@ -138,7 +158,48 @@ def _normalize_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return normalized
 
 
-def _build_product_payload(*, original_product: dict[str, Any], complementary_item: dict[str, Any]) -> dict[str, Any]:
+def _complementary_requires_ibs_cbs(*, original_document: FiscalDocument) -> bool:
+    if str(original_document.environment or "").strip() != "1":
+        return False
+    return timezone.localdate() >= IBS_CBS_CONSERVATIVE_CUTOFF_DATE
+
+
+def _extract_ibs_cbs_payload_from_product(product: dict[str, Any], *, sequence: int) -> dict[str, Any]:
+    raw_ibs_cbs = product.get("ibs_cbs")
+    taxes = product.get("impostos")
+    if raw_ibs_cbs in (None, "", {}) and isinstance(taxes, dict):
+        raw_ibs_cbs = taxes.get("ibs_cbs")
+    if not isinstance(raw_ibs_cbs, dict):
+        raise NfeComplementaryError(f"Item fiscal {sequence} nao possui snapshot IBS/CBS confiavel para Nota Fiscal Complementar.")
+
+    base_calculo = raw_ibs_cbs.get("base_calculo")
+    if base_calculo in (None, ""):
+        raise NfeComplementaryError(f"Item fiscal {sequence} possui snapshot IBS/CBS incompleto: base_calculo e obrigatorio na Nota Fiscal Complementar.")
+    try:
+        formatted_base_calculo = _decimal_to_payload(Decimal(str(base_calculo).replace(",", ".")))
+    except InvalidOperation as exc:
+        raise NfeComplementaryError(f"Item fiscal {sequence} possui snapshot IBS/CBS incompleto: base_calculo invalido.") from exc
+
+    details = {key: value for key, value in raw_ibs_cbs.items() if key not in {"situacao_tributaria", "classificacao_tributaria", "situacao_tributaria_regular", "classificacao_tributaria_regular", "base_calculo"}}
+    try:
+        payload = build_ibs_cbs_payload_from_values(
+            enabled=True,
+            situacao_tributaria=str(raw_ibs_cbs.get("situacao_tributaria") or ""),
+            classificacao_tributaria=str(raw_ibs_cbs.get("classificacao_tributaria") or ""),
+            situacao_tributaria_regular=str(raw_ibs_cbs.get("situacao_tributaria_regular") or ""),
+            classificacao_tributaria_regular=str(raw_ibs_cbs.get("classificacao_tributaria_regular") or ""),
+            details=details,
+        )
+    except IbsCbsConfigurationError as exc:
+        raise NfeComplementaryError(f"Item fiscal {sequence} possui snapshot IBS/CBS incompleto: {exc}") from exc
+    payload["base_calculo"] = formatted_base_calculo
+    return payload
+
+
+def _build_product_payload(*, original_product: dict[str, Any], complementary_item: dict[str, Any], include_ibs_cbs: bool) -> dict[str, Any]:
+    ibs_cbs_payload: dict[str, Any] | None = None
+    if include_ibs_cbs:
+        ibs_cbs_payload = _extract_ibs_cbs_payload_from_product(original_product, sequence=int(complementary_item["sequencial"]))
     product = dict(original_product)
     for original_amount_key in ("quantidade", "subtotal", "total", "valor", "preco", "valor_unitario", "preco_unitario", "total_item"):
         product.pop(original_amount_key, None)
@@ -152,6 +213,8 @@ def _build_product_payload(*, original_product: dict[str, Any], complementary_it
         product["total"] = complementary_item["valor_complementar"]
     for forbidden_key in ("impostos", "ibs", "cbs", "icms_st", "ipi", "issqn", "agropecuario", "importacao", "adicao", "adicoes"):
         product.pop(forbidden_key, None)
+    if ibs_cbs_payload is not None:
+        product["impostos"] = {"ibs_cbs": ibs_cbs_payload}
     return product
 
 
@@ -163,6 +226,7 @@ def _build_client_payload(original_document: FiscalDocument) -> dict[str, Any]:
 
 
 def _build_complementary_payload(*, original_document: FiscalDocument, items: list[dict[str, Any]], operacao: str, natureza_operacao: str, codigo_cfop: str, request: HttpRequest | None = None) -> dict[str, Any]:
+    requires_ibs_cbs = _complementary_requires_ibs_cbs(original_document=original_document)
     payload: dict[str, Any] = {
         "operacao": str(operacao or "1").strip(),
         "natureza_operacao": str(natureza_operacao or "Nota Fiscal Complementar").strip(),
@@ -179,7 +243,7 @@ def _build_complementary_payload(*, original_document: FiscalDocument, items: li
         raise NfeComplementaryError("NF-e original precisa possuir chave ou UUID valido.")
     for item in items:
         original_product = _original_product_by_sequence(original_document, int(item["sequencial"]))
-        payload["produtos"].append(_build_product_payload(original_product=original_product, complementary_item=item))
+        payload["produtos"].append(_build_product_payload(original_product=original_product, complementary_item=item, include_ibs_cbs=requires_ibs_cbs))
     notification_url = build_webmania_webhook_url(request=request)
     if notification_url:
         payload["url_notificacao"] = notification_url

@@ -332,11 +332,11 @@
 ## ADR-038 - Complementar preco/quantidade IBS/CBS nao e complementar tributaria
 
 - Contexto: a Fase 2.2B.1 implementou apenas complementar de preco/quantidade e removeu objetos tributarios amplos do payload. A Reforma Tributaria pode exigir IBS/CBS no item, mas isso nao autoriza abrir complemento tributario geral.
-- Decisao: na 2.4C.2, IBS/CBS deve ser aplicado somente ao acrescimo de preco/quantidade quando o contrato e o snapshot permitirem. Complementar tributaria ampla permanece subfase separada e nao implementada.
+- Decisao: na 2.4C.2, IBS/CBS deve ser aplicado somente ao acrescimo de preco/quantidade quando o contrato e o snapshot permitirem. O bloco permitido e `produtos[].impostos.ibs_cbs`, derivado do snapshot fiscal da NF-e original local; `base_calculo` e obrigatorio na complementar conforme contrato oficial e deve estar no snapshot usado. `TaxClassNfe` atual nao e fallback automatico. Complementar tributaria ampla permanece subfase separada e nao implementada.
 - Alternativas consideradas: reintroduzir todo objeto `impostos`; manter bloqueio total; misturar preco/quantidade e impostos no mesmo formulario.
 - Consequencias: preserva escopo incremental e evita rejeicoes por payload tributario incompatível.
 - Riscos: alguns cenarios fiscais podem exigir complementar tributaria antes de preco/quantidade com IBS/CBS; nesses casos deve haver nova aprovacao.
-- Status: proposta na Fase 2.4C.0.
+- Status: implementada e validada na Fase 2.4C.2 para complementar de preco/quantidade local.
 - Fase: 2.4C.2.
 
 ## ADR-039 - Ajuste IBS/CBS exige revalidacao especifica
