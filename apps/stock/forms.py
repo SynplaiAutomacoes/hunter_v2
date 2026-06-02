@@ -836,6 +836,9 @@ class ImportStepSummaryForm(CoreModelForm):
             record_product_last_purchase_price(product=product, price=purchase_price)
             record_product_last_used_price(product=product, price=selling_price)
 
+        from apps.finance.models.financial_movement import FinancialMovement
+        from apps.sources.models import Source
+
         for pay in instance.payments_data:
             if normalize_entry_type(pay) != PAYMENT_ENTRY_TYPE:
                 continue
@@ -857,6 +860,24 @@ class ImportStepSummaryForm(CoreModelForm):
             method_id = pay.get("method")
             payment_method_obj = get_object_or_404(PaymentMethod, id=method_id, workshop=workshop)
             StockPaymentMethod.objects.create(workshop=workshop, payment_method=payment_method_obj, installments_count=installments, first_installment_amount=Money(first_amount, "BRL"), remaining_installments_amount=Money(remaining_amount, "BRL"), nf_number=resolved_nf_number or "MANUAL", due_date=payment_due_date)
+
+            financial_movement_id = pay.get("financial_movement_id")
+            if financial_movement_id and not FinancialMovement.objects.filter(pk=financial_movement_id, workshop=workshop).exists():
+                source_name = instance.supplier_name or "Fornecedor da Importação"
+                source_cnpj = instance.supplier_cnpj or ""
+                source, _ = Source.objects.get_or_create(workshop=workshop, name=source_name, defaults={"cnpj": source_cnpj})
+                FinancialMovement.objects.create(
+                    workshop=workshop,
+                    user=self.request.user,
+                    source=source,
+                    direction=FinancialMovement.MovementDirection.DEBIT,
+                    description=f"Pagamento Importação de Estoque - NF: {resolved_nf_number}",
+                    payment_method=payment_method_obj,
+                    nf_number=instance.nf_number,
+                    amount=Money(total_val, "BRL"),
+                    due_date=payment_due_date,
+                    is_paid=False,
+                )
 
         instance.status = StockImport.ImportStatus.COMPLETED
         if commit:

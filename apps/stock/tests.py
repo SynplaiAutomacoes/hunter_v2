@@ -1686,3 +1686,259 @@ class BackfillStockProductSuppliersCommandTests(TestCase):
 
         self.stock_product.refresh_from_db()
         self.assertIsNone(self.stock_product.supplier)
+
+
+class StockImportFinancialMovementTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=60)
+        self.group = CatalogGroup.objects.create(workshop=self.workshop, name="Filtros")
+        self.product = Product.objects.create(
+            workshop=self.workshop,
+            code="FLT-060",
+            name="Filtro Financeiro",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price="10.00",
+            selling_price="15.00",
+            origin_cst=Product.OriginCST.NACIONAL,
+            purpose=Product.Purpose.RESALE,
+        )
+        self.stock_product = StockProduct.objects.get(workshop=self.workshop, product=self.product)
+        self.stock_product.current_quantity = 10
+        self.stock_product.save(update_fields=["current_quantity"])
+        self.payment_method = PaymentMethod.objects.create(
+            workshop=self.workshop,
+            description="PIX",
+            installments_count=1,
+            is_active=True,
+        )
+        self.stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            method=StockImport.ImportMethods.MANUAL,
+            current_step=4,
+            nf_key="6" * 44,
+            nf_number="6001",
+            supplier_name="Fornecedor Financeiro",
+            supplier_cnpj="12.345.678/0001-60",
+            items_data=[
+                {
+                    "ref": self.product.code,
+                    "desc": self.product.name,
+                    "qtd": "5",
+                    "valor": "10.00",
+                    "selling_price": "15.00",
+                    "linked_product_id": str(self.product.pk),
+                }
+            ],
+            payments_data=[
+                {
+                    "id": 1,
+                    "financial_movement_id": 99999,
+                    "fee_financial_movement_id": None,
+                    "entry_type": "payment",
+                    "method": self.payment_method.pk,
+                    "method_display": "PIX",
+                    "installments": "1",
+                    "first_amount": "50.00",
+                    "total_paid": "50.00",
+                    "payment_date": timezone.localdate().isoformat(),
+                    "reason": "PIX",
+                }
+            ],
+            status=StockImport.ImportStatus.DRAFT,
+        )
+
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+    def test_add_payment_session_creates_financial_movement_with_nf_description(self) -> None:
+        response = self.client.post(
+            reverse("stock:add_payment_session") + f"?pk={self.stock_import.pk}",
+            data={
+                "payment_method": str(self.payment_method.pk),
+                "payment_date": timezone.localdate().isoformat(),
+                "first_amount_0": "50.00",
+                "first_amount_1": "BRL",
+            },
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.stock_import.refresh_from_db()
+
+        payments = self.stock_import.payments_data
+        self.assertEqual(len(payments), 2)
+
+        fm_id = payments[-1]["financial_movement_id"]
+        fm = FinancialMovement.objects.get(pk=fm_id)
+        self.assertEqual(fm.direction, FinancialMovement.MovementDirection.DEBIT)
+        self.assertIn("6001", fm.description)
+        self.assertEqual(fm.amount, Money("50.00", "BRL"))
+        self.assertEqual(fm.due_date, timezone.localdate())
+        self.assertFalse(fm.is_paid)
+
+    def test_summary_form_safety_net_recreates_missing_financial_movement(self) -> None:
+        self.assertFalse(FinancialMovement.objects.filter(pk=99999).exists())
+
+        form = ImportStepSummaryForm(
+            instance=self.stock_import,
+            workshop=self.workshop,
+            request=SimpleNamespace(user=self.user),
+        )
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        form.save()
+
+        self.stock_import.refresh_from_db()
+        self.assertEqual(self.stock_import.status, StockImport.ImportStatus.COMPLETED)
+
+        fm = FinancialMovement.objects.filter(workshop=self.workshop, nf_number="6001").first()
+        self.assertIsNotNone(fm)
+        self.assertIn("6001", fm.description)
+        self.assertEqual(fm.amount, Money("50.00", "BRL"))
+
+    def test_delete_completed_import_reverts_stock_and_removes_movements(self) -> None:
+        fm = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Pagamento Importação de Estoque - NF: 6001",
+            payment_method=self.payment_method,
+            nf_number="6001",
+            amount=Money("50.00", "BRL"),
+            due_date=timezone.localdate(),
+            is_paid=False,
+        )
+        self.stock_import.payments_data[0]["financial_movement_id"] = fm.pk
+        self.stock_import.status = StockImport.ImportStatus.COMPLETED
+        self.stock_import.save(update_fields=["payments_data", "status"])
+
+        StockMovement.objects.create(
+            workshop=self.workshop,
+            stock_product=self.stock_product,
+            type=StockMovement.MovementType.ENTRY,
+            quantity=5,
+            status=StockMovement.MovementStatus.APPROVED,
+            transcation_by=self.user,
+        )
+        self.stock_product.current_quantity = 15
+        self.stock_product.save(update_fields=["current_quantity"])
+
+        response = self.client.post(reverse("stock:stock_delete", args=[self.stock_import.pk]))
+        self.assertEqual(response.status_code, 302)
+
+        self.stock_product.refresh_from_db()
+        self.assertEqual(self.stock_product.current_quantity, 10)
+
+        self.assertFalse(FinancialMovement.objects.filter(pk=fm.pk).exists())
+        self.assertFalse(StockImport.objects.filter(pk=self.stock_import.pk).exists())
+
+
+class ReconcileStockImportMovementsCommandTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=70)
+        self.payment_method = PaymentMethod.objects.create(
+            workshop=self.workshop,
+            description="PIX",
+            installments_count=1,
+            is_active=True,
+        )
+
+    def test_command_creates_missing_financial_movement(self) -> None:
+        StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            nf_number="7001",
+            supplier_name="Fornecedor Reconcile",
+            supplier_cnpj="12.345.678/0001-70",
+            status=StockImport.ImportStatus.COMPLETED,
+            payments_data=[
+                {
+                    "id": 1,
+                    "financial_movement_id": 88888,
+                    "entry_type": "payment",
+                    "method": self.payment_method.pk,
+                    "method_display": "PIX",
+                    "installments": "1",
+                    "first_amount": "100.00",
+                    "total_paid": "100.00",
+                    "payment_date": timezone.localdate().isoformat(),
+                    "reason": "PIX",
+                }
+            ],
+        )
+
+        call_command("reconcile_stock_import_movements")
+
+        fm = FinancialMovement.objects.filter(workshop=self.workshop, nf_number="7001").first()
+        self.assertIsNotNone(fm)
+        self.assertEqual(fm.amount, Money("100.00", "BRL"))
+        self.assertIn("7001", fm.description)
+
+    def test_command_skips_existing_financial_movement(self) -> None:
+        fm = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Pagamento Importação de Estoque - NF: 7002",
+            payment_method=self.payment_method,
+            nf_number="7002",
+            amount=Money("200.00", "BRL"),
+            due_date=timezone.localdate(),
+            is_paid=False,
+        )
+        StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            nf_number="7002",
+            supplier_name="Fornecedor Reconcile 2",
+            supplier_cnpj="12.345.678/0001-71",
+            status=StockImport.ImportStatus.COMPLETED,
+            payments_data=[
+                {
+                    "id": 1,
+                    "financial_movement_id": fm.pk,
+                    "entry_type": "payment",
+                    "method": self.payment_method.pk,
+                    "method_display": "PIX",
+                    "installments": "1",
+                    "first_amount": "200.00",
+                    "total_paid": "200.00",
+                    "payment_date": timezone.localdate().isoformat(),
+                    "reason": "PIX",
+                }
+            ],
+        )
+
+        call_command("reconcile_stock_import_movements")
+
+        self.assertEqual(FinancialMovement.objects.filter(workshop=self.workshop, nf_number="7002").count(), 1)
+
+    def test_command_dry_run_does_not_create_movements(self) -> None:
+        StockImport.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            nf_number="7003",
+            supplier_name="Fornecedor Reconcile 3",
+            supplier_cnpj="12.345.678/0001-72",
+            status=StockImport.ImportStatus.COMPLETED,
+            payments_data=[
+                {
+                    "id": 1,
+                    "financial_movement_id": 77777,
+                    "entry_type": "payment",
+                    "method": self.payment_method.pk,
+                    "method_display": "PIX",
+                    "installments": "1",
+                    "first_amount": "300.00",
+                    "total_paid": "300.00",
+                    "payment_date": timezone.localdate().isoformat(),
+                    "reason": "PIX",
+                }
+            ],
+        )
+
+        call_command("reconcile_stock_import_movements", dry_run=True)
+
+        self.assertFalse(FinancialMovement.objects.filter(workshop=self.workshop, nf_number="7003").exists())
