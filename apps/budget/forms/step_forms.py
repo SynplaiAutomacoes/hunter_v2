@@ -2765,17 +2765,10 @@ class BudgetStep5Form(CoreModelForm):
 class BudgetStep6Form(CoreModelForm):
     class Meta:
         model = Budget
-        fields = ["customer_agreed_departure_at", "service_expected_completion_at", "observations"]
+        fields = ["customer_agreed_departure_at", "service_expected_completion_at"]
         widgets = {
             "customer_agreed_departure_at": forms.DateTimeInput(format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local", "class": "input-theme h-12"}),
             "service_expected_completion_at": forms.DateTimeInput(format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local", "class": "input-theme h-12"}),
-            "observations": TextareaInput(
-                attrs={
-                    "rows": 4,
-                    "class": "bg-base-200",
-                    "style": "background-color: var(--color-base-200); resize: none;",
-                }
-            ),
         }
 
     def __init__(self, *args, **kwargs):
@@ -2852,6 +2845,8 @@ class BudgetStep6Form(CoreModelForm):
         signed_pdf_download_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?download=1&variant=signed"
         base_pdf_download_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?download=1&variant=base"
 
+        saved_observation = budget.observations or ""
+
         cancellation_reason_html = ""
         if budget.cancellation_reason:
             cancellation_reason_html = f"""
@@ -2918,6 +2913,22 @@ class BudgetStep6Form(CoreModelForm):
             # =========================
             HTML("""
             <script>
+                function saveObservation(budgetId) {
+                    const observation = document.getElementById('budget-observation').value;
+
+                    fetch('/budget/save-observation/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': '{{ csrf_token }}'
+                        },
+                        body: JSON.stringify({
+                            budget_id: budgetId,
+                            observation: observation,
+                        })
+                    });
+                }
+                
                 function showBlockedStep6Action(message) {
                     document.body.dispatchEvent(new CustomEvent('showToast', {
                         detail: {
@@ -3351,11 +3362,25 @@ class BudgetStep6Form(CoreModelForm):
                     ),
                     # -------- OBSERVAÇÕES DO ORÇAMENTO --------
                     Div(
-                        HTML('<h4 class="font-bold text-lg mb-2 border-b">Observações</h4>'),
-                        Div(
-                            Field("observations", wrapper_class="mb-0"),
-                            css_class="mb-4",
-                        ),
+                        HTML('<h4 class="font-bold text-lg mb-2 border-b">Observação</h4>'),
+                        HTML(f"""
+                                                <div class="flex flex-col gap-3 mb-8">
+                                                    <textarea
+                                                        class="textarea textarea-bordered w-full"
+                                                        rows="4"
+                                                        id="budget-observation"
+                                                        placeholder="Digite uma observação para o PDF..."
+                                                    >{saved_observation}</textarea>
+
+                                                    <div class="flex justify-end items-center">
+                                                        <button type="button"
+                                                                class="btn btn-sm btn-primary"
+                                                                onclick="saveObservation({budget.pk})">
+                                                            Salvar observação
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                """),
                         css_class="p-4 bg-base-200/50 rounded-lg",
                     ),
                     # -------- APROVAÇÃO --------

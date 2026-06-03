@@ -6,7 +6,9 @@ from typing import Any
 from djmoney.money import Money
 
 from apps.budget.pdf_context import build_workshop_logo_data_uri
+from apps.customer.models import Customer, Vehicle
 from apps.workorder.models import WorkOrder, WorkOrderStatus
+from apps.workshops.models.workshops import Workshop
 
 
 def _build_pdf_pages(produtos: list[dict[str, Any]], servicos: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -23,13 +25,14 @@ def _build_pdf_pages(produtos: list[dict[str, Any]], servicos: list[dict[str, An
 @dataclass(slots=True)
 class WorkOrderPdfBudgetProxy:
     id: int
-    workshop: Any
+    workshop: Workshop
     created: Any
     criado_em: Any
-    customer: Any
-    vehicle: Any
+    customer: Customer
+    vehicle: Vehicle
     problem_description: str | None
-    pdf_observation: str
+    observations: str
+    fixed_observation: str
     resolved_discount_value: Money
     total_budget_value: Money
     budget_status: str
@@ -39,7 +42,8 @@ class WorkOrderPdfBudgetProxy:
 
 def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[str, Any]:
     snapshot = workorder.pricing_snapshot
-    resolved_observation = workorder.workshop.pdf_observation
+    observations = workorder.budget.observations
+    fixed_observation = workorder.budget.workshop.pdf_observation
 
     is_warranty_budget = workorder.budget.is_warranty_budget or workorder.budget.budget_type == "warranty" or workorder.budget_type in ("warranty", "courtesy")
     is_courtesy_budget = workorder.budget.budget_type == "courtesy"
@@ -101,7 +105,8 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
         customer=workorder.budget.customer,
         vehicle=workorder.budget.vehicle,
         problem_description=workorder.budget.problem_description,
-        pdf_observation=resolved_observation,
+        observations=observations,
+        fixed_observation=fixed_observation,
         resolved_discount_value=snapshot.resolved_discount_value,
         total_budget_value=workorder.total_budget_value,
         budget_status=WorkOrderStatus(workorder.status).label,
@@ -119,7 +124,8 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
         "total_servicos": workorder.get_total_services_by_slider,
         "desconto": snapshot.resolved_discount_value,
         "total_geral": ZERO if is_warranty_or_courtesy else workorder.total_budget_value,
-        "observacao": resolved_observation,
+        "observations": observations,
+        "fixed_observation": fixed_observation,
         "total_profit_product_value": sum((line.profit_value for line in snapshot.product_lines), Money(0, "BRL")),
         "total_profit_service_value": sum((line.profit_value for line in snapshot.service_lines), Money(0, "BRL")),
         "payments": payments,
