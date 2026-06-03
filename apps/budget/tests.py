@@ -55,7 +55,7 @@ from apps.iam.utils import get_or_create_director_role
 from apps.stock.models import StockProduct
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 from apps.budget.views.pdf_views import signature_file, signature_preview, visualizar_pdf_assinatura
-from apps.budget.views.workflow_views import BUDGET_LIST_FILTERS, trigger_signature_send_if_needed
+from apps.budget.views.workflow_views import BUDGET_LIST_FILTERS, BudgetCreateView, trigger_signature_send_if_needed
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.models.monthly_costs import MonthlyCost
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
@@ -1924,59 +1924,44 @@ class BudgetPdfViewTests(TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertNotContains(response, "Orçamento de Garantia")
 
-    def test_visualizar_pdf_uses_budget_observation_only(self) -> None:
-        budget_a = self._create_budget_with_customer_and_vehicle(suffix=101)
-        budget_b = self._create_budget_with_customer_and_vehicle(suffix=102)
+    def test_visualizar_pdf_uses_workshop_observation(self) -> None:
+        budget = self._create_budget_with_customer_and_vehicle(suffix=101)
         self.workshop.pdf_observation = "Observacao da oficina"
         self.workshop.save(update_fields=["pdf_observation"])
-        budget_a.pdf_observation = "Observacao do orcamento A"
-        budget_a.save(update_fields=["pdf_observation"])
 
-        response = self.client.get(reverse("budget:visualizar_pdf", args=[budget_b.pk]))
+        response = self.client.get(reverse("budget:visualizar_pdf", args=[budget.pk]))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Nenhuma observação técnica adicional.")
-        self.assertNotContains(response, "Observacao da oficina")
-        self.assertNotContains(response, "Observacao do orcamento A")
+        self.assertContains(response, "Observacao da oficina")
 
-    def test_save_observation_updates_only_selected_budget(self) -> None:
-        budget_a = create_budget(workshop=self.workshop)
-        budget_b = create_budget(workshop=self.workshop)
-        budget_b.pdf_observation = "Nao alterar"
-        budget_b.save(update_fields=["pdf_observation"])
-        self.workshop.pdf_observation = "Observacao da oficina"
-        self.workshop.save(update_fields=["pdf_observation"])
+    def test_save_observation_updates_workshop(self) -> None:
+        create_budget(workshop=self.workshop)
 
         response = self.client.post(
             reverse("budget:save_observation"),
-            data=json.dumps({"budget_id": budget_a.pk, "observation": "Observacao do orcamento A"}),
+            data=json.dumps({"observation": "Observacao da oficina"}),
             content_type="application/json",
         )
 
-        budget_a.refresh_from_db()
-        budget_b.refresh_from_db()
         self.workshop.refresh_from_db()
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(budget_a.pdf_observation, "Observacao do orcamento A")
-        self.assertEqual(budget_b.pdf_observation, "Nao alterar")
         self.assertEqual(self.workshop.pdf_observation, "Observacao da oficina")
 
     def test_save_observation_accepts_more_than_250_chars(self) -> None:
-        budget = create_budget(workshop=self.workshop)
         observation = f"observacao longa {'x' * 280}"
 
         response = self.client.post(
             reverse("budget:save_observation"),
-            data=json.dumps({"budget_id": budget.pk, "observation": observation}),
+            data=json.dumps({"observation": observation}),
             content_type="application/json",
         )
 
-        budget.refresh_from_db()
+        self.workshop.refresh_from_db()
 
         self.assertEqual(response.status_code, 200)
         self.assertGreater(len(observation), 250)
-        self.assertEqual(budget.pdf_observation, sentence_case(observation))
+        self.assertEqual(self.workshop.pdf_observation, sentence_case(observation))
 
 
 class BudgetStep6FormTests(TestCase):
@@ -2119,22 +2104,19 @@ class BudgetStep6FormTests(TestCase):
         self.assertNotIn(kit_service.name, rows["service"])
         self.assertIn(kit.name, rows["kit"])
 
-    def test_step6_uses_budget_observation_without_inheriting_workshop_value(self) -> None:
+    def test_step6_uses_workshop_observation(self) -> None:
         workshop = create_workshop(suffix=69)
         workshop.pdf_observation = "Observacao da oficina"
         workshop.save(update_fields=["pdf_observation"])
 
         budget = create_budget(workshop=workshop)
-        budget.pdf_observation = "Observacao do orcamento"
-        budget.save(update_fields=["pdf_observation"])
 
         request = RequestFactory().get("/")
         request.user = User.objects.create_user(username="budget-step6-user-69", password="123")
         form = BudgetStep6Form(instance=budget, workshop=workshop, request=request)
         html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form, "csrf_token": "token"}))
 
-        self.assertIn("Observacao do orcamento", html)
-        self.assertNotIn("Observacao da oficina", html)
+        self.assertIn("Observacao da oficina", html)
 
     def test_step6_observation_field_has_no_character_limit(self) -> None:
         workshop = create_workshop(suffix=71)
@@ -3773,11 +3755,9 @@ class BudgetSignaturePublicViewTests(TestCase):
     def test_signature_preview_renders_budget_pdf_template(self, build_context_mock, render_mock) -> None:
         workshop = create_workshop(suffix=78)
         budget = create_budget(workshop=workshop)
-        budget.pdf_observation = "Observacao do orcamento"
-        budget.save(update_fields=["pdf_observation"])
         token = extract_token_from_url(build_signature_preview_url(budget=budget))
 
-        build_context_mock.return_value = {"budget": budget, "observacao": budget.pdf_observation}
+        build_context_mock.return_value = {"budget": budget, "fixed_observation": workshop.pdf_observation}
         render_mock.return_value = HttpResponse("preview")
 
         response = signature_preview(self.factory.get("/"), token)
@@ -3785,8 +3765,8 @@ class BudgetSignaturePublicViewTests(TestCase):
         self.assertEqual(response.content, b"preview")
         render_mock.assert_called_once()
         self.assertEqual(render_mock.call_args.args[1], "budget/partials/pdf/visualizarPDF.html")
-        self.assertEqual(render_mock.call_args.args[2], {"budget": budget, "observacao": budget.pdf_observation})
-        build_context_mock.assert_called_once_with(budget=budget, observacao=budget.pdf_observation, request=ANY, zero_warranty_prices=True, presentation="selected_items")
+        self.assertEqual(render_mock.call_args.args[2], {"budget": budget, "fixed_observation": workshop.pdf_observation})
+        build_context_mock.assert_called_once_with(budget=budget, request=ANY, zero_warranty_prices=True, presentation="selected_items")
 
     def test_signature_preview_rejects_inactive_token(self) -> None:
         workshop = create_workshop(suffix=79)
@@ -4035,3 +4015,200 @@ class SuperSignDownloadUrlTests(TestCase):
         ):
             with self.assertRaises(SignatureDeliveryServiceError):
                 get_signed_document_url(document_id="doc-999")
+
+
+class BudgetObservationsFieldTests(TestCase):
+    def test_new_budget_has_empty_observations_by_default(self) -> None:
+        workshop = create_workshop(suffix=50)
+        budget = create_budget(workshop=workshop)
+        self.assertEqual(budget.observations, "")
+
+    def test_save_budget_with_observations_persists(self) -> None:
+        workshop = create_workshop(suffix=51)
+        budget = create_budget(workshop=workshop)
+        budget.observations = "Texto de observação de teste."
+        budget.save(update_fields=["observations"])
+        budget.refresh_from_db()
+        self.assertEqual(budget.observations, "Texto de observação de teste.")
+
+    def test_existing_budget_observations_remain_empty(self) -> None:
+        workshop = create_workshop(suffix=52)
+        budget = create_budget(workshop=workshop)
+        budget.refresh_from_db()
+        self.assertEqual(budget.observations, "")
+
+
+class BudgetObservationsFormInitialTests(TestCase):
+    def test_step6_form_includes_observations_field(self) -> None:
+        workshop = create_workshop(suffix=53)
+        budget = create_budget(workshop=workshop)
+        request = RequestFactory().get("/")
+        request.user = User.objects.create_user(username="obs-form-53", password="123")
+        form = BudgetStep6Form(instance=budget, workshop=workshop, request=request)
+        self.assertIn("observations", form.fields)
+
+    def test_step6_form_observations_not_required(self) -> None:
+        workshop = create_workshop(suffix=54)
+        budget = create_budget(workshop=workshop)
+        request = RequestFactory().get("/")
+        request.user = User.objects.create_user(username="obs-form-54", password="123")
+        form = BudgetStep6Form(instance=budget, workshop=workshop, request=request)
+        self.assertFalse(form.fields["observations"].required)
+
+    def test_step6_form_renders_observations_field(self) -> None:
+        workshop = create_workshop(suffix=55)
+        budget = create_budget(workshop=workshop)
+        request = RequestFactory().get("/")
+        request.user = User.objects.create_user(username="obs-form-55", password="123")
+        form = BudgetStep6Form(instance=budget, workshop=workshop, request=request)
+        html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form, "csrf_token": "token"}))
+        self.assertIn("observations", html)
+        self.assertIn("Observações", html)
+
+    def test_step6_form_shows_existing_observations(self) -> None:
+        workshop = create_workshop(suffix=56)
+        budget = create_budget(workshop=workshop)
+        budget.observations = "Observação existente."
+        budget.save(update_fields=["observations"])
+        request = RequestFactory().get("/")
+        request.user = User.objects.create_user(username="obs-form-56", password="123")
+        form = BudgetStep6Form(instance=budget, workshop=workshop, request=request)
+        self.assertEqual(form.initial.get("observations"), "Observação existente.")
+
+
+class BudgetObservationsPreFillTests(TestCase):
+    def test_no_previous_budget_initial_is_empty(self) -> None:
+        workshop = create_workshop(suffix=57)
+        request = RequestFactory().get("/?step=6")
+        request.user = User.objects.create_user(username="obs-prefill-57", password="123")
+        view = BudgetCreateView()
+        view.request = request
+        view.workshop = workshop
+        view.kwargs = {}
+        view._model_instance = None
+        kwargs = view.get_form_kwargs()
+        self.assertNotIn("observations", kwargs.get("initial", {}))
+
+    def test_previous_budget_in_same_workshop_prefills_observations(self) -> None:
+        workshop = create_workshop(suffix=58)
+        older_budget = create_budget(workshop=workshop)
+        older_budget.observations = "Observação do orçamento anterior."
+        older_budget.save(update_fields=["observations"])
+
+        request = RequestFactory().get("/?step=6")
+        request.user = User.objects.create_user(username="obs-prefill-58", password="123")
+        view = BudgetCreateView()
+        view.request = request
+        view.workshop = workshop
+        view.kwargs = {}
+        view._model_instance = None
+        kwargs = view.get_form_kwargs()
+        self.assertEqual(kwargs["initial"]["observations"], "Observação do orçamento anterior.")
+
+    def test_previous_budget_in_other_workshop_does_not_prefill(self) -> None:
+        other_workshop = create_workshop(suffix=59)
+        other_budget = create_budget(workshop=other_workshop)
+        other_budget.observations = "Observação de outra oficina."
+        other_budget.save(update_fields=["observations"])
+
+        current_workshop = create_workshop(suffix=60)
+
+        request = RequestFactory().get("/?step=6")
+        request.user = User.objects.create_user(username="obs-prefill-60", password="123")
+        view = BudgetCreateView()
+        view.request = request
+        view.workshop = current_workshop
+        view.kwargs = {}
+        view._model_instance = None
+        kwargs = view.get_form_kwargs()
+        self.assertNotIn("observations", kwargs.get("initial", {}))
+
+    def test_most_recent_observation_is_used_for_prefill(self) -> None:
+        workshop = create_workshop(suffix=61)
+        older = create_budget(workshop=workshop)
+        older.observations = "Observação antiga."
+        older.save(update_fields=["observations"])
+
+        newer = create_budget(workshop=workshop)
+        newer.observations = "Observação mais recente."
+        newer.save(update_fields=["observations"])
+
+        request = RequestFactory().get("/?step=6")
+        request.user = User.objects.create_user(username="obs-prefill-61", password="123")
+        view = BudgetCreateView()
+        view.request = request
+        view.workshop = workshop
+        view.kwargs = {}
+        view._model_instance = None
+        kwargs = view.get_form_kwargs()
+        self.assertEqual(kwargs["initial"]["observations"], "Observação mais recente.")
+
+    def test_empty_observations_are_skipped_for_prefill(self) -> None:
+        workshop = create_workshop(suffix=62)
+        first = create_budget(workshop=workshop)
+        first.observations = "Observação com texto."
+        first.save(update_fields=["observations"])
+
+        second = create_budget(workshop=workshop)
+        second.observations = ""
+        second.save(update_fields=["observations"])
+
+        request = RequestFactory().get("/?step=6")
+        request.user = User.objects.create_user(username="obs-prefill-62", password="123")
+        view = BudgetCreateView()
+        view.request = request
+        view.workshop = workshop
+        view.kwargs = {}
+        view._model_instance = None
+        kwargs = view.get_form_kwargs()
+        self.assertEqual(kwargs["initial"]["observations"], "Observação com texto.")
+
+    def test_existing_budget_does_not_get_prefill(self) -> None:
+        workshop = create_workshop(suffix=63)
+        existing_budget = create_budget(workshop=workshop)
+        existing_budget.observations = ""
+        existing_budget.save(update_fields=["observations"])
+
+        previous = create_budget(workshop=workshop)
+        previous.observations = "Observação anterior."
+        previous.save(update_fields=["observations"])
+
+        request = RequestFactory().get(f"/?step=6&pk={existing_budget.pk}")
+        request.user = User.objects.create_user(username="obs-prefill-63", password="123")
+        view = BudgetCreateView()
+        view.request = request
+        view.workshop = workshop
+        view.kwargs = {"pk": existing_budget.pk}
+        view._model_instance = existing_budget
+        kwargs = view.get_form_kwargs()
+        self.assertNotIn("observations", kwargs.get("initial", {}))
+
+
+class BudgetObservationsPdfContextTests(TestCase):
+    def test_pdf_context_includes_observations(self) -> None:
+        workshop = create_workshop(suffix=64)
+        budget = create_budget(workshop=workshop)
+        budget.observations = "Observação para o PDF."
+        budget.save(update_fields=["observations"])
+        context = build_budget_pdf_context(budget=budget)
+        self.assertEqual(context["observations"], "Observação para o PDF.")
+
+    def test_pdf_context_observations_empty_when_not_set(self) -> None:
+        workshop = create_workshop(suffix=65)
+        budget = create_budget(workshop=workshop)
+        context = build_budget_pdf_context(budget=budget)
+        self.assertEqual(context["observations"], "")
+
+    def test_pdf_context_includes_fixed_observation_from_workshop(self) -> None:
+        workshop = create_workshop(suffix=66)
+        workshop.pdf_observation = "Observação fixa da oficina."
+        workshop.save(update_fields=["pdf_observation"])
+        budget = create_budget(workshop=workshop)
+        context = build_budget_pdf_context(budget=budget)
+        self.assertEqual(context["fixed_observation"], "Observação fixa da oficina.")
+
+    def test_pdf_context_fixed_observation_empty_when_workshop_has_none(self) -> None:
+        workshop = create_workshop(suffix=67)
+        budget = create_budget(workshop=workshop)
+        context = build_budget_pdf_context(budget=budget)
+        self.assertEqual(context["fixed_observation"], "")

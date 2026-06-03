@@ -10,7 +10,6 @@ def build_workorder_pdf_render_request(*, workorder: WorkOrder, request=None, fi
     resolved_filename = filename or f"ordem_servico_{workorder.get_id}.pdf"
     context = build_workorder_pdf_context(
         workorder=workorder,
-        observacao=workorder.budget.pdf_observation,
         request=request,
     )
     return DocumentRenderRequest(

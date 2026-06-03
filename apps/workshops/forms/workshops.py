@@ -452,6 +452,27 @@ class WorkshopOptionalsSectionForm(BaseWebmaniaCompanySectionForm):
         }
 
 
+class WorkshopPdfObservationSectionForm(CoreModelForm):
+    class Meta:
+        model = Workshop
+        fields = ["pdf_observation"]
+        widgets = {
+            "pdf_observation": TextareaInput(
+                attrs={
+                    "rows": 5,
+                    "placeholder": "Texto fixo que aparece em todos os PDFs de orcamento.",
+                }
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        field = self.fields.get("pdf_observation")
+        if field is not None:
+            field.label = "Observacao fixa do PDF"
+            field.help_text = "Exibida no PDF abaixo das observacoes do orcamento."
+
+
 class WorkshopCertificateSectionForm(CoreForm):
     pfx_certificate = forms.FileField(
         required=False,

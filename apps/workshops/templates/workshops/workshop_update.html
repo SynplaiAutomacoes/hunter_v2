@@ -25,6 +25,7 @@
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'nota_fiscal' }" @click="activeTab = 'nota_fiscal'">Nota Fiscal</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'certificado' }" @click="activeTab = 'certificado'">Certificados</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'opcionais' }" @click="activeTab = 'opcionais'">Opcionais</button>
+                <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'pdf_observation' }" @click="activeTab = 'pdf_observation'">Observacoes PDF</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'credenciais' }" @click="activeTab = 'credenciais'">Credenciais</button>
             </div>
 
@@ -314,6 +315,39 @@
                         <button type="submit" class="btn-form-save">Salvar alteracoes</button>
                     {% else %}
                         <span class="text-sm text-warning">Voce nao possui permissao para alterar dados de integracao desta oficina.</span>
+                    {% endif %}
+                </div>
+            </form>
+
+            <form method="post" enctype="multipart/form-data" x-show="activeTab === 'pdf_observation'" x-cloak>
+                {% csrf_token %}
+                <input type="hidden" name="tab" value="pdf_observation">
+                <input type="hidden" name="nf_tab" :value="nfTab">
+
+                {% if pdf_observation_form.non_field_errors %}
+                    <div class="alert alert-error mb-4">
+                        {% for error in pdf_observation_form.non_field_errors %}
+                            <span>{{ error }}</span>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                <div class="alert alert-info mb-4 text-sm">
+                    <span>Esta observacao aparece em todos os PDFs de orcamento da oficina, abaixo das observacoes do atendimento.</span>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    <div class="col-span-12">
+                        {{ pdf_observation_form.pdf_observation|as_crispy_field }}
+                    </div>
+                </div>
+
+                <div class="divider"></div>
+                <div class="flex items-center justify-end gap-2">
+                    {% if can_change_workshop %}
+                        <button type="submit" class="btn-form-save">Salvar observacao</button>
+                    {% else %}
+                        <span class="text-sm text-warning">Voce nao possui permissao para alterar dados desta oficina.</span>
                     {% endif %}
                 </div>
             </form>
