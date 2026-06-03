@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
+import unicodedata
 from dataclasses import dataclass
 from functools import lru_cache
 
 import boto3  # type: ignore[import-untyped]
 from botocore.exceptions import BotoCoreError, ClientError  # type: ignore[import-untyped]
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 
 class StorageConfigurationError(Exception):
@@ -22,6 +26,10 @@ class StorageObject:
     content: bytes
     content_type: str
     metadata: dict[str, str]
+
+
+def _to_ascii(value: str) -> str:
+    return unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
 
 
 class S3StorageService:
@@ -75,16 +83,19 @@ class S3StorageService:
         if not normalized_key:
             raise StorageServiceError("Chave invalida para upload no bucket.")
 
+        safe_metadata = {str(k): _to_ascii(str(v)) for k, v in (metadata or {}).items()}
+
         try:
             self.client.put_object(
                 Bucket=self.bucket,
                 Key=normalized_key,
                 Body=file,
                 ContentType=str(content_type or "application/octet-stream"),
-                Metadata={str(k): str(v) for k, v in (metadata or {}).items()},
+                Metadata=safe_metadata,
             )
         except (BotoCoreError, ClientError) as exc:
-            raise StorageServiceError("Falha ao enviar arquivo para o bucket configurado.") from exc
+            logger.exception("S3 put_object failed for key=%s", normalized_key)
+            raise StorageServiceError(f"Falha ao enviar arquivo para o bucket configurado: {exc}") from exc
 
     def read_file(self, key: str) -> StorageObject:
         normalized_key = str(key or "").strip()

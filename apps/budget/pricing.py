@@ -56,6 +56,7 @@ class ConsolidatedPricingLine:
     quantity: int
     raw_total: Money
     cost_total: Money
+    original_cost_total: Money = field(default_factory=zero_money)
     shipping: Money = field(default_factory=zero_money)
     duration: timedelta = field(default_factory=timedelta)
     code: str = ""
@@ -578,6 +579,7 @@ def build_pricing_snapshot(
                 quantity=quantity,
                 raw_total=raw_total,
                 cost_total=cost_total,
+                original_cost_total=cost_total,
                 duration=duration,
                 is_local=service_aggregate.is_local,
                 has_direct_source=has_direct_source,

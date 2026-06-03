@@ -37,9 +37,9 @@ class WorkOrderPdfBudgetProxy:
     customer_agreed_departure_at: Any
 
 
-def build_workorder_pdf_context(*, workorder: WorkOrder, observacao: str | None = None, request=None) -> dict[str, Any]:
+def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[str, Any]:
     snapshot = workorder.pricing_snapshot
-    resolved_observation = observacao if observacao is not None else workorder.budget.pdf_observation
+    resolved_observation = workorder.workshop.pdf_observation
 
     is_warranty_budget = workorder.budget.is_warranty_budget or workorder.budget.budget_type == "warranty" or workorder.budget_type in ("warranty", "courtesy")
     is_courtesy_budget = workorder.budget.budget_type == "courtesy"

@@ -56,9 +56,8 @@ def build_workshop_logo_data_uri(*, workshop) -> str:
     return f"data:{stored_logo.content_type};base64,{encoded_logo}"
 
 
-def build_budget_pdf_context(*, budget, observacao: str | None = None, request=None, zero_warranty_prices: bool = False, presentation: str = "expanded") -> dict:
+def build_budget_pdf_context(*, budget, request=None, zero_warranty_prices: bool = False, presentation: str = "expanded") -> dict:
     snapshot = budget.pricing_snapshot
-    resolved_observation = observacao if observacao is not None else budget.pdf_observation
     is_warranty_budget = budget.is_warranty_budget or budget.budget_type == "warranty"
     is_courtesy_budget = budget.budget_type == "courtesy"
     is_warranty_or_courtesy = is_warranty_budget or is_courtesy_budget
@@ -200,7 +199,6 @@ def build_budget_pdf_context(*, budget, observacao: str | None = None, request=N
             }
             for line in snapshot.product_lines
         ]
-
         servicos = [
             {
                 "id": line.entity_id,
@@ -208,8 +206,8 @@ def build_budget_pdf_context(*, budget, observacao: str | None = None, request=N
                 "quantity": line.quantity,
                 "unit_price": line.adjusted_unit_price,
                 "total_price": line.total_price,
-                "service_cost_price": line.cost_total,
-                "profit_value": line.profit_value,
+                "service_cost_price": line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total,
+                "profit_value": line.total_price - (line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total),
                 "duration_display": line.duration_display,
             }
             for line in snapshot.service_lines
@@ -231,9 +229,11 @@ def build_budget_pdf_context(*, budget, observacao: str | None = None, request=N
         "total_geral": total_geral,
         "soma_markup": soma_markup,
         "soma_markup_display": _format_decimal_multiplier(soma_markup),
-        "observacao": resolved_observation,
+        "observations": budget.observations,
+        "fixed_observation": budget.workshop.pdf_observation,
         "total_profit_product_value": sum((line.profit_value for line in snapshot.product_lines), Money(0, "BRL")),
-        "total_profit_service_value": sum((line.profit_value for line in snapshot.service_lines), Money(0, "BRL")),
+        "total_profit_service_value": sum((line.total_price - (line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total) for line in snapshot.service_lines), Money(0, "BRL")),
+        "total_services_cost_original_value": sum((line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total for line in snapshot.service_lines), Money(0, "BRL")),
         "is_warranty_or_courtesy": is_warranty_or_courtesy,
         "warranty_message": "Ordem de serviço de garantia. Documento apenas para a visualização, peças e serviços descritos não foram cobrados do cliente" if is_warranty_or_courtesy else "",
         "workshop_logo_data_uri": workshop_logo_data_uri,

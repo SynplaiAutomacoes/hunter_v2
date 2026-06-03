@@ -136,6 +136,12 @@ def reset_steps_after_step_4(budget):
     - discount_value: volta para 0.00
     - discount_percentage: volta para 0%
     - step5_calculation_viewed: volta para False
+    - pricing_reference_month/year: volta para None (força recongelamento com valores atuais)
+    - pricing_productive_salary_total: volta para None
+    - pricing_working_hours_per_month: volta para None
+    - pricing_minimum_hourly_cost: volta para None
+    - pricing_hourly_cost_value: volta para None
+    - pricing_profitability_multiplier: volta para None
     """
     if budget.current_step > 4:
         budget.current_step = 4
@@ -144,7 +150,25 @@ def reset_steps_after_step_4(budget):
         budget.discount_percentage = Decimal("0")
         budget.step5_calculation_viewed = False
         budget.status = BudgetStatus.WAITING_PRICING
-        budget.save(update_fields=["current_step", "slider", "discount_value", "discount_percentage", "step5_calculation_viewed", "status"])
+        # Limpa o snapshot de precificação congelado para forçar recongelamento
+        # com os valores atuais da oficina na próxima vez que a etapa 5 for carregada.
+        budget.pricing_reference_month = None
+        budget.pricing_reference_year = None
+        budget.pricing_productive_salary_total = None
+        budget.pricing_working_hours_per_month = None
+        budget.pricing_minimum_hourly_cost = None
+        budget.pricing_hourly_cost_value = None
+        budget.pricing_profitability_multiplier = None
+        budget.save(update_fields=[
+            "current_step", "slider", "discount_value", "discount_percentage",
+            "step5_calculation_viewed", "status",
+            "pricing_reference_month", "pricing_reference_year",
+            "pricing_productive_salary_total", "pricing_productive_salary_total_currency",
+            "pricing_working_hours_per_month",
+            "pricing_minimum_hourly_cost", "pricing_minimum_hourly_cost_currency",
+            "pricing_hourly_cost_value", "pricing_hourly_cost_value_currency",
+            "pricing_profitability_multiplier",
+        ])
 
 
 def sync_linked_workorder_from_budget(budget: Budget) -> None:
