@@ -333,3 +333,41 @@ Fontes oficiais reconsultadas nesta fase documental:
 | Ajuste | `POST /1/nfe/ajuste/` | A documentacao descreve `operacao`, `natureza_operacao`, `codigo_cfop`, `valor_icms`, `valor_icms_st`, `ambiente`, `cliente`, `situacao_tributaria`, `informacoes_fisco` e `informacoes_complementares`; estorno SC/ES deve usar devolucao | Nao documenta `produtos`, `produtos[].impostos.ibs_cbs`, evento IBS/CBS, `tipo_credito`, `tipo_debito` ou `finalidade=5/6` neste endpoint | Fase 2.4C.3 deve bloquear campos fora do contrato antes do gateway e manter eventos/credito/debito em fases proprias |
 
 Nota de OpenAPI: `webmania_fiscal_openapi_validated.json` nao foi alterado nesta Fase 2.4C.0 porque a consulta oficial nao confirmou novos campos exclusivos para os endpoints derivados alem dos schemas IBS/CBS ja documentados genericamente para produtos NF-e/NFC-e. A implementacao funcional de cada subfase deve revalidar se o endpoint derivado aceita `produtos[].impostos.ibs_cbs` ou depende de `classe_imposto`/snapshot.
+
+## Fase 2.4D.0 - Matriz API dos Eventos IBS/CBS
+
+Fonte oficial reconsultada em 2026-06-02: documentacao Webmania REST NF-e/NFC-e em `https://webmania.com.br/docs/rest-api-nfe/1000/`.
+
+### Rotas oficiais
+
+| Operacao | Metodo | Endpoint | Body documentado | Resposta documentada | Downloads/webhook | Decisao Hunter |
+| -------- | ------ | -------- | ---------------- | -------------------- | ----------------- | -------------- |
+| Registrar evento IBS/CBS | POST | `/1/nfe/evento-ibs-cbs/` | `chave`, `ambiente`, `cod_evento`, `evento` opcional com padrao 1, `url_notificacao` opcional e campos especificos por evento | `uuid`, `status`, `evento`, `modelo`, `log`; alguns exemplos retornam `xml`/`protocolo_evento` conforme evento/retorno | `url_notificacao` documentada para atualizacoes de status; XML quando retornado | Planejar como `FiscalDocumentEvent(event_type=ibs_cbs)`, vinculado ao documento base local. |
+| Cancelar evento IBS/CBS autorizado | PUT | `/1/nfe/evento-ibs-cbs/cancelar/` | `uuid` do evento, `ambiente` opcional, `url_notificacao` opcional | `uuid`, `status`, `cod_evento`, `evento`, `modelo`, `log` | XML/log quando retornados | Planejar subfase propria; criar evento de cancelamento vinculado ao evento IBS/CBS original, nao ao documento como nova nota. |
+
+### Codigos oficiais de evento IBS/CBS
+
+| Codigo | Descricao oficial resumida | Autor | Payload especifico | Documento aplicavel | Cancelavel? | Prioridade Hunter |
+| ------ | -------------------------- | ----- | ------------------ | ------------------- | ----------- | ----------------- |
+| `112110` | Efetivo pagamento integral para liberar credito presumido do adquirente | Emitente | Sem campos especificos alem do envelope do evento | NF-e/NFC-e com chave local elegivel | Sim, por cancelamento por UUID quando autorizado | Alta; primeira subfase recomendada. |
+
+Implementacao 2.4D.1: somente o `cod_evento=112110` foi implementado. O payload funcional usa `POST /1/nfe/evento-ibs-cbs/` com `chave`, `ambiente`, `cod_evento`, `evento` e `url_notificacao` quando gerada pelo Hunter. A implementacao bloqueia `ibs_cbs`, produtos, credito/debito, cancelamento e demais campos fora do envelope oficial deste codigo. `PUT /1/nfe/evento-ibs-cbs/cancelar/` permanece documentado, mas nao implementado.
+| `112120` | Importacao em ALC/ZFM nao convertida em isencao | Emitente | `itens[].item`, `valor_ibs`, `valor_cbs`, `controle_estoque.quantidade`, `controle_estoque.unidade` | NF-e de importacao referenciada | Sim | Baixa para oficina; depende de item/importacao. |
+| `112130` | Perecimento, perda, roubo ou furto no transporte contratado pelo fornecedor | Emitente | `itens[]` com `item`, valores IBS/CBS e controle de estoque de perecimento/estorno | NF-e de fornecimento | Sim | Media; depende de regra operacional e estoque. |
+| `112140` | Fornecimento nao realizado com pagamento antecipado | Emitente | `itens[]` com item, valores IBS/CBS e quantidade/unidade nao fornecida | NF-e/debito de pagamento antecipado | Sim | Media/baixa; depende de pagamento antecipado. |
+| `112150` | Atualizacao da data de previsao de entrega | Emitente | `data_previsao_entrega` | NF-e/NFC-e quando houver entrega/previsao aplicavel | Sim | Media; simples, mas exige regra de entrega. |
+| `211110` | Solicitacao de apropriacao de credito presumido | Destinatario | `itens[].item`, `base_calculo`, `credito_presumido.classificacao`, aliquotas e valores IBS/CBS | Documento de aquisicao elegivel | Sim | Baixa; papel de destinatario e pouca aderencia oficina. |
+| `211120` | Destinacao de item para consumo pessoal | Emitente e Destinatario | `tipo_autor`, `itens[].item`, valores IBS/CBS, controle de consumo e `dfe_referenciado` quando aplicavel | NF-e de aquisicao/uso | Sim | Baixa/media; depende de destinatario e referencia. |
+| `211124` | Perecimento, perda, roubo ou furto no transporte contratado pelo adquirente | Destinatario | `itens[]` com item, valores IBS/CBS e controle de perecimento | NF-e de aquisicao | Sim | Baixa; destinatario e frete FOB. |
+| `211128` | Aceite de debito na apuracao por emissao de nota de credito | Destinatario | `indicador_aceitacao` | Documento ligado a nota de credito/debito IBS/CBS | Sim | Bloqueada ate Fase 2.4E/2.5. |
+| `211130` | Imobilizacao de item | Destinatario | `itens[]` com item, valores IBS/CBS e controle de imobilizacao | NF-e de aquisicao | Sim | Baixa; uso contábil restrito. |
+| `211140` | Apropriacao de credito de combustivel | Destinatario | `itens[]` com item, valores IBS/CBS e controle de combustivel | NF-e de combustivel | Sim | Media baixa; pode ter relevancia futura para oficinas. |
+| `211150` | Apropriacao de credito para bens e servicos dependentes da atividade do adquirente | Destinatario | `itens[]` com `valor_credito_ibs` e `valor_credito_cbs` | NF-e de aquisicao | Sim | Baixa/media; depende de regra contábil. |
+
+### Observacoes condicionais
+
+- `evento` e a sequencia do evento, aceita de 1 a 20 e possui padrao 1 na documentacao; o Hunter deve reservar sequencia transacionalmente por documento e `cod_evento`.
+- Eventos com `itens[].item` devem usar numero sequencial fiscal do item, nao IDs internos.
+- Eventos de destinatario exigem decisao de produto sobre papel do Hunter como destinatario; nao devem ser liberados por padrao para oficinas sem regra fiscal.
+- `211128` depende do contexto de nota de credito/debito; por isso permanece bloqueado ate credito/debito com IBS/CBS estar aprovado.
+- Cancelamento de evento e operacao propria por UUID remoto do evento autorizado; nao deve ser confundido com cancelamento de NF-e/NFC-e.

@@ -465,3 +465,58 @@ Para `FiscalDocument(origin="external")` criado somente por chave:
 | 2.4C.3 | Reusar `FiscalDocument(purpose=adjustment)` e link opcional `adjusts`; decidir se ha bloqueio por operacao/CFOP/regime | 2.4A+B validada e revalidacao oficial do ajuste | Inserir produtos/IBS-CBS sem contrato oficial |
 
 Resultado da Fase 2.4C.3: nenhuma nova entidade ou migration e necessaria. O ajuste permanece `FiscalDocument(document_type=nfe, purpose=adjustment, origin=manual)`, com `FiscalDocumentLink(role=adjusts)` opcional e `FiscalEmissionAttempt(operation_type=adjustment)`. Campos de credito/debito, produtos, eventos IBS/CBS e `produtos[].impostos.ibs_cbs` sao rejeitados antes do gateway porque pertencem a contratos fiscais proprios ou nao estao documentados em `/1/nfe/ajuste/`.
+
+## Fase 2.4D.0 - Modelagem planejada para Eventos IBS/CBS
+
+Decisao principal: evento IBS/CBS nao e documento fiscal novo. Deve ser representado por `FiscalDocumentEvent(event_type="ibs_cbs")` vinculado ao `FiscalDocument` base (`document_type="nfe"` ou `"nfce"`), preservando a NF-e/NFC-e original sem alterar seu status fiscal indevidamente.
+
+Campos planejados em `FiscalDocumentEvent`:
+
+- `document`: documento NF-e/NFC-e base.
+- `event_type="ibs_cbs"`.
+- `event_code`: `cod_evento` remoto.
+- `event_sequence`: valor de `evento`, reservado de 1 a 20 por documento e codigo.
+- `event_payload_type`: agrupamento interno para orientar UI/validacao, por exemplo `no_specific_fields`, `items_stock_control`, `delivery_forecast`, `acceptance`, `credit_request`.
+- `remote_uuid`: UUID retornado pela Webmania para o evento.
+- `remote_event_id` ou `protocol`: protocolo/identificador remoto quando retornado.
+- `remote_model`: `modelo` retornado.
+- `status` e `remote_status`.
+- `request_payload_sanitized` e `response_payload_sanitized`.
+- `xml_url` quando retornado.
+- `requested_by`, `requested_at`, `completed_at`, `created_at`, `updated_at`.
+
+Campos planejados em `FiscalEmissionAttempt`:
+
+- `operation_type="nfe_ibs_cbs_event"` para registro.
+- `operation_type="nfe_ibs_cbs_event_cancellation"` para cancelamento futuro, se aprovado.
+
+Resultado da Fase 2.4D.1:
+
+- `FiscalDocumentEvent` recebeu campos `event_code`, `event_payload_type` e `remote_event_id`.
+- `event_type="ibs_cbs"` representa o evento IBS/CBS, nao um novo documento fiscal.
+- `event_code="112110"` e `event_payload_type="no_specific_fields"` registram a subfase implementada.
+- A sequencia e reservada transacionalmente por documento e tipo de evento IBS/CBS, respeitando a constraint existente de unicidade `(document, event_type, event_sequence)`.
+- `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event")` fica associado ao documento base e ao evento.
+- O status, XML e payload de retorno sao persistidos somente no evento; a NF-e/NFC-e base nao tem status alterado pelo evento.
+- associacao obrigatoria ao `FiscalDocument` base e ao `FiscalDocumentEvent`.
+- `idempotency_key`, `payload_hash`, status `started|sent|succeeded|failed|uncertain`, payload/resposta sanitizados e UUID remoto.
+
+Cancelamento de evento:
+
+- Nao deve criar `FiscalDocument`.
+- Deve ser modelado como evento filho ou relacao explicita com o evento IBS/CBS original, em subfase propria.
+- Deve usar `PUT /1/nfe/evento-ibs-cbs/cancelar/` por UUID do evento autorizado.
+- A ausencia de UUID remoto do evento original bloqueia cancelamento antes do gateway.
+
+Constraints recomendadas:
+
+- Unicidade de `(document, event_type, event_code, event_sequence)` para impedir duplicidade local.
+- Unicidade condicional de `remote_uuid` por oficina/documento quando preenchido.
+- Bloqueio transacional ao reservar proxima sequencia por documento e codigo.
+- Nenhum evento IBS/CBS pode ser associado a documento de outra oficina.
+
+Compatibilidade:
+
+- NF-e/NFC-e normal e derivados continuam sendo `FiscalDocument`.
+- CC-e e cancelamento NFC-e ja usam `FiscalDocumentEvent`; a fase deve reutilizar esse padrao, sem criar app fiscal paralelo.
+- Ajuste permanece `FiscalDocument(purpose="adjustment")` e nao recebe eventos IBS/CBS por inferencia.

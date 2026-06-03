@@ -112,6 +112,7 @@ class FiscalEmissionOperationType(models.TextChoices):
     NFCE_EMISSION = "nfce_emission", "Emissao NFC-e"
     NFCE_CANCELLATION = "nfce_cancellation", "Cancelamento NFC-e"
     NFCE_INUTILIZATION = "nfce_inutilization", "Inutilizacao NFC-e"
+    NFE_IBS_CBS_EVENT = "nfe_ibs_cbs_event", "Evento IBS/CBS"
 
 
 class FiscalDocumentType(models.TextChoices):
@@ -158,6 +159,7 @@ class FiscalDocumentLinkRole(models.TextChoices):
 class FiscalDocumentEventType(models.TextChoices):
     CCE = "cce", "Carta de correcao"
     CANCELLATION = "cancellation", "Cancelamento"
+    IBS_CBS = "ibs_cbs", "Evento IBS/CBS"
 
 
 class FiscalDocumentEventStatus(models.TextChoices):
@@ -837,8 +839,11 @@ class FiscalDocumentEvent(TimeStampedModel):
     document = models.ForeignKey(FiscalDocument, verbose_name="Documento fiscal", on_delete=models.CASCADE, related_name="events")
     event_type = models.CharField(max_length=20, choices=FiscalDocumentEventType.choices, default=FiscalDocumentEventType.CCE, db_index=True)
     event_sequence = models.PositiveSmallIntegerField()
+    event_code = models.CharField(max_length=20, blank=True, default="", db_index=True)
+    event_payload_type = models.CharField(max_length=40, blank=True, default="")
     status = models.CharField(max_length=20, choices=FiscalDocumentEventStatus.choices, default=FiscalDocumentEventStatus.STARTED, db_index=True)
     remote_uuid = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    remote_event_id = models.CharField(max_length=80, blank=True, default="")
     remote_model = models.CharField(max_length=32, blank=True, default="cce")
     correction_text = models.TextField(blank=True, default="")
     request_payload = models.JSONField(blank=True, default=dict)
@@ -856,11 +861,16 @@ class FiscalDocumentEvent(TimeStampedModel):
         ]
         indexes = [
             models.Index(fields=["document", "event_type", "status"]),
+            models.Index(fields=["document", "event_type", "event_code", "status"]),
             models.Index(fields=["remote_model", "remote_uuid"]),
         ]
         permissions = [
             ("issue_nfe_correction", "Pode emitir carta de correcao NF-e"),
             ("download_nfe_correction", "Pode baixar XML/DACCE de carta de correcao NF-e"),
+            ("issue_ibs_cbs_event", "Pode registrar evento IBS/CBS"),
+            ("view_ibs_cbs_event", "Pode visualizar evento IBS/CBS"),
+            ("download_ibs_cbs_event", "Pode baixar XML de evento IBS/CBS"),
+            ("view_ibs_cbs_event_payload", "Pode visualizar payload de evento IBS/CBS"),
         ]
 
     def __str__(self) -> str:

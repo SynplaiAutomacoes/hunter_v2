@@ -237,6 +237,34 @@
 - Modelagem necessaria: `FiscalDocumentEvent` com codigo de evento, sequencia, autor, status remoto e vinculo com evento original para cancelamento.
 - Testes: evento autorizado, duplicidade, fora de ordem, cancelamento referencia evento original, permissao restrita e payload sanitizado.
 
+##### Fase 2.4D.0 - Planejamento tecnico documental dos eventos IBS/CBS
+
+- Status: documentada em 2026-06-02.
+- Escopo: validar contrato oficial `POST /1/nfe/evento-ibs-cbs/`, `PUT /1/nfe/evento-ibs-cbs/cancelar/`, codigos oficiais, modelagem, idempotencia, webhook, permissoes, UI minima e testes.
+- Alteracoes permitidas: somente `docs/fiscal-webmania/**` e OpenAPI validado.
+- Alteracoes proibidas: qualquer codigo funcional, migration, service, view, form, template ou teste.
+- Aceite: matriz completa de codigos, decisao de `FiscalDocumentEvent`, subfases funcionais e recomendacao de primeira entrega.
+
+Subfases funcionais recomendadas:
+
+| Subfase | Escopo | Dependencia | Risco |
+| ------- | ------ | ----------- | ----- |
+| 2.4D.1 | Evento `112110` em NF-e/NFC-e normal local autorizada | 2.4D.0 aprovada | Baixo/medio; sem campos especificos, mas exige sequencia/idempotencia. |
+| 2.4D.2 | Eventos de emitente com itens/controle: `112120`, `112130`, `112140`, `112150` | 2.4D.1 validada e regra de itens | Medio/alto; sequenciais fiscais, estoque e datas. |
+| 2.4D.3 | Eventos de destinatario: `211110`, `211120`, `211124`, `211130`, `211140`, `211150` | Decisao de papel destinatario e permissao | Alto; papel fiscal diferente e referencias externas. |
+| 2.4D.4 | Evento `211128` e relacao com credito/debito | 2.4E/2.5 funcional aprovada | Alto; depende de nota de credito/debito. |
+| 2.4D.5 | Cancelamento de evento IBS/CBS | Eventos autorizados com UUID remoto | Medio; nao pode cancelar documento base por engano. |
+
+##### Fase 2.4D.1 - Evento IBS/CBS 112110
+
+- Status: validada em 2026-06-02.
+- Escopo implementado: `POST /1/nfe/evento-ibs-cbs/` somente para `cod_evento=112110`.
+- Modelagem: `FiscalDocumentEvent(event_type="ibs_cbs", event_code="112110")` vinculado ao `FiscalDocument` base; nao cria `FiscalDocument`.
+- Tentativa: `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event")`.
+- Payload: apenas `chave`, `ambiente`, `cod_evento`, `evento` e `url_notificacao` quando disponivel.
+- Aceite validado: uma chamada remota por intencao, timeout vira `uncertain`, webhook idempotente, ambiguidade sem update, permissoes especificas, download/payload protegidos e documento base sem alteracao de status.
+- Fora do escopo: cancelamento do evento, demais codigos IBS/CBS, credito/debito, complementar tributaria, NFS-e e CT-e.
+
 #### Fase 2.4E - Credito e debito
 
 - Objetivo: implementar finalidades 5/6 somente apos base IBS/CBS validada.

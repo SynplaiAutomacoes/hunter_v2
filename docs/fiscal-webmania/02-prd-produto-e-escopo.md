@@ -409,3 +409,39 @@ Regras implementadas:
 - Complementar preco/quantidade com IBS/CBS, ajuste com IBS/CBS, eventos IBS/CBS e credito/debito permanecem fora de escopo.
 
 Nao houve migration. A estrategia usa payloads/snapshots ja persistidos e helpers de validacao IBS/CBS existentes.
+
+## Fase 2.4D.0 - Planejamento tecnico dos Eventos IBS/CBS
+
+Status: documentada em 2026-06-02, apos validacao da Fase 2.4C.3 no checkpoint `dd740d1fccbf692b95720a0b0de36fee1f294827`. Nenhum codigo funcional esta autorizado nesta etapa.
+
+Objetivo: planejar eventos IBS/CBS vinculados a NF-e/NFC-e por `POST /1/nfe/evento-ibs-cbs/`, mantendo-os separados de emissao normal, derivados, ajuste, credito/debito e complementar tributaria.
+
+Escopo futuro planejado:
+
+- Registrar eventos oficiais IBS/CBS sobre `FiscalDocument(document_type="nfe"|"nfce")` ja emitido e elegivel.
+- Modelar eventos como `FiscalDocumentEvent(event_type="ibs_cbs")`, nao como novo `FiscalDocument`.
+- Planejar cancelamento de evento IBS/CBS por `PUT /1/nfe/evento-ibs-cbs/cancelar/` em subfase propria.
+- Preservar relacionamento com credito/debito sem liberar `finalidade=5/6`: evento `211128` depende de nota de credito, mas nao autoriza implementar credito/debito nesta fase.
+
+Fora de escopo funcional:
+
+- Qualquer codigo de service, model, migration, view, form, template ou teste.
+- Eventos IBS/CBS sem documento base local elegivel.
+- Nota Fiscal de Credito/Debito.
+- Complementar tributaria.
+- Alterar `/1/nfe/ajuste/`; ajuste permanece sem IBS/CBS por ausencia de contrato seguro nesse endpoint.
+
+### Elegibilidade planejada por documento
+
+| Documento Hunter | Pode receber evento IBS/CBS? | Condicao minima | Observacao |
+| ---------------- | ---------------------------- | --------------- | ---------- |
+| NF-e normal local | Sim | `FiscalDocument(document_type="nfe")` autorizado, com chave, oficina correta e payload base IBS/CBS conforme 2.4A+B | Principal alvo da primeira subfase funcional. |
+| NFC-e normal local | Sim, quando o evento oficial aceitar NF-e/NFC-e | `FiscalDocument(document_type="nfce")` autorizado, com chave e oficina correta | Exigir validacao por `cod_evento` antes de expor na UI. |
+| Devolucao/estorno | Pendente | Documento derivado autorizado e regra oficial do evento confirmada | Nao presumir que todos os eventos se aplicam a derivados. |
+| Complementar preco/quantidade | Pendente | Documento complementar autorizado e regra oficial confirmada | Nao misturar com complementar tributaria. |
+| Ajuste | Nao nesta fase | `/1/nfe/ajuste/` permanece separado e sem IBS/CBS | Eventos nao devem ser enviados pelo service de ajuste. |
+| Credito/debito | Bloqueado | Depende de Fase 2.4E/2.5 funcional | Evento `211128` sera tratado somente apos credito/debito aprovado. |
+
+Recomendacao de primeira subfase funcional: implementar somente evento `112110` para NF-e/NFC-e normal local autorizada, porque a documentacao oficial informa que ele nao possui campos especificos alem de `chave`, `ambiente`, `cod_evento`, `evento` e `url_notificacao`. Eventos com itens, valores, controle de estoque, `dfe_referenciado` ou relacao com nota de credito devem vir depois.
+
+Resultado da Fase 2.4D.1: o Hunter passou a suportar somente o evento IBS/CBS `112110`, modelado como `FiscalDocumentEvent(event_type="ibs_cbs")` vinculado ao `FiscalDocument` base. O evento nao cria novo documento fiscal, nao altera o status da NF-e/NFC-e original e envia apenas o envelope oficial confirmado (`chave`, `ambiente`, `cod_evento`, `evento` e `url_notificacao` quando aplicavel). Cancelamento de evento IBS/CBS, demais codigos, credito/debito, complementar tributaria, NFS-e e CT-e permanecem fora do escopo.

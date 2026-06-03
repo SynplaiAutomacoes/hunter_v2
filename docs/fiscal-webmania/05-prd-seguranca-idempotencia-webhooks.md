@@ -406,3 +406,60 @@ Resultado 2.4C.3 para ajuste:
 - Payload persistido e transmitido e revalidado contra campos fora do contrato antes do gateway.
 - Campos de credito/debito, eventos IBS/CBS, produtos e IBS/CBS sao bloqueados antes de qualquer chamada remota.
 - Webhook e reconciliacao continuam atualizando somente o `FiscalDocument(purpose=adjustment)` correspondente.
+
+## Fase 2.4D.0 - Idempotencia e seguranca de Eventos IBS/CBS
+
+Fluxo planejado:
+
+```text
+validar documento base NF-e/NFC-e elegivel
+-> reservar event_sequence por documento e tipo de evento IBS/CBS
+-> criar FiscalDocumentEvent(event_type=ibs_cbs)
+-> criar/bloquear FiscalEmissionAttempt(operation_type=nfe_ibs_cbs_event)
+-> congelar payload sanitizado
+-> executar uma unica chamada POST /1/nfe/evento-ibs-cbs/
+-> persistir resposta somente no evento
+-> webhook/reconciliacao atualizam somente o evento
+```
+
+Chave idempotente:
+
+```text
+hash(workshop_id, fiscal_document_id, event_type, cod_evento, event_sequence, request_generation)
+```
+
+Regras:
+
+- Retry da mesma intencao nao pode chamar a Webmania novamente.
+- Concorrencia na mesma combinacao documento/codigo/sequencia deve resultar em uma unica chamada remota.
+- `uncertain` preserva sequencia e payload, bloqueia reenvio automatico e exige reconciliacao/decisao administrativa.
+- Payload nao pode ser reconstruido a partir de classe fiscal atual apos envio.
+- Eventos com itens devem validar sequencial fiscal e oficina antes do gateway.
+- Eventos de destinatario devem exigir habilitacao/permissao propria; nao usar fallback de NF-e emitente.
+
+Webhook:
+
+- `url_notificacao` e documentada para atualizacoes de status de evento; quando usada, o webhook deve resolver primeiro por UUID remoto do evento.
+- Fallback por tentativa so pode atualizar candidato unico da mesma oficina, documento, `cod_evento` e sequencia.
+- Associacao ambigua deve ficar pendente e nao atualizar evento/documento.
+- Webhook de evento IBS/CBS nao altera status da NF-e/NFC-e base, devolucao, estorno, complementar ou ajuste.
+- XML/log retornados devem ficar no `FiscalDocumentEvent`.
+
+Cancelamento:
+
+- Cancelamento de evento IBS/CBS usa endpoint proprio por UUID do evento autorizado e deve ser planejado em subfase separada.
+- Nao cancelar documento fiscal base.
+- Nao permitir cancelamento se evento original estiver `uncertain`, sem UUID remoto ou fora da oficina ativa.
+
+Sanitizacao:
+
+- Persistir payload fiscal, `cod_evento`, sequencia, `itens`, `dfe_referenciado` e valores IBS/CBS quando necessarios.
+- Nunca persistir headers Webmania, consumer key/secret, access token, certificado, CSC ou tokens.
+
+Resultado da Fase 2.4D.1:
+
+- Evento `112110` usa `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event")`.
+- A chave idempotente inclui oficina, documento, tipo de evento, `cod_evento`, sequencia e geracao da requisicao.
+- A sequencia `event_sequence` e congelada mesmo em `uncertain`; tentativa incerta bloqueia reenvio automatico.
+- O webhook reconhece payloads de evento IBS/CBS por modelo ou `cod_evento`, resolve por UUID remoto do evento ou fallback por chave+sequencia, rejeita ambiguidade e atualiza somente `FiscalDocumentEvent`.
+- Payload persistido e sanitizado remove token da URL de notificacao; headers e credenciais Webmania nao sao persistidos.

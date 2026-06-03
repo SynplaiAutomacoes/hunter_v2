@@ -322,3 +322,58 @@ Testes 2.4C.3 - Ajuste:
 - Cenario de estorno SC/ES continua direcionado para devolucao/estorno.
 - Se a operacao fiscal selecionada depender de Reforma Tributaria, o service bloqueia antes do gateway ate regra IBS/CBS aprovada.
 - Regressao: idempotencia, concorrencia, timeout `uncertain`, webhook, reconciliacao, documento vinculado, cross-workshop, downloads e sanitizacao devem continuar passando na suite de ajuste existente.
+
+## Fase 2.4D.0 - Testes planejados para Eventos IBS/CBS
+
+Contrato e payload:
+
+- Evento `112110` envia apenas `chave`, `ambiente`, `cod_evento`, `evento` e `url_notificacao` quando configurada.
+- Eventos com itens usam `itens[].item` como numero sequencial fiscal da NF-e/NFC-e, nao ID interno.
+- Evento `112150` valida `data_previsao_entrega`.
+- Evento `211128` permanece bloqueado enquanto credito/debito nao estiverem implementados.
+- Campos de credito/debito, complementar tributaria, ajuste, cancelamento de nota e contingencia nao entram no payload de evento.
+
+Documento e modelagem:
+
+- Cria `FiscalDocumentEvent(event_type=ibs_cbs)`, nao cria `FiscalDocument` novo.
+- Evento fica vinculado a `FiscalDocument(document_type=nfe|nfce)` da oficina ativa.
+- Documento base nao tem status alterado pelo evento aprovado/reprovado.
+- Ajuste, devolucao, complementar e NFC-e cancelada nao recebem evento indevido sem regra aprovada.
+
+Idempotencia e concorrencia:
+
+- Primeira sequencia reservada por documento e `cod_evento`.
+- Segunda emissao legitima do mesmo codigo usa proxima sequencia quando permitido.
+- Concorrencia da mesma intencao gera uma chamada remota.
+- Mesma sequencia com payload diferente gera conflito.
+- Sequencia acima de 20 e bloqueada.
+- Timeout gera `uncertain`, preserva sequencia e bloqueia reenvio automatico.
+
+Webhook/reconciliacao:
+
+- Webhook resolve por UUID remoto do evento.
+- Fallback por tentativa exige candidato unico da mesma oficina/documento/codigo/sequencia.
+- Webhook duplicado nao duplica efeitos.
+- Webhook fora de ordem nao regride status de evento aprovado.
+- Associacao ambigua nao atualiza evento nem documento.
+- Reconciliacao, se suportada por consulta oficial, consulta sem reenviar; se nao houver contrato, fica como decisao administrativa.
+
+Cancelamento de evento:
+
+- Cancelamento por `/1/nfe/evento-ibs-cbs/cancelar/` envia UUID do evento original e ambiente quando aplicavel.
+- Cancelamento nao altera NF-e/NFC-e base.
+- Evento original sem UUID remoto ou `uncertain` bloqueia cancelamento.
+- Cancelamento duplicado e idempotente.
+
+Permissao e seguranca:
+
+- `issue_ibs_cbs_event` exigida antes do gateway.
+
+Resultado da Fase 2.4D.1:
+
+- `FiscalPhaseTwoIbsCbsEvent112110Tests` valida payload oficial estreito, elegibilidade, bloqueio de documento inelegivel, timeout `uncertain`, limite de sequencia, webhook por UUID, fallback por chave+sequencia, ambiguidade, permissao, cross-workshop, download e payload protegidos.
+- `FiscalPhaseTwoIbsCbsEvent112110ConcurrentTests` valida concorrencia da mesma intencao com somente uma chamada remota.
+- A bateria fiscal direcionada ate 2.4D.1 executou 107 testes com sucesso.
+- `view_ibs_cbs_event`, `download_ibs_cbs_event` e `view_ibs_cbs_event_payload` protegem visualizacao/download/payload.
+- Cross-workshop bloqueado.
+- Payload/log sanitizados sem headers Webmania, tokens, CSC, certificado ou credenciais.

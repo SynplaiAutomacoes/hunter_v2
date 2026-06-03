@@ -11,6 +11,7 @@ from apps.finance.models.finance import FiscalDocumentEvent, NfeItem, NfseBatch,
 from apps.finance.services.emission import apply_nfse_batch_payload, apply_nfse_item_payload
 from apps.finance.services.mappers import extract_items_from_batch
 from apps.finance.services.nfe_events import apply_cce_event_payload
+from apps.finance.services.nfe_ibs_cbs_events import apply_ibs_cbs_event_payload, is_ambiguous_ibs_cbs_event_webhook, resolve_ibs_cbs_event_for_webhook
 from apps.finance.services.nfe_emission import apply_nfe_item_payload
 from apps.finance.services.nfe_adjustment import apply_nfe_adjustment_document_payload, is_ambiguous_nfe_adjustment_webhook, resolve_nfe_adjustment_document_for_webhook
 from apps.finance.services.nfe_complementary import apply_nfe_complementary_document_payload, is_ambiguous_nfe_complementary_webhook, resolve_nfe_complementary_document_for_webhook
@@ -98,6 +99,18 @@ def _status_rank(model: str, status: str) -> int:
             "cancelado": 30,
             "cancelada": 30,
             "canceled": 30,
+            "reprovado": 40,
+            "rejeitado": 40,
+            "failed": 40,
+        }.get(normalized, 0)
+    if model == "ibs_cbs":
+        return {
+            "started": 5,
+            "sent": 8,
+            "processando": 10,
+            "uncertain": 15,
+            "aprovado": 30,
+            "succeeded": 30,
             "reprovado": 40,
             "rejeitado": 40,
             "failed": 40,
@@ -215,6 +228,22 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
             _mark_event_deferred(event, error=f"NFC-e {event_uuid or str(payload.get('chave') or '').strip()} ambigua entre documentos.")
             return False
         _mark_event_deferred(event, error=f"NFC-e {event_uuid} ainda nao foi sincronizada localmente ou esta ambigua entre oficinas.")
+        return False
+
+    if model in {"ibs_cbs", "evento_ibs_cbs", "evento-ibs-cbs"} or str(payload.get("cod_evento") or "").strip():
+        ibs_cbs_event = resolve_ibs_cbs_event_for_webhook(payload=payload)
+        if ibs_cbs_event is not None:
+            with transaction.atomic():
+                ibs_cbs_event = FiscalDocumentEvent.objects.select_for_update().select_related("document").get(pk=ibs_cbs_event.pk)
+                if not _is_regressive_status(model="ibs_cbs", current_status=ibs_cbs_event.status, incoming_status=str(payload.get("status") or "")):
+                    apply_ibs_cbs_event_payload(event=ibs_cbs_event, response_payload=payload)
+
+            _mark_event_processed(event)
+            return True
+        if is_ambiguous_ibs_cbs_event_webhook(payload=payload):
+            _mark_event_deferred(event, error=f"Evento IBS/CBS {event_uuid or str(payload.get('chave') or '').strip()} ambiguo entre eventos.")
+            return False
+        _mark_event_deferred(event, error=f"Evento IBS/CBS {event_uuid or str(payload.get('chave') or '').strip()} ainda nao foi sincronizado localmente.")
         return False
 
     if model == "nfe":

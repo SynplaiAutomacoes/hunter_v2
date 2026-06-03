@@ -348,3 +348,32 @@
 - Riscos: pode bloquear casos fiscais de ajuste ate esclarecimento oficial/contabil.
 - Status: implementada e validada na Fase 2.4C.3.
 - Fase: 2.4C.3.
+
+## ADR-040 - Eventos IBS/CBS sao eventos documentais, nao documentos
+
+- Contexto: a Webmania documenta `POST /1/nfe/evento-ibs-cbs/` para registrar eventos da Reforma Tributaria vinculados a NF-e/NFC-e, com `chave`, `ambiente`, `cod_evento`, `evento` e campos especificos por codigo. Esses eventos nao emitem uma nova NF-e/NFC-e.
+- Decisao: modelar eventos IBS/CBS como `FiscalDocumentEvent(event_type="ibs_cbs")` associado ao `FiscalDocument` base. Adicionar campos planejados para `event_code`, `event_sequence`, `event_payload_type`, `remote_event_id/protocol`, `remote_uuid`, payload/resposta sanitizados e XML de evento quando retornado.
+- Alternativas consideradas: criar `FiscalDocument` para cada evento; reutilizar ajuste/complementar; tratar como webhook avulso sem persistencia propria.
+- Consequencias: preserva historico auditavel do evento sem alterar o status fiscal da NF-e/NFC-e original indevidamente e reaproveita o padrao de CC-e/cancelamento.
+- Riscos: eventos de destinatario e eventos com itens exigem validacoes fiscais fortes antes de liberar UI.
+- Status: proposta documental na Fase 2.4D.0.
+- Fase: 2.4D.
+
+## ADR-041 - Cancelamento de evento IBS/CBS e subfase propria
+
+- Contexto: a Webmania documenta `PUT /1/nfe/evento-ibs-cbs/cancelar/` por UUID do evento autorizado, com ambiente e `url_notificacao` opcionais. Isso cancela o evento, nao o documento fiscal base.
+- Decisao: planejar cancelamento de evento como subfase propria, com tentativa `nfe_ibs_cbs_event_cancellation`, associada ao evento IBS/CBS original. A ausencia de UUID remoto ou status incerto do evento original bloqueia cancelamento.
+
+### ADR 2.4D.1 - Primeiro evento IBS/CBS implementado como evento, nao documento
+
+- Decisao: implementar `cod_evento=112110` como `FiscalDocumentEvent(event_type="ibs_cbs")`, associado a um `FiscalDocument` NF-e/NFC-e normal local autorizado.
+- Justificativa: evento IBS/CBS altera historico/eventos da nota, mas nao representa nova NF-e/NFC-e nem documento derivado. O documento base nao deve ter status alterado pelo evento.
+- Idempotencia: usar `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event")` associado ao documento e ao evento; chave com oficina, documento, tipo, codigo, sequencia e geracao.
+- Sequencia: reservar `event_sequence` por documento e tipo de evento IBS/CBS, porque a constraint persistente e `(document, event_type, event_sequence)`.
+- Payload: para `112110`, enviar somente envelope oficial confirmado. Nao enviar `ibs_cbs`, produtos, credito/debito, cancelamento ou campos de outros eventos.
+- Consequencia: eventos futuros com itens/campos especificos devem ampliar a modelagem de payload de forma controlada; cancelamento de evento permanece em fase propria.
+- Alternativas consideradas: implementar cancelamento junto ao primeiro evento; reutilizar cancelamento NF-e/NFC-e; cancelar documento base.
+- Consequencias: reduz risco de atualizar/cancelar documento errado e permite idempotencia especifica para cancelamento de evento.
+- Riscos: se a SEFAZ/Webmania retornar modelos/codigos diferentes por evento cancelado, o parser deve preservar resposta bruta sanitizada e mapear apenas campos confirmados.
+- Status: proposta documental na Fase 2.4D.0.
+- Fase: 2.4D.

@@ -6,7 +6,7 @@ import json
 from django import forms
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -20,12 +20,13 @@ from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.forms import NfeRequestStep1Form, NfeRequestStep2Form, NfeRequestStep3Form
-from apps.finance.models.finance import FiscalDocument, FiscalDocumentEvent, FiscalDocumentLinkRole, FiscalDocumentPurpose, NfeItem, NfeRequest, NfeRequestStatus
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentEvent, FiscalDocumentEventType, FiscalDocumentLinkRole, FiscalDocumentPurpose, NfeItem, NfeRequest, NfeRequestStatus
 from apps.finance.services.nfe_consulta import NfeConsultaError, reconcile_nfe_item
 from apps.finance.services.nfe_adjustment import NfeAdjustmentError, create_and_emit_nfe_adjustment, validate_adjustment_tax_regime
 from apps.finance.services.nfe_complementary import NfeComplementaryError, create_and_emit_nfe_complementary_price_quantity_from_item, is_local_nfe_eligible_for_complementary
 from apps.finance.services.nfe_emission import NfeEmissionError, cancel_nfe_document, download_nfe_preview_document, emit_nfe_request, invalidate_nfe_number, sync_nfe_emission_response
 from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction, is_nfe_item_eligible_for_cce
+from apps.finance.services.nfe_ibs_cbs_events import IBS_CBS_EVENT_112110, NfeIbsCbsEventError, emit_ibs_cbs_event_112110, is_document_eligible_for_ibs_cbs_event_112110
 from apps.finance.services.nfe_returns import NfeReturnError, create_and_emit_nfe_return_from_item, is_local_nfe_eligible_for_return
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.views.ncm_validation import build_invalid_ncm_modal_context, pop_invalid_ncm_modal_context, store_invalid_ncm_modal_context
@@ -230,6 +231,17 @@ def _user_can_issue_adjustment(*, user, workshop, request) -> bool:
     )
 
 
+def _user_can_issue_ibs_cbs_event(*, user, workshop, request) -> bool:
+    return has_workshop_perm(
+        user=user,
+        workshop=workshop,
+        app_label="finance",
+        model="fiscaldocumentevent",
+        codename="issue_ibs_cbs_event",
+        request=request,
+    )
+
+
 class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
     model = NfeRequest
     workshop_permission_model = "nferequest"
@@ -251,12 +263,16 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         can_issue_reversal = bool(latest_item and is_local_nfe_eligible_for_return(latest_item) and _user_can_issue_reversal(user=self.request.user, workshop=self.workshop, request=self.request))
         can_issue_complementary_price_quantity = bool(latest_item and is_local_nfe_eligible_for_complementary(latest_item) and _user_can_issue_complementary_price_quantity(user=self.request.user, workshop=self.workshop, request=self.request))
         can_issue_adjustment = _user_can_issue_adjustment(user=self.request.user, workshop=self.workshop, request=self.request)
+        fiscal_document = FiscalDocument.objects.filter(workshop=self.workshop, legacy_nfe_item=latest_item).first() if latest_item is not None else None
+        can_issue_ibs_cbs_event_112110 = bool(fiscal_document and is_document_eligible_for_ibs_cbs_event_112110(fiscal_document) and _user_can_issue_ibs_cbs_event(user=self.request.user, workshop=self.workshop, request=self.request))
         cce_events = FiscalDocumentEvent.objects.none()
+        ibs_cbs_events = FiscalDocumentEvent.objects.none()
         return_documents = FiscalDocument.objects.none()
         complementary_documents = FiscalDocument.objects.none()
         adjustment_documents = FiscalDocument.objects.none()
         if latest_item is not None:
-            cce_events = FiscalDocumentEvent.objects.filter(document__workshop=self.workshop, document__legacy_nfe_item=latest_item, event_type="cce").order_by("event_sequence")
+            cce_events = FiscalDocumentEvent.objects.filter(document__workshop=self.workshop, document__legacy_nfe_item=latest_item, event_type=FiscalDocumentEventType.CCE).order_by("event_sequence")
+            ibs_cbs_events = FiscalDocumentEvent.objects.filter(document__workshop=self.workshop, document__legacy_nfe_item=latest_item, event_type=FiscalDocumentEventType.IBS_CBS).order_by("event_code", "event_sequence")
             return_documents = FiscalDocument.objects.filter(links_from__related_document__legacy_nfe_item=latest_item, links_from__role__in=[FiscalDocumentLinkRole.RETURNS, FiscalDocumentLinkRole.REVERSES]).distinct().order_by("criado_em")
             complementary_documents = FiscalDocument.objects.filter(links_from__related_document__legacy_nfe_item=latest_item, links_from__role=FiscalDocumentLinkRole.COMPLEMENTS, purpose=FiscalDocumentPurpose.COMPLEMENTARY).distinct().order_by("criado_em")
             adjustment_documents = FiscalDocument.objects.filter(links_from__related_document__legacy_nfe_item=latest_item, links_from__role=FiscalDocumentLinkRole.ADJUSTS, purpose=FiscalDocumentPurpose.ADJUSTMENT).distinct().order_by("criado_em")
@@ -283,8 +299,11 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
                 "can_issue_reversal": can_issue_reversal,
                 "can_issue_complementary_price_quantity": can_issue_complementary_price_quantity,
                 "can_issue_adjustment": can_issue_adjustment,
+                "can_issue_ibs_cbs_event_112110": can_issue_ibs_cbs_event_112110,
+                "ibs_cbs_event_code_112110": IBS_CBS_EVENT_112110,
                 "cce_form": NfeCorrectionForm(),
                 "cce_events": cce_events,
+                "ibs_cbs_events": ibs_cbs_events,
                 "nfe_return_form": NfeReturnForm(),
                 "return_documents": return_documents,
                 "nfe_complementary_form": NfeComplementaryPriceQuantityForm(),
@@ -325,6 +344,32 @@ class NfeCorrectionIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
         else:
             messages.success(request, "Carta de correcao enviada para a Webmania.")
 
+        return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+
+class NfeIbsCbsEvent112110IssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "fiscaldocumentevent"
+    workshop_permission_codename = "issue_ibs_cbs_event"
+
+    def post(self, request, *args, **kwargs):
+        nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+        latest_item = nfe_request.items.order_by("-id").first()
+        document = FiscalDocument.objects.filter(workshop=self.workshop, legacy_nfe_item=latest_item).first() if latest_item is not None else None
+        if document is None:
+            messages.error(request, "Evento IBS/CBS 112110 exige documento fiscal local projetado e autorizado.")
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+        if request.POST.get("confirm_ibs_cbs_event_112110") != "on":
+            messages.error(request, "Confirme a responsabilidade fiscal antes de registrar o evento IBS/CBS.")
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+        try:
+            emit_ibs_cbs_event_112110(document=document, requested_by=request.user, request=request)
+        except NfeIbsCbsEventError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, "Evento IBS/CBS 112110 enviado para a Webmania.")
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 
@@ -651,6 +696,53 @@ class NfeCorrectionDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
         identifier = str(event.remote_uuid or event.document.access_key or event.pk or "documento").strip()
         safe_identifier = identifier.replace(" ", "-")
         return f'attachment; filename="nfe-cce-{document_kind}-{safe_identifier}.{extension}"'
+
+
+class NfeIbsCbsEventDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "fiscaldocumentevent"
+    workshop_permission_codename = "download_ibs_cbs_event"
+
+    def get(self, request, *args, **kwargs):
+        nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+        event = get_object_or_404(
+            FiscalDocumentEvent.objects.select_related("document", "document__legacy_nfe_item"),
+            pk=kwargs.get("event_pk"),
+            document__workshop=self.workshop,
+            document__legacy_nfe_item__request=nfe_request,
+            event_type=FiscalDocumentEventType.IBS_CBS,
+        )
+        try:
+            downloaded = download_webmania_document(workshop=self.workshop, url=str(event.xml_url or "").strip())
+        except WebmaniaDocumentDownloadError as exc:
+            return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
+
+        response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
+        identifier = str(event.remote_uuid or event.document.access_key or event.pk or "documento").strip().replace(" ", "-")
+        response["Content-Disposition"] = f'attachment; filename="nfe-ibs-cbs-evento-{event.event_code or "evento"}-{identifier}.xml"'
+        return response
+
+
+class NfeIbsCbsEventPayloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "fiscaldocumentevent"
+    workshop_permission_codename = "view_ibs_cbs_event_payload"
+
+    def get(self, request, *args, **kwargs):
+        nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+        event = get_object_or_404(
+            FiscalDocumentEvent.objects.select_related("document", "document__legacy_nfe_item"),
+            pk=kwargs.get("event_pk"),
+            document__workshop=self.workshop,
+            document__legacy_nfe_item__request=nfe_request,
+            event_type=FiscalDocumentEventType.IBS_CBS,
+        )
+        return JsonResponse(
+            {
+                "request_payload": event.request_payload or {},
+                "response_payload": event.response_payload or {},
+            }
+        )
 
 
 class NfeReturnDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):

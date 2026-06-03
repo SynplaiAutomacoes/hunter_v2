@@ -97,7 +97,7 @@ Eventos devem aparecer em timeline/historico do documento original. Documentos d
 | Baixar XML/DANFE NFC-e | Sim | Sim | Sim | Opcional | `download_nfce` | Obrigatorio |
 | Visualizar payload NFC-e | Sim | Opcional | Nao | Nao | `view_nfce_payload` | Obrigatorio |
 | Manifestar NF-e | Sim | Sim | Opcional | Nao | `manifest_nfe` | Obrigatorio |
-| Emitir evento IBS/CBS | Sim | Sim | Nao | Nao | `issue_nfe_ibs_cbs_event` | Obrigatorio |
+| Emitir evento IBS/CBS | Sim | Sim | Nao | Nao | `issue_ibs_cbs_event` | Obrigatorio |
 | Cancelar evento IBS/CBS | Sim | Sim | Nao | Nao | `cancel_nfe_ibs_cbs_event` | Obrigatorio |
 | Consultar documentos/eventos NF-e/NFC-e | Sim | Sim | Sim | Opcional | `view_fiscaldocument` | Obrigatorio |
 | Baixar XML/DANFE/eventos | Sim | Sim | Sim | Opcional | `download_fiscaldocument` | Obrigatorio |
@@ -239,7 +239,7 @@ Permissoes planejadas:
 | Visualizar configuracao IBS/CBS | Sim | Sim | Sim | Condicional | `view_nfe_ibs_cbs_tax_classes` | Oficina ativa |
 | Ver payload IBS/CBS enviado | Sim | Sim | Condicional | Nao | `view_nfe_ibs_cbs_payload` | Oficina/documento |
 | Liberar modo controlado de homologacao | Sim | Condicional | Nao | Nao | `manage_fiscal_compliance_overrides` | Oficina ativa |
-| Emitir evento IBS/CBS futuro | Sim | Condicional | Nao | Nao | `issue_nfe_ibs_cbs_event` | Oficina/documento |
+| Emitir evento IBS/CBS futuro | Sim | Condicional | Nao | Nao | `issue_ibs_cbs_event` | Oficina/documento |
 | Emitir credito/debito futuro | Sim | Condicional | Nao | Nao | `issue_nfe_credit` / `issue_nfe_debit` | Oficina ativa |
 
 Regras:
@@ -273,3 +273,42 @@ Resultado 2.4C.3:
 - Nao ha campos de produto ou IBS/CBS no formulario.
 - `issue_nfe_adjustment` segue obrigatoria antes do gateway; permissoes de emissao NF-e normal, credito/debito ou IBS/CBS nao concedem ajuste.
 - Estorno SC/ES permanece direcionado ao fluxo de devolucao/estorno ja implementado.
+
+## Fase 2.4D.0 - UX e permissoes planejadas para Eventos IBS/CBS
+
+Permissoes planejadas:
+
+- `issue_ibs_cbs_event`: registrar evento IBS/CBS.
+- `view_ibs_cbs_event`: visualizar evento e status.
+- `download_ibs_cbs_event`: baixar XML de evento quando retornado.
+- `view_ibs_cbs_event_payload`: visualizar payload/resposta sanitizados.
+
+Politica:
+
+- Nenhuma permissao legada de NF-e, NFC-e, ajuste, complementar, devolucao ou credito/debito concede evento IBS/CBS automaticamente.
+- Eventos de destinatario exigem habilitacao administrativa adicional ou feature flag por oficina, porque o papel fiscal difere do emitente.
+- Usuario emissor deve pertencer a oficina do documento base e ter permissao especifica antes do gateway.
+- Downloads e payloads seguem escopo de oficina ativa e permissoes especificas.
+
+UI minima futura:
+
+- Exibir acao "Registrar evento IBS/CBS" apenas no detalhe de NF-e/NFC-e elegivel.
+- Listar somente `cod_evento` permitido para o documento e papel fiscal da oficina.
+- Para a primeira subfase recomendada, expor apenas `112110` se aprovado.
+
+Resultado da Fase 2.4D.1:
+
+- Permissoes efetivas: `issue_ibs_cbs_event`, `view_ibs_cbs_event`, `download_ibs_cbs_event` e `view_ibs_cbs_event_payload`.
+- A UI minima foi adicionada no detalhe da NF-e elegivel, com acao para registrar somente `112110`, aviso operacional e confirmacao explicita.
+- Historico do evento mostra codigo, sequencia, status, UUID, XML e payload quando o usuario tem permissao.
+- Cancelamento de evento, outros codigos e central fiscal nova permanecem fora do escopo.
+- Para eventos com itens, mostrar sequencial fiscal da nota, nao ID interno.
+- Exigir confirmacao explicita de responsabilidade fiscal e informar que eventos nao corrigem payload base, nao emitem credito/debito e nao substituem complementar tributaria.
+- Exibir historico de eventos, status, protocolo/UUID remoto, XML quando retornado e eventual cancelamento.
+
+Bloqueios de UI:
+
+- Nao exibir evento `211128` enquanto credito/debito nao estiverem implementados e aprovados.
+- Nao exibir cancelamento de evento sem UUID remoto autorizado.
+- Nao oferecer evento IBS/CBS a partir do fluxo de ajuste.
+- Nao criar central fiscal nova nesta fase.

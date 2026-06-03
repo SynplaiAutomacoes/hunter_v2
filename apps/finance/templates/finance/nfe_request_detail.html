@@ -36,6 +36,37 @@
             Emitir Carta de Correção
         </button>
     {% endif %}
+    {% if can_issue_ibs_cbs_event_112110 %}
+        <button type="button" class="btn btn-sm btn-outline gap-2" onclick="ibs_cbs_event_nfe_modal.showModal()">
+            <span class="material-icons text-sm">event_available</span>
+            Registrar evento IBS/CBS
+        </button>
+    {% endif %}
+    {% if can_issue_ibs_cbs_event_112110 %}
+        <dialog id="ibs_cbs_event_nfe_modal" class="modal" onclick="if (event.target === this) this.close()">
+            <div class="modal-box w-11/12 max-w-2xl border border-base-300 bg-base-100 shadow-2xl">
+                <form method="post" action="{% url 'finance:nfe_ibs_cbs_event_112110_issue' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
+                    {% csrf_token %}
+                    <h3 class="text-base font-semibold text-base-content">Registrar evento IBS/CBS {{ ibs_cbs_event_code_112110 }}</h3>
+                    <div class="alert alert-warning mt-4 text-sm">
+                        <span>Este evento não altera a nota fiscal, não emite nota de crédito ou débito, não cancela evento e não substitui complementar tributária.</span>
+                    </div>
+
+                    <p class="mt-4 text-sm text-base-content/70">A Webmania receberá somente a chave da NF-e, ambiente, código do evento {{ ibs_cbs_event_code_112110 }}, sequência do evento e URL de notificação quando disponível.</p>
+
+                    <label class="label cursor-pointer justify-start gap-3 mt-3">
+                        <input type="checkbox" name="confirm_ibs_cbs_event_112110" class="checkbox checkbox-sm" required>
+                        <span class="label-text">Confirmo a responsabilidade fiscal pelo registro do evento IBS/CBS {{ ibs_cbs_event_code_112110 }}.</span>
+                    </label>
+
+                    <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                        <button type="button" class="btn-form-cancel" onclick="ibs_cbs_event_nfe_modal.close()">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Registrar evento</button>
+                    </div>
+                </form>
+            </div>
+        </dialog>
+    {% endif %}
     {% if can_issue_return or can_issue_reversal %}
         <button type="button" class="btn btn-sm btn-outline gap-2" onclick="return_nfe_modal.showModal()">
             <span class="material-icons text-sm">assignment_return</span>
@@ -191,6 +222,44 @@
                                                     {% if event.dacce_url %}
                                                         <a href="{% url 'finance:nfe_correction_download' pk=nfe_request.pk event_pk=event.pk document='dacce' %}" class="btn btn-outline btn-xs">DACCE</a>
                                                     {% endif %}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                {% endif %}
+                {% if ibs_cbs_events %}
+                    <div class="mt-8">
+                        <h3 class="text-base font-semibold text-base-content mb-3">Eventos IBS/CBS</h3>
+                        <div class="overflow-x-auto rounded-lg border border-base-200">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Código</th>
+                                        <th>Sequência</th>
+                                        <th>Status</th>
+                                        <th>UUID</th>
+                                        <th>Atualizado em</th>
+                                        <th class="text-right">Documentos</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for event in ibs_cbs_events %}
+                                        <tr>
+                                            <td>{{ event.event_code|default:'-' }}</td>
+                                            <td>{{ event.event_sequence }}</td>
+                                            <td>{{ event.status }}</td>
+                                            <td class="break-all">{{ event.remote_uuid|default:'-' }}</td>
+                                            <td>{{ event.atualizado_em|date:'d/m/Y H:i' }}</td>
+                                            <td class="text-right">
+                                                <div class="flex flex-wrap justify-end gap-2">
+                                                    {% if event.xml_url %}
+                                                        <a href="{% url 'finance:nfe_ibs_cbs_event_download' pk=nfe_request.pk event_pk=event.pk %}" class="btn btn-outline btn-xs">XML</a>
+                                                    {% endif %}
+                                                    <a href="{% url 'finance:nfe_ibs_cbs_event_payload' pk=nfe_request.pk event_pk=event.pk %}" class="btn btn-outline btn-xs">Payload</a>
                                                 </div>
                                             </td>
                                         </tr>
