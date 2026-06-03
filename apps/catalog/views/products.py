@@ -183,7 +183,7 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         for item in budget_items:
             history_dict[item.budget.id] = {
                 "type": "budget",
-                "id": item.budget.id,
+                "id": clean_id(item.budget.id),
                 "obj": item.budget,
                 "date": item.budget.criado_em,
                 "quantity": item.quantity,
@@ -197,14 +197,14 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         for item in workorder_items:
             history_dict[item.workorder.budget.id] = {
                 "type": "workorder",
-                "id": item.workorder.id,
+                "id": clean_id(item.workorder.id),
                 "obj": item.workorder,
                 "date": item.workorder.criado_em,
                 "quantity": item.quantity,
                 "status": item.workorder.get_status_display(),
                 "label": f"OS #{item.workorder.id}",
                 "sub_label": "Ordem de Serviço",
-                "url": reverse_lazy("workorder:workorder_detail", kwargs={"pk": item.workorder.id}),
+                "url": reverse_lazy("workorder:workorder_detail", kwargs={"pk": clean_id(item.workorder.id)}),
             }
 
         history_list = sorted(history_dict.values(), key=lambda x: x["date"], reverse=True)

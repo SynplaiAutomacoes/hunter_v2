@@ -1,1 +1,52 @@
-{% include 'crud/partials/table.html' with queryset=movements fields=fields actions=actions table_id='stock-inquiry-table' show_search=False %}
+{% if products %}
+<div class="overflow-hidden rounded-xl border border-base-300 bg-base-100">
+    <div class="overflow-x-auto">
+        <table id="stock-inquiry-products-table" class="table table-sm md:table-md">
+            <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
+                <tr>
+                    <th>Código</th>
+                    <th>Produto</th>
+                    <th>Imagem</th>
+                    <th>Estoque Atual</th>
+                    <th>Aplicação</th>
+                    <th>Preço Venda</th>
+                    <th>Últ. Compra</th>
+                    <th class="text-right">Ação</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in products %}
+                    <tr class="bg-base-100">
+                        <td class="font-mono text-xs">{{ row.code|default:"-" }}</td>
+                        <td>
+                            <div class="font-medium text-sm">{{ row.name|default:"-" }}</div>
+                        </td>
+                        <td>
+                            {% if row.image %}
+                                <img src="{{ row.image.url }}" alt="{{ row.name }}" class="w-10 h-10 object-cover rounded" />
+                            {% else %}
+                                <span class="material-icons text-base-content/30 text-2xl">image</span>
+                            {% endif %}
+                        </td>
+                        <td class="font-semibold">{{ row.current_quantity }}</td>
+                        <td class="max-w-xs truncate text-xs">{{ row.application|default:"-" }}</td>
+                        <td class="font-mono text-sm">{{ row.selling_price|default:"-" }}</td>
+                        <td class="font-mono text-sm">{{ row.last_purchase_price|default:"-" }}</td>
+                        <td class="text-right">
+                            {% if row.edit_url %}
+                                <a href="{{ row.edit_url }}" class="btn btn-ghost btn-xs" title="Ver Produto">
+                                    <span class="material-icons text-sm">visibility</span>
+                                </a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="rounded-xl border border-dashed border-base-300 px-6 py-10 text-center text-sm text-base-content/60">
+    Nenhum produto em estoque encontrado.
+</div>
+{% endif %}

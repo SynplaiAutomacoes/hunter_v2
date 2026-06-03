@@ -36,7 +36,7 @@ from .shared import (
     reset_steps_after_step_4,
     sync_linked_workorder_from_budget,
 )
-
+from ...core.utils import clean_id
 
 THOUSAND_SEPARATED_INT_PATTERN = re.compile(r"^\d{1,3}(?:[\s.,]\d{3})+$")
 
@@ -727,7 +727,7 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
             logger.warning(
                 "IDs invalidos enviados para adicao em lote",
                 extra={
-                    "budget_id": budget_id,
+                    "budget_id": clean_id(budget_id),
                     "item_type": item_type,
                     "invalid_count": len(invalid_ids),
                     "invalid_ids": invalid_ids[:10],
@@ -737,7 +737,7 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if not selected_ids:
             logger.warning(
                 "Tentativa de adicionar itens em lote sem selecao",
-                extra={"budget_id": budget_id, "item_type": item_type},
+                extra={"budget_id": clean_id(budget_id), "item_type": item_type},
             )
             # Return error message in the modal container
             error_html = """

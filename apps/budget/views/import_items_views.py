@@ -10,6 +10,7 @@ from apps.core.widgets import SearchableSelectInput
 from django import forms
 from django.urls import reverse
 from apps.core.forms import CoreForm
+from ...core.utils import clean_id
 
 
 class ImportItemsSearchForm(CoreForm):
@@ -42,7 +43,7 @@ class BudgetImportItemsSearchModalView(LoginRequiredMixin, WorkshopScopedMixin, 
     workshop_permission_codename = "change_budget"
 
     def get(self, request, pk):
-        budget = _get_budget_for_workshop(self.workshop, pk)
+        budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
         available_budgets = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle").order_by("-id")[:50]
 
         form = ImportItemsSearchForm(available_budgets=available_budgets)
@@ -59,7 +60,7 @@ class BudgetImportItemsSelectModalView(LoginRequiredMixin, WorkshopScopedMixin, 
     workshop_permission_codename = "change_budget"
 
     def post(self, request, pk):
-        budget = _get_budget_for_workshop(self.workshop, pk)
+        budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
         reference_budget_id = request.POST.get("reference_budget_id")
 
         if not reference_budget_id:
@@ -87,9 +88,9 @@ class BudgetImportItemsProcessView(LoginRequiredMixin, WorkshopScopedMixin, View
     workshop_permission_codename = "change_budget"
 
     def post(self, request, pk):
-        budget = _get_budget_for_workshop(self.workshop, pk)
+        budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
 
-        selected_item_ids = request.POST.getlist("selected_items")
+        selected_item_ids = [int(clean_id(item)) for item in request.POST.getlist("selected_items") if clean_id(item)]
 
         if not selected_item_ids:
             return HttpResponse(status=204)

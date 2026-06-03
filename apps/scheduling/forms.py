@@ -425,13 +425,15 @@ class AppointmentForm(CoreModelForm):
 
                         const normalizedValue = options.uppercase ? String(value).toUpperCase() : String(value);
 
-                        const widgetContainer = input.closest('[x-data]');
-                        if (widgetContainer) {
-                            widgetContainer.dispatchEvent(new CustomEvent('searchable-set-value', {
-                                detail: { value: normalizedValue },
-                                bubbles: true,
-                            }));
-                            return;
+                        if (input.type === 'hidden') {
+                            const widgetContainer = input.closest('[x-data]');
+                            if (widgetContainer) {
+                                widgetContainer.dispatchEvent(new CustomEvent('searchable-set-value', {
+                                    detail: { value: normalizedValue },
+                                    bubbles: true,
+                                }));
+                                return;
+                            }
                         }
 
                         input.value = normalizedValue;

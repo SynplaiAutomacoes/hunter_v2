@@ -1,6 +1,5 @@
 import json
 from dataclasses import dataclass
-from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from django import forms
@@ -122,81 +121,54 @@ class StockMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplat
 
 
 class StockInquiryListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
-    model = StockMovement
+    model = StockProduct
     template_name = "stock/stock_inquiry.html"
-    workshop_permission_codename = "view_stockmovement"
-    MOVEMENTS_PER_PAGE = 25
+    workshop_permission_codename = "view_stockproduct"
+    PRODUCTS_PER_PAGE = 25
 
     def _get_filter_params(self) -> dict[str, Any]:
         return {
             "search": str(self.request.GET.get("search") or "").strip(),
-            "status": str(self.request.GET.get("status") or "").strip(),
-            "type": str(self.request.GET.get("type") or "").strip(),
             "supplier": str(self.request.GET.get("supplier") or "").strip(),
-            "date_start": self._parse_date_param(self.request.GET.get("date_start")),
-            "date_end": self._parse_date_param(self.request.GET.get("date_end")),
         }
 
-    def _parse_date_param(self, raw_value: str | None) -> date | None:
-        value = str(raw_value or "").strip()
-        if not value:
-            return None
-        try:
-            return date.fromisoformat(value)
-        except ValueError:
-            return None
-
     def _get_queryset(self):
-        queryset = StockMovement.objects.filter(workshop=self.workshop).select_related(
-            "stock_product__product", "supplier", "transcation_by"
-        ).order_by("-criado_em")
+        queryset = StockProduct.objects.filter(workshop=self.workshop).select_related(
+            "product", "supplier"
+        ).order_by("product__name")
 
         filter_params = self._get_filter_params()
-        status = filter_params["status"]
-        type_param = filter_params["type"]
         supplier = filter_params["supplier"]
-        date_start = filter_params["date_start"]
-        date_end = filter_params["date_end"]
         search = filter_params["search"]
 
-        if status:
-            queryset = queryset.filter(status=status)
-        if type_param:
-            queryset = queryset.filter(type=type_param)
         if supplier and supplier.isdigit():
             queryset = queryset.filter(supplier_id=supplier)
-        if date_start:
-            queryset = queryset.filter(criado_em__date__gte=date_start)
-        if date_end:
-            queryset = queryset.filter(criado_em__date__lte=date_end)
 
         if search:
             queryset = apply_text_search(
                 queryset,
                 search_value=search,
                 lookups=(
-                    "stock_product__product__name",
-                    "stock_product__product__code",
-                    "supplier__name",
-                    "transcation_by__username",
-                    "transcation_by__first_name",
-                    "transcation_by__last_name",
+                    "product__name",
+                    "product__code",
+                    "product__application",
                 ),
             )
 
         return queryset
 
-    def _build_movement_row(self, movement: StockMovement) -> dict[str, object]:
+    def _build_product_row(self, sp: StockProduct) -> dict[str, object]:
+        product = sp.product
         return {
-            "id": movement.pk,
-            "date": movement.criado_em,
-            "status_badge": movement.stockmovement_status_badge,
-            "type_badge": movement.stockmovement_type_badge,
-            "product": movement.get_product_reference,
-            "quantity": movement.quantity,
-            "supplier": movement.supplier,
-            "transcation_by": movement.transcation_by,
-            "edit_url": reverse("catalog:product_update", kwargs={"pk": movement.get_product_reference.pk}) if movement.get_product_reference else None,
+            "id": sp.pk,
+            "code": product.code,
+            "name": product.name,
+            "image": product.image if product.image else None,
+            "current_quantity": sp.current_quantity,
+            "application": product.application,
+            "selling_price": product.selling_price,
+            "last_purchase_price": product.last_purchase_price,
+            "edit_url": reverse("catalog:product_update", kwargs={"pk": product.pk}),
         }
 
     def _has_active_filters(self) -> bool:
@@ -213,13 +185,13 @@ class StockInquiryListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
         context = super().get_context_data(**kwargs)
         queryset = self._get_queryset()
         
-        paginator = Paginator(queryset, self.MOVEMENTS_PER_PAGE)
+        paginator = Paginator(queryset, self.PRODUCTS_PER_PAGE)
         page_number = self.request.GET.get("page") or "1"
         page_obj = paginator.get_page(page_number)
 
-        rows = [self._build_movement_row(m) for m in page_obj.object_list]
+        rows = [self._build_product_row(sp) for sp in page_obj.object_list]
 
-        context["movements"] = rows
+        context["products"] = rows
         context["page_obj"] = page_obj
         context["paginator"] = paginator
         context["is_paginated"] = paginator.num_pages > 1
@@ -228,9 +200,11 @@ class StockInquiryListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
         
         context["has_active_filters"] = self._has_active_filters()
         context["clear_filters_url"] = reverse("stock:stock_inquiry")
+        context["htmx_target"] = "#stock-inquiry-products-section"
+        context["htmx_swap"] = "innerHTML"
+        context["htmx_select"] = "#stock-inquiry-products-section"
+        context["htmx_push_url"] = "true"
 
-        context["status_choices"] = StockMovement.MovementStatus.choices
-        context["type_choices"] = StockMovement.MovementType.choices
         context["suppliers"] = Supplier.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
 
         return context
@@ -814,6 +788,50 @@ class StockImportDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteR
     htmx_template_name = "stock/partials/stock_delete_modal.html"
     htmx_trigger = "stock-table-refresh"
 
+    def _revert_stock_import(self, stock_import: StockImport) -> None:
+        if stock_import.status != StockImport.ImportStatus.COMPLETED:
+            return
+
+        from apps.finance.models.financial_movement import FinancialMovement
+
+        for item in stock_import.items_data or []:
+            product_id = item.get("linked_product_id")
+            if not product_id:
+                continue
+            try:
+                stock_product = StockProduct.objects.get(workshop=self.workshop, product_id=product_id)
+            except StockProduct.DoesNotExist:
+                continue
+            quantity = Decimal(str(item.get("qtd", 0)))
+            stock_product.current_quantity = max(0, stock_product.current_quantity - quantity)
+            stock_product.save(update_fields=["current_quantity"])
+
+        for pay in stock_import.payments_data or []:
+            if pay.get("entry_type") != "payment":
+                continue
+            fm_id = pay.get("financial_movement_id")
+            if fm_id:
+                FinancialMovement.objects.filter(pk=fm_id, workshop=self.workshop).delete()
+            fee_fm_id = pay.get("fee_financial_movement_id")
+            if fee_fm_id:
+                FinancialMovement.objects.filter(pk=fee_fm_id, workshop=self.workshop).delete()
+
+    @transaction.atomic
+    def form_valid(self, form):
+        self.object = self.get_object()
+        self._revert_stock_import(self.object)
+
+        if bool(getattr(self.request, "htmx", False)):
+            self.object.delete()
+            response = HttpResponse()
+            if self.htmx_trigger:
+                response["HX-Trigger"] = self.htmx_trigger
+            return response
+
+        success_url = self.get_success_url()
+        self.object.delete()
+        return redirect(success_url)
+
 
 class StockHistoryEditRedirectView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = StockImport
@@ -850,6 +868,7 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
         response["HX-Trigger"] = json.dumps(trigger)
         return response
 
+    @transaction.atomic
     def post(self, request, *args, **kwargs):
         pk = request.GET.get("pk")
         obj = get_object_or_404(StockImport, id=pk, workshop=self.workshop)
@@ -940,7 +959,10 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return self._htmx_payment_response("Pagamento incluído com sucesso.", level="success", refresh_step=True)
         except (InvalidOperation, ValueError):
             return self._htmx_payment_response("Informe valores válidos para o pagamento.", level="warning")
-        except Exception:
+        except Exception as exc:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.exception("Erro ao criar pagamento de importação de estoque: %s", exc)
             return self._htmx_payment_response("Erro ao processar valores do pagamento.", level="error")
 
 

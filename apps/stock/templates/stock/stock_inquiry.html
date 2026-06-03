@@ -6,7 +6,7 @@
         <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
                 <h1 class="text-3xl font-bold text-base-content">Consulta no Estoque</h1>
-                <p class="text-base-content/70">Visualize e filtre todas as movimentações de estoque da oficina.</p>
+                <p class="text-base-content/70">Visualize e filtre todos os produtos em estoque da oficina.</p>
             </div>
             
             <div class="flex items-center gap-2">
@@ -22,7 +22,7 @@
                     <div class="flex w-full flex-col gap-2">
                         <form method="get" action="{% url 'stock:stock_inquiry' %}" class="flex flex-col gap-2 sm:flex-row sm:items-center">
                             <input type="text" name="search" value="{{ request.GET.search|default:'' }}"
-                                placeholder="Pesquisar movimentações..." class="input input-bordered w-full sm:max-w-xs"/>
+                                placeholder="Pesquisar produtos..." class="input input-bordered w-full sm:max-w-xs"/>
                             <button type="submit" class="btn btn-primary">Buscar</button>
 
                             <button
@@ -47,46 +47,16 @@
                                 @click="if ($event.target === $el) $el.close()"
                             >
                                 <div class="modal-box w-11/12 max-w-3xl border border-base-300 bg-base-100 shadow-2xl">
-                                    <h3 class="text-base font-semibold text-base-content">Filtrar movimentações</h3>
+                                    <h3 class="text-base font-semibold text-base-content">Filtrar produtos</h3>
 
                                     <div class="mt-4 max-h-[65vh] space-y-5 overflow-y-auto px-4">
                                         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                                             <div>
-                                                <label for="reports-filter-data-inicial">Data inicial</label>
-                                                <input type="date" name="date_start" id="reports-filter-data-inicial" value="{{ request.GET.date_start|default:'' }}" class="input input-bordered w-full" />
-                                            </div>
-
-                                            <div>
-                                                <label for="reports-filter-data-final">Data final</label>
-                                                <input type="date" name="date_end" id="reports-filter-data-final" value="{{ request.GET.date_end|default:'' }}" class="input input-bordered w-full" />
-                                            </div>
-
-                                            <div class="sm:col-span-2">
                                                 <label for="reports-filter-supplier">Fornecedor</label>
                                                 <select name="supplier" id="reports-filter-supplier" class="select select-bordered w-full">
                                                     <option value="">Todos</option>
                                                     {% for supplier in suppliers %}
                                                         <option value="{{ supplier.id|stringformat:'s' }}" {% if request.GET.supplier == supplier.id|stringformat:"s" %}selected{% endif %}>{{ supplier.name }}</option>
-                                                    {% endfor %}
-                                                </select>
-                                            </div>
-
-                                            <div>
-                                                <label for="reports-filter-type">Tipo</label>
-                                                <select name="type" id="reports-filter-type" class="select select-bordered w-full">
-                                                    <option value="">Todos</option>
-                                                    {% for val, label in type_choices %}
-                                                        <option value="{{ val }}" {% if request.GET.type == val %}selected{% endif %}>{{ label }}</option>
-                                                    {% endfor %}
-                                                </select>
-                                            </div>
-
-                                            <div>
-                                                <label for="reports-filter-status">Status</label>
-                                                <select name="status" id="reports-filter-status" class="select select-bordered w-full">
-                                                    <option value="">Todos</option>
-                                                    {% for val, label in status_choices %}
-                                                        <option value="{{ val }}" {% if request.GET.status == val %}selected{% endif %}>{{ label }}</option>
                                                     {% endfor %}
                                                 </select>
                                             </div>
@@ -103,45 +73,41 @@
                     </div>
                 </div>
 
-                <div id="stock-inquiry-movements-section">
-                    {% if movements %}
+                <div id="stock-inquiry-products-section">
+                    {% if products %}
                         <div class="overflow-hidden rounded-xl border border-base-300 bg-base-100">
                             <div class="overflow-x-auto">
-                                <table id="stock-inquiry-movements-table" class="table table-sm md:table-md">
+                                <table id="stock-inquiry-products-table" class="table table-sm md:table-md">
                                     <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
                                         <tr>
-                                            <th>Data</th>
-                                            <th>Status</th>
-                                            <th>Tipo</th>
+                                            <th>Código</th>
                                             <th>Produto</th>
-                                            <th>Quantidade</th>
-                                            <th>Fornecedor</th>
-                                            <th>Responsável</th>
+                                            <th>Imagem</th>
+                                            <th>Estoque Atual</th>
+                                            <th>Aplicação</th>
+                                            <th>Preço Venda</th>
+                                            <th>Últ. Compra</th>
                                             <th class="text-right">Ação</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {% for row in movements %}
+                                        {% for row in products %}
                                             <tr class="bg-base-100">
-                                                <td>{{ row.date|date:"d/m/Y H:i"|default:"-" }}</td>
+                                                <td class="font-mono text-xs">{{ row.code|default:"-" }}</td>
                                                 <td>
-                                                    {% if row.status_badge.text %}
-                                                    <span class="badge {{ row.status_badge.class }} badge-sm whitespace-nowrap">{{ row.status_badge.text }}</span>
-                                                    {% else %}
-                                                    -
-                                                    {% endif %}
+                                                    <div class="font-medium text-sm">{{ row.name|default:"-" }}</div>
                                                 </td>
                                                 <td>
-                                                    {% if row.type_badge.text %}
-                                                    <span class="badge {{ row.type_badge.class }} badge-sm whitespace-nowrap">{{ row.type_badge.text }}</span>
+                                                    {% if row.image %}
+                                                        <img src="{{ row.image.url }}" alt="{{ row.name }}" class="w-10 h-10 object-cover rounded" />
                                                     {% else %}
-                                                    -
+                                                        <span class="material-icons text-base-content/30 text-2xl">image</span>
                                                     {% endif %}
                                                 </td>
-                                                <td>{{ row.product.name|default:"-" }}</td>
-                                                <td>{{ row.quantity }}</td>
-                                                <td>{{ row.supplier.name|default:"-" }}</td>
-                                                <td>{{ row.transcation_by.get_full_name|default:row.transcation_by.username|default:"-" }}</td>
+                                                <td class="font-semibold">{{ row.current_quantity }}</td>
+                                                <td class="max-w-xs truncate text-xs">{{ row.application|default:"-" }}</td>
+                                                <td class="font-mono text-sm">{{ row.selling_price|default:"-" }}</td>
+                                                <td class="font-mono text-sm">{{ row.last_purchase_price|default:"-" }}</td>
                                                 <td class="text-right">
                                                     {% if row.edit_url %}
                                                         <a href="{{ row.edit_url }}" class="btn btn-ghost btn-xs" title="Ver Produto">
@@ -157,7 +123,7 @@
                         </div>
                     {% else %}
                         <div class="rounded-xl border border-dashed border-base-300 px-6 py-10 text-center text-sm text-base-content/60">
-                            Nenhuma movimentação de estoque encontrada.
+                            Nenhum produto em estoque encontrado.
                         </div>
                     {% endif %}
 
