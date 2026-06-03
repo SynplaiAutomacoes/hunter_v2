@@ -531,6 +531,21 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         kwargs["request"] = self.request
         kwargs["workshop"] = self.workshop
         kwargs["instance"] = self.get_object()
+
+        obj = kwargs["instance"]
+        if not obj and self.get_current_step() == 6:
+            last_observation = (
+                Budget.objects.filter(workshop=self.workshop)
+                .exclude(observations="")
+                .order_by("-criado_em")
+                .values_list("observations", flat=True)
+                .first()
+            ) or ""
+            if last_observation:
+                initial = kwargs.get("initial") or {}
+                initial["observations"] = last_observation
+                kwargs["initial"] = initial
+
         return kwargs
 
     def _render_htmx_step_response(self, *, step: int, push_url: str, triggers: dict | None = None):
@@ -965,16 +980,11 @@ class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request):
         try:
             data = json.loads(request.body)
-            budget_id = int(data.get("budget_id"))
             observation = sentence_case(str(data.get("observation", "")).strip())
-            budget = _get_budget_for_workshop(self.workshop, budget_id)
-            if _is_budget_edit_locked(budget):
-                return JsonResponse({"success": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
-
-            budget.pdf_observation = observation
-            budget.save(update_fields=["pdf_observation"])
+            self.workshop.pdf_observation = observation
+            self.workshop.save(update_fields=["pdf_observation"])
             return JsonResponse({"success": True})
-        except (TypeError, ValueError, json.JSONDecodeError, AttributeError, Http404):
+        except (TypeError, ValueError, json.JSONDecodeError, AttributeError):
             return JsonResponse({"success": False}, status=400)
 
 
@@ -1007,7 +1017,7 @@ class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     problem_description=current_budget.problem_description,
                     technical_diagnosis=current_budget.technical_diagnosis,
                     notes=current_budget.notes,
-                    pdf_observation=current_budget.pdf_observation,
+                    observations=current_budget.observations,
                     fuel_level=current_budget.fuel_level,
                     defect=current_budget.defect,
                     discount_value=current_budget.discount_value,

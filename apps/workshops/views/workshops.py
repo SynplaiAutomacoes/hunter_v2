@@ -43,6 +43,7 @@ from apps.workshops.forms.workshops import (
     WorkshopForm,
     WorkshopLogoForm,
     WorkshopOptionalsSectionForm,
+    WorkshopPdfObservationSectionForm,
 )
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.services.files import (
@@ -184,6 +185,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
     TAB_CERTIFICADO = "certificado"
     TAB_OPCIONAIS = "opcionais"
     TAB_CREDENCIAIS = "credenciais"
+    TAB_PDF_OBSERVATION = "pdf_observation"
     TAB_LOGO_AUTOUPLOAD = "logo_autoupload"
     TABS = {
         TAB_EMPRESA,
@@ -192,6 +194,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         TAB_CERTIFICADO,
         TAB_OPCIONAIS,
         TAB_CREDENCIAIS,
+        TAB_PDF_OBSERVATION,
     }
 
     NF_SUBTAB_NFE = "nfe"
@@ -255,6 +258,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             self.TAB_NOTA_FISCAL: WorkshopFiscalSectionForm(instance=self.company, workshop=self.object),
             self.TAB_CERTIFICADO: WorkshopCertificateSectionForm(instance=self.object),
             self.TAB_OPCIONAIS: WorkshopOptionalsSectionForm(instance=self.company, workshop=self.object),
+            self.TAB_PDF_OBSERVATION: WorkshopPdfObservationSectionForm(instance=self.object),
         }
 
         if data is None and files is None:
@@ -270,6 +274,8 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             form_map[self.TAB_CERTIFICADO] = WorkshopCertificateSectionForm(data=data, files=files, instance=self.object)
         elif active_tab == self.TAB_OPCIONAIS:
             form_map[self.TAB_OPCIONAIS] = WorkshopOptionalsSectionForm(data=data, files=files, instance=self.company, workshop=self.object)
+        elif active_tab == self.TAB_PDF_OBSERVATION:
+            form_map[self.TAB_PDF_OBSERVATION] = WorkshopPdfObservationSectionForm(data=data, files=files, instance=self.object)
 
         return form_map
 
@@ -336,6 +342,14 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
 
     def _build_context(self, *, forms_map: dict[str, forms.BaseForm], active_tab: str, active_nf_subtab: str) -> dict[str, object]:
         can_change_webmania_company = self._can_change_webmania_company()
+        can_change_workshop = has_workshop_perm(
+            user=self.request.user,
+            workshop=self.object,
+            app_label=Workshop._meta.app_label,
+            model=str(Workshop._meta.model_name),
+            codename="change_workshop",
+            request=self.request,
+        )
         return {
             "object": self.object,
             "workshop": self.object,
@@ -347,11 +361,13 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             "fiscal_form": forms_map[self.TAB_NOTA_FISCAL],
             "certificate_form": forms_map[self.TAB_CERTIFICADO],
             "optionals_form": forms_map[self.TAB_OPCIONAIS],
+            "pdf_observation_form": forms_map[self.TAB_PDF_OBSERVATION],
             "credential_preview_fields": self._credential_preview_fields(),
             "certificate_status": self._certificate_status(),
             "has_certificate_file": self.object.has_certificate_file,
             "has_certificate_password": bool(str(self.object.certificate_password or "").strip()),
             "can_change_webmania_company": can_change_webmania_company,
+            "can_change_workshop": can_change_workshop,
             "logo_form": WorkshopLogoForm(instance=self.object, preview_url=self._logo_preview_url()),
         }
 
@@ -484,6 +500,27 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         )
         return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
 
+    def _save_workshop_tab_form(self, *, form: forms.ModelForm, tab: str, nf_subtab: str, success_message: str):
+        if not form.changed_data:
+            logger.info(
+                "workshop_update_tab_no_changes workshop_id=%s tab=%s user_id=%s",
+                getattr(self.object, "pk", None),
+                tab,
+                getattr(self.request.user, "id", None),
+            )
+            messages.info(self.request, "Nenhuma alteracao detectada.")
+            return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
+
+        form.save()
+        messages.success(self.request, success_message)
+        logger.info(
+            "workshop_update_tab_save_succeeded workshop_id=%s tab=%s user_id=%s",
+            getattr(self.object, "pk", None),
+            tab,
+            getattr(self.request.user, "id", None),
+        )
+        return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
+
     def get(self, request, *args, **kwargs):
         active_tab = self._normalize_tab(request.GET.get("tab"))
         active_nf_subtab = self._normalize_nf_subtab(request.GET.get("nf_tab"))
@@ -544,7 +581,21 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             self.TAB_CERTIFICADO,
             self.TAB_OPCIONAIS,
         }
+        restricted_workshop_tabs = {
+            self.TAB_PDF_OBSERVATION,
+        }
+
         if active_tab in restricted_webmania_tabs and not self._can_change_webmania_company():
+            raise PermissionDenied
+
+        if active_tab in restricted_workshop_tabs and not has_workshop_perm(
+            user=request.user,
+            workshop=self.object,
+            app_label=Workshop._meta.app_label,
+            model=str(Workshop._meta.model_name),
+            codename="change_workshop",
+            request=request,
+        ):
             raise PermissionDenied
 
         if active_tab == self.TAB_EMPRESA:
@@ -567,6 +618,15 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             optionals_form = cast(WorkshopOptionalsSectionForm, forms_map[self.TAB_OPCIONAIS])
             if optionals_form.is_valid():
                 return self._save_company_tab_form(form=optionals_form, tab=active_tab, nf_subtab=active_nf_subtab)
+        elif active_tab == self.TAB_PDF_OBSERVATION:
+            pdf_observation_form = cast(WorkshopPdfObservationSectionForm, forms_map[self.TAB_PDF_OBSERVATION])
+            if pdf_observation_form.is_valid():
+                return self._save_workshop_tab_form(
+                    form=pdf_observation_form,
+                    tab=active_tab,
+                    nf_subtab=active_nf_subtab,
+                    success_message="Observacao do PDF atualizada com sucesso.",
+                )
         elif active_tab == self.TAB_CREDENCIAIS:
             messages.info(request, "As credenciais dessa aba sao apenas para visualizacao.")
             return redirect(self._build_update_url(tab=active_tab, nf_subtab=active_nf_subtab))

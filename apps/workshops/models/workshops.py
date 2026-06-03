@@ -30,7 +30,7 @@ class Workshop(TimeStampedModel):
     phone = PhoneNumberField(region="BR", verbose_name="Telefone", max_length=20, blank=False)
     address = CharField(verbose_name="Endereço", max_length=255, null=False, blank=False)
     uf = models.CharField(verbose_name="UF", max_length=2, null=False, blank=False, default="SP")
-    pdf_observation = CharField(verbose_name="Observação", max_length=250, null=False, blank=False, default="")
+    pdf_observation = models.TextField(verbose_name="Observação", null=False, blank=False, default="")
     logo_file_key = models.CharField(max_length=512, blank=True, default="")
     logo_file_name = models.CharField(max_length=255, blank=True, default="")
     logo_content_type = models.CharField(max_length=100, blank=True, default="")

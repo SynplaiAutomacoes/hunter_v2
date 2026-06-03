@@ -155,6 +155,7 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
         self.assertContains(response, "Nota Fiscal")
         self.assertContains(response, "Certificados")
         self.assertContains(response, "Opcionais")
+        self.assertContains(response, "Observacoes PDF")
         self.assertContains(response, "Credenciais")
         self.assertContains(response, "Nenhum arquivo de certificado foi enviado ainda.")
         self.assertContains(response, "Formatos aceitos: .pfx e .p12.")
@@ -189,6 +190,20 @@ class WorkshopWebmaniaIntegrationTests(TestCase):
 
         self.workshop.refresh_from_db()
         self.assertEqual(self.workshop.name, "Empresa Integrada")
+
+    def test_workshop_update_allows_saving_pdf_observation_tab(self) -> None:
+        response = self.client.post(
+            reverse("workshops:update", kwargs={"pk": self.workshop.pk}),
+            data={
+                "tab": "pdf_observation",
+                "nf_tab": "nfe",
+                "pdf_observation": "Observacao fixa do PDF",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.workshop.refresh_from_db()
+        self.assertEqual(self.workshop.pdf_observation, "Observacao fixa do PDF")
 
     def test_credentials_tab_is_read_only_without_editable_fields(self) -> None:
         response = self.client.get(reverse("workshops:update", kwargs={"pk": self.workshop.pk}))
