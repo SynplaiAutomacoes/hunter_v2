@@ -482,6 +482,14 @@ class Budget(TimeStampedModel):
         self.signature_request_status = SignatureStatus.APPROVED
         self.save(update_fields=["signature_request_status"])
 
+    def approve(self) -> bool:
+        if self.status == BudgetStatus.APPROVED:
+            return False
+        self.status = BudgetStatus.APPROVED
+        self.signature_request_status = SignatureStatus.APPROVED
+        self.save(update_fields=["status", "signature_request_status"])
+        return True
+
     @property
     def total_duration_display(self) -> str:
         total_td = self.total_duration
