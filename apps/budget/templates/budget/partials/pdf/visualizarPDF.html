@@ -358,14 +358,14 @@
             {% if observations or fixed_observation %}
             <div class="summary-observation mt-3">
                 <h4 class="font-bold mb-2 uppercase">Observações</h4>
-                {% if observations %}
-                    <p class="text-[12px] preserve-freeform-text">{{ observations }}</p>
+                {% if fixed_observation %}
+                    <p class="text-[12px] preserve-freeform-text">{{ fixed_observation }}</p>
                 {% endif %}
                 {% if observations and fixed_observation %}
                     <div class="mt-3"></div>
                 {% endif %}
-                {% if fixed_observation %}
-                    <p class="text-[12px] preserve-freeform-text">{{ fixed_observation }}</p>
+                {% if observations %}
+                    <p class="text-[12px] preserve-freeform-text">{{ observations }}</p>
                 {% endif %}
             </div>
             {% endif %}
