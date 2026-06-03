@@ -119,3 +119,6 @@ node_modules/
 
 # Local scratch images
 img.png
+.codex*
+.ruff*
+update_stock.sql
