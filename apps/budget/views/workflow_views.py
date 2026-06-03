@@ -975,14 +975,19 @@ class MarkStep5CalculationViewedView(LoginRequiredMixin, WorkshopScopedMixin, Vi
 
 class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = Budget
-    workshop_permission_codename = "add_budget"
+    workshop_permission_codename = "change_budget"
 
     def post(self, request):
         try:
             data = json.loads(request.body)
+            budget_id = int(data.get("budget_id"))
             observation = sentence_case(str(data.get("observation", "")).strip())
-            self.workshop.pdf_observation = observation
-            self.workshop.save(update_fields=["pdf_observation"])
+            budget = _get_budget_for_workshop(self.workshop, budget_id)
+            if _is_budget_edit_locked(budget):
+                return JsonResponse({"success": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
+
+            budget.observations = observation
+            budget.save(update_fields=["observations"])
             return JsonResponse({"success": True})
         except (TypeError, ValueError, json.JSONDecodeError, AttributeError):
             return JsonResponse({"success": False}, status=400)
