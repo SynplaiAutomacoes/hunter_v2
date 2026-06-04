@@ -3667,6 +3667,36 @@ class BudgetKitServiceCalculateViewTests(TestCase):
         self.assertEqual(override.service_selling_price, Money("180.00", "BRL"))
         self.assertEqual(override.service_cost_price, Money("50.00", "BRL"))
 
+    def test_duration_change_without_pricing_context_keeps_registered_kit_service_value(self) -> None:
+        WorkshopCost.objects.filter(workshop=self.workshop).delete()
+        budget = create_budget(workshop=self.workshop)
+        service = create_service(workshop=self.workshop, suffix=84)
+        kit = create_kit(workshop=self.workshop, suffix=841, products=[])
+        kit.service_pricing_mode = Kit.ServicePricingMode.BY_DURATION
+        kit.save(update_fields=["service_pricing_mode"])
+        KitService.objects.create(kit=kit, service=service, quantity=2, duration=timedelta(hours=1), selling_price=Money("55.00", "BRL"))
+        item = BudgetItem.objects.create(workshop=self.workshop, budget=budget, kit=kit, quantity=1)
+
+        response = self.client.post(
+            reverse("budget:calculate_kit_service", args=[budget.pk, item.pk, service.pk]),
+            data={
+                "changed_field": "duration",
+                "duration": "02:00:00",
+                "quantity": "2",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+
+        override = BudgetKitItemOverride.objects.get(budget_item=item, service=service)
+        item.refresh_from_db()
+
+        self.assertTrue(payload["workshop_cost_missing"])
+        self.assertEqual(payload["price"], "55.00")
+        self.assertEqual(override.service_selling_price, Money("55.00", "BRL"))
+        self.assertEqual(item.service_selling_price, Money("110.00", "BRL"))
+
 
 class BudgetPricingSnapshotTests(TestCase):
     def test_budget_snapshot_preserves_old_values_after_workshop_cost_change(self) -> None:

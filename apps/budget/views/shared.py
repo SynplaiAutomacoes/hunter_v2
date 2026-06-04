@@ -80,7 +80,8 @@ def _parse_duration_from_string(raw_duration):
 
 def _get_budget_workshop_cost(budget, workshop):
     if budget and getattr(budget, "pk", None):
-        return budget.get_frozen_pricing_context(), False
+        workshop_cost = budget.get_frozen_pricing_context()
+        return workshop_cost, not _has_service_duration_pricing(workshop_cost)
 
     try:
         reference_date = budget.criado_em if budget.criado_em else timezone.now()
@@ -98,10 +99,18 @@ def _get_budget_workshop_cost(budget, workshop):
             return None, True
 
 
+def _has_service_duration_pricing(workshop_cost) -> bool:
+    if not workshop_cost:
+        return False
+
+    hourly_value = workshop_cost.hourly_cost_value or Money(0, "BRL")
+    return hourly_value.amount > 0
+
+
 def _calculate_service_prices(duration, workshop_cost):
     duration_hours = Decimal(duration.total_seconds()) / Decimal(3600)
 
-    if workshop_cost:
+    if workshop_cost and _has_service_duration_pricing(workshop_cost):
         min_hourly = workshop_cost.minimum_hourly_cost or Money(0, "BRL")
         hourly_val = workshop_cost.hourly_cost_value or Money(0, "BRL")
         return min_hourly * duration_hours, hourly_val * duration_hours
