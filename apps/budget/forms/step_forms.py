@@ -2794,6 +2794,17 @@ class BudgetStep6Form(CoreModelForm):
         customer_agreed_departure_at_field.error_messages["required"] = Budget.CUSTOMER_AGREED_DEPARTURE_REQUIRED_MESSAGE
         service_expected_completion_at_field.error_messages["required"] = Budget.SERVICE_EXPECTED_COMPLETION_REQUIRED_MESSAGE
 
+        if self.instance and self.instance.pk:
+            autosave_url = reverse("budget:autosave_review_date", args=[self.instance.pk])
+            for field_name in ("customer_agreed_departure_at", "service_expected_completion_at"):
+                self.fields[field_name].widget.attrs.update(
+                    {
+                        "data-budget-review-date-autosave": "1",
+                        "data-autosave-field": field_name,
+                        "data-autosave-url": autosave_url,
+                    }
+                )
+
         budget = _get_budget_with_prefetched_items(self.instance)
 
         status_data = budget.budget_status_badge

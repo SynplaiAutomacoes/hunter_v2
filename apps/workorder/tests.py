@@ -1864,8 +1864,7 @@ class WorkOrderPaymentFormTests(TestCase):
                 },
                 workorder=self.workorder,
             )
-
-        self.assertTrue(form.is_valid(), form.errors)
+            self.assertTrue(form.is_valid(), form.errors)
 
     def test_pending_payment_value_ignores_subcent_residual_after_full_cent_payment(self) -> None:
         payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix Residual", installments_count=1)

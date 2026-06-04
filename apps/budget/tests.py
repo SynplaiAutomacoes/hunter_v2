@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import cast
 from urllib.parse import urlparse
@@ -2017,6 +2017,8 @@ class BudgetStep6FormTests(TestCase):
         self.assertIn("service_expected_completion_at", html)
         self.assertIn("Data de saída combinada com o Cliente", html)
         self.assertIn("Data prevista de término do serviço", html)
+        self.assertIn('data-budget-review-date-autosave="1"', html)
+        self.assertIn(reverse("budget:autosave_review_date", args=[budget.pk]), html)
 
     def test_step6_pdf_modal_uses_resend_label_for_sent_signature(self) -> None:
         workshop = create_workshop(suffix=95)
@@ -2156,6 +2158,47 @@ class BudgetStep6WorkflowTests(TestCase):
         self.assertEqual(response.headers.get("Location"), f"{reverse('budget:budget_update', kwargs={'pk': self.budget.pk})}?step=6")
         self.assertIsNotNone(self.budget.customer_agreed_departure_at)
         self.assertIsNotNone(self.budget.service_expected_completion_at)
+
+    def test_autosave_review_date_saves_single_field(self) -> None:
+        self.budget.customer_agreed_departure_at = None
+        self.budget.service_expected_completion_at = None
+        self.budget.save(update_fields=["customer_agreed_departure_at", "service_expected_completion_at"])
+
+        response = self.client.post(
+            reverse("budget:autosave_review_date", args=[self.budget.pk]),
+            {
+                "field": "service_expected_completion_at",
+                "value": "2026-05-12T17:00",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.budget.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertJSONEqual(response.content, {"ok": True})
+        self.assertIsNone(self.budget.customer_agreed_departure_at)
+        self.assertIsNotNone(self.budget.service_expected_completion_at)
+
+    def test_autosave_review_date_rejects_departure_before_expected_completion(self) -> None:
+        self.budget.customer_agreed_departure_at = None
+        self.budget.service_expected_completion_at = datetime(2026, 5, 12, 17, 0, tzinfo=timezone.get_current_timezone())
+        self.budget.save(update_fields=["customer_agreed_departure_at", "service_expected_completion_at"])
+
+        response = self.client.post(
+            reverse("budget:autosave_review_date", args=[self.budget.pk]),
+            {
+                "field": "customer_agreed_departure_at",
+                "value": "2026-05-12T16:00",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.budget.refresh_from_db()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertJSONEqual(response.content, {"ok": False, "error": Budget.STEP6_DATE_ORDER_ERROR_MESSAGE})
+        self.assertIsNone(self.budget.customer_agreed_departure_at)
 
     def test_update_budget_status_allows_cancel_when_step6_dates_are_missing(self) -> None:
         self.budget.customer_agreed_departure_at = None
