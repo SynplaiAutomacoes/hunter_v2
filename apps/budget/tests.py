@@ -3717,6 +3717,20 @@ class BudgetKitServiceCalculateViewTests(TestCase):
         self.assertEqual(override.service_selling_price, Money("55.00", "BRL"))
         self.assertEqual(item.service_selling_price, Money("110.00", "BRL"))
 
+    def test_kit_edit_modal_uses_frontend_totals_without_autosave(self) -> None:
+        response = self.client.get(reverse("budget:edit_kit", args=[self.budget.pk, self.item.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="products-total-display"')
+        self.assertContains(response, 'id="services-total-display"')
+        self.assertContains(response, "updateProductTotals")
+        self.assertContains(response, "updateServiceTotals")
+        self.assertContains(response, "recalculateServicePricingFromDuration")
+        self.assertContains(response, "minimumHourlyCost: parseFloat('25.00')")
+        self.assertContains(response, "hourlyCostValue: parseFloat('90.00')")
+        self.assertNotContains(response, "/calculate/")
+        self.assertNotContains(response, "debounce")
+
 
 class BudgetPricingSnapshotTests(TestCase):
     def test_budget_snapshot_preserves_old_values_after_workshop_cost_change(self) -> None:
