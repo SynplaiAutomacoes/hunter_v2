@@ -633,7 +633,24 @@ class KitTests(TestCase):
         self.assertIn('"modelOptions": [{"id": "Renegade", "label": "Renegade"}]', html)
         self.assertIn('"fuelOptions": [{"id": "Diesel", "label": "Diesel"}]', html)
         self.assertIn('<option value="Jeep">Jeep</option>', html)
-        self.assertIn('<option x-show="application.model" :value="application.model" x-text="application.model"></option>', html)
+        self.assertNotIn('<option x-show="application.model" :value="application.model" x-text="application.model"></option>', html)
+
+    def test_kit_form_keeps_existing_application_model_when_catalog_options_do_not_include_it(self):
+        brand = FipeVehicleBrand.objects.create(name="Jeep", external_id="1")
+        FipeVehicleModel.objects.create(brand=brand, vehicle_type=brand.vehicle_type, name="Compass", external_id="101")
+        kit = Kit.objects.create(workshop=self.workshop, name="Kit Aplicacao Legada", description="", is_active=True)
+        KitApplication.objects.create(kit=kit, brand="Jeep", model="Renegade", engine="2.0", fuel="Diesel", year_start=2015, year_end=2021)
+
+        html = render_crispy_form(KitForm(instance=kit, workshop=self.workshop))
+
+        self.assertIn('"model": "Renegade"', html)
+        self.assertIn('"modelOptions": [{"id": "Compass", "label": "Compass"}, {"id": "Renegade", "label": "Renegade"}]', html)
+        self.assertIn("modelOptions: this.ensureSelectedOption(application.modelOptions, model)", html)
+        self.assertIn('x-html="buildApplicationModelOptionsHtml(application)"', html)
+        self.assertIn('x-effect="syncSelectElementValue($el, application.model)"', html)
+        self.assertIn("application.model = selectedModel;", html)
+        self.assertIn(':name="application.engineLocked ? null : \'kit_application_engine\'"', html)
+        self.assertIn(':name="application.fuelLocked ? null : \'kit_application_fuel\'"', html)
 
 
 class CatalogFipeServiceTests(TestCase):
