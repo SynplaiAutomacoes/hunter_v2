@@ -359,7 +359,7 @@ class BudgetKitServiceCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
         default_cost, default_price = item.resolve_kit_service_base_prices(kit_service=kit_service, workshop_cost=workshop_cost)
 
         if changed_field == "duration":
-            if workshop_cost:
+            if workshop_cost and not workshop_cost_missing:
                 service_cost_price, service_selling_price = _calculate_service_prices(duration, workshop_cost)
                 service_cost_price_amount = service_cost_price.amount.quantize(Decimal("0.01"))
                 service_selling_price_amount = service_selling_price.amount.quantize(Decimal("0.01"))

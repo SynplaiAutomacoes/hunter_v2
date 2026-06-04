@@ -1140,16 +1140,19 @@ class BudgetItem(TimeStampedModel):
         inserted_selling = kit_service.resolved_selling_price
         resolved_workshop_cost = workshop_cost if workshop_cost is not None else self._get_budget_reference_workshop_cost()
 
+        fallback_cost = manual_cost if manual_cost is not None else (kit_service.service.suggested_cost or Money(0, "BRL"))
+        fallback_duration_selling = manual_duration_selling if manual_duration_selling is not None else inserted_selling
+
         if resolved_workshop_cost is not None:
+            min_hourly = resolved_workshop_cost.minimum_hourly_cost or Money(0, "BRL")
+            hourly_value = resolved_workshop_cost.hourly_cost_value or Money(0, "BRL")
             duration_cost, duration_sell = calculate_catalog_service_prices(duration, resolved_workshop_cost)
-            resolved_cost = manual_cost if manual_cost is not None else duration_cost
-            resolved_duration_selling = manual_duration_selling if manual_duration_selling is not None else duration_sell
+            resolved_cost = manual_cost if manual_cost is not None else (duration_cost if min_hourly.amount > 0 else fallback_cost)
+            resolved_duration_selling = manual_duration_selling if manual_duration_selling is not None else (duration_sell if hourly_value.amount > 0 else fallback_duration_selling)
             if self.kit and self.kit.service_pricing_mode == Kit.ServicePricingMode.BY_DURATION:
                 return resolved_cost, resolved_duration_selling
             return resolved_cost, inserted_selling
 
-        fallback_cost = manual_cost if manual_cost is not None else (kit_service.service.suggested_cost or Money(0, "BRL"))
-        fallback_duration_selling = manual_duration_selling if manual_duration_selling is not None else inserted_selling
         if self.kit and self.kit.service_pricing_mode == Kit.ServicePricingMode.BY_DURATION:
             return fallback_cost, fallback_duration_selling
         return fallback_cost, inserted_selling
