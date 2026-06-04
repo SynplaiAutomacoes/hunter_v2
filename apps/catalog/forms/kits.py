@@ -4,7 +4,7 @@ from html import escape
 import json
 import logging
 from datetime import timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, cast
 
 from django import forms
@@ -2453,6 +2453,7 @@ class KitForm(CoreModelForm):
 
 class QuickProductEditForm(EquivalentProductsFormMixin, CoreModelForm):
     equivalent_search = forms.CharField(required=False, label="Produtos Equivalentes")
+    profit_margin = forms.DecimalField(required=False, max_digits=16, decimal_places=12, widget=PercentageInput(attrs={"readonly": True}))
 
     class Meta:
         model = Product
@@ -2606,8 +2607,9 @@ class QuickProductEditForm(EquivalentProductsFormMixin, CoreModelForm):
 
                             if (sell > 0) {
                                 let margin = ((sell - cost) / sell) * 100;
+                                margin = Math.round(margin * 100) / 100;
                                 if (marginEl) {
-                                    marginEl.value = margin.toFixed(2).replace(".", ",");
+                                    marginEl.value = parseFloat(margin.toFixed(2)).toFixed(2).replace(".", ",");
                                     marginEl.dispatchEvent(new Event('input', { bubbles: true }));
                                 }
                             } else {
@@ -2634,6 +2636,31 @@ class QuickProductEditForm(EquivalentProductsFormMixin, CoreModelForm):
                 raise forms.ValidationError("Já existe um produto cadastrado com este código.")
 
         return code
+
+    @staticmethod
+    def _normalize_profit_margin(raw_margin: Decimal | None) -> Decimal:
+        if raw_margin is None:
+            return Decimal("0.00")
+
+        normalized_margin = Decimal(raw_margin)
+        if normalized_margin > Decimal("1"):
+            return normalized_margin.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return (normalized_margin * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    def clean_profit_margin(self) -> Decimal:
+        cost_price = self.cleaned_data.get("cost_price")
+        selling_price = self.cleaned_data.get("selling_price")
+
+        if cost_price is not None and selling_price is not None:
+            cost_amount = Decimal(getattr(cost_price, "amount", cost_price) or 0)
+            selling_amount = Decimal(getattr(selling_price, "amount", selling_price) or 0)
+            if selling_amount <= 0:
+                return Decimal("0.00")
+
+            margin_percent = ((selling_amount - cost_amount) / selling_amount) * Decimal("100")
+            return margin_percent.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        return self._normalize_profit_margin(self.cleaned_data.get("profit_margin"))
 
     def clean(self):
         cleaned_data = super().clean()

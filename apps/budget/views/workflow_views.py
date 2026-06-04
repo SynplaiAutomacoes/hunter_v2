@@ -1026,7 +1026,7 @@ class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             budget.observations = observation
             budget.save(update_fields=["observations"])
-            return JsonResponse({"success": True})
+            return JsonResponse({"success": True, "observation": budget.observations})
         except (TypeError, ValueError, json.JSONDecodeError, AttributeError):
             return JsonResponse({"success": False}, status=400)
 

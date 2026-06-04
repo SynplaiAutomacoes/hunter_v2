@@ -2857,6 +2857,7 @@ class BudgetStep6Form(CoreModelForm):
         base_pdf_download_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?download=1&variant=base"
 
         saved_observation = budget.observations or ""
+        saved_observation_html = escape(saved_observation)
 
         cancellation_reason_html = ""
         if budget.cancellation_reason:
@@ -2924,10 +2925,30 @@ class BudgetStep6Form(CoreModelForm):
             # =========================
             HTML("""
             <script>
-                function saveObservation(budgetId) {
-                    const observation = document.getElementById('budget-observation').value;
+                window.budgetPdfCacheVersion = Date.now().toString();
 
-                    fetch('/budget/save-observation/', {
+                function withBudgetPdfCache(url) {
+                    if (!url) return '';
+                    const separator = url.includes('?') ? '&' : '?';
+                    return `${url}${separator}_pdfv=${encodeURIComponent(window.budgetPdfCacheVersion)}`;
+                }
+
+                function openBudgetPdfModal(detail) {
+                    const normalizedDetail = { ...(detail || {}) };
+                    normalizedDetail.url = withBudgetPdfCache(normalizedDetail.url || '');
+                    normalizedDetail.downloadUrl = withBudgetPdfCache(normalizedDetail.downloadUrl || '');
+                    normalizedDetail.signedPdfUrl = withBudgetPdfCache(normalizedDetail.signedPdfUrl || '');
+                    normalizedDetail.basePdfUrl = withBudgetPdfCache(normalizedDetail.basePdfUrl || '');
+                    normalizedDetail.signedDownloadUrl = withBudgetPdfCache(normalizedDetail.signedDownloadUrl || '');
+                    normalizedDetail.baseDownloadUrl = withBudgetPdfCache(normalizedDetail.baseDownloadUrl || '');
+                    window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: normalizedDetail }));
+                }
+
+                async function saveObservation(budgetId) {
+                    const observationEl = document.getElementById('budget-observation');
+                    const observation = observationEl ? observationEl.value : '';
+
+                    const response = await fetch('/budget/save-observation/', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -2938,6 +2959,34 @@ class BudgetStep6Form(CoreModelForm):
                             observation: observation,
                         })
                     });
+                    const payload = await response.json().catch(() => ({}));
+
+                    if (!response.ok || payload.success === false) {
+                        document.body.dispatchEvent(new CustomEvent('showToast', {
+                            detail: {
+                                type: 'error',
+                                message: payload.error || 'Falha ao salvar a observação.',
+                            },
+                        }));
+                        return;
+                    }
+
+                    if (observationEl && typeof payload.observation === 'string') {
+                        observationEl.value = payload.observation;
+                    }
+
+                    window.budgetPdfCacheVersion = Date.now().toString();
+                    const pdfModalFrame = document.querySelector('#pdfModal iframe');
+                    if (pdfModalFrame) {
+                        pdfModalFrame.src = 'about:blank';
+                    }
+
+                    document.body.dispatchEvent(new CustomEvent('showToast', {
+                        detail: {
+                            type: 'success',
+                            message: 'Observação salva.',
+                        },
+                    }));
                 }
                 
                 function showBlockedStep6Action(message) {
@@ -3354,17 +3403,17 @@ class BudgetStep6Form(CoreModelForm):
                         HTML(f"""
                         <div class="grid grid-cols-12 gap-3 text-center mb-8">
                             <button type="button" class="btn btn-success col-span-4" data-allow-locked="1"
-                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{signed_pdf_url}', downloadUrl: '{signed_pdf_download_url}', showSignatureBtn: true, signatureButtonLabel: '{signature_button_label}', isSignatureResend: {"true" if is_signature_resend else "false"}, signatureBlocked: {signature_blocked_json}, signatureBlockedReason: {signature_blocked_reason_json}, showPdfVariantToggle: {"true" if can_toggle_signed_pdf else "false"}, pdfVariant: 'signed', signedPdfUrl: '{signed_pdf_url}', basePdfUrl: '{base_pdf_url}', signedDownloadUrl: '{signed_pdf_download_url}', baseDownloadUrl: '{base_pdf_download_url}' }} }}))">
+                                onclick="openBudgetPdfModal({{ url: '{signed_pdf_url}', downloadUrl: '{signed_pdf_download_url}', showSignatureBtn: true, signatureButtonLabel: '{signature_button_label}', isSignatureResend: {"true" if is_signature_resend else "false"}, signatureBlocked: {signature_blocked_json}, signatureBlockedReason: {signature_blocked_reason_json}, showPdfVariantToggle: {"true" if can_toggle_signed_pdf else "false"}, pdfVariant: 'signed', signedPdfUrl: '{signed_pdf_url}', basePdfUrl: '{base_pdf_url}', signedDownloadUrl: '{signed_pdf_download_url}', baseDownloadUrl: '{base_pdf_download_url}' }})">
                                 PDF Cliente
                             </button>
 
                             <button type="button" class="btn btn-success col-span-4" data-allow-locked="1"
-                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf_gestor", args=[budget.pk])}', showSignatureBtn: false }} }}))">
+                                onclick="openBudgetPdfModal({{ url: '{reverse("budget:visualizar_pdf_gestor", args=[budget.pk])}', showSignatureBtn: false }})">
                                 PDF Gestor
                             </button>
 
                             <button type="button" class="btn btn-success col-span-4" data-allow-locked="1"
-                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf_mecanico", args=[budget.pk])}', showSignatureBtn: false }} }}))">
+                                onclick="openBudgetPdfModal({{ url: '{reverse("budget:visualizar_pdf_mecanico", args=[budget.pk])}', showSignatureBtn: false }})">
                                 PDF Mecânico
                             </button>
                         </div>
@@ -3381,7 +3430,7 @@ class BudgetStep6Form(CoreModelForm):
                                                         rows="4"
                                                         id="budget-observation"
                                                         placeholder="Digite uma observação para o PDF..."
-                                                    >{saved_observation}</textarea>
+                                                    >{saved_observation_html}</textarea>
 
                                                     <div class="flex justify-end items-center">
                                                         <button type="button"
