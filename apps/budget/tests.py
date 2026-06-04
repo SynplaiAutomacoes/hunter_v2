@@ -1229,6 +1229,42 @@ class BudgetTotalsConsistencyTests(TestCase):
         self.assertEqual(snapshot.total_labor_by_slider, Money("160.00", "BRL"))
         self.assertEqual(budget.total_base_value, Money("160.00", "BRL"))
 
+    def test_step4_summary_uses_selected_item_service_total_not_pricing_method_total(self) -> None:
+        workshop = create_workshop(suffix=77)
+        budget = create_budget(workshop=workshop)
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico do kit",
+            quantity=1,
+            service_cost_price=Money("40.00", "BRL"),
+            service_selling_price=Money("100.00", "BRL"),
+            duration=timedelta(hours=2),
+        )
+
+        with patch.object(Budget, "calculate_pricing_methods", return_value={"method_name": "Tradicional", "venda_mao_obra": Money("160.00", "BRL")}):
+            self.assertEqual(budget.display_total_services_by_slider, Money("160.00", "BRL"))
+            self.assertEqual(budget.selected_items_total_services_value, Money("100.00", "BRL"))
+            rendered_summary = render_to_string("budget/partials/components/budget_summary.html", {"budget": budget})
+
+        self.assertIn("R$\xa0100,00", rendered_summary)
+        self.assertNotIn("R$\xa0160,00", rendered_summary)
+
+    def test_step4_summary_service_total_matches_single_kit_services_total(self) -> None:
+        workshop = create_workshop(suffix=78)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=78)
+        kit = create_kit(workshop=workshop, suffix=78, products=[])
+        KitService.objects.create(kit=kit, service=service, quantity=2, duration=timedelta(hours=1), selling_price=Money("55.00", "BRL"))
+        item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+
+        with patch.object(Budget, "calculate_pricing_methods", return_value={"method_name": "Tradicional", "venda_mao_obra": Money("160.00", "BRL")}):
+            self.assertEqual(item.get_kit_services_total(), Money("110.00", "BRL"))
+            self.assertEqual(budget.display_total_services_by_slider, Money("160.00", "BRL"))
+            self.assertEqual(budget.selected_items_total_services_value, item.get_kit_services_total())
+
     def test_pricing_snapshot_keeps_hunter_labor_sum_when_hunter_method_is_selected(self) -> None:
         workshop = create_workshop(suffix=76)
         budget = create_budget(workshop=workshop)
