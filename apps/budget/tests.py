@@ -1970,34 +1970,37 @@ class BudgetPdfViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Observacao da oficina")
 
-    def test_save_observation_updates_workshop(self) -> None:
-        create_budget(workshop=self.workshop)
+    def test_save_observation_updates_budget_and_returns_saved_value(self) -> None:
+        budget = create_budget(workshop=self.workshop)
 
         response = self.client.post(
             reverse("budget:save_observation"),
-            data=json.dumps({"observation": "Observacao da oficina"}),
+            data=json.dumps({"budget_id": budget.pk, "observation": "Observacao do orcamento"}),
             content_type="application/json",
         )
 
-        self.workshop.refresh_from_db()
+        budget.refresh_from_db()
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.workshop.pdf_observation, "Observacao da oficina")
+        self.assertEqual(response.json(), {"success": True, "observation": "Observacao do orcamento"})
+        self.assertEqual(budget.observations, "Observacao do orcamento")
 
     def test_save_observation_accepts_more_than_250_chars(self) -> None:
+        budget = create_budget(workshop=self.workshop)
         observation = f"observacao longa {'x' * 280}"
 
         response = self.client.post(
             reverse("budget:save_observation"),
-            data=json.dumps({"observation": observation}),
+            data=json.dumps({"budget_id": budget.pk, "observation": observation}),
             content_type="application/json",
         )
 
-        self.workshop.refresh_from_db()
+        budget.refresh_from_db()
 
         self.assertEqual(response.status_code, 200)
         self.assertGreater(len(observation), 250)
-        self.assertEqual(self.workshop.pdf_observation, sentence_case(observation))
+        self.assertEqual(budget.observations, sentence_case(observation))
+        self.assertEqual(response.json()["observation"], sentence_case(observation))
 
 
 class BudgetStep6FormTests(TestCase):
@@ -2087,6 +2090,25 @@ class BudgetStep6FormTests(TestCase):
 
         self.assertIn("showPdfVariantToggle: false", html)
         self.assertIn('x-show="showPdfVariantToggle"', html)
+
+    def test_step6_pdf_buttons_use_fresh_observation_cache_buster(self) -> None:
+        workshop = create_workshop(suffix=68)
+        budget = create_budget(workshop=workshop)
+        budget.observations = "Observação inicial."
+        budget.save(update_fields=["observations"])
+
+        request = RequestFactory().get("/")
+        request.user = User.objects.create_user(username="budget-step6-user-68", password="123")
+        form = BudgetStep6Form(instance=budget, workshop=workshop, request=request)
+        html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form, "csrf_token": "token"}))
+
+        self.assertIn("window.budgetPdfCacheVersion = Date.now().toString();", html)
+        self.assertIn("function openBudgetPdfModal(detail)", html)
+        self.assertIn("function withBudgetPdfCache(url)", html)
+        self.assertIn("async function saveObservation", html)
+        self.assertIn("payload.observation", html)
+        self.assertIn("openBudgetPdfModal({", html)
+        self.assertIn("_pdfv=", html)
 
     def test_step6_keeps_approval_and_signature_available_when_stock_is_insufficient(self) -> None:
         workshop = create_workshop(suffix=97)

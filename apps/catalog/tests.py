@@ -1787,6 +1787,52 @@ class ProductFormTests(TestCase):
         self.assertIn('class="input-theme border-none bg-base-100 textinput', html)
         self.assertIn("Salvar Produtos Equivalentes", html)
 
+    def test_quick_product_edit_form_accepts_profit_margin_with_float_rounding_noise(self) -> None:
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-FORM-005",
+            name="Produto Modal Margem",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("59.38", "BRL"),
+            selling_price=Money("100.00", "BRL"),
+            profit_margin=Decimal("40.62"),
+            ncm="87089990",
+            is_active=True,
+        )
+        form = QuickProductEditForm(
+            instance=product,
+            workshop=self.workshop,
+            data={
+                "code": product.code,
+                "name": product.name,
+                "description": "",
+                "unit": Product.Unit.UND,
+                "group": str(self.group.pk),
+                "brand": "",
+                "model": "",
+                "sku": "",
+                "barcode": "",
+                "location": "",
+                "cost_price_0": "59.38",
+                "cost_price_1": "BRL",
+                "selling_price_0": "100.00",
+                "selling_price_1": "BRL",
+                "profit_margin": "40.620000000001",
+                "ncm": "87089990",
+                "cest": "",
+                "origin_cst": str(Product.OriginCST.NACIONAL),
+                "purpose": Product.Purpose.RESALE,
+                "application": "",
+                "is_active": "on",
+            },
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        updated_product = form.save(commit=False)
+        self.assertEqual(updated_product.profit_margin, Decimal("40.62"))
+
 
 class ProductUpdateNavigationTests(TestCase):
     def setUp(self) -> None:
