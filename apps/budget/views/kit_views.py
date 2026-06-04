@@ -28,9 +28,10 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "change_budgetitem"
 
     def get(self, request, budget_id, item_id):
-        _get_budget_for_workshop(self.workshop, budget_id)
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
         item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id, kit__isnull=False)
         item.ensure_kit_snapshot()
+        workshop_cost, workshop_cost_missing = _get_budget_workshop_cost(budget, self.workshop)
 
         # Buscar produtos do kit com overrides
         kit_products = []
@@ -100,6 +101,11 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "item": item,
             "kit_products": kit_products,
             "kit_services": kit_services,
+            "service_pricing_context": {
+                "can_calculate": bool(workshop_cost and not workshop_cost_missing),
+                "minimum_hourly_cost": str(((workshop_cost.minimum_hourly_cost if workshop_cost else Money(0, "BRL")) or Money(0, "BRL")).amount.quantize(Decimal("0.01"))),
+                "hourly_cost_value": str(((workshop_cost.hourly_cost_value if workshop_cost else Money(0, "BRL")) or Money(0, "BRL")).amount.quantize(Decimal("0.01"))),
+            },
         }
 
         return render(request, "budget/partials/modals/modal_edit_kit.html", context)
