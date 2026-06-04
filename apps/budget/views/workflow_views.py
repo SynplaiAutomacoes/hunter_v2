@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.conf import settings
+from django import forms
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Prefetch
@@ -115,6 +116,43 @@ BUDGET_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
         allowed_values=frozenset(str(choice.value) for choice in BudgetType),
     ),
 )
+
+
+class BudgetReviewDateAutosaveView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "change_budget"
+    allowed_fields = frozenset({"customer_agreed_departure_at", "service_expected_completion_at"})
+    date_field = forms.DateTimeField(
+        required=False,
+        input_formats=[
+            "%Y-%m-%dT%H:%M",
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%d %H:%M",
+            "%Y-%m-%d %H:%M:%S",
+        ],
+    )
+
+    def post(self, request: HttpRequest, budget_id: int) -> JsonResponse:
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if _is_budget_edit_locked(budget):
+            return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
+
+        field_name = request.POST.get("field", "")
+        if field_name not in self.allowed_fields:
+            return JsonResponse({"ok": False, "error": "Campo de data invalido."}, status=400)
+
+        try:
+            parsed_value = self.date_field.clean(request.POST.get("value", ""))
+        except forms.ValidationError:
+            return JsonResponse({"ok": False, "error": "Informe uma data e hora validas."}, status=400)
+
+        setattr(budget, field_name, parsed_value)
+
+        if budget.customer_agreed_departure_at and budget.service_expected_completion_at and budget.customer_agreed_departure_at < budget.service_expected_completion_at:
+            return JsonResponse({"ok": False, "error": Budget.STEP6_DATE_ORDER_ERROR_MESSAGE}, status=400)
+
+        budget.save(update_fields=[field_name])
+        return JsonResponse({"ok": True})
 
 BUDGET_STATUS_CHOICES = tuple((status.value, str(status.label)) for status in BudgetStatus)
 BUDGET_TYPE_CHOICES = tuple((choice.value, str(choice.label)) for choice in BudgetType)
@@ -988,7 +1026,7 @@ class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             budget.observations = observation
             budget.save(update_fields=["observations"])
-            return JsonResponse({"success": True})
+            return JsonResponse({"success": True, "observation": budget.observations})
         except (TypeError, ValueError, json.JSONDecodeError, AttributeError):
             return JsonResponse({"success": False}, status=400)
 

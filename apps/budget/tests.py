@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import cast
 from urllib.parse import urlparse
@@ -1229,6 +1229,42 @@ class BudgetTotalsConsistencyTests(TestCase):
         self.assertEqual(snapshot.total_labor_by_slider, Money("160.00", "BRL"))
         self.assertEqual(budget.total_base_value, Money("160.00", "BRL"))
 
+    def test_step4_summary_uses_selected_item_service_total_not_pricing_method_total(self) -> None:
+        workshop = create_workshop(suffix=77)
+        budget = create_budget(workshop=workshop)
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico do kit",
+            quantity=1,
+            service_cost_price=Money("40.00", "BRL"),
+            service_selling_price=Money("100.00", "BRL"),
+            duration=timedelta(hours=2),
+        )
+
+        with patch.object(Budget, "calculate_pricing_methods", return_value={"method_name": "Tradicional", "venda_mao_obra": Money("160.00", "BRL")}):
+            self.assertEqual(budget.display_total_services_by_slider, Money("160.00", "BRL"))
+            self.assertEqual(budget.selected_items_total_services_value, Money("100.00", "BRL"))
+            rendered_summary = render_to_string("budget/partials/components/budget_summary.html", {"budget": budget})
+
+        self.assertIn("R$\xa0100,00", rendered_summary)
+        self.assertNotIn("R$\xa0160,00", rendered_summary)
+
+    def test_step4_summary_service_total_matches_single_kit_services_total(self) -> None:
+        workshop = create_workshop(suffix=78)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=78)
+        kit = create_kit(workshop=workshop, suffix=78, products=[])
+        KitService.objects.create(kit=kit, service=service, quantity=2, duration=timedelta(hours=1), selling_price=Money("55.00", "BRL"))
+        item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+
+        with patch.object(Budget, "calculate_pricing_methods", return_value={"method_name": "Tradicional", "venda_mao_obra": Money("160.00", "BRL")}):
+            self.assertEqual(item.get_kit_services_total(), Money("110.00", "BRL"))
+            self.assertEqual(budget.display_total_services_by_slider, Money("160.00", "BRL"))
+            self.assertEqual(budget.selected_items_total_services_value, item.get_kit_services_total())
+
     def test_pricing_snapshot_keeps_hunter_labor_sum_when_hunter_method_is_selected(self) -> None:
         workshop = create_workshop(suffix=76)
         budget = create_budget(workshop=workshop)
@@ -1934,34 +1970,37 @@ class BudgetPdfViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Observacao da oficina")
 
-    def test_save_observation_updates_workshop(self) -> None:
-        create_budget(workshop=self.workshop)
+    def test_save_observation_updates_budget_and_returns_saved_value(self) -> None:
+        budget = create_budget(workshop=self.workshop)
 
         response = self.client.post(
             reverse("budget:save_observation"),
-            data=json.dumps({"observation": "Observacao da oficina"}),
+            data=json.dumps({"budget_id": budget.pk, "observation": "Observacao do orcamento"}),
             content_type="application/json",
         )
 
-        self.workshop.refresh_from_db()
+        budget.refresh_from_db()
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.workshop.pdf_observation, "Observacao da oficina")
+        self.assertEqual(response.json(), {"success": True, "observation": "Observacao do orcamento"})
+        self.assertEqual(budget.observations, "Observacao do orcamento")
 
     def test_save_observation_accepts_more_than_250_chars(self) -> None:
+        budget = create_budget(workshop=self.workshop)
         observation = f"observacao longa {'x' * 280}"
 
         response = self.client.post(
             reverse("budget:save_observation"),
-            data=json.dumps({"observation": observation}),
+            data=json.dumps({"budget_id": budget.pk, "observation": observation}),
             content_type="application/json",
         )
 
-        self.workshop.refresh_from_db()
+        budget.refresh_from_db()
 
         self.assertEqual(response.status_code, 200)
         self.assertGreater(len(observation), 250)
-        self.assertEqual(self.workshop.pdf_observation, sentence_case(observation))
+        self.assertEqual(budget.observations, sentence_case(observation))
+        self.assertEqual(response.json()["observation"], sentence_case(observation))
 
 
 class BudgetStep6FormTests(TestCase):
@@ -2017,6 +2056,8 @@ class BudgetStep6FormTests(TestCase):
         self.assertIn("service_expected_completion_at", html)
         self.assertIn("Data de saída combinada com o Cliente", html)
         self.assertIn("Data prevista de término do serviço", html)
+        self.assertIn('data-budget-review-date-autosave="1"', html)
+        self.assertIn(reverse("budget:autosave_review_date", args=[budget.pk]), html)
 
     def test_step6_pdf_modal_uses_resend_label_for_sent_signature(self) -> None:
         workshop = create_workshop(suffix=95)
@@ -2049,6 +2090,25 @@ class BudgetStep6FormTests(TestCase):
 
         self.assertIn("showPdfVariantToggle: false", html)
         self.assertIn('x-show="showPdfVariantToggle"', html)
+
+    def test_step6_pdf_buttons_use_fresh_observation_cache_buster(self) -> None:
+        workshop = create_workshop(suffix=68)
+        budget = create_budget(workshop=workshop)
+        budget.observations = "Observação inicial."
+        budget.save(update_fields=["observations"])
+
+        request = RequestFactory().get("/")
+        request.user = User.objects.create_user(username="budget-step6-user-68", password="123")
+        form = BudgetStep6Form(instance=budget, workshop=workshop, request=request)
+        html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form, "csrf_token": "token"}))
+
+        self.assertIn("window.budgetPdfCacheVersion = Date.now().toString();", html)
+        self.assertIn("function openBudgetPdfModal(detail)", html)
+        self.assertIn("function withBudgetPdfCache(url)", html)
+        self.assertIn("async function saveObservation", html)
+        self.assertIn("payload.observation", html)
+        self.assertIn("openBudgetPdfModal({", html)
+        self.assertIn("_pdfv=", html)
 
     def test_step6_keeps_approval_and_signature_available_when_stock_is_insufficient(self) -> None:
         workshop = create_workshop(suffix=97)
@@ -2156,6 +2216,47 @@ class BudgetStep6WorkflowTests(TestCase):
         self.assertEqual(response.headers.get("Location"), f"{reverse('budget:budget_update', kwargs={'pk': self.budget.pk})}?step=6")
         self.assertIsNotNone(self.budget.customer_agreed_departure_at)
         self.assertIsNotNone(self.budget.service_expected_completion_at)
+
+    def test_autosave_review_date_saves_single_field(self) -> None:
+        self.budget.customer_agreed_departure_at = None
+        self.budget.service_expected_completion_at = None
+        self.budget.save(update_fields=["customer_agreed_departure_at", "service_expected_completion_at"])
+
+        response = self.client.post(
+            reverse("budget:autosave_review_date", args=[self.budget.pk]),
+            {
+                "field": "service_expected_completion_at",
+                "value": "2026-05-12T17:00",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.budget.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertJSONEqual(response.content, {"ok": True})
+        self.assertIsNone(self.budget.customer_agreed_departure_at)
+        self.assertIsNotNone(self.budget.service_expected_completion_at)
+
+    def test_autosave_review_date_rejects_departure_before_expected_completion(self) -> None:
+        self.budget.customer_agreed_departure_at = None
+        self.budget.service_expected_completion_at = datetime(2026, 5, 12, 17, 0, tzinfo=timezone.get_current_timezone())
+        self.budget.save(update_fields=["customer_agreed_departure_at", "service_expected_completion_at"])
+
+        response = self.client.post(
+            reverse("budget:autosave_review_date", args=[self.budget.pk]),
+            {
+                "field": "customer_agreed_departure_at",
+                "value": "2026-05-12T16:00",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.budget.refresh_from_db()
+
+        self.assertEqual(response.status_code, 400)
+        self.assertJSONEqual(response.content, {"ok": False, "error": Budget.STEP6_DATE_ORDER_ERROR_MESSAGE})
+        self.assertIsNone(self.budget.customer_agreed_departure_at)
 
     def test_update_budget_status_allows_cancel_when_step6_dates_are_missing(self) -> None:
         self.budget.customer_agreed_departure_at = None
@@ -3386,7 +3487,27 @@ class BudgetDuplicateKitProductTests(TestCase):
         self.assertEqual(item.service_selling_price, Money("66.00", "BRL"))
         self.assertEqual(item.get_kit_services_total(), Money("66.00", "BRL"))
 
-    def test_budget_item_uses_duration_pricing_mode_when_workshop_cost_exists(self) -> None:
+    def test_budget_kit_services_match_selected_catalog_column_total(self) -> None:
+        workshop = create_workshop(suffix=42)
+        budget = create_budget(workshop=workshop)
+        service_1 = create_service(workshop=workshop, suffix=42)
+        service_2 = create_service(workshop=workshop, suffix=43)
+        kit = create_kit(workshop=workshop, suffix=42, products=[])
+        kit.service_pricing_mode = Kit.ServicePricingMode.BY_DURATION
+        kit.save(update_fields=["service_pricing_mode"])
+        KitService.objects.create(kit=kit, service=service_1, quantity=2, duration=timedelta(hours=1), duration_selling_price=Money("31.50", "BRL"), selling_price=Money("99.00", "BRL"))
+        KitService.objects.create(kit=kit, service=service_2, quantity=3, duration=timedelta(minutes=30), duration_selling_price=Money("12.25", "BRL"), selling_price=Money("88.00", "BRL"))
+        kit.recalculate_total_price()
+
+        item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+        _, service_overrides = item._get_kit_override_maps()
+
+        self.assertEqual(service_overrides[service_1.pk].service_selling_price, Money("31.50", "BRL"))
+        self.assertEqual(service_overrides[service_2.pk].service_selling_price, Money("12.25", "BRL"))
+        self.assertEqual(item.get_kit_services_total(), Money("99.75", "BRL"))
+        self.assertEqual(item.get_kit_services_total(), kit.total_price)
+
+    def test_budget_item_uses_selected_duration_column_when_workshop_cost_exists(self) -> None:
         workshop = create_workshop(suffix=95)
         budget = create_budget(workshop=workshop)
         service = create_service(workshop=workshop, suffix=95)
@@ -3408,7 +3529,7 @@ class BudgetDuplicateKitProductTests(TestCase):
         item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
 
         self.assertEqual(item.service_cost_price, Money("60.00", "BRL"))
-        self.assertEqual(item.service_selling_price, Money("160.00", "BRL"))
+        self.assertEqual(item.service_selling_price, Money("33.00", "BRL"))
 
     def test_budget_item_duration_mode_falls_back_to_inserted_value_without_workshop_cost(self) -> None:
         workshop = create_workshop(suffix=96)
@@ -3469,7 +3590,7 @@ class BudgetDuplicateKitProductTests(TestCase):
         item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
 
         self.assertEqual(item.service_cost_price, Money("77.00", "BRL"))
-        self.assertEqual(item.service_selling_price, Money("180.00", "BRL"))
+        self.assertEqual(item.service_selling_price, Money("55.00", "BRL"))
 
     def test_budget_item_uses_manual_kit_service_duration_selling_when_present(self) -> None:
         workshop = create_workshop(suffix=99)
@@ -3580,7 +3701,7 @@ class BudgetKitServiceCalculateViewTests(TestCase):
 
         self.item = BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, kit=self.kit, quantity=1)
 
-    def test_duration_change_recalculates_service_price_even_in_inserted_mode(self) -> None:
+    def test_duration_change_preserves_selected_inserted_service_price(self) -> None:
         response = self.client.post(
             reverse("budget:calculate_kit_service", args=[self.budget.pk, self.item.pk, self.service.pk]),
             data={
@@ -3596,11 +3717,11 @@ class BudgetKitServiceCalculateViewTests(TestCase):
         override = BudgetKitItemOverride.objects.get(budget_item=self.item, service=self.service)
         self.item.refresh_from_db()
 
-        self.assertEqual(payload["price"], "180.00")
-        self.assertEqual(override.service_selling_price, Money("180.00", "BRL"))
+        self.assertEqual(payload["price"], "55.00")
+        self.assertEqual(override.service_selling_price, Money("55.00", "BRL"))
         self.assertEqual(override.service_cost_price, Money("50.00", "BRL"))
         self.assertEqual(override.duration, timedelta(hours=2))
-        self.assertEqual(self.item.service_selling_price, Money("180.00", "BRL"))
+        self.assertEqual(self.item.service_selling_price, Money("55.00", "BRL"))
 
     def test_duration_change_without_workshop_cost_uses_frozen_budget_snapshot(self) -> None:
         WorkshopCost.objects.filter(workshop=self.workshop).delete()
@@ -3620,9 +3741,79 @@ class BudgetKitServiceCalculateViewTests(TestCase):
         override = BudgetKitItemOverride.objects.get(budget_item=self.item, service=self.service)
 
         self.assertFalse(payload["workshop_cost_missing"])
-        self.assertEqual(payload["price"], "180.00")
-        self.assertEqual(override.service_selling_price, Money("180.00", "BRL"))
+        self.assertEqual(payload["price"], "55.00")
+        self.assertEqual(override.service_selling_price, Money("55.00", "BRL"))
         self.assertEqual(override.service_cost_price, Money("50.00", "BRL"))
+
+    def test_duration_change_without_pricing_context_keeps_registered_kit_service_value(self) -> None:
+        WorkshopCost.objects.filter(workshop=self.workshop).delete()
+        budget = create_budget(workshop=self.workshop)
+        service = create_service(workshop=self.workshop, suffix=84)
+        kit = create_kit(workshop=self.workshop, suffix=841, products=[])
+        kit.service_pricing_mode = Kit.ServicePricingMode.BY_DURATION
+        kit.save(update_fields=["service_pricing_mode"])
+        KitService.objects.create(kit=kit, service=service, quantity=2, duration=timedelta(hours=1), selling_price=Money("55.00", "BRL"))
+        item = BudgetItem.objects.create(workshop=self.workshop, budget=budget, kit=kit, quantity=1)
+
+        response = self.client.post(
+            reverse("budget:calculate_kit_service", args=[budget.pk, item.pk, service.pk]),
+            data={
+                "changed_field": "duration",
+                "duration": "02:00:00",
+                "quantity": "2",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+
+        override = BudgetKitItemOverride.objects.get(budget_item=item, service=service)
+        item.refresh_from_db()
+
+        self.assertTrue(payload["workshop_cost_missing"])
+        self.assertEqual(payload["price"], "55.00")
+        self.assertEqual(override.service_selling_price, Money("55.00", "BRL"))
+        self.assertEqual(item.service_selling_price, Money("110.00", "BRL"))
+
+    def test_kit_edit_modal_uses_frontend_totals_without_autosave(self) -> None:
+        response = self.client.get(reverse("budget:edit_kit", args=[self.budget.pk, self.item.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="products-total-display"')
+        self.assertContains(response, 'id="services-total-display"')
+        self.assertContains(response, "updateProductTotals")
+        self.assertContains(response, "updateServiceTotals")
+        self.assertContains(response, "recalculateServicePricingFromDuration")
+        self.assertContains(response, "minimumHourlyCost: parseFloat('25.00')")
+        self.assertContains(response, "hourlyCostValue: parseFloat('90.00')")
+        self.assertNotContains(response, "/calculate/")
+        self.assertNotContains(response, "debounce")
+
+    def test_kit_edit_modal_save_returns_json_redirect_for_fetch(self) -> None:
+        response = self.client.post(
+            reverse("budget:edit_kit", args=[self.budget.pk, self.item.pk]),
+            data={
+                "products": "[]",
+                "services": json.dumps(
+                    [
+                        {
+                            "id": self.service.pk,
+                            "quantity": 1,
+                            "cost": "25.00",
+                            "price": "55.00",
+                            "duration": "01:00:00",
+                        }
+                    ]
+                ),
+            },
+            HTTP_ACCEPT="application/json",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/json")
+        self.assertNotIn("HX-Redirect", response)
+        self.assertJSONEqual(response.content, {"ok": True, "redirect_url": f"/budget/{self.budget.pk}/edit/?step=4"})
 
 
 class BudgetPricingSnapshotTests(TestCase):

@@ -482,6 +482,14 @@ class Budget(TimeStampedModel):
         self.signature_request_status = SignatureStatus.APPROVED
         self.save(update_fields=["signature_request_status"])
 
+    def approve(self) -> bool:
+        if self.status == BudgetStatus.APPROVED:
+            return False
+        self.status = BudgetStatus.APPROVED
+        self.signature_request_status = SignatureStatus.APPROVED
+        self.save(update_fields=["status", "signature_request_status"])
+        return True
+
     @property
     def total_duration_display(self) -> str:
         total_td = self.total_duration
@@ -753,6 +761,33 @@ class Budget(TimeStampedModel):
         if self.is_warranty_budget:
             return self.display_total_base_value - self.display_resolved_discount_value
         return self.total_budget_value
+
+    @property
+    def selected_items_total_products_without_shipping(self) -> Money:
+        if self.is_warranty_budget:
+            return self.warranty_total_products_value_without_shipping
+        return self.total_products_value - self.total_products_shipping
+
+    @property
+    def selected_items_total_services_value(self) -> Money:
+        if self.is_warranty_budget:
+            return self.warranty_total_services_value
+        return self.total_services_value
+
+    @property
+    def selected_items_total_base_value(self) -> Money:
+        if self.is_warranty_budget:
+            return self.warranty_total_base_value
+        return self.total_products_value + self.total_services_value
+
+    @property
+    def selected_items_total_budget_value(self) -> Money:
+        resolved_discount_value, _ = resolve_discount_fields(
+            total_base_value=self.selected_items_total_base_value,
+            discount_value=self.discount_value,
+            discount_percentage=self.discount_percentage,
+        )
+        return self.selected_items_total_base_value - resolved_discount_value
 
     @property
     def display_resolved_discount_percentage(self) -> Decimal:
@@ -1132,16 +1167,18 @@ class BudgetItem(TimeStampedModel):
         inserted_selling = kit_service.resolved_selling_price
         resolved_workshop_cost = workshop_cost if workshop_cost is not None else self._get_budget_reference_workshop_cost()
 
+        fallback_cost = manual_cost if manual_cost is not None else (kit_service.service.suggested_cost or Money(0, "BRL"))
+        fallback_duration_selling = manual_duration_selling if manual_duration_selling is not None else inserted_selling
+
         if resolved_workshop_cost is not None:
-            duration_cost, duration_sell = calculate_catalog_service_prices(duration, resolved_workshop_cost)
-            resolved_cost = manual_cost if manual_cost is not None else duration_cost
-            resolved_duration_selling = manual_duration_selling if manual_duration_selling is not None else duration_sell
+            min_hourly = resolved_workshop_cost.minimum_hourly_cost or Money(0, "BRL")
+            duration_cost, _duration_sell = calculate_catalog_service_prices(duration, resolved_workshop_cost)
+            resolved_cost = manual_cost if manual_cost is not None else (duration_cost if min_hourly.amount > 0 else fallback_cost)
+            resolved_duration_selling = fallback_duration_selling
             if self.kit and self.kit.service_pricing_mode == Kit.ServicePricingMode.BY_DURATION:
                 return resolved_cost, resolved_duration_selling
             return resolved_cost, inserted_selling
 
-        fallback_cost = manual_cost if manual_cost is not None else (kit_service.service.suggested_cost or Money(0, "BRL"))
-        fallback_duration_selling = manual_duration_selling if manual_duration_selling is not None else inserted_selling
         if self.kit and self.kit.service_pricing_mode == Kit.ServicePricingMode.BY_DURATION:
             return fallback_cost, fallback_duration_selling
         return fallback_cost, inserted_selling

@@ -630,10 +630,30 @@ class KitTests(TestCase):
         self.assertIn('"fuel": "Diesel"', html)
         self.assertIn('"year_start": "2015"', html)
         self.assertIn('"year_end": "2021"', html)
+        self.assertIn('"engineLocked": true', html)
         self.assertIn('"modelOptions": [{"id": "Renegade", "label": "Renegade"}]', html)
         self.assertIn('"fuelOptions": [{"id": "Diesel", "label": "Diesel"}]', html)
         self.assertIn('<option value="Jeep">Jeep</option>', html)
-        self.assertIn('<option x-show="application.model" :value="application.model" x-text="application.model"></option>', html)
+        self.assertNotIn('<option x-show="application.model" :value="application.model" x-text="application.model"></option>', html)
+
+    def test_kit_form_keeps_existing_application_model_when_catalog_options_do_not_include_it(self):
+        brand = FipeVehicleBrand.objects.create(name="Jeep", external_id="1")
+        FipeVehicleModel.objects.create(brand=brand, vehicle_type=brand.vehicle_type, name="Compass", external_id="101")
+        kit = Kit.objects.create(workshop=self.workshop, name="Kit Aplicacao Legada", description="", is_active=True)
+        KitApplication.objects.create(kit=kit, brand="Jeep", model="Renegade", engine="2.0", fuel="Diesel", year_start=2015, year_end=2021)
+
+        html = render_crispy_form(KitForm(instance=kit, workshop=self.workshop))
+
+        self.assertIn('"model": "Renegade"', html)
+        self.assertIn('"modelOptions": [{"id": "Compass", "label": "Compass"}, {"id": "Renegade", "label": "Renegade"}]', html)
+        self.assertIn("modelOptions: this.ensureSelectedOption(application.modelOptions, model)", html)
+        self.assertIn('x-html="buildApplicationModelOptionsHtml(application)"', html)
+        self.assertIn('x-effect="syncSelectElementValue($el, application.model)"', html)
+        self.assertIn("application.model = selectedModel;", html)
+        self.assertIn(':name="application.engineLocked ? null : \'kit_application_engine\'"', html)
+        self.assertIn(':name="application.fuelLocked ? null : \'kit_application_fuel\'"', html)
+        self.assertIn("application.engineLocked = !!selectedEngine;", html)
+        self.assertIn("application.fuelLocked = !!selectedFuel;", html)
 
 
 class CatalogFipeServiceTests(TestCase):
@@ -918,17 +938,17 @@ class KitFormPageTests(TestCase):
         self.assertContains(response, '@kit-service-updated.window="applyUpdatedService($event.detail)"', html=False)
         self.assertContains(response, "baseEngineOptions:", html=False)
         self.assertContains(response, "syncApplicationEngineFromModel(index);", html=False)
-        self.assertContains(response, 'name="kit_application_engine"', html=False)
+        self.assertContains(response, ':name="application.engineLocked ? null : \'kit_application_engine\'"', html=False)
         self.assertContains(response, "application.engineLocked", html=False)
-        self.assertContains(response, 'name="kit_application_fuel"', html=False)
+        self.assertContains(response, ':name="application.fuelLocked ? null : \'kit_application_fuel\'"', html=False)
         self.assertContains(response, '<span class="text-error" aria-hidden="true">*</span>', count=4, html=False)
         self.assertContains(response, 'Marca <span class="text-error" aria-hidden="true">*</span>', html=False)
         self.assertNotContains(response, 'Motor <span class="text-error" aria-hidden="true">*</span>', html=False)
         self.assertNotContains(response, 'Combustível <span class="text-error" aria-hidden="true">*</span>', html=False)
         self.assertContains(response, "Motor não identificado pela FIPE. Selecione manualmente.")
         self.assertContains(response, "Combustível não identificado pela FIPE. Selecione manualmente.")
-        self.assertContains(response, '!application.engineLocked && application.model', html=False)
-        self.assertContains(response, '!application.fuelLocked && application.model && !application.loadingFuels', html=False)
+        self.assertContains(response, '!application.engineLocked && application.model && !application.engine', html=False)
+        self.assertContains(response, '!application.fuelLocked && application.model && !application.fuel && !application.loadingFuels', html=False)
         self.assertContains(response, "onApplicationBrandChange(index)", html=False)
         self.assertContains(response, "/catalog/fipe/fuels/", html=False)
         self.assertNotContains(response, "window.htmx.trigger(list, 'load');", html=False)
@@ -1769,6 +1789,52 @@ class ProductFormTests(TestCase):
 
         self.assertIn('class="input-theme border-none bg-base-100 textinput', html)
         self.assertIn("Salvar Produtos Equivalentes", html)
+
+    def test_quick_product_edit_form_accepts_profit_margin_with_float_rounding_noise(self) -> None:
+        product = Product.objects.create(
+            workshop=self.workshop,
+            code="PROD-EQ-FORM-005",
+            name="Produto Modal Margem",
+            description="",
+            unit=Product.Unit.UND,
+            group=self.group,
+            cost_price=Money("59.38", "BRL"),
+            selling_price=Money("100.00", "BRL"),
+            profit_margin=Decimal("40.62"),
+            ncm="87089990",
+            is_active=True,
+        )
+        form = QuickProductEditForm(
+            instance=product,
+            workshop=self.workshop,
+            data={
+                "code": product.code,
+                "name": product.name,
+                "description": "",
+                "unit": Product.Unit.UND,
+                "group": str(self.group.pk),
+                "brand": "",
+                "model": "",
+                "sku": "",
+                "barcode": "",
+                "location": "",
+                "cost_price_0": "59.38",
+                "cost_price_1": "BRL",
+                "selling_price_0": "100.00",
+                "selling_price_1": "BRL",
+                "profit_margin": "40.620000000001",
+                "ncm": "87089990",
+                "cest": "",
+                "origin_cst": str(Product.OriginCST.NACIONAL),
+                "purpose": Product.Purpose.RESALE,
+                "application": "",
+                "is_active": "on",
+            },
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        updated_product = form.save(commit=False)
+        self.assertEqual(updated_product.profit_margin, Decimal("40.62"))
 
 
 class ProductUpdateNavigationTests(TestCase):

@@ -5,7 +5,7 @@ from django.db import transaction
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.stock.models import StockMovement
-from apps.workorder.models import WORKORDER_REOPENABLE_STATUSES, WorkOrder, WorkOrderError, WorkOrderHistory, WorkOrderStatus
+from apps.workorder.models import WORKORDER_REOPENABLE_STATUSES, WorkOrder, WorkOrderHistory
 
 
 class WorkOrderReopenError(Exception):

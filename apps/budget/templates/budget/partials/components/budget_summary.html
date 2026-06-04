@@ -1,11 +1,11 @@
 <div id="budget-summary-content">
     <div class="border rounded-xl flex justify-between items-center p-3 rounded mb-2">
         <span>Total Produtos</span>
-        <span>{{ budget.display_total_products_by_slider_without_shipping }}</span>
+        <span>{{ budget.selected_items_total_products_without_shipping }}</span>
     </div>
     <div class="border rounded-xl flex justify-between items-center p-3 rounded mb-2">
         <span>Total Serviços</span>
-        <span>{{ budget.display_total_services_by_slider }}</span>
+        <span>{{ budget.selected_items_total_services_value }}</span>
     </div>
     <div class="border rounded-xl flex justify-between items-center p-3 rounded mb-2">
         <span>Total Frete</span>
@@ -17,6 +17,6 @@
     </div>
     <div class="border rounded-xl flex justify-between items-center p-3 rounded mb-2">
         <span class="font-bold">Total Geral</span>
-        <span class="font-bold">{{ budget.display_total_budget_value }}</span>
+        <span class="font-bold">{{ budget.selected_items_total_budget_value }}</span>
     </div>
 </div>

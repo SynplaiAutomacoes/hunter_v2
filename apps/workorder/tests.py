@@ -4,7 +4,7 @@ import json
 from datetime import date, timedelta
 from decimal import Decimal
 from urllib.parse import urlparse
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 from django.contrib.auth.models import Permission
 from apps.accounts.models import Account, User
@@ -1849,6 +1849,38 @@ class WorkOrderPaymentFormTests(TestCase):
         payment.save()
 
         self.assertEqual(payment.total_paid, Money("100.00", "BRL"))
+
+    def test_form_allows_paying_rounded_full_total_with_subcent_raw_total(self) -> None:
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix Subcent", installments_count=1)
+
+        with patch.object(WorkOrder, "total_budget_value", new_callable=PropertyMock) as total_budget_value_mock:
+            total_budget_value_mock.return_value = Money(Decimal("99.996"), "BRL")
+            form = WorkOrderPaymentForm(
+                data={
+                    "payment_method": str(payment_method.pk),
+                    "entry_amount_0": "100.00",
+                    "entry_amount_1": "BRL",
+                    "due_date": "2026-03-21",
+                },
+                workorder=self.workorder,
+            )
+            self.assertTrue(form.is_valid(), form.errors)
+
+    def test_pending_payment_value_ignores_subcent_residual_after_full_cent_payment(self) -> None:
+        payment_method = PaymentMethod.objects.create(workshop=self.workshop, description="Pix Residual", installments_count=1)
+        WorkOrderPaymentMethod.objects.create(
+            workorder=self.workorder,
+            payment_method=payment_method,
+            first_installment_amount=Money("100.00", "BRL"),
+            remaining_installments_amount=Money("0.00", "BRL"),
+            installments_count=1,
+            due_date=date(2026, 3, 21),
+        )
+
+        with patch.object(WorkOrder, "total_budget_value", new_callable=PropertyMock) as total_budget_value_mock:
+            total_budget_value_mock.return_value = Money(Decimal("100.004"), "BRL")
+            self.assertEqual(self.workorder.pending_payment_value, Money("0.00", "BRL"))
+            self.assertTrue(self.workorder.is_fully_paid)
 
     def test_form_defaults_due_date_to_today_when_not_provided(self) -> None:
         self._set_workorder_total("100.00", suffix=23)
