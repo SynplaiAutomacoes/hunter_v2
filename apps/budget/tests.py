@@ -3429,7 +3429,27 @@ class BudgetDuplicateKitProductTests(TestCase):
         self.assertEqual(item.service_selling_price, Money("66.00", "BRL"))
         self.assertEqual(item.get_kit_services_total(), Money("66.00", "BRL"))
 
-    def test_budget_item_uses_duration_pricing_mode_when_workshop_cost_exists(self) -> None:
+    def test_budget_kit_services_match_selected_catalog_column_total(self) -> None:
+        workshop = create_workshop(suffix=42)
+        budget = create_budget(workshop=workshop)
+        service_1 = create_service(workshop=workshop, suffix=42)
+        service_2 = create_service(workshop=workshop, suffix=43)
+        kit = create_kit(workshop=workshop, suffix=42, products=[])
+        kit.service_pricing_mode = Kit.ServicePricingMode.BY_DURATION
+        kit.save(update_fields=["service_pricing_mode"])
+        KitService.objects.create(kit=kit, service=service_1, quantity=2, duration=timedelta(hours=1), duration_selling_price=Money("31.50", "BRL"), selling_price=Money("99.00", "BRL"))
+        KitService.objects.create(kit=kit, service=service_2, quantity=3, duration=timedelta(minutes=30), duration_selling_price=Money("12.25", "BRL"), selling_price=Money("88.00", "BRL"))
+        kit.recalculate_total_price()
+
+        item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+        _, service_overrides = item._get_kit_override_maps()
+
+        self.assertEqual(service_overrides[service_1.pk].service_selling_price, Money("31.50", "BRL"))
+        self.assertEqual(service_overrides[service_2.pk].service_selling_price, Money("12.25", "BRL"))
+        self.assertEqual(item.get_kit_services_total(), Money("99.75", "BRL"))
+        self.assertEqual(item.get_kit_services_total(), kit.total_price)
+
+    def test_budget_item_uses_selected_duration_column_when_workshop_cost_exists(self) -> None:
         workshop = create_workshop(suffix=95)
         budget = create_budget(workshop=workshop)
         service = create_service(workshop=workshop, suffix=95)
@@ -3451,7 +3471,7 @@ class BudgetDuplicateKitProductTests(TestCase):
         item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
 
         self.assertEqual(item.service_cost_price, Money("60.00", "BRL"))
-        self.assertEqual(item.service_selling_price, Money("160.00", "BRL"))
+        self.assertEqual(item.service_selling_price, Money("33.00", "BRL"))
 
     def test_budget_item_duration_mode_falls_back_to_inserted_value_without_workshop_cost(self) -> None:
         workshop = create_workshop(suffix=96)
@@ -3512,7 +3532,7 @@ class BudgetDuplicateKitProductTests(TestCase):
         item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
 
         self.assertEqual(item.service_cost_price, Money("77.00", "BRL"))
-        self.assertEqual(item.service_selling_price, Money("180.00", "BRL"))
+        self.assertEqual(item.service_selling_price, Money("55.00", "BRL"))
 
     def test_budget_item_uses_manual_kit_service_duration_selling_when_present(self) -> None:
         workshop = create_workshop(suffix=99)
@@ -3623,7 +3643,7 @@ class BudgetKitServiceCalculateViewTests(TestCase):
 
         self.item = BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, kit=self.kit, quantity=1)
 
-    def test_duration_change_recalculates_service_price_even_in_inserted_mode(self) -> None:
+    def test_duration_change_preserves_selected_inserted_service_price(self) -> None:
         response = self.client.post(
             reverse("budget:calculate_kit_service", args=[self.budget.pk, self.item.pk, self.service.pk]),
             data={
@@ -3639,11 +3659,11 @@ class BudgetKitServiceCalculateViewTests(TestCase):
         override = BudgetKitItemOverride.objects.get(budget_item=self.item, service=self.service)
         self.item.refresh_from_db()
 
-        self.assertEqual(payload["price"], "180.00")
-        self.assertEqual(override.service_selling_price, Money("180.00", "BRL"))
+        self.assertEqual(payload["price"], "55.00")
+        self.assertEqual(override.service_selling_price, Money("55.00", "BRL"))
         self.assertEqual(override.service_cost_price, Money("50.00", "BRL"))
         self.assertEqual(override.duration, timedelta(hours=2))
-        self.assertEqual(self.item.service_selling_price, Money("180.00", "BRL"))
+        self.assertEqual(self.item.service_selling_price, Money("55.00", "BRL"))
 
     def test_duration_change_without_workshop_cost_uses_frozen_budget_snapshot(self) -> None:
         WorkshopCost.objects.filter(workshop=self.workshop).delete()
@@ -3663,8 +3683,8 @@ class BudgetKitServiceCalculateViewTests(TestCase):
         override = BudgetKitItemOverride.objects.get(budget_item=self.item, service=self.service)
 
         self.assertFalse(payload["workshop_cost_missing"])
-        self.assertEqual(payload["price"], "180.00")
-        self.assertEqual(override.service_selling_price, Money("180.00", "BRL"))
+        self.assertEqual(payload["price"], "55.00")
+        self.assertEqual(override.service_selling_price, Money("55.00", "BRL"))
         self.assertEqual(override.service_cost_price, Money("50.00", "BRL"))
 
     def test_duration_change_without_pricing_context_keeps_registered_kit_service_value(self) -> None:

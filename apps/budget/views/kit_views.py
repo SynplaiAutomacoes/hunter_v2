@@ -360,12 +360,12 @@ class BudgetKitServiceCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
 
         if changed_field == "duration":
             if workshop_cost and not workshop_cost_missing:
-                service_cost_price, service_selling_price = _calculate_service_prices(duration, workshop_cost)
+                service_cost_price, _service_selling_price = _calculate_service_prices(duration, workshop_cost)
                 service_cost_price_amount = service_cost_price.amount.quantize(Decimal("0.01"))
-                service_selling_price_amount = service_selling_price.amount.quantize(Decimal("0.01"))
             else:
                 service_cost_price_amount = default_cost.amount.quantize(Decimal("0.01"))
-                service_selling_price_amount = default_price.amount.quantize(Decimal("0.01"))
+            price_default = existing_override.service_selling_price.amount if existing_override else default_price.amount
+            service_selling_price_amount = price_default.quantize(Decimal("0.01"))
         else:
             cost_default = existing_override.service_cost_price.amount if existing_override and existing_override.service_cost_price else default_cost.amount
             price_default = existing_override.service_selling_price.amount if existing_override else default_price.amount
