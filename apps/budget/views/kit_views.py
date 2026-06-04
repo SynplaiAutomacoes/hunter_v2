@@ -250,7 +250,11 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
         # Force recalculation by accessing total_price
         _ = item.total_price
 
-        # Redirect with full page reload (not HTMX)
+        redirect_url = f"/budget/{budget_id}/edit/?step=4"
+        if "application/json" in request.headers.get("Accept", ""):
+            return JsonResponse({"ok": True, "redirect_url": redirect_url})
+
+        # Redirect with full page reload (HTMX fallback)
         import time
 
         timestamp = int(time.time())

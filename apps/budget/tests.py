@@ -3767,6 +3767,32 @@ class BudgetKitServiceCalculateViewTests(TestCase):
         self.assertNotContains(response, "/calculate/")
         self.assertNotContains(response, "debounce")
 
+    def test_kit_edit_modal_save_returns_json_redirect_for_fetch(self) -> None:
+        response = self.client.post(
+            reverse("budget:edit_kit", args=[self.budget.pk, self.item.pk]),
+            data={
+                "products": "[]",
+                "services": json.dumps(
+                    [
+                        {
+                            "id": self.service.pk,
+                            "quantity": 1,
+                            "cost": "25.00",
+                            "price": "55.00",
+                            "duration": "01:00:00",
+                        }
+                    ]
+                ),
+            },
+            HTTP_ACCEPT="application/json",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/json")
+        self.assertNotIn("HX-Redirect", response)
+        self.assertJSONEqual(response.content, {"ok": True, "redirect_url": f"/budget/{self.budget.pk}/edit/?step=4"})
+
 
 class BudgetPricingSnapshotTests(TestCase):
     def test_budget_snapshot_preserves_old_values_after_workshop_cost_change(self) -> None:

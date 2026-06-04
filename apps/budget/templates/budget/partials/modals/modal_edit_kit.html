@@ -328,14 +328,37 @@
 
         fetch(`/budget/${budgetId}/kit/${itemId}/edit/`, {
             method: 'POST',
-            body: formData
-        })
-        .then(response => {
-            if (response.ok) {
-                window.location.href = `/budget/${budgetId}/edit/?step=4`;
-            } else {
-                alert('Erro ao salvar alterações');
+            body: formData,
+            headers: {
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
             }
+        })
+        .then(async response => {
+            const contentType = response.headers.get('content-type') || '';
+
+            if (response.redirected) {
+                window.location.href = response.url;
+                return;
+            }
+
+            if (!response.ok) {
+                alert('Erro ao salvar alterações');
+                return;
+            }
+
+            if (!contentType.includes('application/json')) {
+                alert('Sua sessão pode ter expirado. Recarregue a página e tente novamente.');
+                return;
+            }
+
+            const data = await response.json();
+            if (data.redirect_url) {
+                window.location.href = data.redirect_url;
+                return;
+            }
+
+            window.location.href = `/budget/${budgetId}/edit/?step=4`;
         })
         .catch(error => {
             console.error('Error saving kit changes:', error);
