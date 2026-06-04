@@ -10,7 +10,7 @@ from django.utils import timezone
 from djmoney.forms import MoneyField
 from djmoney.money import Money
 
-from apps.budget.pricing import resolve_discount_fields
+from apps.budget.pricing import money_from_decimal, resolve_discount_fields
 from apps.collaborators.models import WorkshopCollaborator
 from apps.budget.forms.widgets import MultipleFileInput
 from apps.core.utils import alert_confirm_layout
@@ -26,6 +26,10 @@ MONEY_ZERO = Decimal("0.00")
 
 class _BoundDataProtocol(Protocol):
     def copy(self) -> Any: ...
+
+
+def _quantize_money_amount(value: Decimal) -> Decimal:
+    return money_from_decimal(value).amount
 
 
 def _format_brl_amount(value: Decimal) -> str:
@@ -93,9 +97,9 @@ class WorkOrderPaymentForm(CoreModelForm):
         self.fields["first_installment_amount"].required = not self.is_first_payment
         self.fields["due_date"].required = False
 
-        total_os = self.workorder.total_budget_value.amount if self.workorder else MONEY_ZERO
+        total_os = _quantize_money_amount(self.workorder.total_budget_value.amount) if self.workorder else MONEY_ZERO
         paid_amount = self._get_paid_amount() if self.workorder else MONEY_ZERO
-        pending_amount = total_os - paid_amount
+        pending_amount = _quantize_money_amount(total_os - paid_amount)
         payment_is_fully_paid = pending_amount <= MONEY_ZERO
         pending_amount_display = pending_amount if pending_amount > MONEY_ZERO else MONEY_ZERO
         base_total = self.workorder.total_base_value if self.workorder else Money(MONEY_ZERO, "BRL")
@@ -555,7 +559,7 @@ class WorkOrderPaymentForm(CoreModelForm):
     def _get_paid_amount(self) -> Decimal:
         if not self.workorder:
             return MONEY_ZERO
-        return sum((payment.total_paid.amount for payment in self.workorder.payments.all()), start=MONEY_ZERO)
+        return _quantize_money_amount(sum((payment.total_paid.amount for payment in self.workorder.payments.all()), start=MONEY_ZERO))
 
     def clean_discount_value(self) -> Money:
         discount_value = self.cleaned_data.get("discount_value")
@@ -607,9 +611,9 @@ class WorkOrderPaymentForm(CoreModelForm):
             due_date = timezone.localdate()
             cleaned_data["due_date"] = due_date
 
-        total_os = self.workorder.total_budget_value.amount
+        total_os = _quantize_money_amount(self.workorder.total_budget_value.amount)
         paid_amount = self._get_paid_amount()
-        pending_amount = total_os - paid_amount
+        pending_amount = _quantize_money_amount(total_os - paid_amount)
 
         if pending_amount <= MONEY_ZERO:
             raise ValidationError("A ordem de serviço não possui saldo pendente para um novo plano de pagamento.")

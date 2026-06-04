@@ -11,7 +11,7 @@ from django.utils import timezone
 from djmoney.models.fields import MoneyField
 from djmoney.money import Money
 
-from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot
+from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, money_from_decimal
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -220,12 +220,13 @@ class WorkOrder(TimeStampedModel):
     @property
     def paid_value(self) -> Money:
         paid_amount = sum((payment.total_paid.amount for payment in self.iter_payments()), start=Decimal("0.00"))
-        return Money(paid_amount, "BRL")
+        return money_from_decimal(paid_amount)
 
     @property
     def pending_payment_value(self) -> Money:
-        pending_amount = max(Decimal("0.00"), self.total_budget_value.amount - self.paid_value.amount)
-        return Money(pending_amount, "BRL")
+        total_amount = money_from_decimal(self.total_budget_value.amount).amount
+        pending_amount = max(Decimal("0.00"), total_amount - self.paid_value.amount)
+        return money_from_decimal(pending_amount)
 
     @property
     def is_fully_paid(self) -> bool:
@@ -656,7 +657,7 @@ class WorkOrderPaymentMethod(TimeStampedModel):
 
     @property
     def total_paid(self) -> Money:
-        return Money(self.first_installment_amount.amount + ((self.installments_count - 1) * self.remaining_installments_amount.amount), "BRL")
+        return money_from_decimal(self.first_installment_amount.amount + ((self.installments_count - 1) * self.remaining_installments_amount.amount))
 
     def __str__(self):
         return f"Plano de Pagamento #{self.id} - {self.payment_method}"

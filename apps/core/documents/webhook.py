@@ -10,7 +10,7 @@ from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 
-from apps.budget.models import Budget, BudgetStatus, SignatureStatus
+from apps.budget.models import Budget
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
 from apps.workorder.models import WorkOrder
 
@@ -131,15 +131,11 @@ def process_supersign_webhook_payload(*, payload: dict[str, Any]) -> HttpRespons
         )
         return HttpResponse(status=200)
 
-    if budget is not None and budget.status == BudgetStatus.APPROVED:
-        logger.info("Webhook ignorado: budget ja aprovado", extra={"budget_id": budget.pk, "envelope_id": envelope_id})
-        return HttpResponse(status=200)
-
     try:
         if budget is not None:
-            budget.status = BudgetStatus.APPROVED
-            budget.signature_request_status = SignatureStatus.APPROVED
-            budget.save(update_fields=["status", "signature_request_status"])
+            if not budget.approve():
+                logger.info("Webhook ignorado: budget ja aprovado", extra={"budget_id": budget.pk, "envelope_id": envelope_id})
+                return HttpResponse(status=200)
             logger.info("Budget aprovado automaticamente por webhook", extra={"budget_id": budget.pk, "envelope_id": envelope_id})
 
         if workorder is not None:
