@@ -164,6 +164,7 @@ class KitForm(CoreModelForm):
 
         state["modelOptions"] = KitForm._ensure_application_option(list(model_options or []), model)
         state["fuelOptions"] = [{"id": fuel, "label": fuel}] if fuel else []
+        state["engineLocked"] = bool(str(application.get("engine", "")).strip())
         state["fuelLocked"] = bool(fuel)
         return state
 
@@ -562,7 +563,7 @@ class KitForm(CoreModelForm):
                                                             <option :value="option.id" x-text="option.label"></option>
                                                         </template>
                                                     </select>
-                                                    <p x-show="!application.engineLocked && application.model" style="display: none;" class="mt-1 flex items-start gap-1 text-xs text-warning">
+                                                    <p x-show="!application.engineLocked && application.model && !application.engine" style="display: none;" class="mt-1 flex items-start gap-1 text-xs text-warning">
                                                         <span class="material-icons text-sm leading-none">warning</span>
                                                         <span>Motor não identificado pela FIPE. Selecione manualmente.</span>
                                                     </p>
@@ -585,7 +586,7 @@ class KitForm(CoreModelForm):
                                                             <option :value="option.id" x-text="option.label"></option>
                                                         </template>
                                                     </select>
-                                                    <p x-show="!application.fuelLocked && application.model && !application.loadingFuels" style="display: none;" class="mt-1 flex items-start gap-1 text-xs text-warning">
+                                                    <p x-show="!application.fuelLocked && application.model && !application.fuel && !application.loadingFuels" style="display: none;" class="mt-1 flex items-start gap-1 text-xs text-warning">
                                                         <span class="material-icons text-sm leading-none">warning</span>
                                                         <span>Combustível não identificado pela FIPE. Selecione manualmente.</span>
                                                     </p>
@@ -1216,6 +1217,7 @@ class KitForm(CoreModelForm):
                                             if (preserveModel) {{
                                                 application.model = selectedModel;
                                                 application.engine = selectedEngine;
+                                                application.engineLocked = !!selectedEngine;
                                                 this.$nextTick(() => {{
                                                     application.model = selectedModel;
                                                 }});
@@ -1229,8 +1231,11 @@ class KitForm(CoreModelForm):
                                                 application.fuelLocked = false;
                                             }} else {{
                                                 application.fuel = selectedFuel;
+                                                application.fuelLocked = !!selectedFuel;
                                             }}
-                                            this.syncApplicationEngineFromModel(index);
+                                            if (!preserveModel || !selectedEngine) {{
+                                                this.syncApplicationEngineFromModel(index);
+                                            }}
                                             application.fuelOptions = [];
                                         }} catch (error) {{
                                             console.error('Erro ao carregar modelos da FIPE:', error);
@@ -1252,8 +1257,8 @@ class KitForm(CoreModelForm):
 
                                         application.loadingFuels = true;
                                         try {{
+                                            const selectedFuel = preserveFuel ? application.fuel : '';
                                             const payload = await this.fetchCatalogOptions(`/catalog/fipe/fuels/?brand=${{encodeURIComponent(application.brand)}}&model=${{encodeURIComponent(application.model)}}`);
-                                            console.log('[FIPE fuels] payload:', payload);
                                             const rawFuelOptions = Array.isArray(payload.fuels) ? payload.fuels : [];
                                             let options;
                                             if (rawFuelOptions.length === 0 && !preserveFuel) {{
@@ -1261,10 +1266,11 @@ class KitForm(CoreModelForm):
                                                 application.fuel = '';
                                                 application.fuelLocked = false;
                                             }} else if (rawFuelOptions.length === 0 && preserveFuel) {{
-                                                options = this.ensureSelectedOption([], application.fuel);
-                                                application.fuelLocked = false;
+                                                options = this.ensureSelectedOption([], selectedFuel);
+                                                application.fuel = selectedFuel;
+                                                application.fuelLocked = !!selectedFuel;
                                             }} else {{
-                                                options = this.ensureSelectedOption(rawFuelOptions, preserveFuel ? application.fuel : '');
+                                                options = this.ensureSelectedOption(rawFuelOptions, preserveFuel ? selectedFuel : '');
                                                 if (!preserveFuel) {{
                                                     if (options.length === 1) {{
                                                         application.fuel = options[0].id;
@@ -1274,7 +1280,8 @@ class KitForm(CoreModelForm):
                                                         application.fuelLocked = false;
                                                     }}
                                                 }} else {{
-                                                    application.fuelLocked = options.length === 1;
+                                                    application.fuel = selectedFuel;
+                                                    application.fuelLocked = !!selectedFuel;
                                                 }}
                                             }}
                                             application.fuelOptions = options;
