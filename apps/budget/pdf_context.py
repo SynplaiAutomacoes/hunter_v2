@@ -141,12 +141,6 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         desconto = budget.selected_items_total_base_value - budget.selected_items_total_budget_value
         total_geral = budget.selected_items_total_budget_value
 
-    soma_markup = _calculate_soma_markup(
-        total_budget_value=total_geral,
-        total_costs_products_value=snapshot.total_costs_products_value,
-        total_costs_services_value=snapshot.total_costs_services_value,
-    )
-
     if presentation == "selected_items":
         review_display = build_budget_review_display(budget=budget)
 
@@ -189,7 +183,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 "total_price": line.total_price,
                 "service_cost_price": line.warranty_total_price,
                 "service_mechanic_cost_price": service_mechanic_cost_price,
-                "profit_value": line.total_price - line.warranty_total_price,
+                "profit_value": line.total_price - service_mechanic_cost_price,
                 "duration_display": line.duration_display,
                 "_duration_seconds": _duration_seconds(line.item.duration) * int(line.item.quantity or 0),
             })
@@ -259,7 +253,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                     "total_price": selling_price * total_quantity,
                     "service_cost_price": service_cost_price,
                     "service_mechanic_cost_price": service_mechanic_cost_price,
-                    "profit_value": (selling_price * total_quantity) - service_cost_price,
+                    "profit_value": (selling_price * total_quantity) - service_mechanic_cost_price,
                     "duration_display": format_duration_display(duration * total_quantity) if duration else "00h 00m",
                     "_duration_seconds": _duration_seconds(duration) * total_quantity,
                 })
@@ -315,7 +309,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                     "total_price": total_price,
                     "service_cost_price": fallback_cost,
                     "service_mechanic_cost_price": service_mechanic_cost_price,
-                    "profit_value": total_price - fallback_cost,
+                    "profit_value": total_price - service_mechanic_cost_price,
                     "duration_display": line.duration_display,
                 }
             )
@@ -324,7 +318,13 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
 
     workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=budget.workshop)
     total_services_cost_original_value = sum((line["service_cost_price"] for line in servicos), Money(0, "BRL"))
+    total_services_mechanic_cost_value = sum((line["service_mechanic_cost_price"] for line in servicos), Money(0, "BRL"))
     total_profit_service_value = sum((line["profit_value"] for line in servicos), Money(0, "BRL"))
+    soma_markup = _calculate_soma_markup(
+        total_budget_value=total_geral,
+        total_costs_products_value=snapshot.total_costs_products_value,
+        total_costs_services_value=total_services_mechanic_cost_value,
+    )
 
     return {
         "budget": budget,
@@ -343,6 +343,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         "total_profit_product_value": sum((line.profit_value for line in snapshot.product_lines), Money(0, "BRL")),
         "total_profit_service_value": total_profit_service_value,
         "total_services_cost_original_value": total_services_cost_original_value,
+        "total_services_mechanic_cost_value": total_services_mechanic_cost_value,
         "is_warranty_or_courtesy": is_warranty_or_courtesy,
         "warranty_message": "Ordem de serviço de garantia. Documento apenas para a visualização, peças e serviços descritos não foram cobrados do cliente" if is_warranty_or_courtesy else "",
         "workshop_logo_data_uri": workshop_logo_data_uri,

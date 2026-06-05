@@ -1591,7 +1591,7 @@ class BudgetPdfContextTests(TestCase):
         context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
 
         self.assertEqual(context["soma_markup"], Decimal("2.33"))
-        self.assertEqual(context["soma_markup_display"], "2,33x")
+        self.assertEqual(context["soma_markup_display"], "2,33 vezes")
 
     def test_manager_pdf_service_cost_uses_mechanic_hour_cost_and_shows_duration_column(self) -> None:
         workshop = create_workshop(suffix=98)
@@ -1618,10 +1618,13 @@ class BudgetPdfContextTests(TestCase):
         self.assertEqual(context["servicos"][0]["service_cost_price"], Money("77.00", "BRL"))
         self.assertEqual(context["servicos"][0]["duration_display"], "02h 00m")
         self.assertEqual(context["total_services_cost_original_value"], Money("77.00", "BRL"))
-        self.assertEqual(context["servicos"][0]["profit_value"], context["servicos"][0]["total_price"] - Money("77.00", "BRL"))
+        self.assertEqual(context["total_services_mechanic_cost_value"], Money("20.00", "BRL"))
+        self.assertEqual(context["servicos"][0]["profit_value"], context["servicos"][0]["total_price"] - Money("20.00", "BRL"))
+        self.assertEqual(context["soma_markup"], Decimal("1.00"))
         self.assertIn("Valor Total", html)
         self.assertIn("Tempo", html)
         self.assertIn("Custo/Mecânico", html)
+        self.assertIn("Total Custos: R$\xa020,00", html)
         self.assertLess(html.index("Valor Total"), html.index("Tempo"))
         self.assertLess(html.index("Tempo"), html.index("Custo/Mecânico"))
 
@@ -1868,8 +1871,8 @@ class BudgetPdfViewTests(TestCase):
         response = self.client.get(reverse("budget:visualizar_pdf_gestor", args=[budget.pk]))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "SOMA MARKUP")
-        self.assertContains(response, "2,33x")
+        self.assertContains(response, "CÁLCULO MARKUP")
+        self.assertContains(response, "2,33 vezes")
 
     @patch("apps.budget.pdf_context.get_workshop_logo_file")
     def test_visualizar_pdf_mecanico_renders_workshop_logo(self, get_workshop_logo_file_mock) -> None:
