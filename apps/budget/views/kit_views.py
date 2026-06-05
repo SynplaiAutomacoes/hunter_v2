@@ -11,6 +11,7 @@ from djmoney.money import Money
 
 from apps.budget.forms.item_forms import BudgetKitProductEditRowForm, BudgetKitServiceEditRowForm
 from apps.budget.models import Budget, BudgetItem, BudgetKitItemOverride
+from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.price_tracking import record_product_last_used_price
@@ -22,9 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def _calculate_service_mechanic_cost(duration: timedelta, budget: Budget) -> Money:
-    duration_hours = Decimal(duration.total_seconds()) / Decimal(3600)
-    amount = (budget.mechanic_hour_cost_value * duration_hours).amount.quantize(Decimal("0.01"))
-    return Money(amount, "BRL")
+    return calculate_mechanic_service_cost(budget=budget, duration=duration)
 
 
 class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):

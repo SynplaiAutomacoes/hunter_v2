@@ -1878,7 +1878,7 @@ class BudgetStep4Form(CoreModelForm):
                                             </th>
                                             <th class="w-[24%] text-left">DESCRIÇÃO</th>
                                             <th class="w-[8%] text-center">QTD.</th>
-                                            <th class="w-[12%] text-right">CUSTO</th>
+                                            <th class="w-[12%] text-right">CUSTO/MECÂNICO</th>
                                             <th class="w-[14%] text-right">VALOR VENDA</th>
                                             <th class="w-[10%] text-center">TEMPO</th>
                                             <th class="w-[14%] text-right">TOTAL</th>

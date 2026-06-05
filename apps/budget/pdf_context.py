@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import base64
+from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
+from typing import Any
 
 from djmoney.money import Money
 
 from apps.budget.pricing import format_duration_display
 from apps.budget.review_display import build_budget_review_display
+from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.workshops.services.files import WorkshopFileStorageError, get_workshop_logo_file
 
 
@@ -41,6 +44,12 @@ def _format_decimal_multiplier(value: Decimal) -> str:
     integer_part, decimal_part = f"{absolute_value:.2f}".split(".")
     grouped_integer = f"{int(integer_part):,}".replace(",", ".")
     return f"{sign}{grouped_integer},{decimal_part} vezes"
+
+
+def _calculate_pdf_service_cost(*, budget: Any, duration: timedelta | None, quantity: int, fallback_cost: Money, is_third_party: bool) -> Money:
+    if is_third_party:
+        return fallback_cost
+    return calculate_mechanic_service_cost(budget=budget, duration=duration, quantity=quantity, fallback_cost=fallback_cost)
 
 
 def build_workshop_logo_data_uri(*, workshop) -> str:
@@ -105,14 +114,22 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
             })
 
         for line in review_display.direct_services:
+            is_third_party = bool(getattr(line.item.service, "is_third_party", False))
+            service_cost_price = _calculate_pdf_service_cost(
+                budget=budget,
+                duration=line.item.duration,
+                quantity=line.item.quantity,
+                fallback_cost=line.warranty_total_price,
+                is_third_party=is_third_party,
+            )
             servicos.append({
                 "id": line.item.service_id,
                 "description": line.item.description,
                 "quantity": line.item.quantity,
                 "unit_price": line.unit_price,
                 "total_price": line.total_price,
-                "service_cost_price": line.warranty_total_price,
-                "profit_value": line.total_price - line.warranty_total_price,
+                "service_cost_price": service_cost_price,
+                "profit_value": line.total_price - service_cost_price,
                 "duration_display": line.duration_display,
             })
 
@@ -164,6 +181,13 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                     cost_price, selling_price = kit_item.resolve_kit_service_base_prices(kit_service=kit_service)
                 duration = override.duration if override and override.duration else kit_service.duration
                 total_quantity = quantity * kit_quantity
+                service_cost_price = _calculate_pdf_service_cost(
+                    budget=budget,
+                    duration=duration,
+                    quantity=total_quantity,
+                    fallback_cost=cost_price * total_quantity,
+                    is_third_party=kit_service.service.is_third_party,
+                )
 
                 servicos.append({
                     "id": kit_service.service_id,
@@ -171,8 +195,8 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                     "quantity": total_quantity,
                     "unit_price": selling_price,
                     "total_price": selling_price * total_quantity,
-                    "service_cost_price": cost_price * total_quantity,
-                    "profit_value": (selling_price * total_quantity) - (cost_price * total_quantity),
+                    "service_cost_price": service_cost_price,
+                    "profit_value": (selling_price * total_quantity) - service_cost_price,
                     "duration_display": format_duration_display(duration * total_quantity) if duration else "00h 00m",
                 })
 
@@ -205,23 +229,34 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
             }
             for line in snapshot.product_lines
         ]
-        servicos = [
-            {
-                "id": line.entity_id,
-                "description": line.description,
-                "quantity": line.quantity,
-                "unit_price": line.adjusted_unit_price,
-                "total_price": line.total_price,
-                "service_cost_price": line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total,
-                "profit_value": line.total_price - (line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total),
-                "duration_display": line.duration_display,
-            }
-            for line in snapshot.service_lines
-        ]
+        servicos = []
+        for line in snapshot.service_lines:
+            fallback_cost = line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total
+            service_cost_price = _calculate_pdf_service_cost(
+                budget=budget,
+                duration=line.duration,
+                quantity=1,
+                fallback_cost=fallback_cost,
+                is_third_party=line.third_party,
+            )
+            servicos.append(
+                {
+                    "id": line.entity_id,
+                    "description": line.description,
+                    "quantity": line.quantity,
+                    "unit_price": line.adjusted_unit_price,
+                    "total_price": line.total_price,
+                    "service_cost_price": service_cost_price,
+                    "profit_value": line.total_price - service_cost_price,
+                    "duration_display": line.duration_display,
+                }
+            )
 
         kits = []
 
     workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=budget.workshop)
+    total_services_cost_original_value = sum((line["service_cost_price"] for line in servicos), Money(0, "BRL"))
+    total_profit_service_value = sum((line["profit_value"] for line in servicos), Money(0, "BRL"))
 
     return {
         "budget": budget,
@@ -238,8 +273,8 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         "observations": budget.observations if observacao is None else observacao,
         "fixed_observation": budget.workshop.pdf_observation,
         "total_profit_product_value": sum((line.profit_value for line in snapshot.product_lines), Money(0, "BRL")),
-        "total_profit_service_value": sum((line.total_price - (line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total) for line in snapshot.service_lines), Money(0, "BRL")),
-        "total_services_cost_original_value": sum((line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total for line in snapshot.service_lines), Money(0, "BRL")),
+        "total_profit_service_value": total_profit_service_value,
+        "total_services_cost_original_value": total_services_cost_original_value,
         "is_warranty_or_courtesy": is_warranty_or_courtesy,
         "warranty_message": "Ordem de serviço de garantia. Documento apenas para a visualização, peças e serviços descritos não foram cobrados do cliente" if is_warranty_or_courtesy else "",
         "workshop_logo_data_uri": workshop_logo_data_uri,
