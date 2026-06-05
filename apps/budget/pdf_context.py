@@ -304,13 +304,14 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 fallback_cost=fallback_cost,
                 is_third_party=line.third_party,
             )
-            total_price = line.adjusted_total
+            total_price = line.raw_total if line.has_kit_source else line.adjusted_total
+            unit_price = money_div(total_price, line.quantity) if line.has_kit_source else line.adjusted_unit_price
             servicos.append(
                 {
                     "id": line.entity_id,
                     "description": line.description,
                     "quantity": line.quantity,
-                    "unit_price": line.adjusted_unit_price,
+                    "unit_price": unit_price,
                     "total_price": total_price,
                     "service_cost_price": fallback_cost,
                     "service_mechanic_cost_price": service_mechanic_cost_price,
