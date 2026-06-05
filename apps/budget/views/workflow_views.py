@@ -976,12 +976,14 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
             budget.slider = int(slider_value)
             budget.save(update_fields=["slider"])
 
+        display_products_value = budget.display_total_products_by_slider_without_shipping
+        display_labor_value = Money(0, "BRL") if budget.is_warranty_budget else budget.display_total_services_by_slider - budget.total_third_party_services_selling
         html = f"""
-                <span id="display-venda-pecas" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 whitespace-nowrap step5-accent-text" data-base-val="{0 if budget.is_warranty_budget else budget.get_total_products_by_slider.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
-                    {Money(0, "BRL") if budget.is_warranty_budget else budget.get_total_products_by_slider}
+                <span id="display-venda-pecas" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 whitespace-nowrap step5-accent-text" data-base-val="{display_products_value.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
+                    {display_products_value}
                 </span>
-                <span id="display-venda-mo" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 step5-accent-text" data-base-val="{0 if budget.is_warranty_budget else budget.get_total_labor_by_slider.amount}" data-cost-val="{budget.total_labor_cost_value.amount}">
-                    {Money(0, "BRL") if budget.is_warranty_budget else budget.get_total_labor_by_slider}
+                <span id="display-venda-mo" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 step5-accent-text" data-base-val="{display_labor_value.amount}" data-cost-val="{budget.total_labor_cost_value.amount}">
+                    {display_labor_value}
                 </span>
                 <span id="step5-subtotal-display" hx-swap-oob="true" data-base-total="{budget.display_total_base_value.amount}">
                     {budget.display_total_base_value}
