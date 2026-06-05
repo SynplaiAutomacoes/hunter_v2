@@ -48,6 +48,7 @@ from apps.workshops.util.workshops import has_workshop_perm
 external_calls_logger = logging.getLogger("performance.external")
 
 MONEY_QUANTIZER = Decimal("0.01")
+NF_WITHOUT_ITEMS_MESSAGE = "A NF-e foi localizada, mas o XML retornado não contém os itens da nota. Sem esses itens não é possível vincular produtos no estoque. Importe o XML completo da NF-e ou tente novamente quando a SEFAZ disponibilizar o documento completo."
 
 
 def _parse_decimal_value(value: Any) -> Decimal | None:
@@ -79,6 +80,10 @@ def _money_from_value(value: Any) -> Money | None:
 
 def _format_money_display(value: Money | None) -> str:
     return str(value) if value is not None else "--"
+
+
+def _has_importable_nf_items(nf_data: dict[str, Any] | None) -> bool:
+    return bool(nf_data and nf_data.get("items"))
 
 
 # Stock
@@ -211,6 +216,11 @@ class ImportStep1Form(CoreModelForm):
             if nf_number:
                 nf_data["nf_number"] = nf_number
 
+            if not _has_importable_nf_items(nf_data):
+                field_name = "xml_file" if method == "XML" else "access_key" if method == "KEY" else "method"
+                self.add_error(field_name, NF_WITHOUT_ITEMS_MESSAGE)
+                return cleaned_data
+
             if StockImport.objects.filter(workshop=self.workshop, nf_key=nf_data["nf_key"]).exclude(pk=self.instance.pk).exists():
                 self.add_error("method", f"A NF com chave {nf_data['nf_key']} já existe.")
 
@@ -295,6 +305,20 @@ class ImportStepItemsForm(CoreModelForm):
         quick_create_url = reverse("stock:product_quick_create")
         link_manual_url = reverse("stock:link_product_manual")
         item_editor_url = reverse("stock:manual_link_item_editor")
+        empty_import_alert = ""
+
+        if not self.import_items:
+            empty_import_alert = f"""
+            <div class="alert alert-warning mb-4 col-span-12">
+                <span class="material-icons">warning</span>
+                <div>
+                    <h3 class="font-bold text-sm">Itens da NF-e não carregados</h3>
+                    <div class="text-xs">{NF_WITHOUT_ITEMS_MESSAGE}</div>
+                </div>
+            </div>
+            """
+            rows_xml = """<tr><td colspan="4" class="text-center py-8 text-sm opacity-60">Nenhum item importado.</td></tr>"""
+            rows_system = """<tr><td colspan="5" class="text-center py-8 text-sm opacity-60">Nenhum item disponível para vincular.</td></tr>"""
 
         for idx, item in enumerate(self.import_items):
             ref_xml = item.get("ref", "")
@@ -360,6 +384,7 @@ class ImportStepItemsForm(CoreModelForm):
                     """
 
         return f"""<div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            {empty_import_alert}
             <div class="col-span-12 lg:col-span-5">
                 <h3 class="text-2xl font-bold mb-4 flex items-center gap-2">Itens Importados</h3>
                 <div class="rounded-xl border border-base-300 overflow-x-auto">
@@ -400,6 +425,10 @@ class ImportStepItemsForm(CoreModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
+        if not self.instance.items_data:
+            self.add_error(None, NF_WITHOUT_ITEMS_MESSAGE)
+            return cleaned_data
+
         for item in self.instance.items_data:
             if not item.get("linked_product_id"):
                 self.add_error(None, "Existem itens pendentes de vínculo.")
@@ -1026,6 +1055,9 @@ class ImportSefazListForm(CoreModelForm):
                 nf_data = NFParser.parse_nfe_xml_to_dict(self.workshop, xml_completo.content)
 
                 if nf_data:
+                    if not _has_importable_nf_items(nf_data):
+                        raise forms.ValidationError(NF_WITHOUT_ITEMS_MESSAGE)
+
                     resolved_nf_number = nf_data.get("nf_number") or extract_nf_number_from_access_key(nf_data.get("nf_key"))
                     instance.nf_number = resolved_nf_number
                     instance.nf_key = nf_data["nf_key"]
@@ -1040,6 +1072,8 @@ class ImportSefazListForm(CoreModelForm):
                         issuer_name=instance.supplier_name,
                         issuer_cnpj=instance.supplier_cnpj,
                     )
+            except forms.ValidationError:
+                raise
             except Exception as e:
                 raise forms.ValidationError(f"Erro ao baixar nota completa: {e}")
 

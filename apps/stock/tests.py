@@ -8,6 +8,7 @@ from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from django import forms
 from django.core.management import call_command
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
@@ -100,6 +101,39 @@ class StockSefazTests(TestCase):
 </resNFe>
 """.encode()
 
+    def _build_full_nfe_xml(self, *, nf_number: int = 123) -> bytes:
+        access_key = self._build_access_key(nf_number=nf_number)
+        return f"""<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<nfeProc xmlns=\"http://www.portalfiscal.inf.br/nfe\">
+    <NFe>
+        <infNFe Id=\"NFe{access_key}\">
+            <ide>
+                <nNF>{nf_number}</nNF>
+                <dhEmi>2026-03-20T10:00:00-03:00</dhEmi>
+            </ide>
+            <emit>
+                <CNPJ>11222333000181</CNPJ>
+                <xNome>Fornecedor Teste</xNome>
+            </emit>
+            <det nItem=\"1\">
+                <prod>
+                    <cProd>PEC-001</cProd>
+                    <xProd>Peca da NF-e</xProd>
+                    <qCom>2.0000</qCom>
+                    <vUnCom>12.50</vUnCom>
+                    <NCM>87089990</NCM>
+                </prod>
+            </det>
+            <total>
+                <ICMSTot>
+                    <vNF>25.00</vNF>
+                </ICMSTot>
+            </total>
+        </infNFe>
+    </NFe>
+</nfeProc>
+""".encode()
+
     def _build_distribution_response(self, *, document_xml: bytes) -> bytes:
         encoded_doc = base64.b64encode(gzip.compress(document_xml)).decode()
         return f"""<?xml version=\"1.0\" encoding=\"UTF-8\"?>
@@ -145,7 +179,7 @@ class StockSefazTests(TestCase):
 
     def test_import_step1_save_uses_access_key_fallback_for_nf_number(self) -> None:
         access_key = self._build_access_key(nf_number=321)
-        form = ImportStep1Form(workshop=self.workshop, data={"method": "KEY"})
+        form = ImportStep1Form(workshop=self.workshop)
         form.cleaned_data = {"method": "KEY"}
         form.parsed_nf_data = {
             "nf_key": access_key,
@@ -188,15 +222,46 @@ class StockSefazTests(TestCase):
         self.assertTrue(form.is_valid())
 
         with patch("apps.stock.forms.ComunicacaoSefaz") as comunicacao_cls:
-            comunicacao_cls.return_value.consulta_distribuicao.return_value = SimpleNamespace(content=self._build_res_nfe_xml(nf_number=456, include_number=False))
+            comunicacao_cls.return_value.consulta_distribuicao.return_value = SimpleNamespace(content=self._build_full_nfe_xml(nf_number=456))
 
             stock_import = form.save(commit=False)
 
         cache.refresh_from_db()
         self.assertEqual(stock_import.nf_number, "456")
+        self.assertEqual(stock_import.items_data[0]["desc"], "Peca da NF-e")
         self.assertEqual(cache.nf_number, "456")
         self.assertEqual(cache.issuer_name, "Fornecedor Teste")
         self.assertEqual(cache.issuer_cnpj, "11222333000181")
+
+    def test_import_sefaz_save_rejects_summary_without_items(self) -> None:
+        access_key = self._build_access_key(nf_number=456)
+        SefazZipCache.objects.create(workshop=self.workshop, key=access_key)
+        form = ImportSefazListForm(workshop=self.workshop, data={"selected_key": access_key})
+
+        self.assertTrue(form.is_valid())
+
+        with patch("apps.stock.forms.ComunicacaoSefaz") as comunicacao_cls:
+            comunicacao_cls.return_value.consulta_distribuicao.return_value = SimpleNamespace(content=self._build_res_nfe_xml(nf_number=456, include_number=False))
+
+            with self.assertRaisesMessage(forms.ValidationError, "não contém os itens da nota"):
+                form.save(commit=False)
+
+    def test_import_step_items_form_shows_warning_when_import_has_no_items(self) -> None:
+        stock_import = StockImport.objects.create(
+            workshop=self.workshop,
+            nf_key=self._build_access_key(nf_number=789),
+            method=StockImport.ImportMethods.SEFAZ,
+            supplier_name="Fornecedor Teste",
+            supplier_cnpj="11222333000181",
+            items_data=[],
+            payments_data=[],
+        )
+        form = ImportStepItemsForm(instance=stock_import, workshop=self.workshop, import_items=stock_import.items_data)
+
+        html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form}))
+
+        self.assertIn("Itens da NF-e não carregados", html)
+        self.assertIn("Nenhum item disponível para vincular", html)
 
     def test_supplier_and_summary_forms_use_nf_number_display_fallback(self) -> None:
         stock_import = StockImport.objects.create(
