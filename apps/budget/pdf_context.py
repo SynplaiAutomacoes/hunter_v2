@@ -56,16 +56,22 @@ def build_workshop_logo_data_uri(*, workshop) -> str:
     return f"data:{stored_logo.content_type};base64,{encoded_logo}"
 
 
-def build_budget_pdf_context(*, budget, request=None, zero_warranty_prices: bool = False, presentation: str = "expanded") -> dict:
+def build_budget_pdf_context(*, budget, request=None, observacao: str | None = None, zero_warranty_prices: bool = False, presentation: str = "expanded") -> dict:
     snapshot = budget.pricing_snapshot
     is_warranty_budget = budget.is_warranty_budget or budget.budget_type == "warranty"
     is_courtesy_budget = budget.budget_type == "courtesy"
     is_warranty_or_courtesy = is_warranty_budget or is_courtesy_budget
     is_client_warranty_pdf = is_warranty_or_courtesy and zero_warranty_prices
-    total_produtos = budget.display_total_products_by_slider
-    total_servicos = budget.display_total_services_by_slider
-    desconto = budget.display_resolved_discount_value
-    total_geral = Money(0, "BRL") if is_client_warranty_pdf else budget.display_total_budget_value
+    if is_client_warranty_pdf:
+        total_produtos = Money(0, "BRL")
+        total_servicos = Money(0, "BRL")
+        desconto = Money(0, "BRL")
+        total_geral = Money(0, "BRL")
+    else:
+        total_produtos = budget.selected_items_total_products_without_shipping
+        total_servicos = budget.selected_items_total_services_value
+        desconto = budget.selected_items_total_base_value - budget.selected_items_total_budget_value
+        total_geral = budget.selected_items_total_budget_value
 
     soma_markup = _calculate_soma_markup(
         total_budget_value=total_geral,
@@ -229,7 +235,7 @@ def build_budget_pdf_context(*, budget, request=None, zero_warranty_prices: bool
         "total_geral": total_geral,
         "soma_markup": soma_markup,
         "soma_markup_display": _format_decimal_multiplier(soma_markup),
-        "observations": budget.observations,
+        "observations": budget.observations if observacao is None else observacao,
         "fixed_observation": budget.workshop.pdf_observation,
         "total_profit_product_value": sum((line.profit_value for line in snapshot.product_lines), Money(0, "BRL")),
         "total_profit_service_value": sum((line.total_price - (line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total) for line in snapshot.service_lines), Money(0, "BRL")),
