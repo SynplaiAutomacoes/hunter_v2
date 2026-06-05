@@ -1252,6 +1252,30 @@ class BudgetTotalsConsistencyTests(TestCase):
         self.assertIn("R$\xa0100,00", rendered_summary)
         self.assertNotIn("R$\xa0160,00", rendered_summary)
 
+    def test_budget_pdf_totals_use_same_selected_item_totals_as_step4_summary(self) -> None:
+        workshop = create_workshop(suffix=79)
+        budget = create_budget(workshop=workshop)
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico do PDF",
+            quantity=1,
+            service_cost_price=Money("40.00", "BRL"),
+            service_selling_price=Money("100.00", "BRL"),
+            duration=timedelta(hours=2),
+        )
+
+        with patch.object(Budget, "calculate_pricing_methods", return_value={"method_name": "Tradicional", "venda_mao_obra": Money("160.00", "BRL")}):
+            context = build_budget_pdf_context(budget=budget)
+
+        self.assertEqual(budget.display_total_services_by_slider, Money("160.00", "BRL"))
+        self.assertEqual(context["total_servicos"], budget.selected_items_total_services_value)
+        self.assertEqual(context["total_servicos"], Money("100.00", "BRL"))
+        self.assertEqual(context["total_geral"], budget.selected_items_total_budget_value)
+        self.assertNotEqual(context["total_servicos"], budget.display_total_services_by_slider)
+
     def test_step4_summary_service_total_matches_single_kit_services_total(self) -> None:
         workshop = create_workshop(suffix=78)
         budget = create_budget(workshop=workshop)
