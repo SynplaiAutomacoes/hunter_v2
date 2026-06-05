@@ -3714,14 +3714,18 @@ class BudgetKitServiceCalculateViewTests(TestCase):
         self.kit_service = KitService.objects.create(kit=self.kit, service=self.service, quantity=1, duration=timedelta(hours=1), selling_price=Money("55.00", "BRL"))
 
         reference_date = self.budget.criado_em if self.budget.criado_em else timezone.now()
-        WorkshopCost.objects.create(
+        mechanic_cost, _admin_cost = create_salary_monthly_costs(workshop=self.workshop)
+        workshop_cost = WorkshopCost.objects.create(
             workshop=self.workshop,
             month=reference_date.month,
             year=reference_date.year,
             mechanic_quantity=1,
+            working_hours_per_month=Decimal("100.00"),
             minimum_hourly_cost=Money("25.00", "BRL"),
             hourly_cost_value=Money("90.00", "BRL"),
         )
+        WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=mechanic_cost, amount=Money("1000.00", "BRL"))
+        self.budget.freeze_pricing_snapshot()
 
         self.item = BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, kit=self.kit, quantity=1)
 
@@ -3743,7 +3747,7 @@ class BudgetKitServiceCalculateViewTests(TestCase):
 
         self.assertEqual(payload["price"], "55.00")
         self.assertEqual(override.service_selling_price, Money("55.00", "BRL"))
-        self.assertEqual(override.service_cost_price, Money("50.00", "BRL"))
+        self.assertEqual(override.service_cost_price, Money("20.00", "BRL"))
         self.assertEqual(override.duration, timedelta(hours=2))
         self.assertEqual(self.item.service_selling_price, Money("55.00", "BRL"))
 
@@ -3767,7 +3771,7 @@ class BudgetKitServiceCalculateViewTests(TestCase):
         self.assertFalse(payload["workshop_cost_missing"])
         self.assertEqual(payload["price"], "55.00")
         self.assertEqual(override.service_selling_price, Money("55.00", "BRL"))
-        self.assertEqual(override.service_cost_price, Money("50.00", "BRL"))
+        self.assertEqual(override.service_cost_price, Money("20.00", "BRL"))
 
     def test_duration_change_without_pricing_context_keeps_registered_kit_service_value(self) -> None:
         WorkshopCost.objects.filter(workshop=self.workshop).delete()
@@ -3808,8 +3812,11 @@ class BudgetKitServiceCalculateViewTests(TestCase):
         self.assertContains(response, "updateProductTotals")
         self.assertContains(response, "updateServiceTotals")
         self.assertContains(response, "recalculateServicePricingFromDuration")
-        self.assertContains(response, "minimumHourlyCost: parseFloat('25.00')")
+        self.assertContains(response, "<th class=\"w-32\">Custo/Mecânico</th>")
+        self.assertContains(response, "mechanicHourlyCost: parseFloat('10.00')")
         self.assertContains(response, "hourlyCostValue: parseFloat('90.00')")
+        self.assertContains(response, 'data-field="cost"')
+        self.assertContains(response, "readonly")
         self.assertNotContains(response, "/calculate/")
         self.assertNotContains(response, "debounce")
 
@@ -3838,6 +3845,8 @@ class BudgetKitServiceCalculateViewTests(TestCase):
         self.assertEqual(response["Content-Type"], "application/json")
         self.assertNotIn("HX-Redirect", response)
         self.assertJSONEqual(response.content, {"ok": True, "redirect_url": f"/budget/{self.budget.pk}/edit/?step=4"})
+        override = BudgetKitItemOverride.objects.get(budget_item=self.item, service=self.service)
+        self.assertEqual(override.service_cost_price, Money("10.00", "BRL"))
 
 
 class BudgetPricingSnapshotTests(TestCase):
