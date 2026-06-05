@@ -10,6 +10,13 @@
             </div>
 
             <div class="flex items-center gap-2">
+                {% url 'finance:financial_movement_pdf' as financial_movement_pdf_url %}
+                <button type="button"
+                        class="btn btn-outline"
+                        onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Movimentação Financeira', url: '{{ financial_movement_pdf_url }}{% if request.GET.urlencode %}?{{ request.GET.urlencode }}{% endif %}', downloadUrl: '{{ financial_movement_pdf_url }}?download=1{% if request.GET.urlencode %}&{{ request.GET.urlencode }}{% endif %}' } }))">
+                    <span class="material-icons">picture_as_pdf</span>
+                    Exportar PDF
+                </button>
                 <button type="button" class="btn btn-secondary" id="btn-conciliar" disabled
                         hx-get="{% url 'finance:batch_conciliate_modal' %}"
                         hx-target="#conciliar-modal-container"
@@ -658,6 +665,15 @@
                         onclick="const frame = document.querySelector('#pdfModal iframe'); if (frame && frame.contentWindow) { frame.contentWindow.focus(); frame.contentWindow.print(); }"
                     >
                         Imprimir
+                    </button>
+
+                    <button
+                        type="button"
+                        class="btn btn-sm btn-success"
+                        x-show="downloadUrl"
+                        @click="window.open(downloadUrl, '_blank')"
+                    >
+                        Baixar PDF
                     </button>
 
                     <button type="button" class="btn btn-sm" onclick="document.getElementById('pdfModal').close()">

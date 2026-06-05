@@ -54,9 +54,11 @@ from apps.finance.views.bank_account import BankAccountListView, BankAccountUpda
 from apps.finance.views.financial_movement import (
     FinancialMovementCreateView,
     FinancialMovementDeleteView,
+    FinancialMovementListView,
     FinancialMovementUpdateView,
     EntityListView,
     EntityDetailView,
+    financial_movement_pdf,
 )
 from apps.finance.views.payment_method import PaymentMethodListView, PaymentMethodCreateView, PaymentMethodUpdateView
 from apps.finance.views.reports import (
@@ -120,6 +122,8 @@ urlpatterns = [
     path("bank-account/create/", BankAccountCreateView.as_view(), name="bank_account_create"),
     path("bank-account/<int:pk>/update/", BankAccountUpdateView.as_view(), name="bank_account_update"),
     # Movimentação Financeira
+    path("financial-movement/", FinancialMovementListView.as_view(), name="financial_movement_list"),
+    path("movimentacao/pdf/", financial_movement_pdf, name="financial_movement_pdf"),
     path("financial-movement/create/", FinancialMovementCreateView.as_view(), name="financial_movement_create"),
     path("financial-movement/<int:pk>/update/", FinancialMovementUpdateView.as_view(), name="financial_movement_update"),
     path("financial-movement/<int:pk>/delete/", FinancialMovementDeleteView.as_view(), name="financial_movement_delete"),
