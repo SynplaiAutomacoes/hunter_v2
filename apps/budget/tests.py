@@ -1625,6 +1625,24 @@ class BudgetPdfContextTests(TestCase):
         self.assertLess(html.index("Valor Total"), html.index("Tempo"))
         self.assertLess(html.index("Tempo"), html.index("Custo/Mecânico"))
 
+    @patch.object(Budget, "calculate_pricing_methods", return_value={"method_name": "Hunter", "venda_mao_obra": Money("9999.00", "BRL")})
+    def test_manager_pdf_kit_service_total_uses_frozen_kit_service_value(self, _pricing_methods_mock: Mock) -> None:
+        workshop = create_workshop(suffix=99)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=99)
+        kit = create_kit(workshop=workshop, suffix=991, products=[])
+        KitService.objects.create(kit=kit, service=service, quantity=2, duration=service.duration, selling_price=Money("55.00", "BRL"))
+
+        item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
+
+        self.assertEqual(item.get_kit_services_total(), Money("110.00", "BRL"))
+        self.assertEqual(context["total_servicos"], Money("110.00", "BRL"))
+        self.assertEqual(context["servicos"][0]["quantity"], 2)
+        self.assertEqual(context["servicos"][0]["unit_price"], Money("55.00", "BRL"))
+        self.assertEqual(context["servicos"][0]["total_price"], Money("110.00", "BRL"))
+
     def test_build_budget_pdf_context_uses_cost_only_display_for_warranty_budget(self) -> None:
         workshop = create_workshop(suffix=51)
         budget = create_budget(workshop=workshop)
