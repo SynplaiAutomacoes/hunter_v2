@@ -11,7 +11,7 @@ from django.utils import timezone
 from djmoney.models.fields import MoneyField
 from djmoney.money import Money
 
-from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, money_from_decimal
+from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, money_from_decimal, resolve_discount_fields
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -564,7 +564,9 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def total_budget_value(self) -> Money:
-        return self.get_total_services_by_slider + self.get_total_products_by_slider
+        total_base = self.get_total_products_by_slider + self.get_total_services_by_slider
+        discount_value, _ = resolve_discount_fields(total_base_value=total_base, discount_value=self.discount_value, discount_percentage=self.discount_percentage)
+        return total_base - discount_value
 
     def sync_from_budget(self) -> None:
         from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
