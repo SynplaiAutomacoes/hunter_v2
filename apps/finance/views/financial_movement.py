@@ -169,7 +169,7 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement]) ->
                 "date": movement.due_date,
                 "description": movement.report_description_display,
                 "collaborator": _movement_pdf_collaborator_label(movement),
-                "source": str(movement.source or "-"),
+                "source": str(f"O.S. {movement.workorder.get_id}" if movement.workorder else "-"),
                 "direction": movement.direction,
                 "direction_label": _movement_pdf_direction_label(movement),
                 "amount": movement.amount or Money(0, "BRL"),
