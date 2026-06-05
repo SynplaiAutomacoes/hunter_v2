@@ -1601,20 +1601,24 @@ class BudgetPdfContextTests(TestCase):
         service.save(update_fields=["duration"])
         freeze_budget_with_mechanic_hour_cost(budget=budget, mechanic_hour_cost=Money("10.00", "BRL"))
 
-        BudgetItem.objects.create(
+        item = BudgetItem.objects.create(
             workshop=workshop,
             budget=budget,
             service=service,
             quantity=1,
-            service_cost_price=Money("77.00", "BRL"),
         )
+        item.service_cost_price = Money("77.00", "BRL")
+        item.save(update_fields=["service_cost_price", "service_cost_price_currency"])
+        budget.invalidate_pricing_snapshot_cache()
 
         context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
         html = render_to_string("budget/partials/pdf/visualizarPDFGestor.html", context)
 
-        self.assertEqual(context["servicos"][0]["service_cost_price"], Money("20.00", "BRL"))
+        self.assertEqual(context["servicos"][0]["service_mechanic_cost_price"], Money("20.00", "BRL"))
+        self.assertEqual(context["servicos"][0]["service_cost_price"], Money("77.00", "BRL"))
         self.assertEqual(context["servicos"][0]["duration_display"], "02h 00m")
-        self.assertEqual(context["total_services_cost_original_value"], Money("20.00", "BRL"))
+        self.assertEqual(context["total_services_cost_original_value"], Money("77.00", "BRL"))
+        self.assertEqual(context["servicos"][0]["profit_value"], context["servicos"][0]["total_price"] - Money("77.00", "BRL"))
         self.assertIn("Valor Total", html)
         self.assertIn("Tempo", html)
         self.assertIn("Custo/Mecânico", html)
