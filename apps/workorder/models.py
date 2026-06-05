@@ -414,7 +414,20 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def get_total_services_by_slider(self) -> Money:
-        return self.pricing_snapshot.total_services_by_slider
+        total = Money(0, "BRL")
+        for item in self._iter_items():
+            if item.service:
+                total += item.service_selling_price * item.quantity
+            elif item.kit:
+                _, service_overrides = item._get_kit_override_maps()
+                for kit_service in item._iter_kit_services():
+                    override = service_overrides.get(kit_service.service_id)
+                    per_kit_qty = int((override.quantity if override else kit_service.quantity) or 0)
+                    if per_kit_qty <= 0:
+                        continue
+                    unit_price = override.service_selling_price if override else kit_service.resolved_selling_price
+                    total += unit_price * per_kit_qty * item.quantity
+        return total
 
     @property
     def get_total_labor_by_slider(self) -> Money:
