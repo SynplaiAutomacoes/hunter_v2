@@ -1,19 +1,30 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal, ROUND_HALF_UP
+from typing import Any
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import JsonResponse
+from django.core.exceptions import PermissionDenied
+from django.db.models import QuerySet
+from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, get_object_or_404, render
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView
+from djmoney.money import Money
 
+from apps.core.documents.contract import DocumentRenderRequest
+from apps.core.documents.http import build_pdf_http_response
+from apps.core.documents.renderer import render_template_request_to_pdf
 from apps.core.forms import MultiStepFormMixin
 from apps.core.navigation import FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE
 from apps.core.tables import TableActionDefaults
-from apps.core.templatetags.table_tags import TableColumn
+from apps.core.templatetags.table_tags import TableColumn, _apply_search, _apply_sort, _ensure_stable_ordering, _paginate, _parse_sort
 from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.finance.forms.financial_movement import MovementStep1Form, MovementStep2Form, MovementStep3Form, MovementStep4Form
 from apps.finance.models.financial_movement import FinancialMovement
@@ -22,7 +33,7 @@ from apps.collaborators.models import WorkshopCollaborator
 from apps.sources.models import Source
 from apps.suppliers.models import Supplier
 from apps.workshops.mixin import WorkshopScopedMixin
-from apps.workshops.util.workshops import get_active_workshop_or_404
+from apps.workshops.util.workshops import get_active_workshop_or_404, has_workshop_perm
 
 
 def parse_pk(value):
@@ -53,6 +64,169 @@ def parse_pk(value):
     return int(value)
 
 
+def _parse_financial_movement_date_param(raw_value: str | None) -> date | None:
+    value = str(raw_value or "").strip()
+    if not value:
+        return None
+
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _get_financial_movement_selected_source_id(request: HttpRequest) -> int | None:
+    raw_value = str(request.GET.get("source") or "").strip()
+    if not raw_value:
+        return None
+
+    try:
+        return int(raw_value)
+    except (TypeError, ValueError):
+        return None
+
+
+def get_financial_movement_table_columns() -> list[TableColumn]:
+    return [
+        TableColumn("ID", attr="id"),
+        TableColumn(FinancialMovement.source.field.verbose_name, attr="source", search_by="source__name"),
+        TableColumn("Tipo", attr="get_direction_display", search_by="direction"),
+        TableColumn(FinancialMovement.amount.field.verbose_name, attr=FinancialMovement.amount.field.name),
+        TableColumn(FinancialMovement.due_date.field.verbose_name, attr=FinancialMovement.due_date.field.name),
+        TableColumn("Conciliado", attr="is_reconciled"),
+    ]
+
+
+def build_financial_movement_base_queryset(*, request: HttpRequest, workshop: Any) -> QuerySet[FinancialMovement]:
+    queryset = FinancialMovement.objects.filter(workshop=workshop).select_related(
+        "source",
+        "collaborator",
+        "supplier",
+        "payment_method",
+        "budget_plan",
+        "bank_account",
+        "workorder",
+        "workorder__budget",
+        "workorder__budget__customer",
+    )
+
+    start_date = _parse_financial_movement_date_param(request.GET.get("data_inicial"))
+    end_date = _parse_financial_movement_date_param(request.GET.get("data_final"))
+    source_id = _get_financial_movement_selected_source_id(request)
+
+    if start_date is not None:
+        queryset = queryset.filter(due_date__gte=start_date)
+    if end_date is not None:
+        queryset = queryset.filter(due_date__lte=end_date)
+    if source_id is not None:
+        queryset = queryset.filter(source_id=source_id)
+
+    return queryset.order_by("-criado_em")
+
+
+def get_financial_movement_visible_page(*, request: HttpRequest, workshop: Any) -> Any:
+    fields = get_financial_movement_table_columns()
+    queryset = build_financial_movement_base_queryset(request=request, workshop=workshop)
+    filtered_queryset, _ = _apply_search(queryset, columns=fields, search_query=(request.GET.get("q") or "").strip())
+    sortable_attrs = {column.attr for column in fields if column.sortable and column.attr}
+    sort, sort_attr, sort_desc, sort_is_valid = _parse_sort(request, sortable_attrs=sortable_attrs)
+    ordered_queryset, _, _, _ = _apply_sort(filtered_queryset, columns=fields, sort=sort, sort_attr=sort_attr, sort_desc=sort_desc, sort_is_valid=sort_is_valid)
+    ordered_queryset = _ensure_stable_ordering(ordered_queryset)
+
+    has_active_filters = any(str(value).strip() != "" for param_name in ("data_inicial", "data_final", "source") for value in request.GET.getlist(param_name))
+    per_page = max(ordered_queryset.count(), 1) if has_active_filters else 10
+    page_obj, _ = _paginate(ordered_queryset, per_page=per_page, page_number=request.GET.get("page", "1"))
+    return page_obj
+
+
+def _money_amount(value: object) -> Decimal:
+    amount = getattr(value, "amount", value)
+    if isinstance(amount, Decimal):
+        return amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return Decimal(str(amount or "0.00")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _movement_pdf_direction_label(movement: FinancialMovement) -> str:
+    if movement.direction == FinancialMovement.MovementDirection.CREDIT:
+        return "Crédito"
+    if movement.direction == FinancialMovement.MovementDirection.DEBIT:
+        return "Débito"
+    return "-"
+
+
+def _movement_pdf_collaborator_label(movement: FinancialMovement) -> str:
+    collaborator = getattr(movement, "collaborator", None)
+    if collaborator is None:
+        return "—"
+    return str(getattr(collaborator, "name", "") or collaborator or "—")
+
+
+def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for movement in movements:
+        rows.append(
+            {
+                "date": movement.due_date,
+                "description": movement.report_description_display,
+                "collaborator": _movement_pdf_collaborator_label(movement),
+                "source": str(movement.source or "-"),
+                "direction": movement.direction,
+                "direction_label": _movement_pdf_direction_label(movement),
+                "amount": movement.amount or Money(0, "BRL"),
+            }
+        )
+    return rows
+
+
+def _build_financial_movement_pdf_totals(*, movements: list[FinancialMovement]) -> dict[str, Money]:
+    total_credit = Decimal("0.00")
+    total_debit = Decimal("0.00")
+    for movement in movements:
+        amount = _money_amount(movement.amount)
+        if movement.direction == FinancialMovement.MovementDirection.CREDIT:
+            total_credit += amount
+        elif movement.direction == FinancialMovement.MovementDirection.DEBIT:
+            total_debit += amount
+
+    total_credit = total_credit.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    total_debit = total_debit.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    balance = (total_credit - total_debit).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return {
+        "total_credit": Money(total_credit, "BRL"),
+        "total_debit": Money(total_debit, "BRL"),
+        "balance": Money(balance, "BRL"),
+    }
+
+
+def _format_financial_movement_date_param(raw_value: str | None) -> str:
+    parsed_date = _parse_financial_movement_date_param(raw_value)
+    if parsed_date is None:
+        return "-"
+    return parsed_date.strftime("%d/%m/%Y")
+
+
+def _build_financial_movement_filter_labels(*, request: HttpRequest, workshop: Any) -> list[str]:
+    labels: list[str] = []
+    if request.GET.get("data_inicial") or request.GET.get("data_final"):
+        labels.append(f"Período: {_format_financial_movement_date_param(request.GET.get('data_inicial'))} até {_format_financial_movement_date_param(request.GET.get('data_final'))}")
+
+    source_id = _get_financial_movement_selected_source_id(request)
+    if source_id is not None:
+        source = Source.objects.filter(workshop=workshop, pk=source_id).first()
+        if source is not None:
+            labels.append(f"Origem: {source.name}")
+
+    search_query = str(request.GET.get("q") or "").strip()
+    if search_query:
+        labels.append(f"Busca: {search_query}")
+
+    sort = str(request.GET.get("sort") or "").strip()
+    if sort:
+        labels.append(f"Ordenação: {sort}")
+
+    return labels
+
+
 class FinancialMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
     model = FinancialMovement
     template_name = "finance/financial_movement/financial_movement_list.html"
@@ -60,59 +234,47 @@ class FinancialMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTem
     htmx_template_name = "finance/partials/financial_movement/financial_movement_table.html"
     workshop_permission_codename = "view_financialmovement"
 
-    def _parse_date_param(self, raw_value: str | None) -> date | None:
-        value = str(raw_value or "").strip()
-        if not value:
-            return None
-
-        try:
-            return date.fromisoformat(value)
-        except ValueError:
-            return None
-
-    def _get_selected_source_id(self) -> int | None:
-        raw_value = str(self.request.GET.get("source") or "").strip()
-        if not raw_value:
-            return None
-
-        try:
-            return int(raw_value)
-        except (TypeError, ValueError):
-            return None
-
     def get_queryset(self):
-        queryset = super().get_queryset().select_related("source")
-
-        start_date = self._parse_date_param(self.request.GET.get("data_inicial"))
-        end_date = self._parse_date_param(self.request.GET.get("data_final"))
-        source_id = self._get_selected_source_id()
-
-        if start_date is not None:
-            queryset = queryset.filter(due_date__gte=start_date)
-        if end_date is not None:
-            queryset = queryset.filter(due_date__lte=end_date)
-        if source_id is not None:
-            queryset = queryset.filter(source_id=source_id)
-
-        return queryset.order_by("-criado_em")
+        return build_financial_movement_base_queryset(request=self.request, workshop=self.workshop)
 
     def get_context_data(self, **kw):
         context = super().get_context_data(**kw)
-        context["fields"] = [
-            TableColumn("ID", attr="id"),
-            TableColumn(FinancialMovement.source.field.verbose_name, attr="source", search_by="source__name"),
-            TableColumn("Tipo", attr="get_direction_display", search_by="direction"),
-            TableColumn(FinancialMovement.amount.field.verbose_name, attr=FinancialMovement.amount.field.name),
-            TableColumn(FinancialMovement.due_date.field.verbose_name, attr=FinancialMovement.due_date.field.name),
-            TableColumn("Conciliado", attr="is_reconciled"),
-        ]
+        context["fields"] = get_financial_movement_table_columns()
         context["actions"] = [
             TableActionDefaults.edit("finance:financial_movement_update", preserve_current_url_as_next=True),
             TableActionDefaults.delete("finance:financial_movement_delete"),
         ]
         context["source_filters"] = Source.objects.filter(workshop=self.workshop).order_by("name", "id")
-        context["selected_source_id"] = self._get_selected_source_id()
+        context["selected_source_id"] = _get_financial_movement_selected_source_id(self.request)
         return context
+
+
+@login_required
+@xframe_options_exempt
+def financial_movement_pdf(request: HttpRequest) -> HttpResponse:
+    workshop = get_active_workshop_or_404(request)
+    if not has_workshop_perm(user=request.user, workshop=workshop, app_label="finance", model="financialmovement", codename="view_financialmovement", request=request):
+        raise PermissionDenied
+
+    page_obj = get_financial_movement_visible_page(request=request, workshop=workshop)
+    movements = list(page_obj.object_list)
+    rows = _build_financial_movement_pdf_rows(movements=movements)
+    totals = _build_financial_movement_pdf_totals(movements=movements)
+    context = {
+        "workshop": workshop,
+        "rows": rows,
+        "filter_labels": _build_financial_movement_filter_labels(request=request, workshop=workshop),
+        "generated_at": timezone.localtime(),
+        **totals,
+    }
+    document = render_template_request_to_pdf(
+        DocumentRenderRequest(
+            template_name="finance/pdf/financial_movement.html",
+            context=context,
+            filename="movimentacao-financeira.pdf",
+        )
+    )
+    return build_pdf_http_response(document=document, download=request.GET.get("download") == "1")
 
 
 class FinancialMovementCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixin, MultiStepFormMixin, CreateView):

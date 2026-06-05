@@ -5096,6 +5096,109 @@ class FinancialMovementViewsTests(TestCase):
         self.assertContains(response, self.source.name)
         self.assertContains(response, second_source.name)
 
+    @patch("apps.finance.views.financial_movement.render_template_request_to_pdf")
+    def test_financial_movement_pdf_uses_visible_filtered_rows_and_totals(self, render_pdf_mock: Mock) -> None:
+        render_pdf_mock.return_value = DocumentPayload(content=b"%PDF", filename="movimentacao-financeira.pdf")
+        collaborator = WorkshopCollaborator.objects.create(
+            workshop=self.workshop,
+            name="Mecanico PDF",
+            cpf="12345678977",
+            birth_date=date(1990, 1, 1),
+            salary=Money("0.00", "BRL"),
+            admission_date=date(2024, 1, 1),
+            collaborator_type=WorkshopCollaborator.CollaboratorType.PRODUCTIVE,
+            phone="+5511988888888",
+        )
+        other_source = Source.objects.create(workshop=self.workshop, name="Fonte fora")
+        credit = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            collaborator=collaborator,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("250.50", "BRL"),
+            due_date=date(2026, 3, 12),
+            description="Entrada filtrada",
+        )
+        debit = FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=self.source,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            amount=Money("100.25", "BRL"),
+            due_date=date(2026, 3, 11),
+            description="Saida filtrada",
+        )
+        FinancialMovement.objects.create(
+            workshop=self.workshop,
+            user=self.user,
+            source=other_source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("999.00", "BRL"),
+            due_date=date(2026, 3, 11),
+            description="Fora do filtro",
+        )
+
+        response = self.client.get(
+            reverse("finance:financial_movement_pdf"),
+            data={"source": str(self.source.pk), "data_inicial": "2026-03-10", "data_final": "2026-03-20", "sort": "due_date"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertEqual(response["Content-Disposition"], 'inline; filename="movimentacao-financeira.pdf"')
+        render_request = render_pdf_mock.call_args.args[0]
+        context = render_request.context
+        self.assertEqual(render_request.template_name, "finance/pdf/financial_movement.html")
+        self.assertEqual([row["description"] for row in context["rows"]], [debit.description, credit.description])
+        self.assertEqual(context["rows"][0]["collaborator"], "—")
+        self.assertEqual(context["rows"][1]["collaborator"], collaborator.name)
+        self.assertEqual(context["rows"][0]["direction_label"], "Débito")
+        self.assertEqual(context["rows"][1]["direction_label"], "Crédito")
+        self.assertEqual(context["total_credit"], Money("250.50", "BRL"))
+        self.assertEqual(context["total_debit"], Money("100.25", "BRL"))
+        self.assertEqual(context["balance"], Money("150.25", "BRL"))
+
+        download_response = self.client.get(
+            reverse("finance:financial_movement_pdf"),
+            data={"source": str(self.source.pk), "data_inicial": "2026-03-10", "data_final": "2026-03-20", "sort": "due_date", "download": "1"},
+        )
+        self.assertEqual(download_response["Content-Disposition"], 'attachment; filename="movimentacao-financeira.pdf"')
+
+    @patch("apps.finance.views.financial_movement.render_template_request_to_pdf")
+    def test_financial_movement_pdf_is_scoped_to_active_workshop(self, render_pdf_mock: Mock) -> None:
+        render_pdf_mock.return_value = DocumentPayload(content=b"%PDF", filename="movimentacao-financeira.pdf")
+        self._create_movement(description="Movimento da oficina ativa")
+        other_workshop = create_workshop(suffix=89)
+        other_source = Source.objects.create(workshop=other_workshop, name="Outra oficina")
+        FinancialMovement.objects.create(
+            workshop=other_workshop,
+            source=other_source,
+            direction=FinancialMovement.MovementDirection.CREDIT,
+            amount=Money("900.00", "BRL"),
+            due_date=date(2026, 3, 10),
+            description="Movimento de outra oficina",
+        )
+
+        response = self.client.get(reverse("finance:financial_movement_pdf"))
+
+        self.assertEqual(response.status_code, 200)
+        context = render_pdf_mock.call_args.args[0].context
+        self.assertEqual([row["description"] for row in context["rows"]], ["Movimento da oficina ativa"])
+
+    @patch("apps.finance.views.financial_movement.render_template_request_to_pdf")
+    def test_financial_movement_pdf_handles_empty_visible_list(self, render_pdf_mock: Mock) -> None:
+        render_pdf_mock.return_value = DocumentPayload(content=b"%PDF", filename="movimentacao-financeira.pdf")
+
+        response = self.client.get(reverse("finance:financial_movement_pdf"), data={"data_inicial": "2026-09-01"})
+
+        self.assertEqual(response.status_code, 200)
+        context = render_pdf_mock.call_args.args[0].context
+        self.assertEqual(context["rows"], [])
+        self.assertEqual(context["total_credit"], Money("0.00", "BRL"))
+        self.assertEqual(context["total_debit"], Money("0.00", "BRL"))
+        self.assertEqual(context["balance"], Money("0.00", "BRL"))
+
     def test_list_view_preserves_current_filters_in_edit_action(self) -> None:
         movement = self._create_movement()
         expected_next_url = f"{reverse('finance:financial_movement_list')}?q=Fornecedor&source={self.source.pk}&data_inicial=2026-03-01"
@@ -5415,6 +5518,25 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, "Créditos e Débitos deste Mês")
         self.assertContains(response, f"Balanço Geral {timezone.localdate().year}")
         self.assertContains(response, "Créditos e Débitos de Seleção")
+
+    def test_reports_home_view_renders_pdf_export_link_to_left_of_conciliate_button(self) -> None:
+        response = self.client.get(
+            reverse("finance:reports_home"),
+            data={"search": "Compra", "direction": FinancialMovement.MovementDirection.DEBIT, "sort": "amount"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        preview_url = f"url: '{reverse('finance:financial_movement_pdf')}?search=Compra&amp;direction={FinancialMovement.MovementDirection.DEBIT}&amp;sort=amount'"
+        download_url_prefix = f"downloadUrl: '{reverse('finance:financial_movement_pdf')}?download=1"
+        self.assertContains(response, "open-pdf-modal", html=False)
+        self.assertContains(response, preview_url, html=False)
+        self.assertContains(response, download_url_prefix, html=False)
+        self.assertContains(response, "search=Compra", html=False)
+        self.assertContains(response, f"direction={FinancialMovement.MovementDirection.DEBIT}", html=False)
+        self.assertContains(response, "sort=amount", html=False)
+        self.assertContains(response, "Baixar PDF")
+        content = response.content.decode()
+        self.assertLess(content.index("Exportar PDF"), content.index('id="btn-conciliar"'))
 
     def test_reports_home_view_shows_placeholder_when_no_filter_or_search_is_active(self) -> None:
         response = self.client.get(reverse("finance:reports_home"))
