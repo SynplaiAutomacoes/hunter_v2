@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from django.db import transaction
-from django.utils import timezone
 
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
 from apps.finance.models.financial_movement import FinancialMovement
@@ -11,14 +10,6 @@ from apps.workorder.models import WORKORDER_REOPENABLE_STATUSES, WorkOrder, Work
 
 class WorkOrderReopenError(Exception):
     pass
-
-
-def _reverse_financial_direction(direction: str | None) -> str | None:
-    if direction == FinancialMovement.MovementDirection.CREDIT:
-        return FinancialMovement.MovementDirection.DEBIT
-    if direction == FinancialMovement.MovementDirection.DEBIT:
-        return FinancialMovement.MovementDirection.CREDIT
-    return direction
 
 
 def reopen_workorder(*, workorder: WorkOrder, user, reason: str) -> None:
@@ -63,42 +54,13 @@ def reopen_workorder(*, workorder: WorkOrder, user, reason: str) -> None:
                 supplier=movement.supplier,
             )
 
-        reversed_financial_ids = FinancialMovement.objects.filter(reversal_of__isnull=False).values_list("reversal_of_id", flat=True)
-        financial_movements = list(
-            FinancialMovement.objects.select_for_update()
-            .filter(
-                workorder=locked_workorder,
-                reversal_of__isnull=True,
-                movement_kind__in=[
-                    FinancialMovement.MovementKind.WORKORDER_PARENT,
-                    FinancialMovement.MovementKind.WORKORDER_CARD_FEE,
-                ],
-            )
-            .exclude(pk__in=reversed_financial_ids)
-            .order_by("pk")
-        )
-        for financial_movement in financial_movements:
-            FinancialMovement.objects.create(
-                workshop=financial_movement.workshop,
-                user=user,
-                workorder=locked_workorder,
-                workorder_payment=financial_movement.workorder_payment,
-                reversal_of=financial_movement,
-                source=financial_movement.source,
-                collaborator=financial_movement.collaborator,
-                supplier=financial_movement.supplier,
-                description=f"Estorno da reabertura da O.S. #{locked_workorder.get_id}: {financial_movement.description or '-'}",
-                items_observation=financial_movement.items_observation,
-                direction=_reverse_financial_direction(financial_movement.direction),
-                payment_method=financial_movement.payment_method,
-                nf_number=financial_movement.nf_number,
-                amount=financial_movement.amount,
-                due_date=timezone.localdate(),
-                is_paid=True,
-                budget_plan=financial_movement.budget_plan,
-                bank_account=financial_movement.bank_account,
-                financial_observation=reason,
-            )
+        FinancialMovement.objects.select_for_update().filter(
+            workorder=locked_workorder,
+            movement_kind__in=[
+                FinancialMovement.MovementKind.WORKORDER_PARENT,
+                FinancialMovement.MovementKind.WORKORDER_CARD_FEE,
+            ],
+        ).delete()
 
         WorkOrderHistory.objects.create(
             workorder=locked_workorder,

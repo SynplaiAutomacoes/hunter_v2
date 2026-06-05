@@ -2122,8 +2122,8 @@ class BudgetStep5Form(CoreModelForm):
 
         # Valores de venda baseados sempre nos itens do orçamento
         venda_servico_terceiros = Money(0, "BRL") if budget.is_warranty_budget else budget.total_third_party_services_selling
-        venda_pecas = Money(0, "BRL") if budget.is_warranty_budget else budget.get_total_products_by_slider
-        venda_mao_obra = Money(0, "BRL") if budget.is_warranty_budget else budget.get_total_labor_by_slider
+        venda_pecas = budget.display_total_products_by_slider_without_shipping
+        venda_mao_obra = Money(0, "BRL") if budget.is_warranty_budget else budget.display_total_services_by_slider - venda_servico_terceiros
 
         # Extra
         metodo_precificacao = "Garantia" if budget.is_warranty_budget else (dados.get("method_name") or "")
