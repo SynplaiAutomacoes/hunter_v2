@@ -164,12 +164,31 @@ def _movement_pdf_collaborator_label(movement: FinancialMovement) -> str:
 def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement]) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for movement in movements:
+        workorder = getattr(movement, "workorder", None)
+        if workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
+            payments = list(workorder.payments.all())
+            for payment in payments:
+                payment_amount = getattr(payment, "total_paid", None) or Money(0, "BRL")
+                if payment_amount.amount <= 0:
+                    continue
+                rows.append(
+                    {
+                        "date": payment.due_date or movement.due_date,
+                        "description": movement.report_description_display,
+                        "collaborator": _movement_pdf_collaborator_label(movement),
+                        "source": str(f"O.S. {workorder.get_id}"),
+                        "direction": FinancialMovement.MovementDirection.CREDIT,
+                        "direction_label": "Crédito",
+                        "amount": payment_amount,
+                    }
+                )
+            continue
         rows.append(
             {
                 "date": movement.due_date,
                 "description": movement.report_description_display,
                 "collaborator": _movement_pdf_collaborator_label(movement),
-                "source": str(movement.source or "-"),
+                "source": str(f"O.S. {movement.workorder.get_id}" if movement.workorder else "-"),
                 "direction": movement.direction,
                 "direction_label": _movement_pdf_direction_label(movement),
                 "amount": movement.amount or Money(0, "BRL"),
@@ -178,14 +197,14 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement]) ->
     return rows
 
 
-def _build_financial_movement_pdf_totals(*, movements: list[FinancialMovement]) -> dict[str, Money]:
+def _build_financial_movement_pdf_totals(*, rows: list[dict[str, object]]) -> dict[str, Money]:
     total_credit = Decimal("0.00")
     total_debit = Decimal("0.00")
-    for movement in movements:
-        amount = _money_amount(movement.amount)
-        if movement.direction == FinancialMovement.MovementDirection.CREDIT:
+    for row in rows:
+        amount = _money_amount(row["amount"])
+        if row["direction"] == FinancialMovement.MovementDirection.CREDIT:
             total_credit += amount
-        elif movement.direction == FinancialMovement.MovementDirection.DEBIT:
+        elif row["direction"] == FinancialMovement.MovementDirection.DEBIT:
             total_debit += amount
 
     total_credit = total_credit.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -256,10 +275,12 @@ def financial_movement_pdf(request: HttpRequest) -> HttpResponse:
     if not has_workshop_perm(user=request.user, workshop=workshop, app_label="finance", model="financialmovement", codename="view_financialmovement", request=request):
         raise PermissionDenied
 
-    page_obj = get_financial_movement_visible_page(request=request, workshop=workshop)
-    movements = list(page_obj.object_list)
+    queryset = build_financial_movement_base_queryset(request=request, workshop=workshop)
+    queryset = queryset.prefetch_related("workorder__payments", "workorder__payments__payment_method")
+    movements = list(queryset)
+
     rows = _build_financial_movement_pdf_rows(movements=movements)
-    totals = _build_financial_movement_pdf_totals(movements=movements)
+    totals = _build_financial_movement_pdf_totals(rows=rows)
     context = {
         "workshop": workshop,
         "rows": rows,
