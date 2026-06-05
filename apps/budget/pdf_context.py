@@ -46,7 +46,7 @@ def _format_decimal_multiplier(value: Decimal) -> str:
     return f"{sign}{grouped_integer},{decimal_part} vezes"
 
 
-def _calculate_pdf_service_cost(*, budget: Any, duration: timedelta | None, quantity: int, fallback_cost: Money, is_third_party: bool) -> Money:
+def _calculate_pdf_service_mechanic_cost(*, budget: Any, duration: timedelta | None, quantity: int, fallback_cost: Money, is_third_party: bool) -> Money:
     if is_third_party:
         return fallback_cost
     return calculate_mechanic_service_cost(budget=budget, duration=duration, quantity=quantity, fallback_cost=fallback_cost)
@@ -93,6 +93,7 @@ def _merge_selected_service_rows(servicos: list[dict]) -> list[dict]:
         existing["quantity"] = int(existing.get("quantity") or 0) + int(row.get("quantity") or 0)
         existing["total_price"] = existing.get("total_price", Money(0, "BRL")) + row.get("total_price", Money(0, "BRL"))
         existing["service_cost_price"] = existing.get("service_cost_price", Money(0, "BRL")) + row.get("service_cost_price", Money(0, "BRL"))
+        existing["service_mechanic_cost_price"] = existing.get("service_mechanic_cost_price", Money(0, "BRL")) + row.get("service_mechanic_cost_price", Money(0, "BRL"))
         existing["profit_value"] = existing.get("profit_value", Money(0, "BRL")) + row.get("profit_value", Money(0, "BRL"))
         existing["_duration_seconds"] = int(existing.get("_duration_seconds") or 0) + int(row.get("_duration_seconds") or 0)
 
@@ -173,7 +174,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
 
         for line in review_display.direct_services:
             is_third_party = bool(getattr(line.item.service, "is_third_party", False))
-            service_cost_price = _calculate_pdf_service_cost(
+            service_mechanic_cost_price = _calculate_pdf_service_mechanic_cost(
                 budget=budget,
                 duration=line.item.duration,
                 quantity=line.item.quantity,
@@ -186,8 +187,9 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 "quantity": line.item.quantity,
                 "unit_price": line.unit_price,
                 "total_price": line.total_price,
-                "service_cost_price": service_cost_price,
-                "profit_value": line.total_price - service_cost_price,
+                "service_cost_price": line.warranty_total_price,
+                "service_mechanic_cost_price": service_mechanic_cost_price,
+                "profit_value": line.total_price - line.warranty_total_price,
                 "duration_display": line.duration_display,
                 "_duration_seconds": _duration_seconds(line.item.duration) * int(line.item.quantity or 0),
             })
@@ -240,11 +242,12 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                     cost_price, selling_price = kit_item.resolve_kit_service_base_prices(kit_service=kit_service)
                 duration = override.duration if override and override.duration else kit_service.duration
                 total_quantity = quantity * kit_quantity
-                service_cost_price = _calculate_pdf_service_cost(
+                service_cost_price = cost_price * total_quantity
+                service_mechanic_cost_price = _calculate_pdf_service_mechanic_cost(
                     budget=budget,
                     duration=duration,
                     quantity=total_quantity,
-                    fallback_cost=cost_price * total_quantity,
+                    fallback_cost=service_cost_price,
                     is_third_party=kit_service.service.is_third_party,
                 )
 
@@ -255,6 +258,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                     "unit_price": selling_price,
                     "total_price": selling_price * total_quantity,
                     "service_cost_price": service_cost_price,
+                    "service_mechanic_cost_price": service_mechanic_cost_price,
                     "profit_value": (selling_price * total_quantity) - service_cost_price,
                     "duration_display": format_duration_display(duration * total_quantity) if duration else "00h 00m",
                     "_duration_seconds": _duration_seconds(duration) * total_quantity,
@@ -293,22 +297,24 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         servicos = []
         for line in snapshot.service_lines:
             fallback_cost = line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total
-            service_cost_price = _calculate_pdf_service_cost(
+            service_mechanic_cost_price = _calculate_pdf_service_mechanic_cost(
                 budget=budget,
                 duration=line.duration,
                 quantity=1,
                 fallback_cost=fallback_cost,
                 is_third_party=line.third_party,
             )
+            total_price = line.adjusted_total
             servicos.append(
                 {
                     "id": line.entity_id,
                     "description": line.description,
                     "quantity": line.quantity,
                     "unit_price": line.adjusted_unit_price,
-                    "total_price": line.total_price,
-                    "service_cost_price": service_cost_price,
-                    "profit_value": line.total_price - service_cost_price,
+                    "total_price": total_price,
+                    "service_cost_price": fallback_cost,
+                    "service_mechanic_cost_price": service_mechanic_cost_price,
+                    "profit_value": total_price - fallback_cost,
                     "duration_display": line.duration_display,
                 }
             )
