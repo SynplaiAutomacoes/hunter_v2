@@ -349,10 +349,22 @@ def build_pricing_snapshot(
                 )
                 product_aggregates[key] = aggregate
 
-            aggregate.direct_quantity += item_quantity
-            aggregate.direct_total += (_coerce_money(getattr(item, "product_selling_price", None)) * item_quantity) + _coerce_money(getattr(item, "shipping", None))
-            aggregate.direct_cost_total += _coerce_money(getattr(item, "product_cost_price", None)) * item_quantity
-            aggregate.direct_shipping += _coerce_money(getattr(item, "shipping", None))
+            direct_total = (_coerce_money(getattr(item, "product_selling_price", None)) * item_quantity) + _coerce_money(getattr(item, "shipping", None))
+            direct_cost_total = _coerce_money(getattr(item, "product_cost_price", None)) * item_quantity
+            direct_shipping = _coerce_money(getattr(item, "shipping", None))
+            should_replace_direct = product_id is not None and (
+                item_quantity > aggregate.direct_quantity or (item_quantity == aggregate.direct_quantity and direct_total.amount > aggregate.direct_total.amount)
+            )
+            if product_id is None:
+                aggregate.direct_quantity += item_quantity
+                aggregate.direct_total += direct_total
+                aggregate.direct_cost_total += direct_cost_total
+                aggregate.direct_shipping += direct_shipping
+            elif aggregate.direct_quantity <= 0 or should_replace_direct:
+                aggregate.direct_quantity = item_quantity
+                aggregate.direct_total = direct_total
+                aggregate.direct_cost_total = direct_cost_total
+                aggregate.direct_shipping = direct_shipping
             aggregate.is_customer_supplied = aggregate.is_customer_supplied or bool(getattr(item, "is_customer_supplied", False))
             continue
 
