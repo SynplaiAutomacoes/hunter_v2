@@ -91,7 +91,7 @@ class BudgetKitProductEditRowForm(CoreForm):
 
 class BudgetKitServiceEditRowForm(CoreForm):
     quantity = forms.IntegerField(min_value=0, widget=NumberInput(attrs={"data-field": "quantity", "min": "0"}))
-    cost = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "cost"}))
+    cost = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "cost", "readonly": "readonly"}))
     price = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "price"}))
     duration = forms.CharField(required=False, widget=DurationInput(attrs={"data-field": "duration"}))
 

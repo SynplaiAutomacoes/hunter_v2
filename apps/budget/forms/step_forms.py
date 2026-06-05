@@ -1878,7 +1878,7 @@ class BudgetStep4Form(CoreModelForm):
                                             </th>
                                             <th class="w-[24%] text-left">DESCRIÇÃO</th>
                                             <th class="w-[8%] text-center">QTD.</th>
-                                            <th class="w-[12%] text-right">CUSTO</th>
+                                            <th class="w-[12%] text-right">CUSTO/MECÂNICO</th>
                                             <th class="w-[14%] text-right">VALOR VENDA</th>
                                             <th class="w-[10%] text-center">TEMPO</th>
                                             <th class="w-[14%] text-right">TOTAL</th>
@@ -2122,8 +2122,8 @@ class BudgetStep5Form(CoreModelForm):
 
         # Valores de venda baseados sempre nos itens do orçamento
         venda_servico_terceiros = Money(0, "BRL") if budget.is_warranty_budget else budget.total_third_party_services_selling
-        venda_pecas = Money(0, "BRL") if budget.is_warranty_budget else budget.get_total_products_by_slider
-        venda_mao_obra = Money(0, "BRL") if budget.is_warranty_budget else budget.get_total_labor_by_slider
+        venda_pecas = budget.display_total_products_by_slider_without_shipping
+        venda_mao_obra = Money(0, "BRL") if budget.is_warranty_budget else budget.display_total_services_by_slider - venda_servico_terceiros
 
         # Extra
         metodo_precificacao = "Garantia" if budget.is_warranty_budget else (dados.get("method_name") or "")

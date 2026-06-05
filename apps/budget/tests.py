@@ -24,7 +24,7 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.forms import BudgetStep1Form, BudgetStep4Form, BudgetStep6Form
-from apps.budget.forms.step_forms import BudgetStep3Form
+from apps.budget.forms.step_forms import BudgetStep3Form, BudgetStep5Form
 from apps.budget.forms.shared import _render_budget_items_rows
 from apps.budget.models import Budget, BudgetHistory, BudgetItem, BudgetKitItemOverride, BudgetStatus, BudgetType, SignatureStatus
 from apps.budget.pdf_context import build_budget_pdf_context
@@ -168,6 +168,23 @@ def create_salary_monthly_costs(*, workshop: Workshop) -> tuple[MonthlyCost, Mon
     productive_cost, _ = MonthlyCost.objects.get_or_create(workshop=workshop, name=MECHANIC_SALARY_MONTHLY_COST_NAME, defaults={"is_active": True})
     administrative_cost, _ = MonthlyCost.objects.get_or_create(workshop=workshop, name=ADMIN_SALARY_MONTHLY_COST_NAME, defaults={"is_active": True})
     return productive_cost, administrative_cost
+
+
+def freeze_budget_with_mechanic_hour_cost(*, budget: Budget, mechanic_hour_cost: Money = Money("10.00", "BRL")) -> None:
+    mechanic_cost, _admin_cost = create_salary_monthly_costs(workshop=budget.workshop)
+    reference_date = budget.criado_em if budget.criado_em else timezone.now()
+    working_hours_per_month = Decimal("100.00")
+    workshop_cost = WorkshopCost.objects.create(
+        workshop=budget.workshop,
+        month=reference_date.month,
+        year=reference_date.year,
+        mechanic_quantity=1,
+        working_hours_per_month=working_hours_per_month,
+        minimum_hourly_cost=Money("25.00", "BRL"),
+        hourly_cost_value=Money("90.00", "BRL"),
+    )
+    WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=mechanic_cost, amount=mechanic_hour_cost * working_hours_per_month)
+    budget.freeze_pricing_snapshot(force=True)
 
 
 def create_product(*, workshop: Workshop, suffix: int = 1, application: str = "") -> Product:
@@ -1206,7 +1223,7 @@ class BudgetTotalsConsistencyTests(TestCase):
         self.assertEqual(budget.discount_percentage, Decimal("0.200000"))
         self.assertEqual(budget.total_budget_value, Money("200.00", "BRL"))
 
-    def test_pricing_snapshot_uses_traditional_labor_value_when_traditional_method_is_selected(self) -> None:
+    def test_pricing_snapshot_keeps_item_labor_value_when_traditional_method_is_selected(self) -> None:
         workshop = create_workshop(suffix=75)
         budget = create_budget(workshop=workshop)
 
@@ -1225,9 +1242,9 @@ class BudgetTotalsConsistencyTests(TestCase):
             snapshot = budget.pricing_snapshot
 
         self.assertEqual(snapshot.total_services_value, Money("100.00", "BRL"))
-        self.assertEqual(snapshot.total_labor_selling_value, Money("160.00", "BRL"))
-        self.assertEqual(snapshot.total_labor_by_slider, Money("160.00", "BRL"))
-        self.assertEqual(budget.total_base_value, Money("160.00", "BRL"))
+        self.assertEqual(snapshot.total_labor_selling_value, Money("100.00", "BRL"))
+        self.assertEqual(snapshot.total_labor_by_slider, Money("100.00", "BRL"))
+        self.assertEqual(budget.total_base_value, Money("100.00", "BRL"))
 
     def test_step4_summary_uses_selected_item_service_total_not_pricing_method_total(self) -> None:
         workshop = create_workshop(suffix=77)
@@ -1245,12 +1262,38 @@ class BudgetTotalsConsistencyTests(TestCase):
         )
 
         with patch.object(Budget, "calculate_pricing_methods", return_value={"method_name": "Tradicional", "venda_mao_obra": Money("160.00", "BRL")}):
-            self.assertEqual(budget.display_total_services_by_slider, Money("160.00", "BRL"))
+            self.assertEqual(budget.get_total_services_by_slider, Money("100.00", "BRL"))
+            self.assertEqual(budget.display_total_services_by_slider, Money("100.00", "BRL"))
             self.assertEqual(budget.selected_items_total_services_value, Money("100.00", "BRL"))
             rendered_summary = render_to_string("budget/partials/components/budget_summary.html", {"budget": budget})
 
         self.assertIn("R$\xa0100,00", rendered_summary)
         self.assertNotIn("R$\xa0160,00", rendered_summary)
+
+    def test_budget_pdf_totals_use_same_selected_item_totals_as_step4_summary(self) -> None:
+        workshop = create_workshop(suffix=79)
+        budget = create_budget(workshop=workshop)
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico do PDF",
+            quantity=1,
+            service_cost_price=Money("40.00", "BRL"),
+            service_selling_price=Money("100.00", "BRL"),
+            duration=timedelta(hours=2),
+        )
+
+        with patch.object(Budget, "calculate_pricing_methods", return_value={"method_name": "Tradicional", "venda_mao_obra": Money("160.00", "BRL")}):
+            context = build_budget_pdf_context(budget=budget)
+
+        self.assertEqual(budget.get_total_services_by_slider, Money("100.00", "BRL"))
+        self.assertEqual(budget.display_total_services_by_slider, Money("100.00", "BRL"))
+        self.assertEqual(context["total_servicos"], budget.selected_items_total_services_value)
+        self.assertEqual(context["total_servicos"], Money("100.00", "BRL"))
+        self.assertEqual(context["total_geral"], budget.selected_items_total_budget_value)
+        self.assertEqual(context["total_servicos"], budget.display_total_services_by_slider)
 
     def test_step4_summary_service_total_matches_single_kit_services_total(self) -> None:
         workshop = create_workshop(suffix=78)
@@ -1262,8 +1305,142 @@ class BudgetTotalsConsistencyTests(TestCase):
 
         with patch.object(Budget, "calculate_pricing_methods", return_value={"method_name": "Tradicional", "venda_mao_obra": Money("160.00", "BRL")}):
             self.assertEqual(item.get_kit_services_total(), Money("110.00", "BRL"))
-            self.assertEqual(budget.display_total_services_by_slider, Money("160.00", "BRL"))
+            self.assertEqual(budget.get_total_services_by_slider, Money("110.00", "BRL"))
+            self.assertEqual(budget.display_total_services_by_slider, Money("110.00", "BRL"))
             self.assertEqual(budget.selected_items_total_services_value, item.get_kit_services_total())
+
+    def test_product_summary_does_not_sum_duplicate_direct_product_rows(self) -> None:
+        workshop = create_workshop(suffix=67)
+        budget = create_budget(workshop=workshop)
+        duplicated_product = create_product(workshop=workshop, suffix=67)
+        another_product = create_product(workshop=workshop, suffix=670)
+
+        duplicated_item_1 = BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            product=duplicated_product,
+            quantity=1,
+        )
+        duplicated_item_1.product_selling_price = Money("112.40", "BRL")
+        duplicated_item_1.save(update_fields=["product_selling_price", "product_selling_price_currency"])
+        duplicated_item_2 = BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            product=duplicated_product,
+            quantity=1,
+        )
+        duplicated_item_2.product_selling_price = Money("112.40", "BRL")
+        duplicated_item_2.save(update_fields=["product_selling_price", "product_selling_price_currency"])
+        another_item = BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            product=another_product,
+            quantity=1,
+        )
+        another_item.product_selling_price = Money("44.90", "BRL")
+        another_item.save(update_fields=["product_selling_price", "product_selling_price_currency"])
+
+        rendered_summary = render_to_string("budget/partials/components/budget_summary.html", {"budget": budget})
+
+        self.assertEqual(budget.selected_items_total_products_without_shipping, Money("157.30", "BRL"))
+        self.assertIn("R$\xa0157,30", rendered_summary)
+        self.assertNotIn("R$\xa0269,70", rendered_summary)
+
+    def test_product_summary_keeps_larger_quantity_when_direct_product_is_duplicated(self) -> None:
+        workshop = create_workshop(suffix=66)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=66)
+
+        smaller_item = BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            product=product,
+            quantity=1,
+        )
+        smaller_item.product_selling_price = Money("112.40", "BRL")
+        smaller_item.save(update_fields=["product_selling_price", "product_selling_price_currency"])
+        larger_item = BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            product=product,
+            quantity=2,
+        )
+        larger_item.product_selling_price = Money("112.40", "BRL")
+        larger_item.save(update_fields=["product_selling_price", "product_selling_price_currency"])
+
+        self.assertEqual(budget.selected_items_total_products_without_shipping, Money("224.80", "BRL"))
+
+    def test_step5_pricing_form_uses_same_selected_item_totals_as_manager_pdf(self) -> None:
+        workshop = create_workshop(suffix=68)
+        budget = create_budget(workshop=workshop)
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Peca etapa 5",
+            quantity=2,
+            product_cost_price=Money("20.00", "BRL"),
+            product_selling_price=Money("50.00", "BRL"),
+            shipping=Money("5.00", "BRL"),
+        )
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico etapa 5",
+            quantity=1,
+            service_cost_price=Money("40.00", "BRL"),
+            service_selling_price=Money("100.00", "BRL"),
+            duration=timedelta(hours=2),
+        )
+
+        with patch.object(Budget, "calculate_pricing_methods", return_value={"method_name": "Tradicional", "venda_mao_obra": Money("160.00", "BRL")}):
+            form = BudgetStep5Form(instance=budget, workshop=workshop)
+            form_html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form}))
+            pdf_context = build_budget_pdf_context(budget=budget)
+
+        self.assertEqual(pdf_context["total_produtos"], Money("100.00", "BRL"))
+        self.assertEqual(pdf_context["total_servicos"], Money("100.00", "BRL"))
+        self.assertIn("R$\xa0100,00", form_html)
+        self.assertNotIn("R$\xa0160,00", form_html)
+
+    def test_update_slider_redistributes_profit_from_products_to_services(self) -> None:
+        user, workshop = create_director_user_with_workshop(suffix=69)
+        budget = create_budget(workshop=workshop)
+        self.client.force_login(user)
+        session = self.client.session
+        session["active_workshop_id"] = workshop.pk
+        session.save()
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Peca slider etapa 5",
+            quantity=2,
+            product_cost_price=Money("20.00", "BRL"),
+            product_selling_price=Money("50.00", "BRL"),
+            shipping=Money("5.00", "BRL"),
+        )
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            is_local=True,
+            description="Servico slider etapa 5",
+            quantity=1,
+            service_cost_price=Money("40.00", "BRL"),
+            service_selling_price=Money("100.00", "BRL"),
+            duration=timedelta(hours=2),
+        )
+
+        with patch.object(Budget, "calculate_pricing_methods", return_value={"method_name": "Tradicional", "venda_mao_obra": Money("160.00", "BRL")}):
+            response = self.client.post(reverse("budget:update_slider", args=[budget.pk]), {"slider": "100"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="display-venda-mo"', html=False)
+        self.assertContains(response, 'data-base-val="160.00"', html=False)
+        self.assertContains(response, "R$\xa0160,00")
 
     def test_pricing_snapshot_keeps_hunter_labor_sum_when_hunter_method_is_selected(self) -> None:
         workshop = create_workshop(suffix=76)
@@ -1550,7 +1727,60 @@ class BudgetPdfContextTests(TestCase):
         context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
 
         self.assertEqual(context["soma_markup"], Decimal("2.33"))
-        self.assertEqual(context["soma_markup_display"], "2,33x")
+        self.assertEqual(context["soma_markup_display"], "2,33 vezes")
+
+    def test_manager_pdf_service_cost_uses_mechanic_hour_cost_and_shows_duration_column(self) -> None:
+        workshop = create_workshop(suffix=98)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=98)
+        service.duration = timedelta(hours=2)
+        service.save(update_fields=["duration"])
+        freeze_budget_with_mechanic_hour_cost(budget=budget, mechanic_hour_cost=Money("10.00", "BRL"))
+
+        item = BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            service=service,
+            quantity=1,
+        )
+        item.service_cost_price = Money("77.00", "BRL")
+        item.save(update_fields=["service_cost_price", "service_cost_price_currency"])
+        budget.invalidate_pricing_snapshot_cache()
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
+        html = render_to_string("budget/partials/pdf/visualizarPDFGestor.html", context)
+
+        self.assertEqual(context["servicos"][0]["service_mechanic_cost_price"], Money("20.00", "BRL"))
+        self.assertEqual(context["servicos"][0]["service_cost_price"], Money("77.00", "BRL"))
+        self.assertEqual(context["servicos"][0]["duration_display"], "02h 00m")
+        self.assertEqual(context["total_services_cost_original_value"], Money("77.00", "BRL"))
+        self.assertEqual(context["total_services_mechanic_cost_value"], Money("20.00", "BRL"))
+        self.assertEqual(context["servicos"][0]["profit_value"], context["servicos"][0]["total_price"] - Money("20.00", "BRL"))
+        self.assertEqual(context["soma_markup"], Decimal("1.00"))
+        self.assertIn("Valor Total", html)
+        self.assertIn("Tempo", html)
+        self.assertIn("Custo/Mecânico", html)
+        self.assertIn("Total Custos: R$\xa020,00", html)
+        self.assertLess(html.index("Valor Total"), html.index("Tempo"))
+        self.assertLess(html.index("Tempo"), html.index("Custo/Mecânico"))
+
+    @patch.object(Budget, "calculate_pricing_methods", return_value={"method_name": "Hunter", "venda_mao_obra": Money("9999.00", "BRL")})
+    def test_manager_pdf_kit_service_total_uses_frozen_kit_service_value(self, _pricing_methods_mock: Mock) -> None:
+        workshop = create_workshop(suffix=99)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=99)
+        kit = create_kit(workshop=workshop, suffix=991, products=[])
+        KitService.objects.create(kit=kit, service=service, quantity=2, duration=service.duration, selling_price=Money("55.00", "BRL"))
+
+        item = BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
+
+        self.assertEqual(item.get_kit_services_total(), Money("110.00", "BRL"))
+        self.assertEqual(context["total_servicos"], Money("110.00", "BRL"))
+        self.assertEqual(context["servicos"][0]["quantity"], 2)
+        self.assertEqual(context["servicos"][0]["unit_price"], Money("55.00", "BRL"))
+        self.assertEqual(context["servicos"][0]["total_price"], Money("110.00", "BRL"))
 
     def test_build_budget_pdf_context_uses_cost_only_display_for_warranty_budget(self) -> None:
         workshop = create_workshop(suffix=51)
@@ -1650,6 +1880,28 @@ class BudgetPdfContextTests(TestCase):
         self.assertEqual(context["kits"][0]["description"], kit.name)
         self.assertNotIn('<h4 class="font-bold mb-1 uppercase">Kits</h4>', html)
         self.assertNotIn(kit.name, html)
+
+    def test_customer_budget_pdf_consolidates_duplicate_items_from_direct_rows_and_kits(self) -> None:
+        workshop = create_workshop(suffix=17)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=171, application="Gol")
+        service = create_service(workshop=workshop, suffix=172)
+        kit = create_kit(workshop=workshop, suffix=173, products=[(product, 2)])
+        KitService.objects.create(kit=kit, service=service, quantity=2, duration=service.duration)
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, service=service, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste", presentation="selected_items")
+        html = render_to_string("budget/partials/pdf/visualizarPDF.html", context)
+
+        self.assertEqual(len(context["produtos"]), 1)
+        self.assertEqual(context["produtos"][0]["quantity"], 3)
+        self.assertEqual(len(context["servicos"]), 1)
+        self.assertEqual(context["servicos"][0]["quantity"], 3)
+        self.assertEqual(html.count(product.name), 1)
+        self.assertEqual(html.count(service.name), 1)
 
     def test_budget_pdf_template_allows_long_freeform_text_to_wrap(self) -> None:
         workshop = create_workshop(suffix=94)
@@ -1755,8 +2007,8 @@ class BudgetPdfViewTests(TestCase):
         response = self.client.get(reverse("budget:visualizar_pdf_gestor", args=[budget.pk]))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "SOMA MARKUP")
-        self.assertContains(response, "2,33x")
+        self.assertContains(response, "CÁLCULO MARKUP")
+        self.assertContains(response, "2,33 vezes")
 
     @patch("apps.budget.pdf_context.get_workshop_logo_file")
     def test_visualizar_pdf_mecanico_renders_workshop_logo(self, get_workshop_logo_file_mock) -> None:
@@ -3273,6 +3525,30 @@ class BudgetQuickCreateServiceValidationTests(TestCase):
 
 
 class BudgetDuplicateKitProductTests(TestCase):
+    def test_step4_service_row_uses_mechanic_hour_cost_display(self) -> None:
+        workshop = create_workshop(suffix=94)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=94)
+        service.duration = timedelta(hours=2)
+        service.save(update_fields=["duration"])
+        freeze_budget_with_mechanic_hour_cost(budget=budget, mechanic_hour_cost=Money("10.00", "BRL"))
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            service=service,
+            quantity=1,
+            service_cost_price=Money("77.00", "BRL"),
+        )
+
+        rows = _render_budget_items_rows(budget, step6=False)
+        form = BudgetStep4Form(instance=budget, workshop=workshop)
+        form_html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form}))
+
+        self.assertIn("R$\xa020,00", rows["service"])
+        self.assertNotIn("R$\xa077,00", rows["service"])
+        self.assertIn("CUSTO/MECÂNICO", form_html)
+
     def test_step4_kit_price_includes_products_and_services(self) -> None:
         workshop = create_workshop(suffix=87)
         budget = create_budget(workshop=workshop)
@@ -3690,14 +3966,18 @@ class BudgetKitServiceCalculateViewTests(TestCase):
         self.kit_service = KitService.objects.create(kit=self.kit, service=self.service, quantity=1, duration=timedelta(hours=1), selling_price=Money("55.00", "BRL"))
 
         reference_date = self.budget.criado_em if self.budget.criado_em else timezone.now()
-        WorkshopCost.objects.create(
+        mechanic_cost, _admin_cost = create_salary_monthly_costs(workshop=self.workshop)
+        workshop_cost = WorkshopCost.objects.create(
             workshop=self.workshop,
             month=reference_date.month,
             year=reference_date.year,
             mechanic_quantity=1,
+            working_hours_per_month=Decimal("100.00"),
             minimum_hourly_cost=Money("25.00", "BRL"),
             hourly_cost_value=Money("90.00", "BRL"),
         )
+        WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=mechanic_cost, amount=Money("1000.00", "BRL"))
+        self.budget.freeze_pricing_snapshot()
 
         self.item = BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, kit=self.kit, quantity=1)
 
@@ -3719,7 +3999,7 @@ class BudgetKitServiceCalculateViewTests(TestCase):
 
         self.assertEqual(payload["price"], "55.00")
         self.assertEqual(override.service_selling_price, Money("55.00", "BRL"))
-        self.assertEqual(override.service_cost_price, Money("50.00", "BRL"))
+        self.assertEqual(override.service_cost_price, Money("20.00", "BRL"))
         self.assertEqual(override.duration, timedelta(hours=2))
         self.assertEqual(self.item.service_selling_price, Money("55.00", "BRL"))
 
@@ -3743,7 +4023,7 @@ class BudgetKitServiceCalculateViewTests(TestCase):
         self.assertFalse(payload["workshop_cost_missing"])
         self.assertEqual(payload["price"], "55.00")
         self.assertEqual(override.service_selling_price, Money("55.00", "BRL"))
-        self.assertEqual(override.service_cost_price, Money("50.00", "BRL"))
+        self.assertEqual(override.service_cost_price, Money("20.00", "BRL"))
 
     def test_duration_change_without_pricing_context_keeps_registered_kit_service_value(self) -> None:
         WorkshopCost.objects.filter(workshop=self.workshop).delete()
@@ -3784,8 +4064,11 @@ class BudgetKitServiceCalculateViewTests(TestCase):
         self.assertContains(response, "updateProductTotals")
         self.assertContains(response, "updateServiceTotals")
         self.assertContains(response, "recalculateServicePricingFromDuration")
-        self.assertContains(response, "minimumHourlyCost: parseFloat('25.00')")
+        self.assertContains(response, "<th class=\"w-32\">Custo/Mecânico</th>")
+        self.assertContains(response, "mechanicHourlyCost: parseFloat('10.00')")
         self.assertContains(response, "hourlyCostValue: parseFloat('90.00')")
+        self.assertContains(response, 'data-field="cost"')
+        self.assertContains(response, "readonly")
         self.assertNotContains(response, "/calculate/")
         self.assertNotContains(response, "debounce")
 
@@ -3814,6 +4097,8 @@ class BudgetKitServiceCalculateViewTests(TestCase):
         self.assertEqual(response["Content-Type"], "application/json")
         self.assertNotIn("HX-Redirect", response)
         self.assertJSONEqual(response.content, {"ok": True, "redirect_url": f"/budget/{self.budget.pk}/edit/?step=4"})
+        override = BudgetKitItemOverride.objects.get(budget_item=self.item, service=self.service)
+        self.assertEqual(override.service_cost_price, Money("10.00", "BRL"))
 
 
 class BudgetPricingSnapshotTests(TestCase):

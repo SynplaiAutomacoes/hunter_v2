@@ -4,6 +4,7 @@ from django.template.loader import render_to_string
 
 from apps.catalog.product_issues import annotate_product_issues
 from apps.budget.review_display import build_budget_review_display
+from apps.budget.service_costs import calculate_mechanic_service_cost
 
 MAX_BUDGET_IMAGES = 10
 MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
@@ -130,6 +131,7 @@ def _render_budget_items_rows(budget, step6=False):
                         "slider_price": line.unit_price,
                         "slider_total_price": (line.warranty_total_price if budget_for_render.is_warranty_budget else line.total_price),
                         "duration_display": line.duration_display,
+                        "service_mechanic_cost": calculate_mechanic_service_cost(budget=budget_for_render, duration=line.item.duration, fallback_cost=line.item.service_cost_price),
                     },
                 )
 
@@ -154,6 +156,7 @@ def _render_budget_items_rows(budget, step6=False):
                 if item_type == "product":
                     rows["product"] += render_to_string("budget/partials/items/item_product_row.html", context)
                 elif item_type == "service":
+                    context["service_mechanic_cost"] = calculate_mechanic_service_cost(budget=budget_for_render, duration=item.duration, fallback_cost=item.service_cost_price)
                     rows["service"] += render_to_string("budget/partials/items/item_service_row.html", context)
                 elif item_type == "kit":
                     rows["kit"] += render_to_string("budget/partials/items/item_kit_row.html", context)

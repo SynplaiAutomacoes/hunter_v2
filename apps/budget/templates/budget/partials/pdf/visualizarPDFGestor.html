@@ -152,7 +152,8 @@
                         <th class="p-1 font-semibold text-center">Quantidade</th>
                         <th class="p-1 font-semibold text-right">Valor de Venda</th>
                         <th class="p-1 font-semibold text-right">Valor Total</th>
-                        <th class="p-1 font-semibold text-right">Custo</th>
+                        <th class="p-1 font-semibold text-center">Tempo</th>
+                        <th class="p-1 font-semibold text-right">Custo/Mecânico</th>
                         <th class="p-1 font-semibold text-right">Lucro</th>
                     </tr>
                 </thead>
@@ -163,14 +164,15 @@
                         <td class="p-1 text-center">{{ s.quantity }}</td>
                         <td class="p-1 text-right">{{ s.unit_price }}</td>
                         <td class="p-1 text-right">{{ s.total_price }}</td>
-                        <td class="p-1 text-right font-bold">{{ s.service_cost_price }}</td>
+                        <td class="p-1 text-center">{{ s.duration_display }}</td>
+                        <td class="p-1 text-right font-bold">{{ s.service_mechanic_cost_price }}</td>
                         <td class="p-1 text-right font-bold">{{ s.profit_value }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
             <div class="flex justify-end gap-4 mt-1 text-[11px] font-semibold">
-                <div class="font-bold">Total Custos: {{ total_services_cost_original_value }}</div>
+                <div class="font-bold">Total Custos: {{ total_services_mechanic_cost_value }}</div>
                 <div class="font-bold">Total Lucro: {{ total_profit_service_value }}</div>
             </div>
         </div>
