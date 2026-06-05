@@ -1720,6 +1720,28 @@ class BudgetPdfContextTests(TestCase):
         self.assertNotIn('<h4 class="font-bold mb-1 uppercase">Kits</h4>', html)
         self.assertNotIn(kit.name, html)
 
+    def test_customer_budget_pdf_consolidates_duplicate_items_from_direct_rows_and_kits(self) -> None:
+        workshop = create_workshop(suffix=17)
+        budget = create_budget(workshop=workshop)
+        product = create_product(workshop=workshop, suffix=171, application="Gol")
+        service = create_service(workshop=workshop, suffix=172)
+        kit = create_kit(workshop=workshop, suffix=173, products=[(product, 2)])
+        KitService.objects.create(kit=kit, service=service, quantity=2, duration=service.duration)
+
+        BudgetItem.objects.create(workshop=workshop, budget=budget, product=product, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, service=service, quantity=1)
+        BudgetItem.objects.create(workshop=workshop, budget=budget, kit=kit, quantity=1)
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste", presentation="selected_items")
+        html = render_to_string("budget/partials/pdf/visualizarPDF.html", context)
+
+        self.assertEqual(len(context["produtos"]), 1)
+        self.assertEqual(context["produtos"][0]["quantity"], 3)
+        self.assertEqual(len(context["servicos"]), 1)
+        self.assertEqual(context["servicos"][0]["quantity"], 3)
+        self.assertEqual(html.count(product.name), 1)
+        self.assertEqual(html.count(service.name), 1)
+
     def test_budget_pdf_template_allows_long_freeform_text_to_wrap(self) -> None:
         workshop = create_workshop(suffix=94)
         customer = create_customer(workshop=workshop, suffix=94)
