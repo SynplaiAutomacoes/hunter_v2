@@ -170,6 +170,23 @@ def create_salary_monthly_costs(*, workshop: Workshop) -> tuple[MonthlyCost, Mon
     return productive_cost, administrative_cost
 
 
+def freeze_budget_with_mechanic_hour_cost(*, budget: Budget, mechanic_hour_cost: Money = Money("10.00", "BRL")) -> None:
+    mechanic_cost, _admin_cost = create_salary_monthly_costs(workshop=budget.workshop)
+    reference_date = budget.criado_em if budget.criado_em else timezone.now()
+    working_hours_per_month = Decimal("100.00")
+    workshop_cost = WorkshopCost.objects.create(
+        workshop=budget.workshop,
+        month=reference_date.month,
+        year=reference_date.year,
+        mechanic_quantity=1,
+        working_hours_per_month=working_hours_per_month,
+        minimum_hourly_cost=Money("25.00", "BRL"),
+        hourly_cost_value=Money("90.00", "BRL"),
+    )
+    WorkshopCostItem.objects.create(workshop_cost=workshop_cost, monthly_cost=mechanic_cost, amount=mechanic_hour_cost * working_hours_per_month)
+    budget.freeze_pricing_snapshot(force=True)
+
+
 def create_product(*, workshop: Workshop, suffix: int = 1, application: str = "") -> Product:
     group = CatalogGroup.objects.create(workshop=workshop, name=f"Grupo {suffix}")
     return Product.objects.create(
@@ -1575,6 +1592,34 @@ class BudgetPdfContextTests(TestCase):
 
         self.assertEqual(context["soma_markup"], Decimal("2.33"))
         self.assertEqual(context["soma_markup_display"], "2,33x")
+
+    def test_manager_pdf_service_cost_uses_mechanic_hour_cost_and_shows_duration_column(self) -> None:
+        workshop = create_workshop(suffix=98)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=98)
+        service.duration = timedelta(hours=2)
+        service.save(update_fields=["duration"])
+        freeze_budget_with_mechanic_hour_cost(budget=budget, mechanic_hour_cost=Money("10.00", "BRL"))
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            service=service,
+            quantity=1,
+            service_cost_price=Money("77.00", "BRL"),
+        )
+
+        context = build_budget_pdf_context(budget=budget, observacao="Observacao de teste")
+        html = render_to_string("budget/partials/pdf/visualizarPDFGestor.html", context)
+
+        self.assertEqual(context["servicos"][0]["service_cost_price"], Money("20.00", "BRL"))
+        self.assertEqual(context["servicos"][0]["duration_display"], "02h 00m")
+        self.assertEqual(context["total_services_cost_original_value"], Money("20.00", "BRL"))
+        self.assertIn("Valor Total", html)
+        self.assertIn("Tempo", html)
+        self.assertIn("Custo/Mecânico", html)
+        self.assertLess(html.index("Valor Total"), html.index("Tempo"))
+        self.assertLess(html.index("Tempo"), html.index("Custo/Mecânico"))
 
     def test_build_budget_pdf_context_uses_cost_only_display_for_warranty_budget(self) -> None:
         workshop = create_workshop(suffix=51)
@@ -3297,6 +3342,30 @@ class BudgetQuickCreateServiceValidationTests(TestCase):
 
 
 class BudgetDuplicateKitProductTests(TestCase):
+    def test_step4_service_row_uses_mechanic_hour_cost_display(self) -> None:
+        workshop = create_workshop(suffix=94)
+        budget = create_budget(workshop=workshop)
+        service = create_service(workshop=workshop, suffix=94)
+        service.duration = timedelta(hours=2)
+        service.save(update_fields=["duration"])
+        freeze_budget_with_mechanic_hour_cost(budget=budget, mechanic_hour_cost=Money("10.00", "BRL"))
+
+        BudgetItem.objects.create(
+            workshop=workshop,
+            budget=budget,
+            service=service,
+            quantity=1,
+            service_cost_price=Money("77.00", "BRL"),
+        )
+
+        rows = _render_budget_items_rows(budget, step6=False)
+        form = BudgetStep4Form(instance=budget, workshop=workshop)
+        form_html = Template("{% load crispy_forms_tags %}{% crispy form %}").render(Context({"form": form}))
+
+        self.assertIn("R$\xa020,00", rows["service"])
+        self.assertNotIn("R$\xa077,00", rows["service"])
+        self.assertIn("CUSTO/MECÂNICO", form_html)
+
     def test_step4_kit_price_includes_products_and_services(self) -> None:
         workshop = create_workshop(suffix=87)
         budget = create_budget(workshop=workshop)
