@@ -7,7 +7,7 @@ from typing import Any
 
 from djmoney.money import Money
 
-from apps.budget.pricing import format_duration_display
+from apps.budget.pricing import format_duration_display, money_div
 from apps.budget.review_display import build_budget_review_display
 from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.workshops.services.files import WorkshopFileStorageError, get_workshop_logo_file
@@ -50,6 +50,64 @@ def _calculate_pdf_service_cost(*, budget: Any, duration: timedelta | None, quan
     if is_third_party:
         return fallback_cost
     return calculate_mechanic_service_cost(budget=budget, duration=duration, quantity=quantity, fallback_cost=fallback_cost)
+
+
+def _duration_seconds(duration: timedelta | None) -> int:
+    return int((duration or timedelta()).total_seconds())
+
+
+def _merge_selected_product_rows(produtos: list[dict]) -> list[dict]:
+    merged_rows: dict[tuple[object, str, bool], dict] = {}
+    for row in produtos:
+        key = (row.get("id"), str(row.get("description") or ""), bool(row.get("is_customer_supplied")))
+        existing = merged_rows.get(key)
+        if existing is None:
+            merged_rows[key] = dict(row)
+            continue
+
+        existing["quantity"] = int(existing.get("quantity") or 0) + int(row.get("quantity") or 0)
+        existing["shipping"] = existing.get("shipping", Money(0, "BRL")) + row.get("shipping", Money(0, "BRL"))
+        existing["total_price"] = existing.get("total_price", Money(0, "BRL")) + row.get("total_price", Money(0, "BRL"))
+        existing["product_cost_price"] = existing.get("product_cost_price", Money(0, "BRL")) + row.get("product_cost_price", Money(0, "BRL"))
+        existing["profit_value"] = existing.get("profit_value", Money(0, "BRL")) + row.get("profit_value", Money(0, "BRL"))
+        existing["show_kit_duplicate_warning"] = bool(existing.get("show_kit_duplicate_warning") or row.get("show_kit_duplicate_warning"))
+
+        quantity = int(existing.get("quantity") or 0)
+        if quantity > 0:
+            unit_price = money_div(existing["total_price"] - existing["shipping"], quantity)
+            existing["unit_price"] = unit_price
+            existing["adjusted_unit_price"] = unit_price
+
+    return list(merged_rows.values())
+
+
+def _merge_selected_service_rows(servicos: list[dict]) -> list[dict]:
+    merged_rows: dict[tuple[object, str], dict] = {}
+    for row in servicos:
+        key = (row.get("id"), str(row.get("description") or ""))
+        existing = merged_rows.get(key)
+        if existing is None:
+            merged_rows[key] = dict(row)
+            continue
+
+        existing["quantity"] = int(existing.get("quantity") or 0) + int(row.get("quantity") or 0)
+        existing["total_price"] = existing.get("total_price", Money(0, "BRL")) + row.get("total_price", Money(0, "BRL"))
+        existing["service_cost_price"] = existing.get("service_cost_price", Money(0, "BRL")) + row.get("service_cost_price", Money(0, "BRL"))
+        existing["profit_value"] = existing.get("profit_value", Money(0, "BRL")) + row.get("profit_value", Money(0, "BRL"))
+        existing["_duration_seconds"] = int(existing.get("_duration_seconds") or 0) + int(row.get("_duration_seconds") or 0)
+
+        quantity = int(existing.get("quantity") or 0)
+        if quantity > 0:
+            existing["unit_price"] = money_div(existing["total_price"], quantity)
+
+    for row in merged_rows.values():
+        row["duration_display"] = format_duration_display(timedelta(seconds=int(row.pop("_duration_seconds", 0) or 0)))
+
+    return list(merged_rows.values())
+
+
+def _merge_selected_pdf_rows(*, produtos: list[dict], servicos: list[dict]) -> tuple[list[dict], list[dict]]:
+    return _merge_selected_product_rows(produtos), _merge_selected_service_rows(servicos)
 
 
 def build_workshop_logo_data_uri(*, workshop) -> str:
@@ -131,6 +189,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 "service_cost_price": service_cost_price,
                 "profit_value": line.total_price - service_cost_price,
                 "duration_display": line.duration_display,
+                "_duration_seconds": _duration_seconds(line.item.duration) * int(line.item.quantity or 0),
             })
 
         for line in review_display.kits:
@@ -198,6 +257,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                     "service_cost_price": service_cost_price,
                     "profit_value": (selling_price * total_quantity) - service_cost_price,
                     "duration_display": format_duration_display(duration * total_quantity) if duration else "00h 00m",
+                    "_duration_seconds": _duration_seconds(duration) * total_quantity,
                 })
 
             kits.append({
@@ -209,6 +269,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 "products_summary": line.products_summary,
                 "services_summary": line.services_summary,
             })
+        produtos, servicos = _merge_selected_pdf_rows(produtos=produtos, servicos=servicos)
     else:
         produtos = [
             {
