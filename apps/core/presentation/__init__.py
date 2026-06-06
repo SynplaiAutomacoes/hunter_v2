@@ -12,7 +12,7 @@ from apps.core.presentation.middlewares import *  # noqa: F401, F403
 from apps.core.presentation.views import *  # noqa: F401, F403
 from apps.core.presentation.forms import *  # noqa: F401, F403
 from apps.core.presentation.widgets import *  # noqa: F401, F403
-from apps.core.presentation.utils import *  # noqa: F401, F403
+from apps.core.utils import alert_confirm_layout
 
 __all__ = [
     "BaseModalFormView",

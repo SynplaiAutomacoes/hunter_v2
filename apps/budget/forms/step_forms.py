@@ -18,7 +18,6 @@ from apps.budget.models import Budget, BudgetHistory, BudgetImage, BudgetImageTy
 from apps.budget.pricing import resolve_discount_fields
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
-from apps.core.presentation.utils import alert_confirm_layout
 from apps.core.text_normalization import sentence_case
 from apps.core.presentation.widgets import CalendarDateInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.customer.models import Customer, Vehicle
@@ -29,7 +28,7 @@ from apps.workshops.util.workshops import has_workshop_perm
 from .shared import MAX_BUDGET_IMAGES, _get_budget_with_prefetched_items, _render_budget_items_rows, _validate_uploaded_files, _validate_uploaded_images
 from .widgets import MultipleFileField, MultipleFileInput
 from apps.core.presentation.forms import CoreModelForm
-
+from ...core.utils import alert_confirm_layout
 
 SLOT_IMAGE_TYPES = [
     BudgetImageType.PRINCIPAL,
