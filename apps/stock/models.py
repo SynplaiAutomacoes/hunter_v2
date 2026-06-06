@@ -4,7 +4,7 @@ from django.db import models
 from django.conf import settings
 from django.utils import timezone
 
-from apps.core.models import TimeStampedModel
+from apps.core.infrastructure.models import TimeStampedModel
 from apps.finance.models.payment_method import PaymentMethod
 from apps.suppliers.models import Supplier
 from djmoney.models.fields import MoneyField

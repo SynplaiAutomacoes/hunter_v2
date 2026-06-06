@@ -13,7 +13,7 @@ from apps.catalog.models.services import Service
 from apps.catalog.price_tracking import record_product_last_used_price
 from apps.catalog.product_issues import ProductIssueSummary, annotate_product_issues
 from apps.catalog.util import calculate_catalog_service_prices
-from apps.core.models import TimeStampedModel
+from apps.core.infrastructure.models import TimeStampedModel
 from djmoney.models.fields import MoneyField
 
 from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, resolve_discount_fields

@@ -11,9 +11,9 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 from djmoney.money import Money
 import holidays
 
-from apps.core.tables import TableActionDefaults
+from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.workshops.forms.workshop_costs import WorkshopCostForm
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshop_costs import WorkshopCost

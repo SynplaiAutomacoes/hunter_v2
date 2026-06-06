@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from django.db import models
 from phonenumber_field.modelfields import PhoneNumberField
 
-from apps.core.models import TimeStampedModel, Address
+from apps.core.infrastructure.models import TimeStampedModel, Address
 from apps.core.text_normalization import name_case, plate_case, sentence_case
 
 from .vehicle_engine import VehicleEngine, normalize_vehicle_engine_choice

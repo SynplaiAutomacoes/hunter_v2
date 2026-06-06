@@ -9,7 +9,7 @@ from djmoney.models.fields import MoneyField
 import stdnum.ean
 
 
-from apps.core.models import TimeStampedModel
+from apps.core.infrastructure.models import TimeStampedModel
 from apps.core.text_normalization import sentence_case
 from apps.stock.models import StockProduct
 from apps.workshops.models.workshops import Workshop

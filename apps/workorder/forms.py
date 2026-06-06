@@ -13,12 +13,12 @@ from djmoney.money import Money
 from apps.budget.pricing import money_from_decimal, resolve_discount_fields
 from apps.collaborators.models import WorkshopCollaborator
 from apps.budget.forms.widgets import MultipleFileInput
-from apps.core.utils import alert_confirm_layout
+from apps.core.presentation.utils import alert_confirm_layout
 from apps.core.text_normalization import sentence_case
-from apps.core.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, TextInput
+from apps.core.presentation.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, TextInput
 from apps.finance.models.payment_method import PaymentMethod
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderSignatureStatus
-from apps.core.forms import CoreForm, CoreModelForm
+from apps.core.presentation.forms import CoreForm, CoreModelForm
 
 
 MONEY_ZERO = Decimal("0.00")

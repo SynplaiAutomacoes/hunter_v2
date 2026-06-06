@@ -27,12 +27,12 @@ from apps.budget.models import Budget, BudgetHistory, BudgetItem, BudgetStatus, 
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.budget.service import SuperSignError, send_budget_for_signature
 from apps.core.documents.http import build_pdf_http_response
-from apps.core.forms import MultiStepFormMixin
-from apps.core.navigation import BUDGET_CREATE_FAVORITE_PAGE
-from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
-from apps.core.tables import TableActionDefaults
+from apps.core.presentation.forms import MultiStepFormMixin
+from apps.core.presentation.navigation import BUDGET_CREATE_FAVORITE_PAGE
+from apps.core.infrastructure.query_filters import QueryParamFilter, apply_query_param_filters
+from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
+from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.core.text_normalization import sentence_case
 from apps.scheduling.models import Appointment
 from apps.workorder.discount_sync import sync_budget_discount_to_workorder

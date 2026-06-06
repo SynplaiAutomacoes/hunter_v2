@@ -16,7 +16,7 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, TemplateView, UpdateView
 
 from apps.budget.models import Budget
-from apps.core.search import apply_text_search
+from apps.core.infrastructure.search import apply_text_search
 from apps.customer.models import Vehicle
 from apps.customer.vehicle_engine import normalize_vehicle_engine_choice
 from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice

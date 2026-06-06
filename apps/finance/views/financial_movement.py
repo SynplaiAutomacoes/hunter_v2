@@ -21,11 +21,11 @@ from djmoney.money import Money
 from apps.core.documents.contract import DocumentRenderRequest
 from apps.core.documents.http import build_pdf_http_response
 from apps.core.documents.renderer import render_template_request_to_pdf
-from apps.core.forms import MultiStepFormMixin
-from apps.core.navigation import FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE
-from apps.core.tables import TableActionDefaults
+from apps.core.presentation.forms import MultiStepFormMixin
+from apps.core.presentation.navigation import FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE
+from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn, _apply_search, _apply_sort, _ensure_stable_ordering, _paginate, _parse_sort
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
+from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.finance.forms.financial_movement import MovementStep1Form, MovementStep2Form, MovementStep3Form, MovementStep4Form
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.views.navigation import append_query_params

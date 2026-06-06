@@ -9,7 +9,7 @@ from django.urls import reverse
 from django.views.generic import TemplateView
 
 from django.db.models import Q
-from apps.core.search import apply_text_search
+from apps.core.infrastructure.search import apply_text_search
 from apps.finance.forms.emission_ui import format_money
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.bank_account import BankAccount

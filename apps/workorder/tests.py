@@ -26,7 +26,7 @@ from apps.collaborators.models import WorkshopMember
 from apps.core.documents.contract import DocumentPayload, SignatureDeliveryResult
 from apps.core.documents.services import SignatureDeliveryServiceError
 from apps.core.documents.signature import normalize_signature_phone_number, parse_document_signature_token
-from apps.core.query_filters import apply_query_param_filters
+from apps.core.infrastructure.query_filters import apply_query_param_filters
 from apps.customer.models import Customer, Vehicle
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod

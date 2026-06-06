@@ -17,7 +17,7 @@ from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.price_tracking import record_product_last_used_price
 from apps.catalog.product_issues import ProductIssueSummary, annotate_product_issues
-from apps.core.models import TimeStampedModel
+from apps.core.infrastructure.models import TimeStampedModel
 from apps.finance.models.payment_method import PaymentMethod
 
 

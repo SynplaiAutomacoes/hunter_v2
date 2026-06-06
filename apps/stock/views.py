@@ -47,14 +47,11 @@ from ..catalog.models.groups import CatalogGroup
 from ..catalog.models.products import Product
 from ..budget.pdf_context import build_workshop_logo_data_uri
 from ..core.documents.http import build_pdf_http_response
-from ..core.forms import MultiStepFormMixin
-from ..core.navigation import STOCK_IMPORT_CREATE_FAVORITE_PAGE
-from ..core.query_filters import QueryParamFilter, apply_query_param_filters
-from ..core.search import apply_text_search
-from ..core.tables import TableActionDefaults
+from ..core.infrastructure import apply_text_search, apply_query_param_filters, QueryParamFilter
+from ..core.presentation import TableActionDefaults, STOCK_IMPORT_CREATE_FAVORITE_PAGE, MultiStepFormMixin
 from ..core.templatetags.table_tags import TableColumn
 from ..core.utils import clean_id
-from ..core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, PageFavoriteMixin
+from ..core.presentation.mixins import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, PageFavoriteMixin
 from ..finance.models.payment_method import PaymentMethod
 from ..finance.services.payment_method_fees import calculate_payment_method_fee_amount
 from ..suppliers.models import Supplier

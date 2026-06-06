@@ -1,8 +1,8 @@
 from django.db import models
 from phonenumber_field.modelfields import PhoneNumberField
 
-from apps.core.fields import BRCPFCNPJField
-from apps.core.models import TimeStampedModel, Address
+from apps.core.infrastructure.fields import BRCPFCNPJField
+from apps.core.infrastructure.models import TimeStampedModel, Address
 from django.utils import timezone
 
 class Supplier(TimeStampedModel, Address):

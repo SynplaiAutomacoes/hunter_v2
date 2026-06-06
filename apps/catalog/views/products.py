@@ -20,12 +20,12 @@ from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.catalog.util import build_product_kits_assignment_context
 from apps.core.utils import clean_id
-from apps.core.navigation import PRODUCT_CREATE_FAVORITE_PAGE
-from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
-from apps.core.search import apply_text_search, build_text_search_query
-from apps.core.tables import TableActionDefaults
+from apps.core.presentation.navigation import PRODUCT_CREATE_FAVORITE_PAGE
+from apps.core.infrastructure.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
+from apps.core.infrastructure.search import apply_text_search, build_text_search_query
+from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
+from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.stock.models import StockMovement, StockProduct
 from apps.workorder.models import WorkOrderItem
 from apps.workshops.mixin import WorkshopScopedMixin

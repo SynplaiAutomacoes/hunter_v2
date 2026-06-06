@@ -10,10 +10,10 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
-from apps.core.navigation import CHECKLIST_CREATE_FAVORITE_PAGE
-from apps.core.tables import TableActionDefaults
+from apps.core.presentation.navigation import CHECKLIST_CREATE_FAVORITE_PAGE
+from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
+from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.workshops.mixin import WorkshopScopedMixin
 
 from .forms import ChecklistForm

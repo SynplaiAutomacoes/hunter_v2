@@ -27,10 +27,10 @@ from pynfe.processamento import ComunicacaoSefaz
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.catalog.price_tracking import build_product_price_warning, record_product_last_purchase_price, record_product_last_used_price
-from apps.core.forms import address_layout, AddressFormMixin, CoreForm, CoreModelForm
-from apps.core.search import apply_text_search
-from apps.core.utils import alert_confirm_layout
-from apps.core.widgets import TextInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput, TextareaInput, SearchableSelectInput
+from apps.core.presentation.forms import address_layout, AddressFormMixin, CoreForm, CoreModelForm
+from apps.core.infrastructure.search import apply_text_search
+from apps.core.presentation.utils import alert_confirm_layout
+from apps.core.presentation.widgets import TextInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput, TextareaInput, SearchableSelectInput
 from apps.finance.models.payment_method import PaymentMethod
 
 from apps.stock.financial_entries import ADDITIONAL_CHARGE_ENTRY_TYPE, PAYMENT_ENTRY_TYPE, calculate_import_totals, get_entry_amount, get_entry_reason, normalize_entry_type

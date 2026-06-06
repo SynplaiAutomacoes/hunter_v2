@@ -11,9 +11,9 @@ from django.urls import reverse
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
-from apps.core.forms import CoreForm, CoreModelForm
-from apps.core.webmania.util import is_webmania_homolog_environment
-from apps.core.widgets import (
+from apps.core.presentation.forms import CoreForm, CoreModelForm
+from apps.core.infrastructure.services.webmania import is_webmania_homolog_environment
+from apps.core.presentation.widgets import (
     CEPInput,
     CheckboxInput,
     CPForCNPJInput,

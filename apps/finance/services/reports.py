@@ -8,7 +8,7 @@ from typing import Iterable
 from djmoney.money import Money
 from django.db.models import Q
 
-from apps.core.search import build_text_search_query
+from apps.core.infrastructure.search import build_text_search_query
 from apps.finance.models.financial_movement import FinancialMovement
 
 

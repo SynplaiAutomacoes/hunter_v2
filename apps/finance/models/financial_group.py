@@ -5,7 +5,7 @@ from typing import Any, cast
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
 
-from apps.core.models import TimeStampedModel
+from apps.core.infrastructure.models import TimeStampedModel
 from apps.workshops.models.workshops import Workshop
 
 

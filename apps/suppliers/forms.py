@@ -2,8 +2,8 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from django.urls import reverse
 
-from apps.core.forms import address_layout, AddressFormMixin, CoreModelForm
-from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, CheckboxInput, EmailInput, PhoneInput
+from apps.core.presentation.forms import address_layout, AddressFormMixin, CoreModelForm
+from apps.core.presentation.widgets import CPForCNPJInput, CalendarDateInput, TextInput, CheckboxInput, EmailInput, PhoneInput
 from apps.suppliers.models import Supplier
 from apps.core.text_normalization import name_case, sentence_case
 from apps.workshops.models.workshops import Workshop

@@ -3,12 +3,12 @@ from django.db.models import Prefetch
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
-from apps.core.navigation import SUPPLIER_CREATE_FAVORITE_PAGE
-from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
-from apps.core.search import apply_text_search
-from apps.core.tables import TableActionDefaults
+from apps.core.presentation.navigation import SUPPLIER_CREATE_FAVORITE_PAGE
+from apps.core.infrastructure.query_filters import QueryParamFilter, apply_query_param_filters
+from apps.core.infrastructure.search import apply_text_search
+from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
+from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.stock.models import StockMovement
 from apps.suppliers.forms import SupplierForm
 from apps.suppliers.models import Supplier

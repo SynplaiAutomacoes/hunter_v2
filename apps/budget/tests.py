@@ -47,7 +47,7 @@ from apps.core.documents.signature import normalize_signature_phone_number, pars
 from apps.core.documents.services import SignatureDeliveryServiceError, get_signed_document_url
 from apps.core.text_normalization import sentence_case
 from apps.collaborators.models import WorkshopCollaborator
-from apps.core.query_filters import apply_query_param_filters
+from apps.core.infrastructure.query_filters import apply_query_param_filters
 from apps.customer.models import Customer, Vehicle
 from apps.collaborators.models import WorkshopMember
 from apps.collaborators.services import freeze_existing_pricing_history, sync_current_month_salary_costs

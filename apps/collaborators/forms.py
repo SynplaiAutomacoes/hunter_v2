@@ -9,8 +9,8 @@ from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.urls import reverse
 
 from apps.collaborators.models import CollaboratorBenefit, WorkshopCollaborator, WorkshopMember
-from apps.core.forms import CoreModelForm
-from apps.core.widgets import (
+from apps.core.presentation.forms import CoreModelForm
+from apps.core.presentation.widgets import (
     CalendarDateInput,
     CheckboxInput,
     CPForCNPJInput,

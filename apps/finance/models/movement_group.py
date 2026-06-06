@@ -1,6 +1,6 @@
 from django.db import models
 from django.conf import settings
-from apps.core.models import TimeStampedModel
+from apps.core.infrastructure.models import TimeStampedModel
 
 
 class MovementGroup(TimeStampedModel):

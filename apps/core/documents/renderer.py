@@ -3,7 +3,7 @@ from __future__ import annotations
 from django.template.loader import render_to_string
 
 from apps.core.documents.contract import DocumentPayload, DocumentRenderRequest
-from apps.core.pdf_playwright import render_pdf_from_html
+from apps.core.infrastructure.pdf import render_pdf_from_html
 
 
 def render_template_request_to_pdf(render_request: DocumentRenderRequest) -> DocumentPayload:
