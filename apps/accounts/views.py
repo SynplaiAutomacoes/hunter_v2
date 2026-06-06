@@ -10,7 +10,6 @@ from django.views.generic import FormView
 from django_htmx.http import HttpResponseClientRedirect
 
 from apps.accounts.models import Account, PasswordResetToken
-from apps.core.services import get_whatsapp_service
 
 from .forms import (
     PasswordResetForm,
@@ -18,6 +17,7 @@ from .forms import (
     UserIdentificationForm,
 )
 from .forms import LoginForm
+from ..core.infrastructure.services import get_whatsapp_service
 
 logger = logging.getLogger(__name__)
 

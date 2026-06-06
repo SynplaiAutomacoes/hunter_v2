@@ -6,10 +6,10 @@ from django.views import View
 from apps.budget.models import Budget, BudgetItem
 from apps.workshops.mixin import WorkshopScopedMixin
 from .shared import _get_budget_for_workshop
-from apps.core.widgets import SearchableSelectInput
+from apps.core.presentation.widgets import SearchableSelectInput
 from django import forms
 from django.urls import reverse
-from apps.core.forms import CoreForm
+from apps.core.presentation.forms import CoreForm
 from ...core.utils import clean_id
 
 

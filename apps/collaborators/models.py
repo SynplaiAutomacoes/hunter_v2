@@ -13,7 +13,7 @@ from djmoney.money import Money
 from localflavor.br.models import BRCPFField
 from phonenumber_field.modelfields import PhoneNumberField
 
-from apps.core.models import TimeStampedModel
+from apps.core.infrastructure.models import TimeStampedModel
 from apps.core.text_normalization import name_case, sentence_case
 
 

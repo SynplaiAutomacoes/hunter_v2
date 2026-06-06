@@ -1,14 +1,14 @@
 from django.conf import settings
 
 from apps.budget.documents.provider import render_budget_pdf_document
-from apps.core.documents.contract import SignatureDeliveryResult, SignatureRecipient
-from apps.core.documents.signature import (
+from apps.core.domain.contracts.documents import SignatureDeliveryResult, SignatureRecipient
+from apps.core.infrastructure.services.signature import (
     build_document_signature_payload,
-    build_document_signature_url,
     build_signature_fields,
     build_signature_signatory_and_observers,
 )
-from apps.core.documents.services import (
+from apps.core.infrastructure.services import build_document_signature_url
+from apps.core.infrastructure.services.signature import (
     SignatureDeliveryServiceError,
     send_document_for_signature,
 )

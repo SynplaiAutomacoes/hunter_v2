@@ -7,7 +7,7 @@ from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
 from apps.accounts.models import FavoritePage
-from apps.core.context_processors import navbar
+from apps.core.presentation.context_processors import navbar
 from apps.workshops.tests import create_director_user_with_workshop
 
 

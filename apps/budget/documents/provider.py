@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from apps.budget.pdf_context import build_budget_pdf_context
-from apps.core.documents.contract import DocumentPayload, DocumentRenderRequest
-from apps.core.documents.renderer import render_template_request_to_pdf
+from apps.core.domain.contracts.documents import DocumentPayload, DocumentRenderRequest
+from apps.core.infrastructure.pdf.renderer import render_template_request_to_pdf
 
 
 def build_budget_pdf_render_request(*, budget, request=None, filename: str | None = None) -> DocumentRenderRequest:

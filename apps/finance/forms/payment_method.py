@@ -3,10 +3,10 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from django import forms
 from django.urls import reverse
 
-from apps.core.widgets import CheckboxInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, TextInput
+from apps.core.presentation.widgets import CheckboxInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, TextInput
 from apps.finance.models.payment_method import PaymentMethod
 from apps.core.text_normalization import sentence_case
-from apps.core.forms import CoreModelForm
+from apps.core.presentation.forms import CoreModelForm
 
 
 class PaymentMethodForm(CoreModelForm):

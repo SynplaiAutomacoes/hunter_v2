@@ -42,12 +42,13 @@ from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.kits import Kit, KitApplication, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
-from apps.core.documents.contract import DocumentPayload, SignatureDeliveryResult
-from apps.core.documents.signature import normalize_signature_phone_number, parse_document_signature_token
-from apps.core.documents.services import SignatureDeliveryServiceError, get_signed_document_url
+from apps.core.domain.contracts.documents import DocumentPayload, SignatureDeliveryResult
+from apps.core.domain.contracts.documents import normalize_signature_phone_number
+from apps.core.infrastructure.services.signature import parse_document_signature_token
+from apps.core.infrastructure.services.signature import SignatureDeliveryServiceError, get_signed_document_url
 from apps.core.text_normalization import sentence_case
 from apps.collaborators.models import WorkshopCollaborator
-from apps.core.query_filters import apply_query_param_filters
+from apps.core.infrastructure.query_filters import apply_query_param_filters
 from apps.customer.models import Customer, Vehicle
 from apps.collaborators.models import WorkshopMember
 from apps.collaborators.services import freeze_existing_pricing_history, sync_current_month_salary_costs
@@ -4424,7 +4425,7 @@ class BudgetSignatureWorkflowTests(TestCase):
 
 
 class SuperSignDownloadUrlTests(TestCase):
-    @patch("apps.core.documents.gateways.supersign.requests.get")
+    @patch("apps.core.infrastructure.gateways.supersign.requests.get")
     def test_returns_download_url_from_supersign_payload(self, requests_get) -> None:
         response = requests_get.return_value
         response.raise_for_status.return_value = None
@@ -4445,7 +4446,7 @@ class SuperSignDownloadUrlTests(TestCase):
         self.assertEqual(kwargs["headers"]["x-account-id"], "acc-1")
         self.assertNotIn("Authorization", kwargs["headers"])
 
-    @patch("apps.core.documents.gateways.supersign.requests.get")
+    @patch("apps.core.infrastructure.gateways.supersign.requests.get")
     def test_retries_with_authorization_when_download_endpoint_requires_jwt(self, requests_get) -> None:
         unauthorized_response = requests.Response()
         unauthorized_response.status_code = 401
@@ -4478,7 +4479,7 @@ class SuperSignDownloadUrlTests(TestCase):
         self.assertNotIn("Authorization", first_call["headers"])
         self.assertEqual(second_call["headers"]["Authorization"], "Bearer secret")
 
-    @patch("apps.core.documents.gateways.supersign.requests.get")
+    @patch("apps.core.infrastructure.gateways.supersign.requests.get")
     def test_raises_when_download_url_is_missing(self, requests_get) -> None:
         response = requests_get.return_value
         response.raise_for_status.return_value = None

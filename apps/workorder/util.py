@@ -13,9 +13,10 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.fields import DurationField
-from apps.core.documents.contract import DocumentPayload
-from apps.core.documents.http import build_pdf_http_response
-from apps.core.documents.signature import SignatureTokenError, parse_document_signature_token
+from apps.core.domain.contracts.documents import DocumentPayload
+from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
+from apps.core.domain.contracts.documents import SignatureTokenError
+from apps.core.infrastructure.services.signature import parse_document_signature_token
 from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderCustomerApprovalForm, WorkOrderPaymentForm, WorkOrderReopenForm, WorkOrderStatusReasonForm
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus
 from apps.workorder.service import (

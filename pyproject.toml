@@ -59,21 +59,16 @@ disable_error_code = [
     "call-arg",
     "call-overload",
     "dict-item",
-    "django-manager-missing",
-    "import-untyped",
     "index",
     "list-item",
     "misc",
     "name-defined",
-    "no-any-return",
-    "no-any-unimported",
     "no-untyped-def",
     "operator",
     "return-value",
     "union-attr",
     "unused-ignore",
     "valid-type",
-    "var-annotated",
 ]
 
 [tool.django-stubs]

@@ -11,7 +11,7 @@ from django.urls import reverse
 from django.views.generic import TemplateView
 
 from apps.collaborators.models import CollaboratorCommissionEntry, WorkshopCollaborator
-from apps.core.search import build_text_search_query
+from apps.core.infrastructure.search import build_text_search_query
 from apps.finance.forms.emission_ui import format_money
 from apps.workorder.models import WorkOrderStatus
 from apps.workshops.mixin import WorkshopScopedMixin

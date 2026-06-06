@@ -18,11 +18,11 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView
 
 from apps.collaborators.models import WorkshopMember
-from apps.core.query_filters import apply_is_active_filter
-from apps.core.tables import TableActionDefaults
+from apps.core.infrastructure.query_filters import apply_is_active_filter
+from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
-from apps.core.webmania.util import to_public_integration_message, is_webmania_homolog_environment, latest_sync_error, get_webmania_context_meta, has_webmania_change_perm, save_company_sync_metadata, sync_workshop_from_company
+from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.core.infrastructure.services.webmania import to_public_integration_message, is_webmania_homolog_environment, latest_sync_error, get_webmania_context_meta, has_webmania_change_perm, save_company_sync_metadata, sync_workshop_from_company
 from apps.finance.models.finance import WebmaniaCompany
 from apps.finance.services.webmania_b2b import (
     WebmaniaB2BServiceError,

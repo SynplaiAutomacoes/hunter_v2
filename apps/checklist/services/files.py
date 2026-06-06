@@ -10,7 +10,7 @@ from django.core.files.uploadedfile import UploadedFile
 from django.utils import timezone
 from django.utils.text import get_valid_filename
 
-from apps.core.services.storage_service import StorageConfigurationError, StorageServiceError, get_storage_service
+from apps.core.infrastructure.services.storage import StorageConfigurationError, StorageServiceError, get_storage_service
 
 
 class ChecklistFileStorageError(Exception):

@@ -10,8 +10,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from apps.core.documents.contract import DocumentPayload, DocumentRenderRequest
-from apps.core.documents.renderer import render_template_request_to_pdf
+from apps.core.domain.contracts.documents import DocumentPayload, DocumentRenderRequest
+from apps.core.infrastructure.pdf.renderer import render_template_request_to_pdf
 from apps.workshops.models.workshops import Workshop
 
 

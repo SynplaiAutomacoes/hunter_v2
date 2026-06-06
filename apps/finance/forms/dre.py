@@ -5,9 +5,9 @@ from django import forms
 
 from crispy_forms.helper import FormHelper, Layout
 
-from apps.core.widgets import CalendarDateInput, SearchableSelectInput
+from apps.core.presentation.widgets import CalendarDateInput, SearchableSelectInput
 from apps.finance.models import FinancialGroup
-from apps.core.forms import CoreForm
+from apps.core.presentation.forms import CoreForm
 
 
 class DreForm(CoreForm):
