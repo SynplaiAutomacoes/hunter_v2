@@ -13,9 +13,8 @@ from django.utils import timezone
 from django.views import View
 from django.views.generic import TemplateView
 
-from apps.core.documents.contract import DocumentRenderRequest
-from apps.core.documents.http import build_pdf_http_response
-from apps.core.documents.renderer import render_template_request_to_pdf
+from apps.core.domain.contracts.documents import DocumentRenderRequest
+from apps.core.infrastructure.pdf.renderer import render_template_request_to_pdf, build_pdf_http_response
 from apps.core.presentation.favorites import FavoritePageLimitError, InvalidFavoritePageError, reorder_favorite_pages, toggle_favorite_page
 from apps.core.infrastructure.services.dashboard_query_service import (
     INDICATOR_LABELS,
@@ -23,11 +22,6 @@ from apps.core.infrastructure.services.dashboard_query_service import (
     get_financial_indicator_data,
 )
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
-from apps.core.presentation.mixins import (
-    BaseModalFormView,
-    HtmxDeleteResponseMixin,
-    PageFavoriteMixin,
-)
 from apps.core.utils import clean_id
 from apps.workshops.util.workshops import get_active_workshop_or_404
 

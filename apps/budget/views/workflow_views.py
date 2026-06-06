@@ -26,7 +26,7 @@ from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
 from apps.budget.models import Budget, BudgetHistory, BudgetItem, BudgetStatus, SignatureStatus, BudgetType
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.budget.service import SuperSignError, send_budget_for_signature
-from apps.core.documents.http import build_pdf_http_response
+from ...core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.presentation.forms import MultiStepFormMixin
 from apps.core.presentation.navigation import BUDGET_CREATE_FAVORITE_PAGE
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_query_param_filters

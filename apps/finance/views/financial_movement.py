@@ -18,9 +18,8 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView
 from djmoney.money import Money
 
-from apps.core.documents.contract import DocumentRenderRequest
-from apps.core.documents.http import build_pdf_http_response
-from apps.core.documents.renderer import render_template_request_to_pdf
+from apps.core.domain.contracts.documents import DocumentRenderRequest
+from apps.core.infrastructure.pdf.renderer import render_template_request_to_pdf, build_pdf_http_response
 from apps.core.presentation.forms import MultiStepFormMixin
 from apps.core.presentation.navigation import FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE
 from apps.core.presentation.tables import TableActionDefaults

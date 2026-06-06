@@ -30,7 +30,7 @@ from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.collaborators.models import CollaboratorCommissionEntry, WorkshopCollaborator, WorkshopMember
 from apps.collaborators.services import sync_collaborator_payroll, sync_workorder_collaborator_payrolls
-from apps.core.documents.contract import DocumentPayload
+from apps.core.domain.contracts.documents import DocumentPayload
 from apps.customer.models import Customer, Vehicle
 from apps.finance.documents.provider import build_dre_excel_document, build_dre_pdf_render_request
 from apps.finance.forms import NfseTaxClassForm, WebmaniaCompanyUpdateForm

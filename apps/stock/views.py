@@ -46,7 +46,7 @@ from .models import StockImport, StockMovement, StockProduct, StockTransfer
 from ..catalog.models.groups import CatalogGroup
 from ..catalog.models.products import Product
 from ..budget.pdf_context import build_workshop_logo_data_uri
-from ..core.documents.http import build_pdf_http_response
+from ..core.infrastructure.pdf.renderer import build_pdf_http_response
 from ..core.infrastructure import apply_text_search, apply_query_param_filters, QueryParamFilter
 from ..core.presentation import TableActionDefaults, STOCK_IMPORT_CREATE_FAVORITE_PAGE, MultiStepFormMixin
 from ..core.templatetags.table_tags import TableColumn

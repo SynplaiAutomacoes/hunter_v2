@@ -16,4 +16,5 @@ __all__ = [
     "apply_is_active_filter",
     "render_pdf_from_html",
     "render_pdf_from_url",
+    "render_template_request_to_pdf",
 ]

@@ -20,7 +20,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.text import get_valid_filename
 
-from apps.core.documents.signature import build_absolute_app_url
+from apps.core.infrastructure.services import build_absolute_app_url
 from apps.core.infrastructure.services.storage import StorageConfigurationError, StorageServiceError, get_storage_service
 from apps.finance.models.finance import WebmaniaCompany
 from apps.finance.services.webmania_b2b import update_webmania_company
