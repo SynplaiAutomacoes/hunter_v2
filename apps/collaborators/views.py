@@ -18,12 +18,12 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView, V
 from apps.collaborators.forms import CollaboratorBenefitFormSet, WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorPayroll, WorkshopCollaborator, WorkshopMember
 from apps.collaborators.services import calculate_transport_allowance_total, freeze_existing_pricing_history, get_reference_work_days, sync_collaborator_payroll, sync_current_month_salary_costs
-from apps.core.navigation import COLLABORATOR_CREATE_FAVORITE_PAGE
-from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
-from apps.core.tables import TableActionDefaults
+from apps.core.presentation.navigation import COLLABORATOR_CREATE_FAVORITE_PAGE
+from apps.core.infrastructure.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
+from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.utils import clean_id
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
+from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.workshops.mixin import WorkshopScopedMixin
 

@@ -5,9 +5,9 @@ from html import escape
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 
-from apps.core.widgets import SearchableSelectInput
+from apps.core.presentation.widgets import SearchableSelectInput
 from apps.workorder.models import WorkOrder, WorkOrderStatus
-from apps.core.forms import CoreModelForm
+from apps.core.presentation.forms import CoreModelForm
 
 
 class SharedEmissionWorkorderSelectionForm(CoreModelForm):

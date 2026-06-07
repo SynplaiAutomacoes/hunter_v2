@@ -5,10 +5,10 @@ from django.core.exceptions import PermissionDenied
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
-from apps.core.query_filters import apply_is_active_filter
-from apps.core.tables import TableActionDefaults
+from apps.core.infrastructure.query_filters import apply_is_active_filter
+from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.workshops.forms.monthly_costs import MonthlyCostForm
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.monthly_costs import MonthlyCost

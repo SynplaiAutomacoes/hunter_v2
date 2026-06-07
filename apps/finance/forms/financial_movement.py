@@ -7,14 +7,14 @@ from django.db.models import Q
 from django.template.loader import render_to_string
 
 from apps.collaborators.models import WorkshopCollaborator
-from apps.core.widgets import SearchableSelectInput, TextInput, TextareaInput, CalendarDateInput, MoneyInput, NumberInput
+from apps.core.presentation.widgets import SearchableSelectInput, TextInput, TextareaInput, CalendarDateInput, MoneyInput, NumberInput
 from apps.finance.models import PaymentMethod, FinancialGroup
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.services.financial_movement import generate_card_fee_movement
 from apps.suppliers.models import Supplier
 from apps.core.text_normalization import sentence_case
-from apps.core.forms import CoreModelForm
+from apps.core.presentation.forms import CoreModelForm
 from apps.workorder.models import WorkOrderPaymentMethod
 
 

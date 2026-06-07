@@ -6,7 +6,7 @@ from typing import Any
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, get_object_or_404, render
@@ -18,14 +18,14 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView
 from djmoney.money import Money
 
-from apps.core.documents.contract import DocumentRenderRequest
-from apps.core.documents.http import build_pdf_http_response
-from apps.core.documents.renderer import render_template_request_to_pdf
-from apps.core.forms import MultiStepFormMixin
-from apps.core.navigation import FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE
-from apps.core.tables import TableActionDefaults
+from apps.core.domain.contracts.documents import DocumentRenderRequest
+from apps.core.infrastructure.pdf.renderer import render_template_request_to_pdf, build_pdf_http_response
+from apps.core.presentation.forms import MultiStepFormMixin
+from apps.core.presentation.navigation import FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE
+from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn, _apply_search, _apply_sort, _ensure_stable_ordering, _paginate, _parse_sort
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
+from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
+from apps.core.utils import clean_id
 from apps.finance.forms.financial_movement import MovementStep1Form, MovementStep2Form, MovementStep3Form, MovementStep4Form
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.views.navigation import append_query_params
@@ -34,34 +34,6 @@ from apps.sources.models import Source
 from apps.suppliers.models import Supplier
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import get_active_workshop_or_404, has_workshop_perm
-
-
-def parse_pk(value):
-    """
-    Converte valores de pk para inteiro seguro.
-
-    Exemplos:
-    "15" -> 15
-    "1.011" -> 1011
-    "1,011" -> 1011
-    None -> None
-    "" -> None
-    """
-    if value is None:
-        return None
-
-    value = str(value).strip()
-
-    if not value:
-        return None
-
-    # remove separadores comuns
-    value = value.replace(".", "").replace(",", "")
-
-    if not value.isdigit():
-        return None
-
-    return int(value)
 
 
 def _parse_financial_movement_date_param(raw_value: str | None) -> date | None:
@@ -95,6 +67,20 @@ def get_financial_movement_table_columns() -> list[TableColumn]:
         TableColumn(FinancialMovement.due_date.field.verbose_name, attr=FinancialMovement.due_date.field.name),
         TableColumn("Conciliado", attr="is_reconciled"),
     ]
+
+
+def _apply_workorder_payment_aware_date_filter(queryset: QuerySet[FinancialMovement], *, lookup: str, value: date) -> QuerySet[FinancialMovement]:
+    workorder_parent_query = Q(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False)
+    return queryset.filter(
+        (~workorder_parent_query & Q(**{lookup: value}))
+        | (
+            workorder_parent_query
+            & Q(
+                workorder__payments__isnull=False,
+                **{f"workorder__payments__{lookup}": value},
+            )
+        )
+    ).distinct()
 
 
 def build_financial_movement_base_queryset(*, request: HttpRequest, workshop: Any) -> QuerySet[FinancialMovement]:
@@ -161,8 +147,33 @@ def _movement_pdf_collaborator_label(movement: FinancialMovement) -> str:
     return str(getattr(collaborator, "name", "") or collaborator or "—")
 
 
-def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement]) -> list[dict[str, object]]:
+def _resolve_workorder_description(workorder: object) -> str:
+    budget = getattr(workorder, "budget", None)
+    if budget is None:
+        return "-"
+    return str(budget.problem_description or budget.notes or "-")
+
+
+def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], workshop: Any, start_date: date | None = None, end_date: date | None = None) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
+
+    payment_pks: set[int] = set()
+    for movement in movements:
+        workorder = getattr(movement, "workorder", None)
+        if workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
+            for payment in list(workorder.payments.all()):
+                if payment.pk:
+                    payment_pks.add(payment.pk)
+
+    per_payment_movements: dict[int, FinancialMovement] = {}
+    if payment_pks:
+        for m in FinancialMovement.objects.filter(
+            workorder_payment_id__in=list(payment_pks),
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            workshop=workshop,
+        ).order_by("-pk"):
+            per_payment_movements[m.workorder_payment_id] = m
+
     for movement in movements:
         workorder = getattr(movement, "workorder", None)
         if workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
@@ -171,11 +182,16 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement]) ->
                 payment_amount = getattr(payment, "total_paid", None) or Money(0, "BRL")
                 if payment_amount.amount <= 0:
                     continue
+                if start_date is not None and (payment.due_date is None or payment.due_date < start_date):
+                    continue
+                if end_date is not None and (payment.due_date is None or payment.due_date > end_date):
+                    continue
+                payment_movement = per_payment_movements.get(payment.pk) or movement
                 rows.append(
                     {
                         "date": payment.due_date or movement.due_date,
-                        "description": movement.report_description_display,
-                        "collaborator": _movement_pdf_collaborator_label(movement),
+                        "description": _resolve_workorder_description(workorder),
+                        "collaborator": _movement_pdf_collaborator_label(payment_movement),
                         "source": str(f"O.S. {workorder.get_id}"),
                         "direction": FinancialMovement.MovementDirection.CREDIT,
                         "direction_label": "Crédito",
@@ -275,11 +291,38 @@ def financial_movement_pdf(request: HttpRequest) -> HttpResponse:
     if not has_workshop_perm(user=request.user, workshop=workshop, app_label="finance", model="financialmovement", codename="view_financialmovement", request=request):
         raise PermissionDenied
 
-    queryset = build_financial_movement_base_queryset(request=request, workshop=workshop)
-    queryset = queryset.prefetch_related("workorder__payments", "workorder__payments__payment_method")
+    queryset = (
+        FinancialMovement.objects.filter(workshop=workshop)
+        .filter(due_date__isnull=False)
+        .filter(Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT))
+        .exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder_payment__isnull=False)
+    )
+
+    start_date = _parse_financial_movement_date_param(request.GET.get("data_inicial"))
+    end_date = _parse_financial_movement_date_param(request.GET.get("data_final"))
+    source_id = _get_financial_movement_selected_source_id(request)
+
+    if start_date is not None:
+        queryset = _apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__gte", value=start_date)
+    if end_date is not None:
+        queryset = _apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__lte", value=end_date)
+    if source_id is not None:
+        queryset = queryset.filter(source_id=source_id)
+
+    queryset = queryset.select_related(
+        "source",
+        "collaborator",
+        "supplier",
+        "payment_method",
+        "budget_plan",
+        "bank_account",
+        "workorder",
+        "workorder__budget",
+        "workorder__budget__customer",
+    ).prefetch_related("workorder__payments", "workorder__payments__payment_method")
     movements = list(queryset)
 
-    rows = _build_financial_movement_pdf_rows(movements=movements)
+    rows = _build_financial_movement_pdf_rows(movements=movements, workshop=workshop, start_date=start_date, end_date=end_date)
     totals = _build_financial_movement_pdf_totals(rows=rows)
     context = {
         "workshop": workshop,
@@ -314,7 +357,7 @@ class FinancialMovementCreateView(PageFavoriteMixin, LoginRequiredMixin, Worksho
 
     def get_object(self, queryset=None):
         raw_pk = self.request.GET.get("pk") or self.kwargs.get("pk")
-        pk = parse_pk(raw_pk)
+        pk = clean_id(raw_pk)
         if pk:
             return get_object_or_404(FinancialMovement, id=pk, workshop=self.workshop)
         return None
@@ -411,7 +454,7 @@ class FinancialMovementUpdateView(FinancialMovementCreateView):
         return super().dispatch(request, *args, **kwargs)
 
     def get_object(self, queryset=None):
-        pk = parse_pk(self.kwargs.get("pk"))
+        pk = clean_id(self.kwargs.get("pk"))
         if pk:
             return FinancialMovement.objects.get(pk=pk, workshop=self.workshop)
         return super().get_object()

@@ -1,5 +1,5 @@
 from .customer_vehicle_views import CustomerDetailView, VehicleDetailView, VehicleListView
-from apps.core.documents.webhook import SuperSignWebhookView
+from apps.core.infrastructure.services.supersign import SuperSignWebhookView
 from .import_items_views import BudgetImportItemsSearchModalView, BudgetImportItemsSelectModalView, BudgetImportItemsProcessView
 from .item_views import (
     AddItemToBudgetView,

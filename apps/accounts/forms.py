@@ -6,7 +6,7 @@ from django.db.models import Q
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Submit
 
-from apps.core.widgets import EmailInput, TextInput, CPForCNPJInput, PasswordInput
+from apps.core.presentation.widgets import EmailInput, TextInput, CPForCNPJInput, PasswordInput
 
 User = get_user_model()
 

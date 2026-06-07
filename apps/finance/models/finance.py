@@ -3,7 +3,7 @@ import logging
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
-from apps.core.models import TimeStampedModel
+from apps.core.infrastructure.models import TimeStampedModel
 from apps.finance.services.webmania_status import normalize_nfe_request_status, normalize_nfse_request_status
 
 

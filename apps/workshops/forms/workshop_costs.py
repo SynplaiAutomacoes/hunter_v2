@@ -13,8 +13,8 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from djmoney.forms import MoneyField
 
-from apps.core.forms import CoreModelForm
-from apps.core.widgets import (
+from apps.core.presentation.forms import CoreModelForm
+from apps.core.presentation.widgets import (
     DecimalInput,
     DurationInput,
     NumberInput,

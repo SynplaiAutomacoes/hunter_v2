@@ -6,7 +6,7 @@ from typing import cast
 from django.db.models import QuerySet
 
 from apps.catalog.models.products import Product
-from apps.core.search import apply_text_search
+from apps.core.infrastructure.search import apply_text_search
 from apps.workshops.models.workshops import Workshop
 
 

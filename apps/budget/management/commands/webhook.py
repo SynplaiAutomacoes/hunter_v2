@@ -7,9 +7,8 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.urls import reverse
 
-from apps.core.documents.services import SignatureDeliveryServiceError, ensure_signature_webhook
-from apps.core.documents.signature import build_absolute_app_url
-
+from apps.core.infrastructure.services.signature import SignatureDeliveryServiceError, ensure_signature_webhook
+from apps.core.infrastructure.services import build_absolute_app_url
 
 logger = logging.getLogger(__name__)
 

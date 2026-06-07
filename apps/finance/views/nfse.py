@@ -13,10 +13,10 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views import View
 from django.views.generic import DetailView, ListView
 
-from apps.core.forms import CoreForm
-from apps.core.tables import TableActionDefaults
+from apps.core.presentation.forms import CoreForm
+from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxTemplateResponseMixin
+from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.finance.forms import NfseRequestStep1Form, NfseRequestStep2Form, NfseRequestStep3Form
 from apps.finance.models.finance import NfseItem, NfseRequest, NfseRequestStatus
 from apps.finance.services.nfse_consulta import NfseConsultaError, reconcile_nfse_item

@@ -7,10 +7,10 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit  # type: ignore
 from django import forms
 from django.urls import reverse
 
-from apps.core.widgets import CheckboxInput, SearchableSelectInput, TextInput
+from apps.core.presentation.widgets import CheckboxInput, SearchableSelectInput, TextInput
 from apps.finance.models.financial_group import FinancialGroup
 from apps.workshops.models.workshops import Workshop
-from apps.core.forms import CoreModelForm
+from apps.core.presentation.forms import CoreModelForm
 
 
 class FinancialGroupParentChoiceField(forms.ModelChoiceField):

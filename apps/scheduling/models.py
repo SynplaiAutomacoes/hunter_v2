@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from phonenumber_field.modelfields import PhoneNumberField
 
-from apps.core.models import TimeStampedModel
+from apps.core.infrastructure.models import TimeStampedModel
 from apps.customer.vehicle_engine import VehicleEngine, normalize_vehicle_engine_choice
 from apps.customer.vehicle_fuel import VehicleFuel, normalize_vehicle_fuel_choice
 

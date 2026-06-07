@@ -7,9 +7,9 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
 from apps.catalog.models.groups import CatalogGroup
-from apps.core.widgets import TextInput
+from apps.core.presentation.widgets import TextInput
 from apps.workshops.models.workshops import Workshop
-from apps.core.forms import CoreModelForm
+from apps.core.presentation.forms import CoreModelForm
 
 
 class CatalogGroupForm(CoreModelForm):

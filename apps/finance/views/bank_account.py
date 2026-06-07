@@ -2,10 +2,10 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, ListView, UpdateView
 
-from apps.core.query_filters import apply_is_active_filter
-from apps.core.tables import TableActionDefaults
+from apps.core.infrastructure.query_filters import apply_is_active_filter
+from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxTemplateResponseMixin
+from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.finance.forms.bank_account import BankAccountForm
 from apps.finance.models.bank_account import BankAccount
 from apps.workshops.mixin import WorkshopScopedMixin

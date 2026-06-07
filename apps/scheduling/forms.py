@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from apps.budget.models import Budget
 from apps.catalog.models import FipeModelFuelCache, FipeVehicleBrand, FipeVehicleModel, FipeVehicleType
-from apps.core.widgets import CPForCNPJInput, CheckboxInput, PhoneInput, PlateInput, SearchableSelectInput, TextInput, TextareaInput
+from apps.core.presentation.widgets import CPForCNPJInput, CheckboxInput, PhoneInput, PlateInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.customer.cpf_cnpj_validator import is_valid_cpf
 from apps.customer.vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
 from apps.customer.models import Customer, Vehicle
@@ -21,7 +21,7 @@ from apps.core.text_normalization import name_case, plate_case, sentence_case
 from apps.scheduling.models import Appointment, AppointmentStatus
 from apps.workorder.models import WorkOrder
 from apps.workshops.models.workshops import Workshop
-from apps.core.forms import CoreForm, CoreModelForm
+from apps.core.presentation.forms import CoreForm, CoreModelForm
 
 
 def _uppercase_text_input() -> TextInput:

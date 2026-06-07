@@ -10,7 +10,7 @@ from django.utils import timezone
 from django.views import View
 from django.views.generic import TemplateView, UpdateView
 
-from apps.core.webmania.util import is_webmania_homolog_environment
+from apps.core.infrastructure.services.webmania import is_webmania_homolog_environment
 from apps.finance.forms import WebmaniaCompanyUpdateForm
 from apps.finance.models.finance import WebmaniaCompany
 from apps.finance.services.webmania_b2b import (
