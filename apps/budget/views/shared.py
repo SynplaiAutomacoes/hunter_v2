@@ -168,16 +168,26 @@ def reset_steps_after_step_4(budget):
         budget.pricing_minimum_hourly_cost = None
         budget.pricing_hourly_cost_value = None
         budget.pricing_profitability_multiplier = None
-        budget.save(update_fields=[
-            "current_step", "slider", "discount_value", "discount_percentage",
-            "step5_calculation_viewed", "status",
-            "pricing_reference_month", "pricing_reference_year",
-            "pricing_productive_salary_total", "pricing_productive_salary_total_currency",
-            "pricing_working_hours_per_month",
-            "pricing_minimum_hourly_cost", "pricing_minimum_hourly_cost_currency",
-            "pricing_hourly_cost_value", "pricing_hourly_cost_value_currency",
-            "pricing_profitability_multiplier",
-        ])
+        budget.save(
+            update_fields=[
+                "current_step",
+                "slider",
+                "discount_value",
+                "discount_percentage",
+                "step5_calculation_viewed",
+                "status",
+                "pricing_reference_month",
+                "pricing_reference_year",
+                "pricing_productive_salary_total",
+                "pricing_productive_salary_total_currency",
+                "pricing_working_hours_per_month",
+                "pricing_minimum_hourly_cost",
+                "pricing_minimum_hourly_cost_currency",
+                "pricing_hourly_cost_value",
+                "pricing_hourly_cost_value_currency",
+                "pricing_profitability_multiplier",
+            ]
+        )
 
 
 def sync_linked_workorder_from_budget(budget: Budget) -> None:

@@ -4000,7 +4000,7 @@ class BudgetKitServiceCalculateViewTests(TestCase):
 
         self.assertEqual(payload["price"], "55.00")
         self.assertEqual(override.service_selling_price, Money("55.00", "BRL"))
-        self.assertEqual(override.service_cost_price, Money("20.00", "BRL"))
+        self.assertEqual(override.service_cost_price, Money("50.00", "BRL"))
         self.assertEqual(override.duration, timedelta(hours=2))
         self.assertEqual(self.item.service_selling_price, Money("55.00", "BRL"))
 
@@ -4024,7 +4024,7 @@ class BudgetKitServiceCalculateViewTests(TestCase):
         self.assertFalse(payload["workshop_cost_missing"])
         self.assertEqual(payload["price"], "55.00")
         self.assertEqual(override.service_selling_price, Money("55.00", "BRL"))
-        self.assertEqual(override.service_cost_price, Money("20.00", "BRL"))
+        self.assertEqual(override.service_cost_price, Money("50.00", "BRL"))
 
     def test_duration_change_without_pricing_context_keeps_registered_kit_service_value(self) -> None:
         WorkshopCost.objects.filter(workshop=self.workshop).delete()
@@ -4065,8 +4065,8 @@ class BudgetKitServiceCalculateViewTests(TestCase):
         self.assertContains(response, "updateProductTotals")
         self.assertContains(response, "updateServiceTotals")
         self.assertContains(response, "recalculateServicePricingFromDuration")
-        self.assertContains(response, "<th class=\"w-32\">Custo/Mecânico</th>")
-        self.assertContains(response, "mechanicHourlyCost: parseFloat('10.00')")
+        self.assertContains(response, '<th class="w-32">Custo (R$)</th>')
+        self.assertContains(response, "minimumHourlyCost: parseFloat('25.00')")
         self.assertContains(response, "hourlyCostValue: parseFloat('90.00')")
         self.assertContains(response, 'data-field="cost"')
         self.assertContains(response, "readonly")
@@ -4099,7 +4099,7 @@ class BudgetKitServiceCalculateViewTests(TestCase):
         self.assertNotIn("HX-Redirect", response)
         self.assertJSONEqual(response.content, {"ok": True, "redirect_url": f"/budget/{self.budget.pk}/edit/?step=4"})
         override = BudgetKitItemOverride.objects.get(budget_item=self.item, service=self.service)
-        self.assertEqual(override.service_cost_price, Money("10.00", "BRL"))
+        self.assertEqual(override.service_cost_price, Money("25.00", "BRL"))
 
 
 class BudgetPricingSnapshotTests(TestCase):
