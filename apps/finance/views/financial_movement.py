@@ -18,6 +18,7 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView
 from djmoney.money import Money
 
+from apps.core.infrastructure.search import build_text_search_query
 from apps.core.domain.contracts.documents import DocumentRenderRequest
 from apps.core.infrastructure.pdf.renderer import render_template_request_to_pdf, build_pdf_http_response
 from apps.core.presentation.forms import MultiStepFormMixin
@@ -30,6 +31,9 @@ from apps.finance.forms.financial_movement import MovementStep1Form, MovementSte
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.views.navigation import append_query_params
 from apps.collaborators.models import WorkshopCollaborator
+from apps.finance.models.bank_account import BankAccount
+from apps.finance.models.financial_group import FinancialGroup
+from apps.finance.models.payment_method import PaymentMethod
 from apps.sources.models import Source
 from apps.suppliers.models import Supplier
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -81,6 +85,106 @@ def _apply_workorder_payment_aware_date_filter(queryset: QuerySet[FinancialMovem
             )
         )
     ).distinct()
+
+
+def _parse_int_param(raw_value: str | None) -> int | None:
+    value = str(raw_value or "").strip()
+    if not value:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_report_filter_params(request: HttpRequest) -> dict[str, Any]:
+    return {
+        "start_date": _parse_financial_movement_date_param(request.GET.get("data_inicial")),
+        "end_date": _parse_financial_movement_date_param(request.GET.get("data_final")),
+        "budget_plan_ids": [int(v) for v in request.GET.getlist("financial_groups") if str(v).strip()],
+        "bank_account_id": _parse_int_param(request.GET.get("bank_account")),
+        "direction": str(request.GET.get("direction") or "").strip(),
+        "paid_status": str(request.GET.get("paid_status") or "").strip(),
+        "agent": str(request.GET.get("agent") or "").strip(),
+        "opened_by_id": _parse_int_param(request.GET.get("opened_by")),
+        "payment_method_id": _parse_int_param(request.GET.get("payment_method")),
+        "reconciliation_status": str(request.GET.get("reconciliation_status") or "").strip(),
+        "search": str(request.GET.get("search") or "").strip(),
+    }
+
+
+def _apply_paid_status_filter_to_queryset(queryset: QuerySet[FinancialMovement], *, paid_status: str) -> QuerySet[FinancialMovement]:
+    if not paid_status:
+        return queryset
+    is_paid_lookup = paid_status == "paid"
+    matched_ids = list(
+        queryset
+        .exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False)
+        .filter(is_paid=is_paid_lookup)
+        .values_list("pk", flat=True)
+    )
+    for movement in queryset.filter(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False):
+        if (is_paid_lookup and movement.is_paid) or (not is_paid_lookup and not movement.is_paid):
+            matched_ids.append(movement.pk)
+    return queryset.filter(pk__in=matched_ids)
+
+
+def _apply_report_filters_to_queryset(queryset: QuerySet[FinancialMovement], *, params: dict[str, Any]) -> QuerySet[FinancialMovement]:
+    if params["start_date"] is not None:
+        queryset = _apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__gte", value=params["start_date"])
+    if params["end_date"] is not None:
+        queryset = _apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__lte", value=params["end_date"])
+    if params["budget_plan_ids"]:
+        queryset = queryset.filter(budget_plan_id__in=params["budget_plan_ids"])
+    if params["bank_account_id"] is not None:
+        queryset = queryset.filter(bank_account_id=params["bank_account_id"])
+    if params["direction"]:
+        queryset = queryset.filter(direction=params["direction"])
+    if params["agent"]:
+        agent = params["agent"]
+        if agent.startswith("coll_"):
+            queryset = queryset.filter(collaborator_id=agent.replace("coll_", ""))
+        elif agent.startswith("supp_"):
+            queryset = queryset.filter(supplier_id=agent.replace("supp_", ""))
+        elif agent.startswith("wo_"):
+            queryset = queryset.filter(workorder_id=agent.replace("wo_", ""))
+    if params["opened_by_id"] is not None:
+        queryset = queryset.filter(user_id=params["opened_by_id"])
+    if params["payment_method_id"] is not None:
+        queryset = queryset.filter(
+            Q(payment_method_id=params["payment_method_id"])
+            | Q(
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                workorder__isnull=False,
+                workorder__payments__payment_method_id=params["payment_method_id"],
+            )
+        ).distinct()
+    if params["reconciliation_status"]:
+        if params["reconciliation_status"] == "reconciled":
+            queryset = queryset.filter(is_reconciled=True)
+        elif params["reconciliation_status"] == "pending":
+            queryset = queryset.filter(is_reconciled=False)
+    if params["paid_status"]:
+        queryset = _apply_paid_status_filter_to_queryset(queryset, paid_status=params["paid_status"])
+    if params["search"]:
+        search_query = build_text_search_query(
+            search_value=params["search"],
+            lookups=(
+                "description",
+                "items_observation",
+                "financial_observation",
+                "nf_number",
+                "source__name",
+                "supplier__name",
+                "collaborator__name",
+                "budget_plan__name",
+                "bank_account__bank_name",
+                "workorder__budget__customer__name",
+            ),
+        )
+        search_query = search_query | Q(workorder__id__icontains=params["search"]) if search_query.children else Q(workorder__id__icontains=params["search"])
+        queryset = queryset.filter(search_query)
+    return queryset
 
 
 def build_financial_movement_base_queryset(*, request: HttpRequest, workshop: Any) -> QuerySet[FinancialMovement]:
@@ -154,8 +258,42 @@ def _resolve_workorder_description(workorder: object) -> str:
     return str(budget.problem_description or budget.notes or "-")
 
 
-def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], workshop: Any, start_date: date | None = None, end_date: date | None = None) -> list[dict[str, object]]:
+def _filter_payments_for_pdf(payments: list[object], *, filter_params: dict[str, Any], per_payment_movements: dict[int, FinancialMovement], workshop: Any) -> list[object]:
+    paid_status = filter_params.get("paid_status", "")
+    if paid_status == "unpaid":
+        return []
+
+    start_date = filter_params.get("start_date")
+    end_date = filter_params.get("end_date")
+    payment_method_id = filter_params.get("payment_method_id")
+    reconciliation_status = filter_params.get("reconciliation_status", "")
+
+    filtered: list[object] = []
+    for payment in payments:
+        payment_amount = getattr(payment, "total_paid", None) or Money(0, "BRL")
+        if payment_amount.amount <= 0:
+            continue
+        if start_date is not None and (payment.due_date is None or payment.due_date < start_date):
+            continue
+        if end_date is not None and (payment.due_date is None or payment.due_date > end_date):
+            continue
+        if payment_method_id is not None and getattr(payment, "payment_method_id", None) != payment_method_id:
+            continue
+        payment_movement = per_payment_movements.get(payment.pk)
+        if payment_movement is None:
+            continue
+        is_reconciled = bool(getattr(payment_movement, "is_reconciled", False))
+        if reconciliation_status == "reconciled" and not is_reconciled:
+            continue
+        if reconciliation_status == "pending" and is_reconciled:
+            continue
+        filtered.append(payment)
+    return filtered
+
+
+def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], workshop: Any, filter_params: dict[str, Any] | None = None) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
+    filter_params = filter_params or {}
 
     payment_pks: set[int] = set()
     for movement in movements:
@@ -178,14 +316,9 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
         workorder = getattr(movement, "workorder", None)
         if workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
             payments = list(workorder.payments.all())
-            for payment in payments:
+            filtered_payments = _filter_payments_for_pdf(payments, filter_params=filter_params, per_payment_movements=per_payment_movements, workshop=workshop)
+            for payment in filtered_payments:
                 payment_amount = getattr(payment, "total_paid", None) or Money(0, "BRL")
-                if payment_amount.amount <= 0:
-                    continue
-                if start_date is not None and (payment.due_date is None or payment.due_date < start_date):
-                    continue
-                if end_date is not None and (payment.due_date is None or payment.due_date > end_date):
-                    continue
                 payment_movement = per_payment_movements.get(payment.pk) or movement
                 rows.append(
                     {
@@ -245,19 +378,55 @@ def _build_financial_movement_filter_labels(*, request: HttpRequest, workshop: A
     if request.GET.get("data_inicial") or request.GET.get("data_final"):
         labels.append(f"Período: {_format_financial_movement_date_param(request.GET.get('data_inicial'))} até {_format_financial_movement_date_param(request.GET.get('data_final'))}")
 
+    direction = str(request.GET.get("direction") or "").strip()
+    if direction:
+        labels.append(f"Tipo: {'Contas a receber' if direction == 'CREDIT' else 'Contas a pagar'}")
+
+    paid_status = str(request.GET.get("paid_status") or "").strip()
+    if paid_status:
+        labels.append(f"Pagamento: {'Pagos' if paid_status == 'paid' else 'Não pagos'}")
+
+    reconciliation_status = str(request.GET.get("reconciliation_status") or "").strip()
+    if reconciliation_status:
+        labels.append(f"Conciliação: {'Conciliados' if reconciliation_status == 'reconciled' else 'Aguardando'}")
+
+    agent = str(request.GET.get("agent") or "").strip()
+    if agent:
+        if agent.startswith("coll_"):
+            coll = WorkshopCollaborator.objects.filter(pk=agent.replace("coll_", ""), workshop=workshop).first()
+            if coll:
+                labels.append(f"Colaborador: {coll.name}")
+        elif agent.startswith("supp_"):
+            supp = Supplier.objects.filter(pk=agent.replace("supp_", ""), workshop=workshop).first()
+            if supp:
+                labels.append(f"Fornecedor: {supp.name}")
+
+    payment_method_id = _parse_int_param(request.GET.get("payment_method"))
+    if payment_method_id is not None:
+        pm = PaymentMethod.objects.filter(pk=payment_method_id).first()
+        if pm:
+            labels.append(f"Forma Pagamento: {pm.description}")
+
+    bank_account_id = _parse_int_param(request.GET.get("bank_account"))
+    if bank_account_id is not None:
+        ba = BankAccount.objects.filter(pk=bank_account_id, workshop=workshop).first()
+        if ba:
+            labels.append(f"Conta: {ba}")
+
+    budget_plan_ids = [int(v) for v in request.GET.getlist("financial_groups") if str(v).strip()]
+    if budget_plan_ids:
+        plans = FinancialGroup.objects.filter(pk__in=budget_plan_ids, workshop=workshop)
+        labels.append(f"Planos: {', '.join(str(p) for p in plans)}")
+
     source_id = _get_financial_movement_selected_source_id(request)
     if source_id is not None:
         source = Source.objects.filter(workshop=workshop, pk=source_id).first()
         if source is not None:
             labels.append(f"Origem: {source.name}")
 
-    search_query = str(request.GET.get("q") or "").strip()
+    search_query = str(request.GET.get("search") or request.GET.get("q") or "").strip()
     if search_query:
         labels.append(f"Busca: {search_query}")
-
-    sort = str(request.GET.get("sort") or "").strip()
-    if sort:
-        labels.append(f"Ordenação: {sort}")
 
     return labels
 
@@ -291,6 +460,8 @@ def financial_movement_pdf(request: HttpRequest) -> HttpResponse:
     if not has_workshop_perm(user=request.user, workshop=workshop, app_label="finance", model="financialmovement", codename="view_financialmovement", request=request):
         raise PermissionDenied
 
+    filter_params = _parse_report_filter_params(request)
+
     queryset = (
         FinancialMovement.objects.filter(workshop=workshop)
         .filter(due_date__isnull=False)
@@ -298,16 +469,7 @@ def financial_movement_pdf(request: HttpRequest) -> HttpResponse:
         .exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder_payment__isnull=False)
     )
 
-    start_date = _parse_financial_movement_date_param(request.GET.get("data_inicial"))
-    end_date = _parse_financial_movement_date_param(request.GET.get("data_final"))
-    source_id = _get_financial_movement_selected_source_id(request)
-
-    if start_date is not None:
-        queryset = _apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__gte", value=start_date)
-    if end_date is not None:
-        queryset = _apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__lte", value=end_date)
-    if source_id is not None:
-        queryset = queryset.filter(source_id=source_id)
+    queryset = _apply_report_filters_to_queryset(queryset, params=filter_params)
 
     queryset = queryset.select_related(
         "source",
@@ -322,7 +484,7 @@ def financial_movement_pdf(request: HttpRequest) -> HttpResponse:
     ).prefetch_related("workorder__payments", "workorder__payments__payment_method")
     movements = list(queryset)
 
-    rows = _build_financial_movement_pdf_rows(movements=movements, workshop=workshop, start_date=start_date, end_date=end_date)
+    rows = _build_financial_movement_pdf_rows(movements=movements, workshop=workshop, filter_params=filter_params)
     totals = _build_financial_movement_pdf_totals(rows=rows)
     context = {
         "workshop": workshop,
