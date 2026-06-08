@@ -17,7 +17,9 @@ class DashboardMetrics:
     months: list[tuple[int, str]] = field(default_factory=list)
     years: list[int] = field(default_factory=list)
     cars_this_month: int = 0
+    cars_this_month_list: list[Any] = field(default_factory=list)
     warranty_courtesy_cars: int = 0
+    warranty_courtesy_cars_list: list[Any] = field(default_factory=list)
     average_ticket: Decimal = Decimal("0.00")
     projection: Decimal | None = None
     projection_warning: str = ""
@@ -51,7 +53,9 @@ class DashboardMetrics:
             "meses": self.months,
             "anos": self.years,
             "qtd_carros_mes": self.cars_this_month,
+            "qtd_carros_mes_lista": self.cars_this_month_list,
             "qtd_carros_garantia_cortesia_mes": self.warranty_courtesy_cars,
+            "qtd_carros_garantia_cortesia_mes_lista": self.warranty_courtesy_cars_list,
             "ticket_medio": self.average_ticket,
             "projecao": self.projection,
             "projecao_warning": self.projection_warning,

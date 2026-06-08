@@ -39,9 +39,43 @@
             <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(20%-19.2px)]">
                 <div class="stat-title text-base-content/70">Carros no Mês <p class="text-sm text-success font-semibold">Venda</p></div>
                 <div class="stat-value text-success mt-2 flex items-center gap-1">
-                    {{ qtd_carros_mes }}
-                    <a href="{% url 'core:dashboard_financial_report' %}?indicador=carros_mes&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}" target="_blank" class="btn btn-ghost btn-xs btn-circle text-base-content/30 hover:text-success" title="Visualizar relação">
-                        <span class="material-icons text-sm">visibility</span>
+                    <div class="dropdown dropdown-bottom dropdown-end" x-data="{ open: false }">
+                        <button tabindex="0" @click="open = !open" @click.outside="open = false" class="hover:opacity-70 transition-opacity cursor-pointer">
+                            {{ qtd_carros_mes }}
+                        </button>
+                        <div x-show="open" x-transition class="dropdown-content z-[100] mt-2 w-80 max-h-96 overflow-y-auto bg-base-100 shadow-xl rounded-box border border-base-200">
+                            <div class="p-3 border-b border-base-200">
+                                <p class="font-semibold text-sm">Todas as OSs de Venda</p>
+                                <p class="text-xs text-base-content/60">{{ qtd_carros_mes_lista|length }} registro(s)</p>
+                            </div>
+                            <div class="divide-y divide-base-200">
+                                {% for os in qtd_carros_mes_lista %}
+                                <div class="p-3 hover:bg-base-200/50">
+                                    <div class="flex justify-between items-start">
+                                        <div>
+                                            <p class="font-semibold text-sm">#{{ os.get_id }}</p>
+                                            <p class="text-xs text-base-content/70">{{ os.budget.customer|default:"-" }}</p>
+                                            <p class="text-xs text-base-content/60">{{ os.budget.vehicle|default:"-" }}</p>
+                                        </div>
+                                        <div class="text-right">
+                                            <p class="text-xs text-base-content/60">{{ os.delivered_at|date:"d/m/Y" }}</p>
+                                            <p class="text-sm font-semibold">{{ os.total_budget_value }}</p>
+                                            {% if os.budget.reference_budget %}
+                                            <span class="badge badge-xs badge-warning">Filha</span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                                {% empty %}
+                                <div class="p-4 text-center text-base-content/50 text-sm">
+                                    Nenhuma OS encontrada
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                    <a href="{% url 'core:dashboard_financial_report' %}?indicador=carros_mes&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}" target="_blank" class="flex items-center text-base-content/30 hover:text-success" title="Visualizar relação">
+                        <span class="material-icons" style="font-size: 14px;">visibility</span>
                     </a>
                 </div>
                 <div class="stat-desc">Veículos entregues</div>
@@ -50,9 +84,43 @@
             <div class="stat bg-base-100 shadow rounded-box w-full md:w-[calc(50%-12px)] lg:w-[calc(20%-19.2px)]">
                 <div class="stat-title text-base-content/70">Garantia + Cortesia <p class="text-sm text-error font-semibold">Não faturado</p></div>
                 <div class="stat-value text-error mt-2 flex items-center gap-1">
-                    {{ qtd_carros_garantia_cortesia_mes }}
-                    <a href="{% url 'core:dashboard_financial_report' %}?indicador=garantia_cortesia_mes&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}" target="_blank" class="btn btn-ghost btn-xs btn-circle text-base-content/30 hover:text-error" title="Visualizar relação">
-                        <span class="material-icons text-sm">visibility</span>
+                    <div class="dropdown dropdown-bottom dropdown-end" x-data="{ open: false }">
+                        <button tabindex="0" @click="open = !open" @click.outside="open = false" class="hover:opacity-70 transition-opacity cursor-pointer">
+                            {{ qtd_carros_garantia_cortesia_mes }}
+                        </button>
+                        <div x-show="open" x-transition class="dropdown-content z-[100] mt-2 w-80 max-h-96 overflow-y-auto bg-base-100 shadow-xl rounded-box border border-base-200">
+                            <div class="p-3 border-b border-base-200">
+                                <p class="font-semibold text-sm">Todas as OSs de Garantia/Cortesia</p>
+                                <p class="text-xs text-base-content/60">{{ qtd_carros_garantia_cortesia_mes_lista|length }} registro(s)</p>
+                            </div>
+                            <div class="divide-y divide-base-200">
+                                {% for os in qtd_carros_garantia_cortesia_mes_lista %}
+                                <div class="p-3 hover:bg-base-200/50">
+                                    <div class="flex justify-between items-start">
+                                        <div>
+                                            <p class="font-semibold text-sm">#{{ os.get_id }}</p>
+                                            <p class="text-xs text-base-content/70">{{ os.budget.customer|default:"-" }}</p>
+                                            <p class="text-xs text-base-content/60">{{ os.budget.vehicle|default:"-" }}</p>
+                                        </div>
+                                        <div class="text-right">
+                                            <p class="text-xs text-base-content/60">{{ os.delivered_at|date:"d/m/Y" }}</p>
+                                            <p class="text-sm font-semibold">{{ os.total_budget_value }}</p>
+                                            {% if os.budget.reference_budget %}
+                                            <span class="badge badge-xs badge-warning">Filha</span>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                                {% empty %}
+                                <div class="p-4 text-center text-base-content/50 text-sm">
+                                    Nenhuma OS encontrada
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                    <a href="{% url 'core:dashboard_financial_report' %}?indicador=garantia_cortesia_mes&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}" target="_blank" class="flex items-center text-base-content/30 hover:text-error" title="Visualizar relação">
+                        <span class="material-icons" style="font-size: 14px;">visibility</span>
                     </a>
                 </div>
                 <div class="stat-desc">Veículos do mês</div>
@@ -138,8 +206,8 @@
                                 <span class="text-sm font-semibold text-success text-base-content/70">Total A Receber (Em Execução)</span>
                                 <div class="flex items-center gap-1">
                                     <span class="font-bold text-success">R$ {{ total_geral_os_a_receber_em_execucao|floatformat:2 }}</span>
-                                    <a href="{% url 'core:dashboard_financial_report' %}?indicador=a_receber_em_execucao&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}" target="_blank" class="btn btn-ghost btn-xs btn-circle text-base-content/50 hover:text-success" title="Visualizar relação">
-                                        <span class="material-icons text-sm">visibility</span>
+                                    <a href="{% url 'core:dashboard_financial_report' %}?indicador=a_receber_em_execucao&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}" target="_blank" class="flex items-center text-base-content/50 hover:text-success" title="Visualizar relação">
+                                        <span class="material-icons" style="font-size: 14px;">visibility</span>
                                     </a>
                                 </div>
                             </div>
@@ -148,8 +216,8 @@
                                     <span class="text-xs text-base-content/60">Mês Atual</span>
                                     <div class="flex items-center gap-1">
                                         <span class="text-xs font-semibold">R$ {{ total_mensal_os_a_receber_em_execucao|floatformat:2 }}</span>
-                                        <a href="{% url 'core:dashboard_financial_report' %}?indicador=a_receber_mes_atual&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}" target="_blank" class="btn btn-ghost btn-xs btn-circle text-base-content/50 hover:text-success" title="Visualizar relação">
-                                            <span class="material-icons text-sm">visibility</span>
+                                        <a href="{% url 'core:dashboard_financial_report' %}?indicador=a_receber_mes_atual&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}" target="_blank" class="flex items-center text-base-content/50 hover:text-success" title="Visualizar relação">
+                                            <span class="material-icons" style="font-size: 14px;">visibility</span>
                                         </a>
                                     </div>
                                 </div>
@@ -157,8 +225,8 @@
                                     <span class="text-xs text-base-content/60">Meses Anteriores</span>
                                     <div class="flex items-center gap-1">
                                         <span class="text-xs font-semibold">R$ {{ total_meses_anteriores_os_a_receber_em_execucao|floatformat:2 }}</span>
-                                        <a href="{% url 'core:dashboard_financial_report' %}?indicador=a_receber_meses_anteriores&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}" target="_blank" class="btn btn-ghost btn-xs btn-circle text-base-content/50 hover:text-success" title="Visualizar relação">
-                                            <span class="material-icons text-sm">visibility</span>
+                                        <a href="{% url 'core:dashboard_financial_report' %}?indicador=a_receber_meses_anteriores&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}" target="_blank" class="flex items-center text-base-content/50 hover:text-success" title="Visualizar relação">
+                                            <span class="material-icons" style="font-size: 14px;">visibility</span>
                                         </a>
                                     </div>
                                 </div>
@@ -170,8 +238,8 @@
                                 <span class="text-sm font-semibold text-warning">Total Aguardando Aprovação</span>
                                 <div class="flex items-center gap-1">
                                     <span class="font-bold text-warning">R$ {{ total_geral_orcamentos_aguardando_aprovacao|floatformat:2 }}</span>
-                                    <a href="{% url 'core:dashboard_financial_report' %}?indicador=aguardando_aprovacao&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}" target="_blank" class="btn btn-ghost btn-xs btn-circle text-base-content/50 hover:text-warning" title="Visualizar relação">
-                                        <span class="material-icons text-sm">visibility</span>
+                                    <a href="{% url 'core:dashboard_financial_report' %}?indicador=aguardando_aprovacao&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}" target="_blank" class="flex items-center text-base-content/50 hover:text-warning" title="Visualizar relação">
+                                        <span class="material-icons" style="font-size: 14px;">visibility</span>
                                     </a>
                                 </div>
                             </div>
@@ -180,8 +248,8 @@
                                     <span class="text-xs text-base-content/60">Mês Atual</span>
                                     <div class="flex items-center gap-1">
                                         <span class="text-xs font-semibold">R$ {{ total_mensal_orcamentos_aguardando_aprovacao|floatformat:2 }}</span>
-                                        <a href="{% url 'core:dashboard_financial_report' %}?indicador=aguardando_aprovacao_mes_atual&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}" target="_blank" class="btn btn-ghost btn-xs btn-circle text-base-content/50 hover:text-warning" title="Visualizar relação">
-                                            <span class="material-icons text-sm">visibility</span>
+                                        <a href="{% url 'core:dashboard_financial_report' %}?indicador=aguardando_aprovacao_mes_atual&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}" target="_blank" class="flex items-center text-base-content/50 hover:text-warning" title="Visualizar relação">
+                                            <span class="material-icons" style="font-size: 14px;">visibility</span>
                                         </a>
                                     </div>
                                 </div>
@@ -189,8 +257,8 @@
                                     <span class="text-xs text-base-content/60">Meses Anteriores</span>
                                     <div class="flex items-center gap-1">
                                         <span class="text-xs font-semibold">R$ {{ total_meses_anteriores_orcamentos_aguardando_aprovacao|floatformat:2 }}</span>
-                                        <a href="{% url 'core:dashboard_financial_report' %}?indicador=aguardando_aprovacao_meses_anteriores&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}" target="_blank" class="btn btn-ghost btn-xs btn-circle text-base-content/50 hover:text-warning" title="Visualizar relação">
-                                            <span class="material-icons text-sm">visibility</span>
+                                        <a href="{% url 'core:dashboard_financial_report' %}?indicador=aguardando_aprovacao_meses_anteriores&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}" target="_blank" class="flex items-center text-base-content/50 hover:text-warning" title="Visualizar relação">
+                                            <span class="material-icons" style="font-size: 14px;">visibility</span>
                                         </a>
                                     </div>
                                 </div>
@@ -201,8 +269,8 @@
                             <span class="text-sm font-semibold">Total Reprovados (mês selecionado)</span>
                             <div class="flex items-center gap-1">
                                 <span class="font-bold">R$ {{ total_orcamentos_reprovados|floatformat:2 }}</span>
-                                <a href="{% url 'core:dashboard_financial_report' %}?indicador=reprovados&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}" target="_blank" class="btn btn-ghost btn-xs btn-circle text-base-content/50 hover:text-error" title="Visualizar relação">
-                                    <span class="material-icons text-sm">visibility</span>
+                                <a href="{% url 'core:dashboard_financial_report' %}?indicador=reprovados&mes={{ mes_selecionado }}&ano={{ ano_selecionado }}" target="_blank" class="flex items-center text-base-content/50 hover:text-error" title="Visualizar relação">
+                                    <span class="material-icons" style="font-size: 14px;">visibility</span>
                                 </a>
                             </div>
                         </div>
