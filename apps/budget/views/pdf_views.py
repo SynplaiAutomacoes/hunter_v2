@@ -28,7 +28,7 @@ BASE_PDF_VARIANT = "base"
 @xframe_options_exempt
 def visualizar_pdf(request, pk):
     workshop = get_active_workshop_or_404(request)
-    budget = get_object_or_404(Budget, pk=pk, workshop=workshop)
+    budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle", "workshop"), pk=pk, workshop=workshop)
     context = build_budget_pdf_context(budget=budget, request=request, zero_warranty_prices=True, presentation="selected_items")
 
     return render(request, "budget/partials/pdf/visualizarPDF.html", context)
@@ -37,7 +37,7 @@ def visualizar_pdf(request, pk):
 @xframe_options_exempt
 def visualizar_pdf_gestor(request, pk):
     workshop = get_active_workshop_or_404(request)
-    budget = get_object_or_404(Budget, pk=pk, workshop=workshop)
+    budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle", "workshop"), pk=pk, workshop=workshop)
     context = build_budget_pdf_context(budget=budget, request=request)
 
     return render(request, "budget/partials/pdf/visualizarPDFGestor.html", context)
@@ -46,7 +46,7 @@ def visualizar_pdf_gestor(request, pk):
 @xframe_options_exempt
 def visualizar_pdf_mecanico(request, pk):
     workshop = get_active_workshop_or_404(request)
-    budget = get_object_or_404(Budget, pk=pk, workshop=workshop)
+    budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle", "workshop"), pk=pk, workshop=workshop)
     context = build_budget_pdf_context(budget=budget, request=request)
 
     return render(request, "budget/partials/pdf/visualizarPDFMecanico.html", context)
