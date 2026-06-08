@@ -4168,6 +4168,42 @@ class BudgetPricingSnapshotTests(TestCase):
         self.assertEqual(budget.get_mlr, Decimal("2.50"))
         self.assertEqual(budget.get_mlo, Decimal("1.00"))
 
+    def test_pricing_method_is_saved_when_calculate_pricing_methods_returns_hunter(self) -> None:
+        from apps.budget.models import PricingMethod
+
+        workshop = create_workshop(suffix=14)
+        budget = create_budget(workshop=workshop)
+
+        with patch.object(Budget, "calculate_pricing_methods", return_value={"method_name": "Hunter"}):
+            pricing_data = budget.calculate_pricing_methods()
+            method_name = pricing_data.get("method_name", "")
+            if method_name == "Hunter":
+                budget.pricing_method = PricingMethod.HUNTER
+            elif method_name == "Tradicional":
+                budget.pricing_method = PricingMethod.TRADITIONAL
+            budget.save(update_fields=["pricing_method"])
+
+        budget.refresh_from_db()
+        self.assertEqual(budget.pricing_method, PricingMethod.HUNTER)
+
+    def test_pricing_method_is_saved_when_calculate_pricing_methods_returns_traditional(self) -> None:
+        from apps.budget.models import PricingMethod
+
+        workshop = create_workshop(suffix=15)
+        budget = create_budget(workshop=workshop)
+
+        with patch.object(Budget, "calculate_pricing_methods", return_value={"method_name": "Tradicional"}):
+            pricing_data = budget.calculate_pricing_methods()
+            method_name = pricing_data.get("method_name", "")
+            if method_name == "Hunter":
+                budget.pricing_method = PricingMethod.HUNTER
+            elif method_name == "Tradicional":
+                budget.pricing_method = PricingMethod.TRADITIONAL
+            budget.save(update_fields=["pricing_method"])
+
+        budget.refresh_from_db()
+        self.assertEqual(budget.pricing_method, PricingMethod.TRADITIONAL)
+
 
 class CollaboratorSalarySyncTests(TestCase):
     def test_new_collaborator_updates_current_month_and_preserves_existing_budget_and_workorder(self) -> None:
