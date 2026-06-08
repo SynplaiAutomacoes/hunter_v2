@@ -11,7 +11,7 @@ from djmoney.money import Money
 
 from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
-from apps.core.search import apply_text_search
+from apps.core.infrastructure.search import apply_text_search
 from apps.workshops.models.workshop_costs import WorkshopCost
 
 

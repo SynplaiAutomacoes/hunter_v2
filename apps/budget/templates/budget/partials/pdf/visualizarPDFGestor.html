@@ -1,246 +1,380 @@
 {% load format_tags %}
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-BR">
-<head>
+  <head>
     <meta charset="utf-8" />
     <script src="https://cdn.tailwindcss.com"></script>
     <title>Orçamento de O.S. - Visão Gestor</title>
     <style>
-        @page { size: A4; margin: 0; }
+      @page {
+        size: A4;
+        margin: 0;
+      }
 
-        .workshop-header-main {
-            display: grid;
-            grid-template-columns: 100px minmax(0, 1fr);
-            column-gap: 12px;
-            align-items: start;
-        }
+      .workshop-header-main {
+        display: grid;
+        grid-template-columns: 100px minmax(0, 1fr);
+        column-gap: 12px;
+        align-items: start;
+      }
 
-        .workshop-header-main.no-logo {
-            grid-template-columns: minmax(0, 1fr);
-        }
+      .workshop-header-main.no-logo {
+        grid-template-columns: minmax(0, 1fr);
+      }
 
-        .workshop-logo-box {
-            width: 120px;
-            max-width: 120px;
-            height: 65px;
-            max-height: 65px;
-            overflow: hidden;
-        }
+      .workshop-logo-box {
+        width: 120px;
+        max-width: 120px;
+        height: 65px;
+        max-height: 65px;
+        overflow: hidden;
+      }
 
-        .workshop-logo-image {
-            display: block;
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            object-position: left top;
-        }
+      .workshop-logo-image {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        object-position: left top;
+      }
 
-        @media print {
-            body { background-color: white !important; padding: 0 !important; }
-            #pdf-content { border: none !important; box-shadow: none !important; }
+      @media print {
+        body {
+          background-color: white !important;
+          padding: 0 !important;
         }
+        #pdf-content {
+          border: none !important;
+          box-shadow: none !important;
+        }
+      }
     </style>
-</head>
-<body class="bg-gray-100 p-5 font-sans text-[11px] leading-tight">
+  </head>
+  <body class="bg-gray-100 p-5 font-sans text-[11px] leading-tight">
+    <div
+      id="pdf-content"
+      class="max-w-[210mm] mx-auto bg-white border border-gray-200 rounded-lg shadow-sm p-4 text-[13px]"
+    >
+      <div
+        class="flex justify-between items-start p-4 border-b border-gray-200 gap-3"
+      >
+        <div
+          class="flex-1 min-w-0 pr-4 workshop-header-main{% if not workshop_logo_data_uri %} no-logo{% endif %}"
+        >
+          {% if workshop_logo_data_uri %}
+          <div class="workshop-logo-box">
+            <img
+              src="{{ workshop_logo_data_uri }}"
+              alt="Logo da oficina"
+              class="workshop-logo-image"
+            />
+          </div>
+          {% endif %}
 
-    <div id="pdf-content" class="max-w-[210mm] mx-auto bg-white border border-gray-200 rounded-lg shadow-sm p-4 text-[13px]">
+          <div class="min-w-0">
+            <h3 class="text-[18px] font-bold uppercase m-0">
+              {{ budget.workshop.name }}
+            </h3>
+            <p>CNPJ: {{ budget.workshop.cnpj|cnpj_br|default:"-" }}</p>
+            <p>{{ budget.workshop.address|default:"-" }}</p>
+            <p>Fone: {{ budget.workshop.pdf_phone|phone_br|default:"-" }}</p>
+          </div>
+        </div>
+        <div class="text-right">
+          <h4 class="font-bold">ORDEM DE SERVIÇO</h4>
+          <p class="text-2xl font-bold leading-none m-0">#{{ budget.id }}</p>
+          {% if is_warranty_or_courtesy %}
+          <div
+            class="mt-2 inline-block rounded border border-amber-400 bg-amber-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-900"
+          >
+            Orçamento de Garantia
+          </div>
+          {% endif %}
+        </div>
+      </div>
 
-        <div class="flex justify-between items-start p-4 border-b border-gray-200 gap-3">
-            <div class="flex-1 min-w-0 pr-4 workshop-header-main{% if not workshop_logo_data_uri %} no-logo{% endif %}">
-                {% if workshop_logo_data_uri %}
-                <div class="workshop-logo-box">
-                    <img src="{{ workshop_logo_data_uri }}" alt="Logo da oficina" class="workshop-logo-image" />
-                </div>
-                {% endif %}
+      <div class="grid grid-cols-2 gap-4 p-4 border-b border-gray-200">
+        <div>
+          <h4 class="font-bold mb-2 uppercase">Cliente</h4>
+          <div class="grid grid-cols-2 gap-x-4 gap-y-1">
+            <p>
+              <span class="text-gray-500">Nome:</span> {{
+              budget.customer.name|default:budget.customer }}
+            </p>
+            <p>
+              <span class="text-gray-500">CPF/CNPJ:</span> {{
+              budget.customer.cpf_or_cnpj|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Telefone:</span> {{
+              budget.customer.phone|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Email:</span> {{
+              budget.customer.email|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Bairro:</span> {{
+              budget.customer.bairro|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Cidade:</span> {{
+              budget.customer.cidade|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Endereço:</span> {{
+              budget.customer.estado|default:"-" }}, {{
+              budget.customer.logradouro|default:"-" }},{{
+              budget.customer.numero|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">CEP:</span> {{
+              budget.customer.cep|default:"-" }}
+            </p>
+          </div>
+        </div>
+        <div>
+          <h4 class="font-bold mb-2 uppercase">Veículo</h4>
+          <div class="grid grid-cols-2 gap-x-4 gap-y-1">
+            <p>
+              <span class="text-gray-500">Placa:</span> {{ budget.vehicle.plate
+              }}
+            </p>
+            <p>
+              <span class="text-gray-500">Marca:</span> {{ budget.vehicle.brand
+              }}
+            </p>
+            <p>
+              <span class="text-gray-500">Modelo:</span> {{
+              budget.vehicle.model|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Motor:</span> {{
+              budget.vehicle.engine|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Combustível:</span> {{
+              budget.vehicle.fuel|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Ano/Mod:</span> {{
+              budget.vehicle.year_model|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Ano/Fab:</span> {{
+              budget.vehicle.year_fabrication|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Cor:</span> {{
+              budget.vehicle.color|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Km-E:</span> {{
+              budget.current_km|default:"-" }}
+            </p>
+          </div>
+        </div>
+      </div>
 
-                <div class="min-w-0">
-                    <h3 class="text-[18px] font-bold uppercase m-0">{{ budget.workshop.name }}</h3>
-                    <p>CNPJ: {{ budget.workshop.cnpj|cnpj_br|default:"-" }}</p>
-                    <p>{{ budget.workshop.address|default:"-" }}</p>
-                    <p>Fone: {{ budget.workshop.pdf_phone|phone_br|default:"-" }}</p>
-                </div>
-            </div>
-            <div class="text-right">
-                <h4 class="font-bold">ORDEM DE SERVIÇO</h4>
-                <p class="text-2xl font-bold leading-none m-0">#{{ budget.id }}</p>
-                {% if is_warranty_or_courtesy %}
-                <div class="mt-2 inline-block rounded border border-amber-400 bg-amber-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-900">
-                    Orçamento de Garantia
-                </div>
-                {% endif %}
-            </div>
+      <div class="p-4 border-b border-gray-200">
+        <h4 class="font-bold mb-2 uppercase">Reclamações/Problemas</h4>
+        <p>
+          <span class="text-gray-500 italic">Relato principal do cliente:</span>
+          {{ budget.problem_description|default:"Não informado." }}
+        </p>
+        <p>
+          <span class="text-gray-500 italic">Observações da Oficina:</span> {{
+          budget.technical_diagnosis|default:"Não informado." }}
+        </p>
+      </div>
+
+      <div class="p-3 border-b border-gray-200">
+        <h4 class="font-bold mb-1 uppercase">Produtos</h4>
+        <table
+          class="w-full text-left border-collapse text-[10px] mt-1 leading-tight"
+        >
+          <thead>
+            <tr class="bg-gray-100 border-b-2 border-gray-200">
+              <th class="p-1 font-semibold">Descrição</th>
+              <th class="p-1 font-semibold text-center">Quantidade</th>
+              <th
+                class="p-1 font-semibold text-center whitespace-normal leading-tight"
+              >
+                Fornecido pelo cliente?
+              </th>
+              <th class="p-1 font-semibold text-center">Valor Unitário</th>
+              <th class="p-1 font-semibold text-center">Frete</th>
+              <th class="p-1 font-semibold text-center">Total</th>
+              <th class="p-1 font-semibold text-center">Custo</th>
+              <th class="p-1 font-semibold text-center">Lucro</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in produtos %}
+            <tr class="border-b border-gray-100">
+              <td class="p-1">{{ p.description }}</td>
+              <td class="p-1 text-center">{{ p.quantity }}</td>
+              <td class="p-1 text-center">
+                {% if p.is_customer_supplied %}Sim{% else %}Não{% endif %}
+              </td>
+              <td class="p-1 text-center">{{ p.adjusted_unit_price }}</td>
+              <td class="p-1 text-center">{{ p.shipping }}</td>
+              <td class="p-1 text-center font-medium">{{ p.total_price }}</td>
+              <td class="p-1 text-center font-bold">
+                {{ p.product_cost_price }}
+              </td>
+              <td class="p-1 text-center font-bold">{{ p.profit_value }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <div class="flex justify-end gap-4 mt-1 text-[11px] font-semibold">
+          <div class="font-bold">
+            Total Custos: {{ budget.total_costs_products_value }}
+          </div>
+          <div class="font-bold">
+            Total Lucro: {{ total_profit_product_value }}
+          </div>
+        </div>
+      </div>
+
+      <div class="p-3 border-b border-gray-200">
+        <h4 class="font-bold mb-1 uppercase">Serviços</h4>
+        <table
+          class="w-full table-fixed text-left border-collapse text-[10px] mt-1 leading-tight"
+        >
+          <colgroup>
+            <col class="w-[31%]" />
+            <col class="w-[8%]" />
+            <col class="w-[13%]" />
+            <col class="w-[13%]" />
+            <col class="w-[10%]" />
+            <col class="w-[13%]" />
+            <col class="w-[12%]" />
+          </colgroup>
+          <thead>
+            <tr class="bg-gray-100 border-b-2 border-gray-200">
+              <th class="p-1 font-semibold">Descrição</th>
+              <th class="p-1 font-semibold text-center">Quantidade</th>
+              <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">Valor de Venda</th>
+              <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">Valor Total</th>
+              <th class="p-1 px-2 font-semibold text-center whitespace-nowrap">Tempo</th>
+              <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">Custo/Mecânico</th>
+              <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">Lucro</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for s in servicos %}
+            <tr class="border-b border-gray-100">
+              <td class="p-1">{{ s.description }}</td>
+              <td class="p-1 text-center">{{ s.quantity }}</td>
+              <td class="p-1 px-2 text-right whitespace-nowrap">{{ s.unit_price }}</td>
+              <td class="p-1 px-2 text-right whitespace-nowrap">{{ s.total_price }}</td>
+              <td class="p-1 px-2 text-center whitespace-nowrap">{{ s.duration_display }}</td>
+              <td class="p-1 px-2 text-right font-bold whitespace-nowrap">
+                {{ s.service_mechanic_cost_price }}
+              </td>
+              <td class="p-1 px-2 text-right font-bold whitespace-nowrap">{{ s.profit_value }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <div class="flex justify-end gap-4 mt-1 text-[11px] font-semibold">
+          <div class="font-bold">
+            Total Custos: {{ total_services_mechanic_cost_value }}
+          </div>
+          <div class="font-bold">
+            Total Lucro: {{ total_profit_service_value }}
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-8 p-4">
+        <div class="flex flex-col gap-3">
+          <div
+            class="bg-gray-50 p-4 rounded-lg shadow-inner border border-gray-200"
+          >
+            <p
+              class="text-[10px] font-bold uppercase tracking-wide text-gray-500"
+            >
+              CÁLCULO MARKUP
+            </p>
+            <p class="text-[26px] font-bold leading-none mt-2 text-gray-900">
+              {{ soma_markup_display }}
+            </p>
+            <p class="text-[10px] text-gray-500 mt-2">
+              Total do orçamento dividido pelo custo de peças e serviços.
+            </p>
+          </div>
+
+          {% if not budget.is_warranty_budget and budget.rentability < 60 %}
+          <div
+            class="bg-red-50 border border-red-200 text-red-700 p-3 rounded-md"
+          >
+            <p class="font-bold uppercase text-[10px]">
+              ⚠️ Alerta de Baixa Rentabilidade
+            </p>
+            <p>
+              O orçamento está com lucratividade baixa. Rever valor de venda de
+              peças e serviços.
+            </p>
+          </div>
+          {% endif %}
         </div>
 
-        <div class="grid grid-cols-2 gap-4 p-4 border-b border-gray-200">
-            <div>
-                <h4 class="font-bold mb-2 uppercase">Cliente</h4>
-                <div class="grid grid-cols-2 gap-x-4 gap-y-1">
-                    <p><span class="text-gray-500">Nome:</span> {{ budget.customer.name|default:budget.customer }}</p>
-                    <p><span class="text-gray-500">CPF/CNPJ:</span> {{ budget.customer.cpf_or_cnpj|default:"-" }}</p>
-                    <p><span class="text-gray-500">Telefone:</span> {{ budget.customer.phone|default:"-" }}</p>
-                    <p><span class="text-gray-500">Email:</span> {{ budget.customer.email|default:"-" }}</p>
-                    <p><span class="text-gray-500">Bairro:</span> {{ budget.customer.bairro|default:"-" }}</p>
-                    <p><span class="text-gray-500">Cidade:</span> {{ budget.customer.cidade|default:"-" }}</p>
-                    <p><span class="text-gray-500">Endereço:</span> {{ budget.customer.estado|default:"-" }}, {{ budget.customer.logradouro|default:"-" }},{{ budget.customer.numero|default:"-" }}</p>
-                    <p><span class="text-gray-500">CEP:</span> {{ budget.customer.cep|default:"-" }}</p>
-                </div>
-            </div>
-            <div>
-                <h4 class="font-bold mb-2 uppercase">Veículo</h4>
-                <div class="grid grid-cols-2 gap-x-4 gap-y-1">
-                    <p><span class="text-gray-500">Placa:</span> {{ budget.vehicle.plate }}</p>
-                    <p><span class="text-gray-500">Marca:</span> {{ budget.vehicle.brand }}</p>
-                    <p><span class="text-gray-500">Modelo:</span> {{ budget.vehicle.model|default:"-" }}</p>
-                    <p><span class="text-gray-500">Motor:</span> {{ budget.vehicle.engine|default:"-" }}</p>
-                    <p><span class="text-gray-500">Combustível:</span> {{ budget.vehicle.fuel|default:"-" }}</p>
-                    <p><span class="text-gray-500">Ano/Mod:</span> {{ budget.vehicle.year_model|default:"-" }}</p>
-                    <p><span class="text-gray-500">Ano/Fab:</span> {{ budget.vehicle.year_fabrication|default:"-" }}</p>
-                    <p><span class="text-gray-500">Cor:</span> {{ budget.vehicle.color|default:"-" }}</p>
-                    <p><span class="text-gray-500">Km-E:</span> {{ budget.current_km|default:"-" }}</p>
-                </div>
-            </div>
+        <div class="bg-gray-50 p-4 rounded-lg shadow-inner">
+          <div class="flex justify-between mb-1 text-gray-600">
+            <span>Total de Produtos:</span>
+            <span>{{ total_produtos }}</span>
+          </div>
+          <div class="flex justify-between mb-1 text-gray-600">
+            <span>Total de Serviços:</span>
+            <span>{{ total_servicos }}</span>
+          </div>
+          <div class="flex justify-between mb-1 text-red-500">
+            <span>Desconto Concedido:</span>
+            <span>- {{ desconto }}</span>
+          </div>
+
+          <hr class="my-2 border-gray-300" />
+
+          <div
+            class="flex justify-between mb-1 font-bold {% if budget.is_warranty_budget %} text-gray-600 {% elif budget.rentability < 60 %} text-red-600 {% elif budget.rentability >= 60 and budget.rentability < 70 %} text-orange-500 {% else %} text-green-600 {% endif %}"
+          >
+            <span>Rentabilidade:</span>
+            <span>{% if budget.is_warranty_budget %}0%{% else %}{{ budget.rentability }}%{% endif %}</span>
+          </div>
+          <div
+            class="flex justify-between font-bold text-[18px] mt-2 pt-2 border-t-2 border-gray-400 text-gray-900"
+          >
+            <span>TOTAL GERAL:</span>
+            <span>{{ total_geral }}</span>
+          </div>
         </div>
+      </div>
 
-        <div class="p-4 border-b border-gray-200">
-            <h4 class="font-bold mb-2 uppercase">Reclamações/Problemas</h4>
-            <p><span class="text-gray-500 italic">Relato principal do cliente:</span> {{ budget.problem_description|default:"Não informado." }}</p>
-            <p><span class="text-gray-500 italic">Observações da Oficina:</span> {{ budget.technical_diagnosis|default:"Não informado." }}</p>
-        </div>
+      {% if is_warranty_or_courtesy and warranty_message %}
+      <div
+        class="mx-4 mb-4 p-3 border border-red-300 bg-red-50 rounded-md text-red-700 text-center font-bold text-[12px]"
+      >
+        {{ warranty_message }}
+      </div>
+      {% endif %}
 
-        <div class="p-3 border-b border-gray-200">
-            <h4 class="font-bold mb-1 uppercase">Produtos</h4>
-            <table class="w-full text-left border-collapse text-[10px] mt-1 leading-tight">
-                <thead>
-                    <tr class="bg-gray-100 border-b-2 border-gray-200">
-                        <th class="p-1 font-semibold">Descrição</th>
-                        <th class="p-1 font-semibold text-center">Quantidade</th>
-                        <th class="p-1 font-semibold text-center whitespace-normal leading-tight">Fornecido pelo cliente?</th>
-                        <th class="p-1 font-semibold text-center">Valor Unitário</th>
-                        <th class="p-1 font-semibold text-center">Frete</th>
-                        <th class="p-1 font-semibold text-center">Total</th>
-                        <th class="p-1 font-semibold text-center">Custo</th>
-                        <th class="p-1 font-semibold text-center">Lucro</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for p in produtos %}
-                    <tr class="border-b border-gray-100">
-                        <td class="p-1">{{ p.description }}</td>
-                        <td class="p-1 text-center">{{ p.quantity }}</td>
-                        <td class="p-1 text-center">{% if p.is_customer_supplied %}Sim{% else %}Não{% endif %}</td>
-                        <td class="p-1 text-center">{{ p.adjusted_unit_price }}</td>
-                        <td class="p-1 text-center">{{ p.shipping }}</td>
-                        <td class="p-1 text-center font-medium">{{ p.total_price }}</td>
-                        <td class="p-1 text-center font-bold">{{ p.product_cost_price }}</td>
-                        <td class="p-1 text-center font-bold">{{ p.profit_value }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            <div class="flex justify-end gap-4 mt-1 text-[11px] font-semibold">
-                <div class="font-bold">Total Custos: {{ budget.total_costs_products_value }}</div>
-                <div class="font-bold">Total Lucro: {{ total_profit_product_value }}</div>
-            </div>
-        </div>
-
-        <div class="p-3 border-b border-gray-200">
-            <h4 class="font-bold mb-1 uppercase">Serviços</h4>
-            <table class="w-full text-left border-collapse text-[10px] mt-1 leading-tight">
-                <thead>
-                    <tr class="bg-gray-100 border-b-2 border-gray-200">
-                        <th class="p-1 font-semibold">Descrição</th>
-                        <th class="p-1 font-semibold text-center">Quantidade</th>
-                        <th class="p-1 font-semibold text-right">Valor de Venda</th>
-                        <th class="p-1 font-semibold text-right">Valor Total</th>
-                        <th class="p-1 font-semibold text-center">Tempo</th>
-                        <th class="p-1 font-semibold text-right">Custo/Mecânico</th>
-                        <th class="p-1 font-semibold text-right">Lucro</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for s in servicos %}
-                    <tr class="border-b border-gray-100">
-                        <td class="p-1">{{ s.description }}</td>
-                        <td class="p-1 text-center">{{ s.quantity }}</td>
-                        <td class="p-1 text-right">{{ s.unit_price }}</td>
-                        <td class="p-1 text-right">{{ s.total_price }}</td>
-                        <td class="p-1 text-center">{{ s.duration_display }}</td>
-                        <td class="p-1 text-right font-bold">{{ s.service_mechanic_cost_price }}</td>
-                        <td class="p-1 text-right font-bold">{{ s.profit_value }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            <div class="flex justify-end gap-4 mt-1 text-[11px] font-semibold">
-                <div class="font-bold">Total Custos: {{ total_services_mechanic_cost_value }}</div>
-                <div class="font-bold">Total Lucro: {{ total_profit_service_value }}</div>
-            </div>
-        </div>
-
-        <div class="grid grid-cols-2 gap-8 p-4">
-            <div class="flex flex-col gap-3">
-                <div class="bg-gray-50 p-4 rounded-lg shadow-inner border border-gray-200">
-                    <p class="text-[10px] font-bold uppercase tracking-wide text-gray-500">CÁLCULO MARKUP</p>
-                    <p class="text-[26px] font-bold leading-none mt-2 text-gray-900">{{ soma_markup_display }}</p>
-                    <p class="text-[10px] text-gray-500 mt-2">Total do orçamento dividido pelo custo de peças e serviços.</p>
-                </div>
-
-                {% if not budget.is_warranty_budget and budget.rentability < 60 %}
-                <div class="bg-red-50 border border-red-200 text-red-700 p-3 rounded-md">
-                    <p class="font-bold uppercase text-[10px]">⚠️ Alerta de Baixa Rentabilidade</p>
-                    <p>O orçamento está com lucratividade baixa. Rever valor de venda de peças e serviços.</p>
-                </div>
-                {% endif %}
-            </div>
-
-            <div class="bg-gray-50 p-4 rounded-lg shadow-inner">
-                <div class="flex justify-between mb-1 text-gray-600">
-                    <span>Total de Produtos:</span>
-                    <span>{{ total_produtos }}</span>
-                </div>
-                <div class="flex justify-between mb-1 text-gray-600">
-                    <span>Total de Serviços:</span>
-                    <span>{{ total_servicos }}</span>
-                </div>
-                <div class="flex justify-between mb-1 text-red-500">
-                    <span>Desconto Concedido:</span>
-                    <span>- {{ desconto }}</span>
-                </div>
-
-                <hr class="my-2 border-gray-300">
-
-                <div class="flex justify-between mb-1 font-bold
-                    {% if budget.is_warranty_budget %}
-                        text-gray-600
-                    {% elif budget.rentability < 60 %}
-                        text-red-600
-                    {% elif budget.rentability >= 60 and budget.rentability < 70 %}
-                        text-orange-500
-                    {% else %}
-                        text-green-600
-                    {% endif %}">
-
-                    <span>Rentabilidade:</span>
-                    <span>{% if budget.is_warranty_budget %}0%{% else %}{{ budget.rentability }}%{% endif %}</span>
-                </div>
-                <div class="flex justify-between font-bold text-[18px] mt-2 pt-2 border-t-2 border-gray-400 text-gray-900">
-                    <span>TOTAL GERAL:</span>
-                    <span>{{ total_geral }}</span>
-                </div>
-            </div>
-        </div>
-
-        {% if is_warranty_or_courtesy and warranty_message %}
-        <div class="mx-4 mb-4 p-3 border border-red-300 bg-red-50 rounded-md text-red-700 text-center font-bold text-[12px]">
-            {{ warranty_message }}
-        </div>
-        {% endif %}
-
-        <div class="text-center text-[11px] text-gray-500 pt-4 mt-4 border-t border-gray-200">
-            <p>Aberto por: {{ request.user.get_full_name }} em: {{ budget.criado_em|date:"d/m/Y" }} às {{ budget.criado_em|date:"H:i" }}</p>
-            <p>Status: <span class="uppercase font-bold text-gray-700">{{ budget.budget_status }}</span></p>
-        </div>
-
+      <div
+        class="text-center text-[11px] text-gray-500 pt-4 mt-4 border-t border-gray-200"
+      >
+        <p>
+          Aberto por: {{ request.user.get_full_name }} em: {{
+          budget.criado_em|date:"d/m/Y" }} às {{ budget.criado_em|date:"H:i" }}
+        </p>
+        <p>
+          Status:
+          <span class="uppercase font-bold text-gray-700"
+            >{{ budget.budget_status }}</span
+          >
+        </p>
+      </div>
     </div>
-</body>
+  </body>
 </html>

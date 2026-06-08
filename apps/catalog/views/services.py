@@ -13,13 +13,13 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 from apps.budget.views.shared import _parse_duration_from_string
 from apps.catalog.forms.services import ServiceForm
 from apps.catalog.models.services import Service
-from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
-from apps.core.navigation import SERVICE_CREATE_FAVORITE_PAGE
-from apps.core.search import apply_text_search
+from apps.core.infrastructure.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
+from apps.core.presentation.navigation import SERVICE_CREATE_FAVORITE_PAGE
+from apps.core.infrastructure.search import apply_text_search
 from apps.catalog.util import get_current_workshop_cost, calculate_catalog_service_prices
-from apps.core.tables import TableActionDefaults
+from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
+from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.workshops.mixin import WorkshopScopedMixin
 
 

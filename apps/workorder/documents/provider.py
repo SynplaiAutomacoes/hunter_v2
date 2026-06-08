@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from apps.core.documents.contract import DocumentPayload, DocumentRenderRequest
-from apps.core.documents.renderer import render_template_request_to_pdf
+from apps.core.domain.contracts.documents import DocumentPayload, DocumentRenderRequest
+from apps.core.infrastructure.pdf.renderer import render_template_request_to_pdf
 from apps.workorder.models import WorkOrder
 from apps.workorder.pdf_context import build_workorder_pdf_context
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from django.db import models
 from djmoney.models.fields import MoneyField
 
-from apps.core.models import TimeStampedModel
+from apps.core.infrastructure.models import TimeStampedModel
 from apps.workshops.models.workshops import Workshop
 
 

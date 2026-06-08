@@ -4,6 +4,7 @@ import logging
 import re
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
+from types import SimpleNamespace
 
 from django.db import transaction
 from django.http import Http404, HttpResponse
@@ -12,9 +13,10 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.fields import DurationField
-from apps.core.documents.contract import DocumentPayload
-from apps.core.documents.http import build_pdf_http_response
-from apps.core.documents.signature import SignatureTokenError, parse_document_signature_token
+from apps.core.domain.contracts.documents import DocumentPayload
+from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
+from apps.core.domain.contracts.documents import SignatureTokenError
+from apps.core.infrastructure.services.signature import parse_document_signature_token
 from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderCustomerApprovalForm, WorkOrderPaymentForm, WorkOrderReopenForm, WorkOrderStatusReasonForm
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus
 from apps.workorder.service import (
@@ -142,12 +144,28 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
     pricing_snapshot = workorder.pricing_snapshot
     workorder.product_issue_summary
 
+    summary_service_items = list(service_items)
+
+    for kit_item in kit_items:
+        _, service_overrides = kit_item._get_kit_override_maps()
+        for kit_service in kit_item._iter_kit_services():
+            override = service_overrides.get(kit_service.service_id)
+            per_kit_qty = int((override.quantity if override else kit_service.quantity) or 0)
+            if per_kit_qty <= 0:
+                continue
+            qty = per_kit_qty * kit_item.quantity
+            unit_price = override.service_selling_price if override else kit_service.resolved_selling_price
+            summary_service_items.append(SimpleNamespace(
+                service=kit_service.service,
+                total_price=unit_price * qty,
+            ))
+
     return {
         "workorder": workorder,
         "product_items": product_items,
         "service_items": service_items,
         "summary_product_items": pricing_snapshot.product_lines,
-        "summary_service_items": pricing_snapshot.service_lines,
+        "summary_service_items": summary_service_items,
         "kit_items": kit_items,
         "active_tab": _normalize_active_tab(active_tab),
     }

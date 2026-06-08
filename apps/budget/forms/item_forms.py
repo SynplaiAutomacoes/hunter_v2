@@ -6,10 +6,10 @@ from apps.budget.models import BudgetItem
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
-from apps.core.widgets import CheckboxInput, DurationInput, MoneyInput, NumberInput, TextInput, SearchableSelectInput
+from apps.core.presentation.widgets import CheckboxInput, DurationInput, MoneyInput, NumberInput, TextInput, SearchableSelectInput
 
 from .shared import _budget_item_type
-from apps.core.forms import CoreForm, CoreModelForm
+from apps.core.presentation.forms import CoreForm, CoreModelForm
 
 
 class BudgetItemEditForm(CoreModelForm):

@@ -31,12 +31,12 @@ from apps.catalog.models.kits import Kit
 from apps.budget.models import BudgetType
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
-from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
-from apps.core.tables import TableActionDefaults
-from apps.core.documents.http import build_pdf_http_response
-from apps.core.documents.services import SignatureDeliveryServiceError, download_signed_document_content
+from apps.core.infrastructure.query_filters import QueryParamFilter, apply_query_param_filters
+from apps.core.presentation.tables import TableActionDefaults
+from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
+from apps.core.infrastructure.services.signature import SignatureDeliveryServiceError, download_signed_document_content
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxTemplateResponseMixin
+from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
 from apps.workorder.discount_sync import sync_workorder_discount_to_budget
 from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock

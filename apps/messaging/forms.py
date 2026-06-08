@@ -5,11 +5,11 @@ from typing import Any, cast
 from django import forms
 from django.db.models import Q
 
-from apps.core.widgets import CheckboxInput, TextInput, TextareaInput
+from apps.core.presentation.widgets import CheckboxInput, TextInput, TextareaInput
 from apps.core.text_normalization import sentence_case
 from apps.messaging.models import CustomerMessageGroup, MessageTemplate
 from apps.workshops.models.workshops import Workshop
-from apps.core.forms import CoreModelForm
+from apps.core.presentation.forms import CoreModelForm
 
 
 MESSAGE_PLACEHOLDER = "Ex: Olá %%nome%%, vimos que seu veículo %%modelo%% (%%placa%%) está próximo da revisão. Seu orçamento %%orcamento_numero%% está com status %%orcamento_status%%."

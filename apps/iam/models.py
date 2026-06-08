@@ -4,7 +4,7 @@ from django.contrib.auth.models import Permission
 from django.db import models
 
 from apps.accounts.models import Account
-from apps.core.models import TimeStampedModel
+from apps.core.infrastructure.models import TimeStampedModel
 
 
 class WorkshopRole(TimeStampedModel):

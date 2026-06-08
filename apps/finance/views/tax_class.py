@@ -11,7 +11,7 @@ from django.shortcuts import redirect
 from django.urls import reverse
 from django.views.generic import TemplateView
 
-from apps.core.query_filters import apply_is_active_filter
+from apps.core.infrastructure.query_filters import apply_is_active_filter
 from apps.finance.forms import (
     CofinsScenarioForm,
     CofinsScenarioFormSet,

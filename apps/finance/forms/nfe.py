@@ -7,9 +7,9 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
 
-from apps.core.forms import CoreModelForm
+from apps.core.presentation.forms import CoreModelForm
 from apps.core.text_normalization import sentence_case
-from apps.core.widgets import SearchableSelectInput, TextareaInput
+from apps.core.presentation.widgets import SearchableSelectInput, TextareaInput
 from apps.finance.forms.emission_ui import (
     build_slider_widget_attrs,
     build_step5_pricing_panel_data,

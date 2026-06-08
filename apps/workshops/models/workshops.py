@@ -10,7 +10,7 @@ from django.utils import timezone
 from localflavor.br.models import BRCNPJField
 from phonenumber_field.modelfields import PhoneNumberField
 
-from apps.core.models import TimeStampedModel
+from apps.core.infrastructure.models import TimeStampedModel
 
 
 def generate_workshop_logo_public_token() -> str:

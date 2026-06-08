@@ -11,10 +11,11 @@ from apps.budget.pdf_context import build_budget_pdf_context, build_workshop_log
 from apps.budget.service import BUDGET_SIGNATURE_DOCUMENT_ID_KEY, BUDGET_SIGNATURE_TOKEN_SALT
 from apps.checklist.models import Checklist
 from apps.checklist.services.files import ChecklistFileStorageError, read_checklist_pdf_file
-from apps.core.documents.contract import DocumentPayload
-from apps.core.documents.http import build_pdf_http_response
-from apps.core.documents.services import SignatureDeliveryServiceError, download_signed_document_content
-from apps.core.documents.signature import SignatureTokenError, parse_document_signature_token
+from apps.core.domain.contracts.documents import DocumentPayload
+from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
+from apps.core.infrastructure.services.signature import SignatureDeliveryServiceError, download_signed_document_content
+from apps.core.domain.contracts.documents import SignatureTokenError
+from apps.core.infrastructure.services.signature import parse_document_signature_token
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 

@@ -16,11 +16,11 @@ from django.db.models import Q, Value
 from django.db.models.functions import Coalesce
 from typing import List, Tuple
 
-from apps.core.search import build_text_search_query
+from apps.core.infrastructure.search import build_text_search_query
 from apps.accounts.models import User
 from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
-from apps.core.widgets import SearchableSelectInput
+from apps.core.presentation.widgets import SearchableSelectInput
 from apps.finance.forms.emission_ui import format_money
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup

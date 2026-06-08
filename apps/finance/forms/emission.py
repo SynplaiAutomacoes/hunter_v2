@@ -11,9 +11,9 @@ from django.urls import reverse
 from djmoney.forms import MoneyField
 from djmoney.money import Money
 
-from apps.core.forms import CoreForm
+from apps.core.presentation.forms import CoreForm
 from apps.core.text_normalization import sentence_case
-from apps.core.widgets import DurationInput, MoneyInput, NumberInput, TextareaInput, SearchableSelectInput
+from apps.core.presentation.widgets import DurationInput, MoneyInput, NumberInput, TextareaInput, SearchableSelectInput
 from apps.finance.forms.emission_ui import (
     build_slider_widget_attrs,
     build_step5_pricing_panel_data,

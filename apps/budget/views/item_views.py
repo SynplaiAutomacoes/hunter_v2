@@ -18,7 +18,7 @@ from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.price_tracking import build_product_price_warning
 from apps.catalog.product_issues import annotate_product_issues
-from apps.core.widgets import NumberInput
+from apps.core.presentation.widgets import NumberInput
 from apps.workshops.mixin import WorkshopScopedMixin
 
 from .shared import (

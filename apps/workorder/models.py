@@ -11,13 +11,13 @@ from django.utils import timezone
 from djmoney.models.fields import MoneyField
 from djmoney.money import Money
 
-from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, money_from_decimal
+from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, money_from_decimal, resolve_discount_fields
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.price_tracking import record_product_last_used_price
 from apps.catalog.product_issues import ProductIssueSummary, annotate_product_issues
-from apps.core.models import TimeStampedModel
+from apps.core.infrastructure.models import TimeStampedModel
 from apps.finance.models.payment_method import PaymentMethod
 
 
@@ -414,7 +414,20 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def get_total_services_by_slider(self) -> Money:
-        return self.pricing_snapshot.total_services_by_slider
+        total = Money(0, "BRL")
+        for item in self._iter_items():
+            if item.service:
+                total += item.service_selling_price * item.quantity
+            elif item.kit:
+                _, service_overrides = item._get_kit_override_maps()
+                for kit_service in item._iter_kit_services():
+                    override = service_overrides.get(kit_service.service_id)
+                    per_kit_qty = int((override.quantity if override else kit_service.quantity) or 0)
+                    if per_kit_qty <= 0:
+                        continue
+                    unit_price = override.service_selling_price if override else kit_service.resolved_selling_price
+                    total += unit_price * per_kit_qty * item.quantity
+        return total
 
     @property
     def get_total_labor_by_slider(self) -> Money:
@@ -551,7 +564,9 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def total_budget_value(self) -> Money:
-        return self.pricing_snapshot.total_budget_value
+        total_base = self.get_total_products_by_slider + self.get_total_services_by_slider
+        discount_value, _ = resolve_discount_fields(total_base_value=total_base, discount_value=self.discount_value, discount_percentage=self.discount_percentage)
+        return total_base - discount_value
 
     def sync_from_budget(self) -> None:
         from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement

@@ -140,8 +140,8 @@ MIDDLEWARE = [
     "simple_history.middleware.HistoryRequestMiddleware",
     "django_htmx.middleware.HtmxMiddleware",
     # Local
-    "apps.core.middlewares.RequestPerformanceLoggingMiddleware",
-    "apps.core.middlewares.RequireFirstWorkshopMiddleware",
+    "apps.core.presentation.middlewares.RequestPerformanceLoggingMiddleware",
+    "apps.core.presentation.middlewares.RequireFirstWorkshopMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -158,7 +158,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 # Local
                 "apps.workshops.context_processors.active_workshops",
-                "apps.core.context_processors.navbar",
+                "apps.core.presentation.context_processors.navbar",
             ],
             "builtins": [
                 "crispy_forms.templatetags.crispy_forms_tags",

@@ -21,7 +21,7 @@ from apps.accounts.models import Account, User
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.collaborators.models import WorkshopMember
-from apps.core.documents.contract import DocumentPayload
+from apps.core.domain.contracts.documents import DocumentPayload
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
 from apps.iam.utils import get_or_create_director_role

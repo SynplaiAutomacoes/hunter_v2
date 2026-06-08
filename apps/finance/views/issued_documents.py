@@ -17,7 +17,7 @@ from django.urls import reverse
 from django.views import View
 from django.views.generic import TemplateView
 
-from apps.core.views import HtmxTemplateResponseMixin
+from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.finance.models.finance import NfeItem, NfeRequest, NfseItem, NfseRequest
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.views.navigation import append_query_params, build_issued_documents_origin_params
