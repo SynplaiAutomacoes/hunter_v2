@@ -29,6 +29,8 @@ class DashboardMetrics:
     business_holidays: int = 0
     total_sold_to_date: Decimal = Decimal("0.00")
     accumulated_profitability: float | Decimal = 0
+    accumulated_markup: Decimal = Decimal("0.00")
+    accumulated_markup_progress: int = 0
     warranty_return_rate: float | Decimal = 0
     approval_rate: float | Decimal = 0
     total_pending_receivable: Decimal = Decimal("0.00")
@@ -65,6 +67,8 @@ class DashboardMetrics:
             "feriados_uteis": self.business_holidays,
             "total_vendido_ate_a_data": self.total_sold_to_date,
             "rentabilidade_acumulada_mes": self.accumulated_profitability,
+            "markup_acumulado_mes": self.accumulated_markup,
+            "markup_acumulado_progresso": self.accumulated_markup_progress,
             "indice_retorno_em_garantia_mes": self.warranty_return_rate,
             "taxa_aprovacao": self.approval_rate,
             "total_os_a_receber_em_execucao": self.total_pending_receivable,

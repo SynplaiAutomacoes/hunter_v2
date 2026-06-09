@@ -168,21 +168,38 @@
                             </div>
                             <span class="text-lg font-semibold">Taxa de Aprovação</span>
                         </div>
-                        <div class="flex flex-col items-center gap-4">
+                        <div class="flex flex-col items-center gap-4" x-data="{ mode: 'profitability' }">
                             {% with rentabilidade_acumulada_mes|floatformat:0 as rent_val %}
-                            {% if rent_val|add:"0" >= 70 %}
-                            <div class="radial-progress text-success border-4 border-success/10"
-                            {% elif rent_val|add:"0" >= 60 %}
-                            <div class="radial-progress text-warning border-4 border-warning/10"
-                            {% else %}
-                            <div class="radial-progress text-error border-4 border-error/10"
-                            {% endif %}
-                                 style="--value:{{ rentabilidade_acumulada_mes|floatformat:0 }}; --size:9rem; --thickness: 1rem;"
-                                 role="progressbar">
-                                <span class="text-2xl font-bold text-base-content">{{ rentabilidade_acumulada_mes|floatformat:2 }}%</span>
-                            </div>
+                                <div role="button" tabindex="0" class="contents" @click="mode = mode === 'profitability' ? 'markup' : 'profitability'" @keydown.enter.prevent="mode = mode === 'profitability' ? 'markup' : 'profitability'" @keydown.space.prevent="mode = mode === 'profitability' ? 'markup' : 'profitability'" title="Alternar entre rentabilidade e markup acumulado">
+                                    {% if rent_val|add:"0" >= 70 %}
+                                    <div x-show="mode === 'profitability'" class="radial-progress text-success border-4 border-success/10 cursor-pointer"
+                                    {% elif rent_val|add:"0" >= 60 %}
+                                    <div x-show="mode === 'profitability'" class="radial-progress text-warning border-4 border-warning/10 cursor-pointer"
+                                    {% else %}
+                                    <div x-show="mode === 'profitability'" class="radial-progress text-error border-4 border-error/10 cursor-pointer"
+                                    {% endif %}
+                                         style="--value:{{ rentabilidade_acumulada_mes|floatformat:0 }}; --size:9rem; --thickness: 1rem;"
+                                         role="progressbar">
+                                        <span class="text-2xl font-bold text-base-content">{{ rentabilidade_acumulada_mes|floatformat:2 }}%</span>
+                                    </div>
+
+                                    {% with markup_acumulado_progresso as markup_progress %}
+                                    {% if markup_progress >= 100 %}
+                                    <div x-show="mode === 'markup'" x-cloak class="radial-progress text-success border-4 border-success/10 cursor-pointer"
+                                    {% elif markup_progress >= 75 %}
+                                    <div x-show="mode === 'markup'" x-cloak class="radial-progress text-warning border-4 border-warning/10 cursor-pointer"
+                                    {% else %}
+                                    <div x-show="mode === 'markup'" x-cloak class="radial-progress text-error border-4 border-error/10 cursor-pointer"
+                                    {% endif %}
+                                         style="--value:{{ markup_acumulado_progresso }}; --size:9rem; --thickness: 1rem;"
+                                         role="progressbar">
+                                        <span class="text-2xl font-bold text-base-content">{{ markup_acumulado_mes|floatformat:2 }}x</span>
+                                    </div>
+                                    {% endwith %}
+                                </div>
                             {% endwith %}
-                            <span class="text-lg font-semibold">Rentabilidade Acumulada</span>
+                            <span x-show="mode === 'profitability'" class="text-lg font-semibold">Rentabilidade Acumulada</span>
+                            <span x-show="mode === 'markup'" x-cloak class="text-lg font-semibold">Markup Acumulado</span>
                         </div>
                         <div class="flex flex-col items-center gap-4">
                             <div class="radial-progress text-error border-4 border-error/10"

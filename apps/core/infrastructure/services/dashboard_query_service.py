@@ -9,6 +9,7 @@ from typing import Any
 from django.utils import timezone
 
 from apps.budget.models import Budget, BudgetStatus, BudgetType
+from apps.budget.pdf_context import calculate_markup_multiplier
 from apps.core.domain.services.dashboard_service import DashboardMetrics
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.models.workshop_costs import WorkshopCost
@@ -17,6 +18,7 @@ from apps.workshops.models.workshops import Workshop
 logger = logging.getLogger(__name__)
 
 MISSING_WORKSHOP_COST_WARNING = "Para realizar o calculo, cadastre um custo mensal da oficina para o mes selecionado."
+TWO_DECIMAL_PLACES = Decimal("0.01")
 
 OPEN_BUDGET_STATUSES: tuple[str, ...] = (
     BudgetStatus.DRAFT,
@@ -61,6 +63,26 @@ def _format_brl(amount: Decimal) -> str:
 def count_elapsed_business_days(*, workshop_cost: WorkshopCost, today: date) -> int:
     work_day_dates = workshop_cost.get_work_day_dates()
     return sum(1 for d in work_day_dates if d <= today)
+
+
+def calculate_average_markup(budgets: list[Budget]) -> Decimal:
+    markups = [
+        calculate_markup_multiplier(
+            total_budget_value=budget.total_budget_value,
+            total_costs_products_value=budget.total_costs_products_value,
+            total_costs_services_value=budget.total_costs_services_value,
+        )
+        for budget in budgets
+    ]
+    positive_markups = [markup for markup in markups if markup > 0]
+    if not positive_markups:
+        return Decimal("0.00")
+
+    return (sum(positive_markups, Decimal("0.00")) / Decimal(len(positive_markups))).quantize(TWO_DECIMAL_PLACES)
+
+
+def calculate_markup_progress(markup: Decimal) -> int:
+    return min(int((markup * Decimal("50")).quantize(Decimal("1"))), 100)
 
 
 class DashboardQueryService:
@@ -128,13 +150,16 @@ class DashboardQueryService:
         else:
             projection_warning = MISSING_WORKSHOP_COST_WARNING
 
-        approved_budgets_month = Budget.objects.filter(
-            workshop=workshop,
-            status=BudgetStatus.APPROVED,
-            entry_date__month=selected_month,
-            entry_date__year=selected_year,
+        approved_budgets_month = list(
+            Budget.objects.filter(
+                workshop=workshop,
+                status=BudgetStatus.APPROVED,
+                entry_date__month=selected_month,
+                entry_date__year=selected_year,
+            ).prefetch_related("items", "items__kit_overrides", "items__kit__kit_products", "items__kit__kit_services")
         )
         profitabilities = [b.rentability for b in approved_budgets_month if b.rentability is not None]
+        accumulated_markup = calculate_average_markup(approved_budgets_month)
 
         cars_this_month = WorkOrder.objects.filter(
             workshop=workshop,
@@ -297,6 +322,8 @@ class DashboardQueryService:
             business_holidays=business_holidays,
             total_sold_to_date=total_sold_to_date,
             accumulated_profitability=accumulated_profitability,
+            accumulated_markup=accumulated_markup,
+            accumulated_markup_progress=calculate_markup_progress(accumulated_markup),
             warranty_return_rate=warranty_return_rate,
             approval_rate=approval_rate,
             total_pending_receivable=total_general_pending_receivable,
