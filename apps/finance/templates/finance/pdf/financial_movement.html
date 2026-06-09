@@ -49,48 +49,54 @@
         <section class="mt-4 rounded-lg border border-gray-200 overflow-hidden">
             <table class="details-table text-[10px]">
                 <colgroup>
+                    <col class="w-[7%]" />
                     <col class="w-[12%]" />
-                    <col class="w-[29%]" />
-                    <col class="w-[16%]" />
-                    <col class="w-[14%]" />
+                    <col class="w-[8%]" />
+                    <col class="w-[12%]" />
                     <col class="w-[15%]" />
+                    <col class="w-[20%]" />
+                    <col class="w-[12%]" />
                     <col class="w-[14%]" />
                 </colgroup>
                 <thead class="bg-gray-100 text-left uppercase tracking-[0.12em] text-gray-600">
                     <tr>
-                        <th class="px-3 py-2">Data</th>
-                        <th class="px-3 py-2">Descrição</th>
-                        <th class="px-3 py-2">Colaborador</th>
-                        <th class="px-3 py-2">Origem</th>
-                        <th class="px-3 py-2 text-center">Tipo</th>
-                        <th class="px-3 py-2 text-right">Valor</th>
+                        <th class="px-2 py-2 text-center">Pago</th>
+                        <th class="px-2 py-2 text-center">Conciliado</th>
+                        <th class="px-2 py-2 text-center">Tipo</th>
+                        <th class="px-2 py-2">Vencimento</th>
+                        <th class="px-2 py-2">Agente</th>
+                        <th class="px-2 py-2">Descrição</th>
+                        <th class="px-2 py-2">Tipo Pag.</th>
+                        <th class="px-2 py-2 text-right">Total</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% if rows %}
                         {% for row in rows %}
                             <tr class="border-t border-gray-200">
-                                <td class="px-3 py-2">{{ row.date|date:"d/m/Y"|default:"-" }}</td>
-                                <td class="px-3 py-2 font-medium">{{ row.description }}</td>
-                                <td class="px-3 py-2">{{ row.collaborator }}</td>
-                                <td class="px-3 py-2">{{ row.source }}</td>
-                                <td class="px-3 py-2 text-center">
+                                <td class="px-2 py-2 text-center font-medium {% if row.paid_status == 'Sim' %}text-green-700{% else %}text-red-700{% endif %}">{{ row.paid_status }}</td>
+                                <td class="px-2 py-2 text-center {% if row.reconciliation_status == 'Conciliado' %}text-blue-700{% else %}text-yellow-700{% endif %}">{{ row.reconciliation_status }}</td>
+                                <td class="px-2 py-2 text-center">
                                     {% if row.direction == 'CREDIT' %}
-                                        <span class="rounded-full bg-green-100 px-2 py-1 text-[9px] font-bold uppercase text-green-700">Crédito</span>
+                                        <span class="uppercase text-green-700">Crédito</span>
                                     {% elif row.direction == 'DEBIT' %}
-                                        <span class="rounded-full bg-red-100 px-2 py-1 text-[9px] font-bold uppercase text-red-700">Débito</span>
+                                        <span class="uppercase text-red-700">Débito</span>
                                     {% else %}
-                                        <span class="rounded-full bg-gray-100 px-2 py-1 text-[9px] font-bold uppercase text-gray-600">{{ row.direction_label }}</span>
+                                        <span class="uppercase text-gray-700">{{ row.direction_label }}</span>
                                     {% endif %}
                                 </td>
-                                <td class="px-3 py-2 text-right font-semibold {% if row.direction == 'CREDIT' %}text-green-700{% elif row.direction == 'DEBIT' %}text-red-700{% endif %}">
-                                    {% if row.direction == 'CREDIT' %}+{% elif row.direction == 'DEBIT' %}-{% endif %} {{ row.amount }}
+                                <td class="px-2 py-2">{{ row.due_date|date:"d/m/Y"|default:"-" }}</td>
+                                <td class="px-2 py-2">{{ row.agent }}</td>
+                                <td class="px-2 py-2 font-medium">{{ row.description }}</td>
+                                <td class="px-2 py-2">{{ row.payment_type }}</td>
+                                <td class="px-2 py-2 text-right font-semibold whitespace-nowrap {% if row.direction == 'CREDIT' %}text-green-700{% elif row.direction == 'DEBIT' %}text-red-700{% endif %}">
+                                    {% if row.direction == 'CREDIT' %}+{% elif row.direction == 'DEBIT' %}-{% endif %}{{ row.amount }}
                                 </td>
                             </tr>
                         {% endfor %}
                     {% else %}
                         <tr class="border-t border-gray-200">
-                            <td colspan="6" class="px-3 py-6 text-center italic text-gray-500">Nenhum registro encontrado</td>
+                            <td colspan="8" class="px-3 py-6 text-center italic text-gray-500">Nenhum registro encontrado</td>
                         </tr>
                     {% endif %}
                 </tbody>
