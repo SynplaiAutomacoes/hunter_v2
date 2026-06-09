@@ -11,13 +11,14 @@ from apps.accounts.models import Account, User
 from django.db import connection
 from django.http import Http404, HttpResponse, QueryDict
 from django.template import Context, Template
+from django.template.loader import render_to_string
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.documents.provider import build_budget_pdf_render_request
-from apps.budget.models import Budget, BudgetItem
+from apps.budget.models import Budget, BudgetItem, BudgetType
 from apps.catalog.models.kits import Kit, KitApplication, KitProduct, KitService
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
@@ -1432,6 +1433,24 @@ class WorkOrderPdfParityTests(TestCase):
         self.assertEqual(workorder_render_request.context["budget"].resolved_discount_value, workorder.pricing_snapshot.resolved_discount_value)
         self.assertEqual(workorder_render_request.context["pages"][0]["produtos"][0]["unit_price"], Money("50.00", "BRL"))
         self.assertEqual(workorder_render_request.context["pages"][0]["produtos"][0]["total_price"], Money("50.00", "BRL"))
+
+    def test_workorder_pdf_displays_courtesy_budget_label(self) -> None:
+        workshop = create_workshop(suffix=88)
+        customer = create_customer(workshop=workshop, suffix=88)
+        vehicle = create_vehicle(workshop=workshop, customer=customer, suffix=88)
+        budget = create_budget(workshop=workshop)
+        budget.customer = customer
+        budget.vehicle = vehicle
+        budget.budget_type = BudgetType.COURTESY
+        budget.save(update_fields=["customer", "vehicle", "budget_type"])
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget)
+
+        render_request = build_workorder_pdf_render_request(workorder=workorder)
+        html = render_to_string(render_request.template_name, render_request.context)
+
+        self.assertEqual(render_request.context["special_budget_label"], "Orçamento de Cortesia")
+        self.assertIn("Orçamento de Cortesia", html)
+        self.assertNotIn("Orçamento de Garantia", html)
 
     def test_build_workorder_pdf_render_request_uses_workorder_filename_by_default(self) -> None:
         workshop = create_workshop(suffix=89)

@@ -45,9 +45,15 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
     observations = workorder.budget.observations
     fixed_observation = workorder.budget.workshop.pdf_observation
 
-    is_warranty_budget = workorder.budget.is_warranty_budget or workorder.budget.budget_type == "warranty" or workorder.budget_type in ("warranty", "courtesy")
-    is_courtesy_budget = workorder.budget.budget_type == "courtesy"
+    is_courtesy_budget = workorder.budget.budget_type == "courtesy" or workorder.budget_type == "courtesy"
+    is_warranty_budget = not is_courtesy_budget and (workorder.budget.is_warranty_budget or workorder.budget.budget_type == "warranty" or workorder.budget_type == "warranty")
     is_warranty_or_courtesy = is_warranty_budget or is_courtesy_budget
+    special_budget_label = "Orçamento de Cortesia" if is_courtesy_budget else "Orçamento de Garantia" if is_warranty_budget else ""
+    warranty_message = ""
+    if is_courtesy_budget:
+        warranty_message = "Ordem de serviço de cortesia. Documento apenas para a visualização, peças e serviços descritos não foram cobrados do cliente"
+    elif is_warranty_budget:
+        warranty_message = "Ordem de serviço de garantia. Documento apenas para a visualização, peças e serviços descritos não foram cobrados do cliente"
 
     ZERO = Money(0, "BRL")
 
@@ -114,7 +120,7 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
         customer_agreed_departure_at=workorder.budget.customer_agreed_departure_at,
     )
 
-    teste = {
+    return {
         "workorder": workorder,
         "budget": budget_proxy,
         "produtos": produtos,
@@ -130,10 +136,8 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
         "total_profit_service_value": sum((line.profit_value for line in snapshot.service_lines), Money(0, "BRL")),
         "payments": payments,
         "is_warranty_or_courtesy": is_warranty_or_courtesy,
-        "warranty_message": "Ordem de serviço de garantia. Documento apenas para a visualização, peças e serviços descritos não foram cobrados do cliente" if is_warranty_or_courtesy else "",
+        "special_budget_label": special_budget_label,
+        "warranty_message": warranty_message,
         "workshop_logo_data_uri": build_workshop_logo_data_uri(workshop=workorder.workshop),
         "request": request,
     }
-
-    print(teste)
-    return teste

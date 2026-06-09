@@ -126,9 +126,15 @@ def build_workshop_logo_data_uri(*, workshop) -> str:
 
 def build_budget_pdf_context(*, budget, request=None, observacao: str | None = None, zero_warranty_prices: bool = False, presentation: str = "expanded") -> dict:
     snapshot = budget.pricing_snapshot
-    is_warranty_budget = budget.is_warranty_budget or budget.budget_type == "warranty"
     is_courtesy_budget = budget.budget_type == "courtesy"
+    is_warranty_budget = not is_courtesy_budget and (budget.is_warranty_budget or budget.budget_type == "warranty")
     is_warranty_or_courtesy = is_warranty_budget or is_courtesy_budget
+    special_budget_label = "Orçamento de Cortesia" if is_courtesy_budget else "Orçamento de Garantia" if is_warranty_budget else ""
+    warranty_message = ""
+    if is_courtesy_budget:
+        warranty_message = "Ordem de serviço de cortesia. Documento apenas para a visualização, peças e serviços descritos não foram cobrados do cliente"
+    elif is_warranty_budget:
+        warranty_message = "Ordem de serviço de garantia. Documento apenas para a visualização, peças e serviços descritos não foram cobrados do cliente"
     is_client_warranty_pdf = is_warranty_or_courtesy and zero_warranty_prices
     if is_client_warranty_pdf:
         total_produtos = Money(0, "BRL")
@@ -345,7 +351,8 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         "total_services_cost_original_value": total_services_cost_original_value,
         "total_services_mechanic_cost_value": total_services_mechanic_cost_value,
         "is_warranty_or_courtesy": is_warranty_or_courtesy,
-        "warranty_message": "Ordem de serviço de garantia. Documento apenas para a visualização, peças e serviços descritos não foram cobrados do cliente" if is_warranty_or_courtesy else "",
+        "special_budget_label": special_budget_label,
+        "warranty_message": warranty_message,
         "workshop_logo_data_uri": workshop_logo_data_uri,
         "request": request,
     }
