@@ -3,13 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import cast
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 from djmoney.money import Money
 
 from apps.budget.models import Budget
 from apps.core.domain.services.dashboard_service import DashboardMetrics
-from apps.core.infrastructure.services.dashboard_query_service import calculate_average_markup, calculate_markup_progress
+from apps.core.infrastructure.services.dashboard_query_service import calculate_average_markup, calculate_markup_progress, run_dashboard_query_task
 
 
 @dataclass
@@ -64,3 +65,10 @@ class DashboardMarkupMetricsTests(SimpleTestCase):
 
     def test_calculate_markup_progress_caps_at_100(self) -> None:
         self.assertEqual(calculate_markup_progress(Decimal("2.50")), 100)
+
+    def test_run_dashboard_query_task_closes_thread_connections(self) -> None:
+        with patch("apps.core.infrastructure.services.dashboard_query_service.close_old_connections") as close_old_connections:
+            result = run_dashboard_query_task(lambda: "ok")
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(close_old_connections.call_count, 2)

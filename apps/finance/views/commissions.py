@@ -9,7 +9,9 @@ from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import HttpResponse
 from django.urls import reverse
+from django.utils.decorators import method_decorator
 from django.views import View
+from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import TemplateView
 from djmoney.money import Money
 
@@ -25,6 +27,8 @@ from apps.workshops.mixin import WorkshopScopedMixin
 class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     model = CollaboratorCommissionEntry
     template_name = "finance/commissions/report.html"
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "financialmovement"
     workshop_permission_codename = "view_financialmovement"
     ENTRIES_PER_PAGE = 20
     STATUS_CHOICES = (
@@ -200,7 +204,10 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
         return context
 
 
+@method_decorator(xframe_options_exempt, name="dispatch")
 class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "financialmovement"
     workshop_permission_codename = "view_financialmovement"
 
     @staticmethod
@@ -336,4 +343,4 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 filename=f"relatorio_comissoes_{self.workshop.pk}.pdf",
             )
         )
-        return build_pdf_http_response(document=document)
+        return build_pdf_http_response(document=document, download=request.GET.get("download") == "1")
