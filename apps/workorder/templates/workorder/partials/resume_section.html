@@ -81,13 +81,7 @@
                         class="w-full lg:max-w-lg rounded-xl border border-base-300 bg-base-100 p-4"
                     >
                         {% csrf_token %}
-                        <label class="label pt-0" for="{{ collaborator_form.collaborators.id_for_label }}">
-                            <span class="label-text font-medium">Colaboradores responsaveis</span>
-                        </label>
-                        {{ collaborator_form.collaborators }}
-                        {% if collaborator_form.collaborators.errors %}
-                            <p class="mt-2 text-sm text-error">{{ collaborator_form.collaborators.errors|join:', ' }}</p>
-                        {% endif %}
+                        {% include "budget/partials/components/collaborator_field.html" with field=collaborator_form.collaborators initial_collaborators_json=collaborator_form.initial_collaborators_json form=collaborator_form object=workorder %}
                         <p class="mt-2 text-xs text-base-content/60">{{ collaborator_form.collaborators.help_text }}</p>
                         <div class="mt-4 flex justify-end">
                             <button type="submit" class="btn btn-primary btn-sm">Salvar colaboradores</button>

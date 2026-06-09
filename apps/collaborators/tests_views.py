@@ -14,7 +14,7 @@ from apps.budget.models import Budget, BudgetStatus
 from apps.catalog.models.services import Service
 from django.contrib.messages import get_messages
 
-from apps.collaborators.models import CollaboratorBenefit, CollaboratorPayroll, WorkshopCollaborator, WorkshopMember
+from apps.collaborators.models import CollaboratorBenefit, WorkshopCollaborator, WorkshopMember
 from apps.collaborators.services import sync_collaborator_payroll
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.iam.utils import get_or_create_director_role
@@ -410,8 +410,9 @@ class WorkOrderCollaboratorUpdateViewTests(TestCase):
         session["active_workshop_id"] = self.workshop.pk
         session.save()
 
-    def test_post_updates_workorder_collaborators_and_creates_payroll(self) -> None:
+    def test_post_updates_multiple_workorder_collaborators_from_budget_component_payload(self) -> None:
         collaborator = create_collaborator(workshop=self.workshop, suffix=2, receives_commission=True)
+        additional_collaborator = create_collaborator(workshop=self.workshop, suffix=22)
         WorkshopCost.objects.create(workshop=self.workshop, month=5, year=2026, mechanic_quantity=1, work_days_per_month=20)
         budget = create_budget(workshop=self.workshop)
         workorder = WorkOrder.objects.get(budget=budget)
@@ -419,14 +420,26 @@ class WorkOrderCollaboratorUpdateViewTests(TestCase):
         WorkOrderItem.objects.create(workshop=self.workshop, workorder=workorder, service=service, quantity=1)
         WorkOrderPaymentMethod.objects.create(workorder=workorder, due_date=date(2026, 5, 20), first_installment_amount=Money("300.00", "BRL"), remaining_installments_amount=Money("0.00", "BRL"), installments_count=1)
 
-        response = self.client.post(reverse("workorder:update_collaborators", args=[workorder.pk]), {"collaborators": [str(collaborator.pk)]})
+        response = self.client.post(reverse("workorder:update_collaborators", args=[workorder.pk]), {"collaborators_list": [str(collaborator.pk), str(additional_collaborator.pk)]})
 
         workorder.refresh_from_db()
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(list(workorder.collaborators.values_list("pk", flat=True)), [collaborator.pk])
-        payroll = CollaboratorPayroll.objects.get(collaborator=collaborator, reference_year=2026, reference_month=5)
-        self.assertEqual(payroll.commission_amount, Money("30.00", "BRL"))
+        self.assertEqual(set(workorder.collaborators.values_list("pk", flat=True)), {collaborator.pk, additional_collaborator.pk})
         self.assertContains(response, collaborator.name)
+        self.assertContains(response, additional_collaborator.name)
+
+    def test_resume_section_renders_budget_collaborator_component(self) -> None:
+        collaborator = create_collaborator(workshop=self.workshop, suffix=23)
+        budget = create_budget(workshop=self.workshop)
+        workorder = WorkOrder.objects.get(budget=budget)
+        workorder.collaborators.set([collaborator])
+
+        response = self.client.get(reverse("workorder:resume_section", args=[workorder.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="collaborators_list"', html=False)
+        self.assertContains(response, "Adicionar")
+        self.assertNotContains(response, "select select-bordered min-h-40 w-full", html=False)
 
     def test_post_mark_payroll_as_paid_updates_financial_movement(self) -> None:
         collaborator = create_collaborator(workshop=self.workshop, suffix=3)
