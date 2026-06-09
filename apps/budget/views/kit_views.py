@@ -17,7 +17,7 @@ from apps.catalog.models.services import Service
 from apps.catalog.price_tracking import record_product_last_used_price
 from apps.workshops.mixin import WorkshopScopedMixin
 
-from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _is_budget_edit_locked, _parse_duration_from_string, reset_steps_after_step_4
+from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _is_budget_edit_locked, _parse_duration_from_string, reset_steps_after_step_4, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +121,8 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
         from datetime import timedelta
 
         budget = _get_budget_for_workshop(self.workshop, str(budget_id))
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return _build_locked_budget_response(request, budget, fallback_step=4)
 
@@ -294,6 +296,8 @@ class BudgetKitProductCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
 
     def post(self, request, budget_id, item_id, product_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
 
@@ -352,6 +356,8 @@ class BudgetKitServiceCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
 
     def post(self, request, budget_id, item_id, service_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
 

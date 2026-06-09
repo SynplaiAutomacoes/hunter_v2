@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 from datetime import timedelta
@@ -7,7 +8,7 @@ from decimal import Decimal, InvalidOperation
 from types import SimpleNamespace
 
 from django.db import transaction
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from djmoney.money import Money
@@ -320,3 +321,26 @@ def _calculate_service_prices(duration: timedelta, workshop_cost) -> tuple[Money
         return min_hourly * duration_hours, hourly_val * duration_hours
 
     return Money(0, "BRL"), Money(0, "BRL")
+
+
+CONCURRENT_LOCK_MESSAGE = "Outro usuário está editando esta O.S. neste momento. Tente novamente em instantes."
+
+
+def _check_concurrent_edit_lock(request, workorder: WorkOrder, check_session: bool = True) -> bool:
+    from apps.core.domain.services.editing_lock_service import get_lock_info
+    lock_info = get_lock_info(workorder)
+    if lock_info is None:
+        return True
+    if check_session and lock_info.get("locked_by_session") == request.session.session_key:
+        return True
+    return False
+
+
+def _build_concurrent_lock_response(request, workorder: WorkOrder, *, status_code: int = 409) -> HttpResponse:
+    from apps.core.domain.services.editing_lock_service import get_lock_info
+    lock_info = get_lock_info(workorder)
+    user_name = lock_info["locked_by"] if lock_info else "outro usuário"
+    message = f"Outro usuário ({user_name}) está editando esta O.S. neste momento. Tente novamente em instantes."
+    response = JsonResponse({"ok": False, "error": message}, status=status_code)
+    response["HX-Trigger"] = json.dumps({"showToast": {"message": message, "type": "warning"}})
+    return response
