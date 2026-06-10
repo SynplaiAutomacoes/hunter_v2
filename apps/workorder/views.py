@@ -713,8 +713,7 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return JsonResponse({"ok": False, "errors": list(km_final_errors)}, status=400)
 
         km_final = approval_form.cleaned_data["km_final"]
-        workorder.km_final = km_final
-        workorder.save(update_fields=["km_final"])
+        workorder.set_km_final(km_final)
 
         return JsonResponse({"ok": True, "km_final": km_final})
 
@@ -1282,9 +1281,7 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
             try:
                 km_final = approval_form.cleaned_data["km_final"]
                 unsigned_delivery_reason = approval_form.cleaned_data["unsigned_delivery_reason"]
-                workorder.km_final = km_final
-                workorder.unsigned_delivery_reason = unsigned_delivery_reason
-                workorder.save(update_fields=["km_final", "unsigned_delivery_reason"])
+                workorder.complete_delivery(km_final=km_final, unsigned_delivery_reason=unsigned_delivery_reason)
 
                 approve_workorder_with_stock(workorder=workorder, user=request.user)
                 sync_workorder_financial_movement(workorder=workorder)

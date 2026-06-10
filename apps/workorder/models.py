@@ -11,7 +11,7 @@ from django.utils import timezone
 from djmoney.models.fields import MoneyField
 from djmoney.money import Money
 
-from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, money_from_decimal, resolve_discount_fields
+from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, money_from_decimal
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -170,44 +170,31 @@ class WorkOrder(TimeStampedModel):
         duracao_em_horas = Decimal(self._raw_labor_duration().total_seconds()) / Decimal(3600)
         return self.mechanic_hour_cost_value * duracao_em_horas
 
+    def _build_pricing_snapshot(self, labor_selling_value_override: Money | None = None) -> PricingSnapshot:
+        return build_pricing_snapshot(
+            items=list(self._iter_items()),
+            slider=int(getattr(self.budget, "slider", 0) or 0),
+            discount_value=self.discount_value,
+            labor_cost_value=self.total_labor_cost_value,
+            labor_selling_value_override=labor_selling_value_override,
+        )
+
     @property
     def pricing_snapshot(self) -> PricingSnapshot:
-        cached_snapshot = getattr(self, "_pricing_snapshot_cache", None)
-        if cached_snapshot is None:
-            cached_snapshot = build_pricing_snapshot(
-                items=list(self._iter_items()),
-                slider=int(getattr(self.budget, "slider", 0) or 0),
-                discount_value=self.discount_value,
-                labor_cost_value=self.total_labor_cost_value,
-            )
-            setattr(self, "_pricing_snapshot_cache", cached_snapshot)
-
-            pricing_method_data = self.calculate_pricing_methods()
-            labor_selling_value_override = pricing_method_data.get("venda_mao_obra") if pricing_method_data.get("method_name") == "Tradicional" else None
-            if isinstance(labor_selling_value_override, Money):
-                cached_snapshot = build_pricing_snapshot(
-                    items=list(self._iter_items()),
-                    slider=int(getattr(self.budget, "slider", 0) or 0),
-                    discount_value=self.discount_value,
-                    labor_cost_value=self.total_labor_cost_value,
-                    labor_selling_value_override=labor_selling_value_override,
-                )
-            setattr(self, "_pricing_snapshot_cache", cached_snapshot)
-        return cached_snapshot
+        snapshot = self._build_pricing_snapshot()
+        method_data = self.calculate_pricing_methods(snapshot=snapshot)
+        method_name = method_data.get("method_name")
+        labor_override = method_data.get("venda_mao_obra") if method_name == "Tradicional" else None
+        if isinstance(labor_override, Money):
+            return self._build_pricing_snapshot(labor_selling_value_override=labor_override)
+        return snapshot
 
     def invalidate_pricing_snapshot_cache(self) -> None:
-        if hasattr(self, "_pricing_snapshot_cache"):
-            delattr(self, "_pricing_snapshot_cache")
-        if hasattr(self, "_product_issue_summary_cache"):
-            delattr(self, "_product_issue_summary_cache")
+        pass
 
     @property
     def product_issue_summary(self) -> ProductIssueSummary:
-        cached_summary = getattr(self, "_product_issue_summary_cache", None)
-        if cached_summary is None:
-            cached_summary = annotate_product_issues(workshop=self.workshop, items=self.pricing_snapshot.product_lines)
-            setattr(self, "_product_issue_summary_cache", cached_summary)
-        return cached_summary
+        return annotate_product_issues(workshop=self.workshop, items=self.pricing_snapshot.product_lines)
 
     @property
     def has_stock_issues(self) -> bool:
@@ -368,6 +355,19 @@ class WorkOrder(TimeStampedModel):
         self.save(update_fields=["discount_value", "discount_percentage"])
         self.invalidate_pricing_snapshot_cache()
 
+    def set_km_final(self, km_final: int) -> None:
+        self.km_final = km_final
+        self.save(update_fields=["km_final"])
+
+    def set_unsigned_delivery_reason(self, reason: str) -> None:
+        self.unsigned_delivery_reason = reason
+        self.save(update_fields=["unsigned_delivery_reason"])
+
+    def complete_delivery(self, *, km_final: int, unsigned_delivery_reason: str = "") -> None:
+        self.km_final = km_final
+        self.unsigned_delivery_reason = unsigned_delivery_reason
+        self.save(update_fields=["km_final", "unsigned_delivery_reason"])
+
     @property
     def total_products_shipping(self) -> Money:
         return self.pricing_snapshot.total_products_shipping
@@ -414,20 +414,7 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def get_total_services_by_slider(self) -> Money:
-        total = Money(0, "BRL")
-        for item in self._iter_items():
-            if item.service:
-                total += item.service_selling_price * item.quantity
-            elif item.kit:
-                _, service_overrides = item._get_kit_override_maps()
-                for kit_service in item._iter_kit_services():
-                    override = service_overrides.get(kit_service.service_id)
-                    per_kit_qty = int((override.quantity if override else kit_service.quantity) or 0)
-                    if per_kit_qty <= 0:
-                        continue
-                    unit_price = override.service_selling_price if override else kit_service.resolved_selling_price
-                    total += unit_price * per_kit_qty * item.quantity
-        return total
+        return self.pricing_snapshot.total_services_by_slider
 
     @property
     def get_total_labor_by_slider(self) -> Money:
@@ -435,119 +422,178 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def total_duration_display(self) -> str:
-        total_td = self.total_duration
-        if not total_td:
-            return "00h 00m"
+        return self._format_duration_display(self.total_duration)
 
-        ts = int(total_td.total_seconds())
-        return f"{ts // 3600:02d}h {(ts % 3600) // 60:02d}m"
+    def _extract_snapshot_values(self, snapshot: PricingSnapshot | None = None) -> dict[str, Any]:
+        if snapshot is not None:
+            return {
+                "total_duration": snapshot.total_duration,
+                "total_duration_display": snapshot.total_duration,
+                "total_costs_products_value": snapshot.total_costs_products_value,
+                "total_products_shipping": snapshot.total_products_shipping,
+                "total_third_party_services_cost": snapshot.total_third_party_services_cost,
+                "total_products_value": snapshot.total_products_value,
+                "total_third_party_services_selling": snapshot.total_third_party_services_selling,
+                "total_services_value": snapshot.total_services_value,
+            }
+        return {
+            "total_duration": self.total_duration,
+            "total_duration_display": self.total_duration,
+            "total_costs_products_value": self.total_costs_products_value,
+            "total_products_shipping": self.total_products_shipping,
+            "total_third_party_services_cost": self.total_third_party_services_cost,
+            "total_products_value": self.total_products_value,
+            "total_third_party_services_selling": self.total_third_party_services_selling,
+            "total_services_value": self.total_services_value,
+        }
 
-    def calculate_pricing_methods(self):
-        fallback_data = self._build_pricing_fallback_data()
+    def calculate_pricing_methods(self, snapshot: PricingSnapshot | None = None):
+        v = self._extract_snapshot_values(snapshot)
+        duracao_total_td = v["total_duration"]
+        duracao_total = Decimal(duracao_total_td.total_seconds()) / Decimal(3600)
+        duracao_display = self._format_duration_display(duracao_total_td)
+
         pricing_context = self.budget.get_frozen_pricing_context()
         salario_mecanicos = pricing_context.productive_salary_total
-        mlr = pricing_context.profitability_multiplier
-        duracao_total = Decimal(self.total_duration.total_seconds()) / Decimal(3600)
         horas_uteis_mes = pricing_context.working_hours_per_month
 
         if not horas_uteis_mes or horas_uteis_mes == 0:
-            return fallback_data
+            return self._fallback_pricing_data(v, duracao_display)
 
-        custo_pecas = self.total_costs_products_value
-        custo_frete_pecas = self.total_products_shipping
-        custo_servico_terceiro = self.total_third_party_services_cost
+        custo_pecas = v["total_costs_products_value"]
+        custo_frete_pecas = v["total_products_shipping"]
+        custo_servico_terceiro = v["total_third_party_services_cost"]
         custo_hora_mecanico = salario_mecanicos / horas_uteis_mes
         custo_total_mao_obra = duracao_total * custo_hora_mecanico
 
-        venda_pecas = self.total_products_value - custo_frete_pecas
-        venda_servico_terceiro = self.total_third_party_services_selling
+        venda_pecas = v["total_products_value"] - custo_frete_pecas
+        venda_servico_terceiro = v["total_third_party_services_selling"]
 
         divisor_mlo = (custo_pecas + custo_frete_pecas + custo_servico_terceiro + custo_total_mao_obra).amount
         soma_base_orcamento = venda_pecas + custo_frete_pecas + venda_servico_terceiro
         subtracao_base_lucro = custo_pecas + custo_frete_pecas + custo_total_mao_obra + custo_servico_terceiro
 
-        valor_hora_vendida_trad = pricing_context.hourly_cost_value
-        venda_mao_obra_trad = valor_hora_vendida_trad * duracao_total
-        valor_orcamento_trad = soma_base_orcamento + venda_mao_obra_trad
-        lucro_operacional_trad = valor_orcamento_trad - subtracao_base_lucro
-        if valor_orcamento_trad.amount > 0:
-            rentabilidade_trad = ((lucro_operacional_trad.amount / valor_orcamento_trad.amount) * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
-        else:
-            rentabilidade_trad = Decimal("0.00")
+        trad_data = self._build_tradicional_method_data(
+            pricing_context=pricing_context,
+            duracao_total=duracao_total,
+            duracao_display=duracao_display,
+            custo_pecas=custo_pecas,
+            custo_frete_pecas=custo_frete_pecas,
+            custo_servico_terceiro=custo_servico_terceiro,
+            custo_hora_mecanico=custo_hora_mecanico,
+            custo_total_mao_obra=custo_total_mao_obra,
+            venda_pecas=venda_pecas,
+            venda_servico_terceiro=venda_servico_terceiro,
+            soma_base_orcamento=soma_base_orcamento,
+            subtracao_base_lucro=subtracao_base_lucro,
+            divisor_mlo=divisor_mlo,
+        )
 
-        venda_mao_obra_hun = self.total_services_value - venda_servico_terceiro
-        valor_orcamento_hun = soma_base_orcamento + venda_mao_obra_hun
-        mlo = valor_orcamento_hun.amount / divisor_mlo if divisor_mlo > 0 else 0
-        lucro_operacional_hun = valor_orcamento_hun - subtracao_base_lucro
-        if valor_orcamento_hun.amount > 0:
-            rentabilidade_hun = ((lucro_operacional_hun.amount / valor_orcamento_hun.amount) * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
-        else:
-            rentabilidade_hun = Decimal("0.00")
+        hun_data = self._build_hunter_method_data(
+            duracao_display=duracao_display,
+            custo_pecas=custo_pecas,
+            custo_frete_pecas=custo_frete_pecas,
+            custo_servico_terceiro=custo_servico_terceiro,
+            custo_hora_mecanico=custo_hora_mecanico,
+            custo_total_mao_obra=custo_total_mao_obra,
+            venda_pecas=venda_pecas,
+            venda_servico_terceiro=venda_servico_terceiro,
+            venda_mao_obra_hun=v["total_services_value"] - venda_servico_terceiro,
+            soma_base_orcamento=soma_base_orcamento,
+            subtracao_base_lucro=subtracao_base_lucro,
+            divisor_mlo=divisor_mlo,
+        )
 
-        data_trad = {
+        return trad_data if trad_data["rentabilidade"] > hun_data["rentabilidade"] else hun_data
+
+    def _build_tradicional_method_data(
+        self, *, pricing_context, duracao_total, duracao_display,
+        custo_pecas, custo_frete_pecas, custo_servico_terceiro,
+        custo_hora_mecanico, custo_total_mao_obra,
+        venda_pecas, venda_servico_terceiro,
+        soma_base_orcamento, subtracao_base_lucro, divisor_mlo,
+    ) -> dict[str, Any]:
+        valor_hora_vendida = pricing_context.hourly_cost_value
+        venda_mao_obra = valor_hora_vendida * duracao_total
+        valor_orcamento = soma_base_orcamento + venda_mao_obra
+        lucro_operacional = valor_orcamento - subtracao_base_lucro
+        rentabilidade = self._calc_rentabilidade(valor_orcamento, lucro_operacional)
+        mlo = self._calc_mlo(divisor_mlo, valor_orcamento)
+        return {
             "method_name": "Tradicional",
             "custo_pecas": custo_pecas,
             "custo_frete_pecas": custo_frete_pecas,
             "custo_servico_terceiro": custo_servico_terceiro,
             "custo_hora_mecanico": custo_hora_mecanico,
             "custo_total_mao_obra": custo_total_mao_obra,
-            "duracao_total": self.total_duration_display,
-            "lucro_operacional": lucro_operacional_trad,
-            "mlr": mlr,
+            "duracao_total": duracao_display,
+            "lucro_operacional": lucro_operacional,
+            "mlr": pricing_context.profitability_multiplier,
             "mlo": mlo,
             "venda_pecas": venda_pecas,
             "venda_servico_terceiro": venda_servico_terceiro,
-            "venda_mao_obra": venda_mao_obra_trad,
-            "rentabilidade": rentabilidade_trad,
-            "valor_orcamento": valor_orcamento_trad,
+            "venda_mao_obra": venda_mao_obra,
+            "rentabilidade": rentabilidade,
+            "valor_orcamento": valor_orcamento,
         }
 
-        data_hun = {
+    def _build_hunter_method_data(
+        self, *, duracao_display,
+        custo_pecas, custo_frete_pecas, custo_servico_terceiro,
+        custo_hora_mecanico, custo_total_mao_obra,
+        venda_pecas, venda_servico_terceiro, venda_mao_obra_hun,
+        soma_base_orcamento, subtracao_base_lucro, divisor_mlo,
+    ) -> dict[str, Any]:
+        valor_orcamento = soma_base_orcamento + venda_mao_obra_hun
+        lucro_operacional = valor_orcamento - subtracao_base_lucro
+        rentabilidade = self._calc_rentabilidade(valor_orcamento, lucro_operacional)
+        mlo = self._calc_mlo(divisor_mlo, valor_orcamento)
+        return {
             "method_name": "Hunter",
             "custo_pecas": custo_pecas,
             "custo_frete_pecas": custo_frete_pecas,
             "custo_servico_terceiro": custo_servico_terceiro,
             "custo_hora_mecanico": custo_hora_mecanico,
             "custo_total_mao_obra": custo_total_mao_obra,
-            "duracao_total": self.total_duration_display,
-            "lucro_operacional": lucro_operacional_hun,
-            "mlr": mlr,
+            "duracao_total": duracao_display,
+            "lucro_operacional": lucro_operacional,
+            "mlr": Decimal("0.00"),
             "venda_pecas": venda_pecas,
             "venda_servico_terceiro": venda_servico_terceiro,
             "venda_mao_obra": venda_mao_obra_hun,
-            "rentabilidade": rentabilidade_hun,
+            "rentabilidade": rentabilidade,
             "mlo": mlo,
-            "valor_orcamento": valor_orcamento_hun,
+            "valor_orcamento": valor_orcamento,
         }
 
-        return data_trad if rentabilidade_trad > rentabilidade_hun else data_hun
-
-    def _build_pricing_fallback_data(self) -> dict[str, Any]:
-        custo_pecas = self.total_costs_products_value
-        custo_frete_pecas = self.total_products_shipping
-        custo_servico_terceiro = self.total_third_party_services_cost
-        custo_hora_mecanico = Money(0, "BRL")
-        custo_total_mao_obra = Money(0, "BRL")
-
-        venda_pecas = self.total_products_value - custo_frete_pecas
-        venda_servico_terceiro = self.total_third_party_services_selling
-        venda_mao_obra = self.total_services_value - venda_servico_terceiro
-        valor_orcamento = self.total_products_value + self.total_services_value
-        lucro_operacional = valor_orcamento - (custo_pecas + custo_frete_pecas + custo_total_mao_obra + custo_servico_terceiro)
-
+    def _calc_rentabilidade(self, valor_orcamento: Money, lucro_operacional: Money) -> Decimal:
         if valor_orcamento.amount > 0:
-            rentabilidade = ((lucro_operacional.amount / valor_orcamento.amount) * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
-        else:
-            rentabilidade = Decimal("0.00")
+            return ((lucro_operacional.amount / valor_orcamento.amount) * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        return Decimal("0.00")
 
+    def _calc_mlo(self, divisor_mlo: Decimal, valor_orcamento: Money) -> Decimal:
+        if divisor_mlo > 0:
+            return (valor_orcamento.amount / divisor_mlo).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        return Decimal("0.00")
+
+    def _fallback_pricing_data(self, v: dict[str, Any], duracao_display: str) -> dict[str, Any]:
+        custo_pecas = v["total_costs_products_value"]
+        custo_frete_pecas = v["total_products_shipping"]
+        custo_servico_terceiro = v["total_third_party_services_cost"]
+        venda_pecas = v["total_products_value"] - custo_frete_pecas
+        venda_servico_terceiro = v["total_third_party_services_selling"]
+        venda_mao_obra = v["total_services_value"] - venda_servico_terceiro
+        valor_orcamento = v["total_products_value"] + v["total_services_value"]
+        lucro_operacional = valor_orcamento - (custo_pecas + custo_frete_pecas + custo_servico_terceiro)
+        rentabilidade = self._calc_rentabilidade(valor_orcamento, lucro_operacional)
         return {
             "method_name": "Base",
             "custo_pecas": custo_pecas,
             "custo_frete_pecas": custo_frete_pecas,
             "custo_servico_terceiro": custo_servico_terceiro,
-            "custo_hora_mecanico": custo_hora_mecanico,
-            "custo_total_mao_obra": custo_total_mao_obra,
-            "duracao_total": self.total_duration_display,
+            "custo_hora_mecanico": Money(0, "BRL"),
+            "custo_total_mao_obra": Money(0, "BRL"),
+            "duracao_total": duracao_display,
             "lucro_operacional": lucro_operacional,
             "mlr": Decimal("0.00"),
             "venda_pecas": venda_pecas,
@@ -558,15 +604,20 @@ class WorkOrder(TimeStampedModel):
             "valor_orcamento": valor_orcamento,
         }
 
+    @staticmethod
+    def _format_duration_display(duration: timedelta) -> str:
+        if not duration:
+            return "00h 00m"
+        ts = int(duration.total_seconds())
+        return f"{ts // 3600:02d}h {(ts % 3600) // 60:02d}m"
+
     @property
     def total_base_value(self) -> Money:
         return self.pricing_snapshot.total_base_value
 
     @property
     def total_budget_value(self) -> Money:
-        total_base = self.get_total_products_by_slider + self.get_total_services_by_slider
-        discount_value, _ = resolve_discount_fields(total_base_value=total_base, discount_value=self.discount_value, discount_percentage=self.discount_percentage)
-        return total_base - discount_value
+        return self.pricing_snapshot.total_budget_value
 
     def sync_from_budget(self) -> None:
         from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
