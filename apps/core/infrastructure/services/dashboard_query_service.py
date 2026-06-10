@@ -196,7 +196,11 @@ class DashboardQueryService:
 
         average_ticket = total_sold_to_date / cars_this_month if cars_this_month > 0 else Decimal("0.00")
         accumulated_profitability = sum(profitabilities) / len(profitabilities) if profitabilities else 0
-        warranty_return_rate = (warranty_count / cars_this_month) * 100 if cars_this_month > 0 else 0
+        warranty_return_rate = (
+            (warranty_count / (cars_this_month + warranty_count)) * 100
+            if (cars_this_month + warranty_count) > 0
+            else 0
+        )
         approval_rate = (budgets_approved_this_month / budgets_created_this_month) * 100 if budgets_created_this_month > 0 else 0
 
         draft_workorders = WorkOrder.objects.filter(
