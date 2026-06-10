@@ -25,6 +25,8 @@ from .shared import (
     LOCKED_BUDGET_EDIT_MESSAGE,
     _build_locked_budget_response,
     _calculate_service_prices,
+    _check_concurrent_budget_lock,
+    _build_concurrent_budget_lock_response,
     _get_budget_for_workshop,
     _get_budget_item_for_workshop,
     _get_budget_workshop_cost,
@@ -258,6 +260,8 @@ class AddItemToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, *args, **kwargs):
         budget = _get_budget_for_workshop(self.workshop, kwargs["budget_id"])
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return _build_locked_budget_response(request, budget, fallback_step=4)
 
@@ -292,6 +296,8 @@ class RemoveItemFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, *args, **kwargs):
         budget = _get_budget_for_workshop(self.workshop, kwargs["budget_id"])
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return _build_locked_budget_response(request, budget, fallback_step=4)
 
@@ -316,6 +322,8 @@ class RemoveBudgetItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id, item_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return _build_locked_budget_response(request, budget, fallback_step=4)
 
@@ -336,6 +344,8 @@ class RemoveProductItemsBatchFromBudgetView(LoginRequiredMixin, WorkshopScopedMi
 
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return _build_locked_budget_response(request, budget, fallback_step=4)
 
@@ -384,6 +394,8 @@ class RemoveServiceItemsBatchFromBudgetView(LoginRequiredMixin, WorkshopScopedMi
 
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return _build_locked_budget_response(request, budget, fallback_step=4)
 
@@ -432,6 +444,8 @@ class RemoveKitItemsBatchFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin,
 
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return _build_locked_budget_response(request, budget, fallback_step=4)
 
@@ -512,6 +526,8 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id, item_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return _build_locked_budget_response(request, budget, fallback_step=4)
 
@@ -605,6 +621,8 @@ class BudgetItemCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id, item_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
 
@@ -707,6 +725,8 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id, item_type):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return _build_locked_budget_response(request, budget, fallback_step=4)
 

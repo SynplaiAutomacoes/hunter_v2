@@ -26,6 +26,7 @@ from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
 from apps.budget.models import Budget, BudgetHistory, BudgetItem, BudgetStatus, SignatureStatus, BudgetType, PricingMethod
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.budget.service import SuperSignError, send_budget_for_signature
+from ...core.domain.services.editing_lock_service import get_lock_info
 from ...core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.presentation.forms import MultiStepFormMixin
 from apps.core.presentation.navigation import BUDGET_CREATE_FAVORITE_PAGE
@@ -42,7 +43,7 @@ from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
-from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _get_budget_for_workshop, _is_budget_edit_locked, logger
+from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _get_budget_for_workshop, _is_budget_edit_locked, logger, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response, CONCURRENT_BUDGET_LOCK_MESSAGE
 from ...core.utils import clean_id
 
 
@@ -134,6 +135,8 @@ class BudgetReviewDateAutosaveView(LoginRequiredMixin, WorkshopScopedMixin, View
 
     def post(self, request: HttpRequest, budget_id: int) -> JsonResponse:
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
 
@@ -761,9 +764,18 @@ class BudgetUpdateView(BudgetCreateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["is_update"] = True
+        if self.object:
+            lock_info = get_lock_info(self.object)
+            context["concurrent_lock_info"] = lock_info
+            if lock_info and lock_info.get("locked_by_session") != self.request.session.session_key:
+                context["concurrent_locked_by_other"] = True
+            else:
+                context["concurrent_locked_by_other"] = False
         return context
 
     def form_valid(self, form):
+        if self.object and not _check_concurrent_budget_lock(self.request, self.object):
+            return _build_concurrent_budget_lock_response(self.request, self.object)
         if self.object and _is_budget_edit_locked(self.object):
             return _build_locked_budget_response(self.request, self.object)
 
@@ -850,6 +862,8 @@ class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
 
@@ -880,6 +894,8 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id, status):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         has_active_workorder = budget.workorders.exclude(status=WorkOrderStatus.CANCELLED).exists()
 
         # Mapa de status
@@ -952,6 +968,8 @@ class SendBudgetSignatureView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
 
         if not budget.service_expected_completion_at:
             return JsonResponse(
@@ -975,6 +993,8 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
 
@@ -1011,6 +1031,8 @@ class MarkStep5CalculationViewedView(LoginRequiredMixin, WorkshopScopedMixin, Vi
 
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
 
@@ -1030,6 +1052,8 @@ class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
             budget_id = int(data.get("budget_id"))
             observation = sentence_case(str(data.get("observation", "")).strip())
             budget = _get_budget_for_workshop(self.workshop, budget_id)
+            if not _check_concurrent_budget_lock(request, budget):
+                return _build_concurrent_budget_lock_response(request, budget)
             if _is_budget_edit_locked(budget):
                 return JsonResponse({"success": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
 
@@ -1155,6 +1179,8 @@ class BudgetLinkProcessView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk):
         budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         reference_budget_id_raw = str(request.POST.get("reference_budget_id") or "").strip()
 
         if not reference_budget_id_raw:
@@ -1203,6 +1229,10 @@ class BudgetUnlinkProcessView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "change_budget"
 
     def post(self, request, pk):
+        budget_for_check = _get_budget_for_workshop(self.workshop, clean_id(pk))
+        if not _check_concurrent_budget_lock(request, budget_for_check):
+            return _build_concurrent_budget_lock_response(request, budget_for_check)
+
         with transaction.atomic():
             budget = Budget.objects.select_for_update().filter(pk=clean_id(pk), workshop=self.workshop).first()
             if budget is None:

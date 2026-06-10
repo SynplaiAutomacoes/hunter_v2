@@ -7,7 +7,7 @@ from typing import Any
 
 import requests
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.template.response import TemplateResponse
 from django.utils import timezone
 from django.views import View
@@ -205,3 +205,105 @@ class DashboardFinancialReportView(View):
 
 def permission_denied(request: Any, exception: BaseException | None = None) -> TemplateResponse:
     return TemplateResponse(request, "403.html", status=403)
+
+
+class BaseLockView(LoginRequiredMixin, View):
+    def get_object_type_and_id(self):
+        obj_type = self.request.GET.get("type") or self.request.POST.get("type", "")
+        obj_id = self.request.GET.get("id") or self.request.POST.get("id", "")
+        return obj_type, obj_id
+
+    def get_model_class(self, obj_type: str):
+        from django.apps import apps
+        try:
+            app_label, model_name = obj_type.split(".", 1)
+            return apps.get_model(app_label, model_name)
+        except (ValueError, LookupError):
+            return None
+
+    def get_session_key(self):
+        return self.request.session.session_key or ""
+
+
+class AcquireLockView(BaseLockView):
+    def post(self, request):
+        from apps.core.domain.services.editing_lock_service import acquire_lock
+        obj_type, obj_id = self.get_object_type_and_id()
+        if not obj_type or not obj_id:
+            return JsonResponse({"ok": False, "error": "Parâmetros type e id são obrigatórios."}, status=400)
+
+        model_class = self.get_model_class(obj_type)
+        if model_class is None:
+            return JsonResponse({"ok": False, "error": f"Tipo inválido: {obj_type}"}, status=400)
+
+        obj = model_class.objects.filter(pk=obj_id).first()
+        if obj is None:
+            return JsonResponse({"ok": False, "error": "Objeto não encontrado."}, status=404)
+
+        success, lock_info = acquire_lock(obj, request.user, self.get_session_key())
+        if success:
+            return JsonResponse({"ok": success})
+        return JsonResponse({"ok": success, "lock_info": lock_info}, status=409)
+
+
+class ReleaseLockView(BaseLockView):
+    def post(self, request):
+        from apps.core.domain.services.editing_lock_service import release_lock
+        obj_type, obj_id = self.get_object_type_and_id()
+        if not obj_type or not obj_id:
+            return JsonResponse({"ok": False, "error": "Parâmetros type e id são obrigatórios."}, status=400)
+
+        model_class = self.get_model_class(obj_type)
+        if model_class is None:
+            return JsonResponse({"ok": False, "error": f"Tipo inválido: {obj_type}"}, status=400)
+
+        obj = model_class.objects.filter(pk=obj_id).first()
+        if obj is None:
+            return JsonResponse({"ok": False, "error": "Objeto não encontrado."}, status=404)
+
+        release_lock(obj, self.get_session_key())
+        return JsonResponse({"ok": True})
+
+
+class RefreshLockView(BaseLockView):
+    def post(self, request):
+        from apps.core.domain.services.editing_lock_service import refresh_lock
+        obj_type, obj_id = self.get_object_type_and_id()
+        if not obj_type or not obj_id:
+            return JsonResponse({"ok": False, "error": "Parâmetros type e id são obrigatórios."}, status=400)
+
+        model_class = self.get_model_class(obj_type)
+        if model_class is None:
+            return JsonResponse({"ok": False, "error": f"Tipo inválido: {obj_type}"}, status=400)
+
+        obj = model_class.objects.filter(pk=obj_id).first()
+        if obj is None:
+            return JsonResponse({"ok": False, "error": "Objeto não encontrado."}, status=404)
+
+        success = refresh_lock(obj, self.get_session_key())
+        if success:
+            return JsonResponse({"ok": success})
+        return JsonResponse({"ok": success}, status=404)
+
+
+class CheckLockView(BaseLockView):
+    def get(self, request):
+        from apps.core.domain.services.editing_lock_service import get_lock_info
+        obj_type = request.GET.get("type", "")
+        obj_id = request.GET.get("id", "")
+        if not obj_type or not obj_id:
+            return JsonResponse({"ok": False, "error": "Parâmetros type e id são obrigatórios."}, status=400)
+
+        model_class = self.get_model_class(obj_type)
+        if model_class is None:
+            return JsonResponse({"ok": False, "error": f"Tipo inválido: {obj_type}"}, status=400)
+
+        obj = model_class.objects.filter(pk=obj_id).first()
+        if obj is None:
+            return JsonResponse({"ok": False, "error": "Objeto não encontrado."}, status=404)
+
+        lock_info = get_lock_info(obj)
+        if lock_info and lock_info["locked_by_session"] != self.get_session_key():
+            return JsonResponse({"ok": True, "locked": True, "lock_info": lock_info})
+        return JsonResponse({"ok": True, "locked": False})
+

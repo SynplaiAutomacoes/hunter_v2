@@ -1,11 +1,11 @@
 import json
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views import View
 from apps.budget.models import Budget, BudgetItem
 from apps.workshops.mixin import WorkshopScopedMixin
-from .shared import _get_budget_for_workshop
+from .shared import _get_budget_for_workshop, _is_budget_edit_locked, LOCKED_BUDGET_EDIT_MESSAGE, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
 from apps.core.presentation.widgets import SearchableSelectInput
 from django import forms
 from django.urls import reverse
@@ -89,6 +89,10 @@ class BudgetImportItemsProcessView(LoginRequiredMixin, WorkshopScopedMixin, View
 
     def post(self, request, pk):
         budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
+        if _is_budget_edit_locked(budget):
+            return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
 
         selected_item_ids = [int(clean_id(item)) for item in request.POST.getlist("selected_items") if clean_id(item)]
 

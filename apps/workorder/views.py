@@ -31,6 +31,7 @@ from apps.catalog.models.kits import Kit
 from apps.budget.models import BudgetType
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
+from apps.core.domain.services.editing_lock_service import get_lock_info
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.core.presentation.tables import TableActionDefaults
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
@@ -78,6 +79,9 @@ from apps.workorder.util import (
     _get_workorder_from_signature_token,
     _is_workorder_edit_locked,
     LOCKED_WORKORDER_EDIT_MESSAGE,
+    _check_concurrent_edit_lock,
+    _build_concurrent_lock_response,
+    CONCURRENT_LOCK_MESSAGE,
 )
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshops import Workshop
@@ -575,6 +579,13 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         context["collaborator_form"] = WorkOrderCollaboratorForm(instance=self.object, workorder=self.object)
         context.update(_build_customer_approvement_context(self.object, request=self.request))
         context.update(_build_edit_items_context(self.object))
+
+        lock_info = get_lock_info(self.object)
+        context["concurrent_lock_info"] = lock_info
+        context["concurrent_locked_by_other"] = False
+        if lock_info and lock_info.get("locked_by_session") != self.request.session.session_key:
+            context["concurrent_locked_by_other"] = True
+
         return context
 
 
@@ -600,6 +611,8 @@ class UpdateWorkOrderCollaboratorsView(LoginRequiredMixin, WorkshopScopedMixin, 
 
     def post(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
             return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
 
@@ -642,6 +655,8 @@ class UpdateWorkOrderDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View)
 
     def post(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
             return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
 
@@ -686,6 +701,8 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
             return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
 
@@ -763,6 +780,8 @@ class WorkOrderAddItemsBatchView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk, item_type):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
             response = _render_edit_items_modal(request, workorder, "products")
             response["HX-Trigger"] = json.dumps({"showToast": {"message": LOCKED_WORKORDER_EDIT_MESSAGE, "type": "warning"}})
@@ -841,6 +860,8 @@ class WorkOrderRemoveItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
         item = _get_workorder_item_for_workshop(self.workshop, pk, item_id)
         active_tab = request.POST.get("active_tab") or _active_tab_from_item(item)
         workorder = item.workorder
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
             response = _render_edit_items_modal(request, workorder, active_tab)
             response["HX-Trigger"] = json.dumps({"showToast": {"message": LOCKED_WORKORDER_EDIT_MESSAGE, "type": "warning"}})
@@ -871,6 +892,8 @@ class WorkOrderItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk, item_id):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
             response = _render_edit_items_modal(request, workorder, "products")
             response["HX-Trigger"] = json.dumps({"showToast": {"message": LOCKED_WORKORDER_EDIT_MESSAGE, "type": "warning"}})
@@ -1002,6 +1025,8 @@ class WorkOrderKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk, item_id):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
             response = _render_edit_items_modal(request, workorder, "kits")
             response["HX-Trigger"] = json.dumps({"showToast": {"message": LOCKED_WORKORDER_EDIT_MESSAGE, "type": "warning"}})
@@ -1075,6 +1100,8 @@ class AddPaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk):
         workorder = get_object_or_404(WorkOrder, pk=pk, workshop=self.workshop)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
             return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
 
@@ -1110,6 +1137,8 @@ class DeletePaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def delete(self, request, pk):
         payment = get_object_or_404(WorkOrderPaymentMethod, pk=pk, workorder__workshop=self.workshop)
         workorder = payment.workorder
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
             return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
 
@@ -1137,6 +1166,8 @@ class UploadAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk):
         workorder = get_object_or_404(WorkOrder, pk=pk, workshop=self.workshop)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
             return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
 
@@ -1202,6 +1233,8 @@ class DeleteAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
         attachment = get_object_or_404(WorkOrderAttachment, pk=pk, workorder__workshop=self.workshop)
         with transaction.atomic():
             workorder = attachment.workorder
+            if not _check_concurrent_edit_lock(request, workorder):
+                return _build_concurrent_lock_response(request, workorder)
             if _is_workorder_edit_locked(workorder):
                 return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
             attachment.delete()
@@ -1216,6 +1249,8 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk, status):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
 
         status_map = {
             "approve": WorkOrderStatus.APPROVED,
@@ -1293,6 +1328,8 @@ class ReopenWorkOrderView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
         if not can_reopen_workorder(request=request, workorder=workorder):
             response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
             response["HX-Trigger"] = json.dumps({"showToast": {"message": "Você não tem permissão para reabrir esta O.S.", "type": "error"}})

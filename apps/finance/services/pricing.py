@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Iterable
 
-from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, money_from_decimal, zero_money
+from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, money_from_decimal, resolve_discount_fields, zero_money
 from apps.workorder.models import WorkOrder
 
 
@@ -115,6 +115,7 @@ def build_emission_pricing_snapshot_for_workorder(
         items=list(workorder._iter_items()),
         slider=0,
         discount_value=workorder.discount_value,
+        discount_percentage=workorder.discount_percentage,
         labor_cost_value=workorder.total_labor_cost_value,
     )
 
@@ -148,7 +149,12 @@ def build_emission_pricing_snapshot_for_workorder(
     adjusted_snapshot.total_third_party_services_selling = sum((line.adjusted_total for line in adjusted_snapshot.service_lines if line.third_party), zero_money())
     adjusted_snapshot.total_labor_by_slider = sum((line.adjusted_total for line in adjusted_snapshot.service_lines if not line.third_party), zero_money())
     adjusted_snapshot.total_base_value = money_from_decimal(products_target + services_target)
-    adjusted_snapshot.total_budget_value = adjusted_snapshot.total_base_value - workorder.discount_value
+    resolved_discount, _ = resolve_discount_fields(
+        total_base_value=adjusted_snapshot.total_base_value,
+        discount_value=workorder.discount_value,
+        discount_percentage=workorder.discount_percentage,
+    )
+    adjusted_snapshot.total_budget_value = adjusted_snapshot.total_base_value - resolved_discount
 
     return adjusted_snapshot
 

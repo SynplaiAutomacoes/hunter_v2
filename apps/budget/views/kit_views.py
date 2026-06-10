@@ -10,15 +10,20 @@ from django.views import View
 from djmoney.money import Money
 
 from apps.budget.forms.item_forms import BudgetKitProductEditRowForm, BudgetKitServiceEditRowForm
-from apps.budget.models import BudgetItem, BudgetKitItemOverride
+from apps.budget.models import Budget, BudgetItem, BudgetKitItemOverride
+from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.price_tracking import record_product_last_used_price
 from apps.workshops.mixin import WorkshopScopedMixin
 
-from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _calculate_service_prices, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _is_budget_edit_locked, _parse_duration_from_string, reset_steps_after_step_4
+from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _is_budget_edit_locked, _parse_duration_from_string, reset_steps_after_step_4, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
 
 logger = logging.getLogger(__name__)
+
+
+def _calculate_service_mechanic_cost(duration: timedelta, budget: Budget) -> Money:
+    return calculate_mechanic_service_cost(budget=budget, duration=duration)
 
 
 class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -79,11 +84,11 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 seconds = total_seconds % 60
                 duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
-            service_cost_price, _ = _calculate_service_prices(duration, workshop_cost)
+            service_mechanic_cost = _calculate_service_mechanic_cost(duration, budget)
             row_form = BudgetKitServiceEditRowForm(
                 initial={
                     "quantity": override.quantity,
-                    "cost": service_cost_price,
+                    "cost": service_mechanic_cost,
                     "price": override.service_selling_price,
                     "duration": duration_str,
                 },
@@ -104,7 +109,7 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "kit_services": kit_services,
             "service_pricing_context": {
                 "can_calculate": bool(workshop_cost and not workshop_cost_missing),
-                "minimum_hourly_cost": str(((workshop_cost.minimum_hourly_cost if workshop_cost else Money(0, "BRL")) or Money(0, "BRL")).amount.quantize(Decimal("0.01"))),
+                "mechanic_hourly_cost": str(budget.mechanic_hour_cost_value.amount.quantize(Decimal("0.01"))),
                 "hourly_cost_value": str(((workshop_cost.hourly_cost_value if workshop_cost else Money(0, "BRL")) or Money(0, "BRL")).amount.quantize(Decimal("0.01"))),
             },
         }
@@ -116,13 +121,13 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
         from datetime import timedelta
 
         budget = _get_budget_for_workshop(self.workshop, str(budget_id))
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return _build_locked_budget_response(request, budget, fallback_step=4)
 
         item = _get_budget_item_for_workshop(self.workshop, str(budget_id), str(item_id), kit__isnull=False)
         item.ensure_kit_snapshot()
-
-        workshop_cost, _ = _get_budget_workshop_cost(budget, self.workshop)
 
         products_json = request.POST.get("products", "[]")
         try:
@@ -208,7 +213,7 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                         duration = timedelta(0)
 
                 service_selling_price = (existing_override.service_selling_price if existing_override else service.selling_price) if budget.is_warranty_budget else Money(Decimal(str(service_data.get("price", 0))), "BRL")
-                service_cost_price, _ = _calculate_service_prices(duration or timedelta(0), workshop_cost)
+                service_cost_price = _calculate_service_mechanic_cost(duration or timedelta(0), budget)
 
                 override, created = BudgetKitItemOverride.objects.update_or_create(
                     workshop=self.workshop,
@@ -291,6 +296,8 @@ class BudgetKitProductCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
 
     def post(self, request, budget_id, item_id, product_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
 
@@ -349,6 +356,8 @@ class BudgetKitServiceCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
 
     def post(self, request, budget_id, item_id, service_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
 
@@ -373,8 +382,7 @@ class BudgetKitServiceCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
         default_cost, default_price = item.resolve_kit_service_base_prices(kit_service=kit_service, workshop_cost=workshop_cost)
 
         if changed_field == "duration":
-            service_cost_price, _ = _calculate_service_prices(duration, workshop_cost)
-            service_cost_price_amount = service_cost_price.amount.quantize(Decimal("0.01"))
+            service_cost_price_amount = _calculate_service_mechanic_cost(duration, budget).amount.quantize(Decimal("0.01"))
             price_default = existing_override.service_selling_price.amount if existing_override else default_price.amount
             service_selling_price_amount = price_default.quantize(Decimal("0.01"))
         else:

@@ -4,7 +4,7 @@ from datetime import timedelta
 from decimal import Decimal
 from urllib.parse import parse_qs, urlparse
 
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.utils import timezone
@@ -17,6 +17,7 @@ from apps.workshops.models.workshop_costs import WorkshopCost
 
 logger = logging.getLogger(__name__)
 LOCKED_BUDGET_EDIT_MESSAGE = "Reabra o orçamento antes de editar qualquer campo."
+CONCURRENT_BUDGET_LOCK_MESSAGE = "Outro usuário está editando este orçamento neste momento. Tente novamente em instantes."
 
 
 def _get_budget_for_workshop(workshop, budget_id):
@@ -195,3 +196,23 @@ def sync_linked_workorder_from_budget(budget: Budget) -> None:
     if workorder is None:
         return
     workorder.sync_from_budget()
+
+
+def _check_concurrent_budget_lock(request, budget: Budget, check_session: bool = True) -> bool:
+    from apps.core.domain.services.editing_lock_service import get_lock_info
+    lock_info = get_lock_info(budget)
+    if lock_info is None:
+        return True
+    if check_session and lock_info.get("locked_by_session") == request.session.session_key:
+        return True
+    return False
+
+
+def _build_concurrent_budget_lock_response(request, budget: Budget, *, status_code: int = 409) -> HttpResponse:
+    from apps.core.domain.services.editing_lock_service import get_lock_info
+    lock_info = get_lock_info(budget)
+    user_name = lock_info["locked_by"] if lock_info else "outro usuário"
+    message = f"Outro usuário ({user_name}) está editando este orçamento neste momento. Tente novamente em instantes."
+    response = JsonResponse({"ok": False, "error": message}, status=status_code)
+    response["HX-Trigger"] = json.dumps({"showToast": {"message": message, "type": "warning"}})
+    return response
