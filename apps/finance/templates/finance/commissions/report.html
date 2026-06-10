@@ -46,7 +46,14 @@
                     </div>
 
                     <div class="flex flex-col gap-2 sm:flex-row">
+                        {% url 'finance:commission_report_pdf' as commission_report_pdf_url %}
                         <button type="submit" class="btn btn-primary">Filtrar</button>
+                        <button type="button"
+                                class="btn btn-secondary gap-2"
+                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Relatório de Comissões', url: '{{ commission_report_pdf_url }}{% if request.GET.urlencode %}?{{ request.GET.urlencode }}{% endif %}', downloadUrl: '{{ commission_report_pdf_url }}?download=1{% if request.GET.urlencode %}&{{ request.GET.urlencode }}{% endif %}' } }))">
+                            <span class="material-icons text-sm">picture_as_pdf</span>
+                            Exportar PDF
+                        </button>
                         {% if has_active_filters %}
                             <a href="{{ clear_filters_url }}" class="btn btn-error text-white">Limpar</a>
                         {% endif %}
@@ -130,5 +137,54 @@
                 {% endif %}
             </div>
         </div>
+
+        <dialog
+            id="pdfModal"
+            class="modal"
+            x-data="{ url: '', downloadUrl: '', title: 'Relatório de Comissões' }"
+            @open-pdf-modal.window="url = $event.detail.url; downloadUrl = $event.detail.downloadUrl || ''; title = $event.detail.title || 'Relatório de Comissões'; $el.showModal()"
+        >
+            <div class="modal-box flex h-[90vh] w-full max-w-5xl flex-col p-0">
+                <div class="flex items-center justify-between border-b bg-base-200 px-6 py-4">
+                    <h3 class="flex items-center gap-2 text-xl font-bold">
+                        <span class="material-icons">description</span>
+                        <span x-text="title"></span>
+                    </h3>
+
+                    <div class="flex gap-2">
+                        <button
+                            type="button"
+                            class="btn btn-sm btn-primary"
+                            onclick="const frame = document.querySelector('#pdfModal iframe'); if (frame && frame.contentWindow) { frame.contentWindow.focus(); frame.contentWindow.print(); }"
+                        >
+                            Imprimir
+                        </button>
+
+                        <button
+                            type="button"
+                            class="btn btn-sm btn-success"
+                            x-show="downloadUrl"
+                            @click="window.open(downloadUrl, '_blank')"
+                        >
+                            Baixar PDF
+                        </button>
+
+                        <button type="button" class="btn btn-sm" onclick="document.getElementById('pdfModal').close()">
+                            Fechar
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex-1 bg-gray-100">
+                    <template x-if="url">
+                        <iframe :src="url" class="h-full w-full" frameborder="0"></iframe>
+                    </template>
+                </div>
+            </div>
+
+            <form method="dialog" class="modal-backdrop">
+                <button>close</button>
+            </form>
+        </dialog>
     </div>
 {% endblock crud_content %}

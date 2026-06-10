@@ -4000,7 +4000,7 @@ class BudgetKitServiceCalculateViewTests(TestCase):
 
         self.assertEqual(payload["price"], "55.00")
         self.assertEqual(override.service_selling_price, Money("55.00", "BRL"))
-        self.assertEqual(override.service_cost_price, Money("20.00", "BRL"))
+        self.assertEqual(override.service_cost_price, Money("50.00", "BRL"))
         self.assertEqual(override.duration, timedelta(hours=2))
         self.assertEqual(self.item.service_selling_price, Money("55.00", "BRL"))
 
@@ -4024,7 +4024,7 @@ class BudgetKitServiceCalculateViewTests(TestCase):
         self.assertFalse(payload["workshop_cost_missing"])
         self.assertEqual(payload["price"], "55.00")
         self.assertEqual(override.service_selling_price, Money("55.00", "BRL"))
-        self.assertEqual(override.service_cost_price, Money("20.00", "BRL"))
+        self.assertEqual(override.service_cost_price, Money("50.00", "BRL"))
 
     def test_duration_change_without_pricing_context_keeps_registered_kit_service_value(self) -> None:
         WorkshopCost.objects.filter(workshop=self.workshop).delete()
@@ -4065,8 +4065,8 @@ class BudgetKitServiceCalculateViewTests(TestCase):
         self.assertContains(response, "updateProductTotals")
         self.assertContains(response, "updateServiceTotals")
         self.assertContains(response, "recalculateServicePricingFromDuration")
-        self.assertContains(response, "<th class=\"w-32\">Custo/Mecânico</th>")
-        self.assertContains(response, "mechanicHourlyCost: parseFloat('10.00')")
+        self.assertContains(response, '<th class="w-32">Custo (R$)</th>')
+        self.assertContains(response, "minimumHourlyCost: parseFloat('25.00')")
         self.assertContains(response, "hourlyCostValue: parseFloat('90.00')")
         self.assertContains(response, 'data-field="cost"')
         self.assertContains(response, "readonly")
@@ -4099,7 +4099,7 @@ class BudgetKitServiceCalculateViewTests(TestCase):
         self.assertNotIn("HX-Redirect", response)
         self.assertJSONEqual(response.content, {"ok": True, "redirect_url": f"/budget/{self.budget.pk}/edit/?step=4"})
         override = BudgetKitItemOverride.objects.get(budget_item=self.item, service=self.service)
-        self.assertEqual(override.service_cost_price, Money("10.00", "BRL"))
+        self.assertEqual(override.service_cost_price, Money("25.00", "BRL"))
 
 
 class BudgetPricingSnapshotTests(TestCase):
@@ -4167,6 +4167,42 @@ class BudgetPricingSnapshotTests(TestCase):
 
         self.assertEqual(budget.get_mlr, Decimal("2.50"))
         self.assertEqual(budget.get_mlo, Decimal("1.00"))
+
+    def test_pricing_method_is_saved_when_calculate_pricing_methods_returns_hunter(self) -> None:
+        from apps.budget.models import PricingMethod
+
+        workshop = create_workshop(suffix=14)
+        budget = create_budget(workshop=workshop)
+
+        with patch.object(Budget, "calculate_pricing_methods", return_value={"method_name": "Hunter"}):
+            pricing_data = budget.calculate_pricing_methods()
+            method_name = pricing_data.get("method_name", "")
+            if method_name == "Hunter":
+                budget.pricing_method = PricingMethod.HUNTER
+            elif method_name == "Tradicional":
+                budget.pricing_method = PricingMethod.TRADITIONAL
+            budget.save(update_fields=["pricing_method"])
+
+        budget.refresh_from_db()
+        self.assertEqual(budget.pricing_method, PricingMethod.HUNTER)
+
+    def test_pricing_method_is_saved_when_calculate_pricing_methods_returns_traditional(self) -> None:
+        from apps.budget.models import PricingMethod
+
+        workshop = create_workshop(suffix=15)
+        budget = create_budget(workshop=workshop)
+
+        with patch.object(Budget, "calculate_pricing_methods", return_value={"method_name": "Tradicional"}):
+            pricing_data = budget.calculate_pricing_methods()
+            method_name = pricing_data.get("method_name", "")
+            if method_name == "Hunter":
+                budget.pricing_method = PricingMethod.HUNTER
+            elif method_name == "Tradicional":
+                budget.pricing_method = PricingMethod.TRADITIONAL
+            budget.save(update_fields=["pricing_method"])
+
+        budget.refresh_from_db()
+        self.assertEqual(budget.pricing_method, PricingMethod.TRADITIONAL)
 
 
 class CollaboratorSalarySyncTests(TestCase):

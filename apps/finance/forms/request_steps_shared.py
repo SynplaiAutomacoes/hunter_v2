@@ -35,7 +35,7 @@ class SharedEmissionWorkorderSelectionForm(CoreModelForm):
         def _label_from_instance(workorder: WorkOrder) -> str:
             customer = getattr(getattr(workorder, "budget", None), "customer", None)
             customer_name = customer.name if customer else self.empty_customer_label
-            return f"Ordem de Servico - {customer_name} - #{workorder.pk}"
+            return f"Ordem de Servico - {customer_name} - #{workorder.budget.pk}"
 
         field.label_from_instance = _label_from_instance
         field.widget = SearchableSelectInput(choices=field.choices)

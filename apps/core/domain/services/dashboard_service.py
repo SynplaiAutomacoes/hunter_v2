@@ -17,7 +17,9 @@ class DashboardMetrics:
     months: list[tuple[int, str]] = field(default_factory=list)
     years: list[int] = field(default_factory=list)
     cars_this_month: int = 0
+    cars_this_month_list: list[Any] = field(default_factory=list)
     warranty_courtesy_cars: int = 0
+    warranty_courtesy_cars_list: list[Any] = field(default_factory=list)
     average_ticket: Decimal = Decimal("0.00")
     projection: Decimal | None = None
     projection_warning: str = ""
@@ -27,6 +29,8 @@ class DashboardMetrics:
     business_holidays: int = 0
     total_sold_to_date: Decimal = Decimal("0.00")
     accumulated_profitability: float | Decimal = 0
+    accumulated_markup: Decimal = Decimal("0.00")
+    accumulated_markup_progress: int = 0
     warranty_return_rate: float | Decimal = 0
     approval_rate: float | Decimal = 0
     total_pending_receivable: Decimal = Decimal("0.00")
@@ -51,7 +55,9 @@ class DashboardMetrics:
             "meses": self.months,
             "anos": self.years,
             "qtd_carros_mes": self.cars_this_month,
+            "qtd_carros_mes_lista": self.cars_this_month_list,
             "qtd_carros_garantia_cortesia_mes": self.warranty_courtesy_cars,
+            "qtd_carros_garantia_cortesia_mes_lista": self.warranty_courtesy_cars_list,
             "ticket_medio": self.average_ticket,
             "projecao": self.projection,
             "projecao_warning": self.projection_warning,
@@ -61,6 +67,8 @@ class DashboardMetrics:
             "feriados_uteis": self.business_holidays,
             "total_vendido_ate_a_data": self.total_sold_to_date,
             "rentabilidade_acumulada_mes": self.accumulated_profitability,
+            "markup_acumulado_mes": self.accumulated_markup,
+            "markup_acumulado_progresso": self.accumulated_markup_progress,
             "indice_retorno_em_garantia_mes": self.warranty_return_rate,
             "taxa_aprovacao": self.approval_rate,
             "total_os_a_receber_em_execucao": self.total_pending_receivable,

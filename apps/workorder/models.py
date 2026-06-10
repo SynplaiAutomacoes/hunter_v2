@@ -69,10 +69,13 @@ class WorkOrder(TimeStampedModel):
     reopen_reason = models.TextField(verbose_name="Justificativa da reabertura", blank=True)
     km_final = models.PositiveIntegerField(verbose_name="KM Final", null=True, blank=True)
     budget_type = models.CharField(verbose_name="Tipo", max_length=50, choices=[("sale", "Venda"), ("warranty", "Garantia"), ("courtesy", "Cortesia")], default="sale")
+    pricing_method = models.CharField(verbose_name="Método de Precificação", max_length=20, choices=[("hunter", "Hunter"), ("traditional", "Tradicional")], null=True, blank=True)
 
     def save(self, *args, **kwargs):
         if self.budget_id:
             self.budget_type = self.budget.budget_type
+            if not self.pricing_method and self.budget.pricing_method:
+                self.pricing_method = self.budget.pricing_method
         super().save(*args, **kwargs)
 
     @property

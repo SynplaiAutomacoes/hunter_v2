@@ -258,6 +258,11 @@
                     <p class="font-bold mb-1">{{ budget.customer.name|default:budget.customer }}</p>
                     <p class="text-[11px] text-gray-500">Assinatura do cliente ou pessoa por ele autorizada</p>
                 </div>
+                {% if workorder.delivered_at %}
+                <p class="text-[10px] text-gray-600 mt-2 text-center leading-tight">
+                    Entrega do veículo feita no dia {{ workorder.delivered_at|date:"d/m/Y" }} às {{ workorder.delivered_at|date:"H:i" }} hrs
+                </p>
+                {% endif %}
             </div>
         </div>
 

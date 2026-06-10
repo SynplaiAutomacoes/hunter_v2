@@ -320,26 +320,33 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
             for payment in filtered_payments:
                 payment_amount = getattr(payment, "total_paid", None) or Money(0, "BRL")
                 payment_movement = per_payment_movements.get(payment.pk) or movement
+                payment_method = getattr(payment, "payment_method", None)
                 rows.append(
                     {
-                        "date": payment.due_date or movement.due_date,
-                        "description": _resolve_workorder_description(workorder),
-                        "collaborator": _movement_pdf_collaborator_label(payment_movement),
-                        "source": str(f"O.S. {workorder.get_id}"),
+                        "paid_status": "Sim" if payment_movement.is_paid else "Não",
+                        "reconciliation_status": "Conciliado" if payment_movement.is_reconciled else "Aguardando Conciliação",
                         "direction": FinancialMovement.MovementDirection.CREDIT,
                         "direction_label": "Crédito",
+                        "due_date": payment.due_date or movement.due_date,
+                        "agent": payment_movement.report_agent_display,
+                        "description": _resolve_workorder_description(workorder),
+                        "budget_plan": payment_movement.report_budget_plan_display,
+                        "payment_type": getattr(payment_method, "description", "-") or "-",
                         "amount": payment_amount,
                     }
                 )
             continue
         rows.append(
             {
-                "date": movement.due_date,
-                "description": movement.report_description_display,
-                "collaborator": _movement_pdf_collaborator_label(movement),
-                "source": str(f"O.S. {movement.workorder.get_id}" if movement.workorder else "-"),
+                "paid_status": "Sim" if movement.is_paid else "Não",
+                "reconciliation_status": "Conciliado" if movement.is_reconciled else "Aguardando Conciliação",
                 "direction": movement.direction,
                 "direction_label": _movement_pdf_direction_label(movement),
+                "due_date": movement.due_date,
+                "agent": movement.report_agent_display,
+                "description": movement.report_description_display,
+                "budget_plan": movement.report_budget_plan_display,
+                "payment_type": movement.report_payment_method_display,
                 "amount": movement.amount or Money(0, "BRL"),
             }
         )

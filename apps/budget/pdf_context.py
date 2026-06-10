@@ -29,12 +29,20 @@ def _build_pdf_pages(produtos: list[dict], servicos: list[dict], kits: list[dict
     ]
 
 
-def _calculate_soma_markup(*, total_budget_value: Money, total_costs_products_value: Money, total_costs_services_value: Money) -> Decimal:
+def calculate_markup_multiplier(*, total_budget_value: Money, total_costs_products_value: Money, total_costs_services_value: Money) -> Decimal:
     total_cost_amount = total_costs_products_value.amount + total_costs_services_value.amount
     if total_cost_amount <= _ZERO_DECIMAL:
         return _ZERO_DECIMAL
 
     return (total_budget_value.amount / total_cost_amount).quantize(_TWO_DECIMAL_PLACES, rounding=ROUND_HALF_UP)
+
+
+def _calculate_soma_markup(*, total_budget_value: Money, total_costs_products_value: Money, total_costs_services_value: Money) -> Decimal:
+    return calculate_markup_multiplier(
+        total_budget_value=total_budget_value,
+        total_costs_products_value=total_costs_products_value,
+        total_costs_services_value=total_costs_services_value,
+    )
 
 
 def _format_decimal_multiplier(value: Decimal) -> str:

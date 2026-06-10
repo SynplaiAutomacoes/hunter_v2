@@ -3,7 +3,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import IntegrityError
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.template.loader import render_to_string
 from django.views import View
@@ -13,7 +13,7 @@ from apps.budget.models import Budget, BudgetItem
 from apps.budget.utils import HtmxResponseHelper
 from apps.workshops.mixin import WorkshopScopedMixin
 
-from .shared import _calculate_service_prices, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _get_current_step_from_referer, _local_item_kind, _parse_duration_from_string, reset_steps_after_step_4
+from .shared import _calculate_service_prices, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _get_current_step_from_referer, _local_item_kind, _parse_duration_from_string, reset_steps_after_step_4, _is_budget_edit_locked, LOCKED_BUDGET_EDIT_MESSAGE, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
 
 
 class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -44,6 +44,10 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id, item_type):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
+        if _is_budget_edit_locked(budget):
+            return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
 
         if item_type == "product":
             form = LocalProductForm(request.POST, is_warranty_budget=budget.is_warranty_budget)
@@ -136,6 +140,12 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id, item_id):
         from apps.budget.forms import QuickProductForm, QuickServiceForm
+
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
+        if _is_budget_edit_locked(budget):
+            return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
 
         item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id, is_local=True)
         item_type = _local_item_kind(item)
@@ -276,6 +286,11 @@ class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
         from apps.budget.forms import QuickProductForm, QuickServiceForm
 
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
+        if _is_budget_edit_locked(budget):
+            return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
+
         modal_context = request.POST.get("modal_context", "parent")
         modal_target = "#child-modal-container" if modal_context == "child" else "#modal-container"
 

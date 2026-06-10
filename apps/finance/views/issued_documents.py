@@ -244,7 +244,7 @@ class IssuedDocumentsFilterMixin:
             "request_id": request_obj.pk,
             "number": note_number or request_obj.rps_number_display,
             "reference": " / ".join(reference_parts) if reference_parts else "-",
-            "workorder_id": getattr(request_obj, "workorder_id", None),
+            "workorder_id": request_obj.workorder.get_id,
             "customer_name": request_obj.customer_name,
             "created_at": request_obj.criado_em,
             "status_badge": request_obj.nfse_request_status_badge,
