@@ -156,10 +156,12 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
                 continue
             qty = per_kit_qty * kit_item.quantity
             unit_price = override.service_selling_price if override else kit_service.resolved_selling_price
-            summary_service_items.append(SimpleNamespace(
-                service=kit_service.service,
-                total_price=unit_price * qty,
-            ))
+            summary_service_items.append(
+                SimpleNamespace(
+                    service=kit_service.service,
+                    total_price=unit_price * qty,
+                )
+            )
 
     return {
         "workorder": workorder,

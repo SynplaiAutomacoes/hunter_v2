@@ -5694,12 +5694,48 @@ class FinancialReportsHomeViewTests(TestCase):
         self.assertContains(response, "Troca de oleo")
         self.assertContains(response, "R$ 20,00")
         self.assertContains(response, f'href="{reverse("workorder:workorder_detail", kwargs={"pk": approved_workorder.pk})}"')
-        self.assertContains(response, f">#{approved_workorder.budget_id}</a>")
+        formatted_budget_id = f"{approved_workorder.budget_id:,}".replace(",", ".")
+        self.assertContains(response, f">#{formatted_budget_id}</a>")
         self.assertNotContains(response, f">#{approved_workorder.id}</a>")
         self.assertNotContains(response, "Cliente Em Aberto")
         self.assertEqual(response.context["commission_rows"][0]["base_amount"], Money("200.00", "BRL"))
         self.assertEqual(CollaboratorCommissionEntry.objects.filter(workorder=approved_workorder).count(), 1)
         self.assertFalse(CollaboratorCommissionEntry.objects.filter(workorder=draft_workorder).exists())
+
+    def test_commission_report_view_opens_pdf_export_in_modal(self) -> None:
+        response = self.client.get(reverse("finance:commission_report"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "open-pdf-modal", html=False)
+        self.assertContains(response, 'id="pdfModal"', html=False)
+        self.assertContains(response, "Relatório de Comissões")
+        self.assertContains(response, f"url: '{reverse('finance:commission_report_pdf')}'", html=False)
+        self.assertContains(response, f"downloadUrl: '{reverse('finance:commission_report_pdf')}?download=1'", html=False)
+        self.assertNotContains(response, 'target="_blank" class="btn btn-secondary gap-2"', html=False)
+
+    @patch("apps.finance.views.commissions.render_template_request_to_pdf")
+    def test_commission_report_pdf_view_returns_inline_pdf_with_workshop_permission(self, render_pdf_mock: Mock) -> None:
+        render_pdf_mock.return_value = DocumentPayload(content=b"%PDF-commissions", filename="relatorio_comissoes.pdf")
+
+        response = self.client.get(reverse("finance:commission_report_pdf"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertEqual(response["Content-Disposition"], 'inline; filename="relatorio_comissoes.pdf"')
+        self.assertNotIn("X-Frame-Options", response)
+        self.assertEqual(response.content, b"%PDF-commissions")
+        render_request = render_pdf_mock.call_args.args[0]
+        self.assertEqual(render_request.template_name, "finance/commissions/pdf/commission_report.html")
+        self.assertEqual(render_request.context["workshop"], self.workshop)
+
+    @patch("apps.finance.views.commissions.render_template_request_to_pdf")
+    def test_commission_report_pdf_view_supports_download_disposition(self, render_pdf_mock: Mock) -> None:
+        render_pdf_mock.return_value = DocumentPayload(content=b"%PDF-commissions", filename="relatorio_comissoes.pdf")
+
+        response = self.client.get(reverse("finance:commission_report_pdf"), {"download": "1"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Disposition"], 'attachment; filename="relatorio_comissoes.pdf"')
 
     def test_commission_report_view_filters_by_collaborator(self) -> None:
         WorkshopCost.objects.create(workshop=self.workshop, month=5, year=2026, mechanic_quantity=1, work_days_per_month=20)

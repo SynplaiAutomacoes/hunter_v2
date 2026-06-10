@@ -61,6 +61,11 @@ class BudgetType(models.TextChoices):
     COURTESY = "courtesy", "Cortesia"
 
 
+class PricingMethod(models.TextChoices):
+    HUNTER = "hunter", "Hunter"
+    TRADITIONAL = "traditional", "Tradicional"
+
+
 class FuelLevel(models.IntegerChoices):
     FULL = 8, "Cheio"
     SEVEN_EIGHTHS = 7, "7/8"
@@ -140,6 +145,7 @@ class Budget(TimeStampedModel):
     pricing_minimum_hourly_cost = MoneyField(verbose_name="Custo hora mínimo congelado", max_digits=14, decimal_places=2, null=True, blank=True)
     pricing_hourly_cost_value = MoneyField(verbose_name="Valor hora congelado", max_digits=14, decimal_places=2, null=True, blank=True)
     pricing_profitability_multiplier = models.DecimalField(verbose_name="Multiplicador congelado", max_digits=10, decimal_places=2, null=True, blank=True)
+    pricing_method = models.CharField(verbose_name="Método de Precificação", max_length=20, choices=PricingMethod.choices, null=True, blank=True)
 
     # Token SuperSign
     signature_token_version = models.PositiveIntegerField(verbose_name="ID do PDF do Orçamento", default=1)

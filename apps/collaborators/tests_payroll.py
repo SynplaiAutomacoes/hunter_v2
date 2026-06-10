@@ -143,6 +143,25 @@ class CollaboratorPayrollServiceTests(TestCase):
         self.assertFalse(CollaboratorCommissionEntry.objects.filter(collaborator=collaborator, workorder=workorder).exists())
         self.assertEqual(payroll.commission_amount, Money("0.00", "BRL"))
 
+    def test_sync_workorder_collaborator_payrolls_ignores_non_sale_workorder(self) -> None:
+        workshop = create_workshop(suffix=22)
+        collaborator = create_collaborator(workshop=workshop, suffix=22, receives_commission=True)
+        WorkshopCost.objects.create(workshop=workshop, month=5, year=2026, mechanic_quantity=1, work_days_per_month=20)
+        budget = create_budget(workshop=workshop)
+        budget.status = "approved"
+        budget.budget_type = "warranty"
+        budget.save(update_fields=["status", "budget_type"])
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED, budget_type="warranty")
+        workorder.collaborators.add(collaborator)
+        service = Service.objects.create(workshop=workshop, name="Servico Garantia", duration=timedelta(hours=1), suggested_cost=Money("50.00", "BRL"), selling_price=Money("200.00", "BRL"))
+        WorkOrderItem.objects.create(workshop=workshop, workorder=workorder, service=service, quantity=1)
+        WorkOrderPaymentMethod.objects.create(workorder=workorder, due_date=date(2026, 5, 20), first_installment_amount=Money("200.00", "BRL"), remaining_installments_amount=Money("0.00", "BRL"), installments_count=1)
+
+        payroll = sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=date(2026, 5, 1))[0]
+
+        self.assertFalse(CollaboratorCommissionEntry.objects.filter(collaborator=collaborator, workorder=workorder).exists())
+        self.assertEqual(payroll.commission_amount, Money("0.00", "BRL"))
+
     def test_sync_collaborator_payroll_reuses_existing_financial_group_hierarchy(self) -> None:
         workshop = create_workshop(suffix=4)
         collaborator = create_collaborator(workshop=workshop, suffix=4)
@@ -346,3 +365,71 @@ class CollaboratorPayrollServiceTests(TestCase):
         self.assertIn("10.00% sobre R$", commission_item.description)
         self.assertIn("200,00", commission_item.description)
         self.assertEqual(payroll.financial_movement.amount, Money("1100.00", "BRL"))
+
+    def test_recalculate_commission_history_removes_non_sale_entries_and_payroll_amounts(self) -> None:
+        workshop = create_workshop(suffix=10)
+        collaborator = create_collaborator(workshop=workshop, suffix=10, receives_commission=True)
+        WorkshopCost.objects.create(workshop=workshop, month=5, year=2026, mechanic_quantity=1, work_days_per_month=20)
+        budget = create_budget(workshop=workshop)
+        budget.status = "approved"
+        budget.budget_type = "courtesy"
+        budget.save(update_fields=["status", "budget_type"])
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED, budget_type="courtesy")
+        workorder.collaborators.add(collaborator)
+        service = Service.objects.create(workshop=workshop, name="Servico Cortesia", duration=timedelta(hours=1), suggested_cost=Money("50.00", "BRL"), selling_price=Money("200.00", "BRL"))
+        WorkOrderItem.objects.create(workshop=workshop, workorder=workorder, service=service, quantity=1)
+
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            reference_year=2026,
+            reference_month=5,
+            due_date=date(2026, 5, 7),
+            salary_amount=Money("1000.00", "BRL"),
+            transport_allowance_amount=Money("88.00", "BRL"),
+            benefits_amount=Money("0.00", "BRL"),
+            commission_amount=Money("20.00", "BRL"),
+            total_amount=Money("1108.00", "BRL"),
+        )
+        payroll.financial_movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description=f"Folha {collaborator.name} - 05/2026",
+            amount=Money("1108.00", "BRL"),
+            due_date=date(2026, 5, 7),
+            is_paid=False,
+        )
+        payroll.save(update_fields=["financial_movement"])
+        entry = CollaboratorCommissionEntry.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            workorder=workorder,
+            payroll=payroll,
+            reference_year=2026,
+            reference_month=5,
+            percentage=Decimal("0.100000"),
+            base_amount=Money("200.00", "BRL"),
+            commission_amount=Money("20.00", "BRL"),
+            status=CollaboratorCommissionEntry.Status.FORECAST,
+        )
+        CollaboratorPayrollItem.objects.create(
+            payroll=payroll,
+            item_type=CollaboratorPayrollItem.ItemType.COMMISSION,
+            title="Comissão",
+            description="10.00% sobre R$ 200,00",
+            amount=Money("20.00", "BRL"),
+        )
+
+        stdout = StringIO()
+        call_command("recalculate_commission_history", workshop_id=workshop.pk, stdout=stdout)
+
+        payroll.refresh_from_db()
+        assert payroll.financial_movement is not None
+        payroll.financial_movement.refresh_from_db()
+
+        self.assertFalse(CollaboratorCommissionEntry.objects.filter(pk=entry.pk).exists())
+        self.assertEqual(payroll.commission_amount, Money("0.00", "BRL"))
+        self.assertEqual(payroll.total_amount, Money("1088.00", "BRL"))
+        self.assertEqual(CollaboratorPayrollItem.objects.filter(payroll=payroll, item_type=CollaboratorPayrollItem.ItemType.COMMISSION).count(), 0)
+        self.assertEqual(payroll.financial_movement.amount, Money("1088.00", "BRL"))

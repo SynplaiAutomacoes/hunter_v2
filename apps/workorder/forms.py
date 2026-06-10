@@ -1,3 +1,4 @@
+import json
 from decimal import Decimal
 from typing import Any, Protocol, cast
 
@@ -37,7 +38,7 @@ def _format_brl_amount(value: Decimal) -> str:
 
 
 class WorkOrderCollaboratorForm(CoreModelForm):
-    collaborators = forms.ModelMultipleChoiceField(label="Colaboradores da O.S.", queryset=WorkshopCollaborator.objects.none(), required=False, widget=forms.SelectMultiple(attrs={"class": "select select-bordered min-h-40 w-full"}))
+    collaborators: forms.ModelMultipleChoiceField = forms.ModelMultipleChoiceField(label="Colaboradores da O.S.", queryset=WorkshopCollaborator.objects.none(), required=False)
 
     class Meta:
         model = WorkOrder
@@ -46,12 +47,23 @@ class WorkOrderCollaboratorForm(CoreModelForm):
     def __init__(self, *args, workorder: WorkOrder | None = None, **kwargs) -> None:
         self.workorder = workorder or kwargs.get("instance")
         super().__init__(*args, **kwargs)
+        if self.is_bound and "collaborators_list" in self.data and hasattr(self.data, "copy"):
+            bound_data = self.data.copy()
+            bound_data.setlist("collaborators", [collaborator_id for collaborator_id in bound_data.getlist("collaborators_list") if collaborator_id.strip()])
+            self.data = bound_data
+
         workshop = getattr(self.workorder, "workshop", None)
         queryset = WorkshopCollaborator.objects.none()
         if workshop is not None:
             queryset = WorkshopCollaborator.objects.filter(workshop=workshop, is_active=True).order_by("name")
         self.fields["collaborators"].queryset = queryset
         self.fields["collaborators"].help_text = "Selecione os colaboradores responsaveis por esta O.S. A comissao prevista sera calculada a partir desta vinculacao."
+        initial_collaborators = []
+        if self.workorder and self.workorder.pk:
+            initial_collaborators = [{"id": str(collaborator.id), "name": collaborator.name, "is_new": False} for collaborator in self.workorder.collaborators.all()]
+        if not initial_collaborators:
+            initial_collaborators = [{"id": "", "is_new": True}]
+        self.initial_collaborators_json = json.dumps(initial_collaborators)
 
 
 class WorkOrderPaymentForm(CoreModelForm):

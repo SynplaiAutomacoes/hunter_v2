@@ -167,6 +167,7 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
             workshop=collaborator.workshop,
             collaborators=collaborator,
             status=WorkOrderStatus.APPROVED,
+            budget_type="sale",
         )
         .prefetch_related("payments")
         .order_by("id")
@@ -247,6 +248,14 @@ def recalculate_historical_commissions(*, workshop: Workshop | None = None, dry_
     touched_payroll_ids: set[int] = set()
 
     for entry in entry_queryset.order_by("id"):
+        if entry.workorder.budget_type != "sale":
+            updated_entries += 1
+            if entry.payroll_id is not None:
+                touched_payroll_ids.add(entry.payroll_id)
+            if not dry_run:
+                entry.delete()
+            continue
+
         base_amount = Money(_quantize(Decimal(str(entry.workorder.total_services_value.amount or ZERO))), "BRL")
         commission_amount = Money(_quantize(Decimal(str(base_amount.amount or ZERO)) * Decimal(str(entry.percentage or ZERO))), "BRL")
         should_update_entry = entry.base_amount != base_amount or entry.commission_amount != commission_amount

@@ -23,7 +23,7 @@ from djmoney.money import Money
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
 from apps.budget.documents.provider import build_budget_status_report_pdf_render_request, render_budget_status_report_pdf_document
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
-from apps.budget.models import Budget, BudgetHistory, BudgetItem, BudgetStatus, SignatureStatus, BudgetType
+from apps.budget.models import Budget, BudgetHistory, BudgetItem, BudgetStatus, SignatureStatus, BudgetType, PricingMethod
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.budget.service import SuperSignError, send_budget_for_signature
 from ...core.domain.services.editing_lock_service import get_lock_info
@@ -156,6 +156,7 @@ class BudgetReviewDateAutosaveView(LoginRequiredMixin, WorkshopScopedMixin, View
 
         budget.save(update_fields=[field_name])
         return JsonResponse({"ok": True})
+
 
 BUDGET_STATUS_CHOICES = tuple((status.value, str(status.label)) for status in BudgetStatus)
 BUDGET_TYPE_CHOICES = tuple((choice.value, str(choice.label)) for choice in BudgetType)
@@ -575,13 +576,7 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
 
         obj = kwargs["instance"]
         if not obj and self.get_current_step() == 6:
-            last_observation = (
-                Budget.objects.filter(workshop=self.workshop)
-                .exclude(observations="")
-                .order_by("-criado_em")
-                .values_list("observations", flat=True)
-                .first()
-            ) or ""
+            last_observation = (Budget.objects.filter(workshop=self.workshop).exclude(observations="").order_by("-criado_em").values_list("observations", flat=True).first()) or ""
             if last_observation:
                 initial = kwargs.get("initial") or {}
                 initial["observations"] = last_observation
@@ -644,7 +639,8 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
 
         if self.object.current_step > 5 and not self.object.step5_calculation_viewed:
             self.object.step5_calculation_viewed = True
-            self.object.save(update_fields=["step5_calculation_viewed"])
+            self._sync_pricing_method()
+            self.object.save(update_fields=["step5_calculation_viewed", "pricing_method"])
             return
 
         step5_calculated = self.request.POST.get("step5_calculated")
@@ -652,7 +648,18 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
             return
 
         self.object.step5_calculation_viewed = True
-        self.object.save(update_fields=["step5_calculation_viewed"])
+        self._sync_pricing_method()
+        self.object.save(update_fields=["step5_calculation_viewed", "pricing_method"])
+
+    def _sync_pricing_method(self):
+        if not self.object:
+            return
+        pricing_data = self.object.calculate_pricing_methods()
+        method_name = pricing_data.get("method_name", "")
+        if method_name == "Hunter":
+            self.object.pricing_method = PricingMethod.HUNTER
+        elif method_name == "Tradicional":
+            self.object.pricing_method = PricingMethod.TRADITIONAL
 
     def form_valid(self, form):
         form.instance.workshop = self.workshop

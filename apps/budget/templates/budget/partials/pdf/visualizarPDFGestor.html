@@ -97,95 +97,36 @@
         <div>
           <h4 class="font-bold mb-2 uppercase">Cliente</h4>
           <div class="grid grid-cols-2 gap-x-4 gap-y-1">
-            <p>
-              <span class="text-gray-500">Nome:</span> {{
-              budget.customer.name|default:budget.customer }}
-            </p>
-            <p>
-              <span class="text-gray-500">CPF/CNPJ:</span> {{
-              budget.customer.cpf_or_cnpj|default:"-" }}
-            </p>
-            <p>
-              <span class="text-gray-500">Telefone:</span> {{
-              budget.customer.phone|default:"-" }}
-            </p>
-            <p>
-              <span class="text-gray-500">Email:</span> {{
-              budget.customer.email|default:"-" }}
-            </p>
-            <p>
-              <span class="text-gray-500">Bairro:</span> {{
-              budget.customer.bairro|default:"-" }}
-            </p>
-            <p>
-              <span class="text-gray-500">Cidade:</span> {{
-              budget.customer.cidade|default:"-" }}
-            </p>
-            <p>
-              <span class="text-gray-500">Endereço:</span> {{
-              budget.customer.estado|default:"-" }}, {{
-              budget.customer.logradouro|default:"-" }},{{
-              budget.customer.numero|default:"-" }}
-            </p>
-            <p>
-              <span class="text-gray-500">CEP:</span> {{
-              budget.customer.cep|default:"-" }}
-            </p>
+            <p><span class="text-gray-500">Nome:</span> {{ budget.customer.name|default:budget.customer }}</p>
+            <p><span class="text-gray-500">CPF/CNPJ:</span> {{ budget.customer.cpf_or_cnpj|default:"-" }}</p>
+            <p><span class="text-gray-500">Telefone:</span> {{ budget.customer.phone|default:"-" }}</p>
+            <p><span class="text-gray-500">Email:</span> {{ budget.customer.email|default:"-" }}</p>
+            <p><span class="text-gray-500">Bairro:</span> {{ budget.customer.bairro|default:"-" }}</p>
+            <p><span class="text-gray-500">Cidade:</span> {{ budget.customer.cidade|default:"-" }}</p>
+            <p><span class="text-gray-500">Endereço:</span> {{ budget.customer.estado|default:"-" }}, {{ budget.customer.logradouro|default:"-" }}, {{ budget.customer.numero|default:"-" }}</p>
+            <p><span class="text-gray-500">CEP:</span> {{ budget.customer.cep|default:"-" }}</p>
           </div>
         </div>
         <div>
           <h4 class="font-bold mb-2 uppercase">Veículo</h4>
           <div class="grid grid-cols-2 gap-x-4 gap-y-1">
-            <p>
-              <span class="text-gray-500">Placa:</span> {{ budget.vehicle.plate
-              }}
-            </p>
-            <p>
-              <span class="text-gray-500">Marca:</span> {{ budget.vehicle.brand
-              }}
-            </p>
-            <p>
-              <span class="text-gray-500">Modelo:</span> {{
-              budget.vehicle.model|default:"-" }}
-            </p>
-            <p>
-              <span class="text-gray-500">Motor:</span> {{
-              budget.vehicle.engine|default:"-" }}
-            </p>
-            <p>
-              <span class="text-gray-500">Combustível:</span> {{
-              budget.vehicle.fuel|default:"-" }}
-            </p>
-            <p>
-              <span class="text-gray-500">Ano/Mod:</span> {{
-              budget.vehicle.year_model|default:"-" }}
-            </p>
-            <p>
-              <span class="text-gray-500">Ano/Fab:</span> {{
-              budget.vehicle.year_fabrication|default:"-" }}
-            </p>
-            <p>
-              <span class="text-gray-500">Cor:</span> {{
-              budget.vehicle.color|default:"-" }}
-            </p>
-            <p>
-              <span class="text-gray-500">Km-E:</span> {{
-              budget.current_km|default:"-" }}
-            </p>
+            <p><span class="text-gray-500">Placa:</span> {{ budget.vehicle.plate }}</p>
+            <p><span class="text-gray-500">Marca:</span> {{ budget.vehicle.brand }}</p>
+            <p><span class="text-gray-500">Modelo:</span> {{ budget.vehicle.model|default:"-" }}</p>
+            <p><span class="text-gray-500">Motor:</span> {{ budget.vehicle.engine|default:"-" }}</p>
+            <p><span class="text-gray-500">Combustível:</span> {{ budget.vehicle.fuel|default:"-" }}</p>
+            <p><span class="text-gray-500">Ano/Mod:</span> {{ budget.vehicle.year_model|default:"-" }}</p>
+            <p><span class="text-gray-500">Ano/Fab:</span> {{ budget.vehicle.year_fabrication|default:"-" }}</p>
+            <p><span class="text-gray-500">Cor:</span> {{ budget.vehicle.color|default:"-" }}</p>
+            <p><span class="text-gray-500">Km-E:</span> {{ budget.current_km|default:"-" }}</p>
           </div>
         </div>
       </div>
 
       <div class="p-4 border-b border-gray-200">
         <h4 class="font-bold mb-2 uppercase">Reclamações/Problemas</h4>
-        <p>
-          <span class="text-gray-500 italic">Relato principal do cliente:</span>
-          {{ budget.problem_description|default:"Não informado." }}
-        </p>
-        <p>
-          <span class="text-gray-500 italic">Observações da Oficina:</span> {{
-          budget.technical_diagnosis|default:"Não informado." }}
-        </p>
+        <p><span class="text-gray-500 italic">Relato principal do cliente:</span> {{ budget.problem_description|default:"Não informado." }}</p>
+        <p><span class="text-gray-500 italic">Observações da Oficina:</span> {{ budget.technical_diagnosis|default:"Não informado." }}</p>
       </div>
 
       <div class="p-3 border-b border-gray-200">
@@ -220,9 +161,7 @@
               <td class="p-1 text-center">{{ p.adjusted_unit_price }}</td>
               <td class="p-1 text-center">{{ p.shipping }}</td>
               <td class="p-1 text-center font-medium">{{ p.total_price }}</td>
-              <td class="p-1 text-center font-bold">
-                {{ p.product_cost_price }}
-              </td>
+              <td class="p-1 text-center font-bold">{{ p.product_cost_price }}</td>
               <td class="p-1 text-center font-bold">{{ p.profit_value }}</td>
             </tr>
             {% endfor %}
@@ -271,9 +210,7 @@
               <td class="p-1 px-2 text-right whitespace-nowrap">{{ s.unit_price }}</td>
               <td class="p-1 px-2 text-right whitespace-nowrap">{{ s.total_price }}</td>
               <td class="p-1 px-2 text-center whitespace-nowrap">{{ s.duration_display }}</td>
-              <td class="p-1 px-2 text-right font-bold whitespace-nowrap">
-                {{ s.service_mechanic_cost_price }}
-              </td>
+              <td class="p-1 px-2 text-right font-bold whitespace-nowrap">{{ s.service_mechanic_cost_price }}</td>
               <td class="p-1 px-2 text-right font-bold whitespace-nowrap">{{ s.profit_value }}</td>
             </tr>
             {% endfor %}
@@ -299,9 +236,7 @@
             >
               CÁLCULO MARKUP
             </p>
-            <p class="text-[26px] font-bold leading-none mt-2 text-gray-900">
-              {{ soma_markup_display }}
-            </p>
+            <p class="text-[26px] font-bold leading-none mt-2 text-gray-900">{{ soma_markup_display }}</p>
             <p class="text-[10px] text-gray-500 mt-2">
               Total do orçamento dividido pelo custo de peças e serviços.
             </p>
@@ -364,16 +299,8 @@
       <div
         class="text-center text-[11px] text-gray-500 pt-4 mt-4 border-t border-gray-200"
       >
-        <p>
-          Aberto por: {{ request.user.get_full_name }} em: {{
-          budget.criado_em|date:"d/m/Y" }} às {{ budget.criado_em|date:"H:i" }}
-        </p>
-        <p>
-          Status:
-          <span class="uppercase font-bold text-gray-700"
-            >{{ budget.budget_status }}</span
-          >
-        </p>
+        <p>Aberto por: {{ request.user.get_full_name }} em: {{ budget.criado_em|date:"d/m/Y" }} às {{ budget.criado_em|date:"H:i" }}</p>
+        <p>Status: <span class="uppercase font-bold text-gray-700">{{ budget.budget_status }}</span></p>
       </div>
     </div>
   </body>

@@ -7,6 +7,7 @@ from apps.finance.views import (
     EmissionWorkOrderKitComponentUpdateView,
     EmissionWorkOrderItemUpdateView,
     CommissionReportView,
+    CommissionReportPdfView,
     FinancialGroupCreateView,
     FinancialGroupDeleteView,
     FinancialGroupListView,
@@ -82,6 +83,7 @@ urlpatterns = [
     path("reports/group/wizard/", GroupMovementWizardView.as_view(), name="group_movement_wizard"),
     path("reports/group/<int:pk>/delete/", GroupMovementDeleteView.as_view(), name="group_movement_delete"),
     path("comissoes/", CommissionReportView.as_view(), name="commission_report"),
+    path("comissoes/pdf/", CommissionReportPdfView.as_view(), name="commission_report_pdf"),
     path("notas-emitidas/", IssuedDocumentsListView.as_view(), name="issued_documents_list"),
     path("notas-emitidas/download/<str:document_group>/", IssuedDocumentsArchiveDownloadView.as_view(), name="issued_documents_download"),
     # Financial Groups

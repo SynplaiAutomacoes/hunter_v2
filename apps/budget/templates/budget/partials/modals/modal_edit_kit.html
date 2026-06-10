@@ -103,7 +103,7 @@
                             <tr class="bg-base-200">
                                 <th class="w-1/3">Descrição</th>
                                 <th class="w-20 text-center">Qtd</th>
-                                <th class="w-32">Custo/Mecânico</th>
+                                <th class="w-32">Custo (R$)</th>
                                 {% if not item.budget.is_warranty_budget %}<th class="w-32">Venda (R$)</th>{% endif %}
                                 <th class="w-32">Duração</th>
                                 <th class="w-32">Total (R$)</th>
@@ -180,7 +180,7 @@
 
     const servicePricingContext = {
         canCalculate: {{ service_pricing_context.can_calculate|yesno:"true,false" }},
-        mechanicHourlyCost: parseFloat('{{ service_pricing_context.mechanic_hourly_cost }}') || 0,
+        minimumHourlyCost: parseFloat('{{ service_pricing_context.minimum_hourly_cost }}') || 0,
         hourlyCostValue: parseFloat('{{ service_pricing_context.hourly_cost_value }}') || 0,
     };
 
@@ -259,7 +259,7 @@
 
         const costInput = getFieldInput(row, 'cost');
         const priceInput = getFieldInput(row, 'price');
-        const cost = servicePricingContext.mechanicHourlyCost * durationHours;
+        const cost = servicePricingContext.minimumHourlyCost * durationHours;
         const price = servicePricingContext.hourlyCostValue * durationHours;
 
         if (costInput) costInput.value = formatDecimalToInput(cost);
