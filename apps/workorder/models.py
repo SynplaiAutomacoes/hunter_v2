@@ -622,6 +622,10 @@ class WorkOrder(TimeStampedModel):
     def total_budget_value(self) -> Money:
         return self.pricing_snapshot.total_budget_value
 
+    @property
+    def resolved_discount_value(self) -> Money:
+        return self.pricing_snapshot.resolved_discount_value
+
     def sync_from_budget(self) -> None:
         from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
 
