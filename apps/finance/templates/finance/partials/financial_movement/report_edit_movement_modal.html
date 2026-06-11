@@ -237,6 +237,9 @@
 
     function renderPlaceholder() {
         if (!detailsContainer) return;
+        if (detailsContainer.querySelector('#source-details-content')) {
+            return;
+        }
         detailsContainer.innerHTML = "<p class='italic opacity-50 text-center py-4'>Selecione um fornecedor ou colaborador para ver os detalhes.</p>";
     }
 
