@@ -3,8 +3,8 @@ from __future__ import annotations
 from django.core.management.base import BaseCommand
 
 from apps.finance.models.finance import NfeItem
-from apps.finance.services.nfe_consulta import NfeConsultaError, reconcile_nfe_item
-from apps.finance.services.webmania_webhooks import process_pending_webhook_events
+from apps.core.infrastructure.services.webmania.nfe_consulta import NfeConsultaError, reconcile_nfe_item
+from apps.core.infrastructure.services.webmania.webmania_webhooks import process_pending_webhook_events
 
 
 class Command(BaseCommand):

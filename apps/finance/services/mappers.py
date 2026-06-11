@@ -1,6 +1,6 @@
 import logging
 
-from apps.finance.services.webmania_status import normalize_nfse_batch_status, normalize_nfse_item_status
+from apps.core.infrastructure.services.webmania.webmania_status import normalize_nfse_batch_status, normalize_nfse_item_status
 
 
 logger = logging.getLogger(__name__)

@@ -21,15 +21,15 @@ from apps.finance.models.finance import NfseBatch, NfseItem, NfseRequest
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfse_request_rps_number
 from apps.finance.services.mappers import extract_items_from_batch, map_batch_payload, map_item_payload
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder
-from apps.finance.services.webmania_auth import (
+from apps.core.infrastructure.services.webmania.webmania_auth import (
     WebmaniaAuthError,
     build_webmania_headers,
     redact_webmania_headers,
     sanitize_webmania_setting,
     should_use_global_webmania_auth,
 )
-from apps.finance.services.webmania_documents import DownloadedWebmaniaDocument
-from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+from apps.core.infrastructure.services.webmania.webmania_documents import DownloadedWebmaniaDocument
+from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
 
 
 logger = logging.getLogger(__name__)
@@ -885,7 +885,7 @@ def _replay_pending_nfse_webhooks_for_uuid(*, model: str, event_uuid: str) -> No
     if not event_uuid:
         return
 
-    from apps.finance.services.webmania_webhooks import process_pending_webhook_events
+    from apps.core.infrastructure.services.webmania.webmania_webhooks import process_pending_webhook_events
 
     process_pending_webhook_events(model=model, event_uuid=event_uuid)
 

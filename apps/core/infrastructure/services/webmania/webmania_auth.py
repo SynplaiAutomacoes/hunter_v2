@@ -3,7 +3,7 @@ from __future__ import annotations
 from django.conf import settings
 
 from apps.finance.models.finance import WebmaniaCompany
-from apps.finance.services.webmania_secrets import decrypt_secret
+from apps.core.infrastructure.services.webmania.webmania_secrets import decrypt_secret
 
 
 class WebmaniaAuthError(Exception):

@@ -20,7 +20,7 @@ from apps.finance.forms.emission_ui import (
 )
 from apps.finance.forms.request_steps_shared import SharedEmissionCustomerReviewForm, SharedEmissionWorkorderSelectionForm
 from apps.finance.models.finance import NfeRequest
-from apps.finance.services.nfe_emission import build_nfe_preview_rows, build_nfe_preview_warning_messages
+from apps.core.infrastructure.services.webmania.nfe_emission import build_nfe_preview_rows, build_nfe_preview_warning_messages
 
 
 class NfeRequestStep1Form(SharedEmissionWorkorderSelectionForm):

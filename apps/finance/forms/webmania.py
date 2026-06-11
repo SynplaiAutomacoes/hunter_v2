@@ -8,10 +8,10 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from django import forms
 from django.urls import reverse
 
-from apps.core.infrastructure.services.webmania import is_webmania_homolog_environment
+from apps.core.infrastructure.services.webmania.webmania import is_webmania_homolog_environment
 from apps.core.presentation.widgets import CEPInput, CPForCNPJInput, CheckboxInput, EmailInput, PasswordInput, PhoneInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models.finance import WebmaniaCompany, WebmaniaCompanyTaxType
-from apps.finance.services.webmania_secrets import encrypt_secret
+from apps.core.infrastructure.services.webmania.webmania_secrets import encrypt_secret
 from apps.core.text_normalization import name_case, sentence_case
 from apps.core.presentation.forms import CoreModelForm
 

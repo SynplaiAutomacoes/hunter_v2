@@ -10,17 +10,17 @@ from django.utils import timezone
 from django.views import View
 from django.views.generic import TemplateView, UpdateView
 
-from apps.core.infrastructure.services.webmania import is_webmania_homolog_environment
+from apps.core.infrastructure.services.webmania.webmania import is_webmania_homolog_environment
 from apps.finance.forms import WebmaniaCompanyUpdateForm
 from apps.finance.models.finance import WebmaniaCompany
-from apps.finance.services.webmania_b2b import (
+from apps.core.infrastructure.services.webmania.webmania_b2b import (
     WebmaniaB2BServiceError,
     get_b2b_requests,
     list_local_b2b_companies,
     sync_b2b_companies_to_database,
     update_webmania_company,
 )
-from apps.finance.services.webmania_secrets import decrypt_secret
+from apps.core.infrastructure.services.webmania.webmania_secrets import decrypt_secret
 from .common import DirectorWorkshopAccessMixin, _format_cnpj, _format_cpf, _format_tax_type, _format_unit
 from apps.workshops.util.workshops import has_workshop_perm
 

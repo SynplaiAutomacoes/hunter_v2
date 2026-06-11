@@ -1,0 +1,12 @@
+<div id="source-details-content">
+    {% if entity %}
+        <div class="bg-base-200 p-4 rounded-lg space-y-2 animate-in fade-in duration-300">
+            <p><strong>Origem:</strong> {{ entity.name|default:"----" }}</p>
+            <p><strong>CPF/CNPJ:</strong> {{ entity.cnpj|default:"---" }}</p>
+            <p><strong>Telefone:</strong> {{ entity.phone|default:"---" }}</p>
+            <p><strong>E-mail:</strong> {{ entity.email|default:"---" }}</p>
+        </div>
+    {% else %}
+        <p class='italic opacity-50 text-center py-8'>Selecione um fornecedor para ver os detalhes.</p>
+    {% endif %}
+</div>

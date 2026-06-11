@@ -4,7 +4,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from apps.core.infrastructure.models import TimeStampedModel
-from apps.finance.services.webmania_status import normalize_nfe_request_status, normalize_nfse_request_status
+
 
 
 logger = logging.getLogger(__name__)
@@ -427,6 +427,8 @@ class NfseRequest(TimeStampedModel):
         if not request_status:
             return False
 
+        from apps.core.infrastructure.services.webmania.webmania_status import normalize_nfse_request_status
+
         normalized_status = normalize_nfse_request_status(request_status)
         status_mapping = {
             "processing": NfseRequestStatus.PROCESSING,
@@ -523,6 +525,8 @@ class NfeRequest(TimeStampedModel):
     def update_status_based_on_request(self, request_status: str | None) -> bool:
         if not request_status:
             return False
+
+        from apps.core.infrastructure.services.webmania.webmania_status import normalize_nfe_request_status
 
         normalized_status = normalize_nfe_request_status(request_status)
         status_mapping = {

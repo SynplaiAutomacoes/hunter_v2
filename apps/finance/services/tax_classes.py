@@ -17,14 +17,14 @@ from apps.finance.models.finance import (
     TaxClassNfse,
     TaxClassSyncState,
 )
-from apps.finance.services.webmania_auth import (
+from apps.core.infrastructure.services.webmania.webmania_auth import (
     WebmaniaAuthError,
     build_webmania_headers,
     redact_webmania_headers,
     sanitize_webmania_setting,
     should_use_global_webmania_auth,
 )
-from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
 from apps.workshops.models.workshops import Workshop
 
 

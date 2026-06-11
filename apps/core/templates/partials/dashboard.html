@@ -144,7 +144,7 @@
                     {% if projecao is not None %}R$ {{ projecao|floatformat:2 }}{% endif %}
                     {% if projecao_vs_meta %}
                         <div class="tooltip" data-tip="{{ projecao_vs_meta.percentual|floatformat:1 }}% da meta">
-                            <span class="material-icons text-{{ projecao_vs_meta.cor }} text-2xl">{{ projecao_vs_meta.seta }}</span>
+                            <span class="material-icons text-{{ projecao_vs_meta.cor }} text-5xl">{{ projecao_vs_meta.seta }}</span>
                         </div>
                     {% endif %}
                 </div>

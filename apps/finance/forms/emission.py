@@ -22,8 +22,8 @@ from apps.finance.forms.emission_ui import (
     clamp_slider_value,
     format_money,
 )
-from apps.finance.services.emission import build_default_service_description_for_workorder
-from apps.finance.services.nfe_emission import build_nfe_preview_rows, build_nfe_preview_warning_messages
+from apps.core.infrastructure.services.webmania.emission import build_default_service_description_for_workorder
+from apps.core.infrastructure.services.webmania.nfe_emission import build_nfe_preview_rows, build_nfe_preview_warning_messages
 from apps.finance.services.pricing import build_emission_pricing_snapshot_for_workorder, build_nfse_service_preview_rows, build_slider_allocation_for_workorder
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 

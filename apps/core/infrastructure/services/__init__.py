@@ -1,5 +1,4 @@
 from apps.core.infrastructure.services.signature import *  # noqa: F401, F403
-from apps.core.infrastructure.services.supersign import *  # noqa: F401, F403
 from apps.core.infrastructure.services.dashboard_query_service import (
     DashboardQueryService,
     INDICATOR_LABELS,
@@ -24,7 +23,6 @@ from apps.core.infrastructure.services.whatsapp import (
 )
 
 __all__ = [
-    "SuperSignWebhookView",
     "SignatureDeliveryServiceError",
     "send_document_for_signature",
     "get_signed_document_url",
