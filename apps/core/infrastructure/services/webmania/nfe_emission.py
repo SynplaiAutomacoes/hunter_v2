@@ -433,7 +433,7 @@ def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = 
         "url_notificacao": build_webmania_webhook_url(request=request),
         "cliente": _build_customer_payload(nfe_request),
         "produtos": products_payload,
-        "pedido": _build_payment_payload(workorder=nfe_request.workorder, total_value=total_products_value, discount_value=nfe_request.workorder.resolved_discount_value),
+        "pedido": _build_payment_payload(workorder=nfe_request.workorder, total_value=total_products_value, discount_value=nfe_request.workorder.resolved_discount_value.amount),
     }
     if nfe_request.reserved_number is not None:
         payload["numero"] = int(nfe_request.reserved_number)
