@@ -14,7 +14,8 @@ from django.http import HttpRequest
 from apps.finance.models.finance import NfeItem, NfeRequest
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number
 from apps.core.infrastructure.services.webmania.emission import build_webmania_webhook_url
-from apps.finance.services.pricing import SliderAllocation, build_emission_pricing_snapshot_for_workorder, build_slider_allocation_for_workorder, distribute_total_proportionally
+from apps.finance.services.pricing import SliderAllocation, _to_decimal_money, build_emission_pricing_snapshot_for_workorder, build_slider_allocation_for_workorder, distribute_total_proportionally
+from apps.budget.pricing import money_from_decimal, resolve_discount_fields
 from apps.core.infrastructure.services.webmania.webmania_auth import (
     WebmaniaAuthError,
     build_webmania_headers,
@@ -324,7 +325,7 @@ def _build_unit_price_for_api(*, allocated_total: Decimal, quantity: Decimal) ->
     return (allocated_total / quantity).quantize(Decimal("0.01"), rounding=ROUND_UP)
 
 
-def _build_payment_payload(*, workorder: WorkOrder, total_value: Decimal) -> dict[str, Any]:
+def _build_payment_payload(*, workorder: WorkOrder, total_value: Decimal, discount_value: Decimal) -> dict[str, Any]:
     payment = workorder.payments.order_by("id").first()
     payment_method_map = {
         "DINHEIRO": "01",
@@ -340,13 +341,16 @@ def _build_payment_payload(*, workorder: WorkOrder, total_value: Decimal) -> dic
         payment_code = payment_method_map.get(str(payment.payment_method or "").upper(), "99")
         payment_indicator = 1 if int(payment.installments_count or 1) > 1 else 0
 
+    total_after_discount = _quantize_money(total_value - discount_value)
+
     payload: dict[str, Any] = {
         "pagamento": payment_indicator,
         "forma_pagamento": payment_code,
-        "valor_pagamento": _format_decimal(total_value, places=2),
+        "valor_pagamento": _format_decimal(total_after_discount, places=2),
         "presenca": 2,
         "modalidade_frete": 9,
-        "total": _format_decimal(total_value, places=2),
+        "desconto": _format_decimal(discount_value, places=2),
+        "total": _format_decimal(total_after_discount, places=2),
     }
     if payment_code == "99":
         payload["desc_pagamento"] = "Outros"
@@ -418,6 +422,18 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
 
 def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:
     products_payload, total_products_value, allocation = _build_nfe_products_payload(nfe_request=nfe_request, slider_override=slider_override)
+
+    total_base = allocation.products_target + allocation.services_target
+    resolved_discount, _ = resolve_discount_fields(
+        total_base_value=money_from_decimal(total_base),
+        discount_value=nfe_request.workorder.discount_value,
+        discount_percentage=nfe_request.workorder.discount_percentage,
+    )
+    product_discount = _quantize_money(
+        _to_decimal_money(resolved_discount) * (allocation.products_target / total_base)
+    ) if total_base > 0 else Decimal("0.00")
+    nfe_total = _quantize_money(allocation.products_target - product_discount)
+
     ambiente = int(getattr(settings, "WEBMANIA_AMBIENT", "2"))
 
     payload = {
@@ -430,7 +446,7 @@ def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = 
         "url_notificacao": build_webmania_webhook_url(request=request),
         "cliente": _build_customer_payload(nfe_request),
         "produtos": products_payload,
-        "pedido": _build_payment_payload(workorder=nfe_request.workorder, total_value=total_products_value),
+        "pedido": _build_payment_payload(workorder=nfe_request.workorder, total_value=nfe_total, discount_value=product_discount),
     }
     if nfe_request.reserved_number is not None:
         payload["numero"] = int(nfe_request.reserved_number)
