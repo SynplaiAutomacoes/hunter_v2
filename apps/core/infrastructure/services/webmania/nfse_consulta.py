@@ -7,9 +7,9 @@ from django.conf import settings
 from django.utils import timezone
 
 from apps.finance.models.finance import NfseItem
-from apps.finance.services.emission import apply_nfse_item_payload
-from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting
-from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+from apps.core.infrastructure.services.webmania.emission import apply_nfse_item_payload
+from apps.core.infrastructure.services.webmania.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting
+from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
 
 
 class NfseConsultaError(Exception):

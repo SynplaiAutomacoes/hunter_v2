@@ -4,8 +4,8 @@ from dataclasses import dataclass
 
 import requests
 
-from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers
-from apps.finance.services.webmania_errors import build_webmania_request_exception_message
+from apps.core.infrastructure.services.webmania.webmania_auth import WebmaniaAuthError, build_webmania_headers
+from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message
 
 
 class WebmaniaDocumentDownloadError(Exception):

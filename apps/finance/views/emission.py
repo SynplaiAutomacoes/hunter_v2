@@ -26,8 +26,8 @@ from apps.finance.forms import (
     EmissionStep5Form,
 )
 from apps.finance.models.finance import NfeRequest, NfeRequestStatus, NfseRequest, NfseRequestStatus
-from apps.finance.services.emission import NfseEmissionError, emit_nfse_request, sync_emission_response
-from apps.finance.services.nfe_emission import NfeEmissionError, emit_nfe_request, sync_nfe_emission_response
+from apps.core.infrastructure.services.webmania.emission import NfseEmissionError, emit_nfse_request, sync_emission_response
+from apps.core.infrastructure.services.webmania.nfe_emission import NfeEmissionError, emit_nfe_request, sync_nfe_emission_response
 from apps.finance.services.pricing import build_slider_allocation_for_workorder
 from apps.finance.services.tax_classes import TaxClassServiceError, list_tax_classes
 from apps.finance.views.request_workflow import build_preview_hidden_fields, render_emission_preview_modal

@@ -13,17 +13,17 @@ from django.http import HttpRequest
 
 from apps.finance.models.finance import NfeItem, NfeRequest
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number
-from apps.finance.services.emission import build_webmania_webhook_url
+from apps.core.infrastructure.services.webmania.emission import build_webmania_webhook_url
 from apps.finance.services.pricing import SliderAllocation, build_emission_pricing_snapshot_for_workorder, build_slider_allocation_for_workorder, distribute_total_proportionally
-from apps.finance.services.webmania_auth import (
+from apps.core.infrastructure.services.webmania.webmania_auth import (
     WebmaniaAuthError,
     build_webmania_headers,
     sanitize_webmania_setting,
     should_use_global_webmania_auth,
 )
-from apps.finance.services.webmania_documents import DownloadedWebmaniaDocument, WebmaniaDocumentDownloadError, download_webmania_document
-from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
-from apps.finance.services.webmania_status import normalize_nfe_status
+from apps.core.infrastructure.services.webmania.webmania_documents import DownloadedWebmaniaDocument, WebmaniaDocumentDownloadError, download_webmania_document
+from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+from apps.core.infrastructure.services.webmania.webmania_status import normalize_nfe_status
 from apps.workorder.models import WorkOrder
 
 
@@ -712,7 +712,7 @@ def _replay_pending_nfe_webhooks_for_uuid(*, event_uuid: str) -> None:
     if not event_uuid:
         return
 
-    from apps.finance.services.webmania_webhooks import process_pending_webhook_events
+    from apps.core.infrastructure.services.webmania.webmania_webhooks import process_pending_webhook_events
 
     process_pending_webhook_events(model="nfe", event_uuid=event_uuid)
 

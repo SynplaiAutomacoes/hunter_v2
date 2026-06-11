@@ -22,16 +22,16 @@ from apps.core.infrastructure.query_filters import apply_is_active_filter
 from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
-from apps.core.infrastructure.services.webmania import to_public_integration_message, is_webmania_homolog_environment, latest_sync_error, get_webmania_context_meta, has_webmania_change_perm, save_company_sync_metadata, sync_workshop_from_company
+from apps.core.infrastructure.services.webmania.webmania import to_public_integration_message, is_webmania_homolog_environment, latest_sync_error, get_webmania_context_meta, has_webmania_change_perm, save_company_sync_metadata, sync_workshop_from_company
 from apps.finance.models.finance import WebmaniaCompany
-from apps.finance.services.webmania_b2b import (
+from apps.core.infrastructure.services.webmania.webmania_b2b import (
     WebmaniaB2BServiceError,
     get_b2b_requests,
     provision_webmania_company_for_workshop,
     sync_b2b_companies_to_database,
     update_webmania_company,
 )
-from apps.finance.services.webmania_secrets import decrypt_secret
+from apps.core.infrastructure.services.webmania.webmania_secrets import decrypt_secret
 from apps.finance.views.common import DirectorWorkshopAccessMixin
 from apps.iam.utils import get_or_create_director_role
 from apps.workshops.forms.workshops import (

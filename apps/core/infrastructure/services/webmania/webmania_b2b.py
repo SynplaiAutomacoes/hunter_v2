@@ -8,15 +8,15 @@ from django.utils import timezone
 
 from apps.collaborators.models import WorkshopMember
 from apps.finance.models.finance import WebmaniaCompany, WebmaniaCompanyTaxType
-from apps.finance.services.webmania_auth import (
+from apps.core.infrastructure.services.webmania.webmania_auth import (
     WebmaniaAuthError,
     build_webmania_b2b_headers,
     build_webmania_headers,
     sanitize_webmania_setting,
     should_use_global_webmania_auth,
 )
-from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
-from apps.finance.services.webmania_secrets import encrypt_secret
+from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+from apps.core.infrastructure.services.webmania.webmania_secrets import encrypt_secret
 from apps.iam.utils import get_or_create_director_role
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.monthly_costs import create_default_monthly_costs
