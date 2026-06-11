@@ -13,17 +13,17 @@ from django.http import HttpRequest
 
 from apps.finance.models.finance import NfeItem, NfeRequest
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number
-from apps.finance.services.emission import build_webmania_webhook_url
-from apps.finance.services.pricing import SliderAllocation, build_emission_pricing_snapshot_for_workorder, build_slider_allocation_for_workorder, distribute_total_proportionally
-from apps.finance.services.webmania_auth import (
+from apps.core.infrastructure.services.webmania.emission import build_webmania_webhook_url
+from apps.finance.services.pricing import SliderAllocation, _to_decimal_money, build_emission_pricing_snapshot_for_workorder, build_slider_allocation_for_workorder, distribute_total_proportionally
+from apps.core.infrastructure.services.webmania.webmania_auth import (
     WebmaniaAuthError,
     build_webmania_headers,
     sanitize_webmania_setting,
     should_use_global_webmania_auth,
 )
-from apps.finance.services.webmania_documents import DownloadedWebmaniaDocument, WebmaniaDocumentDownloadError, download_webmania_document
-from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
-from apps.finance.services.webmania_status import normalize_nfe_status
+from apps.core.infrastructure.services.webmania.webmania_documents import DownloadedWebmaniaDocument, WebmaniaDocumentDownloadError, download_webmania_document
+from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+from apps.core.infrastructure.services.webmania.webmania_status import normalize_nfe_status
 from apps.workorder.models import WorkOrder
 
 
@@ -324,7 +324,7 @@ def _build_unit_price_for_api(*, allocated_total: Decimal, quantity: Decimal) ->
     return (allocated_total / quantity).quantize(Decimal("0.01"), rounding=ROUND_UP)
 
 
-def _build_payment_payload(*, workorder: WorkOrder, total_value: Decimal) -> dict[str, Any]:
+def _build_payment_payload(*, workorder: WorkOrder, total_value: Decimal, discount_value: Decimal) -> dict[str, Any]:
     payment = workorder.payments.order_by("id").first()
     payment_method_map = {
         "DINHEIRO": "01",
@@ -340,13 +340,16 @@ def _build_payment_payload(*, workorder: WorkOrder, total_value: Decimal) -> dic
         payment_code = payment_method_map.get(str(payment.payment_method or "").upper(), "99")
         payment_indicator = 1 if int(payment.installments_count or 1) > 1 else 0
 
+    total_after_discount = _quantize_money(total_value - discount_value)
+
     payload: dict[str, Any] = {
         "pagamento": payment_indicator,
         "forma_pagamento": payment_code,
-        "valor_pagamento": _format_decimal(total_value, places=2),
+        "valor_pagamento": _format_decimal(total_after_discount, places=2),
         "presenca": 2,
         "modalidade_frete": 9,
-        "total": _format_decimal(total_value, places=2),
+        "desconto": _format_decimal(discount_value, places=2),
+        "total": _format_decimal(total_after_discount, places=2),
     }
     if payment_code == "99":
         payload["desc_pagamento"] = "Outros"
@@ -430,7 +433,7 @@ def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = 
         "url_notificacao": build_webmania_webhook_url(request=request),
         "cliente": _build_customer_payload(nfe_request),
         "produtos": products_payload,
-        "pedido": _build_payment_payload(workorder=nfe_request.workorder, total_value=total_products_value),
+        "pedido": _build_payment_payload(workorder=nfe_request.workorder, total_value=total_products_value, discount_value=nfe_request.workorder.resolved_discount_value),
     }
     if nfe_request.reserved_number is not None:
         payload["numero"] = int(nfe_request.reserved_number)
@@ -712,7 +715,7 @@ def _replay_pending_nfe_webhooks_for_uuid(*, event_uuid: str) -> None:
     if not event_uuid:
         return
 
-    from apps.finance.services.webmania_webhooks import process_pending_webhook_events
+    from apps.core.infrastructure.services.webmania.webmania_webhooks import process_pending_webhook_events
 
     process_pending_webhook_events(model="nfe", event_uuid=event_uuid)
 

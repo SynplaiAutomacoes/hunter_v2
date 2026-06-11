@@ -240,7 +240,7 @@ class DashboardQueryService:
 
         cars_this_month = delivered_workorder_metrics.cars_this_month
         average_ticket = total_sold_to_date / cars_this_month if cars_this_month > 0 else Decimal("0.00")
-        warranty_return_rate = (delivered_workorder_metrics.warranty_count / cars_this_month) * 100 if cars_this_month > 0 else 0
+        warranty_return_rate = (delivered_workorder_metrics.warranty_count / (cars_this_month + delivered_workorder_metrics.warranty_count)) * 100 if (cars_this_month + delivered_workorder_metrics.warranty_count) > 0 else 0
         approval_rate = (approval_rate_metrics.approved_count / approval_rate_metrics.created_count) * 100 if approval_rate_metrics.created_count > 0 else 0
 
         gross_revenue_target = None
@@ -446,11 +446,7 @@ class DashboardQueryService:
         )
         total_general = sum((budget.total_budget_value.amount for budget in pending_budgets), Decimal("0.00"))
         monthly = sum(
-            (
-                budget.total_budget_value.amount
-                for budget in pending_budgets
-                if budget.entry_date and budget.entry_date.month == selected_month and budget.entry_date.year == selected_year
-            ),
+            (budget.total_budget_value.amount for budget in pending_budgets if budget.entry_date and budget.entry_date.month == selected_month and budget.entry_date.year == selected_year),
             Decimal("0.00"),
         )
         return PendingBudgetMetrics(

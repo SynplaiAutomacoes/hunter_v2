@@ -6,9 +6,9 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.finance.models.finance import NfeItem, NfseBatch, NfseItem, WebmaniaWebhookEvent
-from apps.finance.services.emission import apply_nfse_batch_payload, apply_nfse_item_payload
+from apps.core.infrastructure.services.webmania.emission import apply_nfse_batch_payload, apply_nfse_item_payload
 from apps.finance.services.mappers import extract_items_from_batch
-from apps.finance.services.nfe_emission import apply_nfe_item_payload
+from apps.core.infrastructure.services.webmania.nfe_emission import apply_nfe_item_payload
 
 
 def extract_event_uuid(payload: dict[str, Any]) -> str:

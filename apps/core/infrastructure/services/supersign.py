@@ -10,7 +10,6 @@ from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 
-from apps.budget.models import Budget
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
 from apps.workorder.models import WorkOrder
 
@@ -99,6 +98,8 @@ def parse_supersign_webhook_body(request: HttpRequest) -> dict[str, Any]:
 
 
 def process_supersign_webhook_payload(*, payload: dict[str, Any]) -> HttpResponse:
+    from apps.budget.models import Budget
+
     event_name = extract_supersign_event(payload)
     envelope_id = extract_supersign_envelope_id(payload)
     logger.info(

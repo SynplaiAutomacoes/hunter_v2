@@ -12,7 +12,7 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
 from apps.core.presentation.forms import CoreForm, CoreModelForm
-from apps.core.infrastructure.services.webmania import is_webmania_homolog_environment
+from apps.core.infrastructure.services.webmania.webmania import is_webmania_homolog_environment
 from apps.core.presentation.widgets import (
     CEPInput,
     CheckboxInput,
@@ -34,7 +34,7 @@ from apps.finance.forms.webmania import (
     WEBMANIA_UNIDADE_EMPRESA_CHOICES,
 )
 from apps.finance.models.finance import WebmaniaCompany, WebmaniaCompanyTaxType
-from apps.finance.services.webmania_secrets import encrypt_secret
+from apps.core.infrastructure.services.webmania.webmania_secrets import encrypt_secret
 from apps.workshops.models.workshops import Workshop
 
 User = get_user_model()
