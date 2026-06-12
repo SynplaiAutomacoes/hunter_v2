@@ -113,9 +113,10 @@ def _compute_product_discount_for_nfe(
 
     - PRODUCTS: todo o desconto da WorkOrder vai para os produtos.
     - SERVICES: o desconto e inteiramente para servicos; apenas o excesso
-      (quando total_discount > services_target) vai para os produtos.
+      (quando total_discount > raw_services_total) vai para os produtos.
     - BOTH: o desconto e distribuido proporcionalmente entre produtos e
-      servicos pelo valor; a parcela proporcional dos produtos e usada.
+      servicos usando os valores brutos reais do pedido (independente do
+      slider de alocacao da NF-e).
     """
     total_discount = _quantize_money(Decimal(str(workorder.resolved_discount_value.amount)))
     if total_discount <= Decimal("0.00"):
@@ -126,17 +127,23 @@ def _compute_product_discount_for_nfe(
     if discount_type == WorkOrderDiscountType.PRODUCTS:
         return total_discount
 
+    # Para SERVICES e BOTH, usa os valores brutos reais (pre-slider) do pedido.
+    # O slider altera apenas a alocacao de receita para NF-e/NFS-e, mas nao
+    # deve afetar a proporcao do desconto entre produtos e servicos.
+    snapshot = workorder.pricing_snapshot
+    raw_products = _quantize_money(Decimal(str(snapshot.total_products_value.amount)))
+    raw_services = _quantize_money(Decimal(str(snapshot.total_services_value.amount)))
+
     if discount_type == WorkOrderDiscountType.SERVICES:
         # Desconto apenas para servicos; se superar o total de servicos, o excesso vai para produtos
-        services = _quantize_money(services_target)
-        excess = _quantize_money(max(Decimal("0.00"), total_discount - services))
+        excess = _quantize_money(max(Decimal("0.00"), total_discount - raw_services))
         return excess
 
-    # BOTH: distribuicao proporcional entre produtos e servicos
-    total_base = _quantize_money(products_target + services_target)
-    if total_base <= Decimal("0.00"):
+    # BOTH: distribuicao proporcional entre produtos e servicos pelos valores brutos
+    raw_total = _quantize_money(raw_products + raw_services)
+    if raw_total <= Decimal("0.00"):
         return Decimal("0.00")
-    return _quantize_money(total_discount * products_target / total_base)
+    return _quantize_money(total_discount * raw_products / raw_total)
 
 
 def _build_headers(*, workshop=None) -> dict[str, str]:
