@@ -403,7 +403,8 @@ def _apply_additional_information_to_nfe_payload(*, payload: dict[str, Any], nfe
     pedido_payload["informacoes_complementares"] = additional_information
 
 
-def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int | None = None) -> tuple[list[dict[str, Any]], int, SliderAllocation]:
+def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int | None = None) -> tuple[
+    list[dict[str, Any]], Decimal, SliderAllocation]:
     workorder = nfe_request.workorder
     allocation = build_slider_allocation_for_workorder(
         workorder=workorder,
@@ -422,31 +423,6 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
         allocated_totals = distribute_total_proportionally(base_values=[line.base_total for line in lines], target_total=allocation.products_target)
     except ValueError as exc:
         raise NfeEmissionError("Nao foi possivel distribuir o valor da Nota Fiscal proporcionalmente entre as pecas.") from exc
-
-    emission_snapshot = build_emission_pricing_snapshot_for_workorder(
-        workorder=workorder,
-        slider_override=slider_override,
-    )
-    resolved_discount = _to_decimal_money(emission_snapshot.resolved_discount_value)
-    product_discount = Decimal("0.00")
-    if resolved_discount > 0:
-        if workorder.discount_type == "products":
-            product_discount = resolved_discount
-        elif workorder.discount_type == "both":
-            total_base = allocation.products_target + allocation.services_target
-            if total_base > 0:
-                product_discount = _quantize_money(resolved_discount * (allocation.products_target / total_base))
-
-    if product_discount > 0:
-        item_discounts = _distribute_discount_by_quantity(
-            quantities=[line.quantity for line in lines],
-            item_totals=allocated_totals,
-            discount_amount=product_discount,
-        )
-        allocated_totals = [
-            _quantize_money(allocated_totals[i] - item_discounts[i])
-            for i in range(len(lines))
-        ]
 
     products_payload: list[dict[str, Any]] = []
     tax_class_reference = str(nfe_request.tax_class or "").strip()
@@ -476,15 +452,13 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
     if not products_payload:
         raise NfeEmissionError("Nao foi possivel montar itens de produto para emissao de Nota Fiscal.")
 
-    total_products_value = sum(allocated_totals[i] for i in range(len(lines)) if allocated_totals[i] > 0 and lines[i].quantity > 0)
-    return products_payload, total_products_value, allocation
+    return products_payload, allocation.products_target, allocation
 
 
 def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:
     products_payload, total_products_value, allocation = _build_nfe_products_payload(nfe_request=nfe_request, slider_override=slider_override)
 
     total_products_pre_discount = _quantize_money(allocation.products_target)
-    discount_applied = _quantize_money(total_products_pre_discount - total_products_value)
 
     ambiente = int(getattr(settings, "WEBMANIA_AMBIENT", "2"))
 
@@ -498,7 +472,7 @@ def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = 
         "url_notificacao": build_webmania_webhook_url(request=request),
         "cliente": _build_customer_payload(nfe_request),
         "produtos": products_payload,
-        "pedido": _build_payment_payload(workorder=nfe_request.workorder, total_value=total_products_pre_discount, discount_value=discount_applied),
+        "pedido": _build_payment_payload(workorder=nfe_request.workorder, total_value=total_products_pre_discount, discount_value=nfe_request.workorder.resolved_discount_value.amount),
     }
 
     _apply_additional_information_to_nfe_payload(payload=payload, nfe_request=nfe_request)
