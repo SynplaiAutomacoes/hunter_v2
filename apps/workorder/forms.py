@@ -15,7 +15,7 @@ from apps.budget.pricing import money_from_decimal, resolve_discount_fields
 from apps.collaborators.models import WorkshopCollaborator
 from apps.budget.forms.widgets import MultipleFileInput
 from apps.core.text_normalization import sentence_case
-from apps.core.presentation.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, TextInput
+from apps.core.presentation.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, RadioButtonGroupInput, SearchableSelectInput, TextInput
 from apps.core.utils import alert_confirm_layout
 from apps.finance.models.payment_method import PaymentMethod
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderSignatureStatus
@@ -82,10 +82,10 @@ class WorkOrderPaymentForm(CoreModelForm):
         widget=PercentageInput(decimal_places=2, behavior="digit_stream"),
     )
     discount_type = forms.ChoiceField(
-        label="",
+        label="Selecione o Desconto",
         choices=WorkOrderDiscountType.choices,
         required=False,
-        widget=forms.RadioSelect,
+        widget=RadioButtonGroupInput,
     )
 
     class Meta:
@@ -243,12 +243,16 @@ class WorkOrderPaymentForm(CoreModelForm):
                     """
                     <div id="discount-type-source" class="hidden">
                         <div class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
-                        <div class="p-4">
-                            <p class="text-sm font-bold text-base-content mb-2">Tipo de Desconto</p>
-                        </div>
+                            <div class="mb-3 flex items-center justify-between gap-3">
+                                <div>
+                                    <p class="text-sm font-bold text-base-content">Tipo de Desconto</p>
+                                    <p class="text-xs text-base-content/60">Selecione onde o desconto sera aplicado.</p>
+                                </div>
+                                <span class="material-icons text-base-content/40">filter_alt</span>
+                            </div>
                     """
                 ),
-                Field("discount_type", wrapper_class="flex flex-wrap gap-4 justify-center"),
+                Field("discount_type", wrapper_class="mb-0"),
                 HTML("</div></div>"),
             ),
             HTML('<div class="mb-3 flex justify-end"><span id="workorder-discount-save-status" class="text-xs text-base-content/60" aria-live="polite"></span></div>'),

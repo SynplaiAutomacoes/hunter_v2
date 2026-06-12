@@ -183,5 +183,10 @@ class PercentageInput(forms.TextInput):
         return f"{id_}_display" if id_ else id_
 
 
+class RadioButtonGroupInput(forms.RadioSelect):
+    template_name = "widgets/radio_button_group.html"
+    option_template_name = "widgets/radio_button_group_option.html"
+
+
 class ImageInput(forms.ClearableFileInput):
     template_name = "widgets/image_input.html"
