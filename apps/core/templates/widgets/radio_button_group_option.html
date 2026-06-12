@@ -1,0 +1,9 @@
+<label class="btn btn-outline btn-sm rounded-full px-4 has-[:checked]:btn-primary has-[:checked]:text-primary-content">
+    <input type="radio"
+           name="{{ widget.name }}"
+           value="{{ widget.value|stringformat:'s' }}"
+           {% if widget.attrs.id %}id="{{ widget.attrs.id }}"{% endif %}
+           {% if widget.selected %}checked{% endif %}
+           class="hidden">
+    {{ widget.label }}
+</label>

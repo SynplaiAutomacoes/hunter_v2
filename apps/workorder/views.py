@@ -57,7 +57,7 @@ from apps.workorder.forms import (
     WorkOrderReopenForm,
     WorkOrderStatusReasonForm,
 )
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
 from apps.workorder.reopening import WorkOrderReopenError, reopen_workorder
 
 from apps.workorder.util import (
@@ -663,11 +663,15 @@ class UpdateWorkOrderDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View)
         try:
             raw_discount_value = request.POST.get("discount_value_0", "0").replace(",", ".") or "0"
             raw_discount_percentage = request.POST.get("discount_percentage", "0").replace(",", ".") or "0"
+            raw_discount_type = request.POST.get("discount_type", "")
+
+            discount_type = raw_discount_type if raw_discount_type in WorkOrderDiscountType.values else None
 
             sync_workorder_discount_to_budget(
                 workorder=workorder,
                 discount_value=Money(Decimal(raw_discount_value), "BRL"),
                 discount_percentage=Decimal(raw_discount_percentage),
+                discount_type=discount_type,
             )
             workorder.refresh_from_db()
         except (ValueError, TypeError, InvalidOperation):
@@ -677,6 +681,7 @@ class UpdateWorkOrderDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View)
                     "workorder_id": pk,
                     "raw_discount": request.POST.get("discount_value_0"),
                     "raw_discount_percentage": request.POST.get("discount_percentage"),
+                    "raw_discount_type": request.POST.get("discount_type"),
                 },
             )
             return JsonResponse({"ok": False, "error": "Valor de desconto invalido."}, status=400)

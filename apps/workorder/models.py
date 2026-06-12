@@ -49,6 +49,12 @@ class WorkOrderSignatureStatus(models.TextChoices):
     APPROVED = "approved", "Aprovado"
 
 
+class WorkOrderDiscountType(models.TextChoices):
+    PRODUCTS = "products", "Apenas Produtos"
+    SERVICES = "services", "Apenas Serviços"
+    BOTH = "both", "Produtos e Serviços"
+
+
 class WorkOrder(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="workorders")
     budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="workorders", help_text="Orçamento Aprovado vinculado à esta O.S.")
@@ -56,6 +62,7 @@ class WorkOrder(TimeStampedModel):
     status = models.CharField(verbose_name="Status", max_length=20, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
     discount_value = MoneyField(verbose_name="Desconto da O.S. (R$)", max_digits=14, decimal_places=2, default=0.00)
     discount_percentage = models.DecimalField(verbose_name="Desconto da O.S. (%)", max_digits=7, decimal_places=6, default=Decimal("0.00"), validators=[MinValueValidator(0), MaxValueValidator(1)])
+    discount_type = models.CharField(verbose_name="Tipo de Desconto", max_length=10, choices=WorkOrderDiscountType.choices, default=WorkOrderDiscountType.BOTH)
     signature_token_version = models.PositiveIntegerField(verbose_name="ID do PDF da Ordem de Serviço", default=1)
     signature_token_active = models.BooleanField(verbose_name="Token de Assinatura Ativo", default=True)
     signature_request_status = models.CharField(max_length=30, choices=WorkOrderSignatureStatus.choices, default=WorkOrderSignatureStatus.NOT_SENT)
@@ -178,6 +185,8 @@ class WorkOrder(TimeStampedModel):
             items=list(self._iter_items()),
             slider=int(getattr(self.budget, "slider", 0) or 0),
             discount_value=self.discount_value,
+            discount_percentage=self.discount_percentage,
+            discount_type=self.discount_type,
             labor_cost_value=self.total_labor_cost_value,
             labor_selling_value_override=labor_selling_value_override,
         )
@@ -345,11 +354,15 @@ class WorkOrder(TimeStampedModel):
 
         self.save(update_fields=["status", "delivered_at", "reopen_reason"])
 
-    def apply_discount(self, value: Money, percentage: Decimal) -> None:
+    def apply_discount(self, value: Money, percentage: Decimal, discount_type: str | None = None) -> None:
         self.discount_value = value
         self.discount_percentage = percentage
+        update_fields = ["discount_value", "discount_percentage"]
+        if discount_type is not None:
+            self.discount_type = discount_type
+            update_fields.append("discount_type")
 
-        self.save(update_fields=["discount_value", "discount_percentage"])
+        self.save(update_fields=update_fields)
         self.invalidate_pricing_snapshot_cache()
 
     def set_km_final(self, km_final: int) -> None:

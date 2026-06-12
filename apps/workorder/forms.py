@@ -15,10 +15,10 @@ from apps.budget.pricing import money_from_decimal, resolve_discount_fields
 from apps.collaborators.models import WorkshopCollaborator
 from apps.budget.forms.widgets import MultipleFileInput
 from apps.core.text_normalization import sentence_case
-from apps.core.presentation.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, TextInput
+from apps.core.presentation.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, RadioButtonGroupInput, SearchableSelectInput, TextInput
 from apps.core.utils import alert_confirm_layout
 from apps.finance.models.payment_method import PaymentMethod
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderSignatureStatus
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderSignatureStatus
 from apps.core.presentation.forms import CoreForm, CoreModelForm
 
 
@@ -80,6 +80,12 @@ class WorkOrderPaymentForm(CoreModelForm):
         decimal_places=6,
         max_digits=7,
         widget=PercentageInput(decimal_places=2, behavior="digit_stream"),
+    )
+    discount_type = forms.ChoiceField(
+        label="Selecione o Desconto",
+        choices=WorkOrderDiscountType.choices,
+        required=False,
+        widget=RadioButtonGroupInput,
     )
 
     class Meta:
@@ -162,8 +168,10 @@ class WorkOrderPaymentForm(CoreModelForm):
 
         self.fields["discount_value"].widget.attrs.update({"class": "font-semibold text-lg"})
         self.fields["discount_percentage"].widget.attrs.update({"class": "font-semibold text-lg"})
+        self.fields["discount_type"].widget.attrs.update({"class": "discount-type-radio"})
         self.initial["discount_value"] = discount_value
         self.initial["discount_percentage"] = discount_percentage
+        self.initial["discount_type"] = self.workorder.discount_type if self.workorder else WorkOrderDiscountType.BOTH
 
         if not self.is_bound and not self.initial.get("due_date"):
             self.initial["due_date"] = ""
@@ -197,7 +205,7 @@ class WorkOrderPaymentForm(CoreModelForm):
                 Div(
                     HTML(
                         """
-                        <div class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
+                        <div id="discount-value-card-body" class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
                             <div class="mb-3 flex items-center justify-between gap-3">
                                 <div>
                                     <p class="text-sm font-bold text-base-content">Desconto em valor</p>
@@ -208,13 +216,14 @@ class WorkOrderPaymentForm(CoreModelForm):
                         """
                     ),
                     Field("discount_value", wrapper_class="mb-0"),
-                    HTML('<p class="mt-2 text-xs text-base-content/55">O percentual acompanha automaticamente.</p></div>'),
+                    HTML("</div>"),
+                    HTML('<div id="discount-type-placeholder-left" class="hidden"></div>'),
                     css_class="h-full",
                 ),
                 Div(
                     HTML(
                         """
-                        <div class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
+                        <div id="discount-percentage-card-body" class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
                             <div class="mb-3 flex items-center justify-between gap-3">
                                 <div>
                                     <p class="text-sm font-bold text-base-content">Desconto em percentual</p>
@@ -225,10 +234,26 @@ class WorkOrderPaymentForm(CoreModelForm):
                         """
                     ),
                     Field("discount_percentage", wrapper_class="mb-0"),
-                    HTML('<p class="mt-2 text-xs text-base-content/55">O valor em reais acompanha instantaneamente.</p></div>'),
+                    HTML("</div>"),
+                    HTML('<div id="discount-type-placeholder-right" class="hidden"></div>'),
                     css_class="h-full",
                 ),
                 HTML("</div>"),
+                HTML(
+                    """
+                    <div id="discount-type-source" class="hidden">
+                        <div class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
+                            <div class="mb-3 flex items-center justify-between gap-3">
+                                <div>
+                                    <p class="text-sm font-bold text-base-content">Tipo de Desconto</p>
+                                    <p class="text-xs text-base-content/60">Selecione onde o desconto sera aplicado.</p>
+                                </div>
+                                <span class="material-icons text-base-content/40">filter_alt</span>
+                            </div>
+                    """
+                ),
+                Field("discount_type", wrapper_class="mb-0"),
+                HTML("</div></div>"),
             ),
             HTML('<div class="mb-3 flex justify-end"><span id="workorder-discount-save-status" class="text-xs text-base-content/60" aria-live="polite"></span></div>'),
             Div(
@@ -299,6 +324,16 @@ class WorkOrderPaymentForm(CoreModelForm):
                         const pendingValueHidden = document.getElementById('id_pending_value_0');
                         const pendingValueDisplay = document.getElementById('id_pending_value_0_display');
                         const discountPersistUrl = '{reverse("workorder:update_discount", args=[self.workorder.pk]) if self.workorder else ""}';
+                        const discountTypeSource = document.getElementById('discount-type-source');
+                        const discountTypePlaceholderLeft = document.getElementById('discount-type-placeholder-left');
+                        const discountTypePlaceholderRight = document.getElementById('discount-type-placeholder-right');
+                        const discountValueCardBody = document.getElementById('discount-value-card-body');
+                        const discountPercentageCardBody = document.getElementById('discount-percentage-card-body');
+                        const discountTypeRadios = document.querySelectorAll('input[name="discount_type"]');
+                        const discountTypeValue = () => {{
+                            const checked = document.querySelector('input[name="discount_type"]:checked');
+                            return checked ? checked.value : 'both';
+                        }};
                         let discountTimeout = null;
                         let discountRequestController = null;
                         let discountRequestId = 0;
@@ -345,31 +380,37 @@ class WorkOrderPaymentForm(CoreModelForm):
                             totalDisplay.textContent = `R$ ${{formatMoney(totalValue)}}`;
                             percentageChip.textContent = `${{formatPercentageDisplay(fraction)}}%`;
                         }};
-                        const syncFromPercentage = () => {{
-                            if (!discountMoneyDisplay || !discountMoneyHidden || !discountPercentageHidden) {{
-                                return;
-                            }}
-                            const baseTotal = getBaseTotal();
-                            const fraction = clamp(parseDotDecimal(discountPercentageHidden.value), 0, 1);
-                            const amount = baseTotal > 0 ? clamp(roundCurrency(baseTotal * fraction), 0, baseTotal) : 0;
-                            discountMoneyHidden.value = amount.toFixed(2);
-                            discountMoneyDisplay.value = formatMoney(amount);
-                            updateDiscountSummary(amount, fraction);
-                        }};
-                        const syncFromValue = (updateSourceDisplay = true) => {{
-                            if (!discountMoneyHidden || !discountPercentageHidden || !discountPercentageDisplay) {{
+                        const updateFromMoneyField = () => {{
+                            if (!discountMoneyHidden || !discountMoneyDisplay || !discountPercentageHidden || !discountPercentageDisplay) {{
                                 return;
                             }}
                             const baseTotal = getBaseTotal();
                             const amount = clamp(roundCurrency(parseDotDecimal(discountMoneyHidden.value)), 0, baseTotal);
-                            const fraction = baseTotal > 0 ? clamp(amount / baseTotal, 0, 1) : 0;
+                            const hasAmount = amount > 0;
                             discountMoneyHidden.value = amount.toFixed(2);
-                            if (discountMoneyDisplay && updateSourceDisplay) {{
-                                discountMoneyDisplay.value = formatMoney(amount);
+                            discountMoneyDisplay.value = formatMoney(amount);
+                            if (hasAmount) {{
+                                discountPercentageHidden.value = '0';
+                                discountPercentageDisplay.value = formatPercentageDisplay(0);
                             }}
+                            discountPercentageDisplay.disabled = hasAmount;
+                            updateDiscountSummary(amount, 0);
+                        }};
+                        const updateFromPercentageField = () => {{
+                            if (!discountMoneyHidden || !discountMoneyDisplay || !discountPercentageHidden || !discountPercentageDisplay) {{
+                                return;
+                            }}
+                            const baseTotal = getBaseTotal();
+                            const fraction = clamp(parseDotDecimal(discountPercentageHidden.value), 0, 1);
+                            const hasFraction = fraction > 0;
                             discountPercentageHidden.value = formatFraction(fraction);
                             discountPercentageDisplay.value = formatPercentageDisplay(fraction);
-                            updateDiscountSummary(amount, fraction);
+                            if (hasFraction) {{
+                                discountMoneyHidden.value = '0.00';
+                                discountMoneyDisplay.value = formatMoney(0);
+                            }}
+                            discountMoneyDisplay.disabled = hasFraction;
+                            updateDiscountSummary(0, fraction);
                         }};
                         const setDiscountStatus = (status, message = '') => {{
                             if (!discountSaveStatus) {{
@@ -404,6 +445,7 @@ class WorkOrderPaymentForm(CoreModelForm):
                             const payload = new URLSearchParams();
                             payload.set('discount_value_0', discountMoneyHidden.value);
                             payload.set('discount_percentage', discountPercentageHidden.value);
+                            payload.set('discount_type', discountTypeValue());
 
                             fetch(discountPersistUrl, {{
                                 method: 'POST',
@@ -495,6 +537,30 @@ class WorkOrderPaymentForm(CoreModelForm):
                             toggleWarning(false, '');
                         }};
 
+                        const swapDiscountCardContent = () => {{
+                            if (!discountTypeSource || !discountValueCardBody || !discountPercentageCardBody || !discountTypePlaceholderLeft || !discountTypePlaceholderRight) return;
+
+                            const pctVal = parseDotDecimal(discountPercentageHidden?.value);
+                            const moneyVal = parseDotDecimal(discountMoneyHidden?.value);
+
+                            discountValueCardBody.style.display = '';
+                            discountPercentageCardBody.style.display = '';
+                            discountTypePlaceholderLeft.classList.add('hidden');
+                            discountTypePlaceholderLeft.innerHTML = '';
+                            discountTypePlaceholderRight.classList.add('hidden');
+                            discountTypePlaceholderRight.innerHTML = '';
+
+                            if (pctVal > 0) {{
+                                discountValueCardBody.style.display = 'none';
+                                discountTypePlaceholderLeft.innerHTML = discountTypeSource.innerHTML;
+                                discountTypePlaceholderLeft.classList.remove('hidden');
+                            }} else if (moneyVal > 0) {{
+                                discountPercentageCardBody.style.display = 'none';
+                                discountTypePlaceholderRight.innerHTML = discountTypeSource.innerHTML;
+                                discountTypePlaceholderRight.classList.remove('hidden');
+                            }}
+                        }};
+
                         paymentMethodInput.addEventListener('change', function() {{
                             updateDueDate(true);
                             updatePaymentPlan();
@@ -516,13 +582,15 @@ class WorkOrderPaymentForm(CoreModelForm):
                         if (discountMoneyDisplay && discountMoneyDisplay.dataset.discountSyncBound !== 'true') {{
                             const handleMoneyInput = () => {{
                                 window.setTimeout(() => {{
-                                    syncFromValue(false);
+                                    updateFromMoneyField();
+                                    swapDiscountCardContent();
                                     persistDiscount();
                                 }}, 0);
                             }};
                             const handleMoneyBlur = () => {{
                                 window.setTimeout(() => {{
-                                    syncFromValue(false);
+                                    updateFromMoneyField();
+                                    swapDiscountCardContent();
                                     persistDiscountNow();
                                 }}, 0);
                             }};
@@ -534,13 +602,15 @@ class WorkOrderPaymentForm(CoreModelForm):
                         if (discountPercentageDisplay && discountPercentageDisplay.dataset.discountSyncBound !== 'true') {{
                             const handlePercentageInput = () => {{
                                 window.setTimeout(() => {{
-                                    syncFromPercentage();
+                                    updateFromPercentageField();
+                                    swapDiscountCardContent();
                                     persistDiscount();
                                 }}, 0);
                             }};
                             const handlePercentageBlur = () => {{
                                 window.setTimeout(() => {{
-                                    syncFromPercentage();
+                                    updateFromPercentageField();
+                                    swapDiscountCardContent();
                                     persistDiscountNow();
                                 }}, 0);
                             }};
@@ -552,11 +622,28 @@ class WorkOrderPaymentForm(CoreModelForm):
                             discountPercentageDisplay.dataset.discountSyncBound = 'true';
                         }}
 
-                        if (discountPercentageHidden && parseDotDecimal(discountPercentageHidden.value) > 0) {{
-                            syncFromPercentage();
+                        const pctVal = parseDotDecimal(discountPercentageHidden?.value);
+                        const moneyVal = parseDotDecimal(discountMoneyHidden?.value);
+                        if (pctVal > 0) {{
+                            discountPercentageDisplay.disabled = false;
+                            discountMoneyDisplay.disabled = true;
+                            updateDiscountSummary(0, pctVal);
+                        }} else if (moneyVal > 0) {{
+                            discountMoneyDisplay.disabled = false;
+                            discountPercentageDisplay.disabled = true;
+                            updateDiscountSummary(moneyVal, 0);
                         }} else {{
-                            syncFromValue();
+                            if (discountMoneyDisplay) discountMoneyDisplay.disabled = false;
+                            if (discountPercentageDisplay) discountPercentageDisplay.disabled = false;
+                            updateDiscountSummary(0, 0);
                         }}
+                        swapDiscountCardContent();
+
+                        document.addEventListener('change', function(e) {{
+                            if (e.target && e.target.name === 'discount_type') {{
+                                persistDiscountNow();
+                            }}
+                        }});
 
                         updateDueDate(false);
                         updatePaymentPlan();

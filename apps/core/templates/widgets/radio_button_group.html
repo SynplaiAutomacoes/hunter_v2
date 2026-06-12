@@ -1,0 +1,7 @@
+<div class="flex flex-wrap gap-2 justify-center"{% if widget.attrs.id %} id="{{ widget.attrs.id }}"{% endif %}>
+{% for group, options, index in widget.optgroups %}
+    {% for option in options %}
+        {% include option.template_name with widget=option %}
+    {% endfor %}
+{% endfor %}
+</div>

@@ -18,7 +18,7 @@ def sync_budget_discount_to_workorder(*, budget) -> object | None:
     return workorder
 
 
-def sync_workorder_discount_to_budget(*, workorder, discount_value: Money | None = None, discount_percentage: Decimal | None = None) -> tuple[Money, Decimal]:
+def sync_workorder_discount_to_budget(*, workorder, discount_value: Money | None = None, discount_percentage: Decimal | None = None, discount_type: str | None = None) -> tuple[Money, Decimal]:
     workorder.invalidate_pricing_snapshot_cache()
     resolved_discount_value, resolved_discount_percentage = resolve_discount_fields(
         total_base_value=workorder.total_base_value,
@@ -26,7 +26,7 @@ def sync_workorder_discount_to_budget(*, workorder, discount_value: Money | None
         discount_percentage=discount_percentage,
     )
 
-    workorder.apply_discount(resolved_discount_value, resolved_discount_percentage)
+    workorder.apply_discount(resolved_discount_value, resolved_discount_percentage, discount_type=discount_type)
     sync_workorder_financial_movement(workorder=workorder)
 
     budget = workorder.budget
