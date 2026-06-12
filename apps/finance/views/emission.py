@@ -316,7 +316,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
         choices_by_type: dict[str, list[tuple[str, str]]] = {"nfe": [], "nfse": []}
         try:
-            tax_classes = list_tax_classes(workshop=self.workshop, force_refresh=True)
+            tax_classes = list_tax_classes(workshop=self.workshop)
         except TaxClassServiceError as exc:
             messages.warning(self.request, f"Nao foi possivel carregar classes de imposto: {exc}")
             self._tax_class_choices_cache = choices_by_type
