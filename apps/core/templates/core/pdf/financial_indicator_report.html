@@ -34,6 +34,7 @@
             <div class="border-b border-gray-200 bg-gray-50 px-4 py-3">
                 <h2 class="text-[13px] font-bold uppercase">{{ items_label }}</h2>
                 <p class="mt-1 text-[10px] text-gray-500">{{ items|length }} registro(s) encontrado(s).</p>
+                {% if is_nested_report %}<p class="text-[10px] text-gray-400">(incluindo orçamentos filhos aninhados)</p>{% endif %}
             </div>
 
             {% if items %}
@@ -56,6 +57,26 @@
                     </tr>
                 </thead>
                 <tbody>
+                    {% if is_nested_report %}
+                    {% for group in nested_items %}
+                    <tr class="border-t border-gray-200 align-top bg-gray-50/50">
+                        <td class="px-3 py-3 font-semibold">#{{ group.parent.get_id }}</td>
+                        <td class="px-3 py-3">{{ group.parent.budget.customer|default:"-" }}</td>
+                        <td class="px-3 py-3 text-gray-600">{{ group.parent.delivered_at|date:"d/m/Y"|default:"-" }}</td>
+                        <td class="px-3 py-3">{{ group.parent.budget.vehicle|default:"-" }}</td>
+                        <td class="px-3 py-3 text-right font-semibold">{{ group.parent.total_budget_value }}</td>
+                    </tr>
+                    {% for child in group.children %}
+                    <tr class="border-t border-gray-200 align-top" style="background-color: #f9fafb;">
+                        <td class="px-3 py-3 pl-8 font-semibold text-gray-600">#{{ child.get_id }} <span class="text-[10px] font-medium text-yellow-700">Filha</span></td>
+                        <td class="px-3 py-3 text-gray-600">{{ child.budget.customer|default:"-" }}</td>
+                        <td class="px-3 py-3 text-gray-600">{{ child.delivered_at|date:"d/m/Y"|default:"-" }}</td>
+                        <td class="px-3 py-3 text-gray-600">{{ child.budget.vehicle|default:"-" }}</td>
+                        <td class="px-3 py-3 text-right font-semibold">{{ child.total_budget_value }}</td>
+                    </tr>
+                    {% endfor %}
+                    {% endfor %}
+                    {% else %}
                     {% for item in items %}
                     <tr class="border-t border-gray-200 align-top">
                         {% if is_budget_report %}
@@ -73,6 +94,7 @@
                         {% endif %}
                     </tr>
                     {% endfor %}
+                    {% endif %}
                 </tbody>
             </table>
             {% else %}
