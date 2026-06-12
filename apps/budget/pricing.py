@@ -684,6 +684,7 @@ def build_pricing_snapshot(
         line.adjusted_total = line.cost_total + adjusted_total
 
     total_base_value = total_products_by_slider + total_services_by_slider
+
     resolved_discount_value, resolved_discount_percentage = resolve_discount_fields(
         total_base_value=total_base_value,
         discount_value=discount_value,

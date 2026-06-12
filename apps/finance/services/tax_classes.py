@@ -669,10 +669,6 @@ def _mark_initial_sync_done(*, workshop: Workshop) -> None:
     TaxClassSyncState.objects.update_or_create(workshop=workshop, defaults={"synced_once": True})
 
 
-def _has_initial_sync_done(*, workshop: Workshop) -> bool:
-    return TaxClassSyncState.objects.filter(workshop=workshop, synced_once=True).exists()
-
-
 def _merge_tax_class_payloads(*, sent_payload: dict[str, Any], response_payload: dict[str, Any]) -> dict[str, Any]:
     merged_payload = dict(sent_payload)
     merged_payload.update(response_payload)
@@ -681,22 +677,15 @@ def _merge_tax_class_payloads(*, sent_payload: dict[str, Any], response_payload:
 
 def list_tax_classes(*, workshop: Workshop, force_refresh: bool = False) -> list[dict[str, Any]]:
     if force_refresh:
-        remote_tax_classes = _list_tax_classes_remote(workshop=workshop)
-        _replace_local_tax_classes(workshop=workshop, tax_classes=remote_tax_classes)
-        _mark_initial_sync_done(workshop=workshop)
-        return _list_local_tax_classes(workshop=workshop)
+        return sync_tax_classes(workshop=workshop)
 
-    local_tax_classes = _list_local_tax_classes(workshop=workshop)
-    if local_tax_classes:
-        return local_tax_classes
+    return _list_local_tax_classes(workshop=workshop)
 
-    if _has_initial_sync_done(workshop=workshop):
-        return []
 
+def sync_tax_classes(*, workshop: Workshop) -> list[dict[str, Any]]:
     remote_tax_classes = _list_tax_classes_remote(workshop=workshop)
     _replace_local_tax_classes(workshop=workshop, tax_classes=remote_tax_classes)
     _mark_initial_sync_done(workshop=workshop)
-
     return _list_local_tax_classes(workshop=workshop)
 
 

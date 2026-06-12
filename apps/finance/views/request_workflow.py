@@ -123,7 +123,7 @@ class SharedEmissionRequestCreateBaseView(LoginRequiredMixin, WorkshopScopedMixi
 
     def get_tax_class_choices(self) -> list[tuple[str, str]]:
         try:
-            tax_classes = list_tax_classes(workshop=self.workshop, force_refresh=True)
+            tax_classes = list_tax_classes(workshop=self.workshop)
         except TaxClassServiceError as exc:
             if self.tax_class_warning_message:
                 messages.warning(self.request, self.tax_class_warning_message.format(error=exc))

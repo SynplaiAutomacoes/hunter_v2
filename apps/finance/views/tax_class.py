@@ -25,9 +25,9 @@ from apps.finance.forms import (
     PisScenarioFormSet,
     TaxClassPresetMetaForm,
 )
-from apps.finance.models.finance import NfseRequest, TaxClassPreset, TaxClassPresetKind
+from apps.finance.models.finance import NfseRequest, TaxClassPreset, TaxClassPresetKind, TaxClassSyncState
 from apps.finance.services.tax_class_presets import normalize_tax_class_preset_payload
-from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
+from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class, sync_tax_classes
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
@@ -546,11 +546,15 @@ class TaxClassListView(TaxClassManagerView):
         active_tab = self._normalize_tab(self.request.GET.get("tab"))
         tax_classes = self._load_tax_classes()
         nfe_tax_classes, nfse_tax_classes = self._split_tax_classes(tax_classes)
+        sync_state = TaxClassSyncState.objects.filter(workshop=self.workshop).first()
+        last_sync_at = sync_state.atualizado_em if sync_state is not None and sync_state.synced_once else None
         context.update(
             {
                 "active_tab": active_tab,
                 "nfe_tax_classes": nfe_tax_classes,
                 "nfse_tax_classes": nfse_tax_classes,
+                "tax_class_has_synced_once": bool(sync_state and sync_state.synced_once),
+                "tax_class_last_sync_at": last_sync_at,
             }
         )
         return context
@@ -566,6 +570,32 @@ class TaxClassListView(TaxClassManagerView):
             active_tab,
             form_action,
         )
+
+        if form_action == "sync":
+            try:
+                synced_tax_classes = sync_tax_classes(workshop=self.workshop)
+            except TaxClassServiceError as exc:
+                logger.warning(
+                    "tax_class_sync_failed workshop_id=%s user_id=%s error=%s",
+                    getattr(self.workshop, "pk", None),
+                    getattr(request.user, "id", None),
+                    str(exc),
+                )
+                messages.error(request, str(exc))
+            else:
+                synced_count = len(synced_tax_classes)
+                logger.info(
+                    "tax_class_sync_succeeded workshop_id=%s user_id=%s total=%s",
+                    getattr(self.workshop, "pk", None),
+                    getattr(request.user, "id", None),
+                    synced_count,
+                )
+                if synced_count == 1:
+                    messages.success(request, "Sincronizacao concluida com sucesso. 1 classe de imposto atualizada.")
+                else:
+                    messages.success(request, f"Sincronizacao concluida com sucesso. {synced_count} classes de imposto atualizadas.")
+
+            return redirect(f"{reverse('finance:tax_class_list')}?tab={active_tab}")
 
         if form_action != "delete":
             messages.error(request, "Acao invalida para a listagem de classe de imposto.")
