@@ -309,7 +309,6 @@ def build_pricing_snapshot(
     slider: int,
     discount_value: Money,
     discount_percentage: Decimal | None = None,
-    discount_type: str = "both",
     labor_cost_value: Money | None = None,
     labor_selling_value_override: Money | None = None,
     is_local_product_item: Callable[[Any], bool] | None = None,
@@ -686,15 +685,8 @@ def build_pricing_snapshot(
 
     total_base_value = total_products_by_slider + total_services_by_slider
 
-    if discount_type == "products":
-        discount_target = total_products_by_slider
-    elif discount_type == "services":
-        discount_target = total_services_by_slider
-    else:
-        discount_target = total_base_value
-
     resolved_discount_value, resolved_discount_percentage = resolve_discount_fields(
-        total_base_value=discount_target,
+        total_base_value=total_base_value,
         discount_value=discount_value,
         discount_percentage=discount_percentage,
     )
