@@ -275,15 +275,18 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
 
     def _apply_workorder_payment_aware_date_filter(self, queryset, *, lookup: str, value: date):
         workorder_parent_query = Q(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False)
+        workorder_parent_aggregate_query = workorder_parent_query & Q(workorder_payment__isnull=True)
+        workorder_parent_payment_query = workorder_parent_query & Q(workorder_payment__isnull=False)
         return queryset.filter(
             (~workorder_parent_query & Q(**{lookup: value}))
             | (
-                workorder_parent_query
+                workorder_parent_aggregate_query
                 & Q(
                     workorder__payments__isnull=False,
                     **{f"workorder__payments__{lookup}": value},
                 )
             )
+            | (workorder_parent_payment_query & Q(**{f"workorder_payment__{lookup}": value}))
         ).distinct()
 
     def _apply_report_filters(self, queryset):
@@ -379,6 +382,17 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             if payment_method_id is not None and payment.payment_method_id != payment_method_id:
                 continue
             payment_movement = FinancialMovement.objects.filter(workorder_payment_id=payment.pk, movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workshop=self.workshop).order_by("-pk").first()
+            if payment_movement is None:
+                payment_movement = (
+                    FinancialMovement.objects.filter(
+                        workorder_id=payment.workorder_id,
+                        workorder_payment__isnull=True,
+                        movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                        workshop=self.workshop,
+                    )
+                    .order_by("-pk")
+                    .first()
+                )
             if payment_movement is None:
                 continue
             payment_movement_by_payment_id[payment.pk] = payment_movement
@@ -680,15 +694,64 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
 
     def _get_financial_movement_report_rows(self, *, movements: Any) -> list[dict[str, object]]:
         rows: list[dict[str, object]] = []
+        seen_components: set[str] = set()
         filter_params = self._get_filter_params()
-        for movement in movements:
+        movement_list = list(movements)
+        workorder_ids_with_parent: set[int] = {movement.workorder_id for movement in movement_list if movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT and movement.workorder_id is not None}
+
+        for movement in movement_list:
             workorder = getattr(movement, "workorder", None)
             if workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
                 payments = list(workorder.payments.all())
                 payment_rows = [self._build_workorder_payment_row(movement=movement, payment=payment) for payment in self._filter_workorder_payments_for_rows(payments=payments, filter_params=filter_params)]
-                rows.extend(payment_rows)
+                for payment_row in payment_rows:
+                    component = str(payment_row.get("component") or "")
+                    if component in seen_components:
+                        continue
+                    rows.append(payment_row)
+                    seen_components.add(component)
                 continue
-            rows.append(self._build_financial_movement_row(movement))
+            financial_row = self._build_financial_movement_row(movement)
+            component = str(financial_row.get("component") or "")
+            if component in seen_components:
+                continue
+            rows.append(financial_row)
+            seen_components.add(component)
+
+        fallback_payment_movements = self._apply_report_filters(
+            FinancialMovement.objects.filter(
+                workshop=self.workshop,
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                workorder__isnull=False,
+                workorder_payment__isnull=False,
+            )
+            .exclude(workorder_id__in=workorder_ids_with_parent)
+            .select_related(
+                "source",
+                "supplier",
+                "collaborator",
+                "budget_plan",
+                "bank_account",
+                "payment_method",
+                "workorder",
+                "workorder__budget",
+                "workorder__budget__customer",
+                "workorder_payment",
+                "workorder_payment__payment_method",
+            )
+            .order_by("-pk")
+        )
+        for movement in fallback_payment_movements:
+            payment = getattr(movement, "workorder_payment", None)
+            workorder = getattr(movement, "workorder", None)
+            if payment is None or workorder is None:
+                continue
+            payment_row = self._build_workorder_payment_row(movement=movement, payment=payment)
+            component = str(payment_row.get("component") or "")
+            if component in seen_components:
+                continue
+            rows.append(payment_row)
+            seen_components.add(component)
         return rows
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
