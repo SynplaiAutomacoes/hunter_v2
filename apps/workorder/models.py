@@ -186,7 +186,6 @@ class WorkOrder(TimeStampedModel):
             slider=int(getattr(self.budget, "slider", 0) or 0),
             discount_value=self.discount_value,
             discount_percentage=self.discount_percentage,
-            discount_type=self.discount_type,
             labor_cost_value=self.total_labor_cost_value,
             labor_selling_value_override=labor_selling_value_override,
         )

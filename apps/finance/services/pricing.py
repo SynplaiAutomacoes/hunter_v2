@@ -97,7 +97,6 @@ def build_emission_pricing_snapshot_for_workorder(
         slider=0,
         discount_value=workorder.discount_value,
         discount_percentage=workorder.discount_percentage,
-        discount_type=workorder.discount_type,
         labor_cost_value=workorder.total_labor_cost_value,
     )
 
