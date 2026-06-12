@@ -582,7 +582,6 @@ def get_financial_indicator_data(
                 status=WorkOrderStatus.APPROVED,
                 delivered_at__month=month,
                 delivered_at__year=year,
-                budget__reference_budget__isnull=True,
             )
             .select_related("budget__customer", "budget__vehicle")
             .order_by("delivered_at")

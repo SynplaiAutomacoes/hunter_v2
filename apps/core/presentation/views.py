@@ -187,6 +187,32 @@ class DashboardFinancialReportView(View):
             "is_budget_report": is_budget_report,
         }
 
+        if indicador == "carros_mes":
+            parent_items = []
+            child_map: dict[int, list] = {}
+            for wo in items:
+                if wo.budget.reference_budget_id is None:
+                    parent_items.append(wo)
+                else:
+                    child_map.setdefault(wo.budget.reference_budget_id, []).append(wo)
+
+            nested_items = []
+            for wo in parent_items:
+                nested_items.append({
+                    "parent": wo,
+                    "children": child_map.get(wo.budget_id, []),
+                })
+            for child_budget_id, children in child_map.items():
+                if not any(wo.budget_id == child_budget_id for wo in parent_items):
+                    for child in children:
+                        nested_items.append({
+                            "parent": child,
+                            "children": [],
+                            "orphan": True,
+                        })
+            context["is_nested_report"] = True
+            context["nested_items"] = nested_items
+
         document = render_template_request_to_pdf(
             DocumentRenderRequest(
                 template_name="core/pdf/financial_indicator_report.html",
