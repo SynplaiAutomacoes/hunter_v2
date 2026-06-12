@@ -8,6 +8,7 @@ from typing import Any
 import requests
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse, JsonResponse
+from django.urls import reverse
 from django.template.response import TemplateResponse
 from django.utils import timezone
 from django.views import View
@@ -19,6 +20,7 @@ from apps.core.presentation.favorites import FavoritePageLimitError, InvalidFavo
 from apps.core.infrastructure.services.dashboard_query_service import (
     INDICATOR_LABELS,
     DashboardQueryService,
+    build_financial_indicator_report_data,
     get_financial_indicator_data,
 )
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
@@ -30,9 +32,18 @@ logger = logging.getLogger(__name__)
 
 MESES_PT: list[str] = [
     "",
-    "Janeiro", "Fevereiro", "Março", "Abril",
-    "Maio", "Junho", "Julho", "Agosto",
-    "Setembro", "Outubro", "Novembro", "Dezembro",
+    "Janeiro",
+    "Fevereiro",
+    "Março",
+    "Abril",
+    "Maio",
+    "Junho",
+    "Julho",
+    "Agosto",
+    "Setembro",
+    "Outubro",
+    "Novembro",
+    "Dezembro",
 ]
 
 
@@ -162,62 +173,59 @@ class FavoritePageReorderView(LoginRequiredMixin, View):
 
 
 class DashboardFinancialReportView(View):
-    def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+    @staticmethod
+    def _build_report_context(*, request: Any) -> dict[str, Any] | None:
         workshop = get_active_workshop_or_404(request=request)
         indicador = request.GET.get("indicador", "")
         mes = int(request.GET.get("mes", timezone.localdate().month))
-        ano = clean_id(request.GET.get("ano", timezone.localdate().year))
+        ano_bruto = clean_id(request.GET.get("ano", timezone.localdate().year))
+        ano = int(ano_bruto) if ano_bruto else timezone.localdate().year
 
         if indicador not in INDICATOR_LABELS:
-            return HttpResponse("Indicador inválido", status=400)
-
-        report_title, _ = INDICATOR_LABELS[indicador]
-        periodo_label = f"{MESES_PT[mes]} de {ano}"
+            return None
 
         items, is_budget_report, total_value = get_financial_indicator_data(workshop, indicador, mes, ano)
-        items_label = self._resolve_items_label(is_budget_report)
+        report_data = build_financial_indicator_report_data(
+            indicator=indicador,
+            month=mes,
+            year=ano,
+            items=items,
+            is_budget_report=is_budget_report,
+        )
 
-        context = {
-            "report_title": report_title,
+        report_querystring = f"indicador={indicador}&mes={mes}&ano={ano}"
+
+        return {
+            "indicator": indicador,
+            "report_title": report_data.report_title,
             "workshop": workshop,
-            "periodo_label": periodo_label,
-            "total_value": total_value,
-            "items_label": items_label,
+            "periodo_label": report_data.periodo_label,
+            "total_value": report_data.total_value,
+            "total_value_legacy": total_value,
+            "items_label": report_data.items_label,
             "items": items,
-            "is_budget_report": is_budget_report,
+            "is_budget_report": report_data.is_budget_report,
+            "report_rows": report_data.rows,
+            "workorder_groups": report_data.workorder_groups,
+            "summary_count": report_data.summary_count,
+            "summary_count_label": report_data.summary_count_label,
+            "record_count": report_data.record_count,
+            "value_column_label": report_data.value_column_label,
+            "is_grouped_report": bool(report_data.workorder_groups),
+            "download_url": f"{reverse('core:dashboard_financial_report')}?download=1&{report_querystring}",
+            "report_querystring": report_querystring,
         }
 
-        if indicador == "carros_mes":
-            parent_items = []
-            child_map: dict[int, list] = {}
-            for wo in items:
-                if wo.budget.reference_budget_id is None:
-                    parent_items.append(wo)
-                else:
-                    child_map.setdefault(wo.budget.reference_budget_id, []).append(wo)
-
-            nested_items = []
-            for wo in parent_items:
-                nested_items.append({
-                    "parent": wo,
-                    "children": child_map.get(wo.budget_id, []),
-                })
-            for child_budget_id, children in child_map.items():
-                if not any(wo.budget_id == child_budget_id for wo in parent_items):
-                    for child in children:
-                        nested_items.append({
-                            "parent": child,
-                            "children": [],
-                            "orphan": True,
-                        })
-            context["is_nested_report"] = True
-            context["nested_items"] = nested_items
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        context = self._build_report_context(request=request)
+        if context is None:
+            return HttpResponse("Indicador inválido", status=400)
 
         document = render_template_request_to_pdf(
             DocumentRenderRequest(
                 template_name="core/pdf/financial_indicator_report.html",
                 context=context,
-                filename=f"relatorio_financeiro_{indicador}_{mes}_{ano}.pdf",
+                filename=f"relatorio_financeiro_{context['indicator']}_{request.GET.get('mes', timezone.localdate().month)}_{request.GET.get('ano', timezone.localdate().year)}.pdf",
             )
         )
         return build_pdf_http_response(document=document)
@@ -227,6 +235,18 @@ class DashboardFinancialReportView(View):
         if is_budget_report:
             return "Orçamentos considerados no cálculo"
         return "Ordens de Serviço consideradas no cálculo"
+
+
+class DashboardFinancialReportModalView(View):
+    template_name = "core/partials/dashboard_financial_report_modal_content.html"
+
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> TemplateResponse | HttpResponse:
+        context = DashboardFinancialReportView._build_report_context(request=request)
+        if context is None:
+            return HttpResponse("Indicador inválido", status=400)
+
+        context["pdf_download_url"] = context["download_url"]
+        return TemplateResponse(request, self.template_name, context)
 
 
 def permission_denied(request: Any, exception: BaseException | None = None) -> TemplateResponse:
@@ -241,6 +261,7 @@ class BaseLockView(LoginRequiredMixin, View):
 
     def get_model_class(self, obj_type: str):
         from django.apps import apps
+
         try:
             app_label, model_name = obj_type.split(".", 1)
             return apps.get_model(app_label, model_name)
@@ -254,6 +275,7 @@ class BaseLockView(LoginRequiredMixin, View):
 class AcquireLockView(BaseLockView):
     def post(self, request):
         from apps.core.domain.services.editing_lock_service import acquire_lock
+
         obj_type, obj_id = self.get_object_type_and_id()
         if not obj_type or not obj_id:
             return JsonResponse({"ok": False, "error": "Parâmetros type e id são obrigatórios."}, status=400)
@@ -275,6 +297,7 @@ class AcquireLockView(BaseLockView):
 class ReleaseLockView(BaseLockView):
     def post(self, request):
         from apps.core.domain.services.editing_lock_service import release_lock
+
         obj_type, obj_id = self.get_object_type_and_id()
         if not obj_type or not obj_id:
             return JsonResponse({"ok": False, "error": "Parâmetros type e id são obrigatórios."}, status=400)
@@ -294,6 +317,7 @@ class ReleaseLockView(BaseLockView):
 class RefreshLockView(BaseLockView):
     def post(self, request):
         from apps.core.domain.services.editing_lock_service import refresh_lock
+
         obj_type, obj_id = self.get_object_type_and_id()
         if not obj_type or not obj_id:
             return JsonResponse({"ok": False, "error": "Parâmetros type e id são obrigatórios."}, status=400)
@@ -315,6 +339,7 @@ class RefreshLockView(BaseLockView):
 class CheckLockView(BaseLockView):
     def get(self, request):
         from apps.core.domain.services.editing_lock_service import get_lock_info
+
         obj_type = request.GET.get("type", "")
         obj_id = request.GET.get("id", "")
         if not obj_type or not obj_id:
@@ -332,4 +357,3 @@ class CheckLockView(BaseLockView):
         if lock_info and lock_info["locked_by_session"] != self.get_session_key():
             return JsonResponse({"ok": True, "locked": True, "lock_info": lock_info})
         return JsonResponse({"ok": True, "locked": False})
-
