@@ -50,6 +50,56 @@ def _quantize_money(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def _distribute_discount_by_quantity(
+    *,
+    quantities: list[Decimal],
+    item_totals: list[Decimal],
+    discount_amount: Decimal,
+) -> list[Decimal]:
+    if not quantities or discount_amount <= 0:
+        return [Decimal("0.00")] * len(quantities)
+
+    discounts = [Decimal("0.00")] * len(quantities)
+    remaining_discount = _quantize_money(discount_amount)
+    remaining_indices = list(range(len(quantities)))
+
+    while remaining_discount > 0 and remaining_indices:
+        total_qty = sum(quantities[i] for i in remaining_indices)
+        if total_qty <= 0:
+            break
+
+        new_discounts = [Decimal("0.00")] * len(quantities)
+        distributed_sum = Decimal("0.00")
+        for i in remaining_indices:
+            share = _quantize_money(remaining_discount * (quantities[i] / total_qty))
+            new_discounts[i] = share
+            distributed_sum += share
+
+        rounding_diff = _quantize_money(remaining_discount - distributed_sum)
+        if rounding_diff != 0:
+            new_discounts[remaining_indices[-1]] = _quantize_money(new_discounts[remaining_indices[-1]] + rounding_diff)
+
+        excess = Decimal("0.00")
+        next_remaining: list[int] = []
+        for i in remaining_indices:
+            candidate = _quantize_money(discounts[i] + new_discounts[i])
+            cap = item_totals[i]
+            if candidate >= cap:
+                excess = _quantize_money(excess + (candidate - cap))
+                discounts[i] = cap
+            else:
+                discounts[i] = candidate
+                next_remaining.append(i)
+
+        if len(next_remaining) == len(remaining_indices):
+            break
+
+        remaining_discount = excess
+        remaining_indices = next_remaining
+
+    return discounts
+
+
 def _build_headers(*, workshop=None) -> dict[str, str]:
     try:
         if should_use_global_webmania_auth():
@@ -377,7 +427,7 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
     )
 
     if allocation.products_target <= 0:
-        raise NfeEmissionError("A configuracao atual do slider direciona 100% da venda para servicos. Utilize Nota Fiscal de Serviço para esta emissao.")
+        raise NfeEmissionError("A configuracao atual do slider direciona 100% da venda para servicos. Utilize Nota Fiscal de Servico para esta emissao.")
 
     lines = _extract_product_lines(workorder=workorder)
     if not lines:
@@ -387,6 +437,31 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
         allocated_totals = distribute_total_proportionally(base_values=[line.base_total for line in lines], target_total=allocation.products_target)
     except ValueError as exc:
         raise NfeEmissionError("Nao foi possivel distribuir o valor da Nota Fiscal proporcionalmente entre as pecas.") from exc
+
+    emission_snapshot = build_emission_pricing_snapshot_for_workorder(
+        workorder=workorder,
+        slider_override=slider_override,
+    )
+    resolved_discount = _to_decimal_money(emission_snapshot.resolved_discount_value)
+    product_discount = Decimal("0.00")
+    if resolved_discount > 0:
+        if workorder.discount_type == "products":
+            product_discount = resolved_discount
+        elif workorder.discount_type == "both":
+            total_base = allocation.products_target + allocation.services_target
+            if total_base > 0:
+                product_discount = _quantize_money(resolved_discount * (allocation.products_target / total_base))
+
+    if product_discount > 0:
+        item_discounts = _distribute_discount_by_quantity(
+            quantities=[line.quantity for line in lines],
+            item_totals=allocated_totals,
+            discount_amount=product_discount,
+        )
+        allocated_totals = [
+            _quantize_money(allocated_totals[i] - item_discounts[i])
+            for i in range(len(lines))
+        ]
 
     products_payload: list[dict[str, Any]] = []
     tax_class_reference = str(nfe_request.tax_class or "").strip()
@@ -416,11 +491,16 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
     if not products_payload:
         raise NfeEmissionError("Nao foi possivel montar itens de produto para emissao de Nota Fiscal.")
 
-    return products_payload, allocation.products_target, allocation
+    total_products_value = sum(allocated_totals[i] for i in range(len(lines)) if allocated_totals[i] > 0 and lines[i].quantity > 0)
+    return products_payload, total_products_value, allocation
 
 
 def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:
     products_payload, total_products_value, allocation = _build_nfe_products_payload(nfe_request=nfe_request, slider_override=slider_override)
+
+    total_products_pre_discount = _quantize_money(allocation.products_target)
+    discount_applied = _quantize_money(total_products_pre_discount - total_products_value)
+
     ambiente = int(getattr(settings, "WEBMANIA_AMBIENT", "2"))
 
     payload = {
@@ -433,7 +513,7 @@ def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = 
         "url_notificacao": build_webmania_webhook_url(request=request),
         "cliente": _build_customer_payload(nfe_request),
         "produtos": products_payload,
-        "pedido": _build_payment_payload(workorder=nfe_request.workorder, total_value=total_products_value, discount_value=nfe_request.workorder.resolved_discount_value.amount),
+        "pedido": _build_payment_payload(workorder=nfe_request.workorder, total_value=total_products_pre_discount, discount_value=discount_applied),
     }
     if nfe_request.reserved_number is not None:
         payload["numero"] = int(nfe_request.reserved_number)
