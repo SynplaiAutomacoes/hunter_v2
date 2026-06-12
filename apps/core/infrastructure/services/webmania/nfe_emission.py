@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 import requests
+from _decimal import Decimal
 from django.conf import settings
 from django.db import transaction
 from django.http import HttpRequest
@@ -376,34 +377,18 @@ def _build_unit_price_for_api(*, allocated_total: Decimal, quantity: Decimal) ->
 
 def _build_payment_payload(*, workorder: WorkOrder, total_value: Decimal, discount_value: Decimal) -> dict[str, Any]:
     payment = workorder.payments.order_by("id").first()
-    payment_method_map = {
-        "DINHEIRO": "01",
-        "CREDITO": "03",
-        "DEBITO": "04",
-        "PIX": "17",
-        "BOLETO": "15",
-    }
 
-    payment_code = "99"
     payment_indicator = 0
     if payment is not None:
-        payment_code = payment_method_map.get(str(payment.payment_method or "").upper(), "99")
         payment_indicator = 1 if int(payment.installments_count or 1) > 1 else 0
 
-    total_after_discount = _quantize_money(total_value - discount_value)
-
-    payload: dict[str, Any] = {
+    return {
         "pagamento": payment_indicator,
-        "forma_pagamento": payment_code,
-        "valor_pagamento": _format_decimal(total_after_discount, places=2),
         "presenca": 2,
         "modalidade_frete": 9,
         "desconto": _format_decimal(discount_value, places=2),
-        "total": _format_decimal(total_after_discount, places=2),
+        "total": _format_decimal(_quantize_money(total_value), places=2),
     }
-    if payment_code == "99":
-        payload["desc_pagamento"] = "Outros"
-    return payload
 
 
 def _apply_additional_information_to_nfe_payload(*, payload: dict[str, Any], nfe_request: NfeRequest) -> None:
@@ -418,7 +403,7 @@ def _apply_additional_information_to_nfe_payload(*, payload: dict[str, Any], nfe
     pedido_payload["informacoes_complementares"] = additional_information
 
 
-def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int | None = None) -> tuple[list[dict[str, Any]], Decimal, SliderAllocation]:
+def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int | None = None) -> tuple[list[dict[str, Any]], int, SliderAllocation]:
     workorder = nfe_request.workorder
     allocation = build_slider_allocation_for_workorder(
         workorder=workorder,
@@ -515,10 +500,6 @@ def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = 
         "produtos": products_payload,
         "pedido": _build_payment_payload(workorder=nfe_request.workorder, total_value=total_products_pre_discount, discount_value=discount_applied),
     }
-    if nfe_request.reserved_number is not None:
-        payload["numero"] = int(nfe_request.reserved_number)
-    if nfe_request.reserved_series is not None:
-        payload["serie"] = int(nfe_request.reserved_series)
 
     _apply_additional_information_to_nfe_payload(payload=payload, nfe_request=nfe_request)
 

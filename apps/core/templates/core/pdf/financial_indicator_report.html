@@ -92,7 +92,7 @@
                 <tbody>
                     {% for group in workorder_groups %}
                     <tr class="border-t border-gray-200 align-top bg-gray-50/60">
-                        <td class="px-3 py-3 font-semibold">#{{ group.primary_item.get_id }}</td>
+                        <td class="px-3 py-3 font-semibold text-gray-400"></td>
                         <td class="px-3 py-3 font-semibold text-gray-900">{{ group.primary_item.budget.customer|default:"-" }}</td>
                         <td class="px-3 py-3 text-gray-600">
                             {% if group.primary_item.delivered_at %}

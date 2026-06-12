@@ -48,6 +48,21 @@ class DashboardFinancialReportDataTests(SimpleTestCase):
         self.assertEqual(report.workorder_groups[1].primary_item, other_parent)
         self.assertEqual(report.workorder_groups[1].group_total, Decimal("25.00"))
 
+    def test_carros_mes_total_matches_sum_of_delivered_sales(self) -> None:
+        parent = build_workorder_stub(budget_pk=1, reference_budget_id=None, total="5834.80", pending="0.00", public_id=101)
+        child = build_workorder_stub(budget_pk=2, reference_budget_id=1, total="150.00", pending="0.00", public_id=102)
+
+        report = build_financial_indicator_report_data(
+            indicator="carros_mes",
+            month=6,
+            year=2026,
+            items=[parent, child],
+            is_budget_report=False,
+        )
+
+        self.assertEqual(report.total_value, Decimal("5984.80"))
+        self.assertEqual(report.workorder_groups[0].group_total, report.total_value)
+
     def test_a_receber_report_uses_pending_amounts_instead_of_total_budget(self) -> None:
         parent = build_workorder_stub(budget_pk=10, reference_budget_id=None, total="200.00", pending="80.00", public_id=201)
         child = build_workorder_stub(budget_pk=11, reference_budget_id=10, total="90.00", pending="20.00", public_id=202)
