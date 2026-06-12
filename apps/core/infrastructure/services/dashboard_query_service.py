@@ -16,7 +16,7 @@ from django.utils import timezone
 from apps.budget.models import Budget, BudgetStatus, BudgetType
 from apps.budget.pdf_context import calculate_markup_multiplier
 from apps.core.domain.services.dashboard_service import DashboardMetrics
-from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderStatus
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
 
@@ -117,7 +117,7 @@ def run_dashboard_query_task(task: Callable[[], T]) -> T:
 
 @dataclass(frozen=True)
 class SoldToDateMetrics:
-    payments: list[WorkOrderPaymentMethod]
+    workorders: list[WorkOrder]
     total: Decimal
 
 
@@ -357,15 +357,14 @@ class DashboardQueryService:
                     "mes": selected_month,
                     "ano": selected_year,
                     "total_vendido": str(total_sold_to_date),
-                    "payments": [
+                    "workorders": [
                         {
-                            "payment_id": p.pk,
-                            "workorder_id": getattr(p.workorder, "pk", None),
-                            "budget_id": getattr(getattr(p.workorder, "budget", None), "pk", None),
-                            "due_date": p.due_date.isoformat() if p.due_date else None,
-                            "total_paid": str(p.total_paid),
+                            "workorder_id": workorder.pk,
+                            "budget_id": getattr(getattr(workorder, "budget", None), "pk", None),
+                            "delivered_at": workorder.delivered_at.isoformat() if workorder.delivered_at else None,
+                            "total_budget_value": str(workorder.total_budget_value),
                         }
-                        for p in sold_metrics.payments
+                        for workorder in sold_metrics.workorders
                     ],
                 },
                 ensure_ascii=True,
@@ -474,21 +473,23 @@ class DashboardQueryService:
         return WorkshopCost.objects.filter(workshop_id=workshop_id, month=selected_month, year=selected_year).first()
 
     def _get_sold_to_date_metrics(self, *, workshop_id: int, selected_month: int, selected_year: int) -> SoldToDateMetrics:
-        payments = list(
-            WorkOrderPaymentMethod.objects.filter(
-                workorder__workshop_id=workshop_id,
-                workorder__budget_type="sale",
-                due_date__month=selected_month,
-                due_date__year=selected_year,
+        workorders = list(
+            WorkOrder.objects.filter(
+                workshop_id=workshop_id,
+                budget_type="sale",
+                status=WorkOrderStatus.APPROVED,
+                delivered_at__month=selected_month,
+                delivered_at__year=selected_year,
             )
-            .select_related("workorder__budget")
-            .order_by("due_date", "pk")
+            .select_related("budget")
+            .prefetch_related("items", "items__kit_overrides", "items__kit__kit_products", "items__kit__kit_services")
+            .order_by("delivered_at", "pk")
         )
         total = sum(
-            (resolve_decimal_amount(p.total_paid) for p in payments),
+            (resolve_decimal_amount(workorder.total_budget_value) for workorder in workorders),
             Decimal("0.00"),
         )
-        return SoldToDateMetrics(payments=payments, total=total)
+        return SoldToDateMetrics(workorders=workorders, total=total)
 
     def _get_approved_budget_metrics(self, *, workshop_id: int, selected_month: int, selected_year: int) -> ApprovedBudgetMetrics:
         approved_budgets = list(
@@ -738,7 +739,8 @@ def get_financial_indicator_data(
             .select_related("budget__customer", "budget__vehicle")
             .order_by("delivered_at")
         )
-        return list(workorders), False, f"{len(workorders)} veículo(s)"
+        total = sum((resolve_decimal_amount(workorder.total_budget_value) for workorder in workorders), Decimal("0.00"))
+        return list(workorders), False, _format_brl(total)
 
     if indicator == "garantia_cortesia_mes":
         workorders = (
