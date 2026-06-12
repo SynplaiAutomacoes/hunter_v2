@@ -514,7 +514,7 @@ def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = 
     products_payload, total_products_gross, allocation, product_discount = _build_nfe_products_payload(nfe_request=nfe_request, slider_override=slider_override)
 
     # O total liquido de produtos ja reflete os descontos embutidos em cada unit_price
-    total_products_net = _quantize_money(total_products_gross - product_discount)
+    total_products_net = _quantize_money(total_products_gross + product_discount)
 
     ambiente = int(getattr(settings, "WEBMANIA_AMBIENT", "2"))
 
@@ -528,7 +528,7 @@ def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = 
         "url_notificacao": build_webmania_webhook_url(request=request),
         "cliente": _build_customer_payload(nfe_request),
         "produtos": products_payload,
-        "pedido": _build_payment_payload(workorder=nfe_request.workorder, total_value=total_products_net, discount_value=product_discount),
+        "pedido": _build_payment_payload(workorder=nfe_request.workorder, total_value=Decimal(allocation.products_target), discount_value=product_discount),
     }
 
     _apply_additional_information_to_nfe_payload(payload=payload, nfe_request=nfe_request)
