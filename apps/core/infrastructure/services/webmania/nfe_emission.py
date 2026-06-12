@@ -463,32 +463,23 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
         raise NfeEmissionError("Nao foi possivel distribuir o valor da Nota Fiscal proporcionalmente entre as pecas.") from exc
 
     # Calcula o desconto proporcional para produtos conforme o discount_type da WorkOrder
+    # (usado apenas no pedido.desconto; os valores unitários dos produtos permanecem brutos)
     product_discount = _compute_product_discount_for_nfe(
         workorder=workorder,
         products_target=allocation.products_target,
         services_target=allocation.services_target,
     )
 
-    # Distribui o desconto de produto proporcionalmente entre as linhas pelo valor alocado
-    if product_discount > Decimal("0.00"):
-        line_discounts = distribute_total_proportionally(
-            base_values=allocated_totals,
-            target_total=product_discount,
-        )
-    else:
-        line_discounts = [Decimal("0.00")] * len(lines)
-
     products_payload: list[dict[str, Any]] = []
     tax_class_reference = str(nfe_request.tax_class or "").strip()
-    for line, allocated_total, line_discount in zip(lines, allocated_totals, line_discounts, strict=False):
+    for line, allocated_total in zip(lines, allocated_totals, strict=False):
         if allocated_total <= 0:
             continue
 
         if line.quantity <= 0:
             continue
 
-        net_total = _quantize_money(max(Decimal("0.00"), allocated_total - line_discount))
-        unit_price = _build_unit_price_for_api(allocated_total=net_total, quantity=line.quantity)
+        unit_price = _build_unit_price_for_api(allocated_total=allocated_total, quantity=line.quantity)
         product_payload: dict[str, Any] = {
             "nome": line.description,
             "codigo": line.code,
@@ -497,7 +488,7 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
             "unidade": line.unit,
             "origem": line.origin,
             "subtotal": _format_decimal(unit_price, places=2),
-            "total": _format_decimal(net_total, places=2),
+            "total": _format_decimal(allocated_total, places=2),
             "classe_imposto": tax_class_reference,
         }
         if line.cest:
