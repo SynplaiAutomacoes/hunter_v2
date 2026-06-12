@@ -25,7 +25,7 @@ from apps.core.infrastructure.services.webmania.webmania_auth import (
 from apps.core.infrastructure.services.webmania.webmania_documents import DownloadedWebmaniaDocument, WebmaniaDocumentDownloadError, download_webmania_document
 from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
 from apps.core.infrastructure.services.webmania.webmania_status import normalize_nfe_status
-from apps.workorder.models import WorkOrder
+from apps.workorder.models import WorkOrder, WorkOrderDiscountType
 
 
 logger = logging.getLogger(__name__)
@@ -99,6 +99,44 @@ def _distribute_discount_by_quantity(
         remaining_indices = next_remaining
 
     return discounts
+
+
+def _compute_product_discount_for_nfe(
+    *,
+    workorder: WorkOrder,
+    products_target: Decimal,
+    services_target: Decimal,
+) -> Decimal:
+    """
+    Calcula o valor de desconto a ser aplicado nos produtos da NF-e,
+    levando em consideracao o discount_type da WorkOrder:
+
+    - PRODUCTS: todo o desconto da WorkOrder vai para os produtos.
+    - SERVICES: o desconto e inteiramente para servicos; apenas o excesso
+      (quando total_discount > services_target) vai para os produtos.
+    - BOTH: o desconto e distribuido proporcionalmente entre produtos e
+      servicos pelo valor; a parcela proporcional dos produtos e usada.
+    """
+    total_discount = _quantize_money(Decimal(str(workorder.resolved_discount_value.amount)))
+    if total_discount <= Decimal("0.00"):
+        return Decimal("0.00")
+
+    discount_type = workorder.discount_type
+
+    if discount_type == WorkOrderDiscountType.PRODUCTS:
+        return total_discount
+
+    if discount_type == WorkOrderDiscountType.SERVICES:
+        # Desconto apenas para servicos; se superar o total de servicos, o excesso vai para produtos
+        services = _quantize_money(services_target)
+        excess = _quantize_money(max(Decimal("0.00"), total_discount - services))
+        return excess
+
+    # BOTH: distribuicao proporcional entre produtos e servicos
+    total_base = _quantize_money(products_target + services_target)
+    if total_base <= Decimal("0.00"):
+        return Decimal("0.00")
+    return _quantize_money(total_discount * products_target / total_base)
 
 
 def _build_headers(*, workshop=None) -> dict[str, str]:
@@ -404,7 +442,7 @@ def _apply_additional_information_to_nfe_payload(*, payload: dict[str, Any], nfe
 
 
 def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int | None = None) -> tuple[
-    list[dict[str, Any]], Decimal, SliderAllocation]:
+    list[dict[str, Any]], Decimal, SliderAllocation, Decimal]:
     workorder = nfe_request.workorder
     allocation = build_slider_allocation_for_workorder(
         workorder=workorder,
@@ -424,16 +462,33 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
     except ValueError as exc:
         raise NfeEmissionError("Nao foi possivel distribuir o valor da Nota Fiscal proporcionalmente entre as pecas.") from exc
 
+    # Calcula o desconto proporcional para produtos conforme o discount_type da WorkOrder
+    product_discount = _compute_product_discount_for_nfe(
+        workorder=workorder,
+        products_target=allocation.products_target,
+        services_target=allocation.services_target,
+    )
+
+    # Distribui o desconto de produto proporcionalmente entre as linhas pelo valor alocado
+    if product_discount > Decimal("0.00"):
+        line_discounts = distribute_total_proportionally(
+            base_values=allocated_totals,
+            target_total=product_discount,
+        )
+    else:
+        line_discounts = [Decimal("0.00")] * len(lines)
+
     products_payload: list[dict[str, Any]] = []
     tax_class_reference = str(nfe_request.tax_class or "").strip()
-    for line, allocated_total in zip(lines, allocated_totals, strict=False):
+    for line, allocated_total, line_discount in zip(lines, allocated_totals, line_discounts, strict=False):
         if allocated_total <= 0:
             continue
 
         if line.quantity <= 0:
             continue
 
-        unit_price = _build_unit_price_for_api(allocated_total=allocated_total, quantity=line.quantity)
+        net_total = _quantize_money(max(Decimal("0.00"), allocated_total - line_discount))
+        unit_price = _build_unit_price_for_api(allocated_total=net_total, quantity=line.quantity)
         product_payload: dict[str, Any] = {
             "nome": line.description,
             "codigo": line.code,
@@ -442,7 +497,7 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
             "unidade": line.unit,
             "origem": line.origin,
             "subtotal": _format_decimal(unit_price, places=2),
-            "total": _format_decimal(allocated_total, places=2),
+            "total": _format_decimal(net_total, places=2),
             "classe_imposto": tax_class_reference,
         }
         if line.cest:
@@ -452,13 +507,14 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
     if not products_payload:
         raise NfeEmissionError("Nao foi possivel montar itens de produto para emissao de Nota Fiscal.")
 
-    return products_payload, allocation.products_target, allocation
+    return products_payload, allocation.products_target, allocation, product_discount
 
 
 def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:
-    products_payload, total_products_value, allocation = _build_nfe_products_payload(nfe_request=nfe_request, slider_override=slider_override)
+    products_payload, total_products_gross, allocation, product_discount = _build_nfe_products_payload(nfe_request=nfe_request, slider_override=slider_override)
 
-    total_products_pre_discount = _quantize_money(allocation.products_target)
+    # O total liquido de produtos ja reflete os descontos embutidos em cada unit_price
+    total_products_net = _quantize_money(total_products_gross - product_discount)
 
     ambiente = int(getattr(settings, "WEBMANIA_AMBIENT", "2"))
 
@@ -472,19 +528,21 @@ def build_nfe_payload(*, nfe_request: NfeRequest, request: HttpRequest | None = 
         "url_notificacao": build_webmania_webhook_url(request=request),
         "cliente": _build_customer_payload(nfe_request),
         "produtos": products_payload,
-        "pedido": _build_payment_payload(workorder=nfe_request.workorder, total_value=total_products_pre_discount, discount_value=nfe_request.workorder.resolved_discount_value.amount),
+        "pedido": _build_payment_payload(workorder=nfe_request.workorder, total_value=total_products_net, discount_value=product_discount),
     }
 
     _apply_additional_information_to_nfe_payload(payload=payload, nfe_request=nfe_request)
 
     logger.info(
-        "nfe_payload_built nfe_request_id=%s workshop_id=%s workorder_id=%s slider=%s products_target=%s services_target=%s",
+        "nfe_payload_built nfe_request_id=%s workshop_id=%s workorder_id=%s slider=%s products_target=%s services_target=%s product_discount=%s discount_type=%s",
         getattr(nfe_request, "pk", None),
         getattr(nfe_request.workshop, "pk", None),
         getattr(nfe_request.workorder, "pk", None),
         allocation.slider,
         str(allocation.products_target),
         str(allocation.services_target),
+        str(product_discount),
+        nfe_request.workorder.discount_type,
     )
     return payload
 
