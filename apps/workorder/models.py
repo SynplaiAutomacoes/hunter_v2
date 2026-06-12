@@ -184,13 +184,7 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def pricing_snapshot(self) -> PricingSnapshot:
-        snapshot = self._build_pricing_snapshot()
-        method_data = self.calculate_pricing_methods(snapshot=snapshot)
-        method_name = method_data.get("method_name")
-        labor_override = method_data.get("venda_mao_obra") if method_name == "Tradicional" else None
-        if isinstance(labor_override, Money):
-            return self._build_pricing_snapshot(labor_selling_value_override=labor_override)
-        return snapshot
+        return self._build_pricing_snapshot()
 
     def invalidate_pricing_snapshot_cache(self) -> None:
         pass
@@ -510,11 +504,21 @@ class WorkOrder(TimeStampedModel):
         return trad_data if trad_data["rentabilidade"] > hun_data["rentabilidade"] else hun_data
 
     def _build_tradicional_method_data(
-        self, *, pricing_context, duracao_total, duracao_display,
-        custo_pecas, custo_frete_pecas, custo_servico_terceiro,
-        custo_hora_mecanico, custo_total_mao_obra,
-        venda_pecas, venda_servico_terceiro,
-        soma_base_orcamento, subtracao_base_lucro, divisor_mlo,
+        self,
+        *,
+        pricing_context,
+        duracao_total,
+        duracao_display,
+        custo_pecas,
+        custo_frete_pecas,
+        custo_servico_terceiro,
+        custo_hora_mecanico,
+        custo_total_mao_obra,
+        venda_pecas,
+        venda_servico_terceiro,
+        soma_base_orcamento,
+        subtracao_base_lucro,
+        divisor_mlo,
     ) -> dict[str, Any]:
         valor_hora_vendida = pricing_context.hourly_cost_value
         venda_mao_obra = valor_hora_vendida * duracao_total
@@ -541,11 +545,20 @@ class WorkOrder(TimeStampedModel):
         }
 
     def _build_hunter_method_data(
-        self, *, duracao_display,
-        custo_pecas, custo_frete_pecas, custo_servico_terceiro,
-        custo_hora_mecanico, custo_total_mao_obra,
-        venda_pecas, venda_servico_terceiro, venda_mao_obra_hun,
-        soma_base_orcamento, subtracao_base_lucro, divisor_mlo,
+        self,
+        *,
+        duracao_display,
+        custo_pecas,
+        custo_frete_pecas,
+        custo_servico_terceiro,
+        custo_hora_mecanico,
+        custo_total_mao_obra,
+        venda_pecas,
+        venda_servico_terceiro,
+        venda_mao_obra_hun,
+        soma_base_orcamento,
+        subtracao_base_lucro,
+        divisor_mlo,
     ) -> dict[str, Any]:
         valor_orcamento = soma_base_orcamento + venda_mao_obra_hun
         lucro_operacional = valor_orcamento - subtracao_base_lucro
