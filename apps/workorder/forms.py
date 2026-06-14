@@ -550,14 +550,14 @@ class WorkOrderPaymentForm(CoreModelForm):
                             discountTypePlaceholderRight.classList.add('hidden');
                             discountTypePlaceholderRight.innerHTML = '';
 
-                            if (pctVal > 0) {{
-                                discountValueCardBody.style.display = 'none';
-                                discountTypePlaceholderLeft.innerHTML = discountTypeSource.innerHTML;
-                                discountTypePlaceholderLeft.classList.remove('hidden');
-                            }} else if (moneyVal > 0) {{
+                            if (moneyVal > 0) {{
                                 discountPercentageCardBody.style.display = 'none';
                                 discountTypePlaceholderRight.innerHTML = discountTypeSource.innerHTML;
                                 discountTypePlaceholderRight.classList.remove('hidden');
+                            }} else if (pctVal > 0) {{
+                                discountValueCardBody.style.display = 'none';
+                                discountTypePlaceholderLeft.innerHTML = discountTypeSource.innerHTML;
+                                discountTypePlaceholderLeft.classList.remove('hidden');
                             }}
                         }};
 
@@ -624,14 +624,14 @@ class WorkOrderPaymentForm(CoreModelForm):
 
                         const pctVal = parseDotDecimal(discountPercentageHidden?.value);
                         const moneyVal = parseDotDecimal(discountMoneyHidden?.value);
-                        if (pctVal > 0) {{
-                            discountPercentageDisplay.disabled = false;
-                            discountMoneyDisplay.disabled = true;
-                            updateDiscountSummary(0, pctVal);
-                        }} else if (moneyVal > 0) {{
+                        if (moneyVal > 0) {{
                             discountMoneyDisplay.disabled = false;
                             discountPercentageDisplay.disabled = true;
                             updateDiscountSummary(moneyVal, 0);
+                        }} else if (pctVal > 0) {{
+                            discountPercentageDisplay.disabled = false;
+                            discountMoneyDisplay.disabled = true;
+                            updateDiscountSummary(0, pctVal);
                         }} else {{
                             if (discountMoneyDisplay) discountMoneyDisplay.disabled = false;
                             if (discountPercentageDisplay) discountPercentageDisplay.disabled = false;

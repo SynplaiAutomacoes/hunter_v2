@@ -177,16 +177,16 @@ def resolve_discount_fields(
     if total_amount <= Decimal("0.00"):
         return zero_money(), Decimal("0.00")
 
+    if raw_discount_amount > Decimal("0.00"):
+        resolved_discount_amount = min(raw_discount_amount, total_amount)
+        resolved_discount_percentage = _quantize_percentage(resolved_discount_amount / total_amount)
+        return money_from_decimal(resolved_discount_amount), resolved_discount_percentage
+
     if raw_discount_percentage > Decimal("0.00"):
         resolved_discount_amount = min(_quantize_decimal(total_amount * raw_discount_percentage), total_amount)
         return money_from_decimal(resolved_discount_amount), raw_discount_percentage
 
-    resolved_discount_amount = min(raw_discount_amount, total_amount)
-    if resolved_discount_amount <= Decimal("0.00"):
-        return zero_money(), Decimal("0.00")
-
-    resolved_discount_percentage = _quantize_percentage(resolved_discount_amount / total_amount)
-    return money_from_decimal(resolved_discount_amount), resolved_discount_percentage
+    return zero_money(), Decimal("0.00")
 
 
 @dataclass(slots=True)
