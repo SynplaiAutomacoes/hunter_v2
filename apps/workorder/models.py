@@ -718,7 +718,8 @@ class WorkOrder(TimeStampedModel):
 
             self.discount_value = self.budget.resolved_discount_value
             self.discount_percentage = self.budget.resolved_discount_percentage
-            self.save(update_fields=["discount_value", "discount_percentage"])
+            self.discount_type = self.budget.discount_type
+            self.save(update_fields=["discount_value", "discount_percentage", "discount_type"])
 
             collaborator_ids = list(self.budget.collaborators.values_list("id", flat=True))
             if not collaborator_ids and self.budget.collaborator_id:

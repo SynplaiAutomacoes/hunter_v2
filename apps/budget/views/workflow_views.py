@@ -37,7 +37,7 @@ from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateR
 from apps.core.text_normalization import sentence_case
 from apps.scheduling.models import Appointment
 from apps.workorder.discount_sync import sync_budget_discount_to_workorder
-from apps.workorder.models import WorkOrderStatus
+from apps.workorder.models import WorkOrderDiscountType, WorkOrderStatus
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
@@ -870,10 +870,15 @@ class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
         try:
             raw_discount_value = request.POST.get("discount_value_0", "0").replace(",", ".") or "0"
             raw_discount_percentage = request.POST.get("discount_percentage", "0").replace(",", ".") or "0"
+            raw_discount_type = request.POST.get("discount_type", "")
 
             budget.discount_value = Money(Decimal(raw_discount_value), "BRL")
             budget.discount_percentage = Decimal(raw_discount_percentage)
-            budget.save(update_fields=["discount_value", "discount_percentage"])
+            update_fields = ["discount_value", "discount_percentage"]
+            if raw_discount_type in WorkOrderDiscountType.values:
+                budget.discount_type = raw_discount_type
+                update_fields.append("discount_type")
+            budget.save(update_fields=update_fields)
             sync_budget_discount_to_workorder(budget=budget)
         except (ValueError, TypeError, InvalidOperation):
             logger.warning(

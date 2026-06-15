@@ -17,7 +17,7 @@ from apps.core.infrastructure.models import TimeStampedModel
 from djmoney.models.fields import MoneyField
 
 from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, resolve_discount_fields
-from apps.workorder.models import WorkOrder
+from apps.workorder.models import WorkOrder, WorkOrderDiscountType
 
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.util.monthly_costs import get_mechanic_salary_monthly_cost
@@ -126,6 +126,7 @@ class Budget(TimeStampedModel):
     # Financeiro
     discount_value = MoneyField(verbose_name="Aplicar Desconto (R$)", max_digits=14, decimal_places=2, default=0.00)
     discount_percentage = models.DecimalField(verbose_name="Aplicar Desconto (%)", max_digits=7, decimal_places=6, default=0.00, validators=[MinValueValidator(0), MaxValueValidator(1)])
+    discount_type = models.CharField(verbose_name="Tipo de Desconto", max_length=10, choices=WorkOrderDiscountType.choices, default=WorkOrderDiscountType.BOTH)
 
     # Margens e Ajustes
     profit_margin_parts = models.DecimalField(verbose_name="Percentual Lucro de Peças", max_digits=5, decimal_places=2, default=0.00)
@@ -161,7 +162,7 @@ class Budget(TimeStampedModel):
         update_fields = kwargs.get("update_fields")
         if update_fields is not None:
             update_fields_set = set(update_fields)
-            update_fields_set.update({"discount_value", "discount_value_currency", "discount_percentage"})
+            update_fields_set.update({"discount_value", "discount_value_currency", "discount_percentage", "discount_type"})
             kwargs["update_fields"] = list(update_fields_set)
 
         is_new = self.pk is None
