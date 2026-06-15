@@ -3,7 +3,8 @@ from __future__ import annotations
 from django.core.management.base import BaseCommand
 
 from apps.finance.models.finance import NfeItem
-from apps.core.infrastructure.services.webmania.nfe_consulta import NfeConsultaError, reconcile_nfe_item
+from apps.core.infrastructure.providers import get_fiscal_service
+from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.core.infrastructure.services.webmania.webmania_webhooks import process_pending_webhook_events
 
 
@@ -19,11 +20,12 @@ class Command(BaseCommand):
 
         reconciled = 0
         failed = 0
+        service = get_fiscal_service()
         pending_items = NfeItem.objects.filter(status__in=["processando", "contingencia"]).select_related("workshop", "request").order_by("pk")[:limit]
         for item in pending_items:
             try:
-                reconcile_nfe_item(item=item)
-            except NfeConsultaError:
+                service.reconcile_nfe_item(item=item)
+            except FiscalServiceError:
                 failed += 1
             else:
                 reconciled += 1

@@ -17,7 +17,8 @@ from apps.budget.fields import DurationField
 from apps.core.domain.contracts.documents import DocumentPayload
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.domain.contracts.documents import SignatureTokenError
-from apps.core.infrastructure.services.signature import parse_document_signature_token
+from apps.core.domain.contracts.signature import SignatureServiceError
+from apps.core.infrastructure.providers import get_signature_service
 from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderCustomerApprovalForm, WorkOrderPaymentForm, WorkOrderReopenForm, WorkOrderStatusReasonForm
 from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus
 from apps.workorder.service import (
@@ -292,7 +293,7 @@ def trigger_workorder_signature_send_if_needed(*, workorder: WorkOrder) -> tuple
 
 def _get_workorder_from_signature_token(token: str) -> WorkOrder:
     try:
-        payload = parse_document_signature_token(
+        payload = get_signature_service().parse_signature_token(
             token=token,
             token_salt=WORKORDER_SIGNATURE_TOKEN_SALT,
             document_id_key=WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
@@ -302,13 +303,13 @@ def _get_workorder_from_signature_token(token: str) -> WorkOrder:
 
     workorder = get_object_or_404(
         WorkOrder.objects.select_related("workshop", "budget", "budget__customer", "budget__vehicle"),
-        pk=payload.document_id,
+        pk=payload["document_id"],
     )
 
     if not workorder.signature_token_active:
         raise Http404("Arquivo não encotrado")
 
-    if workorder.signature_token_version != payload.version:
+    if workorder.signature_token_version != payload["version"]:
         raise Http404("Arquivo não encotrado")
 
     return workorder

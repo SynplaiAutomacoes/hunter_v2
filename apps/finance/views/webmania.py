@@ -10,23 +10,17 @@ from django.utils import timezone
 from django.views import View
 from django.views.generic import TemplateView, UpdateView
 
-from apps.core.infrastructure.services.webmania.webmania import is_webmania_homolog_environment
+from apps.core.infrastructure.providers import get_fiscal_service
+from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.finance.forms import WebmaniaCompanyUpdateForm
 from apps.finance.models.finance import WebmaniaCompany
-from apps.core.infrastructure.services.webmania.webmania_b2b import (
-    WebmaniaB2BServiceError,
-    get_b2b_requests,
-    list_local_b2b_companies,
-    sync_b2b_companies_to_database,
-    update_webmania_company,
-)
 from apps.core.infrastructure.services.webmania.webmania_secrets import decrypt_secret
 from .common import DirectorWorkshopAccessMixin, _format_cnpj, _format_cpf, _format_tax_type, _format_unit
 from apps.workshops.util.workshops import has_workshop_perm
 
 
 def _is_webmania_homolog_environment() -> bool:
-    return is_webmania_homolog_environment()
+    return get_fiscal_service().is_homolog_environment()
 
 
 def _to_public_integration_message(raw_message: object) -> str:
@@ -72,7 +66,7 @@ class WebmaniaCompanyListView(LoginRequiredMixin, DirectorWorkshopAccessMixin, T
     def get_context_data(self, **kwargs: object) -> dict[str, object]:
         context = super().get_context_data(**kwargs)
 
-        local_companies = list_local_b2b_companies(workshop=self.workshop)
+        local_companies = get_fiscal_service().list_local_b2b_companies(workshop=self.workshop)
         company_rows = [self._build_company_row(company) for company in local_companies]
         sync_candidates = [company.last_sync_at for company in local_companies if company.last_sync_at is not None]
         latest_sync_at = max(sync_candidates) if sync_candidates else None
@@ -111,12 +105,12 @@ class WebmaniaCompanySyncView(LoginRequiredMixin, DirectorWorkshopAccessMixin, V
             return redirect("finance:webmania_company_list")
 
         try:
-            synced_companies = sync_b2b_companies_to_database(
+            synced_companies = get_fiscal_service().sync_b2b_companies_to_database(
                 workshop=self.workshop,
                 actor_user=request.user,
                 force_global_auth=True,
             )
-        except WebmaniaB2BServiceError as exc:
+        except FiscalServiceError as exc:
             messages.error(request, _to_public_integration_message(str(exc)))
         else:
             synced_count = len(synced_companies)
@@ -287,8 +281,8 @@ class WebmaniaCompanyUpdateView(LoginRequiredMixin, DirectorWorkshopAccessMixin,
             return redirect("finance:webmania_company_detail", pk=self.object.pk)
 
         try:
-            update_webmania_company(company=self.object, payload=payload)
-        except WebmaniaB2BServiceError as exc:
+            get_fiscal_service().update_webmania_company(company=self.object, payload=payload)
+        except FiscalServiceError as exc:
             self.object.last_sync_error = _to_public_integration_message(str(exc))
             self.object.save(update_fields=["last_sync_error"])
             messages.error(self.request, _to_public_integration_message(str(exc)))
@@ -361,8 +355,8 @@ class WebmaniaRequestsView(LoginRequiredMixin, DirectorWorkshopAccessMixin, Temp
             year = self._normalize_year(self.request.GET.get("ano"))
 
         try:
-            request_payload = get_b2b_requests(month=month, year=year, workshop=self.workshop)
-        except WebmaniaB2BServiceError as exc:
+            request_payload = get_fiscal_service().get_b2b_requests(month=month, year=year, workshop=self.workshop)
+        except FiscalServiceError as exc:
             messages.error(self.request, _to_public_integration_message(str(exc)))
             total_notas_processadas = 0
             request_rows: list[dict[str, str]] = []

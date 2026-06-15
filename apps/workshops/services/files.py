@@ -23,7 +23,8 @@ from django.utils.text import get_valid_filename
 from apps.core.infrastructure.services import build_absolute_app_url
 from apps.core.infrastructure.services.storage import StorageConfigurationError, StorageServiceError, get_storage_service
 from apps.finance.models.finance import WebmaniaCompany
-from apps.core.infrastructure.services.webmania.webmania_b2b import update_webmania_company
+from apps.core.infrastructure.providers import get_fiscal_service
+from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.core.infrastructure.services.webmania.webmania_secrets import encrypt_secret
 from apps.workshops.models.workshops import Workshop
 
@@ -326,13 +327,6 @@ def get_workshop_logo_file(workshop: Workshop) -> StoredWorkshopFile | None:
     return get_workshop_file_service().read_file(kind="logo", file_id=file_id)
 
 
-def encode_workshop_certificate(workshop: Workshop) -> str:
-    stored_file = get_workshop_certificate_file(workshop)
-    if stored_file is None:
-        return ""
-    return base64.b64encode(stored_file.content).decode("ascii")
-
-
 @contextmanager
 def workshop_certificate_temp_path(workshop: Workshop) -> Iterator[str]:
     stored_file = get_workshop_certificate_file(workshop)
@@ -403,7 +397,7 @@ def save_workshop_logo_atomic(
         raise
 
     try:
-        update_webmania_company(company=company, payload={"logomarca": public_logo_url})
+        get_fiscal_service().update_webmania_company(company=company, payload={"logomarca": public_logo_url})
     except Exception:
         _rollback_logo_upload(
             workshop=workshop,
@@ -436,7 +430,7 @@ def save_workshop_logo_atomic(
         )
         if previous_company_logo_url != public_logo_url:
             try:
-                update_webmania_company(company=company, payload={"logomarca": previous_company_logo_url})
+                    get_fiscal_service().update_webmania_company(company=company, payload={"logomarca": previous_company_logo_url})
             except Exception as restore_exc:
                 raise WorkshopFileSyncError("Falha ao salvar a logo localmente e ao restaurar a logo anterior na Webmania.") from restore_exc
         _safe_delete_file(kind="logo", file_id=staged_file.file_id)
@@ -451,7 +445,7 @@ def clear_workshop_logo_atomic(*, workshop: Workshop, company: WebmaniaCompany, 
     previous_public_url = build_workshop_logo_public_url(workshop=workshop, request=request)
 
     try:
-        update_webmania_company(company=company, payload={"logomarca": ""})
+        get_fiscal_service().update_webmania_company(company=company, payload={"logomarca": ""})
     except Exception:
         raise
 
@@ -472,7 +466,7 @@ def clear_workshop_logo_atomic(*, workshop: Workshop, company: WebmaniaCompany, 
         restore_url = previous_company_logo_url or previous_public_url
         if restore_url:
             try:
-                update_webmania_company(company=company, payload={"logomarca": restore_url})
+                get_fiscal_service().update_webmania_company(company=company, payload={"logomarca": restore_url})
             except Exception as restore_exc:
                 raise WorkshopFileSyncError("Falha ao remover a logo localmente e ao restaurar a URL anterior na Webmania.") from restore_exc
         raise WorkshopFileSyncError("Falha ao concluir a remocao da logo. Nenhuma alteracao foi mantida.") from exc
@@ -492,7 +486,7 @@ def save_workshop_certificate_atomic(
     previous_file_id = str(getattr(workshop, "certificate_file_key", "") or "").strip()
     previous_remote_password = current_password
     try:
-        previous_remote_certificate = encode_workshop_certificate(workshop) if previous_file_id else ""
+        previous_remote_certificate = get_fiscal_service().encode_workshop_certificate(workshop=workshop) if previous_file_id else ""
     except WorkshopFileStorageError:
         previous_remote_certificate = ""
 
@@ -517,7 +511,7 @@ def save_workshop_certificate_atomic(
 
     try:
         if payload:
-            update_webmania_company(company=company, payload=payload)
+            get_fiscal_service().update_webmania_company(company=company, payload=payload)
     except Exception:
         if staged_file is not None:
             _safe_delete_file(kind="certificate", file_id=staged_file.file_id)
@@ -559,7 +553,7 @@ def save_workshop_certificate_atomic(
 
         if restore_payload:
             try:
-                update_webmania_company(company=company, payload=restore_payload)
+                get_fiscal_service().update_webmania_company(company=company, payload=restore_payload)
             except Exception as restore_exc:
                 raise WorkshopFileSyncError("Falha ao salvar o certificado localmente e ao restaurar o certificado anterior na Webmania.") from restore_exc
 
