@@ -19,9 +19,8 @@ from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.finance.forms import NfseRequestStep1Form, NfseRequestStep2Form, NfseRequestStep3Form
 from apps.finance.models.finance import NfseItem, NfseRequest, NfseRequestStatus
-from apps.core.infrastructure.services.webmania.nfse_consulta import NfseConsultaError, reconcile_nfse_item
-from apps.core.infrastructure.services.webmania.emission import NfseEmissionError, cancel_nfse_document, download_nfse_preview_document, emit_nfse_request, sync_emission_response
-from apps.core.infrastructure.services.webmania.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
+from apps.core.infrastructure.providers import get_fiscal_service
+from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url
 from apps.finance.views.request_workflow import (
     SharedEmissionRequestCreateBaseView,
@@ -163,13 +162,14 @@ class NfseRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
         reason_code = int(form.cleaned_data["reason_code"])
         reason_label = dict(NfseCancelForm.REASON_CHOICES).get(str(reason_code), "Cancelamento solicitado")
 
+        service = get_fiscal_service()
         try:
-            response_payload = cancel_nfse_document(
+            response_payload = service.cancel_nfse(
                 workshop=self.workshop,
                 event_uuid=str(latest_item.uuid),
                 reason_code=reason_code,
             )
-        except NfseEmissionError as exc:
+        except FiscalServiceError as exc:
             messages.error(request, str(exc))
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
 
@@ -198,9 +198,10 @@ class NfseRequestReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):
             messages.error(request, "A Nota Fiscal de Serviço ainda nao possui um item sincronizado para consulta.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
 
+        service = get_fiscal_service()
         try:
-            reconcile_nfse_item(item=item)
-        except NfseConsultaError as exc:
+            service.reconcile_nfse_item(item=item)
+        except FiscalServiceError as exc:
             messages.error(request, str(exc))
         else:
             messages.success(request, "Status da Nota Fiscal de Serviço atualizado com sucesso.")
@@ -232,9 +233,10 @@ class NfseDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
         field_name, extension = self.document_fields[document_kind]
         document_url = str(getattr(item, field_name, "") or "").strip()
 
+        service = get_fiscal_service()
         try:
-            downloaded = download_webmania_document(workshop=self.workshop, url=document_url)
-        except WebmaniaDocumentDownloadError as exc:
+            downloaded = service.download_document(workshop=self.workshop, url=document_url)
+        except FiscalServiceError as exc:
             return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
 
         response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
@@ -257,9 +259,10 @@ class NfsePreviewPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def get(self, request, *args, **kwargs):
         nfse_request = get_object_or_404(NfseRequest, pk=kwargs.get("pk"), workshop=self.workshop)
 
+        service = get_fiscal_service()
         try:
-            downloaded = download_nfse_preview_document(nfse_request=nfse_request, request=request)
-        except NfseEmissionError as exc:
+            downloaded = service.download_nfse_preview_document(nfse_request=nfse_request, request=request)
+        except FiscalServiceError as exc:
             response = render(
                 request,
                 "finance/partials/preview_error.html",
@@ -312,9 +315,10 @@ class NfseRequestCreateView(SharedEmissionRequestCreateBaseView):
             getattr(self.workshop, "pk", None),
             getattr(self.request.user, "id", None),
         )
+        service = get_fiscal_service()
         try:
-            response_payload = emit_nfse_request(nfse_request=self.object, request=self.request)
-            sync_emission_response(nfse_request=self.object, response_payload=response_payload)
+            response_payload = service.emit_nfse(nfse_request=self.object, request=self.request)
+            service.sync_nfse_emission_response(nfse_request=self.object, response_payload=response_payload)
 
             if not self.object.update_status_based_on_request(response_payload.get("status")):
                 self.object.set_status(NfseRequestStatus.PROCESSING)
@@ -328,7 +332,7 @@ class NfseRequestCreateView(SharedEmissionRequestCreateBaseView):
                 str(getattr(self.object, "status", "")),
             )
             return True
-        except NfseEmissionError as exc:
+        except FiscalServiceError as exc:
             logger.exception("Falha ao emitir NFS-e", extra={"nfse_request_id": self.object.pk})
             messages.error(self.request, str(exc))
             return False

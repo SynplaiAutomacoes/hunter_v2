@@ -1,17 +1,9 @@
 from django.conf import settings
 
 from apps.budget.documents.provider import render_budget_pdf_document
-from apps.core.domain.contracts.documents import SignatureDeliveryResult, SignatureRecipient
-from apps.core.infrastructure.services.signature import (
-    build_document_signature_payload,
-    build_signature_fields,
-    build_signature_signatory_and_observers,
-)
-from apps.core.infrastructure.services import build_document_signature_url
-from apps.core.infrastructure.services.signature import (
-    SignatureDeliveryServiceError,
-    send_document_for_signature,
-)
+from apps.core.domain.contracts.documents import SignatureRecipient
+from apps.core.domain.contracts.signature import SignatureSendRequest, SignatureSendResult, SignatureServiceError
+from apps.core.infrastructure.providers import get_signature_service
 
 
 BUDGET_SIGNATURE_TOKEN_SALT = "budget-signature-file"
@@ -21,7 +13,7 @@ BUDGET_SIGNATURE_PREVIEW_ROUTE = "budget:signature_preview"
 
 
 def build_signature_payload(budget) -> dict:
-    return build_document_signature_payload(
+    return get_signature_service().build_signature_payload(
         document_id_key=BUDGET_SIGNATURE_DOCUMENT_ID_KEY,
         document_id=budget.id,
         version=budget.signature_token_version,
@@ -29,7 +21,7 @@ def build_signature_payload(budget) -> dict:
 
 
 def build_signature_file_url(*, budget, request=None) -> str:
-    return build_document_signature_url(
+    return get_signature_service().build_signature_url(
         route_name=BUDGET_SIGNATURE_FILE_ROUTE,
         token_salt=BUDGET_SIGNATURE_TOKEN_SALT,
         document_id_key=BUDGET_SIGNATURE_DOCUMENT_ID_KEY,
@@ -40,7 +32,7 @@ def build_signature_file_url(*, budget, request=None) -> str:
 
 
 def build_signature_preview_url(*, budget, request=None) -> str:
-    return build_document_signature_url(
+    return get_signature_service().build_signature_url(
         route_name=BUDGET_SIGNATURE_PREVIEW_ROUTE,
         token_salt=BUDGET_SIGNATURE_TOKEN_SALT,
         document_id_key=BUDGET_SIGNATURE_DOCUMENT_ID_KEY,
@@ -59,7 +51,7 @@ def _calculate_pdf_total_pages(budget) -> int:
 
 
 def _build_signature_fields(budget) -> list[dict]:
-    return build_signature_fields(
+    return get_signature_service().build_signature_fields(
         document_ref_id=f"budget-{budget.id}",
         signatory_ref_id=f"customer-{budget.id}",
         page_number=_calculate_pdf_total_pages(budget),
@@ -73,7 +65,7 @@ def _build_budget_pdf_bytes(*, budget, request=None) -> bytes:
         raise SuperSignError(f"Erro ao gerar PDF para assinatura via Playwright: {exc}") from exc
 
 
-def send_budget_for_signature(*, budget, request=None) -> SignatureDeliveryResult:
+def send_budget_for_signature(*, budget, request=None) -> SignatureSendResult:
     customer_email = getattr(budget.customer, "email", "") if budget.customer else ""
     customer_phone = getattr(budget.customer, "phone", "") if budget.customer else ""
 
@@ -86,7 +78,7 @@ def send_budget_for_signature(*, budget, request=None) -> SignatureDeliveryResul
     if not customer_email:
         raise SuperSignError("Cliente sem email para assinatura")
 
-    signatory, observers = build_signature_signatory_and_observers(
+    signatory, observers = get_signature_service().build_signatory_and_observers(
         signatory_id=f"customer-{budget.id}",
         recipient=SignatureRecipient(
             name=budget.customer.name,
@@ -99,18 +91,20 @@ def send_budget_for_signature(*, budget, request=None) -> SignatureDeliveryResul
     file_name = f"orcamento-{budget.id}.pdf"
 
     try:
-        result = send_document_for_signature(
-            pdf_bytes=pdf_bytes,
-            file_name=file_name,
-            document_ref_id=f"budget-{budget.id}",
-            title=f"Orcamento #{budget.id}",
-            message="Segue orcamento para assinatura.",
-            signatory=signatory,
-            observers=observers,
-            fields=_build_signature_fields(budget),
-            folder_id=getattr(settings, "SUPERSIGN_FOLDER_ID", ""),
+        result = get_signature_service().send_document(
+            SignatureSendRequest(
+                pdf_bytes=pdf_bytes,
+                file_name=file_name,
+                document_ref_id=f"budget-{budget.id}",
+                title=f"Orcamento #{budget.id}",
+                message="Segue orcamento para assinatura.",
+                signatory=signatory,
+                observers=observers,
+                fields=_build_signature_fields(budget),
+                folder_id=getattr(settings, "SUPERSIGN_FOLDER_ID", ""),
+            )
         )
-    except SignatureDeliveryServiceError as exc:
+    except SignatureServiceError as exc:
         raise SuperSignError(str(exc)) from exc
 
     return result

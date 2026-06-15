@@ -12,7 +12,8 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
 from apps.core.presentation.forms import CoreForm, CoreModelForm
-from apps.core.infrastructure.services.webmania.webmania import is_webmania_homolog_environment
+from apps.core.infrastructure.providers import get_fiscal_service
+from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.core.presentation.widgets import (
     CEPInput,
     CheckboxInput,
@@ -98,7 +99,7 @@ class BaseWebmaniaCompanySectionForm(CoreModelForm):
     def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
         self.workshop = workshop
         super().__init__(*args, **kwargs)
-        self.show_homolog_fields = is_webmania_homolog_environment()
+        self.show_homolog_fields = get_fiscal_service().is_homolog_environment()
         if not self.show_homolog_fields:
             for field_name in WEBMANIA_HOMOLOG_ONLY_FIELDS:
                 self.fields.pop(field_name, None)

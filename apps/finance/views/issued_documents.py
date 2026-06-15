@@ -19,7 +19,8 @@ from django.views.generic import TemplateView
 
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.finance.models.finance import NfeItem, NfeRequest, NfseItem, NfseRequest
-from apps.core.infrastructure.services.webmania.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
+from apps.core.infrastructure.providers import get_fiscal_service
+from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.finance.views.navigation import append_query_params, build_issued_documents_origin_params
 from apps.workshops.mixin import WorkshopScopedMixin
 
@@ -412,7 +413,7 @@ class IssuedDocumentsArchiveDownloadView(LoginRequiredMixin, WorkshopScopedMixin
             with zipfile.ZipFile(archive_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive_file:
                 for entry, downloaded in downloaded_entries:
                     archive_file.writestr(entry["archive_name"], downloaded.content)
-        except WebmaniaDocumentDownloadError as exc:
+        except FiscalServiceError as exc:
             return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
 
         archive_filename = self._build_archive_filename(state=state, document_group=document_group)
@@ -428,7 +429,7 @@ class IssuedDocumentsArchiveDownloadView(LoginRequiredMixin, WorkshopScopedMixin
     def _download_document_entries(self, *, entries: list[dict[str, str]]) -> list[tuple[dict[str, str], Any]]:
         if len(entries) == 1:
             entry = entries[0]
-            return [(entry, download_webmania_document(workshop=self.workshop, url=entry["url"]))]
+            return [(entry, get_fiscal_service().download_document(workshop=self.workshop, url=entry["url"]))]
 
         downloaded_entries: list[tuple[dict[str, str], Any]] = []
         max_workers = min(8, len(entries))
