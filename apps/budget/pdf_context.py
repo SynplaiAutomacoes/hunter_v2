@@ -7,9 +7,11 @@ from typing import Any
 
 from djmoney.money import Money
 
-from apps.budget.pricing import format_duration_display, money_div
+from apps.budget.pricing import format_duration_display, money_div, money_from_decimal, zero_money
+from apps.finance.services.pricing import distribute_total_proportionally
 from apps.budget.review_display import build_budget_review_display
 from apps.budget.service_costs import calculate_mechanic_service_cost
+from apps.workorder.models import WorkOrderDiscountType
 from apps.workshops.services.files import WorkshopFileStorageError, get_workshop_logo_file
 
 
@@ -154,6 +156,30 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         total_servicos = budget.selected_items_total_services_value
         desconto = budget.selected_items_total_base_value - budget.selected_items_total_budget_value
         total_geral = budget.selected_items_total_budget_value
+
+    discount_type = budget.discount_type or WorkOrderDiscountType.BOTH
+    if desconto.amount <= 0:
+        discount_products = zero_money()
+        discount_services = zero_money()
+    elif discount_type == "products":
+        discount_products = desconto
+        discount_services = zero_money()
+    elif discount_type == "services":
+        discount_products = zero_money()
+        discount_services = desconto
+    else:
+        products_decimal = Decimal(str(snapshot.total_products_by_slider.amount))
+        services_decimal = Decimal(str(snapshot.total_services_by_slider.amount))
+        if products_decimal <= 0 and services_decimal <= 0:
+            discount_products = zero_money()
+            discount_services = zero_money()
+        else:
+            allocated = distribute_total_proportionally(
+                base_values=[products_decimal, services_decimal],
+                target_total=Decimal(str(desconto.amount)),
+            )
+            discount_products = money_from_decimal(allocated[0])
+            discount_services = money_from_decimal(allocated[1])
 
     if presentation == "selected_items":
         review_display = build_budget_review_display(budget=budget)
@@ -349,6 +375,9 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         "total_produtos": total_produtos,
         "total_servicos": total_servicos,
         "desconto": desconto,
+        "discount_products": discount_products,
+        "discount_services": discount_services,
+        "discount_type": budget.discount_type or WorkOrderDiscountType.BOTH,
         "total_geral": total_geral,
         "soma_markup": soma_markup,
         "soma_markup_display": _format_decimal_multiplier(soma_markup),

@@ -266,10 +266,26 @@
             <span>Total de Serviços:</span>
             <span>{{ total_servicos }}</span>
           </div>
+          {% if discount_type == "products" %}
           <div class="flex justify-between mb-1 text-red-500">
-            <span>Desconto Concedido:</span>
-            <span>- {{ desconto }}</span>
+            <span>Desconto para Produtos:</span>
+            <span>- {{ discount_products }}</span>
           </div>
+          {% elif discount_type == "services" %}
+          <div class="flex justify-between mb-1 text-red-500">
+            <span>Desconto para Serviços:</span>
+            <span>- {{ discount_services }}</span>
+          </div>
+          {% else %}
+          <div class="flex justify-between mb-1 text-red-500">
+            <span>Desconto para Produtos:</span>
+            <span>- {{ discount_products }}</span>
+          </div>
+          <div class="flex justify-between mb-1 text-red-500">
+            <span>Desconto para Serviços:</span>
+            <span>- {{ discount_services }}</span>
+          </div>
+          {% endif %}
 
           <hr class="my-2 border-gray-300" />
 
