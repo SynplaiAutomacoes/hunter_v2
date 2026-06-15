@@ -19,10 +19,10 @@ from apps.budget.pricing import resolve_discount_fields
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
 from apps.core.text_normalization import sentence_case
-from apps.core.presentation.widgets import CalendarDateInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, TextInput, TextareaInput
+from apps.core.presentation.widgets import CalendarDateInput, MoneyInput, NumberInput, PercentageInput, RadioButtonGroupInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.customer.models import Customer, Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
-from apps.workorder.models import WorkOrderStatus
+from apps.workorder.models import WorkOrderStatus, WorkOrderDiscountType
 from apps.workshops.util.workshops import has_workshop_perm
 
 from .shared import MAX_BUDGET_IMAGES, _get_budget_with_prefetched_items, _render_budget_items_rows, _validate_uploaded_files, _validate_uploaded_images
@@ -2075,10 +2075,11 @@ class BudgetStep5Form(CoreModelForm):
 
     class Meta:
         model = Budget
-        fields = ["discount_percentage", "discount_value", "slider"]
+        fields = ["discount_percentage", "discount_value", "discount_type", "slider"]
         widgets = {
             "discount_percentage": PercentageInput(decimal_places=2, behavior="digit_stream"),
             "discount_value": MoneyInput(),
+            "discount_type": RadioButtonGroupInput,
         }
 
     def __init__(self, *args, **kwargs):
@@ -2148,6 +2149,7 @@ class BudgetStep5Form(CoreModelForm):
         discount_display = budget.display_resolved_discount_value if discount_amount != Decimal("0") else Money(0, "BRL")
         self.initial["discount_percentage"] = budget.display_resolved_discount_percentage
         self.initial["discount_value"] = budget.display_resolved_discount_value
+        self.initial["discount_type"] = budget.discount_type or WorkOrderDiscountType.BOTH
         step5_calculation_done = bool(budget.pk and (budget.step5_calculation_viewed or budget.current_step > 5))
         step5_loading_hidden_class = "hidden" if step5_calculation_done else ""
         step5_method_hidden_class = "" if step5_calculation_done else "hidden"
@@ -2354,6 +2356,11 @@ class BudgetStep5Form(CoreModelForm):
                             updateSummary(elements, amount);
                         }}
 
+                        function getDiscountTypeValue() {{
+                            const checked = document.querySelector('input[name="discount_type"]:checked');
+                            return checked ? checked.value : 'both';
+                        }}
+
                         function persistDiscount(elements) {{
                             clearTimeout(timeout);
                             timeout = setTimeout(() => {{
@@ -2361,6 +2368,7 @@ class BudgetStep5Form(CoreModelForm):
                                     values: {{
                                         "discount_value_0": elements.hiddenMoney.value,
                                         "discount_percentage": elements.hiddenPercentage.value,
+                                        "discount_type": getDiscountTypeValue(),
                                     }},
                                     swap: 'none',
                                 }});
@@ -2401,6 +2409,16 @@ class BudgetStep5Form(CoreModelForm):
 
                             syncFromValue(elements);
                         }}
+
+                        document.addEventListener('change', function(e) {{
+                            if (e.target && e.target.name === 'discount_type') {{
+                                const elements = getDiscountElements();
+                                if (elements) {{
+                                    clearTimeout(timeout);
+                                    persistDiscount(elements);
+                                }}
+                            }}
+                        }});
 
                         document.addEventListener('DOMContentLoaded', bindDiscountSync);
                         document.body.addEventListener('htmx:afterSettle', bindDiscountSync);
@@ -2690,11 +2708,58 @@ class BudgetStep5Form(CoreModelForm):
                         # Desconto
                         Div(
                             HTML('<h4 class="font-bold text-lg mb-2">Desconto</h4>'),
+                            HTML("""
+                            <div class="grid grid-cols-1 gap-3 mb-5 xl:grid-cols-3">
+                            """),
                             Div(
-                                Field("discount_percentage", wrapper_class="col-span-12 lg:col-span-6"),
-                                Field("discount_value", wrapper_class="col-span-12 lg:col-span-6"),
-                                css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
+                                HTML("""
+                                <div id="discount-value-card-body" class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
+                                    <div class="mb-3 flex items-center justify-between gap-3">
+                                        <div>
+                                            <p class="text-sm font-bold text-base-content">Desconto em valor</p>
+                                            <p class="text-xs text-base-content/60">Use quando a negociação foi fechada em valor exato.</p>
+                                        </div>
+                                        <span class="material-icons text-base-content/40">payments</span>
+                                    </div>
+                                """
+                                ),
+                                Field("discount_value", wrapper_class="mb-0"),
+                                HTML("</div>"),
+                                css_class="h-full",
                             ),
+                            Div(
+                                HTML("""
+                                <div class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
+                                    <div class="mb-3 flex items-center justify-between gap-3">
+                                        <div>
+                                            <p class="text-sm font-bold text-base-content">Tipo de Desconto</p>
+                                            <p class="text-xs text-base-content/60">Selecione onde o desconto sera aplicado.</p>
+                                        </div>
+                                        <span class="material-icons text-base-content/40">filter_alt</span>
+                                    </div>
+                                """
+                                ),
+                                Field("discount_type", wrapper_class="mb-0"),
+                                HTML("</div>"),
+                                css_class="h-full",
+                            ),
+                            Div(
+                                HTML("""
+                                <div id="discount-percentage-card-body" class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
+                                    <div class="mb-3 flex items-center justify-between gap-3">
+                                        <div>
+                                            <p class="text-sm font-bold text-base-content">Desconto em percentual</p>
+                                            <p class="text-xs text-base-content/60">Ideal para manter a mesma política comercial em diferentes totais.</p>
+                                        </div>
+                                        <span class="material-icons text-base-content/40">percent</span>
+                                    </div>
+                                """
+                                ),
+                                Field("discount_percentage", wrapper_class="mb-0"),
+                                HTML("</div>"),
+                                css_class="h-full",
+                            ),
+                            HTML("</div>"),
                             css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
                         ),
                         # Valor Final
