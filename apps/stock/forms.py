@@ -33,7 +33,7 @@ from apps.core.presentation.widgets import TextInput, NumberInput, MoneyInput, C
 from apps.core.utils import alert_confirm_layout
 from apps.finance.models.payment_method import PaymentMethod
 
-from apps.stock.financial_entries import ADDITIONAL_CHARGE_ENTRY_TYPE, PAYMENT_ENTRY_TYPE, calculate_import_totals, get_entry_amount, get_entry_reason, normalize_entry_type
+from apps.stock.financial_entries import ADDITIONAL_CHARGE_ENTRY_TYPE, PAYMENT_ENTRY_TYPE, calculate_import_totals, get_entry_amount, get_entry_reason, normalize_entry_type, sync_payment_entries_with_financial_movements
 from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement, SefazZipCache
 from apps.stock.models import StockTransfer
 from apps.core.text_normalization import name_case, sentence_case
@@ -156,6 +156,15 @@ class ImportStep1Form(CoreModelForm):
 
         if commit:
             obj.save()
+            synced_entries, payments_updated = sync_payment_entries_with_financial_movements(
+                stock_import=obj,
+                entries=list(obj.payments_data or []),
+                user=self.request.user,
+                replace_existing=True,
+            )
+            if payments_updated:
+                obj.payments_data = synced_entries
+                obj.save(update_fields=["payments_data"])
         return obj
 
     def clean(self):
@@ -633,10 +642,7 @@ class ImportStepPaymentForm(CoreModelForm):
         cleaned_data = super().clean()
         totals = calculate_import_totals(items=self.import_items, entries=self.import_payments)
         if totals.pending_value > 0:
-            self.add_error(
-                None,
-                f"Não é possível avançar. Existem R$ {totals.pending_value:.2f} pendentes. Pague o valor total antes de continuar."
-            )
+            self.add_error(None, f"Não é possível avançar. Existem R$ {totals.pending_value:.2f} pendentes. Pague o valor total antes de continuar.")
         return cleaned_data
 
     def _generate_payments_table_html(self):
@@ -865,10 +871,8 @@ class ImportStepSummaryForm(CoreModelForm):
             record_product_last_purchase_price(product=product, price=purchase_price)
             record_product_last_used_price(product=product, price=selling_price)
 
-        from apps.finance.models.financial_movement import FinancialMovement
-        from apps.sources.models import Source
-
-        for pay in instance.payments_data:
+        payments_data = list(instance.payments_data or [])
+        for pay in payments_data:
             if normalize_entry_type(pay) != PAYMENT_ENTRY_TYPE:
                 continue
 
@@ -890,26 +894,16 @@ class ImportStepSummaryForm(CoreModelForm):
             payment_method_obj = get_object_or_404(PaymentMethod, id=method_id, workshop=workshop)
             StockPaymentMethod.objects.create(workshop=workshop, payment_method=payment_method_obj, installments_count=installments, first_installment_amount=Money(first_amount, "BRL"), remaining_installments_amount=Money(remaining_amount, "BRL"), nf_number=resolved_nf_number or "MANUAL", due_date=payment_due_date)
 
-            financial_movement_id = pay.get("financial_movement_id")
-            if financial_movement_id and not FinancialMovement.objects.filter(pk=financial_movement_id, workshop=workshop).exists():
-                source_name = instance.supplier_name or "Fornecedor da Importação"
-                source_cnpj = instance.supplier_cnpj or ""
-                source, _ = Source.objects.get_or_create(workshop=workshop, name=source_name, defaults={"cnpj": source_cnpj})
-                FinancialMovement.objects.create(
-                    workshop=workshop,
-                    user=self.request.user,
-                    source=source,
-                    direction=FinancialMovement.MovementDirection.DEBIT,
-                    description=f"Pagamento Importação de Estoque - NF: {resolved_nf_number}",
-                    payment_method=payment_method_obj,
-                    nf_number=instance.nf_number,
-                    amount=Money(total_val, "BRL"),
-                    due_date=payment_due_date,
-                    is_paid=False,
-                )
+        payments_data, payments_updated = sync_payment_entries_with_financial_movements(
+            stock_import=instance,
+            entries=payments_data,
+            user=self.request.user,
+        )
 
         instance.status = StockImport.ImportStatus.COMPLETED
         if commit:
+            if payments_updated:
+                instance.payments_data = payments_data
             instance.save()
         return instance
 
@@ -1079,6 +1073,15 @@ class ImportSefazListForm(CoreModelForm):
 
         if commit:
             instance.save()
+            synced_entries, payments_updated = sync_payment_entries_with_financial_movements(
+                stock_import=instance,
+                entries=list(instance.payments_data or []),
+                user=self.request.user,
+                replace_existing=True,
+            )
+            if payments_updated:
+                instance.payments_data = synced_entries
+                instance.save(update_fields=["payments_data"])
         return instance
 
     def clean(self):

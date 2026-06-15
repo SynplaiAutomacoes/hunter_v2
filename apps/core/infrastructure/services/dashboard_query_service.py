@@ -16,7 +16,7 @@ from django.utils import timezone
 from apps.budget.models import Budget, BudgetStatus, BudgetType
 from apps.budget.pdf_context import calculate_markup_multiplier
 from apps.core.domain.services.dashboard_service import DashboardMetrics
-from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderStatus
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
 
@@ -26,6 +26,21 @@ MISSING_WORKSHOP_COST_WARNING = "Para realizar o calculo, cadastre um custo mens
 TWO_DECIMAL_PLACES = Decimal("0.01")
 DASHBOARD_QUERY_MAX_WORKERS = 8
 T = TypeVar("T")
+MONTH_LABELS_PT: list[str] = [
+    "",
+    "Janeiro",
+    "Fevereiro",
+    "Marco",
+    "Abril",
+    "Maio",
+    "Junho",
+    "Julho",
+    "Agosto",
+    "Setembro",
+    "Outubro",
+    "Novembro",
+    "Dezembro",
+]
 
 OPEN_BUDGET_STATUSES: tuple[str, ...] = (
     BudgetStatus.DRAFT,
@@ -102,7 +117,7 @@ def run_dashboard_query_task(task: Callable[[], T]) -> T:
 
 @dataclass(frozen=True)
 class SoldToDateMetrics:
-    payments: list[WorkOrderPaymentMethod]
+    workorders: list[WorkOrder]
     total: Decimal
 
 
@@ -140,6 +155,143 @@ class PendingBudgetMetrics:
     total_general: Decimal
     monthly: Decimal
     previous_months: Decimal
+
+
+@dataclass(frozen=True)
+class FinancialIndicatorWorkOrderGroup:
+    primary_item: WorkOrder
+    child_items: list[WorkOrder]
+    primary_amount: Decimal
+    group_total: Decimal
+
+    @property
+    def child_total(self) -> Decimal:
+        return self.group_total - self.primary_amount
+
+    @property
+    def has_children(self) -> bool:
+        return bool(self.child_items)
+
+    @property
+    def is_primary_child(self) -> bool:
+        return self.primary_item.budget.reference_budget_id is not None
+
+
+@dataclass(frozen=True)
+class FinancialIndicatorReportData:
+    indicator: str
+    report_title: str
+    periodo_label: str
+    items_label: str
+    is_budget_report: bool
+    total_value: Decimal
+    summary_count: int
+    summary_count_label: str
+    record_count: int
+    value_column_label: str
+    rows: list[Any]
+    workorder_groups: list[FinancialIndicatorWorkOrderGroup]
+
+
+def resolve_indicator_row_amount(*, item: Any, indicator: str, is_budget_report: bool) -> Decimal:
+    if is_budget_report:
+        if indicator == "reprovados":
+            return resolve_decimal_amount(item.display_total_budget_value)
+        return resolve_decimal_amount(item.total_budget_value)
+
+    if indicator.startswith("a_receber"):
+        return resolve_decimal_amount(item.pending_payment_value)
+
+    return resolve_decimal_amount(item.total_budget_value)
+
+
+def _build_workorder_groups(*, items: list[WorkOrder], indicator: str) -> list[FinancialIndicatorWorkOrderGroup]:
+    selected_budget_ids = {workorder.budget.pk for workorder in items}
+    child_map: dict[int, list[WorkOrder]] = {}
+    primary_items: list[WorkOrder] = []
+
+    for workorder in items:
+        reference_budget_id = workorder.budget.reference_budget_id
+        if reference_budget_id is not None and reference_budget_id in selected_budget_ids:
+            child_map.setdefault(reference_budget_id, []).append(workorder)
+            continue
+
+        primary_items.append(workorder)
+
+    groups: list[FinancialIndicatorWorkOrderGroup] = []
+    for workorder in primary_items:
+        child_items = child_map.get(workorder.budget.pk, [])
+        primary_amount = resolve_indicator_row_amount(item=workorder, indicator=indicator, is_budget_report=False)
+        group_total = primary_amount + sum(
+            (resolve_indicator_row_amount(item=child, indicator=indicator, is_budget_report=False) for child in child_items),
+            Decimal("0.00"),
+        )
+        groups.append(
+            FinancialIndicatorWorkOrderGroup(
+                primary_item=workorder,
+                child_items=child_items,
+                primary_amount=primary_amount,
+                group_total=group_total,
+            )
+        )
+
+    return groups
+
+
+def build_financial_indicator_report_data(*, indicator: str, month: int, year: int, items: list[Any], is_budget_report: bool) -> FinancialIndicatorReportData:
+    report_title, _ = INDICATOR_LABELS[indicator]
+    periodo_label = f"{MONTH_LABELS_PT[month]} de {year}"
+    items_label = "Orçamentos considerados no cálculo" if is_budget_report else "Ordens de Serviço consideradas no cálculo"
+
+    if is_budget_report:
+        total_value = sum(
+            (resolve_indicator_row_amount(item=item, indicator=indicator, is_budget_report=True) for item in items),
+            Decimal("0.00"),
+        )
+        return FinancialIndicatorReportData(
+            indicator=indicator,
+            report_title=report_title,
+            periodo_label=periodo_label,
+            items_label=items_label,
+            is_budget_report=True,
+            total_value=total_value,
+            summary_count=len(items),
+            summary_count_label="Registros",
+            record_count=len(items),
+            value_column_label="Valor total" if indicator != "reprovados" else "Valor exibido",
+            rows=items,
+            workorder_groups=[],
+        )
+
+    workorder_groups = _build_workorder_groups(items=items, indicator=indicator)
+    total_value = sum((group.group_total for group in workorder_groups), Decimal("0.00"))
+    has_grouped_children = any(group.has_children for group in workorder_groups)
+
+    if indicator.startswith("a_receber"):
+        value_column_label = "Valor pendente"
+    elif indicator in {"carros_mes", "garantia_cortesia_mes"}:
+        value_column_label = "Valor consolidado"
+    else:
+        value_column_label = "Valor total"
+
+    summary_count_label = "O.S. pai" if indicator in {"carros_mes", "garantia_cortesia_mes"} else "O.S."
+    if has_grouped_children:
+        summary_count_label = "O.S. principais"
+
+    return FinancialIndicatorReportData(
+        indicator=indicator,
+        report_title=report_title,
+        periodo_label=periodo_label,
+        items_label=items_label,
+        is_budget_report=False,
+        total_value=total_value,
+        summary_count=len(workorder_groups),
+        summary_count_label=summary_count_label,
+        record_count=len(items),
+        value_column_label=value_column_label,
+        rows=[],
+        workorder_groups=workorder_groups,
+    )
 
 
 class DashboardQueryService:
@@ -205,15 +357,14 @@ class DashboardQueryService:
                     "mes": selected_month,
                     "ano": selected_year,
                     "total_vendido": str(total_sold_to_date),
-                    "payments": [
+                    "workorders": [
                         {
-                            "payment_id": p.pk,
-                            "workorder_id": p.workorder_id,
-                            "budget_id": getattr(getattr(p.workorder, "budget", None), "pk", None),
-                            "due_date": p.due_date.isoformat() if p.due_date else None,
-                            "total_paid": str(p.total_paid),
+                            "workorder_id": workorder.pk,
+                            "budget_id": getattr(getattr(workorder, "budget", None), "pk", None),
+                            "delivered_at": workorder.delivered_at.isoformat() if workorder.delivered_at else None,
+                            "total_budget_value": str(workorder.total_budget_value),
                         }
-                        for p in sold_metrics.payments
+                        for workorder in sold_metrics.workorders
                     ],
                 },
                 ensure_ascii=True,
@@ -322,21 +473,23 @@ class DashboardQueryService:
         return WorkshopCost.objects.filter(workshop_id=workshop_id, month=selected_month, year=selected_year).first()
 
     def _get_sold_to_date_metrics(self, *, workshop_id: int, selected_month: int, selected_year: int) -> SoldToDateMetrics:
-        payments = list(
-            WorkOrderPaymentMethod.objects.filter(
-                workorder__workshop_id=workshop_id,
-                workorder__budget_type="sale",
-                due_date__month=selected_month,
-                due_date__year=selected_year,
+        workorders = list(
+            WorkOrder.objects.filter(
+                workshop_id=workshop_id,
+                budget_type="sale",
+                status=WorkOrderStatus.APPROVED,
+                delivered_at__month=selected_month,
+                delivered_at__year=selected_year,
             )
-            .select_related("workorder__budget")
-            .order_by("due_date", "pk")
+            .select_related("budget")
+            .prefetch_related("items", "items__kit_overrides", "items__kit__kit_products", "items__kit__kit_services")
+            .order_by("delivered_at", "pk")
         )
         total = sum(
-            (resolve_decimal_amount(p.total_paid) for p in payments),
+            (resolve_decimal_amount(workorder.total_budget_value) for workorder in workorders),
             Decimal("0.00"),
         )
-        return SoldToDateMetrics(payments=payments, total=total)
+        return SoldToDateMetrics(workorders=workorders, total=total)
 
     def _get_approved_budget_metrics(self, *, workshop_id: int, selected_month: int, selected_year: int) -> ApprovedBudgetMetrics:
         approved_budgets = list(
@@ -482,7 +635,7 @@ def get_financial_indicator_data(
             .prefetch_related("payments", "budget__customer", "budget__vehicle")
             .order_by("criado_em")
         )
-        total = sum(resolve_decimal_amount(wo.pending_payment_value) for wo in workorders)
+        total = sum((resolve_decimal_amount(wo.pending_payment_value) for wo in workorders), Decimal("0.00"))
         return list(workorders), False, _format_brl(total)
 
     if indicator == "a_receber_mes_atual":
@@ -496,7 +649,7 @@ def get_financial_indicator_data(
             .prefetch_related("payments", "budget__customer", "budget__vehicle")
             .order_by("criado_em")
         )
-        total = sum(resolve_decimal_amount(wo.pending_payment_value) for wo in workorders)
+        total = sum((resolve_decimal_amount(wo.pending_payment_value) for wo in workorders), Decimal("0.00"))
         return list(workorders), False, _format_brl(total)
 
     if indicator == "a_receber_meses_anteriores":
@@ -512,7 +665,7 @@ def get_financial_indicator_data(
             .prefetch_related("payments", "budget__customer", "budget__vehicle")
             .order_by("criado_em")
         )
-        total = sum(resolve_decimal_amount(wo.pending_payment_value) for wo in workorders)
+        total = sum((resolve_decimal_amount(wo.pending_payment_value) for wo in workorders), Decimal("0.00"))
         return list(workorders), False, _format_brl(total)
 
     if indicator == "aguardando_aprovacao":
@@ -525,7 +678,7 @@ def get_financial_indicator_data(
             .select_related("customer", "vehicle")
             .order_by("entry_date")
         )
-        total = sum(b.total_budget_value.amount for b in budgets)
+        total = sum((b.total_budget_value.amount for b in budgets), Decimal("0.00"))
         return list(budgets), True, _format_brl(total)
 
     if indicator == "aguardando_aprovacao_mes_atual":
@@ -540,7 +693,7 @@ def get_financial_indicator_data(
             .select_related("customer", "vehicle")
             .order_by("entry_date")
         )
-        total = sum(b.total_budget_value.amount for b in budgets)
+        total = sum((b.total_budget_value.amount for b in budgets), Decimal("0.00"))
         return list(budgets), True, _format_brl(total)
 
     if indicator == "aguardando_aprovacao_meses_anteriores":
@@ -557,7 +710,7 @@ def get_financial_indicator_data(
             .select_related("customer", "vehicle")
             .order_by("entry_date")
         )
-        total = sum(b.total_budget_value.amount for b in budgets)
+        total = sum((b.total_budget_value.amount for b in budgets), Decimal("0.00"))
         return list(budgets), True, _format_brl(total)
 
     if indicator == "reprovados":
@@ -571,7 +724,7 @@ def get_financial_indicator_data(
             .select_related("customer", "vehicle")
             .order_by("entry_date")
         )
-        total = sum(getattr(b.display_total_budget_value, "amount", b.display_total_budget_value) or 0 for b in budgets)
+        total = sum((resolve_decimal_amount(b.display_total_budget_value) for b in budgets), Decimal("0.00"))
         return list(budgets), True, _format_brl(total)
 
     if indicator == "carros_mes":
@@ -582,12 +735,12 @@ def get_financial_indicator_data(
                 status=WorkOrderStatus.APPROVED,
                 delivered_at__month=month,
                 delivered_at__year=year,
-                budget__reference_budget__isnull=True,
             )
             .select_related("budget__customer", "budget__vehicle")
             .order_by("delivered_at")
         )
-        return list(workorders), False, f"{len(workorders)} veículo(s)"
+        total = sum((resolve_decimal_amount(workorder.total_budget_value) for workorder in workorders), Decimal("0.00"))
+        return list(workorders), False, _format_brl(total)
 
     if indicator == "garantia_cortesia_mes":
         workorders = (

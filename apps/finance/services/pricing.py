@@ -35,22 +35,23 @@ class SliderAllocation:
 
 def compute_slider_allocation(*, products_base: Decimal, services_base: Decimal, slider: int) -> tuple[Decimal, Decimal]:
     slider_value = max(-100, min(100, int(slider)))
+    total_base = _quantize_money(products_base + services_base)
+
     if slider_value == 0:
         return _quantize_money(products_base), _quantize_money(services_base)
 
     if slider_value > 0:
-        transfer = products_base * (Decimal(slider_value) / _HUNDRED)
+        transfer = services_base * (Decimal(slider_value) / _HUNDRED)
         products_target = products_base + transfer
         services_target = services_base - transfer
     else:
-        transfer = services_base * (Decimal(abs(slider_value)) / _HUNDRED)
+        transfer = products_base * (Decimal(abs(slider_value)) / _HUNDRED)
         products_target = products_base - transfer
         services_target = services_base + transfer
 
     products_target = _quantize_money(products_target)
     services_target = _quantize_money(services_target)
 
-    total_base = _quantize_money(products_base + services_base)
     residual = _quantize_money(total_base - (products_target + services_target))
     if residual:
         services_target = _quantize_money(services_target + residual)
@@ -87,27 +88,26 @@ def build_emission_pricing_snapshot_for_workorder(
     persisted_slider: int | None = None,
     slider_override: int | None = None,
 ) -> PricingSnapshot:
-    slider_value = resolve_slider_value_for_workorder(
-        workorder=workorder,
-        persisted_slider=persisted_slider,
-        slider_override=slider_override,
-    )
+    budget = getattr(workorder, "budget", None)
+    budget_slider = max(-100, min(100, int(getattr(budget, "slider", 0) or 0)))
+    nfe_slider = slider_override if slider_override is not None else persisted_slider
+
     base_snapshot = build_pricing_snapshot(
         items=list(workorder._iter_items()),
-        slider=0,
+        slider=budget_slider,
         discount_value=workorder.discount_value,
         discount_percentage=workorder.discount_percentage,
         labor_cost_value=workorder.total_labor_cost_value,
     )
 
-    if slider_value == 0:
+    if nfe_slider is None:
         return base_snapshot
 
     adjusted_snapshot = deepcopy(base_snapshot)
     products_target, services_target = compute_slider_allocation(
-        products_base=_to_decimal_money(base_snapshot.total_products_value),
-        services_base=_to_decimal_money(base_snapshot.total_services_value),
-        slider=slider_value,
+        products_base=_to_decimal_money(base_snapshot.total_products_by_slider),
+        services_base=_to_decimal_money(base_snapshot.total_services_by_slider),
+        slider=nfe_slider,
     )
 
     product_line_totals = distribute_total_proportionally(

@@ -26,52 +26,118 @@
                 <p class="mt-2 text-[12px] font-semibold">{{ workshop.name|default:"-" }}</p>
                 <p class="mt-1 text-[11px] text-gray-600">CNPJ: {{ workshop.cnpj|cnpj_br|default:"-" }}</p>
                 <p class="text-[11px] text-gray-600">Periodo: {{ periodo_label }}</p>
-                <p class="mt-3 text-[13px] font-bold">Valor total: <span class="text-[18px]">{{ total_value }}</span></p>
+            </div>
+            <div class="grid gap-2 border-t border-gray-100 bg-gray-50 px-4 py-3" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+                <div class="rounded-md bg-white px-3 py-2">
+                    <p class="text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-500">{{ summary_count_label }}</p>
+                    <p class="mt-1 text-[18px] font-black leading-none text-gray-900">{{ summary_count }}</p>
+                </div>
+                <div class="rounded-md bg-white px-3 py-2">
+                    <p class="text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-500">Registros usados</p>
+                    <p class="mt-1 text-[18px] font-black leading-none text-gray-900">{{ record_count }}</p>
+                </div>
+                <div class="rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2">
+                    <p class="text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700">Valor total</p>
+                    <p class="mt-1 text-[18px] font-black leading-none text-emerald-700">{{ total_value|money_br }}</p>
+                </div>
             </div>
         </div>
 
         <div class="mt-4 overflow-hidden rounded-lg border border-gray-200">
             <div class="border-b border-gray-200 bg-gray-50 px-4 py-3">
                 <h2 class="text-[13px] font-bold uppercase">{{ items_label }}</h2>
-                <p class="mt-1 text-[10px] text-gray-500">{{ items|length }} registro(s) encontrado(s).</p>
+                <p class="mt-1 text-[10px] text-gray-500">A soma das linhas abaixo fecha exatamente com o total exibido no cabecalho.</p>
             </div>
 
-            {% if items %}
+            {% if is_budget_report and report_rows %}
             <table class="report-table text-[11px]">
                 <thead class="bg-gray-100 text-left uppercase text-[10px] tracking-[0.16em] text-gray-600">
                     <tr>
-                        {% if is_budget_report %}
                         <th class="px-3 py-2 w-[10%]">ID</th>
                         <th class="px-3 py-2 w-[22%]">Cliente</th>
                         <th class="px-3 py-2 w-[14%]">Data de Entrada</th>
                         <th class="px-3 py-2 w-[22%]">Veiculo</th>
-                        <th class="px-3 py-2 w-[17%] text-right">Valor Total</th>
-                        {% else %}
-                        <th class="px-3 py-2 w-[10%]">OS</th>
-                        <th class="px-3 py-2 w-[22%]">Cliente</th>
-                        <th class="px-3 py-2 w-[14%]">Entregue em</th>
-                        <th class="px-3 py-2 w-[22%]">Veiculo</th>
-                        <th class="px-3 py-2 w-[17%] text-right">Valor Total</th>
-                        {% endif %}
+                        <th class="px-3 py-2 w-[17%] text-right">{{ value_column_label }}</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for item in items %}
+                    {% for row in report_rows %}
                     <tr class="border-t border-gray-200 align-top">
-                        {% if is_budget_report %}
-                            <td class="px-3 py-3 font-semibold">#{{ item.id }}</td>
-                            <td class="px-3 py-3">{{ item.customer|default:"-" }}</td>
-                            <td class="px-3 py-3 text-gray-600">{{ item.entry_date|date:"d/m/Y"|default:"-" }}</td>
-                            <td class="px-3 py-3">{{ item.vehicle|default:"-" }}</td>
-                            <td class="px-3 py-3 text-right font-semibold">{{ item.display_total_budget_value }}</td>
-                        {% else %}
-                            <td class="px-3 py-3 font-semibold">#{{ item.get_id }}</td>
-                            <td class="px-3 py-3">{{ item.budget.customer|default:"-" }}</td>
-                            <td class="px-3 py-3 text-gray-600">{{ item.delivered_at|date:"d/m/Y"|default:"-" }}</td>
-                            <td class="px-3 py-3">{{ item.budget.vehicle|default:"-" }}</td>
-                            <td class="px-3 py-3 text-right font-semibold">{{ item.total_budget_value }}</td>
-                        {% endif %}
+                            <td class="px-3 py-3 font-semibold">#{{ row.pk|default:row.id }}</td>
+                            <td class="px-3 py-3">{{ row.customer|default:"-" }}</td>
+                            <td class="px-3 py-3 text-gray-600">{{ row.entry_date|date:"d/m/Y"|default:"-" }}</td>
+                            <td class="px-3 py-3">{{ row.vehicle|default:"-" }}</td>
+                            <td class="px-3 py-3 text-right font-semibold">
+                                {% if indicator == 'reprovados' %}
+                                    {{ row.display_total_budget_value|money_br }}
+                                {% else %}
+                                    {{ row.total_budget_value|money_br }}
+                                {% endif %}
+                            </td>
                     </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% elif workorder_groups %}
+            <table class="report-table text-[11px]">
+                <thead class="bg-gray-100 text-left uppercase text-[10px] tracking-[0.16em] text-gray-600">
+                    <tr>
+                        <th class="px-3 py-2 w-[10%]">OS</th>
+                        <th class="px-3 py-2 w-[22%]">Cliente</th>
+                        <th class="px-3 py-2 w-[14%]">Data</th>
+                        <th class="px-3 py-2 w-[22%]">Veiculo</th>
+                        <th class="px-3 py-2 w-[17%] text-right">{{ value_column_label }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for group in workorder_groups %}
+                    <tr class="border-t border-gray-200 align-top bg-gray-50/60">
+                        <td class="px-3 py-3 font-semibold text-gray-400"></td>
+                        <td class="px-3 py-3 font-semibold text-gray-900">{{ group.primary_item.budget.customer|default:"-" }}</td>
+                        <td class="px-3 py-3 text-gray-600">
+                            {% if group.primary_item.delivered_at %}
+                                {{ group.primary_item.delivered_at|date:"d/m/Y" }}
+                            {% else %}
+                                {{ group.primary_item.criado_em|date:"d/m/Y"|default:"-" }}
+                            {% endif %}
+                        </td>
+                        <td class="px-3 py-3 font-medium text-gray-800">{{ group.primary_item.budget.vehicle|default:"-" }}</td>
+                        <td class="px-3 py-3 text-right font-bold">{{ group.group_total|money_br }}</td>
+                    </tr>
+                    <tr class="border-t border-gray-200 align-top">
+                        <td class="px-3 py-3 pl-6 font-semibold text-gray-700">#{{ group.primary_item.get_id }}</td>
+                        <td class="px-3 py-3 text-gray-700">{{ group.primary_item.budget.customer|default:"-" }}</td>
+                        <td class="px-3 py-3 text-gray-600">
+                            {% if group.primary_item.delivered_at %}
+                                {{ group.primary_item.delivered_at|date:"d/m/Y" }}
+                            {% else %}
+                                {{ group.primary_item.criado_em|date:"d/m/Y"|default:"-" }}
+                            {% endif %}
+                        </td>
+                        <td class="px-3 py-3 text-gray-700">{{ group.primary_item.budget.vehicle|default:"-" }}</td>
+                        <td class="px-3 py-3 text-right font-semibold">{{ group.primary_amount|money_br }}</td>
+                    </tr>
+                    {% for child in group.child_items %}
+                    <tr class="border-t border-gray-200 align-top" style="background-color: #f9fafb;">
+                        <td class="px-3 py-3 pl-8 font-semibold text-gray-600">#{{ child.get_id }}</td>
+                        <td class="px-3 py-3 text-gray-600">{{ child.budget.customer|default:"-" }}</td>
+                        <td class="px-3 py-3 text-gray-600">
+                            {% if child.delivered_at %}
+                                {{ child.delivered_at|date:"d/m/Y" }}
+                            {% else %}
+                                {{ child.criado_em|date:"d/m/Y"|default:"-" }}
+                            {% endif %}
+                        </td>
+                        <td class="px-3 py-3 text-gray-600">{{ child.budget.vehicle|default:"-" }}</td>
+                        <td class="px-3 py-3 text-right font-semibold">
+                            {% if indicator|slice:':10' == 'a_receber_' %}
+                                {{ child.pending_payment_value|money_br }}
+                            {% else %}
+                                {{ child.total_budget_value|money_br }}
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
                     {% endfor %}
                 </tbody>
             </table>
