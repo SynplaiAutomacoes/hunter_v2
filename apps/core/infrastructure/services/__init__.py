@@ -4,6 +4,7 @@ from apps.core.infrastructure.services.dashboard_query_service import (
     INDICATOR_LABELS,
     get_financial_indicator_data,
 )
+from apps.core.infrastructure.services.fiscal.service import WebmaniaFiscalService
 from apps.core.infrastructure.services.storage import (
     S3StorageService,
     StorageConfigurationError,
@@ -38,6 +39,7 @@ __all__ = [
     "DashboardQueryService",
     "INDICATOR_LABELS",
     "get_financial_indicator_data",
+    "WebmaniaFiscalService",
     "S3StorageService",
     "StorageConfigurationError",
     "StorageObject",
