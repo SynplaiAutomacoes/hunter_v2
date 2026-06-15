@@ -486,7 +486,7 @@ def save_workshop_certificate_atomic(
     previous_file_id = str(getattr(workshop, "certificate_file_key", "") or "").strip()
     previous_remote_password = current_password
     try:
-        previous_remote_certificate = get_fiscal_service().encode_workshop_certificate(workshop=workshop) if previous_file_id else ""
+        previous_remote_certificate = encode_workshop_certificate(workshop=workshop) if previous_file_id else ""
     except WorkshopFileStorageError:
         previous_remote_certificate = ""
 
@@ -579,6 +579,13 @@ def update_company_certificate_snapshot(
 
     if update_fields:
         company.save(update_fields=update_fields)
+
+
+def encode_workshop_certificate(workshop: Workshop) -> str:
+    stored_file = get_workshop_certificate_file(workshop)
+    if stored_file is None:
+        return ""
+    return base64.b64encode(stored_file.content).decode("ascii")
 
 
 def schedule_workshop_files_cleanup(workshop: Workshop) -> None:
