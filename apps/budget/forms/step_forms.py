@@ -2091,6 +2091,7 @@ class BudgetStep5Form(CoreModelForm):
         self.fields["slider"].help_text = ""
         self.fields["discount_percentage"].required = False
         self.fields["discount_value"].required = False
+        self.fields["discount_type"].required = False
         self.fields["slider"].widget.attrs.update({"hx-post": reverse("budget:update_slider", args=[self.instance.pk]), "hx-trigger": "change", "hx-swap": "none"})
 
         budget = _get_budget_with_prefetched_items(self.instance)
