@@ -392,8 +392,12 @@ class WorkOrderPaymentForm(CoreModelForm):
                             if (hasAmount) {{
                                 discountPercentageHidden.value = '0';
                                 discountPercentageDisplay.value = formatPercentageDisplay(0);
+                                discountPercentageDisplay.disabled = true;
+                            }} else {{
+                                discountPercentageHidden.value = '0';
+                                discountPercentageDisplay.value = formatPercentageDisplay(0);
+                                discountPercentageDisplay.disabled = false;
                             }}
-                            discountPercentageDisplay.disabled = hasAmount;
                             updateDiscountSummary(amount, 0);
                         }};
                         const updateFromPercentageField = () => {{
@@ -408,8 +412,12 @@ class WorkOrderPaymentForm(CoreModelForm):
                             if (hasFraction) {{
                                 discountMoneyHidden.value = '0.00';
                                 discountMoneyDisplay.value = formatMoney(0);
+                                discountMoneyDisplay.disabled = true;
+                            }} else {{
+                                discountMoneyHidden.value = '0.00';
+                                discountMoneyDisplay.value = formatMoney(0);
+                                discountMoneyDisplay.disabled = false;
                             }}
-                            discountMoneyDisplay.disabled = hasFraction;
                             updateDiscountSummary(0, fraction);
                         }};
                         const setDiscountStatus = (status, message = '') => {{
