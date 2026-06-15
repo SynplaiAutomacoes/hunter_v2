@@ -303,8 +303,8 @@ def build_step5_pricing_panel_layout(*, prefix: str, panel_data: Step5PricingPan
                         HTML(
                             f"""
                             <div class="flex justify-between mb-1">
-                                <span class="text-sm font-bold">Peça: <span id="{prefix}-val-peca">0</span>%</span>
-                                <span class="text-sm font-bold">Mão de Obra: <span id="{prefix}-val-mo">0</span>%</span>
+                                <span class="text-sm font-bold">Mão de Obra: <span id="{prefix}-val-peca">0</span>%</span>
+                                <span class="text-sm font-bold">Peça: <span id="{prefix}-val-mo">0</span>%</span>
                             </div>
                             """
                         ),
@@ -469,8 +469,8 @@ def build_step5_summary_layout(*, prefix: str, panel_data: Step5PricingPanelData
                         HTML(
                             f"""
                             <div class="flex justify-between mb-1">
-                                <span class="text-sm font-bold">Peça: <span id="{prefix}-val-peca">0</span>%</span>
-                                <span class="text-sm font-bold">Mão de Obra: <span id="{prefix}-val-mo">0</span>%</span>
+                                <span class="text-sm font-bold">Mão de Obra: <span id="{prefix}-val-peca">0</span>%</span>
+                                <span class="text-sm font-bold">Peça: <span id="{prefix}-val-mo">0</span>%</span>
                             </div>
                             """
                         ),
