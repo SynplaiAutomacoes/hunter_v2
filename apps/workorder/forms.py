@@ -199,7 +199,7 @@ class WorkOrderPaymentForm(CoreModelForm):
             Div(
                 HTML(
                     """
-                    <div class="grid grid-cols-1 gap-3 mb-5 xl:grid-cols-2">
+                    <div class="grid grid-cols-1 gap-3 mb-5 xl:grid-cols-3">
                     """
                 ),
                 Div(
@@ -217,7 +217,23 @@ class WorkOrderPaymentForm(CoreModelForm):
                     ),
                     Field("discount_value", wrapper_class="mb-0"),
                     HTML("</div>"),
-                    HTML('<div id="discount-type-placeholder-left" class="hidden"></div>'),
+                    css_class="h-full",
+                ),
+                Div(
+                    HTML(
+                        """
+                        <div class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
+                            <div class="mb-3 flex items-center justify-between gap-3">
+                                <div>
+                                    <p class="text-sm font-bold text-base-content">Tipo de Desconto</p>
+                                    <p class="text-xs text-base-content/60">Selecione onde o desconto sera aplicado.</p>
+                                </div>
+                                <span class="material-icons text-base-content/40">filter_alt</span>
+                            </div>
+                        """
+                    ),
+                    Field("discount_type", wrapper_class="mb-0"),
+                    HTML("</div>"),
                     css_class="h-full",
                 ),
                 Div(
@@ -235,25 +251,9 @@ class WorkOrderPaymentForm(CoreModelForm):
                     ),
                     Field("discount_percentage", wrapper_class="mb-0"),
                     HTML("</div>"),
-                    HTML('<div id="discount-type-placeholder-right" class="hidden"></div>'),
                     css_class="h-full",
                 ),
                 HTML("</div>"),
-                HTML(
-                    """
-                    <div id="discount-type-source" class="hidden">
-                        <div class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
-                            <div class="mb-3 flex items-center justify-between gap-3">
-                                <div>
-                                    <p class="text-sm font-bold text-base-content">Tipo de Desconto</p>
-                                    <p class="text-xs text-base-content/60">Selecione onde o desconto sera aplicado.</p>
-                                </div>
-                                <span class="material-icons text-base-content/40">filter_alt</span>
-                            </div>
-                    """
-                ),
-                Field("discount_type", wrapper_class="mb-0"),
-                HTML("</div></div>"),
             ),
             HTML('<div class="mb-3 flex justify-end"><span id="workorder-discount-save-status" class="text-xs text-base-content/60" aria-live="polite"></span></div>'),
             Div(
@@ -324,12 +324,8 @@ class WorkOrderPaymentForm(CoreModelForm):
                         const pendingValueHidden = document.getElementById('id_pending_value_0');
                         const pendingValueDisplay = document.getElementById('id_pending_value_0_display');
                         const discountPersistUrl = '{reverse("workorder:update_discount", args=[self.workorder.pk]) if self.workorder else ""}';
-                        const discountTypeSource = document.getElementById('discount-type-source');
-                        const discountTypePlaceholderLeft = document.getElementById('discount-type-placeholder-left');
-                        const discountTypePlaceholderRight = document.getElementById('discount-type-placeholder-right');
                         const discountValueCardBody = document.getElementById('discount-value-card-body');
                         const discountPercentageCardBody = document.getElementById('discount-percentage-card-body');
-                        const discountTypeRadios = document.querySelectorAll('input[name="discount_type"]');
                         const discountTypeValue = () => {{
                             const checked = document.querySelector('input[name="discount_type"]:checked');
                             return checked ? checked.value : 'both';
@@ -545,30 +541,6 @@ class WorkOrderPaymentForm(CoreModelForm):
                             toggleWarning(false, '');
                         }};
 
-                        const swapDiscountCardContent = () => {{
-                            if (!discountTypeSource || !discountValueCardBody || !discountPercentageCardBody || !discountTypePlaceholderLeft || !discountTypePlaceholderRight) return;
-
-                            const pctVal = parseDotDecimal(discountPercentageHidden?.value);
-                            const moneyVal = parseDotDecimal(discountMoneyHidden?.value);
-
-                            discountValueCardBody.style.display = '';
-                            discountPercentageCardBody.style.display = '';
-                            discountTypePlaceholderLeft.classList.add('hidden');
-                            discountTypePlaceholderLeft.innerHTML = '';
-                            discountTypePlaceholderRight.classList.add('hidden');
-                            discountTypePlaceholderRight.innerHTML = '';
-
-                            if (moneyVal > 0) {{
-                                discountPercentageCardBody.style.display = 'none';
-                                discountTypePlaceholderRight.innerHTML = discountTypeSource.innerHTML;
-                                discountTypePlaceholderRight.classList.remove('hidden');
-                            }} else if (pctVal > 0) {{
-                                discountValueCardBody.style.display = 'none';
-                                discountTypePlaceholderLeft.innerHTML = discountTypeSource.innerHTML;
-                                discountTypePlaceholderLeft.classList.remove('hidden');
-                            }}
-                        }};
-
                         paymentMethodInput.addEventListener('change', function() {{
                             updateDueDate(true);
                             updatePaymentPlan();
@@ -591,14 +563,12 @@ class WorkOrderPaymentForm(CoreModelForm):
                             const handleMoneyInput = () => {{
                                 window.setTimeout(() => {{
                                     updateFromMoneyField();
-                                    swapDiscountCardContent();
                                     persistDiscount();
                                 }}, 0);
                             }};
                             const handleMoneyBlur = () => {{
                                 window.setTimeout(() => {{
                                     updateFromMoneyField();
-                                    swapDiscountCardContent();
                                     persistDiscountNow();
                                 }}, 0);
                             }};
@@ -611,14 +581,12 @@ class WorkOrderPaymentForm(CoreModelForm):
                             const handlePercentageInput = () => {{
                                 window.setTimeout(() => {{
                                     updateFromPercentageField();
-                                    swapDiscountCardContent();
                                     persistDiscount();
                                 }}, 0);
                             }};
                             const handlePercentageBlur = () => {{
                                 window.setTimeout(() => {{
                                     updateFromPercentageField();
-                                    swapDiscountCardContent();
                                     persistDiscountNow();
                                 }}, 0);
                             }};
@@ -645,8 +613,6 @@ class WorkOrderPaymentForm(CoreModelForm):
                             if (discountPercentageDisplay) discountPercentageDisplay.disabled = false;
                             updateDiscountSummary(0, 0);
                         }}
-                        swapDiscountCardContent();
-
                         document.addEventListener('change', function(e) {{
                             if (e.target && e.target.name === 'discount_type') {{
                                 persistDiscountNow();
