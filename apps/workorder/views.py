@@ -620,6 +620,7 @@ class UpdateWorkOrderCollaboratorsView(LoginRequiredMixin, WorkshopScopedMixin, 
         form = WorkOrderCollaboratorForm(request.POST, instance=workorder, workorder=workorder)
         if form.is_valid():
             form.save()
+            workorder.refresh_from_db()
             reference_date = max((payment.due_date for payment in workorder.payments.all() if payment.due_date), default=None)
             sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=reference_date)
 
