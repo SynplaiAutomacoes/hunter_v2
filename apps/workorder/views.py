@@ -146,12 +146,12 @@ WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
     ),
     QueryParamFilter(
         param_name="data_inicial",
-        lookup="criado_em__date",
+        lookup="delivered_at__date",
         kind="date_gte",
     ),
     QueryParamFilter(
         param_name="data_final",
-        lookup="criado_em__date",
+        lookup="delivered_at__date",
         kind="date_lte",
     ),
 )
