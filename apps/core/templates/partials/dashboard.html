@@ -368,8 +368,13 @@
 
         <div class="stat bg-base-100 shadow rounded-box">
             <div class="stat-title text-base-content/70">Faturamento Real Diário</div>
-            <div class="stat-value mt-2 {% if faturamento_real_diario is not None and meta_faturamento_diario is not None and faturamento_real_diario >= meta_faturamento_diario %}text-success{% else %}text-primary{% endif %}">
+            <div class="stat-value text-primary mt-2 flex items-center gap-2">
                 {% if faturamento_real_diario is not None %}R$ {{ faturamento_real_diario|floatformat:2 }}{% else %}-{% endif %}
+                {% if faturamento_real_diario_vs_meta %}
+                    <div class="tooltip" data-tip="Comparação com a meta diária">
+                        <span class="material-icons text-{{ faturamento_real_diario_vs_meta.cor }} text-5xl">{{ faturamento_real_diario_vs_meta.seta }}</span>
+                    </div>
+                {% endif %}
             </div>
             <div class="stat-desc">Média diária de faturamento realizada até o momento.</div>
         </div>

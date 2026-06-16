@@ -346,6 +346,20 @@ class DashboardQueryService:
                     "seta": arrow,
                 }
 
+            actual_daily_revenue_vs_target = None
+            if actual_daily_revenue is not None and daily_revenue_target is not None:
+                daily_color = "error"
+                daily_arrow = "arrow_downward"
+
+                if actual_daily_revenue >= daily_revenue_target:
+                    daily_color = "success"
+                    daily_arrow = "arrow_upward"
+
+                actual_daily_revenue_vs_target = {
+                    "cor": daily_color,
+                    "seta": daily_arrow,
+                }
+
         return DashboardMetrics(
             workshop_id=workshop.pk,
             selected_month=selected_month,
@@ -382,6 +396,7 @@ class DashboardQueryService:
             daily_revenue_target=daily_revenue_target,
             actual_daily_revenue=actual_daily_revenue,
             projection_vs_target=projection_vs_target,
+            actual_daily_revenue_vs_target=actual_daily_revenue_vs_target,
         )
 
     @staticmethod
