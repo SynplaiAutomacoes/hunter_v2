@@ -118,15 +118,19 @@ def build_dre_calculation(
         )
         .order_by("criado_em", "pk")
     )
+    pagamentos_receita = pagamentos_ordens_de_servico.exclude(workorder__budget_type__in=("warranty", "courtesy"))
     if start_date is not None:
         pagamentos_ordens_de_servico = pagamentos_ordens_de_servico.filter(due_date__gte=start_date)
+        pagamentos_receita = pagamentos_receita.filter(due_date__gte=start_date)
     if end_date is not None:
         pagamentos_ordens_de_servico = pagamentos_ordens_de_servico.filter(due_date__lte=end_date)
+        pagamentos_receita = pagamentos_receita.filter(due_date__lte=end_date)
 
     pagamentos_ordens_de_servico = list(pagamentos_ordens_de_servico)
-    total_receita_bruta_de_vendas_e_servicos = sum((payment.total_paid for payment in pagamentos_ordens_de_servico), _ZERO)
-    detail_receita_bruta_de_vendas_e_servicos = workorder_payment_method_details(pagamentos_ordens_de_servico)
-    workorder_payment_totals = _build_workorder_payment_totals(payments=pagamentos_ordens_de_servico)
+    pagamentos_receita = list(pagamentos_receita)
+    total_receita_bruta_de_vendas_e_servicos = sum((payment.total_paid for payment in pagamentos_receita), _ZERO)
+    detail_receita_bruta_de_vendas_e_servicos = workorder_payment_method_details(pagamentos_receita)
+    workorder_payment_totals = _build_workorder_payment_totals(payments=pagamentos_receita)
     workorder_revenue_movements = _fetch_workorder_revenue_movements(
         workshops=workshops,
         workorder_ids=list(workorder_payment_totals.keys()),
@@ -235,7 +239,7 @@ def build_dre_calculation(
 
     # Receitas Financeiras
     fin_revenue_groups, total_receitas_financeiras = _build_financial_revenue_group_tree(
-        payments=pagamentos_ordens_de_servico,
+        payments=pagamentos_receita,
         movements=movements,
         workorder_revenue_movements=workorder_revenue_movements,
         financial_groups=financial_groups,

@@ -226,6 +226,8 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def payment_block_reason(self) -> str | None:
+        if self.budget_type in ("warranty", "courtesy"):
+            return None
         if self.is_fully_paid:
             return None
         return "Receba o pagamento integral da ordem de serviço antes de enviar para assinatura ou entregar o veículo."
@@ -645,6 +647,8 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def total_budget_value(self) -> Money:
+        if self.budget_type in ("warranty", "courtesy"):
+            return Money(0, "BRL")
         return self.pricing_snapshot.total_budget_value
 
     @property
