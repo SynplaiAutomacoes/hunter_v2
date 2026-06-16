@@ -395,6 +395,7 @@ class DashboardQueryService:
         payments = WorkOrderPaymentMethod.objects.filter(
             workorder__workshop_id=workshop_id,
             workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+            workorder__budget_type="sale",
             due_date__month=selected_month,
             due_date__year=selected_year,
         )
