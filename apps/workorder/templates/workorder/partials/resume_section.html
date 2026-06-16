@@ -1,16 +1,12 @@
 {% load format_tags %}
 <div class="card-body">
     <div class="flex w-full justify-end gap-2">
-        <button
-            type="button"
-            class="btn btn-outline btn-lg"
-            hx-get="{% url 'workorder:edit_items_modal' workorder.pk %}"
-            hx-target="#modal-container"
-            hx-swap="innerHTML"
-            onclick="document.getElementById('form_modal').showModal()">
+        <a
+            href="{% url 'budget:budget_update' workorder.budget.pk %}?step=6&reopen=1"
+            class="btn btn-outline btn-lg">
             <span class="material-icons mr-2" aria-hidden="true">edit_note</span>
             Editar Itens
-        </button>
+        </a>
     </div>
     <div class="p-6">
         <div id="pdf-iframe" class="p-4 border rounded-lg shadow-sm text-base">
