@@ -179,6 +179,31 @@ def build_dre_calculation(
 
     delivered_workorders_with_costs = _fetch_delivered_workorders_with_costs(payments=pagamentos_ordens_de_servico)
     delivered_workorders = [workorder for workorder, _ in delivered_workorders_with_costs]
+    
+    warranty_workorders_qs = WorkOrder.objects.filter(
+        workshop__in=workshops,
+        status=WorkOrderStatus.APPROVED,
+        budget_type__in=("warranty", "courtesy"),
+        delivered_at__isnull=False
+    ).select_related("budget", "budget__customer", "workshop").prefetch_related(
+        "items__product",
+        "items__service",
+        "items__kit",
+        "items__kit_overrides",
+        "items__kit__kit_products__product",
+        "items__kit__kit_services__service",
+    )
+    if start_date is not None:
+        warranty_workorders_qs = warranty_workorders_qs.filter(delivered_at__date__gte=start_date)
+    if end_date is not None:
+        warranty_workorders_qs = warranty_workorders_qs.filter(delivered_at__date__lte=end_date)
+    
+    existing_wo_ids = {wo.pk for wo in delivered_workorders}
+    for wo in warranty_workorders_qs:
+        if wo.pk not in existing_wo_ids:
+            total_cost = wo.total_costs_products_value + wo.total_costs_services_value
+            setattr(wo, "dre_total_cost", total_cost)
+            delivered_workorders.append(wo)
 
     detail_taxas_maquininha = maquininha_tax_details(list(taxa_maquininha_os))
     detail_custos_pecas = _build_workorder_cost_component_details(
