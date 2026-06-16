@@ -313,6 +313,7 @@ def build_pricing_snapshot(
     labor_selling_value_override: Money | None = None,
     is_local_product_item: Callable[[Any], bool] | None = None,
     is_local_service_item: Callable[[Any], bool] | None = None,
+    is_warranty_or_courtesy: bool = False,
 ) -> PricingSnapshot:
     local_product_check = is_local_product_item or (lambda _item: False)
     local_service_check = is_local_service_item or (lambda _item: False)
@@ -349,9 +350,13 @@ def build_pricing_snapshot(
                 )
                 product_aggregates[key] = aggregate
 
-            direct_total = (_coerce_money(getattr(item, "product_selling_price", None)) * item_quantity) + _coerce_money(getattr(item, "shipping", None))
+            if is_warranty_or_courtesy:
+                direct_total = zero_money()
+                direct_shipping = zero_money()
+            else:
+                direct_total = (_coerce_money(getattr(item, "product_selling_price", None)) * item_quantity) + _coerce_money(getattr(item, "shipping", None))
+                direct_shipping = _coerce_money(getattr(item, "shipping", None))
             direct_cost_total = _coerce_money(getattr(item, "product_cost_price", None)) * item_quantity
-            direct_shipping = _coerce_money(getattr(item, "shipping", None))
             should_replace_direct = product_id is not None and (
                 item_quantity > aggregate.direct_quantity or (item_quantity == aggregate.direct_quantity and direct_total.amount > aggregate.direct_total.amount)
             )
@@ -386,7 +391,10 @@ def build_pricing_snapshot(
                 service_aggregates[key] = service_aggregate
 
             service_aggregate.direct_quantity += item_quantity
-            service_aggregate.direct_raw_total += _coerce_money(getattr(item, "service_selling_price", None)) * item_quantity
+            if is_warranty_or_courtesy:
+                service_aggregate.direct_raw_total += zero_money()
+            else:
+                service_aggregate.direct_raw_total += _coerce_money(getattr(item, "service_selling_price", None)) * item_quantity
             service_aggregate.direct_cost_total += _coerce_money(getattr(item, "service_cost_price", None)) * item_quantity
             item_duration = getattr(item, "duration", None)
             if item_duration:
@@ -428,6 +436,10 @@ def build_pricing_snapshot(
             shipping = _coerce_money(getattr(override, "shipping", None)) * item_quantity if override else zero_money()
             unit_price = override.product_selling_price if override else product.selling_price
             unit_cost = override.product_cost_price if override else product.cost_price
+            
+            if is_warranty_or_courtesy:
+                shipping = zero_money()
+                unit_price = zero_money()
 
             aggregate.kit_quantity += consolidated_quantity
             aggregate.kit_total += (unit_price * consolidated_quantity) + shipping
@@ -473,6 +485,10 @@ def build_pricing_snapshot(
                 except AttributeError:
                     unit_cost, unit_price = item.service_cost_price, item.service_selling_price
                 fixed_cost_total = zero_money()
+                
+            if is_warranty_or_courtesy:
+                unit_price = zero_money()
+                
             service_duration = timedelta(0)
 
             if override:
