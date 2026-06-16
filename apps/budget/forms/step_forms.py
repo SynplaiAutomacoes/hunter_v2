@@ -3742,6 +3742,19 @@ class BudgetStep6Form(CoreModelForm):
                   </div>
                 </dialog>
             """),
+            HTML("""
+                <script>
+                    (function() {
+                        if (window.location.search.includes('reopen=1')) {
+                            const btn = document.querySelector('[onclick*="reopen"]');
+                            if (btn) {
+                                btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                btn.click();
+                            }
+                        }
+                    })();
+                </script>
+            """),
         )
 
     def clean(self):
