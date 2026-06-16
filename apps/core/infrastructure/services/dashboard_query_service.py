@@ -277,10 +277,10 @@ class DashboardQueryService:
         workshop_cost = WorkshopCost.objects.filter(workshop_id=workshop_id, month=selected_month, year=selected_year).first()
         approved_budget_metrics = self._get_approved_budget_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
         sale_workorders, warranty_workorders = self._get_delivered_workorders(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
-        total_sold = self._calculate_total_sold(sale_workorders)
+        total_sold = self._calculate_total_sold(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
 
-        logger.info("Dashboard total vendido calculado | workshop_id=%s mes=%s ano=%s total_vendido=%s qtd_os=%s",
-            workshop_id, selected_month, selected_year, str(total_sold), len(sale_workorders))
+        logger.info("Dashboard total vendido calculado | workshop_id=%s mes=%s ano=%s total_vendido=%s",
+            workshop_id, selected_month, selected_year, str(total_sold))
 
         approval_rate_metrics = self._get_approval_rate_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
         pending_receivable_metrics = self._get_pending_receivable_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
@@ -391,13 +391,16 @@ class DashboardQueryService:
         )
 
     @staticmethod
-    def _calculate_total_sold(sale_workorders: list[WorkOrder]) -> Decimal:
-        workorder_ids = [wo.pk for wo in sale_workorders]
-        payments = WorkOrderPaymentMethod.objects.filter(workorder_id__in=workorder_ids)
+    def _calculate_total_sold(*, workshop_id: int, selected_month: int, selected_year: int) -> Decimal:
+        payments = WorkOrderPaymentMethod.objects.filter(
+            workorder__workshop_id=workshop_id,
+            workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+            due_date__month=selected_month,
+            due_date__year=selected_year,
+        )
         total = Decimal("0.00")
         for payment in payments:
             total += payment.first_installment_amount.amount + ((payment.installments_count - 1) * payment.remaining_installments_amount.amount)
-            print(f"{payment.workorder.budget.pk} - Conta: {payment.first_installment_amount.amount + ((payment.installments_count - 1) * payment.remaining_installments_amount.amount)}")
         return total
 
     @staticmethod
@@ -413,7 +416,6 @@ class DashboardQueryService:
             .order_by("delivered_at", "pk")
         )
         sale_workorders = [wo for wo in all_workorders if wo.budget_type == "sale"]
-        print(f"sales: {len(sale_workorders)} - {sale_workorders}")
         warranty_workorders = [wo for wo in all_workorders if wo.budget_type in ("warranty", "courtesy")]
         return sale_workorders, warranty_workorders
 
