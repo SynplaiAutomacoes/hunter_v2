@@ -156,7 +156,6 @@ class FinancialIndicatorReportData:
     is_budget_report: bool
     total_value: Decimal
     summary_count: int
-    summary_count_label: str
     record_count: int
     value_column_label: str
     rows: list[Any]
@@ -226,7 +225,6 @@ def build_financial_indicator_report_data(*, indicator: str, month: int, year: i
             is_budget_report=True,
             total_value=total_value,
             summary_count=len(items),
-            summary_count_label="Registros",
             record_count=len(items),
             value_column_label="Valor total" if indicator != "reprovados" else "Valor exibido",
             rows=items,
@@ -235,18 +233,15 @@ def build_financial_indicator_report_data(*, indicator: str, month: int, year: i
 
     workorder_groups = _build_workorder_groups(items=items, indicator=indicator)
     total_value = sum((group.group_total for group in workorder_groups), Decimal("0.00"))
-    has_grouped_children = any(group.has_children for group in workorder_groups)
 
+    value_column_label = "Valor total"
     if indicator.startswith("a_receber"):
         value_column_label = "Valor pendente"
     elif indicator in {"carros_mes", "garantia_cortesia_mes"}:
         value_column_label = "Valor consolidado"
-    else:
-        value_column_label = "Valor total"
 
-    summary_count_label = "O.S. pai" if indicator in {"carros_mes", "garantia_cortesia_mes"} else "O.S."
-    if has_grouped_children:
-        summary_count_label = "O.S. principais"
+    if indicator == "carros_mes":
+        total_value = sum((resolve_decimal_amount(item.total_budget_value) for item in items), Decimal("0.00"))
 
     return FinancialIndicatorReportData(
         indicator=indicator,
@@ -256,7 +251,6 @@ def build_financial_indicator_report_data(*, indicator: str, month: int, year: i
         is_budget_report=False,
         total_value=total_value,
         summary_count=len(workorder_groups),
-        summary_count_label=summary_count_label,
         record_count=len(items),
         value_column_label=value_column_label,
         rows=[],

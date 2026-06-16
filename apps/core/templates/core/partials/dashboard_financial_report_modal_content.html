@@ -25,16 +25,19 @@
             <section class="rounded-[1.75rem] border border-base-300/70 bg-base-100 p-4 shadow-sm sm:p-5">
                 <div class="grid gap-3 md:grid-cols-3">
                     <div class="rounded-[1.25rem] border border-base-300/60 bg-base-200/70 px-4 py-3">
-                        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-base-content/50">{{ summary_count_label }}</p>
+                        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-base-content/50">Quantidade de Veículos</p>
                         <p class="mt-1 text-2xl font-black tabular-nums text-base-content">{{ summary_count }}</p>
                     </div>
                     <div class="rounded-[1.25rem] border border-base-300/60 bg-base-200/70 px-4 py-3">
-                        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-base-content/50">Registros usados</p>
+                        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-base-content/50">Quantidade de O.S.</p>
                         <p class="mt-1 text-2xl font-black tabular-nums text-base-content">{{ record_count }}</p>
                     </div>
                     <div class="rounded-[1.25rem] border border-success/15 bg-success/10 px-4 py-3">
-                        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-success/70">Valor total</p>
+                        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-success/70">Valor Total Entregue</p>
                         <p class="mt-1 text-2xl font-black tabular-nums text-success">{{ total_value|money_br }}</p>
+                        {% if indicator == 'carros_mes' %}
+                            <p class="mt-2 text-xs text-base-content/50">valor considerando veículos entregues, não está considerando os veículos que estão na oficina</p>
+                        {% endif %}
                     </div>
                 </div>
             </section>
