@@ -98,6 +98,7 @@ def build_emission_pricing_snapshot_for_workorder(
         discount_value=workorder.discount_value,
         discount_percentage=workorder.discount_percentage,
         labor_cost_value=workorder.total_labor_cost_value,
+        is_warranty_or_courtesy=False,
     )
 
     if nfe_slider is None:
