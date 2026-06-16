@@ -188,6 +188,7 @@ class WorkOrder(TimeStampedModel):
             discount_percentage=self.discount_percentage,
             labor_cost_value=self.total_labor_cost_value,
             labor_selling_value_override=labor_selling_value_override,
+            is_warranty_or_courtesy=self.budget_type in ("warranty", "courtesy"),
         )
 
     @property

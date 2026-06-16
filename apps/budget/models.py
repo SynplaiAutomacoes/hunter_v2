@@ -157,12 +157,13 @@ class Budget(TimeStampedModel):
     signature_sent_at = models.DateTimeField(blank=True, null=True)
 
     def save(self, *args, **kwargs):
+        self.is_warranty_budget = self.budget_type in (BudgetType.WARRANTY, BudgetType.COURTESY)
         self.sync_discount_fields()
 
         update_fields = kwargs.get("update_fields")
         if update_fields is not None:
             update_fields_set = set(update_fields)
-            update_fields_set.update({"discount_value", "discount_value_currency", "discount_percentage", "discount_type"})
+            update_fields_set.update({"discount_value", "discount_value_currency", "discount_percentage", "discount_type", "is_warranty_budget"})
             kwargs["update_fields"] = list(update_fields_set)
 
         is_new = self.pk is None
@@ -598,6 +599,7 @@ class Budget(TimeStampedModel):
                 labor_cost_value=self.total_labor_cost_value,
                 is_local_product_item=self._is_local_product_item,
                 is_local_service_item=self._is_local_service_item,
+                is_warranty_or_courtesy=self.budget_type in ("warranty", "courtesy"),
             )
             setattr(self, "_pricing_snapshot_cache", cached_snapshot)
         return cached_snapshot
