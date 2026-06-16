@@ -1,22 +1,17 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
-from functools import partial
-import json
 import logging
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Any, TypeVar
+from typing import Any
 
-from django.db import close_old_connections
 from django.utils import timezone
 
 from apps.budget.models import Budget, BudgetStatus, BudgetType
 from apps.budget.pdf_context import calculate_markup_multiplier
 from apps.core.domain.services.dashboard_service import DashboardMetrics
-from apps.workorder.models import WorkOrder, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
 
@@ -24,8 +19,6 @@ logger = logging.getLogger(__name__)
 
 MISSING_WORKSHOP_COST_WARNING = "Para realizar o calculo, cadastre um custo mensal da oficina para o mes selecionado."
 TWO_DECIMAL_PLACES = Decimal("0.01")
-DASHBOARD_QUERY_MAX_WORKERS = 8
-T = TypeVar("T")
 MONTH_LABELS_PT: list[str] = [
     "",
     "Janeiro",
@@ -82,11 +75,6 @@ def _format_brl(amount: Decimal) -> str:
     return f"R$ {amount:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def count_elapsed_business_days(*, workshop_cost: WorkshopCost, today: date) -> int:
-    work_day_dates = workshop_cost.get_work_day_dates()
-    return sum(1 for d in work_day_dates if d <= today)
-
-
 def calculate_average_markup(budgets: list[Budget]) -> Decimal:
     markups = [
         calculate_markup_multiplier(
@@ -107,18 +95,9 @@ def calculate_markup_progress(markup: Decimal) -> int:
     return min(int((markup * Decimal("50")).quantize(Decimal("1"))), 100)
 
 
-def run_dashboard_query_task(task: Callable[[], T]) -> T:
-    close_old_connections()
-    try:
-        return task()
-    finally:
-        close_old_connections()
-
-
-@dataclass(frozen=True)
-class SoldToDateMetrics:
-    workorders: list[WorkOrder]
-    total: Decimal
+def count_elapsed_business_days(*, workshop_cost: WorkshopCost, today: date) -> int:
+    work_day_dates = workshop_cost.get_work_day_dates()
+    return sum(1 for d in work_day_dates if d <= today)
 
 
 @dataclass(frozen=True)
@@ -126,15 +105,6 @@ class ApprovedBudgetMetrics:
     accumulated_profitability: float | Decimal
     accumulated_markup: Decimal
     approved_count: int
-
-
-@dataclass(frozen=True)
-class DeliveredWorkOrderMetrics:
-    cars_this_month: int
-    cars_this_month_list: list[WorkOrder]
-    warranty_courtesy_cars: int
-    warranty_courtesy_cars_list: list[WorkOrder]
-    warranty_count: int
 
 
 @dataclass(frozen=True)
@@ -304,73 +274,29 @@ class DashboardQueryService:
         hoje = timezone.localdate()
         workshop_id = workshop.pk
 
-        with ThreadPoolExecutor(max_workers=DASHBOARD_QUERY_MAX_WORKERS, thread_name_prefix="dashboard-query") as executor:
-            sold_future = executor.submit(
-                run_dashboard_query_task,
-                partial(self._get_sold_to_date_metrics, workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
-            )
-            workshop_cost_future = executor.submit(
-                run_dashboard_query_task,
-                partial(self._get_workshop_cost, workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
-            )
-            approved_budgets_future = executor.submit(
-                run_dashboard_query_task,
-                partial(self._get_approved_budget_metrics, workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
-            )
-            delivered_workorders_future = executor.submit(
-                run_dashboard_query_task,
-                partial(self._get_delivered_workorder_metrics, workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
-            )
-            approval_rate_future = executor.submit(
-                run_dashboard_query_task,
-                partial(self._get_approval_rate_metrics, workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
-            )
-            pending_receivable_future = executor.submit(
-                run_dashboard_query_task,
-                partial(self._get_pending_receivable_metrics, workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
-            )
-            pending_budgets_future = executor.submit(
-                run_dashboard_query_task,
-                partial(self._get_pending_budget_metrics, workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
-            )
-            rejected_budgets_future = executor.submit(
-                run_dashboard_query_task,
-                partial(self._get_rejected_budget_total, workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
-            )
+        workshop_cost = WorkshopCost.objects.filter(workshop_id=workshop_id, month=selected_month, year=selected_year).first()
+        approved_budget_metrics = self._get_approved_budget_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
+        sale_workorders, warranty_workorders = self._get_delivered_workorders(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
+        total_sold = self._calculate_total_sold(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
 
-            sold_metrics = sold_future.result()
-            workshop_cost = workshop_cost_future.result()
-            approved_budget_metrics = approved_budgets_future.result()
-            delivered_workorder_metrics = delivered_workorders_future.result()
-            approval_rate_metrics = approval_rate_future.result()
-            pending_receivable_metrics = pending_receivable_future.result()
-            pending_budget_metrics = pending_budgets_future.result()
-            total_rejected_budgets = rejected_budgets_future.result()
+        logger.info("Dashboard total vendido calculado | workshop_id=%s mes=%s ano=%s total_vendido=%s",
+            workshop_id, selected_month, selected_year, str(total_sold))
 
-        total_sold_to_date = sold_metrics.total
+        approval_rate_metrics = self._get_approval_rate_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
+        pending_receivable_metrics = self._get_pending_receivable_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
+        pending_budget_metrics = self._get_pending_budget_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
+        total_rejected_budgets = self._get_rejected_budget_total(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
 
-        logger.info(
-            "Dashboard total vendido calculado | %s",
-            json.dumps(
-                {
-                    "workshop_id": workshop.pk,
-                    "mes": selected_month,
-                    "ano": selected_year,
-                    "total_vendido": str(total_sold_to_date),
-                    "workorders": [
-                        {
-                            "workorder_id": workorder.pk,
-                            "budget_id": getattr(getattr(workorder, "budget", None), "pk", None),
-                            "delivered_at": workorder.delivered_at.isoformat() if workorder.delivered_at else None,
-                            "total_budget_value": str(workorder.total_budget_value),
-                        }
-                        for workorder in sold_metrics.workorders
-                    ],
-                },
-                ensure_ascii=True,
-            ),
-        )
+        # === Derived metrics ===
+        cars_this_month = sum(1 for wo in sale_workorders if wo.budget.reference_budget_id is None)
+        average_ticket = total_sold / cars_this_month if cars_this_month > 0 else Decimal("0.00")
+        warranty_courtesy_cars = sum(1 for wo in warranty_workorders if wo.budget.reference_budget_id is None)
+        warranty_count = sum(1 for wo in warranty_workorders if wo.budget_type == "warranty")
+        total_cars_with_warranty = cars_this_month + warranty_count
+        warranty_return_rate = (warranty_count / total_cars_with_warranty * 100) if total_cars_with_warranty > 0 else 0
+        approval_rate = (approval_rate_metrics.approved_count / approval_rate_metrics.created_count * 100) if approval_rate_metrics.created_count > 0 else 0
 
+        # === Days, projection, revenue target ===
         elapsed_days = 0
         remaining_days = 0
         projection: Decimal | None = None
@@ -382,17 +308,12 @@ class DashboardQueryService:
             elapsed_days = count_elapsed_business_days(workshop_cost=workshop_cost, today=hoje)
             remaining_days = max(int(workshop_cost.work_days_per_month or 0) - elapsed_days, 0)
             if elapsed_days > 0:
-                daily_average = total_sold_to_date / Decimal(elapsed_days)
-                projection = (daily_average * Decimal(remaining_days)) + total_sold_to_date
+                daily_average = total_sold / Decimal(elapsed_days)
+                projection = (daily_average * Decimal(remaining_days)) + total_sold
             else:
-                projection = total_sold_to_date
+                projection = total_sold
         else:
             projection_warning = MISSING_WORKSHOP_COST_WARNING
-
-        cars_this_month = delivered_workorder_metrics.cars_this_month
-        average_ticket = total_sold_to_date / cars_this_month if cars_this_month > 0 else Decimal("0.00")
-        warranty_return_rate = (delivered_workorder_metrics.warranty_count / (cars_this_month + delivered_workorder_metrics.warranty_count)) * 100 if (cars_this_month + delivered_workorder_metrics.warranty_count) > 0 else 0
-        approval_rate = (approval_rate_metrics.approved_count / approval_rate_metrics.created_count) * 100 if approval_rate_metrics.created_count > 0 else 0
 
         gross_revenue_target = None
         daily_revenue_target = None
@@ -409,7 +330,7 @@ class DashboardQueryService:
                 daily_revenue_target = (target_gross_val / Decimal(working_days)).quantize(Decimal("0.01"))
 
             if elapsed_days > 0:
-                actual_daily_revenue = (total_sold_to_date / Decimal(elapsed_days)).quantize(Decimal("0.01"))
+                actual_daily_revenue = (total_sold / Decimal(elapsed_days)).quantize(Decimal("0.01"))
 
             if projection is not None and target_gross_val > 0:
                 percentage_achieved = (projection / target_gross_val) * Decimal("100")
@@ -438,9 +359,9 @@ class DashboardQueryService:
             months=[(1, "Janeiro"), (2, "Fevereiro"), (3, "Março"), (4, "Abril"), (5, "Maio"), (6, "Junho"), (7, "Julho"), (8, "Agosto"), (9, "Setembro"), (10, "Outubro"), (11, "Novembro"), (12, "Dezembro")],
             years=list(range(hoje.year - 3, hoje.year + 2)),
             cars_this_month=cars_this_month,
-            cars_this_month_list=delivered_workorder_metrics.cars_this_month_list,
-            warranty_courtesy_cars=delivered_workorder_metrics.warranty_courtesy_cars,
-            warranty_courtesy_cars_list=delivered_workorder_metrics.warranty_courtesy_cars_list,
+            cars_this_month_list=sale_workorders,
+            warranty_courtesy_cars=warranty_courtesy_cars,
+            warranty_courtesy_cars_list=warranty_workorders,
             average_ticket=average_ticket,
             projection=projection,
             projection_warning=projection_warning,
@@ -448,7 +369,7 @@ class DashboardQueryService:
             remaining_days=remaining_days,
             configured_working_days=configured_working_days,
             business_holidays=business_holidays,
-            total_sold_to_date=total_sold_to_date,
+            total_sold_to_date=total_sold,
             accumulated_profitability=approved_budget_metrics.accumulated_profitability,
             accumulated_markup=approved_budget_metrics.accumulated_markup,
             accumulated_markup_progress=calculate_markup_progress(approved_budget_metrics.accumulated_markup),
@@ -469,36 +390,44 @@ class DashboardQueryService:
             projection_vs_target=projection_vs_target,
         )
 
-    def _get_workshop_cost(self, *, workshop_id: int, selected_month: int, selected_year: int) -> WorkshopCost | None:
-        return WorkshopCost.objects.filter(workshop_id=workshop_id, month=selected_month, year=selected_year).first()
+    @staticmethod
+    def _calculate_total_sold(*, workshop_id: int, selected_month: int, selected_year: int) -> Decimal:
+        payments = WorkOrderPaymentMethod.objects.filter(
+            workorder__workshop_id=workshop_id,
+            workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+            due_date__month=selected_month,
+            due_date__year=selected_year,
+        )
+        total = Decimal("0.00")
+        for payment in payments:
+            total += payment.first_installment_amount.amount + ((payment.installments_count - 1) * payment.remaining_installments_amount.amount)
+        return total
 
-    def _get_sold_to_date_metrics(self, *, workshop_id: int, selected_month: int, selected_year: int) -> SoldToDateMetrics:
-        workorders = list(
+    @staticmethod
+    def _get_delivered_workorders(*, workshop_id: int, selected_month: int, selected_year: int) -> tuple[list[WorkOrder], list[WorkOrder]]:
+        all_workorders = list(
             WorkOrder.objects.filter(
                 workshop_id=workshop_id,
-                budget_type="sale",
                 status=WorkOrderStatus.APPROVED,
                 delivered_at__month=selected_month,
                 delivered_at__year=selected_year,
             )
             .select_related("budget")
-            .prefetch_related("items", "items__kit_overrides", "items__kit__kit_products", "items__kit__kit_services")
             .order_by("delivered_at", "pk")
         )
-        total = sum(
-            (resolve_decimal_amount(workorder.total_budget_value) for workorder in workorders),
-            Decimal("0.00"),
-        )
-        return SoldToDateMetrics(workorders=workorders, total=total)
+        sale_workorders = [wo for wo in all_workorders if wo.budget_type == "sale"]
+        warranty_workorders = [wo for wo in all_workorders if wo.budget_type in ("warranty", "courtesy")]
+        return sale_workorders, warranty_workorders
 
-    def _get_approved_budget_metrics(self, *, workshop_id: int, selected_month: int, selected_year: int) -> ApprovedBudgetMetrics:
+    @staticmethod
+    def _get_approved_budget_metrics(*, workshop_id: int, selected_month: int, selected_year: int) -> ApprovedBudgetMetrics:
         approved_budgets = list(
             Budget.objects.filter(
                 workshop_id=workshop_id,
                 status=BudgetStatus.APPROVED,
                 entry_date__month=selected_month,
                 entry_date__year=selected_year,
-            ).prefetch_related("items", "items__kit_overrides", "items__kit__kit_products", "items__kit__kit_services")
+            )
         )
         profitabilities = []
         for budget in approved_budgets:
@@ -512,42 +441,9 @@ class DashboardQueryService:
             approved_count=len(approved_budgets),
         )
 
-    def _get_delivered_workorder_metrics(self, *, workshop_id: int, selected_month: int, selected_year: int) -> DeliveredWorkOrderMetrics:
-        sale_workorders = list(
-            WorkOrder.objects.filter(
-                workshop_id=workshop_id,
-                budget_type="sale",
-                status=WorkOrderStatus.APPROVED,
-                delivered_at__month=selected_month,
-                delivered_at__year=selected_year,
-            )
-            .select_related("budget__customer", "budget__vehicle")
-            .prefetch_related("items", "items__kit_overrides", "items__kit__kit_products", "items__kit__kit_services")
-            .order_by("delivered_at")
-        )
-        warranty_courtesy_workorders = list(
-            WorkOrder.objects.filter(
-                workshop_id=workshop_id,
-                budget_type__in=["warranty", "courtesy"],
-                status=WorkOrderStatus.APPROVED,
-                delivered_at__month=selected_month,
-                delivered_at__year=selected_year,
-            )
-            .select_related("budget__customer", "budget__vehicle")
-            .prefetch_related("items", "items__kit_overrides", "items__kit__kit_products", "items__kit__kit_services")
-            .order_by("delivered_at")
-        )
-
-        return DeliveredWorkOrderMetrics(
-            cars_this_month=sum(1 for workorder in sale_workorders if workorder.budget.reference_budget_id is None),
-            cars_this_month_list=sale_workorders,
-            warranty_courtesy_cars=sum(1 for workorder in warranty_courtesy_workorders if workorder.budget.reference_budget_id is None),
-            warranty_courtesy_cars_list=warranty_courtesy_workorders,
-            warranty_count=sum(1 for workorder in warranty_courtesy_workorders if workorder.budget_type == "warranty"),
-        )
-
-    def _get_approval_rate_metrics(self, *, workshop_id: int, selected_month: int, selected_year: int) -> ApprovalRateMetrics:
-        budgets_created_this_month = (
+    @staticmethod
+    def _get_approval_rate_metrics(*, workshop_id: int, selected_month: int, selected_year: int) -> ApprovalRateMetrics:
+        created_count = (
             Budget.objects.filter(
                 workshop_id=workshop_id,
                 entry_date__month=selected_month,
@@ -557,22 +453,21 @@ class DashboardQueryService:
             .exclude(status=BudgetStatus.CANCELLED)
             .count()
         )
-        budgets_approved_this_month = Budget.objects.filter(
+        approved_count = Budget.objects.filter(
             workshop_id=workshop_id,
             status=BudgetStatus.APPROVED,
             entry_date__month=selected_month,
             entry_date__year=selected_year,
         ).count()
-        return ApprovalRateMetrics(created_count=budgets_created_this_month, approved_count=budgets_approved_this_month)
+        return ApprovalRateMetrics(created_count=created_count, approved_count=approved_count)
 
-    def _get_pending_receivable_metrics(self, *, workshop_id: int, selected_month: int, selected_year: int) -> PendingReceivableMetrics:
+    @staticmethod
+    def _get_pending_receivable_metrics(*, workshop_id: int, selected_month: int, selected_year: int) -> PendingReceivableMetrics:
         draft_workorders = list(
             WorkOrder.objects.filter(
                 workshop_id=workshop_id,
                 status=WorkOrderStatus.DRAFT,
-            )
-            .select_related("budget")
-            .prefetch_related("payments", "items", "items__kit_overrides", "items__kit__kit_products", "items__kit__kit_services")
+            ).select_related("budget")
         )
 
         total_general = Decimal("0.00")
@@ -589,13 +484,14 @@ class DashboardQueryService:
             previous_months=total_general - monthly,
         )
 
-    def _get_pending_budget_metrics(self, *, workshop_id: int, selected_month: int, selected_year: int) -> PendingBudgetMetrics:
+    @staticmethod
+    def _get_pending_budget_metrics(*, workshop_id: int, selected_month: int, selected_year: int) -> PendingBudgetMetrics:
         pending_budgets = list(
             Budget.objects.filter(
                 workshop_id=workshop_id,
                 budget_type=BudgetType.SALE,
                 status__in=OPEN_BUDGET_STATUSES,
-            ).prefetch_related("items", "items__kit_overrides", "items__kit__kit_products", "items__kit__kit_services")
+            )
         )
         total_general = sum((budget.total_budget_value.amount for budget in pending_budgets), Decimal("0.00"))
         monthly = sum(
@@ -608,16 +504,84 @@ class DashboardQueryService:
             previous_months=total_general - monthly,
         )
 
-    def _get_rejected_budget_total(self, *, workshop_id: int, selected_month: int, selected_year: int) -> Decimal:
+    @staticmethod
+    def _get_rejected_budget_total(*, workshop_id: int, selected_month: int, selected_year: int) -> Decimal:
         rejected_budgets = list(
             Budget.objects.filter(
                 workshop_id=workshop_id,
                 status__in=REJECTED_BUDGET_STATUS_VALUES,
                 entry_date__month=selected_month,
                 entry_date__year=selected_year,
-            ).prefetch_related("items", "items__kit_overrides", "items__kit__kit_products", "items__kit__kit_services")
+            )
         )
         return sum((resolve_decimal_amount(budget.display_total_budget_value) for budget in rejected_budgets), Decimal("0.00"))
+
+
+_INDICATOR_QUERIES: dict[str, dict[str, Any]] = {
+    "a_receber_em_execucao": {
+        "model": "workorder",
+        "filters": {"status": WorkOrderStatus.DRAFT},
+        "date_field": "criado_em",
+        "value_field": "pending_payment_value",
+        "exclude_month": False,
+    },
+    "a_receber_mes_atual": {
+        "model": "workorder",
+        "filters": {"status": WorkOrderStatus.DRAFT},
+        "date_field": "criado_em",
+        "value_field": "pending_payment_value",
+        "exclude_month": False,
+    },
+    "a_receber_meses_anteriores": {
+        "model": "workorder",
+        "filters": {"status": WorkOrderStatus.DRAFT},
+        "date_field": "criado_em",
+        "value_field": "pending_payment_value",
+        "exclude_month": True,
+    },
+    "aguardando_aprovacao": {
+        "model": "budget",
+        "filters": {"budget_type": BudgetType.SALE, "status__in": OPEN_BUDGET_STATUSES},
+        "date_field": "entry_date",
+        "value_field": "total_budget_value",
+        "exclude_month": False,
+    },
+    "aguardando_aprovacao_mes_atual": {
+        "model": "budget",
+        "filters": {"budget_type": BudgetType.SALE, "status__in": OPEN_BUDGET_STATUSES},
+        "date_field": "entry_date",
+        "value_field": "total_budget_value",
+        "exclude_month": False,
+    },
+    "aguardando_aprovacao_meses_anteriores": {
+        "model": "budget",
+        "filters": {"budget_type": BudgetType.SALE, "status__in": OPEN_BUDGET_STATUSES},
+        "date_field": "entry_date",
+        "value_field": "total_budget_value",
+        "exclude_month": True,
+    },
+    "reprovados": {
+        "model": "budget",
+        "filters": {"status__in": REJECTED_BUDGET_STATUS_VALUES},
+        "date_field": "entry_date",
+        "value_field": "display_total_budget_value",
+        "exclude_month": False,
+    },
+    "carros_mes": {
+        "model": "workorder",
+        "filters": {"budget_type": "sale", "status": WorkOrderStatus.APPROVED},
+        "date_field": "delivered_at",
+        "value_field": "total_budget_value",
+        "exclude_month": False,
+    },
+    "garantia_cortesia_mes": {
+        "model": "workorder",
+        "filters": {"budget_type__in": ["warranty", "courtesy"], "status": WorkOrderStatus.APPROVED, "budget__reference_budget__isnull": True},
+        "date_field": "delivered_at",
+        "value_field": None,
+        "exclude_month": False,
+    },
+}
 
 
 def get_financial_indicator_data(
@@ -626,135 +590,44 @@ def get_financial_indicator_data(
     month: int,
     year: int,
 ) -> tuple[list[Any], bool, str]:
-    if indicator == "a_receber_em_execucao":
-        workorders = (
-            WorkOrder.objects.filter(
-                workshop=workshop,
-                status=WorkOrderStatus.DRAFT,
-            )
-            .prefetch_related("payments", "budget__customer", "budget__vehicle")
-            .order_by("criado_em")
-        )
-        total = sum((resolve_decimal_amount(wo.pending_payment_value) for wo in workorders), Decimal("0.00"))
-        return list(workorders), False, _format_brl(total)
+    query_config = _INDICATOR_QUERIES.get(indicator)
+    if query_config is None:
+        return [], False, "R$ 0,00"
 
-    if indicator == "a_receber_mes_atual":
-        workorders = (
-            WorkOrder.objects.filter(
-                workshop=workshop,
-                status=WorkOrderStatus.DRAFT,
-                criado_em__month=month,
-                criado_em__year=year,
-            )
-            .prefetch_related("payments", "budget__customer", "budget__vehicle")
-            .order_by("criado_em")
-        )
-        total = sum((resolve_decimal_amount(wo.pending_payment_value) for wo in workorders), Decimal("0.00"))
-        return list(workorders), False, _format_brl(total)
+    filters = dict(query_config["filters"])
+    filters["workshop"] = workshop
 
-    if indicator == "a_receber_meses_anteriores":
-        workorders = (
-            WorkOrder.objects.filter(
-                workshop=workshop,
-                status=WorkOrderStatus.DRAFT,
-            )
-            .exclude(
-                criado_em__month=month,
-                criado_em__year=year,
-            )
-            .prefetch_related("payments", "budget__customer", "budget__vehicle")
-            .order_by("criado_em")
-        )
-        total = sum((resolve_decimal_amount(wo.pending_payment_value) for wo in workorders), Decimal("0.00"))
-        return list(workorders), False, _format_brl(total)
+    date_field = query_config["date_field"]
+    date_filter = {f"{date_field}__month": month, f"{date_field}__year": year}
 
-    if indicator == "aguardando_aprovacao":
-        budgets = (
-            Budget.objects.filter(
-                workshop=workshop,
-                budget_type=BudgetType.SALE,
-                status__in=OPEN_BUDGET_STATUSES,
-            )
-            .select_related("customer", "vehicle")
-            .order_by("entry_date")
-        )
-        total = sum((b.total_budget_value.amount for b in budgets), Decimal("0.00"))
-        return list(budgets), True, _format_brl(total)
+    if query_config.get("exclude_month"):
+        queryset = _build_indicator_queryset(query_config["model"], filters).exclude(**date_filter)
+    else:
+        if indicator not in ("a_receber_em_execucao", "aguardando_aprovacao"):
+            filters.update(date_filter)
+        queryset = _build_indicator_queryset(query_config["model"], filters)
 
-    if indicator == "aguardando_aprovacao_mes_atual":
-        budgets = (
-            Budget.objects.filter(
-                workshop=workshop,
-                budget_type=BudgetType.SALE,
-                status__in=OPEN_BUDGET_STATUSES,
-                entry_date__month=month,
-                entry_date__year=year,
-            )
-            .select_related("customer", "vehicle")
-            .order_by("entry_date")
-        )
-        total = sum((b.total_budget_value.amount for b in budgets), Decimal("0.00"))
-        return list(budgets), True, _format_brl(total)
+    items = list(queryset)
+    is_budget_report = query_config["model"] == "budget"
+    value_field = query_config["value_field"]
 
-    if indicator == "aguardando_aprovacao_meses_anteriores":
-        budgets = (
-            Budget.objects.filter(
-                workshop=workshop,
-                budget_type=BudgetType.SALE,
-                status__in=OPEN_BUDGET_STATUSES,
-            )
-            .exclude(
-                entry_date__month=month,
-                entry_date__year=year,
-            )
-            .select_related("customer", "vehicle")
-            .order_by("entry_date")
+    if value_field is None:
+        total_label = f"{len(items)} veículo(s)"
+    else:
+        total = sum(
+            (resolve_decimal_amount(getattr(item, value_field)) for item in items),
+            Decimal("0.00"),
         )
-        total = sum((b.total_budget_value.amount for b in budgets), Decimal("0.00"))
-        return list(budgets), True, _format_brl(total)
+        total_label = _format_brl(total)
 
-    if indicator == "reprovados":
-        budgets = (
-            Budget.objects.filter(
-                workshop=workshop,
-                status__in=REJECTED_BUDGET_STATUS_VALUES,
-                entry_date__month=month,
-                entry_date__year=year,
-            )
-            .select_related("customer", "vehicle")
-            .order_by("entry_date")
-        )
-        total = sum((resolve_decimal_amount(b.display_total_budget_value) for b in budgets), Decimal("0.00"))
-        return list(budgets), True, _format_brl(total)
+    return items, is_budget_report, total_label
 
-    if indicator == "carros_mes":
-        workorders = (
-            WorkOrder.objects.filter(
-                workshop=workshop,
-                budget_type="sale",
-                status=WorkOrderStatus.APPROVED,
-                delivered_at__month=month,
-                delivered_at__year=year,
-            )
-            .select_related("budget__customer", "budget__vehicle")
-            .order_by("delivered_at")
-        )
-        total = sum((resolve_decimal_amount(workorder.total_budget_value) for workorder in workorders), Decimal("0.00"))
-        return list(workorders), False, _format_brl(total)
 
-    if indicator == "garantia_cortesia_mes":
-        workorders = (
-            WorkOrder.objects.filter(
-                workshop=workshop,
-                budget_type__in=["warranty", "courtesy"],
-                status=WorkOrderStatus.APPROVED,
-                delivered_at__month=month,
-                delivered_at__year=year,
-                budget__reference_budget__isnull=True,
-            )
-            .select_related("budget__customer", "budget__vehicle")
-            .order_by("delivered_at")
-        )
-        return list(workorders), False, f"{len(workorders)} veículo(s)"
-
-    return [], False, "R$ 0,00"
+def _build_indicator_queryset(model_name: str, filters: dict[str, Any]):
+    model = Budget if model_name == "budget" else WorkOrder
+    queryset = model.objects.filter(**filters)
+    if model_name == "budget":
+        queryset = queryset.select_related("customer", "vehicle").order_by("entry_date")
+    else:
+        queryset = queryset.select_related("budget__customer", "budget__vehicle").order_by("criado_em")
+    return queryset
