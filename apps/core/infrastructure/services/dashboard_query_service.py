@@ -240,8 +240,10 @@ def build_financial_indicator_report_data(*, indicator: str, month: int, year: i
     elif indicator in {"carros_mes", "garantia_cortesia_mes"}:
         value_column_label = "Valor consolidado"
 
+    summary_count = len(workorder_groups)
     if indicator == "carros_mes":
         total_value = sum((resolve_decimal_amount(item.total_budget_value) for item in items), Decimal("0.00"))
+        summary_count = sum(1 for item in items if item.budget.reference_budget_id is None)
 
     return FinancialIndicatorReportData(
         indicator=indicator,
@@ -250,7 +252,7 @@ def build_financial_indicator_report_data(*, indicator: str, month: int, year: i
         items_label=items_label,
         is_budget_report=False,
         total_value=total_value,
-        summary_count=len(workorder_groups),
+        summary_count=summary_count,
         record_count=len(items),
         value_column_label=value_column_label,
         rows=[],
