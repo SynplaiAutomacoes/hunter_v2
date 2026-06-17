@@ -9,10 +9,8 @@ from djmoney.money import Money
 
 from apps.budget.pricing import format_duration_display, money_div, money_from_decimal, zero_money
 from apps.finance.services.pricing import distribute_total_proportionally
-from apps.budget.review_display import build_budget_review_display
 from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.workorder.models import WorkOrderDiscountType
-from apps.workshops.services.files import WorkshopFileStorageError, get_workshop_logo_file
 
 
 _ZERO_DECIMAL = Decimal("0.00")
@@ -121,7 +119,61 @@ def _merge_selected_pdf_rows(*, produtos: list[dict], servicos: list[dict]) -> t
     return _merge_selected_product_rows(produtos), _merge_selected_service_rows(servicos)
 
 
+def _build_snapshot_product_rows(*, snapshot) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": line.entity_id,
+            "description": line.description,
+            "quantity": line.quantity,
+            "is_customer_supplied": line.is_customer_supplied,
+            "application": line.application or "-",
+            "code": line.code or "-",
+            "location": line.location or "-",
+            "unit_price": line.unit_price,
+            "adjusted_unit_price": line.adjusted_unit_price,
+            "shipping": line.shipping,
+            "total_price": line.total_price,
+            "product_cost_price": line.cost_total,
+            "profit_value": line.profit_value,
+            "show_kit_duplicate_warning": line.show_kit_duplicate_warning,
+        }
+        for line in snapshot.product_lines
+    ]
+
+
+def _build_snapshot_service_rows(*, budget: Any, snapshot) -> list[dict[str, Any]]:
+    servicos = []
+    for line in snapshot.service_lines:
+        fallback_cost = line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total
+        service_mechanic_cost_price = _calculate_pdf_service_mechanic_cost(
+            budget=budget,
+            duration=line.duration,
+            quantity=1,
+            fallback_cost=fallback_cost,
+            is_third_party=line.third_party,
+        )
+        total_price = line.raw_total if line.has_kit_source else line.adjusted_total
+        unit_price = money_div(total_price, line.quantity) if line.has_kit_source else line.adjusted_unit_price
+        servicos.append(
+            {
+                "id": line.entity_id,
+                "description": line.description,
+                "quantity": line.quantity,
+                "unit_price": unit_price,
+                "total_price": total_price,
+                "service_cost_price": fallback_cost,
+                "service_mechanic_cost_price": service_mechanic_cost_price,
+                "profit_value": total_price - service_mechanic_cost_price,
+                "duration_display": line.duration_display,
+            }
+        )
+
+    return servicos
+
+
 def build_workshop_logo_data_uri(*, workshop) -> str:
+    from apps.workshops.services.files import WorkshopFileStorageError, get_workshop_logo_file
+
     try:
         stored_logo = get_workshop_logo_file(workshop)
     except WorkshopFileStorageError:
@@ -181,180 +233,14 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
             discount_products = money_from_decimal(allocated[0])
             discount_services = money_from_decimal(allocated[1])
 
+    kits: list[dict[str, Any]] = []
+
     if presentation == "selected_items":
-        review_display = build_budget_review_display(budget=budget)
-
-        produtos = []
-        servicos = []
-        kits = []
-
-        for line in review_display.direct_products:
-            produtos.append({
-                "id": line.item.product_id,
-                "description": line.item.description,
-                "quantity": line.item.quantity,
-                "is_customer_supplied": line.item.is_customer_supplied,
-                "application": getattr(line.item.product, "application", "") or "-",
-                "code": getattr(line.item.product, "code", "") or "-",
-                "location": getattr(line.item.product, "location", "") or "-",
-                "unit_price": line.unit_price,
-                "adjusted_unit_price": line.unit_price,
-                "shipping": line.item.shipping,
-                "total_price": line.total_price,
-                "product_cost_price": line.item.product_cost_price * line.item.quantity,
-                "profit_value": line.total_price - (line.item.product_cost_price * line.item.quantity),
-                "show_kit_duplicate_warning": False,
-            })
-
-        for line in review_display.direct_services:
-            is_third_party = bool(getattr(line.item.service, "is_third_party", False))
-            service_mechanic_cost_price = _calculate_pdf_service_mechanic_cost(
-                budget=budget,
-                duration=line.item.duration,
-                quantity=line.item.quantity,
-                fallback_cost=line.warranty_total_price,
-                is_third_party=is_third_party,
-            )
-            servicos.append({
-                "id": line.item.service_id,
-                "description": line.item.description,
-                "quantity": line.item.quantity,
-                "unit_price": line.unit_price,
-                "total_price": line.total_price,
-                "service_cost_price": line.warranty_total_price,
-                "service_mechanic_cost_price": service_mechanic_cost_price,
-                "profit_value": line.total_price - service_mechanic_cost_price,
-                "duration_display": line.duration_display,
-                "_duration_seconds": _duration_seconds(line.item.duration) * int(line.item.quantity or 0),
-            })
-
-        for line in review_display.kits:
-            kit_item = line.item
-            kit_quantity = kit_item.quantity
-            product_overrides, service_overrides = kit_item._get_kit_override_maps()
-
-            for kit_product in kit_item._iter_kit_products():
-                override = product_overrides.get(kit_product.product_id)
-                quantity = override.quantity if override else kit_product.quantity
-                if quantity <= 0:
-                    continue
-
-                product = kit_product.product
-                cost_price = override.product_cost_price if override else product.cost_price
-                selling_price = override.product_selling_price if override else product.selling_price
-                shipping = override.shipping if override else Money(0, "BRL")
-                total_quantity = quantity * kit_quantity
-
-                produtos.append({
-                    "id": kit_product.product_id,
-                    "description": product.name,
-                    "quantity": total_quantity,
-                    "is_customer_supplied": False,
-                    "application": getattr(product, "application", "") or "-",
-                    "code": getattr(product, "code", "") or "-",
-                    "location": getattr(product, "location", "") or "-",
-                    "unit_price": selling_price,
-                    "adjusted_unit_price": selling_price,
-                    "shipping": shipping,
-                    "total_price": (selling_price * total_quantity) + shipping,
-                    "product_cost_price": cost_price * total_quantity,
-                    "profit_value": (selling_price * total_quantity) - (cost_price * total_quantity),
-                    "show_kit_duplicate_warning": False,
-                })
-
-            for kit_service in kit_item._iter_kit_services():
-                override = service_overrides.get(kit_service.service_id)
-                quantity = override.quantity if override else kit_service.quantity
-                if quantity <= 0:
-                    continue
-
-                service = kit_service.service
-                if override:
-                    cost_price = override.service_cost_price
-                    selling_price = override.service_selling_price
-                else:
-                    cost_price, selling_price = kit_item.resolve_kit_service_base_prices(kit_service=kit_service)
-                duration = override.duration if override and override.duration else kit_service.duration
-                total_quantity = quantity * kit_quantity
-                service_cost_price = cost_price * total_quantity
-                service_mechanic_cost_price = _calculate_pdf_service_mechanic_cost(
-                    budget=budget,
-                    duration=duration,
-                    quantity=total_quantity,
-                    fallback_cost=service_cost_price,
-                    is_third_party=kit_service.service.is_third_party,
-                )
-
-                servicos.append({
-                    "id": kit_service.service_id,
-                    "description": service.name,
-                    "quantity": total_quantity,
-                    "unit_price": selling_price,
-                    "total_price": selling_price * total_quantity,
-                    "service_cost_price": service_cost_price,
-                    "service_mechanic_cost_price": service_mechanic_cost_price,
-                    "profit_value": (selling_price * total_quantity) - service_mechanic_cost_price,
-                    "duration_display": format_duration_display(duration * total_quantity) if duration else "00h 00m",
-                    "_duration_seconds": _duration_seconds(duration) * total_quantity,
-                })
-
-            kits.append({
-                "id": kit_item.kit_id,
-                "description": kit_item.description,
-                "quantity": kit_quantity,
-                "product_count": kit_item.effective_kit_products_count,
-                "service_count": kit_item.effective_kit_services_count,
-                "products_summary": line.products_summary,
-                "services_summary": line.services_summary,
-            })
-        produtos, servicos = _merge_selected_pdf_rows(produtos=produtos, servicos=servicos)
+        produtos = _build_snapshot_product_rows(snapshot=snapshot)
+        servicos = _build_snapshot_service_rows(budget=budget, snapshot=snapshot)
     else:
-        produtos = [
-            {
-                "id": line.entity_id,
-                "description": line.description,
-                "quantity": line.quantity,
-                "is_customer_supplied": line.is_customer_supplied,
-                "application": line.application or "-",
-                "code": line.code or "-",
-                "location": line.location or "-",
-                "unit_price": line.unit_price,
-                "adjusted_unit_price": line.adjusted_unit_price,
-                "shipping": line.shipping,
-                "total_price": line.total_price,
-                "product_cost_price": line.cost_total,
-                "profit_value": line.profit_value,
-                "show_kit_duplicate_warning": line.show_kit_duplicate_warning,
-            }
-            for line in snapshot.product_lines
-        ]
-        servicos = []
-        for line in snapshot.service_lines:
-            fallback_cost = line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total
-            service_mechanic_cost_price = _calculate_pdf_service_mechanic_cost(
-                budget=budget,
-                duration=line.duration,
-                quantity=1,
-                fallback_cost=fallback_cost,
-                is_third_party=line.third_party,
-            )
-            total_price = line.raw_total if line.has_kit_source else line.adjusted_total
-            unit_price = money_div(total_price, line.quantity) if line.has_kit_source else line.adjusted_unit_price
-            servicos.append(
-                {
-                    "id": line.entity_id,
-                    "description": line.description,
-                    "quantity": line.quantity,
-                    "unit_price": unit_price,
-                    "total_price": total_price,
-                    "service_cost_price": fallback_cost,
-                    "service_mechanic_cost_price": service_mechanic_cost_price,
-                    "profit_value": total_price - service_mechanic_cost_price,
-                    "duration_display": line.duration_display,
-                }
-            )
-
-        kits = []
+        produtos = _build_snapshot_product_rows(snapshot=snapshot)
+        servicos = _build_snapshot_service_rows(budget=budget, snapshot=snapshot)
 
     workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=budget.workshop)
     total_services_cost_original_value = sum((line["service_cost_price"] for line in servicos), Money(0, "BRL"))
