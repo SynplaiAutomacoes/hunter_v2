@@ -81,7 +81,7 @@ from apps.finance.services.nfe_emission import (
 from apps.finance.services.nfce_emission import NfceEmissionError, build_nfce_payload, create_and_emit_nfce, create_nfce_draft, transmit_nfce_document, validate_nfce_configuration
 from apps.finance.services.nfce_cancellation import NfceCancellationError, cancel_nfce_document, create_nfce_cancellation_event_attempt
 from apps.finance.services.nfce_inutilization import NfceInutilizationError, create_and_transmit_nfce_inutilization, create_nfce_inutilization_draft, transmit_nfce_inutilization
-from apps.finance.services.nfe_ibs_cbs_events import IBS_CBS_EVENT_112110, NfeIbsCbsEventError, cancel_ibs_cbs_event_112110, emit_ibs_cbs_event_112110, is_document_eligible_for_ibs_cbs_event_112110
+from apps.finance.services.nfe_ibs_cbs_events import IBS_CBS_EVENT_112110, IBS_CBS_EVENT_112150, NfeIbsCbsEventError, cancel_ibs_cbs_event_112110, emit_ibs_cbs_event_112110, emit_ibs_cbs_event_112150, is_document_eligible_for_ibs_cbs_event_112110, is_document_eligible_for_ibs_cbs_event_112150
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number, reserve_nfse_request_rps_number
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
@@ -13461,6 +13461,285 @@ class FiscalPhaseTwoIbsCbsEvent112110ConcurrentTests(TransactionTestCase):
         self.assertEqual(results, ["sent"])
         self.assertEqual(len(errors), 1)
         self.assertEqual(FiscalDocumentEvent.objects.filter(document=self.document, event_type=FiscalDocumentEventType.IBS_CBS, event_code=IBS_CBS_EVENT_112110).count(), 1)
+
+
+class FiscalPhaseTwoIbsCbsEvent112150Tests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=61)
+        WebmaniaCompany.objects.create(workshop=self.workshop, webmania_company_id="IBSCBS-112150")
+
+    def _create_nfe_document(self, *, suffix: int = 61, status: str = FiscalDocumentStatus.APPROVED, purpose: str = FiscalDocumentPurpose.NORMAL, origin: str = FiscalDocumentOrigin.LOCAL, access_key: str | None = None) -> FiscalDocument:
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=timezone.now().date(), status=BudgetStatus.APPROVED)
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=workorder, tax_class="REFNFE")
+        key = access_key if access_key is not None else f"35{suffix:042d}"[-44:]
+        item = NfeItem.objects.create(workshop=self.workshop, workorder=workorder, request=nfe_request, uuid=f"{suffix:08d}-c0da-46ee-a880-a03f8547a9bc", status="aprovado", access_key=key, number=str(suffix), series="1")
+        return FiscalDocument.objects.create(workshop=self.workshop, account=self.workshop.account, document_type=FiscalDocumentType.NFE, origin=origin, purpose=purpose, legacy_nfe_item=item, remote_uuid=item.uuid, access_key=key, environment="2", status=status, request_payload={"produtos": [{"classe_imposto": "REFNFE"}]})
+
+    def _create_nfce_document(self, *, suffix: int = 62) -> FiscalDocument:
+        return FiscalDocument.objects.create(workshop=self.workshop, account=self.workshop.account, document_type=FiscalDocumentType.NFCE, origin=FiscalDocumentOrigin.MANUAL, purpose=FiscalDocumentPurpose.NORMAL, remote_uuid=f"{suffix:08d}-nfce-46ee-a880-a03f8547a9bc", access_key=f"35{suffix:042d}"[-44:], environment="2", status=FiscalDocumentStatus.APPROVED, request_payload={"modelo": 2, "finalidade": 1})
+
+    def _event_response(self, *, uuid: str = "ba895e61-c0da-46ee-a880-a03f8547a9bc", status: str = "aprovado", event_sequence: int = 1) -> dict[str, Any]:
+        return {"uuid": uuid, "status": status, "cod_evento": IBS_CBS_EVENT_112150, "evento": event_sequence, "modelo": "ibs_cbs", "xml": "https://example.test/ibs-cbs-112150.xml", "log": {"token": "secret"}}
+
+    def test_112150_payload_uses_official_delivery_date_envelope_and_updates_only_event(self) -> None:
+        document = self._create_nfe_document()
+        original_status = document.status
+        with (
+            patch("apps.finance.services.nfe_ibs_cbs_events._build_headers", return_value={"X-Access-Token": "secret"}),
+            patch("apps.finance.services.nfe_ibs_cbs_events.requests.post", return_value=_mock_response(self._event_response())) as post_mock,
+        ):
+            event = emit_ibs_cbs_event_112150(document=document, delivery_forecast_date="2026-03-15", requested_by=self.user)
+
+        sent_payload = post_mock.call_args.kwargs["json"]
+        self.assertEqual(sent_payload["chave"], document.access_key)
+        self.assertEqual(sent_payload["ambiente"], 2)
+        self.assertEqual(sent_payload["cod_evento"], IBS_CBS_EVENT_112150)
+        self.assertEqual(sent_payload["evento"], 1)
+        self.assertEqual(sent_payload["data_previsao_entrega"], "2026-03-15")
+        self.assertLessEqual(set(sent_payload), {"chave", "ambiente", "cod_evento", "evento", "data_previsao_entrega", "url_notificacao"})
+        for forbidden_key in ("ibs_cbs", "itens", "produtos", "pedido", "tipo_credito", "tipo_debito", "nfce_referenciada", "cancelamento", "impostos"):
+            self.assertNotIn(forbidden_key, sent_payload)
+
+        event.refresh_from_db()
+        document.refresh_from_db()
+        self.assertEqual(event.event_type, FiscalDocumentEventType.IBS_CBS)
+        self.assertEqual(event.event_code, IBS_CBS_EVENT_112150)
+        self.assertEqual(event.event_payload_type, "delivery_forecast")
+        self.assertEqual(event.status, FiscalDocumentEventStatus.APPROVED)
+        self.assertEqual(event.xml_url, "https://example.test/ibs-cbs-112150.xml")
+        self.assertNotIn("secret", str(event.response_payload))
+        self.assertEqual(document.status, original_status)
+        self.assertEqual(FiscalDocument.objects.count(), 1)
+        attempt = FiscalEmissionAttempt.objects.get(fiscal_document_event=event)
+        self.assertEqual(attempt.operation_type, FiscalEmissionOperationType.NFE_IBS_CBS_EVENT)
+        self.assertEqual(attempt.status, FiscalEmissionAttemptStatus.SUCCEEDED)
+        self.assertEqual(attempt.request_payload["data_previsao_entrega"], "2026-03-15")
+        self.assertNotIn("webmania:", str(attempt.request_payload))
+
+    def test_112150_blocks_invalid_date_ineligible_documents_nfce_and_112150_cancellation_before_gateway(self) -> None:
+        document = self._create_nfe_document()
+        with patch("apps.finance.services.nfe_ibs_cbs_events.requests.post") as post_mock:
+            with self.assertRaisesMessage(NfeIbsCbsEventError, "YYYY-MM-DD"):
+                emit_ibs_cbs_event_112150(document=document, delivery_forecast_date="15/03/2026", requested_by=self.user)
+        post_mock.assert_not_called()
+
+        self.assertFalse(is_document_eligible_for_ibs_cbs_event_112150(self._create_nfce_document()))
+        cases = [
+            (FiscalDocumentStatus.CANCELED, FiscalDocumentPurpose.NORMAL, FiscalDocumentOrigin.LOCAL, "cancelado"),
+            (FiscalDocumentStatus.REPROVED, FiscalDocumentPurpose.NORMAL, FiscalDocumentOrigin.LOCAL, "autorizado"),
+            (FiscalDocumentStatus.DENIED, FiscalDocumentPurpose.NORMAL, FiscalDocumentOrigin.LOCAL, "denegado"),
+            (FiscalDocumentStatus.UNCERTAIN, FiscalDocumentPurpose.NORMAL, FiscalDocumentOrigin.LOCAL, "incerto"),
+            (FiscalDocumentStatus.APPROVED, FiscalDocumentPurpose.RETURN, FiscalDocumentOrigin.LOCAL, "normal local"),
+            (FiscalDocumentStatus.APPROVED, FiscalDocumentPurpose.ADJUSTMENT, FiscalDocumentOrigin.MANUAL, "normal local"),
+            (FiscalDocumentStatus.APPROVED, FiscalDocumentPurpose.NORMAL, FiscalDocumentOrigin.EXTERNAL, "normal local"),
+        ]
+        for index, (status, purpose, origin, message) in enumerate(cases, start=1):
+            candidate = self._create_nfe_document(suffix=61 + index, status=status, purpose=purpose, origin=origin)
+            with patch("apps.finance.services.nfe_ibs_cbs_events.requests.post") as post_mock:
+                with self.assertRaisesMessage(NfeIbsCbsEventError, message):
+                    emit_ibs_cbs_event_112150(document=candidate, delivery_forecast_date="2026-03-15", requested_by=self.user)
+            post_mock.assert_not_called()
+
+        nfce_document = self._create_nfce_document(suffix=79)
+        with patch("apps.finance.services.nfe_ibs_cbs_events.requests.post") as post_mock:
+            with self.assertRaisesMessage(NfeIbsCbsEventError, "somente para NF-e"):
+                emit_ibs_cbs_event_112150(document=nfce_document, delivery_forecast_date="2026-03-15", requested_by=self.user)
+        post_mock.assert_not_called()
+
+        document_without_key = self._create_nfe_document(suffix=80, access_key="")
+        with patch("apps.finance.services.nfe_ibs_cbs_events.requests.post") as post_mock:
+            with self.assertRaisesMessage(NfeIbsCbsEventError, "chave"):
+                emit_ibs_cbs_event_112150(document=document_without_key, delivery_forecast_date="2026-03-15", requested_by=self.user)
+        post_mock.assert_not_called()
+
+        event_112150 = FiscalDocumentEvent.objects.create(document=document, event_type=FiscalDocumentEventType.IBS_CBS, event_code=IBS_CBS_EVENT_112150, event_sequence=1, status=FiscalDocumentEventStatus.APPROVED, remote_uuid="bb895e61-c0da-46ee-a880-a03f8547a9bc")
+        with patch("apps.finance.services.nfe_ibs_cbs_events.requests.put") as put_mock:
+            with self.assertRaisesMessage(NfeIbsCbsEventError, "somente para evento IBS/CBS 112110"):
+                cancel_ibs_cbs_event_112110(event=event_112150, requested_by=self.user)
+        put_mock.assert_not_called()
+
+    def test_112150_allows_new_delivery_date_but_blocks_duplicate_timeout_and_sequence_limit(self) -> None:
+        document = self._create_nfe_document()
+        responses = [
+            _mock_response(self._event_response(uuid="bc895e61-c0da-46ee-a880-a03f8547a001", event_sequence=1)),
+            _mock_response(self._event_response(uuid="bc895e61-c0da-46ee-a880-a03f8547a002", event_sequence=2)),
+        ]
+        with (
+            patch("apps.finance.services.nfe_ibs_cbs_events._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_ibs_cbs_events.requests.post", side_effect=responses) as post_mock,
+        ):
+            first = emit_ibs_cbs_event_112150(document=document, delivery_forecast_date="2026-03-15", requested_by=self.user)
+            with self.assertRaisesMessage(NfeIbsCbsEventError, "Ja existe"):
+                emit_ibs_cbs_event_112150(document=document, delivery_forecast_date="2026-03-15", requested_by=self.user)
+            second = emit_ibs_cbs_event_112150(document=document, delivery_forecast_date="2026-03-16", requested_by=self.user)
+        self.assertEqual(post_mock.call_count, 2)
+        self.assertEqual(first.event_sequence, 1)
+        self.assertEqual(second.event_sequence, 2)
+        self.assertEqual(second.request_payload["data_previsao_entrega"], "2026-03-16")
+
+        timeout_document = self._create_nfe_document(suffix=81)
+        with (
+            patch("apps.finance.services.nfe_ibs_cbs_events._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_ibs_cbs_events.requests.post", side_effect=requests.Timeout("timeout")) as post_mock,
+        ):
+            with self.assertRaisesMessage(NfeIbsCbsEventError, "estado remoto incerto"):
+                emit_ibs_cbs_event_112150(document=timeout_document, delivery_forecast_date="2026-04-01", requested_by=self.user)
+            with self.assertRaisesMessage(NfeIbsCbsEventError, "Ja existe"):
+                emit_ibs_cbs_event_112150(document=timeout_document, delivery_forecast_date="2026-04-01", requested_by=self.user)
+        self.assertEqual(post_mock.call_count, 1)
+        uncertain_event = FiscalDocumentEvent.objects.get(document=timeout_document)
+        self.assertEqual(uncertain_event.status, FiscalDocumentEventStatus.UNCERTAIN)
+        self.assertEqual(uncertain_event.request_payload["data_previsao_entrega"], "2026-04-01")
+        self.assertEqual(FiscalEmissionAttempt.objects.get(fiscal_document_event=uncertain_event).status, FiscalEmissionAttemptStatus.UNCERTAIN)
+
+        limit_document = self._create_nfe_document(suffix=82)
+        for sequence in range(1, 21):
+            FiscalDocumentEvent.objects.create(document=limit_document, event_type=FiscalDocumentEventType.IBS_CBS, event_code=IBS_CBS_EVENT_112150, event_sequence=sequence, status=FiscalDocumentEventStatus.FAILED, request_payload={"data_previsao_entrega": f"2026-05-{sequence:02d}"})
+        with patch("apps.finance.services.nfe_ibs_cbs_events.requests.post") as post_mock:
+            with self.assertRaisesMessage(NfeIbsCbsEventError, "Limite de 20"):
+                emit_ibs_cbs_event_112150(document=limit_document, delivery_forecast_date="2026-05-21", requested_by=self.user)
+        post_mock.assert_not_called()
+
+    def test_112150_webhook_resolves_uuid_fallback_and_ambiguity_without_changing_document(self) -> None:
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        document = self._create_nfe_document()
+        with (
+            patch("apps.finance.services.nfe_ibs_cbs_events._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_ibs_cbs_events.requests.post", return_value=_mock_response(self._event_response(uuid="bd895e61-c0da-46ee-a880-a03f8547a9bc"))),
+        ):
+            event = emit_ibs_cbs_event_112150(document=document, delivery_forecast_date="2026-03-15", requested_by=self.user)
+        original_status = document.status
+        payload = {"modelo": "ibs_cbs", "uuid": event.remote_uuid, "status": "aprovado", "cod_evento": IBS_CBS_EVENT_112150, "evento": 1, "chave": document.access_key, "xml": "https://example.test/webhook-112150.xml"}
+        stored = store_webhook_event(payload=payload)
+        duplicate = store_webhook_event(payload=payload)
+        self.assertEqual(stored.pk, duplicate.pk)
+        self.assertTrue(process_webhook_event(stored))
+        event.refresh_from_db()
+        document.refresh_from_db()
+        self.assertEqual(event.xml_url, "https://example.test/webhook-112150.xml")
+        self.assertEqual(document.status, original_status)
+
+        fallback_document = self._create_nfe_document(suffix=83)
+        fallback_event = FiscalDocumentEvent.objects.create(document=fallback_document, event_type=FiscalDocumentEventType.IBS_CBS, event_code=IBS_CBS_EVENT_112150, event_sequence=1, status=FiscalDocumentEventStatus.SENT, request_payload={"chave": fallback_document.access_key, "data_previsao_entrega": "2026-04-02"})
+        fallback_payload = {"modelo": "ibs_cbs", "status": "aprovado", "cod_evento": IBS_CBS_EVENT_112150, "evento": 1, "chave": fallback_document.access_key, "xml": "https://example.test/fallback-112150.xml"}
+        self.assertTrue(process_webhook_event(store_webhook_event(payload=fallback_payload)))
+        fallback_event.refresh_from_db()
+        fallback_document.refresh_from_db()
+        self.assertEqual(fallback_event.xml_url, "https://example.test/fallback-112150.xml")
+        self.assertEqual(fallback_document.status, FiscalDocumentStatus.APPROVED)
+
+        ambiguous_first = self._create_nfe_document(suffix=84, access_key="35123456789012345678901234567890123456788400")
+        _other_user, other_workshop = create_director_user_with_workshop(suffix=85)
+        other_budget = Budget.objects.create(workshop=other_workshop, entry_date=timezone.now().date(), status=BudgetStatus.APPROVED)
+        other_workorder = WorkOrder.objects.create(workshop=other_workshop, budget=other_budget, status=WorkOrderStatus.APPROVED)
+        other_request = NfeRequest.objects.create(workshop=other_workshop, workorder=other_workorder, tax_class="REFNFE")
+        other_item = NfeItem.objects.create(workshop=other_workshop, workorder=other_workorder, request=other_request, uuid="00000085-c0da-46ee-a880-a03f8547a9bc", status="aprovado", access_key=ambiguous_first.access_key, number="85", series="1")
+        ambiguous_second = FiscalDocument.objects.create(workshop=other_workshop, account=other_workshop.account, document_type=FiscalDocumentType.NFE, origin=FiscalDocumentOrigin.LOCAL, purpose=FiscalDocumentPurpose.NORMAL, legacy_nfe_item=other_item, remote_uuid=other_item.uuid, access_key=ambiguous_first.access_key, environment="2", status=FiscalDocumentStatus.APPROVED)
+        for candidate in (ambiguous_first, ambiguous_second):
+            FiscalDocumentEvent.objects.create(document=candidate, event_type=FiscalDocumentEventType.IBS_CBS, event_code=IBS_CBS_EVENT_112150, event_sequence=1, status=FiscalDocumentEventStatus.SENT, request_payload={"chave": candidate.access_key, "data_previsao_entrega": "2026-04-03"})
+        ambiguous_payload = {"modelo": "ibs_cbs", "status": "aprovado", "cod_evento": IBS_CBS_EVENT_112150, "evento": 1, "chave": ambiguous_first.access_key, "xml": "https://example.test/ambiguous-112150.xml"}
+        self.assertFalse(process_webhook_event(store_webhook_event(payload=ambiguous_payload)))
+        self.assertFalse(FiscalDocumentEvent.objects.filter(xml_url="https://example.test/ambiguous-112150.xml").exists())
+
+    def test_112150_view_requires_permission_confirmation_and_keeps_downloads_protected(self) -> None:
+        from django.http import Http404
+
+        from apps.finance.views.nfe import NfeIbsCbsEvent112150IssueView, NfeIbsCbsEventDownloadView, NfeIbsCbsEventPayloadView
+
+        document = self._create_nfe_document()
+        event = FiscalDocumentEvent.objects.create(document=document, event_type=FiscalDocumentEventType.IBS_CBS, event_code=IBS_CBS_EVENT_112150, event_sequence=1, status=FiscalDocumentEventStatus.APPROVED, xml_url="https://example.test/event-112150.xml", request_payload={"chave": document.access_key, "data_previsao_entrega": "2026-03-15"}, response_payload={"uuid": "be895e61-c0da-46ee-a880-a03f8547a9bc"})
+        request = RequestFactory().get("/")
+        request.user = self.user
+        downloaded = SimpleNamespace(content=b"<evento />", content_type="application/xml")
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfe.download_webmania_document", return_value=downloaded),
+        ):
+            response = NfeIbsCbsEventDownloadView.as_view()(request, pk=document.legacy_nfe_item.request_id, event_pk=event.pk)
+            payload_response = NfeIbsCbsEventPayloadView.as_view()(request, pk=document.legacy_nfe_item.request_id, event_pk=event.pk)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload_response.status_code, 200)
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=False),
+        ):
+            with self.assertRaises(PermissionDenied):
+                NfeIbsCbsEventPayloadView.as_view()(request, pk=document.legacy_nfe_item.request_id, event_pk=event.pk)
+
+        _other_user, other_workshop = create_director_user_with_workshop(suffix=86)
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=other_workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            with self.assertRaises(Http404):
+                NfeIbsCbsEventDownloadView.as_view()(request, pk=document.legacy_nfe_item.request_id, event_pk=event.pk)
+
+        post_request = RequestFactory().post("/", data={"data_previsao_entrega": "2026-03-15", "confirm_ibs_cbs_event_112150": "on"})
+        post_request.user = self.user
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=False),
+            patch("apps.finance.views.nfe.emit_ibs_cbs_event_112150") as service_mock,
+        ):
+            with self.assertRaises(PermissionDenied):
+                NfeIbsCbsEvent112150IssueView.as_view()(post_request, pk=document.legacy_nfe_item.request_id)
+        service_mock.assert_not_called()
+
+
+class FiscalPhaseTwoIbsCbsEvent112150ConcurrentTests(TransactionTestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=87)
+        WebmaniaCompany.objects.create(workshop=self.workshop, webmania_company_id="IBSCBS-112150-CONC")
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=timezone.now().date(), status=BudgetStatus.APPROVED)
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=workorder, tax_class="REFNFE")
+        item = NfeItem.objects.create(workshop=self.workshop, workorder=workorder, request=nfe_request, uuid="00000087-c0da-46ee-a880-a03f8547a9bc", status="aprovado", access_key="35123456789012345678901234567890123456788700", number="87", series="1")
+        self.document = FiscalDocument.objects.create(workshop=self.workshop, account=self.workshop.account, document_type=FiscalDocumentType.NFE, origin=FiscalDocumentOrigin.LOCAL, purpose=FiscalDocumentPurpose.NORMAL, legacy_nfe_item=item, remote_uuid=item.uuid, access_key=item.access_key, environment="2", status=FiscalDocumentStatus.APPROVED)
+
+    def test_concurrent_same_112150_delivery_date_calls_remote_once(self) -> None:
+        response_payload = {"uuid": "bf895e61-c0da-46ee-a880-a03f8547a9bc", "modelo": "ibs_cbs", "status": "aprovado", "cod_evento": IBS_CBS_EVENT_112150, "evento": 1, "xml": "https://example.test/event-112150.xml"}
+        start_barrier = threading.Barrier(2)
+        results: list[str] = []
+        errors: list[str] = []
+        results_lock = threading.Lock()
+
+        def post_side_effect(*args: Any, **kwargs: Any) -> Any:
+            time.sleep(0.1)
+            return _mock_response(response_payload)
+
+        def run_event() -> None:
+            close_old_connections()
+            try:
+                start_barrier.wait(timeout=5)
+                fresh_document = FiscalDocument.objects.get(pk=self.document.pk)
+                emit_ibs_cbs_event_112150(document=fresh_document, delivery_forecast_date="2026-03-15", requested_by=self.user)
+            except Exception as exc:
+                with results_lock:
+                    errors.append(str(exc))
+            else:
+                with results_lock:
+                    results.append("sent")
+            finally:
+                close_old_connections()
+
+        with (
+            patch("apps.finance.services.nfe_ibs_cbs_events._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_ibs_cbs_events.requests.post", side_effect=post_side_effect) as post_mock,
+        ):
+            threads = [threading.Thread(target=run_event), threading.Thread(target=run_event)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=10)
+
+        self.assertEqual(post_mock.call_count, 1)
+        self.assertEqual(results, ["sent"], errors)
+        self.assertEqual(len(errors), 1, errors)
+        self.assertEqual(FiscalDocumentEvent.objects.filter(document=self.document, event_type=FiscalDocumentEventType.IBS_CBS, event_code=IBS_CBS_EVENT_112150).count(), 1)
 
 
 class FiscalPhaseTwoIbsCbsEvent112110CancellationTests(TestCase):

@@ -373,3 +373,34 @@ Implementacao 2.4D.2: somente o cancelamento do evento `112110` foi implementado
 - Eventos de destinatario exigem decisao de produto sobre papel do Hunter como destinatario; nao devem ser liberados por padrao para oficinas sem regra fiscal.
 - `211128` depende do contexto de nota de credito/debito; por isso permanece bloqueado ate credito/debito com IBS/CBS estar aprovado.
 - Cancelamento de evento e operacao propria por UUID remoto do evento autorizado; nao deve ser confundido com cancelamento de NF-e/NFC-e.
+
+## Fase 2.4D.3.0 - Priorizacao dos demais Eventos IBS/CBS
+
+Fonte oficial reconsultada em 2026-06-17: documentacao Webmania REST NF-e/NFC-e em `https://webmania.com.br/docs/rest-api-nfe/1000/`. A documentacao confirma que todos os eventos continuam usando `POST /1/nfe/evento-ibs-cbs/` com envelope `chave`, `ambiente`, `cod_evento`, `evento` e `url_notificacao`, e que os campos especificos variam por codigo. O cancelamento por UUID continua documentado em `/1/nfe/evento-ibs-cbs/cancelar/`.
+
+| cod_evento | Descricao | Payload especifico? | Documento elegivel | Pode cancelar? | Depende de credito/debito? | Depende de apuracao externa? | Risco | Recomendacao |
+| ---------- | --------- | ------------------: | ------------------ | -------------: | -------------------------: | ---------------------------: | ----- | ------------ |
+| `112120` | Importacao em ALC/ZFM nao convertida em isencao | Sim: `itens[]`, item fiscal, valores IBS/CBS e controle de estoque/importacao | NF-e de importacao local ou externa validada | Sim | Nao diretamente | Sim, por contexto de importacao/beneficio | Alto | Adiar; baixa aderencia oficina e exige importacao fiscal segura. |
+| `112130` | Perecimento, perda, roubo ou furto no transporte contratado pelo fornecedor | Sim: `itens[]`, item fiscal, `valor_ibs`, `valor_cbs`, quantidade/unidade de perecimento | NF-e de fornecimento local com item/snapshot IBS/CBS e contexto de transporte | Sim | Nao | Sim, por evento operacional/estoque/transporte | Medio/alto | Planejar depois de `112150`; exige validacao de estoque/evento operacional. |
+| `112140` | Fornecimento nao realizado com pagamento antecipado | Sim: `itens[]`, item fiscal, valores IBS/CBS e quantidade/unidade nao fornecida | NF-e vinculada a pagamento antecipado e entrega nao realizada | Sim | Possivelmente, por pagamento antecipado e nota de debito futura | Sim, por financeiro/apuracao de pagamento | Alto | Adiar ate regra de pagamento antecipado estar modelada. |
+| `112150` | Atualizacao da data de previsao de entrega | Sim minimo: `data_previsao_entrega` | NF-e/NFC-e normal local autorizada com entrega prevista rastreavel | Sim | Nao | Baixa; depende apenas de contexto operacional de entrega | Baixo/medio | Recomendada como proxima subfase funcional isolada. |
+| `211110` | Solicitacao de apropriacao de credito presumido | Sim: `itens[]`, `base_calculo`, `credito_presumido` com classificacao, aliquotas e valores | Documento de aquisicao; Hunter atuando como destinatario | Sim | Nao necessariamente | Sim, por credito presumido/apuracao | Alto | Adiar; exige papel destinatario e regra contabil/fiscal. |
+| `211120` | Destinacao de item para consumo pessoal | Sim: `tipo_autor`, `itens[]`, valores IBS/CBS, controle de consumo e `dfe_referenciado` | NF-e de aquisicao/uso, possivelmente documento externo validado | Sim | Nao diretamente | Sim, por destino de uso e referencia externa | Alto | Adiar; exige papel emitente/destinatario e DF-e referenciado. |
+| `211124` | Perecimento, perda, roubo ou furto no transporte contratado pelo adquirente | Sim: `itens[]`, valores IBS/CBS e controle de perecimento | NF-e de aquisicao com frete FOB; Hunter como destinatario | Sim | Nao | Sim, por evento de transporte externo | Alto | Adiar; depende de papel destinatario e frete/estoque. |
+| `211128` | Aceite de debito na apuracao por emissao de nota de credito | Sim minimo: `indicador_aceitacao` | Documento relacionado a nota de credito/debito IBS/CBS | Sim | Sim | Sim, por apuracao assistida | Alto | Bloquear ate Fase 2.4E/2.5 funcional de credito/debito. |
+| `211130` | Imobilizacao de item | Sim: `itens[]`, valores IBS/CBS e controle de imobilizacao | Documento de aquisicao; Hunter como destinatario | Sim | Nao diretamente | Sim, por ativo imobilizado/contabilidade | Alto | Adiar; exige modulo/decisao contábil. |
+| `211140` | Apropriacao de credito de combustivel | Sim: `itens[]`, valores IBS/CBS e controle de combustivel | NF-e de combustivel; Hunter como destinatario | Sim | Nao diretamente | Sim, por apuracao de credito de combustivel | Medio/alto | Adiar; pode ser util futuramente para oficinas, mas exige aquisicao/estoque combustivel. |
+| `211150` | Apropriacao de credito para bens/servicos dependentes da atividade do adquirente | Sim: `itens[]`, `valor_credito_ibs`, `valor_credito_cbs` | Documento de aquisicao; Hunter como destinatario | Sim | Nao diretamente | Sim, por regra de atividade do adquirente | Alto | Adiar; exige decisao fiscal/contabil e papel destinatario. |
+
+### Grupos de implementacao 2.4D.3.0
+
+| Grupo | Eventos | Caracteristica | Decisao |
+| ----- | ------- | -------------- | ------- |
+| A - simples proximos ao 112110 | `112150` | Payload estreito com `data_previsao_entrega`, sem itens ou credito/debito | Proxima subfase recomendada, isolada. |
+| B - emitente com itens/controle | `112120`, `112130`, `112140` | Exigem `itens[]`, sequenciais fiscais, valores IBS/CBS e controle operacional/estoque | Implementar em subfases separadas depois de validar fonte operacional. |
+| C - dependentes de credito/debito | `211128` | Depende de nota de credito/debito e apuracao assistida | Bloqueado ate credito/debito IBS/CBS funcional. |
+| D - destinatario/apuracao externa | `211110`, `211120`, `211124`, `211130`, `211140`, `211150` | Exigem papel de destinatario, documentos de aquisicao, apuracao externa, estoque ou contabilidade | Backlog ate decisao de produto/fiscal. |
+
+Decisao recomendada: a proxima subfase funcional deve ser `2.4D.3 - Implementar somente evento IBS/CBS 112150`, sem generalizar eventos com itens e sem generalizar cancelamento para todos os codigos. O motivo e menor risco fiscal, payload mais estreito, reaproveitamento quase total da infraestrutura `112110`, ausencia de dependencia de credito/debito e testes claros de data de entrega.
+
+Resultado 2.4D.3: `POST /1/nfe/evento-ibs-cbs/` foi implementado somente para `cod_evento=112150`. A revalidacao oficial do exemplo de requisicao mostrou `data_previsao_entrega` como campo de topo do payload, enquanto `evento` permanece a sequencia numerica do evento. O OpenAPI validado permanece alinhado com essa forma operacional. O Hunter nao envia `ibs_cbs`, `itens`, `produtos`, `tipo_credito`, `tipo_debito` ou qualquer dado de cancelamento no `112150`.

@@ -471,3 +471,18 @@ Resultado da Fase 2.4D.2:
 - O payload congelado contem somente `uuid`, `ambiente` e `url_notificacao` quando aplicavel; headers/credenciais nao sao persistidos.
 - Timeout marca tentativa e evento de cancelamento como `uncertain`; o evento original permanece autorizado e novo cancelamento automatico fica bloqueado.
 - Webhook de cancelamento resolve primeiro o evento de cancelamento por UUID remoto/tentativa, rejeita ambiguidade e atualiza somente `FiscalDocumentEvent(event_type="ibs_cbs_cancellation")` e o status do evento IBS/CBS original, nunca o documento base.
+
+## Fase 2.4D.3.0 - Idempotencia dos demais Eventos IBS/CBS
+
+Regra comum: eventos restantes devem reutilizar `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event")`, com chave idempotente baseada em oficina, documento, `cod_evento`, `event_sequence` reservado e hash do payload sanitizado. `event_sequence` continua de 1 a 20 por documento e codigo, reservado transacionalmente.
+
+Por grupo:
+
+- Grupo A (`112150`): mesma infraestrutura de `112110`, mas o hash do payload deve incluir `data_previsao_entrega`. Timeout preserva sequencia e data enviada.
+- Grupo B (`112120`, `112130`, `112140`): duplicidade deve considerar documento, codigo, sequencia e payload congelado de itens/valores/controle. O saldo/estoque operacional nao pode ser recalculado apos envio `sent` ou `uncertain`.
+- Grupo C (`211128`): idempotencia deve incluir documento relacionado a credito/debito e `indicador_aceitacao`; bloquear ate credito/debito funcional.
+- Grupo D (`211110`, `211120`, `211124`, `211130`, `211140`, `211150`): idempotencia exige fonte externa auditavel do documento de aquisicao e itens; bloquear ate existir essa fonte.
+
+Cancelamento: manter `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event_cancellation")` apenas para `112110` validado. Generalizacao para `112150` ou outros codigos exige decisao explicita e testes proprios.
+
+Resultado 2.4D.3: `112150` reutiliza a tentativa persistida `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event")`, com idempotencia por oficina, documento, tipo, codigo, sequencia e geracao. A mesma data de previsao de entrega fica bloqueada enquanto houver evento `112150` ativo, aprovado ou incerto; datas diferentes podem gerar nova sequencia, respeitando o limite de 20 eventos por documento/tipo. Timeout marca evento e tentativa como `uncertain`, preserva a sequencia e bloqueia reenvio automatico da mesma data. Webhook segue a resolucao validada por UUID remoto/tentativa ou fallback chave+sequencia, rejeitando ambiguidade e atualizando somente `FiscalDocumentEvent`.

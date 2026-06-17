@@ -373,6 +373,26 @@
 - Consequencia: sucesso marca o evento original como `cancelado`, mas preserva o status do `FiscalDocument` base. Demais cancelamentos de eventos IBS/CBS permanecem pendentes de subfase propria.
 - Status: implementada na Fase 2.4D.2.
 
+## ADR-042 - Proxima subfase IBS/CBS prioriza 112150 isolado
+
+- Contexto: apos validar `112110` e seu cancelamento, os eventos restantes se dividem entre payload minimo de data, eventos com itens/controle de estoque/transporte, eventos de destinatario e evento ligado a credito/debito.
+- Decisao: recomendar `2.4D.3 - Implementar somente evento IBS/CBS 112150`, sem agrupar `112120`, `112130` ou `112140` na mesma subfase.
+- Justificativa: `112150` possui menor superficie fiscal porque exige apenas `data_previsao_entrega` alem do envelope, nao depende de credito/debito, nao exige papel destinatario e nao exige `itens[]`.
+- Alternativas consideradas: agrupar todos os eventos `1121xx`; implementar destinatario primeiro; generalizar cancelamento para todos os codigos.
+- Consequencias: reduz risco e permite testar o primeiro evento com payload especifico antes de abrir eventos com item/estoque. Eventos com itens, destinatario, apuracao externa e credito/debito permanecem bloqueados ate subfases proprias.
+- Status: proposta documental na Fase 2.4D.3.0.
+- Fase: 2.4D.3.0.
+
+## ADR-043 - Evento IBS/CBS 112150 com payload oficial estreito
+
+- Decisao: implementar `cod_evento=112150` somente para NF-e normal local autorizada, como `FiscalDocumentEvent(event_type="ibs_cbs", event_code="112150")`, sem criar documento fiscal novo e sem alterar status da NF-e base.
+- Contrato: a revalidacao oficial confirmou `data_previsao_entrega` no topo do payload, enquanto `evento` e a sequencia numerica. O Hunter nao envia `ibs_cbs`, `itens`, `produtos`, credito/debito ou cancelamento nesse evento.
+- Idempotencia: manter `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event")` e chave por oficina/documento/tipo/codigo/sequencia. A mesma data de previsao fica bloqueada enquanto houver evento ativo, aprovado ou incerto; datas diferentes podem gerar nova sequencia ate o limite de 20 eventos por documento/tipo.
+- Elegibilidade: NFC-e, derivados, ajuste, documentos externos, credito/debito e documentos sem chave ficam bloqueados nesta subfase.
+- Cancelamento: cancelamento do `112150` nao foi implementado. O cancelamento validado em 2.4D.2 permanece restrito ao `112110`.
+- Status: validada na Fase 2.4D.3.
+- Fase: 2.4D.3.
+
 ### ADR 2.4D.1 - Primeiro evento IBS/CBS implementado como evento, nao documento
 
 - Decisao: implementar `cod_evento=112110` como `FiscalDocumentEvent(event_type="ibs_cbs")`, associado a um `FiscalDocument` NF-e/NFC-e normal local autorizado.

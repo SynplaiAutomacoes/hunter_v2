@@ -386,3 +386,34 @@ Resultado validado da Fase 2.4D.2:
 - `view_ibs_cbs_event`, `download_ibs_cbs_event` e `view_ibs_cbs_event_payload` protegem visualizacao/download/payload.
 - Cross-workshop bloqueado.
 - Payload/log sanitizados sem headers Webmania, tokens, CSC, certificado ou credenciais.
+
+### Fase 2.4D.3.0 - Testes planejados para os demais Eventos IBS/CBS
+
+Para a proxima subfase recomendada `112150`:
+
+- payload envia somente envelope oficial, `cod_evento=112150`, `evento` e `data_previsao_entrega`;
+- bloqueia ausencia/data invalida de previsao de entrega antes do gateway;
+- bloqueia documento nao autorizado, sem chave, de outra oficina, derivado, ajuste ou credito/debito;
+- bloqueia codigos fora de `112150`;
+- idempotencia por documento/codigo/sequencia/data;
+- concorrencia da mesma intencao gera uma chamada remota;
+- timeout marca evento/tentativa como `uncertain` e preserva sequencia/data;
+- webhook por UUID e fallback seguro atualizam somente o evento;
+- documento base nao tem status alterado;
+- permissoes, cross-workshop, download/payload e sanitizacao.
+
+Resultado 2.4D.3:
+
+- Testes adicionados: `FiscalPhaseTwoIbsCbsEvent112150Tests` e `FiscalPhaseTwoIbsCbsEvent112150ConcurrentTests`.
+- Cobertura: payload oficial com `cod_evento=112150`, `evento` numerico e `data_previsao_entrega` no topo; bloqueio de data invalida; ausencia de `ibs_cbs`, `itens`, `produtos`, credito/debito e cancelamento; NF-e normal local elegivel; NFC-e/derivados/ajuste bloqueados; duplicidade da mesma data bloqueada; nova data legitima reserva nova sequencia; timeout fica `uncertain`; webhook por UUID e fallback chave+sequencia; ambiguidade rejeitada; permissao/download/payload/cross-workshop protegidos; cancelamento do `112150` nao e aceito pelo fluxo de cancelamento `112110`.
+
+Para Grupo B (`112120`, `112130`, `112140`) quando autorizado:
+
+- testes de `itens[].item` como sequencial fiscal;
+- valores IBS/CBS e `controle_estoque` obrigatorios por codigo;
+- bloqueio de saldo/quantidade/controle insuficiente antes do gateway;
+- timeout e duplicidade com payload congelado.
+
+Para Grupo C/D:
+
+- testes iniciais devem provar bloqueio por ausencia de credito/debito, papel destinatario, documento de aquisicao ou apuracao externa antes de qualquer chamada remota.

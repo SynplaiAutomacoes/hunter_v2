@@ -529,3 +529,20 @@ Compatibilidade:
 - NF-e/NFC-e normal e derivados continuam sendo `FiscalDocument`.
 - CC-e e cancelamento NFC-e ja usam `FiscalDocumentEvent`; a fase deve reutilizar esse padrao, sem criar app fiscal paralelo.
 - Ajuste permanece `FiscalDocument(purpose="adjustment")` e nao recebe eventos IBS/CBS por inferencia.
+
+## Fase 2.4D.3.0 - Modelagem planejada para demais Eventos IBS/CBS
+
+Decisao: todos os eventos IBS/CBS restantes continuam sendo `FiscalDocumentEvent(event_type="ibs_cbs")` associados a `FiscalDocument` base. Nao criar `FiscalDocument` novo para evento e nao usar `FiscalDocumentLink`.
+
+Agrupamento de modelagem:
+
+- Grupo A (`112150`): reutiliza campos existentes de `FiscalDocumentEvent`, com `event_payload_type="delivery_forecast"` e payload contendo `data_previsao_entrega`.
+- Grupo B (`112120`, `112130`, `112140`): exige payload com `itens[]`, sequencial fiscal, valores IBS/CBS e `controle_estoque`; deve validar snapshot de item e origem operacional antes de qualquer chamada remota.
+- Grupo C (`211128`): exige `indicador_aceitacao` e contexto de nota de credito/debito/apuracao assistida; permanece bloqueado ate `FiscalDocument(purpose=credit|debit)` estar implementado.
+- Grupo D (`211110`, `211120`, `211124`, `211130`, `211140`, `211150`): exige papel de destinatario, documento de aquisicao, apuracao fiscal/contabil ou controle de estoque externo; manter em backlog ate existir modelagem de entrada/monitor fiscal/importacao XML.
+
+Proxima subfase recomendada: `2.4D.3 - Evento IBS/CBS 112150`. O documento elegivel deve ser NF-e/NFC-e normal local autorizada, com chave valida e oficina ativa. Derivados, ajuste, credito/debito e documentos externos continuam bloqueados para esse evento ate nova decisao.
+
+Cancelamento: nao generalizar o cancelamento validado em 2.4D.2 para todos os codigos. Para `112150`, planejar cancelamento em subfase posterior ou no fechamento da subfase apenas se a implementacao comprovar que o retorno remoto e o ciclo de vida seguem exatamente o mesmo padrao, com testes especificos.
+
+Resultado 2.4D.3: `112150` foi modelado sem migration nova, reutilizando `FiscalDocumentEvent` existente com `event_type="ibs_cbs"`, `event_code="112150"`, `event_payload_type="delivery_forecast"` e `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event")`. A elegibilidade final ficou conservadora: somente `FiscalDocument(document_type="nfe", purpose="normal", origin="local", status="aprovado")` com chave de acesso. NFC-e foi bloqueada nesta subfase ate confirmacao operacional especifica, e documentos derivados/ajuste permanecem bloqueados. O evento nao cria `FiscalDocument`, nao usa `FiscalDocumentLink` e nao altera o status fiscal do documento base.

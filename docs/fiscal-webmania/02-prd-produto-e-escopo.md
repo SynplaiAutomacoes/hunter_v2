@@ -447,3 +447,18 @@ Recomendacao de primeira subfase funcional: implementar somente evento `112110` 
 Resultado da Fase 2.4D.1: o Hunter passou a suportar somente o evento IBS/CBS `112110`, modelado como `FiscalDocumentEvent(event_type="ibs_cbs")` vinculado ao `FiscalDocument` base. O evento nao cria novo documento fiscal, nao altera o status da NF-e/NFC-e original e envia apenas o envelope oficial confirmado (`chave`, `ambiente`, `cod_evento`, `evento` e `url_notificacao` quando aplicavel). Cancelamento de evento IBS/CBS, demais codigos, credito/debito, complementar tributaria, NFS-e e CT-e permanecem fora do escopo.
 
 Resultado da Fase 2.4D.2: o Hunter passou a suportar somente cancelamento do evento IBS/CBS `112110` ja autorizado, por `PUT /1/nfe/evento-ibs-cbs/cancelar/`. O cancelamento e registrado como `FiscalDocumentEvent(event_type="ibs_cbs_cancellation")` vinculado ao evento original, usa apenas UUID remoto do evento, ambiente e URL de notificacao quando aplicavel, e nao altera o status fiscal da NF-e/NFC-e base. Demais cancelamentos de eventos IBS/CBS, novos codigos de evento, credito/debito, complementar tributaria, NFS-e e CT-e permanecem fora do escopo.
+
+## Fase 2.4D.3.0 - Priorizacao dos demais Eventos IBS/CBS
+
+Status: planejamento documental apos validacao da Fase 2.4D.2 no checkpoint `dab3d559238954878259c1ad57cd503424f93d47`.
+
+Decisao de produto: a proxima subfase funcional recomendada e implementar somente o evento `112150`, de atualizacao da data de previsao de entrega. Esse evento e o menor incremento util porque possui payload especifico estreito (`data_previsao_entrega`), nao depende de credito/debito, nao exige papel destinatario e nao exige `itens[]`.
+
+Resultado da Fase 2.4D.3: o Hunter passou a suportar somente o evento IBS/CBS `112150`, de atualizacao da data de previsao de entrega, como `FiscalDocumentEvent(event_type="ibs_cbs", event_code="112150")` vinculado a uma NF-e normal local autorizada. A revalidacao oficial confirmou que o payload usa `data_previsao_entrega` no topo do envelope junto de `chave`, `ambiente`, `cod_evento` e `evento` numerico; nao foi enviado `ibs_cbs`, `itens`, `produtos`, credito/debito ou cancelamento. NFC-e, devolucao, complementar, ajuste, credito/debito, cancelamento do `112150`, demais eventos IBS/CBS, NFS-e e CT-e permanecem fora do escopo.
+
+Eventos adiados:
+
+- `112120`, `112130` e `112140`: exigem itens fiscais, valores IBS/CBS, controle operacional/estoque/transporte ou pagamento antecipado.
+- `211128`: depende de nota de credito/debito e apuracao assistida.
+- `211110`, `211120`, `211124`, `211130`, `211140` e `211150`: dependem de papel destinatario, documento de aquisicao, apuracao externa, estoque ou contabilidade.
+- Cancelamento dos demais eventos IBS/CBS: nao generalizar sem subfase propria e testes especificos.

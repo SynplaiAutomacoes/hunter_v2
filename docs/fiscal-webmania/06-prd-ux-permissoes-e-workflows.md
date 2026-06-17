@@ -319,3 +319,21 @@ Bloqueios de UI:
 - Nao exibir cancelamento de evento sem UUID remoto autorizado.
 - Nao oferecer evento IBS/CBS a partir do fluxo de ajuste.
 - Nao criar central fiscal nova nesta fase.
+
+## Fase 2.4D.3.0 - UX e permissoes planejadas para demais Eventos IBS/CBS
+
+Decisao: a proxima UI funcional deve expor somente `112150`, se aprovada, no detalhe de NF-e/NFC-e normal local elegivel. A interface deve pedir `data_previsao_entrega`, mostrar aviso fiscal de que o evento altera previsao de entrega e exigir confirmacao explicita.
+
+Resultado 2.4D.3: a UI minima do detalhe de NF-e passou a oferecer `112150` somente quando a NF-e normal local esta elegivel e o usuario possui `issue_ibs_cbs_event`. O formulario exige `data_previsao_entrega` em formato de data e confirmacao explicita. A mesma permissao `issue_ibs_cbs_event` foi reutilizada; permissoes comuns de NF-e/NFC-e nao liberam o evento automaticamente. Downloads e payloads continuam protegidos por `download_ibs_cbs_event` e `view_ibs_cbs_event_payload`. A tela informa que cancelamento do `112150`, credito/debito, complementar tributaria e demais eventos nao estao disponiveis.
+
+Permissoes:
+
+- Reutilizar `issue_ibs_cbs_event`, `view_ibs_cbs_event`, `download_ibs_cbs_event` e `view_ibs_cbs_event_payload`.
+- Nao conceder eventos de destinatario por fallback de NF-e/NFC-e emitente.
+- Eventos do Grupo D devem exigir futura habilitacao administrativa por oficina e permissao adicional de papel destinatario.
+
+Bloqueios:
+
+- Ocultar Grupo B ate haver origem operacional segura para item/estoque/transporte/pagamento antecipado.
+- Ocultar Grupo C ate credito/debito IBS/CBS estar implementado.
+- Ocultar Grupo D ate haver importacao/monitor/validador de documentos de aquisicao ou decisao fiscal equivalente.

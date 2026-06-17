@@ -178,3 +178,13 @@ Escopo: leitura de codigo em modo somente leitura dos services ja implementados 
 | Risco de campos indevidos | Antes da 2.4C.3, o payload normal era estreito, mas campos extra nao tinham bloqueio explicito de contrato no service | Adicionar rejeicao explicita para `produtos`, `impostos`, `ibs_cbs`, `evento_ibs_cbs`, `tipo_credito`, `tipo_debito`, `finalidade=5/6` e correlatos |
 
 Decisao tecnica da auditoria: documentos derivados nao devem usar automaticamente a classe fiscal atual do produto como verdade historica. Para NF-e local, a fonte preferencial futura deve ser o snapshot fiscal usado na nota original; a classe atual serve apenas como apoio/validacao quando houver confirmacao fiscal explicita. Para NF-e externa minima, IBS/CBS derivado deve ficar bloqueado ate XML/importacao validada preservar itens, sequenciais e tributacao original.
+
+### Auditoria tecnica Fase 2.4D.3 - Evento IBS/CBS 112150
+
+| Item auditado | Estado real apos implementacao | Decisao da fase |
+| ------------- | ------------------------------ | --------------- |
+| Payload | `apps/finance/services/nfe_ibs_cbs_events.py` monta `chave`, `ambiente`, `cod_evento=112150`, `evento` numerico, `data_previsao_entrega` e `url_notificacao` opcional | Seguir exemplo oficial com `data_previsao_entrega` no topo; nao enviar `ibs_cbs`, `itens`, `produtos`, credito/debito ou cancelamento |
+| Elegibilidade | `is_document_eligible_for_ibs_cbs_event_112150()` aceita somente NF-e normal local autorizada com chave | Bloquear NFC-e, documentos derivados, ajuste, credito/debito, documentos externos e estados nao autorizados nesta subfase |
+| Modelagem | Reutiliza `FiscalDocumentEvent(event_type=ibs_cbs, event_code=112150, event_payload_type=delivery_forecast)` e `FiscalEmissionAttempt(operation_type=nfe_ibs_cbs_event)` | Nao criar `FiscalDocument`, `FiscalDocumentLink` ou migration nova |
+| Idempotencia | A mesma data de previsao de entrega com evento ativo/aprovado/incerto bloqueia nova transmissao; datas diferentes reservam nova sequencia ate 20 | Preservar sequencia e payload em `uncertain`; nao reenviar automaticamente |
+| Webhook | Reutiliza resolucao IBS/CBS por UUID remoto/tentativa ou fallback chave+sequencia, rejeitando ambiguidade | Atualizar somente `FiscalDocumentEvent`; nao alterar documento base nem `NfeItem` |
