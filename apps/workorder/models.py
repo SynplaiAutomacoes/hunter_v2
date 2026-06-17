@@ -652,6 +652,12 @@ class WorkOrder(TimeStampedModel):
         return self.pricing_snapshot.resolved_discount_value
 
     def sync_from_budget(self) -> None:
+        """Sync work order items from the linked budget, freezing all prices.
+
+        Deletes all existing items and recreates them from budget items,
+        copying frozen prices, descriptions, overrides, and quantities.
+        After sync, all kit items are marked as kit_snapshot_frozen = True.
+        """
         from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
 
         budget_items = list(
@@ -781,6 +787,21 @@ class WorkOrderAttachment(TimeStampedModel):
 
 
 class WorkOrderItem(TimeStampedModel):
+    """An item (product, service, or kit) within a WorkOrder.
+
+    --- Freeze (congelamento) rule ---
+    On creation, all relevant catalog data is COPIED (frozen) into this item:
+    - Product: cost_price, selling_price, description
+    - Service: cost_price, selling_price, duration, description
+    - Kit: ensure_kit_snapshot() creates WorkOrderKitItemOverride records for
+      EVERY kit component, freezing each product and service individually.
+
+    After creation, changes to the catalog do NOT affect this item.
+    The only ways to update frozen data are:
+    1. Manual editing via WorkOrderKitEditView
+    2. Re-sync from the linked budget via sync_from_budget()
+    """
+
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="workorder_items")
     workorder = models.ForeignKey(WorkOrder, on_delete=models.CASCADE, related_name="items")
 
@@ -806,6 +827,15 @@ class WorkOrderItem(TimeStampedModel):
                 delattr(self, cache_name)
 
     def ensure_kit_snapshot(self) -> None:
+        """Freeze all kit components by creating WorkOrderKitItemOverride records.
+
+        Iterates every product and service in the kit and creates/updates
+        an override record with the current catalog prices. Once created,
+        the snapshot is marked as frozen so this method is idempotent.
+
+        Called automatically on first save() and defensively from any method
+        that reads kit overrides (_get_kit_override_maps, _iter_frozen_kit_*).
+        """
         if not self.pk or not self.kit_id or self.kit_snapshot_frozen:
             return
 
@@ -851,6 +881,12 @@ class WorkOrderItem(TimeStampedModel):
         self.refresh_kit_snapshot_totals()
 
     def refresh_kit_snapshot_totals(self) -> None:
+        """Recalculate aggregate price fields from current override records.
+
+        Updates product_selling_price, product_cost_price, service_selling_price,
+        service_cost_price, and duration on this item to match the sum of its
+        frozen override records. Called after ensure_kit_snapshot().
+        """
         if not self.pk or not self.kit_id:
             return
 
@@ -945,6 +981,7 @@ class WorkOrderItem(TimeStampedModel):
         return f"{hours:02d}h {minutes:02d}m"
 
     def _iter_frozen_kit_product_overrides(self):
+        """Yield non-zero-quantity product overrides, creating snapshot if needed."""
         if not self.kit_id:
             return
         self.ensure_kit_snapshot()
@@ -953,6 +990,7 @@ class WorkOrderItem(TimeStampedModel):
                 yield override
 
     def _iter_frozen_kit_service_overrides(self):
+        """Yield non-zero-quantity service overrides, creating snapshot if needed."""
         if not self.kit_id:
             return
         self.ensure_kit_snapshot()
@@ -961,6 +999,7 @@ class WorkOrderItem(TimeStampedModel):
                 yield override
 
     def _get_kit_override_maps(self) -> tuple[dict[int, "WorkOrderKitItemOverride"], dict[int, "WorkOrderKitItemOverride"]]:
+        """Return (product_overrides, service_overrides) dicts keyed by component ID."""
         cache = getattr(self, "_kit_override_maps_cache", None)
         if cache is not None:
             return cache

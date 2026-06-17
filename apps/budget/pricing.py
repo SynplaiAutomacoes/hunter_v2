@@ -471,6 +471,10 @@ def build_pricing_snapshot(
                 try:
                     unit_cost, unit_price = item.resolve_kit_service_base_prices(kit_service=kit_service)
                 except AttributeError:
+                    # WorkOrderItem does not have resolve_kit_service_base_prices().
+                    # Fall back to the KitService's resolved prices (from the catalog).
+                    # After ensure_kit_snapshot(), all kit services have overrides,
+                    # so this path only triggers if the snapshot hasn't been created yet.
                     unit_cost = kit_service.resolved_cost_price
                     unit_price = kit_service.resolved_selling_price
                 fixed_cost_total = zero_money()
