@@ -1045,16 +1045,10 @@ class WorkOrderItem(TimeStampedModel):
         if not self.kit:
             return []
 
-        product_overrides, _ = self._get_kit_override_maps()
         products: list[dict[str, Any]] = []
 
-        for kit_product in self._iter_kit_products():
-            override = product_overrides.get(kit_product.product_id)
-            quantity = override.quantity if override else kit_product.quantity
-            if quantity <= 0:
-                continue
-
-            products.append({"id": kit_product.product_id, "name": kit_product.product.name, "quantity": quantity})
+        for override in self._iter_frozen_kit_product_overrides():
+            products.append({"id": override.product_id, "name": override.product.name, "quantity": override.quantity})
 
         return products
 
@@ -1063,16 +1057,10 @@ class WorkOrderItem(TimeStampedModel):
         if not self.kit:
             return []
 
-        _, service_overrides = self._get_kit_override_maps()
         services: list[dict[str, Any]] = []
 
-        for kit_service in self._iter_kit_services():
-            override = service_overrides.get(kit_service.service_id)
-            quantity = override.quantity if override else kit_service.quantity
-            if quantity <= 0:
-                continue
-
-            services.append({"id": kit_service.service_id, "name": kit_service.service.name, "quantity": quantity})
+        for override in self._iter_frozen_kit_service_overrides():
+            services.append({"id": override.service_id, "name": override.service.name, "quantity": override.quantity})
 
         return services
 

@@ -151,18 +151,12 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
     summary_service_items = list(service_items)
 
     for kit_item in kit_items:
-        _, service_overrides = kit_item._get_kit_override_maps()
-        for kit_service in kit_item._iter_kit_services():
-            override = service_overrides.get(kit_service.service_id)
-            per_kit_qty = int((override.quantity if override else kit_service.quantity) or 0)
-            if per_kit_qty <= 0:
-                continue
-            qty = per_kit_qty * kit_item.quantity
-            unit_price = override.service_selling_price if override else kit_service.resolved_selling_price
+        for override in kit_item._iter_frozen_kit_service_overrides():
+            qty = override.quantity * kit_item.quantity
             summary_service_items.append(
                 SimpleNamespace(
-                    service=kit_service.service,
-                    total_price=unit_price * qty,
+                    service=override.service,
+                    total_price=override.service_selling_price * qty,
                 )
             )
 

@@ -231,71 +231,53 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         for line in review_display.kits:
             kit_item = line.item
             kit_quantity = kit_item.quantity
-            product_overrides, service_overrides = kit_item._get_kit_override_maps()
 
-            for kit_product in kit_item._iter_kit_products():
-                override = product_overrides.get(kit_product.product_id)
-                quantity = override.quantity if override else kit_product.quantity
-                if quantity <= 0:
-                    continue
-
-                product = kit_product.product
-                cost_price = override.product_cost_price if override else product.cost_price
-                selling_price = override.product_selling_price if override else product.selling_price
-                shipping = override.shipping if override else Money(0, "BRL")
+            for override in kit_item._iter_frozen_kit_product_overrides():
+                product = override.product
+                quantity = override.quantity
                 total_quantity = quantity * kit_quantity
 
                 produtos.append({
-                    "id": kit_product.product_id,
+                    "id": override.product_id,
                     "description": product.name,
                     "quantity": total_quantity,
                     "is_customer_supplied": False,
                     "application": getattr(product, "application", "") or "-",
                     "code": getattr(product, "code", "") or "-",
                     "location": getattr(product, "location", "") or "-",
-                    "unit_price": selling_price,
-                    "adjusted_unit_price": selling_price,
-                    "shipping": shipping,
-                    "total_price": (selling_price * total_quantity) + shipping,
-                    "product_cost_price": cost_price * total_quantity,
-                    "profit_value": (selling_price * total_quantity) - (cost_price * total_quantity),
+                    "unit_price": override.product_selling_price,
+                    "adjusted_unit_price": override.product_selling_price,
+                    "shipping": override.shipping,
+                    "total_price": (override.product_selling_price * total_quantity) + override.shipping,
+                    "product_cost_price": override.product_cost_price * total_quantity,
+                    "profit_value": (override.product_selling_price * total_quantity) - (override.product_cost_price * total_quantity),
                     "show_kit_duplicate_warning": False,
                 })
 
-            for kit_service in kit_item._iter_kit_services():
-                override = service_overrides.get(kit_service.service_id)
-                quantity = override.quantity if override else kit_service.quantity
-                if quantity <= 0:
-                    continue
-
-                service = kit_service.service
-                if override:
-                    cost_price = override.service_cost_price
-                    selling_price = override.service_selling_price
-                else:
-                    cost_price, selling_price = kit_item.resolve_kit_service_base_prices(kit_service=kit_service)
-                duration = override.duration if override and override.duration else kit_service.duration
+            for override in kit_item._iter_frozen_kit_service_overrides():
+                service = override.service
+                quantity = override.quantity
                 total_quantity = quantity * kit_quantity
-                service_cost_price = cost_price * total_quantity
+                service_cost_price = override.service_cost_price * total_quantity
                 service_mechanic_cost_price = _calculate_pdf_service_mechanic_cost(
                     budget=budget,
-                    duration=duration,
+                    duration=override.duration,
                     quantity=total_quantity,
                     fallback_cost=service_cost_price,
-                    is_third_party=kit_service.service.is_third_party,
+                    is_third_party=service.is_third_party,
                 )
 
                 servicos.append({
-                    "id": kit_service.service_id,
+                    "id": override.service_id,
                     "description": service.name,
                     "quantity": total_quantity,
-                    "unit_price": selling_price,
-                    "total_price": selling_price * total_quantity,
+                    "unit_price": override.service_selling_price,
+                    "total_price": override.service_selling_price * total_quantity,
                     "service_cost_price": service_cost_price,
                     "service_mechanic_cost_price": service_mechanic_cost_price,
-                    "profit_value": (selling_price * total_quantity) - service_mechanic_cost_price,
-                    "duration_display": format_duration_display(duration * total_quantity) if duration else "00h 00m",
-                    "_duration_seconds": _duration_seconds(duration) * total_quantity,
+                    "profit_value": (override.service_selling_price * total_quantity) - service_mechanic_cost_price,
+                    "duration_display": format_duration_display(override.duration * total_quantity) if override.duration else "00h 00m",
+                    "_duration_seconds": _duration_seconds(override.duration) * total_quantity if override.duration else 0,
                 })
 
             kits.append({
