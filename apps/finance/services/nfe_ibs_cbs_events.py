@@ -466,17 +466,28 @@ def is_ibs_cbs_event_112110_cancelable(event: FiscalDocumentEvent | None) -> boo
     )
 
 
-def _assert_event_cancelable_112110(*, event: FiscalDocumentEvent) -> None:
-    if event.event_type != FiscalDocumentEventType.IBS_CBS or event.event_code != IBS_CBS_EVENT_112110:
-        raise NfeIbsCbsEventError("Cancelamento permitido somente para evento IBS/CBS 112110 nesta fase.")
+def is_ibs_cbs_event_112150_cancelable(event: FiscalDocumentEvent | None) -> bool:
+    if event is None:
+        return False
+    return (
+        event.event_type == FiscalDocumentEventType.IBS_CBS
+        and event.event_code == IBS_CBS_EVENT_112150
+        and event.status in {FiscalDocumentEventStatus.APPROVED, FiscalDocumentEventStatus.SUCCEEDED}
+        and bool(str(event.remote_uuid or "").strip())
+    )
+
+
+def _assert_event_cancelable(*, event: FiscalDocumentEvent, event_code: str) -> None:
+    if event.event_type != FiscalDocumentEventType.IBS_CBS or event.event_code != event_code:
+        raise NfeIbsCbsEventError(f"Cancelamento permitido somente para evento IBS/CBS {event_code} nesta fase.")
     if event.status == FiscalDocumentEventStatus.CANCELED:
-        raise NfeIbsCbsEventError("Evento IBS/CBS 112110 ja esta cancelado.")
+        raise NfeIbsCbsEventError(f"Evento IBS/CBS {event_code} ja esta cancelado.")
     if event.status == FiscalDocumentEventStatus.UNCERTAIN:
-        raise NfeIbsCbsEventError("Evento IBS/CBS 112110 incerto deve ser reconciliado antes do cancelamento.")
+        raise NfeIbsCbsEventError(f"Evento IBS/CBS {event_code} incerto deve ser reconciliado antes do cancelamento.")
     if event.status not in {FiscalDocumentEventStatus.APPROVED, FiscalDocumentEventStatus.SUCCEEDED}:
-        raise NfeIbsCbsEventError("Cancelamento permitido somente para evento IBS/CBS 112110 autorizado.")
+        raise NfeIbsCbsEventError(f"Cancelamento permitido somente para evento IBS/CBS {event_code} autorizado.")
     if not str(event.remote_uuid or "").strip():
-        raise NfeIbsCbsEventError("Cancelamento do evento IBS/CBS 112110 exige UUID remoto confirmado.")
+        raise NfeIbsCbsEventError(f"Cancelamento do evento IBS/CBS {event_code} exige UUID remoto confirmado.")
 
     document = event.document
     if document.status in {FiscalDocumentStatus.CANCELED, FiscalDocumentStatus.DENIED, FiscalDocumentStatus.REPROVED}:
@@ -492,10 +503,18 @@ def _assert_event_cancelable_112110(*, event: FiscalDocumentEvent) -> None:
         FiscalDocumentEventStatus.UNCERTAIN,
     ]
     if event.related_cancellations.filter(event_type=FiscalDocumentEventType.IBS_CBS_CANCELLATION, status__in=blocking_statuses).exists():
-        raise NfeIbsCbsEventError("Ja existe cancelamento ativo, aprovado ou incerto para este evento IBS/CBS 112110.")
+        raise NfeIbsCbsEventError(f"Ja existe cancelamento ativo, aprovado ou incerto para este evento IBS/CBS {event_code}.")
 
 
-def _build_112110_cancellation_payload(*, event: FiscalDocumentEvent, request: HttpRequest | None = None) -> dict[str, Any]:
+def _assert_event_cancelable_112110(*, event: FiscalDocumentEvent) -> None:
+    _assert_event_cancelable(event=event, event_code=IBS_CBS_EVENT_112110)
+
+
+def _assert_event_cancelable_112150(*, event: FiscalDocumentEvent) -> None:
+    _assert_event_cancelable(event=event, event_code=IBS_CBS_EVENT_112150)
+
+
+def _build_event_cancellation_payload(*, event: FiscalDocumentEvent, request: HttpRequest | None = None) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "uuid": str(event.remote_uuid or "").strip(),
     }
@@ -506,6 +525,14 @@ def _build_112110_cancellation_payload(*, event: FiscalDocumentEvent, request: H
     if notification_url:
         payload["url_notificacao"] = notification_url
     return payload
+
+
+def _build_112110_cancellation_payload(*, event: FiscalDocumentEvent, request: HttpRequest | None = None) -> dict[str, Any]:
+    return _build_event_cancellation_payload(event=event, request=request)
+
+
+def _build_112150_cancellation_payload(*, event: FiscalDocumentEvent, request: HttpRequest | None = None) -> dict[str, Any]:
+    return _build_event_cancellation_payload(event=event, request=request)
 
 
 def _build_ibs_cbs_event_cancellation_idempotency_key(*, workshop_id: int, original_event_id: int, cancellation_event_id: int, request_generation: int = 1) -> str:
@@ -551,6 +578,42 @@ def create_112110_event_cancellation_attempt(*, event: FiscalDocumentEvent, requ
         return cancellation_event, attempt, payload
 
 
+def create_112150_event_cancellation_attempt(*, event: FiscalDocumentEvent, requested_by: Any | None, request: HttpRequest | None = None) -> tuple[FiscalDocumentEvent, FiscalEmissionAttempt, dict[str, Any]]:
+    with transaction.atomic():
+        locked_event = FiscalDocumentEvent.objects.select_for_update().select_related("document", "document__workshop").get(pk=event.pk)
+        _assert_event_cancelable_112150(event=locked_event)
+        payload = _build_112150_cancellation_payload(event=locked_event, request=request)
+        sanitized_payload = sanitize_fiscal_payload(payload)
+        cancellation_event = FiscalDocumentEvent.objects.create(
+            document=locked_event.document,
+            related_event=locked_event,
+            event_type=FiscalDocumentEventType.IBS_CBS_CANCELLATION,
+            event_code=IBS_CBS_EVENT_112150,
+            event_sequence=locked_event.event_sequence,
+            event_payload_type="cancellation",
+            status=FiscalDocumentEventStatus.STARTED,
+            remote_model="ibs_cbs_cancellation",
+            request_payload=sanitized_payload,
+            requested_by=requested_by if getattr(requested_by, "is_authenticated", False) else None,
+            legal_confirmation=True,
+            confirmed_at=timezone.now(),
+        )
+        idempotency_key = _build_ibs_cbs_event_cancellation_idempotency_key(workshop_id=locked_event.document.workshop_id, original_event_id=locked_event.pk, cancellation_event_id=cancellation_event.pk)
+        attempt = begin_emission_attempt(
+            workshop=locked_event.document.workshop,
+            document_kind=FiscalEmissionDocumentKind.NFE,
+            operation_type=FiscalEmissionOperationType.NFE_IBS_CBS_EVENT_CANCELLATION,
+            request_model=FiscalDocumentEvent.__name__,
+            request_id=cancellation_event.pk,
+            fiscal_document=locked_event.document,
+            fiscal_document_event=cancellation_event,
+            idempotency_key=idempotency_key,
+            request_payload=sanitized_payload,
+            payload_hash=build_payload_hash(sanitized_payload),
+        )
+        return cancellation_event, attempt, payload
+
+
 def _is_successful_cancellation_response(payload: dict[str, Any]) -> bool:
     status = str(payload.get("status") or "").strip().lower()
     return status in {"aprovado", "cancelado", "cancelada", "canceled", "succeeded"}
@@ -581,12 +644,7 @@ def mark_ibs_cbs_event_cancellation_uncertain(*, event: FiscalDocumentEvent, err
     event.save(update_fields=["status", "response_payload", "atualizado_em"])
 
 
-def cancel_ibs_cbs_event_112110(*, event: FiscalDocumentEvent, requested_by: Any | None = None, request: HttpRequest | None = None) -> FiscalDocumentEvent:
-    try:
-        cancellation_event, attempt, payload = create_112110_event_cancellation_attempt(event=event, requested_by=requested_by, request=request)
-    except FiscalEmissionAttemptBlocked as exc:
-        raise NfeIbsCbsEventError(str(exc)) from exc
-
+def _transmit_ibs_cbs_event_cancellation(*, cancellation_event: FiscalDocumentEvent, attempt: FiscalEmissionAttempt, payload: dict[str, Any], event_code: str) -> FiscalDocumentEvent:
     headers = _build_headers(workshop=cancellation_event.document.workshop)
     mark_attempt_sent(attempt=attempt)
     cancellation_event.status = FiscalDocumentEventStatus.SENT
@@ -596,14 +654,14 @@ def cancel_ibs_cbs_event_112110(*, event: FiscalDocumentEvent, requested_by: Any
         response = requests.put(_build_event_cancellation_url(), json=payload, headers=headers, timeout=30)
         response.raise_for_status()
     except requests.Timeout as exc:
-        message = "Timeout ao cancelar evento IBS/CBS 112110; estado remoto incerto."
-        logger.warning("nfe_ibs_cbs_event_cancellation_timeout", extra={"fiscal_document_event_id": cancellation_event.pk, "fiscal_attempt_id": attempt.pk})
+        message = f"Timeout ao cancelar evento IBS/CBS {event_code}; estado remoto incerto."
+        logger.warning("nfe_ibs_cbs_event_cancellation_timeout", extra={"fiscal_document_event_id": cancellation_event.pk, "fiscal_attempt_id": attempt.pk, "event_code": event_code})
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         mark_ibs_cbs_event_cancellation_uncertain(event=cancellation_event, error_message=message)
         raise NfeIbsCbsEventError(message) from exc
     except requests.RequestException as exc:
-        message = build_webmania_request_exception_message(exc, default="Falha ao cancelar evento IBS/CBS 112110", scope="nfe")
-        logger.warning("nfe_ibs_cbs_event_cancellation_request_failed", extra={"fiscal_document_event_id": cancellation_event.pk, "fiscal_attempt_id": attempt.pk})
+        message = build_webmania_request_exception_message(exc, default=f"Falha ao cancelar evento IBS/CBS {event_code}", scope="nfe")
+        logger.warning("nfe_ibs_cbs_event_cancellation_request_failed", extra={"fiscal_document_event_id": cancellation_event.pk, "fiscal_attempt_id": attempt.pk, "event_code": event_code})
         mark_attempt_failed(attempt=attempt, error_message=message)
         cancellation_event.status = FiscalDocumentEventStatus.FAILED
         cancellation_event.response_payload = sanitize_fiscal_payload({"error": message})
@@ -613,19 +671,19 @@ def cancel_ibs_cbs_event_112110(*, event: FiscalDocumentEvent, requested_by: Any
     try:
         response_payload = response.json()
     except ValueError as exc:
-        message = "Resposta invalida da Webmania ao cancelar evento IBS/CBS 112110; estado remoto incerto."
+        message = f"Resposta invalida da Webmania ao cancelar evento IBS/CBS {event_code}; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         mark_ibs_cbs_event_cancellation_uncertain(event=cancellation_event, error_message=message)
         raise NfeIbsCbsEventError(message) from exc
     if not isinstance(response_payload, dict):
-        message = "Resposta invalida da Webmania ao cancelar evento IBS/CBS 112110; estado remoto incerto."
+        message = f"Resposta invalida da Webmania ao cancelar evento IBS/CBS {event_code}; estado remoto incerto."
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         mark_ibs_cbs_event_cancellation_uncertain(event=cancellation_event, error_message=message)
         raise NfeIbsCbsEventError(message)
 
     cancellation_event = apply_ibs_cbs_event_cancellation_payload(event=cancellation_event, response_payload=response_payload)
     if _is_failed_event_response(response_payload):
-        message = extract_webmania_error_message(response_payload, scope="nfe") or "Cancelamento do evento IBS/CBS 112110 rejeitado pela Webmania."
+        message = extract_webmania_error_message(response_payload, scope="nfe") or f"Cancelamento do evento IBS/CBS {event_code} rejeitado pela Webmania."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         cancellation_event.status = FiscalDocumentEventStatus.FAILED
         cancellation_event.save(update_fields=["status", "atualizado_em"])
@@ -635,6 +693,24 @@ def cancel_ibs_cbs_event_112110(*, event: FiscalDocumentEvent, requested_by: Any
     if cancellation_event.remote_uuid:
         _replay_pending_ibs_cbs_webhooks_for_uuid(event_uuid=cancellation_event.remote_uuid)
     return cancellation_event
+
+
+def cancel_ibs_cbs_event_112110(*, event: FiscalDocumentEvent, requested_by: Any | None = None, request: HttpRequest | None = None) -> FiscalDocumentEvent:
+    try:
+        cancellation_event, attempt, payload = create_112110_event_cancellation_attempt(event=event, requested_by=requested_by, request=request)
+    except FiscalEmissionAttemptBlocked as exc:
+        raise NfeIbsCbsEventError(str(exc)) from exc
+
+    return _transmit_ibs_cbs_event_cancellation(cancellation_event=cancellation_event, attempt=attempt, payload=payload, event_code=IBS_CBS_EVENT_112110)
+
+
+def cancel_ibs_cbs_event_112150(*, event: FiscalDocumentEvent, requested_by: Any | None = None, request: HttpRequest | None = None) -> FiscalDocumentEvent:
+    try:
+        cancellation_event, attempt, payload = create_112150_event_cancellation_attempt(event=event, requested_by=requested_by, request=request)
+    except FiscalEmissionAttemptBlocked as exc:
+        raise NfeIbsCbsEventError(str(exc)) from exc
+
+    return _transmit_ibs_cbs_event_cancellation(cancellation_event=cancellation_event, attempt=attempt, payload=payload, event_code=IBS_CBS_EVENT_112150)
 
 
 def resolve_ibs_cbs_event_cancellation_for_webhook(*, payload: dict[str, Any]) -> FiscalDocumentEvent | None:

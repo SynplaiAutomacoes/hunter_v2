@@ -188,3 +188,13 @@ Decisao tecnica da auditoria: documentos derivados nao devem usar automaticament
 | Modelagem | Reutiliza `FiscalDocumentEvent(event_type=ibs_cbs, event_code=112150, event_payload_type=delivery_forecast)` e `FiscalEmissionAttempt(operation_type=nfe_ibs_cbs_event)` | Nao criar `FiscalDocument`, `FiscalDocumentLink` ou migration nova |
 | Idempotencia | A mesma data de previsao de entrega com evento ativo/aprovado/incerto bloqueia nova transmissao; datas diferentes reservam nova sequencia ate 20 | Preservar sequencia e payload em `uncertain`; nao reenviar automaticamente |
 | Webhook | Reutiliza resolucao IBS/CBS por UUID remoto/tentativa ou fallback chave+sequencia, rejeitando ambiguidade | Atualizar somente `FiscalDocumentEvent`; nao alterar documento base nem `NfeItem` |
+
+### Auditoria tecnica Fase 2.4D.4 - Cancelamento do Evento IBS/CBS 112150
+
+| Item auditado | Estado real apos implementacao | Decisao da fase |
+| ------------- | ------------------------------ | --------------- |
+| Payload | `apps/finance/services/nfe_ibs_cbs_events.py` monta cancelamento com `uuid`, `ambiente` e `url_notificacao` opcional | Seguir contrato oficial por UUID; nao enviar `chave`, `cod_evento`, `evento`, `data_previsao_entrega`, `ibs_cbs`, produtos ou payload fiscal |
+| Elegibilidade | Cancelamento 112150 exige evento original `event_type=ibs_cbs`, `event_code=112150`, status aprovado/succeeded e UUID remoto | Bloquear sem UUID, falho/rejeitado, incerto, ja cancelado, outro codigo e documento base em estado final invalido |
+| Modelagem | Cria `FiscalDocumentEvent(event_type=ibs_cbs_cancellation, event_code=112150, related_event=<112150>)` e tentativa `nfe_ibs_cbs_event_cancellation` | Nao criar `FiscalDocument`, nao usar `FiscalDocumentLink`, preservar trilha auditavel separada |
+| Idempotencia | Constraint ativa de `related_event + event_type` e tentativa persistida bloqueiam duplicidade/concorrencia | Timeout deixa cancelamento `uncertain` e impede novo cancelamento automatico |
+| Webhook | Reutiliza resolucao de cancelamento IBS/CBS por UUID remoto/tentativa, rejeitando ambiguidade | Atualizar somente evento de cancelamento e marcar evento original como cancelado em retorno positivo; nao alterar documento base nem `NfeItem` |

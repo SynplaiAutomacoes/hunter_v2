@@ -326,6 +326,8 @@ Decisao: a proxima UI funcional deve expor somente `112150`, se aprovada, no det
 
 Resultado 2.4D.3: a UI minima do detalhe de NF-e passou a oferecer `112150` somente quando a NF-e normal local esta elegivel e o usuario possui `issue_ibs_cbs_event`. O formulario exige `data_previsao_entrega` em formato de data e confirmacao explicita. A mesma permissao `issue_ibs_cbs_event` foi reutilizada; permissoes comuns de NF-e/NFC-e nao liberam o evento automaticamente. Downloads e payloads continuam protegidos por `download_ibs_cbs_event` e `view_ibs_cbs_event_payload`. A tela informa que cancelamento do `112150`, credito/debito, complementar tributaria e demais eventos nao estao disponiveis.
 
+Resultado 2.4D.4: a UI minima do detalhe de NF-e passou a oferecer cancelamento do evento `112150` somente quando o evento esta aprovado, possui UUID remoto e o usuario tem `cancel_ibs_cbs_event`. O formulario exige confirmacao explicita e informa que o cancelamento afeta apenas o evento IBS/CBS, nao a NF-e original. O cancelamento do `112110` permanece preservado; nao ha acao de cancelamento generico para outros codigos.
+
 Permissoes:
 
 - Reutilizar `issue_ibs_cbs_event`, `view_ibs_cbs_event`, `download_ibs_cbs_event` e `view_ibs_cbs_event_payload`.

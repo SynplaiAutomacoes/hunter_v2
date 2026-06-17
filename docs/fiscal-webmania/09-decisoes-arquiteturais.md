@@ -393,6 +393,16 @@
 - Status: validada na Fase 2.4D.3.
 - Fase: 2.4D.3.
 
+## ADR-044 - Cancelamento do evento IBS/CBS 112150 por UUID
+
+- Decisao: implementar somente cancelamento do evento IBS/CBS `112150` autorizado, usando `PUT /1/nfe/evento-ibs-cbs/cancelar/`, sem criar cancelamento generico para outros codigos.
+- Contrato: payload com `uuid` do evento original, `ambiente` quando aplicavel e `url_notificacao` opcional. O Hunter nao envia `chave`, `cod_evento`, `evento`, `data_previsao_entrega`, `ibs_cbs`, produtos, payload de nota ou credito/debito.
+- Modelagem: criar `FiscalDocumentEvent(event_type="ibs_cbs_cancellation", event_code="112150", related_event=<evento 112150>)`, com tentativa `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event_cancellation")`. Nenhum `FiscalDocument` novo e criado.
+- Status: retorno remoto positivo atualiza o evento de cancelamento e marca o evento original como cancelado; o `FiscalDocument` base nao muda status.
+- Compatibilidade: cancelamento do `112110` permanece no fluxo validado e intacto.
+- Status: validada na Fase 2.4D.4.
+- Fase: 2.4D.4.
+
 ### ADR 2.4D.1 - Primeiro evento IBS/CBS implementado como evento, nao documento
 
 - Decisao: implementar `cod_evento=112110` como `FiscalDocumentEvent(event_type="ibs_cbs")`, associado a um `FiscalDocument` NF-e/NFC-e normal local autorizado.

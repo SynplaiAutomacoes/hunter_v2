@@ -407,6 +407,11 @@ Resultado 2.4D.3:
 - Testes adicionados: `FiscalPhaseTwoIbsCbsEvent112150Tests` e `FiscalPhaseTwoIbsCbsEvent112150ConcurrentTests`.
 - Cobertura: payload oficial com `cod_evento=112150`, `evento` numerico e `data_previsao_entrega` no topo; bloqueio de data invalida; ausencia de `ibs_cbs`, `itens`, `produtos`, credito/debito e cancelamento; NF-e normal local elegivel; NFC-e/derivados/ajuste bloqueados; duplicidade da mesma data bloqueada; nova data legitima reserva nova sequencia; timeout fica `uncertain`; webhook por UUID e fallback chave+sequencia; ambiguidade rejeitada; permissao/download/payload/cross-workshop protegidos; cancelamento do `112150` nao e aceito pelo fluxo de cancelamento `112110`.
 
+Resultado 2.4D.4:
+
+- Testes adicionados: `FiscalPhaseTwoIbsCbsEvent112150CancellationTests` e `FiscalPhaseTwoIbsCbsEvent112150CancellationConcurrentTests`.
+- Cobertura: payload de cancelamento oficial com `uuid`, `ambiente` e `url_notificacao` opcional; ausencia de `chave`, `cod_evento`, `evento`, `data_previsao_entrega`, `ibs_cbs`, produtos e payload de nota; elegibilidade por evento `112150` autorizado com UUID; bloqueio de sem UUID, rejeitado/falho, incerto, ja cancelado, outro codigo e outra oficina; criacao de evento auditavel de cancelamento; nenhuma criacao de `FiscalDocument`; idempotencia, concorrencia, timeout `uncertain`, webhook por UUID/tentativa, ambiguidade, permissao, download/payload e sanitizacao.
+
 Para Grupo B (`112120`, `112130`, `112140`) quando autorizado:
 
 - testes de `itens[].item` como sequencial fiscal;

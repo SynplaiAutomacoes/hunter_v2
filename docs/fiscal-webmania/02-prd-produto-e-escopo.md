@@ -456,6 +456,8 @@ Decisao de produto: a proxima subfase funcional recomendada e implementar soment
 
 Resultado da Fase 2.4D.3: o Hunter passou a suportar somente o evento IBS/CBS `112150`, de atualizacao da data de previsao de entrega, como `FiscalDocumentEvent(event_type="ibs_cbs", event_code="112150")` vinculado a uma NF-e normal local autorizada. A revalidacao oficial confirmou que o payload usa `data_previsao_entrega` no topo do envelope junto de `chave`, `ambiente`, `cod_evento` e `evento` numerico; nao foi enviado `ibs_cbs`, `itens`, `produtos`, credito/debito ou cancelamento. NFC-e, devolucao, complementar, ajuste, credito/debito, cancelamento do `112150`, demais eventos IBS/CBS, NFS-e e CT-e permanecem fora do escopo.
 
+Resultado da Fase 2.4D.4: o Hunter passou a suportar somente o cancelamento do evento IBS/CBS `112150` autorizado, por `PUT /1/nfe/evento-ibs-cbs/cancelar/`. O cancelamento e registrado como `FiscalDocumentEvent(event_type="ibs_cbs_cancellation", event_code="112150")` vinculado ao evento original, usa apenas UUID remoto do evento, ambiente e URL de notificacao quando aplicavel, e nao altera o status fiscal da NF-e base. Cancelamento generico, demais eventos IBS/CBS, credito/debito, complementar tributaria, NFS-e e CT-e permanecem fora do escopo.
+
 Eventos adiados:
 
 - `112120`, `112130` e `112140`: exigem itens fiscais, valores IBS/CBS, controle operacional/estoque/transporte ou pagamento antecipado.

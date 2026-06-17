@@ -252,10 +252,11 @@ Subfases funcionais recomendadas:
 | 2.4D.1 | Evento `112110` em NF-e/NFC-e normal local autorizada | 2.4D.0 aprovada | Baixo/medio; sem campos especificos, mas exige sequencia/idempotencia. |
 | 2.4D.2 | Cancelamento do evento `112110` | 2.4D.1 validada e evento autorizado com UUID remoto | Medio; nao pode cancelar documento base por engano. |
 | 2.4D.3 | Evento `112150` - data de previsao de entrega | Validada | Baixo/medio; payload estreito; cancelamento do 112150 segue fora do escopo. |
-| 2.4D.4 | Eventos de emitente com itens/controle: `112120`, `112130`, `112140` | 2.4D.3 validada e regra de itens/estoque/transporte | Medio/alto; sequenciais fiscais, estoque e datas. |
-| 2.4D.5 | Eventos de destinatario: `211110`, `211120`, `211124`, `211130`, `211140`, `211150` | Decisao de papel destinatario e permissao | Alto; papel fiscal diferente e referencias externas. |
-| 2.4D.6 | Evento `211128` e relacao com credito/debito | 2.4E/2.5 funcional aprovada | Alto; depende de nota de credito/debito. |
-| 2.4D.7 | Cancelamento dos demais eventos IBS/CBS | Eventos correspondentes autorizados com UUID remoto | Medio/alto; cada codigo pode ter regra propria de reversao. |
+| 2.4D.4 | Cancelamento do evento `112150` | Validada | Baixo; reutiliza cancelamento por UUID, sem generalizar demais codigos. |
+| 2.4D.5 | Eventos de emitente com itens/controle: `112120`, `112130`, `112140` | 2.4D.4 validada e regra de itens/estoque/transporte | Medio/alto; sequenciais fiscais, estoque e datas. |
+| 2.4D.6 | Eventos de destinatario: `211110`, `211120`, `211124`, `211130`, `211140`, `211150` | Decisao de papel destinatario e permissao | Alto; papel fiscal diferente e referencias externas. |
+| 2.4D.7 | Evento `211128` e relacao com credito/debito | 2.4E/2.5 funcional aprovada | Alto; depende de nota de credito/debito. |
+| 2.4D.8 | Cancelamento dos demais eventos IBS/CBS | Eventos correspondentes autorizados com UUID remoto | Medio/alto; cada codigo pode ter regra propria de reversao. |
 
 ##### Fase 2.4D.1 - Evento IBS/CBS 112110
 
@@ -291,6 +292,13 @@ Subfases funcionais recomendadas:
 - Escopo entregue: `POST /1/nfe/evento-ibs-cbs/` somente com `cod_evento=112150`, para NF-e normal local autorizada.
 - Criterios aceitos: payload com `chave`, `ambiente`, `cod_evento`, `evento`, `data_previsao_entrega` e `url_notificacao` opcional; sem `ibs_cbs`, `itens`, `produtos`, credito/debito ou cancelamento; idempotencia persistida por evento/tentativa; webhook idempotente; tenancy e permissoes mantidas.
 - Fora de escopo confirmado: NFC-e, derivados, ajuste, cancelamento do `112150`, eventos `112120/112130/112140`, eventos `211xxx`, credito/debito, complementar tributaria, NFS-e e CT-e.
+
+##### Fase 2.4D.4 - Cancelamento do Evento IBS/CBS 112150
+
+- Status: validada.
+- Escopo entregue: `PUT /1/nfe/evento-ibs-cbs/cancelar/` somente para evento `112150` autorizado com UUID remoto.
+- Criterios aceitos: payload somente com `uuid`, `ambiente` e `url_notificacao` quando aplicavel; sem `chave`, `cod_evento`, `evento`, `data_previsao_entrega`, `ibs_cbs`, produtos ou payload de nota; cancelamento modelado como `FiscalDocumentEvent(event_type=ibs_cbs_cancellation, event_code=112150)` vinculado ao evento original; tentativa `nfe_ibs_cbs_event_cancellation`; webhook idempotente; tenancy e permissoes mantidas.
+- Fora de escopo confirmado: cancelamento generico, eventos `112120/112130/112140`, eventos `211xxx`, credito/debito, complementar tributaria, NFS-e e CT-e.
 
 #### Fase 2.4E - Credito e debito
 
