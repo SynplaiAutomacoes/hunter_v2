@@ -106,7 +106,11 @@ def build_dre_calculation(
 
     # Receita Bruta de Vendas e Serviços
     pagamentos_ordens_de_servico = (
-        WorkOrderPaymentMethod.objects.filter(workorder__workshop__in=workshops)
+        WorkOrderPaymentMethod.objects.filter(
+            workorder__workshop__in=workshops,
+            workorder__budget_type="sale",
+            workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+        )
         .select_related("workorder", "workorder__budget", "workorder__budget__customer", "payment_method")
         .prefetch_related(
             "workorder__items__product",
