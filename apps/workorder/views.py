@@ -94,17 +94,21 @@ SIGNED_PDF_VARIANT = "signed"
 BASE_PDF_VARIANT = "base"
 
 
-def _get_requested_pdf_variant(request) -> str:
+def _get_requested_pdf_variant(request) -> str | None:
     requested_variant = str(request.GET.get("variant") or "").strip().lower()
     if requested_variant == BASE_PDF_VARIANT:
         return BASE_PDF_VARIANT
     if requested_variant == SIGNED_PDF_VARIANT:
         return SIGNED_PDF_VARIANT
-    return BASE_PDF_VARIANT
+    return None
 
 
 def _can_use_signed_workorder_pdf(workorder: WorkOrder) -> bool:
     return bool(workorder.signature_document_id or workorder.signature_external_id) and workorder.signature_request_status in {WorkOrderSignatureStatus.SENT, WorkOrderSignatureStatus.APPROVED}
+
+
+def _should_default_to_signed_workorder_pdf(workorder: WorkOrder) -> bool:
+    return bool(workorder.signature_document_id or workorder.signature_external_id) and workorder.signature_request_status == WorkOrderSignatureStatus.APPROVED
 
 
 WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
@@ -1360,6 +1364,9 @@ def visualizar_pdf_workorder(request, pk):
     workorder = get_object_or_404(WorkOrder.objects.select_related("workshop", "budget"), pk=pk, workshop=workshop)
     should_download = request.GET.get("download") == "1"
     requested_variant = _get_requested_pdf_variant(request)
+
+    if requested_variant is None:
+        requested_variant = SIGNED_PDF_VARIANT if _should_default_to_signed_workorder_pdf(workorder) else BASE_PDF_VARIANT
 
     if requested_variant == SIGNED_PDF_VARIANT and _can_use_signed_workorder_pdf(workorder):
         try:

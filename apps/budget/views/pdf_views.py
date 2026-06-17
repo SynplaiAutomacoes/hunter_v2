@@ -8,7 +8,7 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from apps.budget.documents.provider import render_budget_pdf_document
 from apps.budget.models import Budget
 from apps.budget.pdf_context import build_budget_pdf_context, build_workshop_logo_data_uri
-from apps.budget.service import BUDGET_SIGNATURE_DOCUMENT_ID_KEY, BUDGET_SIGNATURE_TOKEN_SALT, can_use_signed_budget_pdf
+from apps.budget.service import BUDGET_SIGNATURE_DOCUMENT_ID_KEY, BUDGET_SIGNATURE_TOKEN_SALT, can_use_signed_budget_pdf, should_default_to_signed_budget_pdf
 from apps.checklist.models import Checklist
 from apps.checklist.services.files import ChecklistFileStorageError, read_checklist_pdf_file
 from apps.core.domain.contracts.documents import DocumentPayload
@@ -192,13 +192,13 @@ def _build_budget_pdf_file_response(*, budget: Budget, download: bool, use_signe
     return build_pdf_http_response(document=document, download=download)
 
 
-def _get_requested_pdf_variant(request) -> str:
+def _get_requested_pdf_variant(request) -> str | None:
     requested_variant = str(request.GET.get("variant") or "").strip().lower()
     if requested_variant == BASE_PDF_VARIANT:
         return BASE_PDF_VARIANT
     if requested_variant == SIGNED_PDF_VARIANT:
         return SIGNED_PDF_VARIANT
-    return SIGNED_PDF_VARIANT
+    return None
 
 
 @xframe_options_exempt
@@ -207,6 +207,9 @@ def visualizar_pdf_assinatura(request, pk):
     budget = get_object_or_404(Budget.objects.select_related("workshop"), pk=pk, workshop=workshop)
     should_download = request.GET.get("download") == "1"
     requested_variant = _get_requested_pdf_variant(request)
+
+    if requested_variant is None:
+        requested_variant = SIGNED_PDF_VARIANT if should_default_to_signed_budget_pdf(budget=budget) else BASE_PDF_VARIANT
 
     if requested_variant == SIGNED_PDF_VARIANT and can_use_signed_budget_pdf(budget=budget):
         try:
