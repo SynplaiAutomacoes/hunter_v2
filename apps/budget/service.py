@@ -12,6 +12,18 @@ BUDGET_SIGNATURE_FILE_ROUTE = "budget:signature_file"
 BUDGET_SIGNATURE_PREVIEW_ROUTE = "budget:signature_preview"
 
 
+def can_use_signed_budget_pdf(*, budget) -> bool:
+    from apps.budget.models import SignatureStatus
+
+    return bool(budget.signature_document_id or budget.signature_external_id) and budget.signature_request_status in {SignatureStatus.SENT, SignatureStatus.APPROVED}
+
+
+def should_default_to_signed_budget_pdf(*, budget) -> bool:
+    from apps.budget.models import SignatureStatus
+
+    return bool(budget.signature_document_id or budget.signature_external_id) and budget.signature_request_status == SignatureStatus.APPROVED
+
+
 def build_signature_payload(budget) -> dict:
     return get_signature_service().build_signature_payload(
         document_id_key=BUDGET_SIGNATURE_DOCUMENT_ID_KEY,
