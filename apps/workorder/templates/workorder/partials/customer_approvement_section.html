@@ -105,13 +105,13 @@
                 <button type="button" class="btn btn-primary" data-allow-locked="1"
                     onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {
                         detail: {
-                            url: '{% url 'workorder:visualizar_pdf' workorder.pk %}?variant={% if workorder.signature_request_status == 'approved' and workorder.signature_external_id or workorder.signature_document_id %}signed{% else %}base{% endif %}',
-                            downloadUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?download=1&variant={% if workorder.signature_request_status == 'approved' and workorder.signature_external_id or workorder.signature_document_id %}signed{% else %}base{% endif %}',
+                            url: '{% url 'workorder:visualizar_pdf' workorder.pk %}',
+                            downloadUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?download=1',
                             showSignatureBtn: true,
                             signatureBlocked: {% if workorder.has_signature_blockers %}true{% else %}false{% endif %},
                             signatureBlockedReason: '{{ workorder.signature_blockers_display|escapejs }}',
                             showPdfVariantToggle: {% if workorder.signature_request_status == 'sent' or workorder.signature_request_status == 'approved' %}{% if workorder.signature_external_id or workorder.signature_document_id %}true{% else %}false{% endif %}{% else %}false{% endif %},
-                            pdfVariant: '{% if workorder.signature_request_status == 'approved' and workorder.signature_external_id or workorder.signature_document_id %}signed{% else %}base{% endif %}',
+                            pdfVariant: '',
                             signedPdfUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?variant=signed',
                             basePdfUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?variant=base',
                             signedDownloadUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?download=1&variant=signed',

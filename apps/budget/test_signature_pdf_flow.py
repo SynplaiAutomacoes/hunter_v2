@@ -49,8 +49,9 @@ class BudgetSignaturePdfFlowTests(SimpleTestCase):
 
         entry = _build_customer_budget_history_entry(budget)
 
-        self.assertTrue(entry["pdf_url"].endswith("?variant=base"))
-        self.assertTrue(entry["pdf_download_url"].endswith("?variant=base&download=1"))
+        self.assertFalse(entry["pdf_url"].endswith("?variant=base"))
+        self.assertFalse(entry["pdf_url"].endswith("?variant=signed"))
+        self.assertEqual(entry["pdf_download_url"], "/budget/visualizar-pdf-assinatura/538?download=1")
 
     def test_signed_pdf_view_falls_back_to_base_pdf_when_signature_download_fails(self) -> None:
         request = self.factory.get("/budget/visualizar-pdf-assinatura/538?variant=signed")
@@ -89,3 +90,35 @@ class BudgetSignaturePdfFlowTests(SimpleTestCase):
         ):
             with self.assertRaises(SignatureServiceError):
                 service.download_signed_document(document_id="doc-1")
+
+    def test_budget_pdf_view_resolves_variant_server_side_when_not_specified(self) -> None:
+        request = self.factory.get("/budget/visualizar-pdf-assinatura/538")
+        budget = SimpleNamespace(
+            id=538,
+            pk=538,
+            workshop=SimpleNamespace(),
+            signature_request_status=SignatureStatus.APPROVED,
+            signature_document_id="doc-1",
+            signature_external_id="env-1",
+        )
+        signed_pdf = b"%PDF-signed"
+        pdf_response = HttpResponse(signed_pdf, content_type="application/pdf")
+
+        with (
+            patch("apps.budget.views.pdf_views.get_active_workshop_or_404", return_value=budget.workshop),
+            patch("apps.budget.views.pdf_views.get_object_or_404", return_value=budget),
+            patch("apps.budget.views.pdf_views.get_signature_service") as get_signature_service,
+            patch("apps.budget.views.pdf_views._build_budget_pdf_file_response", return_value=pdf_response) as build_response,
+        ):
+            signature_service = Mock()
+            signature_service.download_signed_document.return_value = signed_pdf
+            get_signature_service.return_value = signature_service
+
+            response = visualizar_pdf_assinatura(request, pk=budget.pk)
+
+        self.assertIs(response, pdf_response)
+        signature_service.download_signed_document.assert_called_once_with(
+            document_id="doc-1",
+            envelope_id="env-1",
+        )
+        build_response.assert_called_once()

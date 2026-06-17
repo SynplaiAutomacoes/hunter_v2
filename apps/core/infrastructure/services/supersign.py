@@ -135,9 +135,10 @@ def process_supersign_webhook_payload(*, payload: dict[str, Any]) -> HttpRespons
     try:
         if budget is not None:
             if not budget.approve():
-                logger.info("Webhook ignorado: budget ja aprovado", extra={"budget_id": budget.pk, "envelope_id": envelope_id})
-                return HttpResponse(status=200)
-            logger.info("Budget aprovado automaticamente por webhook", extra={"budget_id": budget.pk, "envelope_id": envelope_id})
+                budget.mark_signature_approved()
+                logger.info("Budget ja estava aprovado; assinatura marcada por webhook", extra={"budget_id": budget.pk, "envelope_id": envelope_id})
+            else:
+                logger.info("Budget aprovado automaticamente por webhook", extra={"budget_id": budget.pk, "envelope_id": envelope_id})
 
         if workorder is not None:
             workorder.mark_signature_approved()
