@@ -1054,185 +1054,75 @@ class WorkOrderItem(TimeStampedModel):
     def get_kit_total_with_overrides(self):
         if not self.kit:
             return Money(0, "BRL")
-
-        total_produtos = Money(0, "BRL")
-        total_servicos = Money(0, "BRL")
-        product_overrides, service_overrides = self._get_kit_override_maps()
-
-        for kit_product in self._iter_kit_products():
-            override = product_overrides.get(kit_product.product_id)
-            if override:
-                if override.quantity <= 0:
-                    produto_subtotal = Money(0, "BRL")
-                else:
-                    produto_subtotal = (override.product_selling_price * override.quantity) + override.shipping
-            elif kit_product.quantity > 0:
-                produto_subtotal = (kit_product.product.selling_price * kit_product.quantity) + Money(0, "BRL")
-            else:
-                produto_subtotal = Money(0, "BRL")
-            total_produtos += produto_subtotal
-
-        for kit_service in self._iter_kit_services():
-            override = service_overrides.get(kit_service.service_id)
-            if override:
-                if override.quantity <= 0:
-                    servico_subtotal = Money(0, "BRL")
-                else:
-                    servico_subtotal = override.service_selling_price * override.quantity
-            elif kit_service.quantity > 0:
-                servico_subtotal = kit_service.resolved_selling_price * kit_service.quantity
-            else:
-                servico_subtotal = Money(0, "BRL")
-            total_servicos += servico_subtotal
-
-        total_kit = total_produtos + total_servicos
-
-        return total_kit * self.quantity
+        return (self.get_kit_products_total() + self.get_kit_services_total()) * self.quantity
 
     def get_kit_products_total(self):
         if not self.kit:
             return Money(0, "BRL")
-
-        total_produtos = Money(0, "BRL")
-        product_overrides, _ = self._get_kit_override_maps()
-        for kit_product in self._iter_kit_products():
-            override = product_overrides.get(kit_product.product_id)
-            if override:
-                if override.quantity <= 0:
-                    produto_subtotal = Money(0, "BRL")
-                else:
-                    produto_subtotal = (override.product_selling_price * override.quantity) + override.shipping
-            elif kit_product.quantity > 0:
-                produto_subtotal = (kit_product.product.selling_price * kit_product.quantity) + Money(0, "BRL")
-            else:
-                produto_subtotal = Money(0, "BRL")
-            total_produtos += produto_subtotal
-
-        return total_produtos * self.quantity
+        return sum(
+            (ov.product_selling_price * ov.quantity) + ov.shipping
+            for ov in self._iter_frozen_kit_product_overrides()
+        ) * self.quantity
 
     def get_kit_services_total(self):
         if not self.kit:
             return Money(0, "BRL")
-
-        total_servicos = Money(0, "BRL")
-        _, service_overrides = self._get_kit_override_maps()
-        for kit_service in self._iter_kit_services():
-            override = service_overrides.get(kit_service.service_id)
-            if override:
-                if override.quantity <= 0:
-                    servico_subtotal = Money(0, "BRL")
-                else:
-                    servico_subtotal = override.service_selling_price * override.quantity
-            elif kit_service.quantity > 0:
-                servico_subtotal = kit_service.resolved_selling_price * kit_service.quantity
-            else:
-                servico_subtotal = Money(0, "BRL")
-            total_servicos += servico_subtotal
-
-        return total_servicos * self.quantity
+        return sum(
+            ov.service_selling_price * ov.quantity
+            for ov in self._iter_frozen_kit_service_overrides()
+        ) * self.quantity
 
     def get_kit_services_duration(self):
         if not self.kit:
             return timedelta(0)
-
-        total_duration = timedelta(0)
-        _, service_overrides = self._get_kit_override_maps()
-        for kit_service in self._iter_kit_services():
-            override = service_overrides.get(kit_service.service_id)
-            if override:
-                if override.quantity > 0 and override.duration:
-                    total_duration += override.duration * override.quantity
-            elif kit_service.quantity > 0 and kit_service.service.duration:
-                total_duration += kit_service.service.duration * kit_service.quantity
-
-        return total_duration * self.quantity
+        return sum(
+            (ov.duration * ov.quantity)
+            for ov in self._iter_frozen_kit_service_overrides()
+            if ov.duration
+        ) * self.quantity
 
     def get_kit_products_shipping_total(self):
         if not self.kit:
             return Money(0, "BRL")
-
-        total_shipping = Money(0, "BRL")
-        product_overrides, _ = self._get_kit_override_maps()
-        for kit_product in self._iter_kit_products():
-            override = product_overrides.get(kit_product.product_id)
-            if override and override.quantity > 0:
-                total_shipping += override.shipping
-
-        return total_shipping * self.quantity
+        return sum(
+            ov.shipping
+            for ov in self._iter_frozen_kit_product_overrides()
+            if ov.quantity > 0
+        ) * self.quantity
 
     def get_kit_products_cost_total(self):
         if not self.kit:
             return Money(0, "BRL")
-
-        total_cost = Money(0, "BRL")
-        product_overrides, _ = self._get_kit_override_maps()
-        for kit_product in self._iter_kit_products():
-            override = product_overrides.get(kit_product.product_id)
-            if override:
-                if override.quantity <= 0:
-                    continue
-                total_cost += override.product_cost_price * override.quantity
-            elif kit_product.quantity > 0:
-                total_cost += kit_product.product.cost_price * kit_product.quantity
-
-        return total_cost * self.quantity
+        return sum(
+            ov.product_cost_price * ov.quantity
+            for ov in self._iter_frozen_kit_product_overrides()
+        ) * self.quantity
 
     def get_kit_services_cost_total(self):
         if not self.kit:
             return Money(0, "BRL")
-
-        total_cost = Money(0, "BRL")
-        _, service_overrides = self._get_kit_override_maps()
-        for kit_service in self._iter_kit_services():
-            override = service_overrides.get(kit_service.service_id)
-            if override:
-                if override.quantity <= 0:
-                    continue
-                total_cost += override.service_cost_price * override.quantity
-            elif kit_service.quantity > 0 and kit_service.service.suggested_cost:
-                total_cost += kit_service.service.suggested_cost * kit_service.quantity
-
-        return total_cost * self.quantity
+        return sum(
+            ov.service_cost_price * ov.quantity
+            for ov in self._iter_frozen_kit_service_overrides()
+        ) * self.quantity
 
     def get_kit_third_party_services_cost_total(self):
         if not self.kit:
             return Money(0, "BRL")
-
-        total_cost = Money(0, "BRL")
-        _, service_overrides = self._get_kit_override_maps()
-        for kit_service in self._iter_kit_services():
-            if not kit_service.service.is_third_party:
-                continue
-
-            override = service_overrides.get(kit_service.service_id)
-            if override:
-                if override.quantity <= 0:
-                    continue
-                total_cost += override.service_cost_price * override.quantity
-            elif kit_service.quantity > 0 and kit_service.service.suggested_cost:
-                total_cost += kit_service.service.suggested_cost * kit_service.quantity
-
-        return total_cost * self.quantity
+        return sum(
+            ov.service_cost_price * ov.quantity
+            for ov in self._iter_frozen_kit_service_overrides()
+            if ov.service and ov.service.is_third_party
+        ) * self.quantity
 
     def get_kit_third_party_services_selling_total(self):
         if not self.kit:
             return Money(0, "BRL")
-
-        total_selling = Money(0, "BRL")
-        _, service_overrides = self._get_kit_override_maps()
-        for kit_service in self._iter_kit_services():
-            if not kit_service.service.is_third_party:
-                continue
-
-            override = service_overrides.get(kit_service.service_id)
-            if override:
-                if override.quantity <= 0:
-                    continue
-                total_selling += override.service_selling_price * override.quantity
-            elif kit_service.quantity > 0:
-                total_selling += kit_service.resolved_selling_price * kit_service.quantity
-
-        return total_selling * self.quantity
+        return sum(
+            ov.service_selling_price * ov.quantity
+            for ov in self._iter_frozen_kit_service_overrides()
+            if ov.service and ov.service.is_third_party
+        ) * self.quantity
 
     class Meta:
         verbose_name = "Item da O.S."
