@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.conf import settings
 from django.http import HttpRequest
 
-from apps.core.domain.contracts.documents import SignatureRecipient
 from apps.core.domain.contracts.signature import (
     ISignatureService,
     SignatureSendRequest,
@@ -15,12 +13,11 @@ from apps.core.domain.contracts.signature import (
 from apps.core.infrastructure.gateways.supersign import (
     SuperSignGatewayError,
     create_supersign_webhook,
-    download_signed_document,
     list_supersign_webhooks,
     send_pdf_for_signature,
 )
 from apps.core.infrastructure.services.signature import (
-    build_absolute_app_url,
+    SignatureDeliveryServiceError,
     build_document_signature_payload,
     build_document_signature_token,
     build_document_signature_url,
@@ -66,6 +63,8 @@ class SuperSignSignatureService(ISignatureService):
     def download_signed_document(self, *, document_id: str | None = None, envelope_id: str | None = None) -> bytes:
         try:
             return download_signed_document_content(document_id=document_id, envelope_id=envelope_id)
+        except SignatureDeliveryServiceError as exc:
+            raise SignatureServiceError(str(exc)) from exc
         except SignatureServiceError:
             raise
 
