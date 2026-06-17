@@ -9,7 +9,6 @@ from django.views.generic import CreateView, DeleteView, DetailView, ListView, T
 
 from apps.catalog.models import FipeModelFuelCache, FipeVehicleBrand, FipeVehicleModel, FipeVehicleType
 from apps.budget.models import Budget
-from apps.budget.service import should_default_to_signed_budget_pdf
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.infrastructure.search import apply_text_search
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -55,8 +54,7 @@ def _build_customer_history_vehicle_label(vehicle: Vehicle | None) -> str:
 
 
 def _build_customer_budget_history_entry(budget: Budget) -> dict[str, Any]:
-    default_variant = "signed" if should_default_to_signed_budget_pdf(budget=budget) else "base"
-    pdf_url = f"{reverse('budget:visualizar_pdf_assinatura', kwargs={'pk': budget.pk})}?variant={default_variant}"
+    pdf_url = reverse("budget:visualizar_pdf_assinatura", kwargs={"pk": budget.pk})
     return {
         "date": budget.criado_em,
         "type_label": "Orçamento",
@@ -66,13 +64,12 @@ def _build_customer_budget_history_entry(budget: Budget) -> dict[str, Any]:
         "status_badge": budget.budget_status_badge,
         "pdf_title": f"Orçamento #{budget.pk}",
         "pdf_url": pdf_url,
-        "pdf_download_url": f"{pdf_url}&download=1",
+        "pdf_download_url": f"{pdf_url}?download=1",
     }
 
 
 def _build_customer_workorder_history_entry(workorder: WorkOrder) -> dict[str, Any]:
-    default_variant = "signed" if workorder.signature_request_status == "approved" and (workorder.signature_document_id or workorder.signature_external_id) else "base"
-    pdf_url = f"{reverse('workorder:visualizar_pdf', kwargs={'pk': workorder.pk})}?variant={default_variant}"
+    pdf_url = reverse("workorder:visualizar_pdf", kwargs={"pk": workorder.pk})
     return {
         "date": workorder.criado_em,
         "type_label": "OS",
@@ -82,7 +79,7 @@ def _build_customer_workorder_history_entry(workorder: WorkOrder) -> dict[str, A
         "status_badge": workorder.workorder_status_badge,
         "pdf_title": f"OS #{workorder.get_id}",
         "pdf_url": pdf_url,
-        "pdf_download_url": f"{pdf_url}&download=1",
+        "pdf_download_url": f"{pdf_url}?download=1",
     }
 
 
