@@ -202,6 +202,16 @@ class _ProductAggregate:
     is_local: bool = False
     is_customer_supplied: bool = False
     source_object: Any | None = None
+    direct_description: str = ""
+    direct_code: str = ""
+    direct_application: str = ""
+    direct_location: str = ""
+    direct_source_object: Any | None = None
+    kit_description: str = ""
+    kit_code: str = ""
+    kit_application: str = ""
+    kit_location: str = ""
+    kit_source_object: Any | None = None
     direct_quantity: int = 0
     direct_total: Money = field(default_factory=zero_money)
     direct_cost_total: Money = field(default_factory=zero_money)
@@ -221,6 +231,10 @@ class _ServiceAggregate:
     source_item_id: int | None = None
     is_local: bool = False
     source_object: Any | None = None
+    direct_description: str = ""
+    direct_source_object: Any | None = None
+    kit_description: str = ""
+    kit_source_object: Any | None = None
     direct_quantity: int = 0
     direct_raw_total: Money = field(default_factory=zero_money)
     direct_cost_total: Money = field(default_factory=zero_money)
@@ -346,15 +360,18 @@ def build_pricing_snapshot(
                     location=str(getattr(product, "location", "") or ""),
                     is_local=bool(product_id is None),
                     source_object=product,
+                    direct_description=str(getattr(item, "description", "") or getattr(product, "name", "Produto")),
+                    direct_code=str(getattr(product, "code", "") or ""),
+                    direct_application=str(getattr(product, "application", "") or ""),
+                    direct_location=str(getattr(product, "location", "") or ""),
+                    direct_source_object=product,
                 )
                 product_aggregates[key] = aggregate
 
             direct_total = (_coerce_money(getattr(item, "product_selling_price", None)) * item_quantity) + _coerce_money(getattr(item, "shipping", None))
             direct_cost_total = _coerce_money(getattr(item, "product_cost_price", None)) * item_quantity
             direct_shipping = _coerce_money(getattr(item, "shipping", None))
-            should_replace_direct = product_id is not None and (
-                item_quantity > aggregate.direct_quantity or (item_quantity == aggregate.direct_quantity and direct_total.amount > aggregate.direct_total.amount)
-            )
+            should_replace_direct = product_id is not None and (item_quantity > aggregate.direct_quantity or (item_quantity == aggregate.direct_quantity and direct_total.amount > aggregate.direct_total.amount))
             if product_id is None:
                 aggregate.direct_quantity += item_quantity
                 aggregate.direct_total += direct_total
@@ -365,6 +382,11 @@ def build_pricing_snapshot(
                 aggregate.direct_total = direct_total
                 aggregate.direct_cost_total = direct_cost_total
                 aggregate.direct_shipping = direct_shipping
+                aggregate.direct_description = str(getattr(item, "description", "") or getattr(getattr(item, "product", None), "name", "Produto"))
+                aggregate.direct_code = str(getattr(getattr(item, "product", None), "code", "") or "")
+                aggregate.direct_application = str(getattr(getattr(item, "product", None), "application", "") or "")
+                aggregate.direct_location = str(getattr(getattr(item, "product", None), "location", "") or "")
+                aggregate.direct_source_object = getattr(item, "product", None)
             aggregate.is_customer_supplied = aggregate.is_customer_supplied or bool(getattr(item, "is_customer_supplied", False))
             continue
 
@@ -381,6 +403,8 @@ def build_pricing_snapshot(
                     source_item_id=item_id if service_id is None else None,
                     is_local=bool(service_id is None),
                     source_object=service,
+                    direct_description=str(getattr(item, "description", "") or getattr(service, "name", "Servico")),
+                    direct_source_object=service,
                     third_party=bool(getattr(service, "is_third_party", False)),
                 )
                 service_aggregates[key] = service_aggregate
@@ -391,6 +415,8 @@ def build_pricing_snapshot(
             item_duration = getattr(item, "duration", None)
             if item_duration:
                 service_aggregate.direct_duration += item_duration * item_quantity
+            service_aggregate.direct_description = str(getattr(item, "description", "") or getattr(getattr(item, "service", None), "name", "Servico"))
+            service_aggregate.direct_source_object = getattr(item, "service", None)
             service_aggregate.has_direct_source = True
             continue
 
@@ -433,11 +459,11 @@ def build_pricing_snapshot(
             aggregate.kit_total += (unit_price * consolidated_quantity) + shipping
             aggregate.kit_cost_total += unit_cost * consolidated_quantity
             aggregate.kit_shipping += shipping
-            aggregate.code = str(getattr(product, "code", "") or "")
-            aggregate.application = str(getattr(product, "application", "") or "")
-            aggregate.location = str(getattr(product, "location", "") or "")
-            aggregate.source_object = product
-            aggregate.description = str(getattr(product, "name", aggregate.description) or aggregate.description)
+            aggregate.kit_code = str(getattr(product, "code", "") or "")
+            aggregate.kit_application = str(getattr(product, "application", "") or "")
+            aggregate.kit_location = str(getattr(product, "location", "") or "")
+            aggregate.kit_source_object = product
+            aggregate.kit_description = str(getattr(product, "name", aggregate.description) or aggregate.description)
 
         for kit_service in item._iter_kit_services():
             service = kit_service.service
@@ -487,8 +513,8 @@ def build_pricing_snapshot(
             service_aggregate.kit_cost_total += unit_cost * consolidated_quantity
             service_aggregate.kit_fixed_cost_total += fixed_cost_total
             service_aggregate.kit_duration += service_duration
-            service_aggregate.description = str(getattr(service, "name", service_aggregate.description) or service_aggregate.description)
-            service_aggregate.source_object = service
+            service_aggregate.kit_description = str(getattr(service, "name", service_aggregate.description) or service_aggregate.description)
+            service_aggregate.kit_source_object = service
 
             service_aggregate.has_kit_source = True
             service_aggregate.third_party = service_aggregate.third_party or bool(getattr(service, "is_third_party", False))
@@ -504,23 +530,38 @@ def build_pricing_snapshot(
             elif product_aggregate.kit_quantity > product_aggregate.direct_quantity:
                 use_direct_source = False
             else:
-                use_direct_source = product_aggregate.direct_total.amount >= product_aggregate.kit_total.amount
+                use_direct_source = product_aggregate.direct_total.amount > product_aggregate.kit_total.amount
 
             if use_direct_source:
                 quantity = product_aggregate.direct_quantity
                 raw_total = product_aggregate.direct_total
                 cost_total = product_aggregate.direct_cost_total
                 shipping = product_aggregate.direct_shipping
+                description = product_aggregate.direct_description or product_aggregate.description
+                code = product_aggregate.direct_code
+                application = product_aggregate.direct_application
+                location = product_aggregate.direct_location
+                source_object = product_aggregate.direct_source_object
             else:
                 quantity = product_aggregate.kit_quantity
                 raw_total = product_aggregate.kit_total
                 cost_total = product_aggregate.kit_cost_total
                 shipping = product_aggregate.kit_shipping
+                description = product_aggregate.kit_description or product_aggregate.description
+                code = product_aggregate.kit_code
+                application = product_aggregate.kit_application
+                location = product_aggregate.kit_location
+                source_object = product_aggregate.kit_source_object
         else:
             quantity = product_aggregate.direct_quantity + product_aggregate.kit_quantity
             raw_total = product_aggregate.direct_total + product_aggregate.kit_total
             cost_total = product_aggregate.direct_cost_total + product_aggregate.kit_cost_total
             shipping = product_aggregate.direct_shipping + product_aggregate.kit_shipping
+            description = product_aggregate.direct_description or product_aggregate.kit_description or product_aggregate.description
+            code = product_aggregate.direct_code or product_aggregate.kit_code
+            application = product_aggregate.direct_application or product_aggregate.kit_application
+            location = product_aggregate.direct_location or product_aggregate.kit_location
+            source_object = product_aggregate.direct_source_object or product_aggregate.kit_source_object
 
         if quantity <= 0 and raw_total.amount <= 0:
             continue
@@ -531,19 +572,19 @@ def build_pricing_snapshot(
                 source_item_id=product_aggregate.source_item_id,
                 kind="product",
                 entity_id=product_aggregate.entity_id,
-                description=product_aggregate.description,
+                description=description,
                 quantity=quantity,
                 raw_total=raw_total,
                 cost_total=cost_total,
                 shipping=shipping,
-                code=product_aggregate.code,
-                application=product_aggregate.application,
-                location=product_aggregate.location,
+                code=code,
+                application=application,
+                location=location,
                 is_local=product_aggregate.is_local,
                 is_customer_supplied=product_aggregate.is_customer_supplied,
                 has_direct_source=has_direct_source,
                 has_kit_source=has_kit_source,
-                source_object=product_aggregate.source_object,
+                source_object=source_object,
             )
         )
 
@@ -558,7 +599,7 @@ def build_pricing_snapshot(
             elif service_aggregate.kit_quantity > service_aggregate.direct_quantity:
                 use_direct_source = False
             else:
-                use_direct_source = service_aggregate.direct_raw_total.amount >= service_aggregate.kit_raw_total.amount
+                use_direct_source = service_aggregate.direct_raw_total.amount > service_aggregate.kit_raw_total.amount
 
             if use_direct_source:
                 quantity = service_aggregate.direct_quantity
@@ -566,18 +607,24 @@ def build_pricing_snapshot(
                 cost_total = service_aggregate.direct_cost_total
                 duration = service_aggregate.direct_duration
                 fixed_cost_total = zero_money()
+                description = service_aggregate.direct_description or service_aggregate.description
+                source_object = service_aggregate.direct_source_object
             else:
                 quantity = service_aggregate.kit_quantity
                 raw_total = service_aggregate.kit_raw_total
                 cost_total = service_aggregate.kit_cost_total
                 duration = service_aggregate.kit_duration
                 fixed_cost_total = service_aggregate.kit_fixed_cost_total
+                description = service_aggregate.kit_description or service_aggregate.description
+                source_object = service_aggregate.kit_source_object
         else:
             quantity = service_aggregate.direct_quantity + service_aggregate.kit_quantity
             raw_total = service_aggregate.direct_raw_total + service_aggregate.kit_raw_total
             cost_total = service_aggregate.direct_cost_total + service_aggregate.kit_cost_total
             duration = service_aggregate.direct_duration + service_aggregate.kit_duration
             fixed_cost_total = service_aggregate.kit_fixed_cost_total
+            description = service_aggregate.direct_description or service_aggregate.kit_description or service_aggregate.description
+            source_object = service_aggregate.direct_source_object or service_aggregate.kit_source_object
 
         if quantity <= 0 and raw_total.amount <= 0:
             continue
@@ -588,7 +635,7 @@ def build_pricing_snapshot(
                 source_item_id=service_aggregate.source_item_id,
                 kind="service",
                 entity_id=service_aggregate.entity_id,
-                description=service_aggregate.description,
+                description=description,
                 quantity=quantity,
                 raw_total=raw_total,
                 cost_total=cost_total,
@@ -598,7 +645,7 @@ def build_pricing_snapshot(
                 has_direct_source=has_direct_source,
                 has_kit_source=has_kit_source,
                 third_party=service_aggregate.third_party,
-                source_object=service_aggregate.source_object,
+                source_object=source_object,
                 fixed_cost_total=fixed_cost_total,
             )
         )
