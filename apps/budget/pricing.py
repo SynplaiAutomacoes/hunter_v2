@@ -423,12 +423,9 @@ def build_pricing_snapshot(
         if kit_id is None:
             continue
 
-        product_overrides, service_overrides = item._get_kit_override_maps()
-
-        for kit_product in item._iter_kit_products():
-            product = kit_product.product
-            override = product_overrides.get(kit_product.product_id)
-            per_kit_quantity = int((override.quantity if override else kit_product.quantity) or 0)
+        for override in item._iter_frozen_kit_product_overrides():
+            product = override.product
+            per_kit_quantity = override.quantity
             if per_kit_quantity <= 0:
                 continue
 
@@ -436,12 +433,12 @@ def build_pricing_snapshot(
             if consolidated_quantity <= 0:
                 continue
 
-            key = f"product-{kit_product.product_id}"
+            key = f"product-{override.product_id}"
             aggregate = product_aggregates.get(key)
             if aggregate is None:
                 aggregate = _ProductAggregate(
                     key=key,
-                    entity_id=kit_product.product_id,
+                    entity_id=override.product_id,
                     description=str(getattr(product, "name", "Produto") or "Produto"),
                     sort_order=sort_order,
                     code=str(getattr(product, "code", "") or ""),
@@ -451,9 +448,9 @@ def build_pricing_snapshot(
                 )
                 product_aggregates[key] = aggregate
 
-            shipping = _coerce_money(getattr(override, "shipping", None)) * item_quantity if override else zero_money()
-            unit_price = override.product_selling_price if override else product.selling_price
-            unit_cost = override.product_cost_price if override else product.cost_price
+            shipping = override.shipping * item_quantity
+            unit_price = override.product_selling_price
+            unit_cost = override.product_cost_price
 
             aggregate.kit_quantity += consolidated_quantity
             aggregate.kit_total += (unit_price * consolidated_quantity) + shipping
@@ -465,10 +462,9 @@ def build_pricing_snapshot(
             aggregate.kit_source_object = product
             aggregate.kit_description = str(getattr(product, "name", aggregate.description) or aggregate.description)
 
-        for kit_service in item._iter_kit_services():
-            service = kit_service.service
-            override = service_overrides.get(kit_service.service_id)
-            per_kit_quantity = int((override.quantity if override else kit_service.quantity) or 0)
+        for override in item._iter_frozen_kit_service_overrides():
+            service = override.service
+            per_kit_quantity = override.quantity
             if per_kit_quantity <= 0:
                 continue
 
@@ -476,12 +472,12 @@ def build_pricing_snapshot(
             if consolidated_quantity <= 0:
                 continue
 
-            key = f"service-{kit_service.service_id}"
+            key = f"service-{override.service_id}"
             service_aggregate = service_aggregates.get(key)
             if service_aggregate is None:
                 service_aggregate = _ServiceAggregate(
                     key=key,
-                    entity_id=kit_service.service_id,
+                    entity_id=override.service_id,
                     description=str(getattr(service, "name", "Servico") or "Servico"),
                     sort_order=sort_order,
                     source_object=service,
@@ -489,24 +485,12 @@ def build_pricing_snapshot(
                 )
                 service_aggregates[key] = service_aggregate
 
-            if override:
-                unit_price = override.service_selling_price
-                unit_cost = override.service_cost_price
-                fixed_cost_total = unit_cost * consolidated_quantity
-            else:
-                try:
-                    unit_cost, unit_price = item.resolve_kit_service_base_prices(kit_service=kit_service)
-                except AttributeError:
-                    unit_cost = kit_service.resolved_cost_price
-                    unit_price = kit_service.resolved_selling_price
-                fixed_cost_total = zero_money()
+            unit_price = override.service_selling_price
+            unit_cost = override.service_cost_price
+            fixed_cost_total = unit_cost * consolidated_quantity
             service_duration = timedelta(0)
-
-            if override:
-                if override.duration:
-                    service_duration = override.duration * consolidated_quantity
-            elif kit_service.duration:
-                service_duration = kit_service.duration * consolidated_quantity
+            if override.duration:
+                service_duration = override.duration * consolidated_quantity
 
             service_aggregate.kit_quantity += consolidated_quantity
             service_aggregate.kit_raw_total += unit_price * consolidated_quantity
