@@ -434,18 +434,20 @@ def _is_successful_cancellation_response(payload: dict[str, Any]) -> bool:
 
 def apply_ibs_cbs_event_cancellation_payload(*, event: FiscalDocumentEvent, response_payload: dict[str, Any]) -> FiscalDocumentEvent:
     sanitized_payload = sanitize_fiscal_payload(response_payload)
-    event.response_payload = sanitized_payload
-    event.status = _status_from_event_payload(response_payload)
-    event.remote_uuid = str(response_payload.get("uuid") or event.remote_uuid or "").strip()
-    event.remote_event_id = str(response_payload.get("protocolo_evento") or response_payload.get("protocolo") or response_payload.get("id_evento") or event.remote_event_id or "").strip()
-    event.remote_model = str(response_payload.get("modelo") or response_payload.get("model") or event.remote_model or "ibs_cbs_cancellation").strip().lower()
-    event.xml_url = str(response_payload.get("xml") or event.xml_url or "").strip()
-    event.save(update_fields=["response_payload", "status", "remote_uuid", "remote_event_id", "remote_model", "xml_url", "atualizado_em"])
+    with transaction.atomic():
+        event = FiscalDocumentEvent.objects.select_for_update().get(pk=event.pk)
+        event.response_payload = sanitized_payload
+        event.status = _status_from_event_payload(response_payload)
+        event.remote_uuid = str(response_payload.get("uuid") or event.remote_uuid or "").strip()
+        event.remote_event_id = str(response_payload.get("protocolo_evento") or response_payload.get("protocolo") or response_payload.get("id_evento") or event.remote_event_id or "").strip()
+        event.remote_model = str(response_payload.get("modelo") or response_payload.get("model") or event.remote_model or "ibs_cbs_cancellation").strip().lower()
+        event.xml_url = str(response_payload.get("xml") or event.xml_url or "").strip()
+        event.save(update_fields=["response_payload", "status", "remote_uuid", "remote_event_id", "remote_model", "xml_url", "atualizado_em"])
 
-    if _is_successful_cancellation_response(response_payload) and event.related_event_id:
-        original_event = FiscalDocumentEvent.objects.select_for_update().get(pk=event.related_event_id)
-        original_event.status = FiscalDocumentEventStatus.CANCELED
-        original_event.save(update_fields=["status", "atualizado_em"])
+        if _is_successful_cancellation_response(response_payload) and event.related_event_id:
+            original_event = FiscalDocumentEvent.objects.select_for_update().get(pk=event.related_event_id)
+            original_event.status = FiscalDocumentEventStatus.CANCELED
+            original_event.save(update_fields=["status", "atualizado_em"])
     return event
 
 

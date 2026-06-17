@@ -779,7 +779,7 @@ class NfeIbsCbsEventPayloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
             pk=kwargs.get("event_pk"),
             document__workshop=self.workshop,
             document__legacy_nfe_item__request=nfe_request,
-            event_type=FiscalDocumentEventType.IBS_CBS,
+            event_type__in=[FiscalDocumentEventType.IBS_CBS, FiscalDocumentEventType.IBS_CBS_CANCELLATION],
         )
         return JsonResponse(
             {

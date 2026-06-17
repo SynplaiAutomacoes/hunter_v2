@@ -237,7 +237,7 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
         ibs_cbs_cancellation_event = resolve_ibs_cbs_event_cancellation_for_webhook(payload=payload)
         if ibs_cbs_cancellation_event is not None:
             with transaction.atomic():
-                ibs_cbs_cancellation_event = FiscalDocumentEvent.objects.select_for_update().select_related("document", "related_event").get(pk=ibs_cbs_cancellation_event.pk)
+                ibs_cbs_cancellation_event = FiscalDocumentEvent.objects.select_for_update(of=("self",)).select_related("document", "related_event").get(pk=ibs_cbs_cancellation_event.pk)
                 if not _is_regressive_status(model="ibs_cbs", current_status=ibs_cbs_cancellation_event.status, incoming_status=str(payload.get("status") or "")):
                     apply_ibs_cbs_event_cancellation_payload(event=ibs_cbs_cancellation_event, response_payload=payload)
 

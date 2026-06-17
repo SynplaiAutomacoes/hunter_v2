@@ -13561,7 +13561,7 @@ class FiscalPhaseTwoIbsCbsEvent112110CancellationTests(TestCase):
         rejected_event = self._create_event(suffix=14)
         with (
             patch("apps.finance.services.nfe_ibs_cbs_events._build_headers", return_value={}),
-            patch("apps.finance.services.nfe_ibs_cbs_events.requests.put", return_value=_mock_response(self._response(status="rejeitado"))),
+            patch("apps.finance.services.nfe_ibs_cbs_events.requests.put", return_value=_mock_response(self._response(uuid="eb895e61-c0da-46ee-a880-a03f8547a014", status="rejeitado"))),
         ):
             with self.assertRaisesMessage(NfeIbsCbsEventError, "rejeitado"):
                 cancel_ibs_cbs_event_112110(event=rejected_event, requested_by=self.user)
@@ -13696,6 +13696,6 @@ class FiscalPhaseTwoIbsCbsEvent112110CancellationConcurrentTests(TransactionTest
                 thread.join(timeout=10)
 
         self.assertEqual(put_mock.call_count, 1)
-        self.assertEqual(results, ["sent"])
-        self.assertEqual(len(errors), 1)
+        self.assertEqual(results, ["sent"], errors)
+        self.assertEqual(len(errors), 1, errors)
         self.assertEqual(FiscalDocumentEvent.objects.filter(related_event=self.event, event_type=FiscalDocumentEventType.IBS_CBS_CANCELLATION).count(), 1)

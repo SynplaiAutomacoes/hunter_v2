@@ -272,7 +272,7 @@ Subfases funcionais recomendadas:
 - Modelagem: `FiscalDocumentEvent(event_type="ibs_cbs_cancellation")` vinculado ao evento original por `related_event`; nao cria documento fiscal nem `FiscalDocumentLink`.
 - Payload autorizado: `uuid` do evento original, `ambiente` opcional e `url_notificacao` quando aplicavel.
 - Campo proibido: `chave`, `cod_evento`, `evento`, `ibs_cbs`, produtos, credito/debito, complementar tributaria ou payload da NF-e/NFC-e.
-- Aceite esperado: uma chamada remota por intencao, timeout vira `uncertain`, duplicidade bloqueada, webhook idempotente, ambiguidade sem update, permissao `cancel_ibs_cbs_event`, download/payload protegidos e documento base sem alteracao de status.
+- Aceite validado: uma chamada remota por intencao, timeout vira `uncertain`, duplicidade bloqueada, webhook idempotente, ambiguidade sem update, permissao `cancel_ibs_cbs_event`, download/payload protegidos e documento base sem alteracao de status.
 - Fora do escopo: demais cancelamentos de eventos IBS/CBS, outros codigos, credito/debito, complementar tributaria, NFS-e, CT-e e qualquer evento que exija itens/campos especificos.
 
 #### Fase 2.4E - Credito e debito
