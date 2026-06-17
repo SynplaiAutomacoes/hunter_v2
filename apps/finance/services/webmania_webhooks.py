@@ -11,7 +11,7 @@ from apps.finance.models.finance import FiscalDocumentEvent, NfeItem, NfseBatch,
 from apps.finance.services.emission import apply_nfse_batch_payload, apply_nfse_item_payload
 from apps.finance.services.mappers import extract_items_from_batch
 from apps.finance.services.nfe_events import apply_cce_event_payload
-from apps.finance.services.nfe_ibs_cbs_events import apply_ibs_cbs_event_payload, is_ambiguous_ibs_cbs_event_webhook, resolve_ibs_cbs_event_for_webhook
+from apps.finance.services.nfe_ibs_cbs_events import apply_ibs_cbs_event_cancellation_payload, apply_ibs_cbs_event_payload, is_ambiguous_ibs_cbs_event_cancellation_webhook, is_ambiguous_ibs_cbs_event_webhook, resolve_ibs_cbs_event_cancellation_for_webhook, resolve_ibs_cbs_event_for_webhook
 from apps.finance.services.nfe_emission import apply_nfe_item_payload
 from apps.finance.services.nfe_adjustment import apply_nfe_adjustment_document_payload, is_ambiguous_nfe_adjustment_webhook, resolve_nfe_adjustment_document_for_webhook
 from apps.finance.services.nfe_complementary import apply_nfe_complementary_document_payload, is_ambiguous_nfe_complementary_webhook, resolve_nfe_complementary_document_for_webhook
@@ -110,6 +110,9 @@ def _status_rank(model: str, status: str) -> int:
             "processando": 10,
             "uncertain": 15,
             "aprovado": 30,
+            "cancelado": 30,
+            "cancelada": 30,
+            "canceled": 30,
             "succeeded": 30,
             "reprovado": 40,
             "rejeitado": 40,
@@ -231,6 +234,19 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
         return False
 
     if model in {"ibs_cbs", "evento_ibs_cbs", "evento-ibs-cbs"} or str(payload.get("cod_evento") or "").strip():
+        ibs_cbs_cancellation_event = resolve_ibs_cbs_event_cancellation_for_webhook(payload=payload)
+        if ibs_cbs_cancellation_event is not None:
+            with transaction.atomic():
+                ibs_cbs_cancellation_event = FiscalDocumentEvent.objects.select_for_update().select_related("document", "related_event").get(pk=ibs_cbs_cancellation_event.pk)
+                if not _is_regressive_status(model="ibs_cbs", current_status=ibs_cbs_cancellation_event.status, incoming_status=str(payload.get("status") or "")):
+                    apply_ibs_cbs_event_cancellation_payload(event=ibs_cbs_cancellation_event, response_payload=payload)
+
+            _mark_event_processed(event)
+            return True
+        if is_ambiguous_ibs_cbs_event_cancellation_webhook(payload=payload):
+            _mark_event_deferred(event, error=f"Cancelamento de evento IBS/CBS {event_uuid} ambiguo entre eventos.")
+            return False
+
         ibs_cbs_event = resolve_ibs_cbs_event_for_webhook(payload=payload)
         if ibs_cbs_event is not None:
             with transaction.atomic():

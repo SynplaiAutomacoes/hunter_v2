@@ -463,3 +463,11 @@ Resultado da Fase 2.4D.1:
 - A sequencia `event_sequence` e congelada mesmo em `uncertain`; tentativa incerta bloqueia reenvio automatico.
 - O webhook reconhece payloads de evento IBS/CBS por modelo ou `cod_evento`, resolve por UUID remoto do evento ou fallback por chave+sequencia, rejeita ambiguidade e atualiza somente `FiscalDocumentEvent`.
 - Payload persistido e sanitizado remove token da URL de notificacao; headers e credenciais Webmania nao sao persistidos.
+
+Resultado da Fase 2.4D.2:
+
+- Cancelamento do evento `112110` usa `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event_cancellation")`.
+- A chave idempotente inclui oficina, evento original, evento de cancelamento e hash do payload sanitizado.
+- O payload congelado contem somente `uuid`, `ambiente` e `url_notificacao` quando aplicavel; headers/credenciais nao sao persistidos.
+- Timeout marca tentativa e evento de cancelamento como `uncertain`; o evento original permanece autorizado e novo cancelamento automatico fica bloqueado.
+- Webhook de cancelamento resolve primeiro o evento de cancelamento por UUID remoto/tentativa, rejeita ambiguidade e atualiza somente `FiscalDocumentEvent(event_type="ibs_cbs_cancellation")` e o status do evento IBS/CBS original, nunca o documento base.

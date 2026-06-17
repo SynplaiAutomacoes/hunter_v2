@@ -260,6 +260,66 @@
                                                         <a href="{% url 'finance:nfe_ibs_cbs_event_download' pk=nfe_request.pk event_pk=event.pk %}" class="btn btn-outline btn-xs">XML</a>
                                                     {% endif %}
                                                     <a href="{% url 'finance:nfe_ibs_cbs_event_payload' pk=nfe_request.pk event_pk=event.pk %}" class="btn btn-outline btn-xs">Payload</a>
+                                                    {% if can_cancel_ibs_cbs_event_112110 and event.event_code == ibs_cbs_event_code_112110 and event.remote_uuid and event.status == 'aprovado' %}
+                                                        <button type="button" class="btn btn-error btn-xs" onclick="ibs_cbs_event_cancel_{{ event.pk }}.showModal()">Cancelar evento</button>
+                                                    {% endif %}
+                                                </div>
+                                                {% if can_cancel_ibs_cbs_event_112110 and event.event_code == ibs_cbs_event_code_112110 and event.remote_uuid and event.status == 'aprovado' %}
+                                                    <dialog id="ibs_cbs_event_cancel_{{ event.pk }}" class="modal" onclick="if (event.target === this) this.close()">
+                                                        <div class="modal-box w-11/12 max-w-2xl border border-base-300 bg-base-100 shadow-2xl text-left">
+                                                            <form method="post" action="{% url 'finance:nfe_ibs_cbs_event_112110_cancel' pk=nfe_request.pk event_pk=event.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
+                                                                {% csrf_token %}
+                                                                <h3 class="text-base font-semibold text-base-content">Cancelar evento IBS/CBS {{ event.event_code }}</h3>
+                                                                <div class="alert alert-warning mt-4 text-sm">
+                                                                    <span>Este cancelamento afeta somente o evento IBS/CBS. A NF-e original não será cancelada, outros eventos IBS/CBS não estão implementados e crédito/débito permanece fora do escopo.</span>
+                                                                </div>
+                                                                <label class="label cursor-pointer justify-start gap-3 mt-3">
+                                                                    <input type="checkbox" name="confirm_ibs_cbs_event_cancel_112110" class="checkbox checkbox-sm" required>
+                                                                    <span class="label-text">Confirmo a responsabilidade fiscal pelo cancelamento do evento IBS/CBS {{ event.event_code }}.</span>
+                                                                </label>
+                                                                <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                                                                    <button type="button" class="btn-form-cancel" onclick="ibs_cbs_event_cancel_{{ event.pk }}.close()">Voltar</button>
+                                                                    <button type="submit" class="btn btn-error">Cancelar evento</button>
+                                                                </div>
+                                                            </form>
+                                                        </div>
+                                                    </dialog>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                {% endif %}
+                {% if ibs_cbs_cancellation_events %}
+                    <div class="mt-8">
+                        <h3 class="text-base font-semibold text-base-content mb-3">Cancelamentos de eventos IBS/CBS</h3>
+                        <div class="overflow-x-auto rounded-lg border border-base-200">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Evento original</th>
+                                        <th>Status</th>
+                                        <th>UUID</th>
+                                        <th>Atualizado em</th>
+                                        <th class="text-right">Documentos</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for event in ibs_cbs_cancellation_events %}
+                                        <tr>
+                                            <td>{{ event.related_event.event_code|default:event.event_code }} / {{ event.event_sequence }}</td>
+                                            <td>{{ event.status }}</td>
+                                            <td class="break-all">{{ event.remote_uuid|default:'-' }}</td>
+                                            <td>{{ event.atualizado_em|date:'d/m/Y H:i' }}</td>
+                                            <td class="text-right">
+                                                <div class="flex flex-wrap justify-end gap-2">
+                                                    {% if event.xml_url %}
+                                                        <a href="{% url 'finance:nfe_ibs_cbs_event_download' pk=nfe_request.pk event_pk=event.pk %}" class="btn btn-outline btn-xs">XML</a>
+                                                    {% endif %}
+                                                    <a href="{% url 'finance:nfe_ibs_cbs_event_payload' pk=nfe_request.pk event_pk=event.pk %}" class="btn btn-outline btn-xs">Payload</a>
                                                 </div>
                                             </td>
                                         </tr>

@@ -364,6 +364,15 @@
 - Contexto: a Webmania documenta `PUT /1/nfe/evento-ibs-cbs/cancelar/` por UUID do evento autorizado, com ambiente e `url_notificacao` opcionais. Isso cancela o evento, nao o documento fiscal base.
 - Decisao: planejar cancelamento de evento como subfase propria, com tentativa `nfe_ibs_cbs_event_cancellation`, associada ao evento IBS/CBS original. A ausencia de UUID remoto ou status incerto do evento original bloqueia cancelamento.
 
+### ADR 2.4D.2 - Cancelamento do evento IBS/CBS 112110 como evento relacionado
+
+- Decisao: implementar cancelamento somente do evento `112110` autorizado como `FiscalDocumentEvent(event_type="ibs_cbs_cancellation")`, associado ao evento original por `related_event`.
+- Justificativa: o endpoint oficial cancela um evento por UUID remoto e retorna um novo ciclo de status/log; isso nao representa novo documento fiscal nem cancelamento da NF-e/NFC-e base.
+- Payload: enviar somente `uuid`, `ambiente` e `url_notificacao` quando aplicavel. Nao enviar `chave`, `cod_evento`, `evento`, `ibs_cbs`, produtos ou campos de credito/debito.
+- Idempotencia: `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event_cancellation")` associado ao evento de cancelamento; constraint condicional impede cancelamentos ativos/incertos duplicados para o mesmo evento original.
+- Consequencia: sucesso marca o evento original como `cancelado`, mas preserva o status do `FiscalDocument` base. Demais cancelamentos de eventos IBS/CBS permanecem pendentes de subfase propria.
+- Status: implementada na Fase 2.4D.2.
+
 ### ADR 2.4D.1 - Primeiro evento IBS/CBS implementado como evento, nao documento
 
 - Decisao: implementar `cod_evento=112110` como `FiscalDocumentEvent(event_type="ibs_cbs")`, associado a um `FiscalDocument` NF-e/NFC-e normal local autorizado.

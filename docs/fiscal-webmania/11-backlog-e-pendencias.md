@@ -82,11 +82,11 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Revalidar oficialmente antes de qualquer ampliacao de ajuste. Na Fase 2.4C.3, `/1/nfe/ajuste/` permaneceu restrito a ICMS/ICMS-ST e dados de cliente/operacao; credito/debito, eventos IBS/CBS, complementar tributaria e produtos seguem pendentes de fases proprias.
 - Revalidar `/1/nfe/ajuste/` frente a Reforma Tributaria; nao inserir produtos/IBS-CBS no ajuste sem contrato oficial.
 - Resolver divergencia documental de cronograma IBS/CBS com decisao fiscal final: PRDs aprovados citam `05/01/2026`, enquanto a pagina oficial REST consultada em 2026-06-02 exibiu producao obrigatoria a partir de `01/01/2026`. A Fase 2.4C.1 deve usar temporariamente a regra conservadora desde `01/01/2026`.
-- Fase 2.4D.1 implementou somente o evento IBS/CBS `112110`. Permanecem pendentes: cancelamento de evento IBS/CBS, demais codigos com itens/campos especificos, eventos de destinatario, relacao com credito/debito, complementar tributaria, NFS-e e CT-e.
+- Fase 2.4D.1 implementou somente o evento IBS/CBS `112110`; Fase 2.4D.2 implementou somente o cancelamento desse mesmo evento autorizado por UUID remoto. Permanecem pendentes: cancelamento dos demais eventos IBS/CBS, demais codigos com itens/campos especificos, eventos de destinatario, relacao com credito/debito, complementar tributaria, NFS-e e CT-e.
 - Revalidar campos especificos de cada `cod_evento` imediatamente antes de implementar, mesmo apos a matriz 2.4D.0, porque a Reforma Tributaria pode alterar payloads e validacoes.
 - Evento `211128` deve permanecer bloqueado ate Nota Fiscal de Credito/Debito com IBS/CBS estar implementada e validada.
 - Eventos de destinatario exigem decisao de produto sobre papel fiscal da oficina como destinatario; nao liberar por fallback de emissao NF-e.
-- Cancelamento de evento IBS/CBS deve ser subfase propria por UUID remoto do evento, sem reutilizar cancelamento NF-e/NFC-e.
+- Cancelamento de evento IBS/CBS deve continuar por subfase propria por UUID remoto do evento, sem reutilizar cancelamento NF-e/NFC-e. A subfase 2.4D.2 cobre apenas `112110`; demais codigos exigem nova revalidacao oficial.
 - Definir se a reconciliacao de evento IBS/CBS tera consulta oficial suficiente; se nao houver contrato especifico, manter resposta sincrona/webhook e decisao administrativa para `uncertain`.
 
 ## Reforma Tributaria em outras familias

@@ -302,6 +302,13 @@ Resultado da Fase 2.4D.1:
 - A UI minima foi adicionada no detalhe da NF-e elegivel, com acao para registrar somente `112110`, aviso operacional e confirmacao explicita.
 - Historico do evento mostra codigo, sequencia, status, UUID, XML e payload quando o usuario tem permissao.
 - Cancelamento de evento, outros codigos e central fiscal nova permanecem fora do escopo.
+
+Resultado da Fase 2.4D.2:
+
+- Permissao efetiva: `cancel_ibs_cbs_event`, restrita ao cancelamento do evento IBS/CBS `112110` autorizado.
+- A UI exibe acao "Cancelar evento" apenas quando o evento `112110` possui UUID remoto e status autorizado.
+- O formulario exige confirmacao explicita e informa que o cancelamento afeta apenas o evento IBS/CBS, nao cancela NF-e/NFC-e e nao libera credito/debito ou outros eventos.
+- Downloads e payloads do cancelamento reutilizam protecao de oficina ativa e permissoes de visualizacao/download de eventos IBS/CBS.
 - Para eventos com itens, mostrar sequencial fiscal da nota, nao ID interno.
 - Exigir confirmacao explicita de responsabilidade fiscal e informar que eventos nao corrigem payload base, nao emitem credito/debito e nao substituem complementar tributaria.
 - Exibir historico de eventos, status, protocolo/UUID remoto, XML quando retornado e eventual cancelamento.

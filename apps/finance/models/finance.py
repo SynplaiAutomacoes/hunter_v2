@@ -113,6 +113,7 @@ class FiscalEmissionOperationType(models.TextChoices):
     NFCE_CANCELLATION = "nfce_cancellation", "Cancelamento NFC-e"
     NFCE_INUTILIZATION = "nfce_inutilization", "Inutilizacao NFC-e"
     NFE_IBS_CBS_EVENT = "nfe_ibs_cbs_event", "Evento IBS/CBS"
+    NFE_IBS_CBS_EVENT_CANCELLATION = "nfe_ibs_cbs_event_cancellation", "Cancelamento de evento IBS/CBS"
 
 
 class FiscalDocumentType(models.TextChoices):
@@ -160,6 +161,7 @@ class FiscalDocumentEventType(models.TextChoices):
     CCE = "cce", "Carta de correcao"
     CANCELLATION = "cancellation", "Cancelamento"
     IBS_CBS = "ibs_cbs", "Evento IBS/CBS"
+    IBS_CBS_CANCELLATION = "ibs_cbs_cancellation", "Cancelamento de evento IBS/CBS"
 
 
 class FiscalDocumentEventStatus(models.TextChoices):
@@ -169,6 +171,7 @@ class FiscalDocumentEventStatus(models.TextChoices):
     PROCESSING = "processando", "Processando"
     APPROVED = "aprovado", "Aprovado"
     REPROVED = "reprovado", "Reprovado"
+    CANCELED = "cancelado", "Cancelado"
     FAILED = "failed", "Falhou"
     UNCERTAIN = "uncertain", "Incerto"
 
@@ -837,6 +840,7 @@ class FiscalDocumentLink(TimeStampedModel):
 
 class FiscalDocumentEvent(TimeStampedModel):
     document = models.ForeignKey(FiscalDocument, verbose_name="Documento fiscal", on_delete=models.CASCADE, related_name="events")
+    related_event = models.ForeignKey("self", verbose_name="Evento relacionado", on_delete=models.PROTECT, null=True, blank=True, related_name="related_cancellations")
     event_type = models.CharField(max_length=20, choices=FiscalDocumentEventType.choices, default=FiscalDocumentEventType.CCE, db_index=True)
     event_sequence = models.PositiveSmallIntegerField()
     event_code = models.CharField(max_length=20, blank=True, default="", db_index=True)
@@ -858,16 +862,19 @@ class FiscalDocumentEvent(TimeStampedModel):
         constraints = [
             models.UniqueConstraint(fields=["document", "event_type", "event_sequence"], name="unique_fiscal_document_event_sequence"),
             models.UniqueConstraint(fields=["remote_uuid"], condition=~models.Q(remote_uuid=""), name="unique_fiscal_document_event_remote_uuid"),
+            models.UniqueConstraint(fields=["related_event", "event_type"], condition=models.Q(related_event__isnull=False, status__in=["started", "sent", "processando", "aprovado", "succeeded", "cancelado", "uncertain"]), name="unique_fiscal_event_active_related_event"),
         ]
         indexes = [
             models.Index(fields=["document", "event_type", "status"]),
             models.Index(fields=["document", "event_type", "event_code", "status"]),
             models.Index(fields=["remote_model", "remote_uuid"]),
+            models.Index(fields=["related_event", "event_type", "status"]),
         ]
         permissions = [
             ("issue_nfe_correction", "Pode emitir carta de correcao NF-e"),
             ("download_nfe_correction", "Pode baixar XML/DACCE de carta de correcao NF-e"),
             ("issue_ibs_cbs_event", "Pode registrar evento IBS/CBS"),
+            ("cancel_ibs_cbs_event", "Pode cancelar evento IBS/CBS"),
             ("view_ibs_cbs_event", "Pode visualizar evento IBS/CBS"),
             ("download_ibs_cbs_event", "Pode baixar XML de evento IBS/CBS"),
             ("view_ibs_cbs_event_payload", "Pode visualizar payload de evento IBS/CBS"),

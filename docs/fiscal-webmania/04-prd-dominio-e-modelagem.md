@@ -501,6 +501,15 @@ Resultado da Fase 2.4D.1:
 - associacao obrigatoria ao `FiscalDocument` base e ao `FiscalDocumentEvent`.
 - `idempotency_key`, `payload_hash`, status `started|sent|succeeded|failed|uncertain`, payload/resposta sanitizados e UUID remoto.
 
+Resultado da Fase 2.4D.2:
+
+- `FiscalDocumentEvent(event_type="ibs_cbs_cancellation")` representa o cancelamento do evento `112110`.
+- `related_event` vincula o cancelamento ao evento IBS/CBS original; `FiscalDocumentLink` nao e usado.
+- A constraint condicional impede dois cancelamentos ativos/incertos/aprovados para o mesmo evento original.
+- `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event_cancellation")` e associado ao evento de cancelamento e ao documento base apenas para escopo/tenancy.
+- Sucesso remoto marca o evento de cancelamento como autorizado/cancelado conforme retorno e marca o evento original como `cancelado`; o `FiscalDocument` base permanece inalterado.
+- Timeout deixa tentativa e evento de cancelamento como `uncertain`, preservando o bloqueio contra novo cancelamento automatico.
+
 Cancelamento de evento:
 
 - Nao deve criar `FiscalDocument`.

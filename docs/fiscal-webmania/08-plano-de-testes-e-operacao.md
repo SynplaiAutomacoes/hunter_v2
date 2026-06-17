@@ -374,6 +374,14 @@ Resultado da Fase 2.4D.1:
 - `FiscalPhaseTwoIbsCbsEvent112110Tests` valida payload oficial estreito, elegibilidade, bloqueio de documento inelegivel, timeout `uncertain`, limite de sequencia, webhook por UUID, fallback por chave+sequencia, ambiguidade, permissao, cross-workshop, download e payload protegidos.
 - `FiscalPhaseTwoIbsCbsEvent112110ConcurrentTests` valida concorrencia da mesma intencao com somente uma chamada remota.
 - A bateria fiscal direcionada ate 2.4D.1 executou 107 testes com sucesso.
+
+Resultado esperado da Fase 2.4D.2:
+
+- `FiscalPhaseTwoIbsCbsEvent112110CancellationTests` deve validar body com somente `uuid`, `ambiente` e `url_notificacao` quando aplicavel, ausencia de `chave`, `cod_evento`, `evento`, `ibs_cbs`, produtos e campos de credito/debito.
+- Deve validar elegibilidade do evento original: `112110`, autorizado, com UUID remoto, documento base elegivel e oficina ativa.
+- Deve validar timeout `uncertain`, rejeicao remota sem marcar sucesso, payload congelado, duplicidade bloqueada e evento original cancelado somente apos retorno/webhook valido.
+- Deve validar webhook por UUID do cancelamento, fallback por tentativa, ambiguidade sem update, download/payload protegidos, permissao `cancel_ibs_cbs_event` e cross-workshop.
+- `FiscalPhaseTwoIbsCbsEvent112110CancellationConcurrentTests` deve validar concorrencia da mesma intencao com somente uma chamada remota.
 - `view_ibs_cbs_event`, `download_ibs_cbs_event` e `view_ibs_cbs_event_payload` protegem visualizacao/download/payload.
 - Cross-workshop bloqueado.
 - Payload/log sanitizados sem headers Webmania, tokens, CSC, certificado ou credenciais.
