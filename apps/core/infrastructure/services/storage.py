@@ -2,37 +2,22 @@ from __future__ import annotations
 
 import logging
 import unicodedata
-from dataclasses import dataclass
 from functools import lru_cache
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 from django.conf import settings
 
+from apps.core.domain.contracts.storage import IStorageService, StorageConfigurationError, StorageObject, StorageServiceError
+
 logger = logging.getLogger(__name__)
-
-
-class StorageConfigurationError(Exception):
-    pass
-
-
-class StorageServiceError(Exception):
-    pass
-
-
-@dataclass(frozen=True)
-class StorageObject:
-    key: str
-    content: bytes
-    content_type: str
-    metadata: dict[str, str]
 
 
 def _to_ascii(value: str) -> str:
     return unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
 
 
-class S3StorageService:
+class S3StorageService(IStorageService):
     def __init__(
         self,
         *,

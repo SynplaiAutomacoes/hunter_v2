@@ -22,7 +22,6 @@ from django.urls import reverse
 from django.utils import timezone
 from djmoney.forms import MoneyField
 from djmoney.money import Money
-from pynfe.processamento import ComunicacaoSefaz
 
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
@@ -38,6 +37,7 @@ from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, Sto
 from apps.stock.models import StockTransfer
 from apps.core.text_normalization import name_case, sentence_case
 
+from apps.core.infrastructure.providers.sefaz_provider import get_sefaz_service
 from apps.stock.utils import NFParser, extract_nf_number_from_access_key, parse_sefaz_distribution_doc_metadata
 from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
@@ -195,11 +195,13 @@ class ImportStep1Form(CoreModelForm):
             else:
                 try:
                     with workshop_certificate_temp_path(self.workshop) as certificate_path:
-                        comunicacao = ComunicacaoSefaz(self.workshop.uf.upper(), certificate_path, self.workshop.certificate_password)
-                        cnpj_clean = re.sub(r"\D", "", self.workshop.cnpj)
-
-                        xml_response = comunicacao.consulta_distribuicao(cnpj=cnpj_clean, chave=nf_key)
-                        content = xml_response.content
+                        content = get_sefaz_service().consultar_distribuicao(
+                            certificado_path=certificate_path,
+                            certificado_senha=self.workshop.certificate_password,
+                            uf=self.workshop.uf.upper(),
+                            cnpj=re.sub(r"\D", "", self.workshop.cnpj),
+                            chave=nf_key,
+                        )
 
                     if b"<cStat>215</cStat>" in content:
                         self.add_error("access_key", "Rejeição da SEFAZ por falha no esquema. Verifique se o CNPJ do certificado é o destinatário da nota.")
@@ -213,7 +215,7 @@ class ImportStep1Form(CoreModelForm):
                         self.add_error("access_key", "CNPJ-Base consultado difere do CNPJ-Base do Certificado Digital.")
                         return cleaned_data
 
-                    nf_data = NFParser.parse_nfe_xml_to_dict(self.workshop, xml_response.content)
+                    nf_data = NFParser.parse_nfe_xml_to_dict(self.workshop, content)
                 except Exception:
                     self.add_error("access_key", "Erro ao buscar chave na SEFAZ ou chave inválida.")
 
@@ -992,11 +994,16 @@ class ImportSefazListForm(CoreModelForm):
             nsu = self.workshop.last_nsu_sefaz
 
             with workshop_certificate_temp_path(self.workshop) as certificate_path:
-                comunicacao = ComunicacaoSefaz(self.workshop.uf.upper(), certificate_path, self.workshop.certificate_password)
-                xml_resp = comunicacao.consulta_distribuicao(cnpj=cnpj, nsu=nsu)
+                xml_content = get_sefaz_service().consultar_distribuicao(
+                    certificado_path=certificate_path,
+                    certificado_senha=self.workshop.certificate_password,
+                    uf=self.workshop.uf.upper(),
+                    cnpj=cnpj,
+                    nsu=nsu,
+                )
 
             # Parsing do retorno da SEFAZ (simplificado do seu exemplo)
-            tree = fromstring(xml_resp.content)
+            tree = fromstring(xml_content)
             ns = {"ns": "http://www.portalfiscal.inf.br/nfe"}
             cached_count = 0
 
@@ -1043,10 +1050,15 @@ class ImportSefazListForm(CoreModelForm):
         if key:
             try:
                 with workshop_certificate_temp_path(self.workshop) as certificate_path:
-                    comunicacao = ComunicacaoSefaz(self.workshop.uf, certificate_path, self.workshop.certificate_password)
-                    xml_completo = comunicacao.consulta_distribuicao(cnpj=re.sub(r"\D", "", self.workshop.cnpj), chave=key)
+                    xml_completo = get_sefaz_service().consultar_distribuicao(
+                        certificado_path=certificate_path,
+                        certificado_senha=self.workshop.certificate_password,
+                        uf=self.workshop.uf,
+                        cnpj=re.sub(r"\D", "", self.workshop.cnpj),
+                        chave=key,
+                    )
 
-                nf_data = NFParser.parse_nfe_xml_to_dict(self.workshop, xml_completo.content)
+                nf_data = NFParser.parse_nfe_xml_to_dict(self.workshop, xml_completo)
 
                 if nf_data:
                     if not _has_importable_nf_items(nf_data):

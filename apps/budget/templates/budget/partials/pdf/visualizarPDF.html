@@ -385,10 +385,26 @@
                         <span>{{ total_servicos }}</span>
                     </div>
                     {% if desconto.amount > 0 %}
-                    <div class="flex justify-between mb-1 text-red-600">
-                        <span>Desconto:</span>
-                        <span>- {{ desconto }}</span>
-                    </div>
+                        {% if discount_type == "products" %}
+                        <div class="flex justify-between mb-1 text-red-600">
+                            <span>Desconto para Produtos:</span>
+                            <span>- {{ discount_products }}</span>
+                        </div>
+                        {% elif discount_type == "services" %}
+                        <div class="flex justify-between mb-1 text-red-600">
+                            <span>Desconto para Serviços:</span>
+                            <span>- {{ discount_services }}</span>
+                        </div>
+                        {% else %}
+                        <div class="flex justify-between mb-1 text-red-600">
+                            <span>Desconto para Produtos:</span>
+                            <span>- {{ discount_products }}</span>
+                        </div>
+                        <div class="flex justify-between mb-1 text-red-600">
+                            <span>Desconto para Serviços:</span>
+                            <span>- {{ discount_services }}</span>
+                        </div>
+                        {% endif %}
                     {% endif %}
                     <div class="flex justify-between font-bold text-[16px] mt-2 pt-2 border-t border-gray-300">
                         <span>TOTAL GERAL:</span>

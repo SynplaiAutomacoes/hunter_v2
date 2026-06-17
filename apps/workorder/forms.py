@@ -58,12 +58,15 @@ class WorkOrderCollaboratorForm(CoreModelForm):
             queryset = WorkshopCollaborator.objects.filter(workshop=workshop, is_active=True).order_by("name")
         self.fields["collaborators"].queryset = queryset
         self.fields["collaborators"].help_text = "Selecione os colaboradores responsaveis por esta O.S. A comissao prevista sera calculada a partir desta vinculacao."
+
+    @property
+    def initial_collaborators_json(self) -> str:
         initial_collaborators = []
         if self.workorder and self.workorder.pk:
             initial_collaborators = [{"id": str(collaborator.id), "name": collaborator.name, "is_new": False} for collaborator in self.workorder.collaborators.all()]
         if not initial_collaborators:
             initial_collaborators = [{"id": "", "is_new": True}]
-        self.initial_collaborators_json = json.dumps(initial_collaborators)
+        return json.dumps(initial_collaborators)
 
 
 class WorkOrderPaymentForm(CoreModelForm):

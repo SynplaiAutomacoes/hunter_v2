@@ -13,9 +13,9 @@ from apps.checklist.models import Checklist
 from apps.checklist.services.files import ChecklistFileStorageError, read_checklist_pdf_file
 from apps.core.domain.contracts.documents import DocumentPayload
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
-from apps.core.infrastructure.services.signature import SignatureDeliveryServiceError, download_signed_document_content
+from apps.core.domain.contracts.signature import SignatureServiceError
 from apps.core.domain.contracts.documents import SignatureTokenError
-from apps.core.infrastructure.services.signature import parse_document_signature_token
+from apps.core.infrastructure.providers import get_signature_service
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 
@@ -141,7 +141,7 @@ def visualizar_pdf_checklist(request, pk):
 
 def _get_budget_from_signature_token(token):
     try:
-        payload = parse_document_signature_token(
+        payload = get_signature_service().parse_signature_token(
             token=token,
             token_salt=BUDGET_SIGNATURE_TOKEN_SALT,
             document_id_key=BUDGET_SIGNATURE_DOCUMENT_ID_KEY,
@@ -149,12 +149,12 @@ def _get_budget_from_signature_token(token):
     except SignatureTokenError:
         raise Http404("Arquivo não encotrado")
 
-    budget = get_object_or_404(Budget.objects.select_related("workshop", "customer", "vehicle"), pk=payload.document_id)
+    budget = get_object_or_404(Budget.objects.select_related("workshop", "customer", "vehicle"), pk=payload["document_id"])
 
     if not budget.signature_token_active:
         raise Http404("Arquivo não encotrado")
 
-    if budget.signature_token_version != payload.version:
+    if budget.signature_token_version != payload["version"]:
         raise Http404("Arquivo não encotrado")
 
     return budget
@@ -214,7 +214,7 @@ def visualizar_pdf_assinatura(request, pk):
 
     if requested_variant == SIGNED_PDF_VARIANT and _can_use_signed_budget_pdf(budget):
         try:
-            signed_pdf = download_signed_document_content(
+            signed_pdf = get_signature_service().download_signed_document(
                 document_id=budget.signature_document_id,
                 envelope_id=budget.signature_external_id,
             )
@@ -224,7 +224,7 @@ def visualizar_pdf_assinatura(request, pk):
                 use_signed_name=True,
                 pdf_bytes=signed_pdf,
             )
-        except SignatureDeliveryServiceError:
+        except SignatureServiceError:
             logger.warning(
                 "Falha ao carregar PDF assinado; retornando PDF base",
                 extra={

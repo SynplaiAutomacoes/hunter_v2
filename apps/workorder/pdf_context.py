@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any
 
 from djmoney.money import Money
 
 from apps.budget.pdf_context import build_workshop_logo_data_uri
+from apps.budget.pricing import money_from_decimal, zero_money
+from apps.finance.services.pricing import distribute_total_proportionally
 from apps.customer.models import Customer, Vehicle
-from apps.workorder.models import WorkOrder, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderStatus, WorkOrderDiscountType
 from apps.workshops.models.workshops import Workshop
 
 
@@ -120,6 +123,31 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
         customer_agreed_departure_at=workorder.budget.customer_agreed_departure_at,
     )
 
+    discount_type = workorder.discount_type or WorkOrderDiscountType.BOTH
+    resolved_discount_value = snapshot.resolved_discount_value
+    if resolved_discount_value.amount <= 0:
+        discount_products = zero_money()
+        discount_services = zero_money()
+    elif discount_type == "products":
+        discount_products = resolved_discount_value
+        discount_services = zero_money()
+    elif discount_type == "services":
+        discount_products = zero_money()
+        discount_services = resolved_discount_value
+    else:
+        products_decimal = Decimal(str(snapshot.total_products_by_slider.amount))
+        services_decimal = Decimal(str(snapshot.total_services_by_slider.amount))
+        if products_decimal <= 0 and services_decimal <= 0:
+            discount_products = zero_money()
+            discount_services = zero_money()
+        else:
+            allocated = distribute_total_proportionally(
+                base_values=[products_decimal, services_decimal],
+                target_total=Decimal(str(resolved_discount_value.amount)),
+            )
+            discount_products = money_from_decimal(allocated[0])
+            discount_services = money_from_decimal(allocated[1])
+
     return {
         "workorder": workorder,
         "budget": budget_proxy,
@@ -129,6 +157,9 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
         "total_produtos": workorder.get_total_products_by_slider,
         "total_servicos": workorder.get_total_services_by_slider,
         "desconto": snapshot.resolved_discount_value,
+        "discount_products": discount_products,
+        "discount_services": discount_services,
+        "discount_type": workorder.discount_type or WorkOrderDiscountType.BOTH,
         "total_geral": ZERO if is_warranty_or_courtesy else workorder.total_budget_value,
         "observations": observations,
         "fixed_observation": fixed_observation,

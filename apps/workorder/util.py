@@ -14,12 +14,15 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.fields import DurationField
+from apps.finance.services.pricing import distribute_total_proportionally
 from apps.core.domain.contracts.documents import DocumentPayload
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.domain.contracts.documents import SignatureTokenError
-from apps.core.infrastructure.services.signature import parse_document_signature_token
+from apps.core.domain.contracts.signature import SignatureServiceError
+from apps.core.infrastructure.providers import get_signature_service
 from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderCustomerApprovalForm, WorkOrderPaymentForm, WorkOrderReopenForm, WorkOrderStatusReasonForm
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus, \
+    WorkOrderDiscountType
 from apps.workorder.service import (
     WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
     WORKORDER_SIGNATURE_TOKEN_SALT,
@@ -163,6 +166,31 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
                 )
             )
 
+    resolved_discount_value = pricing_snapshot.resolved_discount_value
+    discount_type = workorder.discount_type or WorkOrderDiscountType.BOTH
+    if resolved_discount_value.amount <= 0:
+        discount_products = Money(0, "BRL")
+        discount_services = Money(0, "BRL")
+    elif discount_type == "products":
+        discount_products = resolved_discount_value
+        discount_services = Money(0, "BRL")
+    elif discount_type == "services":
+        discount_products = Money(0, "BRL")
+        discount_services = resolved_discount_value
+    else:
+        products_decimal = Decimal(str(pricing_snapshot.total_products_by_slider.amount))
+        services_decimal = Decimal(str(pricing_snapshot.total_services_by_slider.amount))
+        if products_decimal <= 0 and services_decimal <= 0:
+            discount_products = Money(0, "BRL")
+            discount_services = Money(0, "BRL")
+        else:
+            allocated = distribute_total_proportionally(
+                base_values=[products_decimal, services_decimal],
+                target_total=Decimal(str(resolved_discount_value.amount)),
+            )
+            discount_products = Money(allocated[0], "BRL")
+            discount_services = Money(allocated[1], "BRL")
+
     return {
         "workorder": workorder,
         "product_items": product_items,
@@ -171,6 +199,9 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
         "summary_service_items": summary_service_items,
         "kit_items": kit_items,
         "active_tab": _normalize_active_tab(active_tab),
+        "discount_products": discount_products,
+        "discount_services": discount_services,
+        "discount_type": workorder.discount_type or "both",
     }
 
 
@@ -292,7 +323,7 @@ def trigger_workorder_signature_send_if_needed(*, workorder: WorkOrder) -> tuple
 
 def _get_workorder_from_signature_token(token: str) -> WorkOrder:
     try:
-        payload = parse_document_signature_token(
+        payload = get_signature_service().parse_signature_token(
             token=token,
             token_salt=WORKORDER_SIGNATURE_TOKEN_SALT,
             document_id_key=WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
@@ -302,13 +333,13 @@ def _get_workorder_from_signature_token(token: str) -> WorkOrder:
 
     workorder = get_object_or_404(
         WorkOrder.objects.select_related("workshop", "budget", "budget__customer", "budget__vehicle"),
-        pk=payload.document_id,
+        pk=payload["document_id"],
     )
 
     if not workorder.signature_token_active:
         raise Http404("Arquivo não encotrado")
 
-    if workorder.signature_token_version != payload.version:
+    if workorder.signature_token_version != payload["version"]:
         raise Http404("Arquivo não encotrado")
 
     return workorder

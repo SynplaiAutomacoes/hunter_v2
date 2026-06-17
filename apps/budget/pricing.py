@@ -471,7 +471,8 @@ def build_pricing_snapshot(
                 try:
                     unit_cost, unit_price = item.resolve_kit_service_base_prices(kit_service=kit_service)
                 except AttributeError:
-                    unit_cost, unit_price = item.service_cost_price, item.service_selling_price
+                    unit_cost = kit_service.resolved_cost_price
+                    unit_price = kit_service.resolved_selling_price
                 fixed_cost_total = zero_money()
             service_duration = timedelta(0)
 

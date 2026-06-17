@@ -35,7 +35,8 @@ from apps.core.domain.services.editing_lock_service import get_lock_info
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.core.presentation.tables import TableActionDefaults
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
-from apps.core.infrastructure.services.signature import SignatureDeliveryServiceError, download_signed_document_content
+from apps.core.domain.contracts.signature import SignatureServiceError
+from apps.core.infrastructure.providers import get_signature_service
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
@@ -145,12 +146,12 @@ WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
     ),
     QueryParamFilter(
         param_name="data_inicial",
-        lookup="criado_em__date",
+        lookup="delivered_at__date",
         kind="date_gte",
     ),
     QueryParamFilter(
         param_name="data_final",
-        lookup="criado_em__date",
+        lookup="delivered_at__date",
         kind="date_lte",
     ),
 )
@@ -619,6 +620,7 @@ class UpdateWorkOrderCollaboratorsView(LoginRequiredMixin, WorkshopScopedMixin, 
         form = WorkOrderCollaboratorForm(request.POST, instance=workorder, workorder=workorder)
         if form.is_valid():
             form.save()
+            workorder.refresh_from_db()
             reference_date = max((payment.due_date for payment in workorder.payments.all() if payment.due_date), default=None)
             sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=reference_date)
 
@@ -1362,7 +1364,7 @@ def visualizar_pdf_workorder(request, pk):
 
     if requested_variant == SIGNED_PDF_VARIANT and _can_use_signed_workorder_pdf(workorder):
         try:
-            signed_pdf = download_signed_document_content(
+            signed_pdf = get_signature_service().download_signed_document(
                 document_id=workorder.signature_document_id,
                 envelope_id=workorder.signature_external_id,
             )
@@ -1372,7 +1374,7 @@ def visualizar_pdf_workorder(request, pk):
                 use_signed_name=True,
                 pdf_bytes=signed_pdf,
             )
-        except SignatureDeliveryServiceError:
+        except SignatureServiceError:
             logger.warning(
                 "Falha ao carregar PDF assinado da ordem de servico; retornando PDF base",
                 extra={
