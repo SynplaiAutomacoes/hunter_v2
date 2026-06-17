@@ -9,10 +9,8 @@ from djmoney.money import Money
 
 from apps.budget.pricing import format_duration_display, money_div, money_from_decimal, zero_money
 from apps.finance.services.pricing import distribute_total_proportionally
-from apps.budget.review_display import build_budget_review_display
 from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.workorder.models import WorkOrderDiscountType
-from apps.workshops.services.files import WorkshopFileStorageError, get_workshop_logo_file
 
 
 _ZERO_DECIMAL = Decimal("0.00")
@@ -121,7 +119,61 @@ def _merge_selected_pdf_rows(*, produtos: list[dict], servicos: list[dict]) -> t
     return _merge_selected_product_rows(produtos), _merge_selected_service_rows(servicos)
 
 
+def _build_snapshot_product_rows(*, snapshot) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": line.entity_id,
+            "description": line.description,
+            "quantity": line.quantity,
+            "is_customer_supplied": line.is_customer_supplied,
+            "application": line.application or "-",
+            "code": line.code or "-",
+            "location": line.location or "-",
+            "unit_price": line.unit_price,
+            "adjusted_unit_price": line.adjusted_unit_price,
+            "shipping": line.shipping,
+            "total_price": line.total_price,
+            "product_cost_price": line.cost_total,
+            "profit_value": line.profit_value,
+            "show_kit_duplicate_warning": line.show_kit_duplicate_warning,
+        }
+        for line in snapshot.product_lines
+    ]
+
+
+def _build_snapshot_service_rows(*, budget: Any, snapshot) -> list[dict[str, Any]]:
+    servicos = []
+    for line in snapshot.service_lines:
+        fallback_cost = line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total
+        service_mechanic_cost_price = _calculate_pdf_service_mechanic_cost(
+            budget=budget,
+            duration=line.duration,
+            quantity=1,
+            fallback_cost=fallback_cost,
+            is_third_party=line.third_party,
+        )
+        total_price = line.raw_total if line.has_kit_source else line.adjusted_total
+        unit_price = money_div(total_price, line.quantity) if line.has_kit_source else line.adjusted_unit_price
+        servicos.append(
+            {
+                "id": line.entity_id,
+                "description": line.description,
+                "quantity": line.quantity,
+                "unit_price": unit_price,
+                "total_price": total_price,
+                "service_cost_price": fallback_cost,
+                "service_mechanic_cost_price": service_mechanic_cost_price,
+                "profit_value": total_price - service_mechanic_cost_price,
+                "duration_display": line.duration_display,
+            }
+        )
+
+    return servicos
+
+
 def build_workshop_logo_data_uri(*, workshop) -> str:
+    from apps.workshops.services.files import WorkshopFileStorageError, get_workshop_logo_file
+
     try:
         stored_logo = get_workshop_logo_file(workshop)
     except WorkshopFileStorageError:

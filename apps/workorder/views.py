@@ -82,7 +82,6 @@ from apps.workorder.util import (
     LOCKED_WORKORDER_EDIT_MESSAGE,
     _check_concurrent_edit_lock,
     _build_concurrent_lock_response,
-    CONCURRENT_LOCK_MESSAGE,
 )
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshops import Workshop
@@ -101,7 +100,7 @@ def _get_requested_pdf_variant(request) -> str:
         return BASE_PDF_VARIANT
     if requested_variant == SIGNED_PDF_VARIANT:
         return SIGNED_PDF_VARIANT
-    return SIGNED_PDF_VARIANT
+    return BASE_PDF_VARIANT
 
 
 def _can_use_signed_workorder_pdf(workorder: WorkOrder) -> bool:
