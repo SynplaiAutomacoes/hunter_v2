@@ -208,7 +208,6 @@ class DashboardFinancialReportView(View):
             "report_rows": report_data.rows,
             "workorder_groups": report_data.workorder_groups,
             "summary_count": report_data.summary_count,
-            "summary_count_label": report_data.summary_count_label,
             "record_count": report_data.record_count,
             "value_column_label": report_data.value_column_label,
             "is_grouped_report": bool(report_data.workorder_groups),

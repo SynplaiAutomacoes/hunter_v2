@@ -25,9 +25,9 @@ from apps.finance.forms import (
     EmissionStep4Form,
     EmissionStep5Form,
 )
+from apps.core.infrastructure.providers import get_fiscal_service
+from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.finance.models.finance import NfeRequest, NfeRequestStatus, NfseRequest, NfseRequestStatus
-from apps.core.infrastructure.services.webmania.emission import NfseEmissionError, emit_nfse_request, sync_emission_response
-from apps.core.infrastructure.services.webmania.nfe_emission import NfeEmissionError, emit_nfe_request, sync_nfe_emission_response
 from apps.finance.services.pricing import build_slider_allocation_for_workorder
 from apps.finance.services.tax_classes import TaxClassServiceError, list_tax_classes
 from apps.finance.views.request_workflow import build_preview_hidden_fields, render_emission_preview_modal
@@ -534,8 +534,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
         nfe_request = self._get_or_create_nfe_request(state=state, workorder=workorder)
         try:
-            response_payload = emit_nfe_request(nfe_request=nfe_request, request=self.request)
-            sync_nfe_emission_response(nfe_request=nfe_request, response_payload=response_payload)
+            response_payload = get_fiscal_service().emit_nfe(nfe_request=nfe_request, request=self.request)
+            get_fiscal_service().sync_nfe_emission_response(nfe_request=nfe_request, response_payload=response_payload)
 
             if not nfe_request.update_status_based_on_request(response_payload.get("status")):
                 nfe_request.set_status(NfeRequestStatus.PROCESSING)
@@ -544,7 +544,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             state["nfe_request_id"] = nfe_request.pk
             self._write_state(state)
             return True, None
-        except NfeEmissionError as exc:
+        except FiscalServiceError as exc:
             logger.exception("Falha ao emitir NF-e pelo fluxo unificado", extra={"nfe_request_id": getattr(nfe_request, "pk", None)})
             state["nfe_done"] = False
             state["nfe_request_id"] = nfe_request.pk
@@ -562,8 +562,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
         nfse_request = self._get_or_create_nfse_request(state=state, workorder=workorder)
         try:
-            response_payload = emit_nfse_request(nfse_request=nfse_request, request=self.request)
-            sync_emission_response(nfse_request=nfse_request, response_payload=response_payload)
+            response_payload = get_fiscal_service().emit_nfse(nfse_request=nfse_request, request=self.request)
+            get_fiscal_service().sync_nfse_emission_response(nfse_request=nfse_request, response_payload=response_payload)
 
             if not nfse_request.update_status_based_on_request(response_payload.get("status")):
                 nfse_request.set_status(NfseRequestStatus.PROCESSING)
@@ -572,7 +572,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             state["nfse_request_id"] = nfse_request.pk
             self._write_state(state)
             return True, None
-        except NfseEmissionError as exc:
+        except FiscalServiceError as exc:
             logger.exception("Falha ao emitir NFS-e pelo fluxo unificado", extra={"nfse_request_id": getattr(nfse_request, "pk", None)})
             state["nfse_done"] = False
             state["nfse_request_id"] = nfse_request.pk

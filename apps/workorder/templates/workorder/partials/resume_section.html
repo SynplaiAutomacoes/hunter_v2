@@ -1,16 +1,12 @@
 {% load format_tags %}
 <div class="card-body">
     <div class="flex w-full justify-end gap-2">
-        <button
-            type="button"
-            class="btn btn-outline btn-lg"
-            hx-get="{% url 'workorder:edit_items_modal' workorder.pk %}"
-            hx-target="#modal-container"
-            hx-swap="innerHTML"
-            onclick="document.getElementById('form_modal').showModal()">
+        <a
+            href="{% url 'budget:budget_update' workorder.budget.pk %}?step=6&reopen=1"
+            class="btn btn-outline btn-lg">
             <span class="material-icons mr-2" aria-hidden="true">edit_note</span>
-            Editar Itens
-        </button>
+            Revisar Orçamento
+        </a>
     </div>
     <div class="p-6">
         <div id="pdf-iframe" class="p-4 border rounded-lg shadow-sm text-base">
@@ -216,10 +212,26 @@
                 <div class="min-w-0 space-y-1">
                     <p class="flex justify-between"><span>Total de Produtos:</span> <span>{{workorder.get_total_products_by_slider}}</span></p>
                     <p class="flex justify-between"><span>Total de Serviços:</span> <span>{{workorder.get_total_services_by_slider}}</span></p>
+                    {% if discount_type == "products" %}
                     <p class="flex justify-between font-medium">
-                        <span>Desconto ({{ workorder.discount_percentage_display }}):</span>
-                        <span class="text-red-600">- {{ workorder.discount_value }}</span>
+                        <span>Desconto para Produtos ({{ workorder.discount_percentage_display }}):</span>
+                        <span class="text-red-600">- {{ discount_products }}</span>
                     </p>
+                    {% elif discount_type == "services" %}
+                    <p class="flex justify-between font-medium">
+                        <span>Desconto para Serviços ({{ workorder.discount_percentage_display }}):</span>
+                        <span class="text-red-600">- {{ discount_services }}</span>
+                    </p>
+                    {% else %}
+                    <p class="flex justify-between font-medium">
+                        <span>Desconto para Produtos ({{ workorder.discount_percentage_display }}):</span>
+                        <span class="text-red-600">- {{ discount_products }}</span>
+                    </p>
+                    <p class="flex justify-between font-medium">
+                        <span>Desconto para Serviços:</span>
+                        <span class="text-red-600">- {{ discount_services }}</span>
+                    </p>
+                    {% endif %}
                     <p class="flex justify-between font-bold text-lg mt-2 pt-2 border-t border-gray-300">
                         <span>TOTAL GERAL:</span>
                         <span>{{workorder.total_budget_value}}</span>

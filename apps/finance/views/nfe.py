@@ -20,9 +20,8 @@ from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.finance.forms import NfeRequestStep1Form, NfeRequestStep2Form, NfeRequestStep3Form
 from apps.finance.models.finance import NfeItem, NfeRequest, NfeRequestStatus
-from apps.core.infrastructure.services.webmania.nfe_consulta import NfeConsultaError, reconcile_nfe_item
-from apps.core.infrastructure.services.webmania.nfe_emission import NfeEmissionError, cancel_nfe_document, download_nfe_preview_document, emit_nfe_request, invalidate_nfe_number, sync_nfe_emission_response
-from apps.core.infrastructure.services.webmania.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
+from apps.core.infrastructure.providers import get_fiscal_service
+from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.finance.views.ncm_validation import build_invalid_ncm_modal_context, pop_invalid_ncm_modal_context, store_invalid_ncm_modal_context
 from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url
 from apps.finance.views.request_workflow import (
@@ -164,14 +163,15 @@ class NfeRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         reason = str(form.cleaned_data["reason"]).strip()
 
+        service = get_fiscal_service()
         try:
-            response_payload = cancel_nfe_document(
+            response_payload = service.cancel_nfe(
                 workshop=self.workshop,
                 access_key=str(latest_item.access_key or ""),
                 event_uuid=str(latest_item.uuid),
                 reason=reason,
             )
-        except NfeEmissionError as exc:
+        except FiscalServiceError as exc:
             messages.error(request, str(exc))
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
@@ -200,9 +200,10 @@ class NfeRequestReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):
             messages.error(request, "A Nota Fiscal ainda nao possui um item sincronizado para consulta.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
+        service = get_fiscal_service()
         try:
-            reconcile_nfe_item(item=item)
-        except NfeConsultaError as exc:
+            service.reconcile_nfe_item(item=item)
+        except FiscalServiceError as exc:
             messages.error(request, str(exc))
         else:
             messages.success(request, "Status da Nota Fiscal atualizado com sucesso.")
@@ -230,14 +231,15 @@ class NfeRequestInvalidateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         reason = str(form.cleaned_data["reason"]).strip()
 
+        service = get_fiscal_service()
         try:
-            response_payload = invalidate_nfe_number(
+            response_payload = service.invalidate_nfe_number(
                 workshop=self.workshop,
                 number=int(nfe_request.reserved_number),
                 reason=reason,
                 series=int(nfe_request.reserved_series),
             )
-        except NfeEmissionError as exc:
+        except FiscalServiceError as exc:
             messages.error(request, str(exc))
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
@@ -278,9 +280,10 @@ class NfeDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
         field_name, extension = self.document_fields[document_kind]
         document_url = str(getattr(item, field_name, "") or "").strip()
 
+        service = get_fiscal_service()
         try:
-            downloaded = download_webmania_document(workshop=self.workshop, url=document_url)
-        except WebmaniaDocumentDownloadError as exc:
+            downloaded = service.download_document(workshop=self.workshop, url=document_url)
+        except FiscalServiceError as exc:
             return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
 
         response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
@@ -303,9 +306,10 @@ class NfePreviewPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def get(self, request, *args, **kwargs):
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
 
+        service = get_fiscal_service()
         try:
-            downloaded = download_nfe_preview_document(nfe_request=nfe_request, request=request)
-        except NfeEmissionError as exc:
+            downloaded = service.download_nfe_preview_document(nfe_request=nfe_request, request=request)
+        except FiscalServiceError as exc:
             return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
 
         response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
@@ -354,16 +358,17 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
             store_invalid_ncm_modal_context(request=self.request, modal_context=invalid_ncm_modal)
             return False
 
+        service = get_fiscal_service()
         try:
-            response_payload = emit_nfe_request(nfe_request=self.object, request=self.request)
-            sync_nfe_emission_response(nfe_request=self.object, response_payload=response_payload)
+            response_payload = service.emit_nfe(nfe_request=self.object, request=self.request)
+            service.sync_nfe_emission_response(nfe_request=self.object, response_payload=response_payload)
 
             if not self.object.update_status_based_on_request(response_payload.get("status")):
                 self.object.set_status(NfeRequestStatus.PROCESSING)
 
             messages.success(self.request, "Solicitacao de Nota Fiscal enviada com sucesso.")
             return True
-        except NfeEmissionError as exc:
+        except FiscalServiceError as exc:
             logger.exception("Falha ao emitir NF-e", extra={"nfe_request_id": self.object.pk})
             messages.error(self.request, str(exc))
             return False

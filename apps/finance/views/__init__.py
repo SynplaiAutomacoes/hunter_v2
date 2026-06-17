@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from apps.core.infrastructure.services.webmania.webmania_b2b import sync_b2b_companies_to_database
+def sync_b2b_companies_to_database(*args, **kwargs):
+    from apps.core.infrastructure.providers import get_fiscal_service
+    return get_fiscal_service().sync_b2b_companies_to_database(*args, **kwargs)
 from .financial_group import FinancialGroupCreateView, FinancialGroupDeleteView, FinancialGroupListView, FinancialGroupUpdateView
 from .common import DirectorWorkshopAccessMixin
 from .emission import EmissionPreviewView, EmissionRequestCreateView, EmissionWorkOrderItemUpdateView, EmissionWorkOrderKitComponentUpdateView, NfeCreateRedirectView, NfseCreateRedirectView

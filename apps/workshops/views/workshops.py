@@ -22,15 +22,10 @@ from apps.core.infrastructure.query_filters import apply_is_active_filter
 from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
-from apps.core.infrastructure.services.webmania.webmania import to_public_integration_message, is_webmania_homolog_environment, latest_sync_error, get_webmania_context_meta, has_webmania_change_perm, save_company_sync_metadata, sync_workshop_from_company
+from apps.core.infrastructure.services.webmania.webmania import to_public_integration_message, latest_sync_error, has_webmania_change_perm
+from apps.core.infrastructure.providers import get_fiscal_service
+from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.finance.models.finance import WebmaniaCompany
-from apps.core.infrastructure.services.webmania.webmania_b2b import (
-    WebmaniaB2BServiceError,
-    get_b2b_requests,
-    provision_webmania_company_for_workshop,
-    sync_b2b_companies_to_database,
-    update_webmania_company,
-)
 from apps.core.infrastructure.services.webmania.webmania_secrets import decrypt_secret
 from apps.finance.views.common import DirectorWorkshopAccessMixin
 from apps.iam.utils import get_or_create_director_role
@@ -107,10 +102,10 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
         context = super().get_context_data(**kwargs)
         u_acc_id = getattr(self.request.user, "account_id", None)
 
-        context.update(get_webmania_context_meta(u_acc_id))
+        context.update(get_fiscal_service().get_context_meta(u_acc_id))
 
         ref_w = self._reference_workshop_for_permission()
-        context.update({"can_sync_webmania_companies": has_webmania_change_perm(self.request.user, ref_w, self.request) and is_webmania_homolog_environment(), "is_webmania_homolog_environment": is_webmania_homolog_environment()})
+        context.update({"can_sync_webmania_companies": has_webmania_change_perm(self.request.user, ref_w, self.request) and get_fiscal_service().is_homolog_environment(), "is_webmania_homolog_environment": get_fiscal_service().is_homolog_environment()})
         return context
 
     def dispatch(self, request, *args, **kwargs):
@@ -142,7 +137,7 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
                 workshop.account = user_account
                 workshop.save()
 
-                provision_webmania_company_for_workshop(workshop=workshop)
+                get_fiscal_service().provision_webmania_company_for_workshop(workshop=workshop)
 
                 director_role = get_or_create_director_role(account=user_account)
                 WorkshopMember.objects.get_or_create(
@@ -163,7 +158,7 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
                     getattr(user_account, "id", None),
                     getattr(user, "id", None),
                 )
-        except WebmaniaB2BServiceError as exc:
+        except FiscalServiceError as exc:
             logger.exception(
                 "workshop_create_failed_integration user_id=%s account_id=%s",
                 getattr(user, "id", None),
@@ -416,10 +411,10 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
 
         try:
             if payload:
-                update_webmania_company(company=self.company, payload=payload)
-        except WebmaniaB2BServiceError as exc:
+                get_fiscal_service().update_webmania_company(company=self.company, payload=payload)
+        except FiscalServiceError as exc:
             public_message = to_public_integration_message(str(exc))
-            save_company_sync_metadata(self.company, error=str(exc))
+            get_fiscal_service().save_sync_metadata(company=self.company, error=str(exc))
             logger.warning(
                 "workshop_update_tab_sync_failed workshop_id=%s tab=%s error=%s user_id=%s",
                 getattr(self.object, "pk", None),
@@ -435,8 +430,8 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
 
         with transaction.atomic():
             self.company = form.save(commit=True)
-            save_company_sync_metadata(self.company, error="")
-            sync_workshop_from_company(self.object, self.company, sync_name=sync_name, sync_address=sync_address)
+            get_fiscal_service().save_sync_metadata(company=self.company, error="")
+            get_fiscal_service().sync_workshop_from_company(self.object, self.company, sync_name=sync_name, sync_address=sync_address)
 
         if not payload:
             messages.success(self.request, "Dados locais atualizados com sucesso.")
@@ -476,8 +471,8 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
                 uploaded_file=form.cleaned_data.get("pfx_certificate"),
                 certificate_password=str(form.cleaned_data.get("certificate_password") or ""),
             )
-        except (WebmaniaB2BServiceError, WorkshopFileStorageError, WorkshopFileSyncError) as exc:
-            public_message = to_public_integration_message(str(exc)) if isinstance(exc, WebmaniaB2BServiceError) else str(exc)
+        except (FiscalServiceError, WorkshopFileStorageError, WorkshopFileSyncError) as exc:
+            public_message = to_public_integration_message(str(exc)) if isinstance(exc, FiscalServiceError) else str(exc)
             self._save_company_sync_metadata(error=public_message)
             logger.warning(
                 "workshop_certificate_sync_failed workshop_id=%s error=%s user_id=%s",
@@ -555,8 +550,8 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
                         return JsonResponse({"ok": True, "message": "Nenhuma alteracao na logo."})
                     upload_usecase.upload_logo(workshop=self.object, company=self.company, uploaded_file=uploaded_logo)
                     return JsonResponse({"ok": True, "message": "Logo da oficina atualizada."})
-            except (WebmaniaB2BServiceError, WorkshopFileStorageError, WorkshopFileSyncError) as exc:
-                message = to_public_integration_message(str(exc)) if isinstance(exc, WebmaniaB2BServiceError) else str(exc)
+            except (FiscalServiceError, WorkshopFileStorageError, WorkshopFileSyncError) as exc:
+                message = to_public_integration_message(str(exc)) if isinstance(exc, FiscalServiceError) else str(exc)
                 return JsonResponse({"ok": False, "message": message}, status=400)
 
             return JsonResponse({"ok": True, "message": "Nenhuma alteracao na logo."})
@@ -818,8 +813,8 @@ class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
                 "webmania_company_count": len(account_companies),
                 "webmania_last_sync_at": latest_sync_at,
                 "webmania_last_sync_error": to_public_integration_message(latest_sync_error(account_companies)) if latest_sync_error(account_companies) else "",
-                "can_sync_webmania_companies": can_sync_webmania_companies and is_webmania_homolog_environment(),
-                "is_webmania_homolog_environment": is_webmania_homolog_environment(),
+                "can_sync_webmania_companies": can_sync_webmania_companies and get_fiscal_service().is_homolog_environment(),
+                "is_webmania_homolog_environment": get_fiscal_service().is_homolog_environment(),
             }
         )
 
@@ -892,17 +887,17 @@ class WorkshopWebmaniaSyncView(LoginRequiredMixin, View):
         return super().dispatch(request, *args, **kwargs)
 
     def post(self, request, *args, **kwargs):
-        if not is_webmania_homolog_environment():
+        if not get_fiscal_service().is_homolog_environment():
             messages.error(request, "A sincronizacao manual esta disponivel apenas em ambiente de homologacao.")
             return self._redirect_after_sync(request)
 
         try:
-            synced_companies = sync_b2b_companies_to_database(
+            synced_companies = get_fiscal_service().sync_b2b_companies_to_database(
                 workshop=self.workshop,
                 actor_user=request.user,
                 force_global_auth=True,
             )
-        except WebmaniaB2BServiceError as exc:
+        except FiscalServiceError as exc:
             messages.error(request, to_public_integration_message(str(exc)))
         else:
             self._set_active_workshop_from_synced_companies(request=request, synced_companies=synced_companies)
@@ -976,8 +971,8 @@ class WorkshopEmissionHistoryView(LoginRequiredMixin, DirectorWorkshopAccessMixi
             year = self._normalize_year(self.request.GET.get("ano"))
 
         try:
-            request_payload = get_b2b_requests(month=month, year=year, workshop=self.workshop)
-        except WebmaniaB2BServiceError as exc:
+            request_payload = get_fiscal_service().get_b2b_requests(month=month, year=year, workshop=self.workshop)
+        except FiscalServiceError as exc:
             messages.error(self.request, to_public_integration_message(str(exc)))
             total_notas_processadas = 0
             request_rows: list[dict[str, str]] = []

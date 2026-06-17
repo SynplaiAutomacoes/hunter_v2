@@ -3533,7 +3533,7 @@ class BudgetStep6Form(CoreModelForm):
                                 Reprovar
                             </button>
 
-                            {f"<button type='button' class='btn btn-outline col-span-12' data-allow-locked='1' onclick='updateBudgetStatus({budget.pk}, &#39;reopen&#39;, {str(bool(self.request and self.workshop and has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label='budget', model='budget', codename='add_budget', request=self.request))).lower()})'>Reabrir Orçamento</button>" if budget.is_status_locked else ""}
+                            {f"<button type='button' class='btn btn-warning col-span-12' data-allow-locked='1' onclick='updateBudgetStatus({budget.pk}, &#39;reopen&#39;, {str(bool(self.request and self.workshop and has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label='budget', model='budget', codename='add_budget', request=self.request))).lower()})'>Reabrir Orçamento</button>" if budget.is_status_locked else ""}
 
                             {f"<div id='reopen-budget-form' class='col-span-12 mt-2 space-y-3 rounded-xl border border-warning/40 bg-warning/10 p-4 hidden' data-allow-locked='1'><p class='text-sm text-base-content/80' data-allow-locked='1'>Informe a justificativa da reabertura antes de concluir esta ação.</p><textarea id='reopen-reason-input' class='textarea textarea-bordered w-full' rows='4' placeholder='Explique por que este orçamento deve ser reaberto...' data-allow-locked='1'></textarea><div class='flex flex-wrap gap-3' data-allow-locked='1'><button type='button' class='btn btn-warning' data-allow-locked='1' onclick='confirmReopenBudgetStatus({budget.pk})'>Confirmar reabertura</button><button type='button' class='btn btn-ghost' data-allow-locked='1' onclick='cancelReopenBudgetStatus()'>Fechar</button></div></div>" if budget.is_status_locked else ""}
                         </div>
@@ -3741,6 +3741,19 @@ class BudgetStep6Form(CoreModelForm):
 
                   </div>
                 </dialog>
+            """),
+            HTML("""
+                <script>
+                    (function() {
+                        if (window.location.search.includes('reopen=1')) {
+                            const btn = document.querySelector('[onclick*="reopen"]');
+                            if (btn) {
+                                btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                btn.click();
+                            }
+                        }
+                    })();
+                </script>
             """),
         )
 
