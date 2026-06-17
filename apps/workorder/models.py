@@ -716,6 +716,10 @@ class WorkOrder(TimeStampedModel):
             if overrides_to_create:
                 WorkOrderKitItemOverride.objects.bulk_create(overrides_to_create)
 
+            kit_item_ids = [item.id for item in workorder_items if item.kit_id]
+            if kit_item_ids:
+                WorkOrderItem.objects.filter(id__in=kit_item_ids).update(kit_snapshot_frozen=True)
+
             self.discount_value = self.budget.resolved_discount_value
             self.discount_percentage = self.budget.resolved_discount_percentage
             self.discount_type = self.budget.discount_type
@@ -794,6 +798,97 @@ class WorkOrderItem(TimeStampedModel):
     service_cost_price = MoneyField(verbose_name="Custo", max_digits=14, decimal_places=2, default=0)
     service_selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2, default=0)
     duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
+    kit_snapshot_frozen = models.BooleanField(verbose_name="Kit snapshot frozen", default=False)
+
+    def _clear_kit_snapshot_caches(self) -> None:
+        for cache_name in ("_kit_override_maps_cache", "_kit_unit_totals_cache"):
+            if hasattr(self, cache_name):
+                delattr(self, cache_name)
+
+    def ensure_kit_snapshot(self) -> None:
+        if not self.pk or not self.kit_id or self.kit_snapshot_frozen:
+            return
+
+        existing_overrides = list(self.kit_overrides.select_related("product", "service").all())
+        product_overrides = {ov.product_id: ov for ov in existing_overrides if ov.product_id}
+        service_overrides = {ov.service_id: ov for ov in existing_overrides if ov.service_id}
+
+        with transaction.atomic():
+            for kit_product in self.kit.kit_products.select_related("product").all():
+                override = product_overrides.get(kit_product.product_id)
+                WorkOrderKitItemOverride.objects.update_or_create(
+                    workshop=self.workshop,
+                    workorder_item=self,
+                    product=kit_product.product,
+                    defaults={
+                        "quantity": override.quantity if override else kit_product.quantity,
+                        "product_cost_price": override.product_cost_price if override else kit_product.product.cost_price,
+                        "product_selling_price": override.product_selling_price if override else kit_product.product.selling_price,
+                        "shipping": override.shipping if override else Money(0, "BRL"),
+                    },
+                )
+
+            for kit_service in self.kit.kit_services.select_related("service").all():
+                override = service_overrides.get(kit_service.service_id)
+                default_cost = kit_service.resolved_cost_price
+                default_sell = kit_service.resolved_selling_price
+                WorkOrderKitItemOverride.objects.update_or_create(
+                    workshop=self.workshop,
+                    workorder_item=self,
+                    service=kit_service.service,
+                    defaults={
+                        "quantity": override.quantity if override else kit_service.quantity,
+                        "service_cost_price": override.service_cost_price if override else default_cost,
+                        "service_selling_price": override.service_selling_price if override else default_sell,
+                        "duration": override.duration if override else (kit_service.duration or timedelta()),
+                    },
+                )
+
+            WorkOrderItem.objects.filter(pk=self.pk, kit_snapshot_frozen=False).update(kit_snapshot_frozen=True)
+
+        self.kit_snapshot_frozen = True
+        self._clear_kit_snapshot_caches()
+        self.refresh_kit_snapshot_totals()
+
+    def refresh_kit_snapshot_totals(self) -> None:
+        if not self.pk or not self.kit_id:
+            return
+
+        self._clear_kit_snapshot_caches()
+
+        product_cost_total = Money(0, "BRL")
+        product_selling_total = Money(0, "BRL")
+        service_cost_total = Money(0, "BRL")
+        service_selling_total = Money(0, "BRL")
+        total_duration = timedelta()
+
+        for override in self._iter_frozen_kit_product_overrides():
+            if override.quantity <= 0:
+                continue
+            product_cost_total += override.product_cost_price * override.quantity
+            product_selling_total += override.product_selling_price * override.quantity
+
+        for override in self._iter_frozen_kit_service_overrides():
+            if override.quantity <= 0:
+                continue
+            service_cost_total += override.service_cost_price * override.quantity
+            service_selling_total += override.service_selling_price * override.quantity
+            if override.duration:
+                total_duration += override.duration * override.quantity
+
+        WorkOrderItem.objects.filter(pk=self.pk).update(
+            product_cost_price=product_cost_total,
+            product_selling_price=product_selling_total,
+            service_cost_price=service_cost_total,
+            service_selling_price=service_selling_total,
+            duration=total_duration,
+        )
+
+        self.product_cost_price = product_cost_total
+        self.product_selling_price = product_selling_total
+        self.service_cost_price = service_cost_total
+        self.service_selling_price = service_selling_total
+        self.duration = total_duration
 
     def save(self, *args, **kwargs):
         if not self.pk:
@@ -819,6 +914,9 @@ class WorkOrderItem(TimeStampedModel):
                 self.description = self.kit.name
 
         super().save(*args, **kwargs)
+
+        if self.kit_id and not self.kit_snapshot_frozen:
+            self.ensure_kit_snapshot()
 
         self.workorder.invalidate_pricing_snapshot_cache()
 
@@ -846,10 +944,29 @@ class WorkOrderItem(TimeStampedModel):
 
         return f"{hours:02d}h {minutes:02d}m"
 
+    def _iter_frozen_kit_product_overrides(self):
+        if not self.kit_id:
+            return
+        self.ensure_kit_snapshot()
+        for override in self.kit_overrides.filter(product__isnull=False).select_related("product").all():
+            if override.quantity > 0:
+                yield override
+
+    def _iter_frozen_kit_service_overrides(self):
+        if not self.kit_id:
+            return
+        self.ensure_kit_snapshot()
+        for override in self.kit_overrides.filter(service__isnull=False).select_related("service").all():
+            if override.quantity > 0:
+                yield override
+
     def _get_kit_override_maps(self) -> tuple[dict[int, "WorkOrderKitItemOverride"], dict[int, "WorkOrderKitItemOverride"]]:
         cache = getattr(self, "_kit_override_maps_cache", None)
         if cache is not None:
             return cache
+
+        if self.kit_id:
+            self.ensure_kit_snapshot()
 
         product_overrides: dict[int, "WorkOrderKitItemOverride"] = {}
         service_overrides: dict[int, "WorkOrderKitItemOverride"] = {}
