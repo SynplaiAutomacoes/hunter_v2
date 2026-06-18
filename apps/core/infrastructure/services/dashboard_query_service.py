@@ -412,7 +412,7 @@ class DashboardQueryService:
         )
         total = Decimal("0.00")
         for payment in payments:
-            total += payment.total_paid
+            total += payment.total_paid.amount
         return total
 
     @staticmethod
