@@ -1113,6 +1113,8 @@ class AddPaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
             return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
+        if workorder.budget_type in ("warranty", "courtesy"):
+            return JsonResponse({"ok": False, "error": "Ordens de serviço do tipo Garantia ou Cortesia não aceitam planos de pagamento."}, status=400)
 
         form = WorkOrderPaymentForm(request.POST, workorder=workorder)
 

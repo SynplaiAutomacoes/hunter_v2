@@ -130,7 +130,13 @@ class WorkOrderPaymentForm(CoreModelForm):
         blocked_value_attrs = {"readonly": True, "class": "cursor-not-allowed opacity-75"}
         fully_paid_value_attrs = {**blocked_value_attrs, "disabled": True, "title": "OS paga por completo"}
 
-        if payment_is_fully_paid:
+        no_payment_required = bool(self.workorder and self.workorder.budget_type in ("warranty", "courtesy"))
+
+        if no_payment_required:
+            for field_name in ["entry_amount", "first_installment_amount", "payment_method", "due_date"]:
+                self.fields[field_name].disabled = True
+                self.fields[field_name].widget.attrs.update(fully_paid_value_attrs)
+        elif payment_is_fully_paid:
             for field_name in ["entry_amount", "first_installment_amount", "payment_method", "due_date"]:
                 self.fields[field_name].disabled = True
                 self.fields[field_name].widget.attrs.update(fully_paid_value_attrs)
@@ -182,7 +188,8 @@ class WorkOrderPaymentForm(CoreModelForm):
         pending_amount_js = format(pending_amount, "f")
         today_iso = timezone.localdate().isoformat()
         is_first_payment_js = "true" if self.is_first_payment else "false"
-        payment_success_container_class = "col-span-12 mb-4" if payment_is_fully_paid else "hidden col-span-12 mb-4"
+        no_payment_required = bool(self.workorder and self.workorder.budget_type in ("warranty", "courtesy"))
+        payment_success_container_class = "col-span-12 mb-4" if (payment_is_fully_paid or no_payment_required) else "hidden col-span-12 mb-4"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -193,8 +200,8 @@ class WorkOrderPaymentForm(CoreModelForm):
                     <div class="alert alert-success shadow-lg border-2 border-success">
                         <span class="material-icons">check_circle</span>
                         <div>
-                            <h3 class="font-bold text-sm">Ordem de Serviço completamente paga</h3>
-                            <div class="text-xs">A ordem de serviço foi paga completamente.</div>
+                            <h3 class="font-bold text-sm">{'Ordem de Serviço não exige pagamento' if no_payment_required else 'Ordem de Serviço completamente paga'}</h3>
+                            <div class="text-xs">{'Ordens de serviço do tipo Garantia ou Cortesia não exigem pagamento.' if no_payment_required else 'A ordem de serviço foi paga completamente.'}</div>
                         </div>
                     </div>
                 </div>
@@ -661,6 +668,9 @@ class WorkOrderPaymentForm(CoreModelForm):
             return {}
         if not self.workorder:
             return cleaned_data
+
+        if self.workorder.budget_type in ("warranty", "courtesy"):
+            raise ValidationError("Ordens de serviço do tipo Garantia ou Cortesia não aceitam planos de pagamento.")
 
         payment_method = cleaned_data.get("payment_method")
         entry_amount = cleaned_data.get("entry_amount")
