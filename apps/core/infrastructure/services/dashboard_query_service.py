@@ -412,7 +412,7 @@ class DashboardQueryService:
         )
         total = Decimal("0.00")
         for payment in payments:
-            total += payment.first_installment_amount.amount + ((payment.installments_count - 1) * payment.remaining_installments_amount.amount)
+            total += payment.total_paid
         return total
 
     @staticmethod
