@@ -226,6 +226,8 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def payment_block_reason(self) -> str | None:
+        if self.budget_type in ("warranty", "courtesy"):
+            return None
         if self.is_fully_paid:
             return None
         return "Receba o pagamento integral da ordem de serviço antes de enviar para assinatura ou entregar o veículo."
@@ -303,7 +305,7 @@ class WorkOrder(TimeStampedModel):
 
     def mark_signature_approved(self) -> None:
         self.signature_request_status = WorkOrderSignatureStatus.APPROVED
-        if not self.is_fully_paid:
+        if not self.is_fully_paid and self.budget_type not in ("warranty", "courtesy"):
             self.save(update_fields=["signature_request_status"])
             return
         self.status = WorkOrderStatus.APPROVED
