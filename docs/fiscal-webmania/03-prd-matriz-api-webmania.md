@@ -428,9 +428,12 @@ Subfases recomendadas:
 | Subfase | Escopo | Motivo |
 | ------- | ------ | ------ |
 | `2.4D.5.1` | Evento `112130` isolado | Maior aderencia potencial ao dominio operacional de oficina; ainda exige snapshot fiscal e confirmacao de estoque/transporte. |
-| `2.4D.5.2` | Evento `112120` isolado | Baixa prioridade; liberar somente atras de habilitacao administrativa e prova de contexto de importacao. |
-| `2.4D.5.3` | Evento `112140` isolado | Depende de pagamento antecipado/nota de debito; melhor apos credito/debito ou decisao financeira explicita. |
-| `2.4D.5.4` | Cancelamento dos eventos `112120/112130/112140` | Subfase propria apos emissao de cada evento, usando UUID remoto e sem cancelamento generico. |
+| `2.4D.5.2` | Cancelamento do evento `112130` | Fechar ciclo do primeiro evento com itens ja validado, sem generalizar cancelamento. |
+| `2.4D.6.0` | Planejamento final de `112120` e `112140` | Reavaliar fontes locais antes de qualquer codigo funcional. |
+| `2.4D.6.P` | Fase preparatoria para `112120/112140` | Criar/importar fonte fiscal confiavel antes de emissao. |
+| `2.4D.6.1` | Evento `112120` isolado | Somente apos importacao/ALC-ZFM validada. |
+| `2.4D.6.2` | Evento `112140` isolado | Somente apos nota de debito/pagamento antecipado e vinculo item fiscal. |
+| `2.4D.6.3` | Cancelamento dos eventos `112120/112140` | Subfase propria apos emissao de cada evento, usando UUID remoto e sem cancelamento generico. |
 
 ### Fontes locais e bloqueios seguros
 
@@ -455,3 +458,20 @@ OpenAPI: atualizado nesta fase para explicitar os campos oficiais de `controle_e
 Resultado 2.4D.5.1: o Hunter implementou somente `cod_evento=112130`. A revalidacao oficial confirmou que o payload operacional usa `itens[]` no topo, com `item`, `valor_ibs`, `valor_cbs` e `controle_estoque` contendo `quantidade_perecimento`, `unidade_perecimento`, `valor_ibs_estorno` e `valor_cbs_estorno`; nao existe top-level `ibs_cbs` neste evento. A implementacao bloqueia documentos sem NF-e normal local autorizada, sem chave, sem snapshot fiscal IBS/CBS por item ou com item fiscal inexistente. `112120`, `112140`, `211xxx` e cancelamento do `112130` permanecem fora do escopo.
 
 Resultado 2.4D.5.2: o Hunter implementou somente o cancelamento do evento `112130` ja autorizado. A revalidacao oficial confirmou `PUT /1/nfe/evento-ibs-cbs/cancelar/` com payload restrito a `uuid`, `ambiente` e `url_notificacao` quando aplicavel. O Hunter nao envia `chave`, `cod_evento`, `evento`, `itens`, `controle_estoque`, `ibs_cbs`, produtos, credito/debito ou campos de cancelamento de documento. O cancelamento atualiza apenas `FiscalDocumentEvent` do cancelamento e, em retorno positivo, marca o evento `112130` original como cancelado sem alterar a NF-e base. `112120`, `112140`, eventos `211xxx` e cancelamento generico permanecem fora do escopo.
+
+## Fase 2.4D.6.0 - Planejamento final dos Eventos IBS/CBS 112120 e 112140
+
+Fonte oficial reconsultada em 2026-06-18: documentacao Webmania REST NF-e/NFC-e em `https://webmania.com.br/docs/rest-api-nfe/1000/`, secao Eventos IBS/CBS. O endpoint permanece `POST /1/nfe/evento-ibs-cbs/`, com envelope `chave`, `ambiente`, `cod_evento`, `evento` e `url_notificacao` quando aplicavel. A resposta documentada permanece `uuid`, `status`, `evento`, `modelo` e `log`.
+
+| cod_evento | Descrição oficial | Dados locais necessários | Fonte existe hoje? | Dependência | Risco | Decisão |
+| ---------- | ----------------- | ------------------------ | -----------------: | ----------- | ----- | ------- |
+| `112120` | Importacao em ALC/ZFM nao convertida em isencao; item da NF-e de importacao referenciada, IBS/CBS da quantidade sem conversao e `controle_estoque.quantidade/unidade`. | NF-e de importacao referenciada, item fiscal sequencial, snapshot IBS/CBS original, quantidade/unidade sem atendimento dos requisitos para isencao, contexto ALC/ZFM/importacao validado. | Nao. Ha parser/importacao XML em `apps.stock`, mas nao ha projecao fiscal validada para evento Webmania nem regra ALC/ZFM. | Importacao XML fiscal, validacao de contexto ALC/ZFM e snapshot por item. | Alto | Adiar. Nao implementar sem fase preparatoria de importacao/validacao fiscal e regra ALC/ZFM. |
+| `112140` | Fornecimento nao realizado com pagamento antecipado; item da nota de debito de pagamento antecipado, IBS/CBS da quantidade nao fornecida e `controle_estoque.quantidade_nao_fornecida/unidade_nao_fornecida`. | Nota de debito/pagamento antecipado, item fiscal sequencial, snapshot IBS/CBS da nota de debito, vinculo com financeiro/pagamento antecipado e quantidade/unidade nao fornecida. | Nao. O financeiro operacional existe, mas nao ha NF-e de debito/credito funcional nem vinculo fiscal item-pagamento antecipado. | Credito/debito IBS/CBS, financeiro de pagamento antecipado e vinculo item fiscal. | Alto | Adiar. Bloquear ate fase de credito/debito ou fase preparatoria financeira/fiscal. |
+
+Decisao 2.4D.6.0: **Opcao C - adiar ambos**, com recomendacao complementar de **Opcao D - planejar fase preparatoria**. Nenhum dos dois eventos deve ser implementado imediatamente porque a infraestrutura HTTP/evento ja existe, mas as fontes de dominio exigidas pela Webmania ainda nao estao modeladas com seguranca no Hunter.
+
+Cancelamento: `112120` e `112140` devem seguir o mesmo padrao tecnico de cancelamento por UUID ja validado para `112110`, `112150` e `112130`, mas somente em subfases separadas apos a emissao correspondente existir e possuir testes proprios. Nao criar cancelamento generico de evento IBS/CBS.
+
+Relacao com credito/debito: `112140` depende semanticamente de nota de debito de pagamento antecipado e nao deve ser liberado antes de existir suporte funcional aprovado para credito/debito IBS/CBS ou um fluxo fiscal equivalente que produza documento, item, pagamento antecipado e quantidade nao fornecida auditaveis. `112120` nao depende diretamente de finalidade 5/6, mas depende de importacao ALC/ZFM e validacao fiscal externa.
+
+OpenAPI: o schema validado atual ja contem `NfeIbsCbsEventRequest`, `NfeIbsCbsEventItem` e `NfeIbsCbsEventStockControl` com campos documentados para `112120` e `112140`. Nenhuma correcao de OpenAPI foi necessaria nesta fase.

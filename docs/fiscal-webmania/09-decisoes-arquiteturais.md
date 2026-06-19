@@ -453,3 +453,20 @@ Status: retorno remoto positivo atualiza o evento de cancelamento e marca o even
 Compatibilidade: cancelamentos validados de `112110` e `112150` permanecem intactos. Eventos `112120`, `112140`, `211xxx`, credito/debito e complementar tributaria continuam bloqueados ate autorizacao propria.
 
 Fase: 2.4D.5.2.
+
+## ADR - Adiar eventos IBS/CBS 112120 e 112140 ate fontes fiscais confiaveis
+
+Status: aprovado documentalmente na Fase 2.4D.6.0.
+
+Contexto: a Webmania documenta `112120` como evento de importacao ALC/ZFM nao convertida em isencao e `112140` como fornecimento nao realizado com pagamento antecipado. Ambos exigem `itens[]`, item sequencial fiscal, valores IBS/CBS e campos especificos de `controle_estoque`.
+
+Decisao: adiar a implementacao funcional de ambos. A infraestrutura tecnica de eventos IBS/CBS ja esta validada, mas o Hunter ainda nao possui fonte fiscal/operacional confiavel para os dados especificos desses eventos.
+
+Justificativa:
+
+- `112120` exige NF-e de importacao referenciada, contexto ALC/ZFM e quantidade sem conversao em isencao. O app de estoque possui importacao/parser XML, mas nao projeta documento fiscal Webmania com snapshot IBS/CBS e regra ALC/ZFM para eventos.
+- `112140` exige item da nota de debito de pagamento antecipado e quantidade nao fornecida. Nota de debito/credito IBS/CBS segue bloqueada e o financeiro atual nao cria vinculo fiscal item-pagamento antecipado.
+
+Consequencias: criar primeiro fase preparatoria de importacao XML/snapshot fiscal e/ou fase de credito/debito/pagamento antecipado. Cancelamentos de `112120` e `112140` so podem ser implementados depois da emissao do codigo correspondente estar validada.
+
+Fase: 2.4D.6.0.

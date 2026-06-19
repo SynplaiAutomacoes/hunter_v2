@@ -512,3 +512,15 @@ Estados `started`, `sent`, `processing`, `approved/succeeded` e `uncertain` deve
 Webhook futuro deve resolver primeiro por UUID remoto do evento; fallback por tentativa ou chave+sequencia so pode atualizar um candidato unico da mesma oficina, documento, `cod_evento` e sequencia. Ambiguidade deve deixar o webhook pendente. O status da NF-e/NFC-e base nao deve ser alterado.
 
 Resultado 2.4D.5.2: o cancelamento do `112130` reutiliza `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event_cancellation")`, com chave idempotente por oficina, evento original, evento de cancelamento e geracao. O payload congelado contem somente `uuid`, `ambiente` e `url_notificacao` quando aplicavel. Tentativa `uncertain` bloqueia novo cancelamento automatico do mesmo evento. Webhook de cancelamento resolve por UUID remoto/tentativa, rejeita ambiguidade, atualiza somente o evento de cancelamento e marca o evento `112130` original como cancelado apenas em retorno remoto positivo, sem alterar o `FiscalDocument` base.
+
+## Fase 2.4D.6.0 - Bloqueios seguros para 112120 e 112140
+
+Decisao: manter `112120` e `112140` bloqueados ate haver fonte local confiavel. A idempotencia tecnica de `nfe_ibs_cbs_event` esta pronta, mas nao substitui validacao fiscal/operacional dos dados de origem.
+
+Bloqueios obrigatorios para futura implementacao:
+
+- `112120`: bloquear documento externo minimo, documento sem XML/importacao validada, ausencia de contexto ALC/ZFM, item sem sequencial fiscal, falta de snapshot IBS/CBS original e quantidade/unidade sem regra de isencao comprovada.
+- `112140`: bloquear enquanto nao houver nota de debito/pagamento antecipado funcional, vinculo financeiro-item fiscal, snapshot IBS/CBS da nota de debito e quantidade/unidade nao fornecida auditavel.
+- Ambos: bloquear reenvio se houver evento ativo, aprovado, `processing` ou `uncertain` com mesma intencao; preservar payload congelado; webhook deve resolver por UUID remoto ou fallback candidato unico da mesma oficina/documento/codigo/sequencia.
+
+Cancelamento futuro: somente apos emissao correspondente validada, usando `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event_cancellation")` por codigo. Nao generalizar cancelamento por endpoint sem testes por codigo.

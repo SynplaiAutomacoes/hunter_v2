@@ -577,3 +577,21 @@ O payload persistido e transmitido segue o contrato oficial com `itens[]`; o blo
 O cancelamento do evento `112130` foi modelado como `FiscalDocumentEvent(event_type="ibs_cbs_cancellation", event_code="112130", event_payload_type="cancellation", related_event=<evento 112130>)`, associado ao mesmo `FiscalDocument` base apenas para escopo e historico. Nenhum `FiscalDocument` novo e nenhum `FiscalDocumentLink` sao criados.
 
 A tentativa usa `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event_cancellation")`. Retorno remoto positivo atualiza o evento de cancelamento e marca somente o evento `112130` original como `cancelado`; o status, chave, XML e DANFE da NF-e base permanecem inalterados. Eventos sem UUID remoto, em estado incerto/falho/rejeitado ou ja cancelados bloqueiam antes do gateway.
+
+## Fase 2.4D.6.0 - Modelagem recomendada para 112120 e 112140
+
+Decisao: nao criar model novo nem implementar emission builders nesta fase. Quando autorizados futuramente, `112120` e `112140` devem continuar como `FiscalDocumentEvent(event_type="ibs_cbs")`, associados ao `FiscalDocument` base, sem criar `FiscalDocument` ou `FiscalDocumentLink`.
+
+Modelagem futura por codigo:
+
+- `112120`: `event_payload_type="import_alc_zfm_not_exempted"`, exigindo documento de importacao local/importado por XML validado, snapshot fiscal por item, contexto ALC/ZFM e `controle_estoque.quantidade/unidade`.
+- `112140`: `event_payload_type="advance_payment_not_supplied"`, exigindo documento de debito/pagamento antecipado, snapshot fiscal por item da nota de debito, vinculo financeiro auditavel e `controle_estoque.quantidade_nao_fornecida/unidade_nao_fornecida`.
+
+Ambos devem reutilizar `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event")`, sequencia transacional por documento/codigo e payload congelado. `TaxClassNfe` atual nao pode ser fallback para recompor evento de documento ja emitido.
+
+Fase preparatoria recomendada antes de codigo funcional:
+
+1. projetar/importar NF-e externa/XML em `FiscalDocument` com itens, sequenciais fiscais e IBS/CBS auditaveis;
+2. modelar contexto ALC/ZFM/importacao para `112120`;
+3. modelar nota de debito/pagamento antecipado e vinculo item fiscal-financeiro para `112140`;
+4. definir saldos/quantidades afetadas e bloqueios de concorrencia antes de transmitir eventos.

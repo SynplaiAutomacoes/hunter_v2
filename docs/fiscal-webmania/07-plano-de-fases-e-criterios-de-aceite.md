@@ -256,12 +256,14 @@ Subfases funcionais recomendadas:
 | 2.4D.5.0 | Planejamento dos eventos de emitente com itens/controle: `112120`, `112130`, `112140` | Aprovada documentalmente | Medio/alto; definir fontes de snapshot, itens e bloqueios antes de codigo. |
 | 2.4D.5.1 | Evento `112130` isolado | Validada | Medio/alto; estorno IBS/CBS e perecimento/perda/roubo/furto em transporte contratado pelo fornecedor. |
 | 2.4D.5.2 | Cancelamento do evento `112130` | Validada | Medio; reutiliza cancelamento por UUID sem generalizar demais codigos. |
-| 2.4D.5.3 | Evento `112120` isolado | 2.4D.5.0 aprovada e contexto ALC/ZFM validado | Alto; importacao/beneficio fiscal com baixa aderencia oficina. |
-| 2.4D.5.4 | Evento `112140` isolado | 2.4D.5.0 aprovada e regra de pagamento antecipado definida | Alto; depende de pagamento antecipado/nota de debito. |
-| 2.4D.5.5 | Cancelamento dos eventos `112120/112140` e futuros cancelamentos pontuais | Evento correspondente validado e autorizado com UUID remoto | Medio/alto; nao generalizar sem testes por codigo. |
-| 2.4D.6 | Eventos de destinatario: `211110`, `211120`, `211124`, `211130`, `211140`, `211150` | Decisao de papel destinatario e permissao | Alto; papel fiscal diferente e referencias externas. |
-| 2.4D.7 | Evento `211128` e relacao com credito/debito | 2.4E/2.5 funcional aprovada | Alto; depende de nota de credito/debito. |
-| 2.4D.8 | Cancelamento dos demais eventos IBS/CBS | Eventos correspondentes autorizados com UUID remoto | Medio/alto; cada codigo pode ter regra propria de reversao. |
+| 2.4D.6.0 | Planejamento final dos eventos `112120` e `112140` | Documentada | Alto; decisao recomendada de adiar ambos e exigir fase preparatoria. |
+| 2.4D.6.P | Fase preparatoria para `112120/112140` | 2.4D.6.0 aprovada e escopo autorizado | Alto; importacao XML/snapshot fiscal, ALC/ZFM, credito/debito ou pagamento antecipado. |
+| 2.4D.6.1 | Evento `112120` isolado | Fase preparatoria validada e contexto ALC/ZFM comprovado | Alto; importacao/beneficio fiscal com baixa aderencia oficina. |
+| 2.4D.6.2 | Evento `112140` isolado | Fase preparatoria validada e nota de debito/pagamento antecipado definidos | Alto; depende de pagamento antecipado/nota de debito. |
+| 2.4D.6.3 | Cancelamento dos eventos `112120/112140` e futuros cancelamentos pontuais | Evento correspondente validado e autorizado com UUID remoto | Medio/alto; nao generalizar sem testes por codigo. |
+| 2.4D.7 | Eventos de destinatario: `211110`, `211120`, `211124`, `211130`, `211140`, `211150` | Decisao de papel destinatario e permissao | Alto; papel fiscal diferente e referencias externas. |
+| 2.4D.8 | Evento `211128` e relacao com credito/debito | 2.4E/2.5 funcional aprovada | Alto; depende de nota de credito/debito. |
+| 2.4D.9 | Cancelamento dos demais eventos IBS/CBS | Eventos correspondentes autorizados com UUID remoto | Medio/alto; cada codigo pode ter regra propria de reversao. |
 
 ##### Fase 2.4D.1 - Evento IBS/CBS 112110
 
@@ -284,7 +286,7 @@ Subfases funcionais recomendadas:
 
 ##### Fase 2.4D.3.0 - Priorizacao dos demais Eventos IBS/CBS
 
-- Status: em planejamento documental.
+- Status: documentada em 2026-06-18, aguardando aprovacao.
 - Escopo: revalidar eventos `112120`, `112130`, `112140`, `112150`, `211110`, `211120`, `211124`, `211128`, `211130`, `211140` e `211150` sem alterar codigo funcional.
 - Decisao: a proxima subfase funcional recomendada e `2.4D.3 - Implementar somente evento IBS/CBS 112150`.
 - Justificativa: `112150` tem payload especifico minimo (`data_previsao_entrega`), nao depende de credito/debito, nao exige `itens[]`, nao exige papel de destinatario e reaproveita a infraestrutura `112110`.
@@ -335,6 +337,16 @@ Subfases funcionais recomendadas:
 - Modelagem: reutilizar `FiscalDocumentEvent(event_type="ibs_cbs_cancellation", event_code="112130", related_event=<112130>)` e `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event_cancellation")`; nao criar `FiscalDocument`.
 - Aceite validado: uma chamada remota por intencao, timeout vira `uncertain`, duplicidade bloqueada, webhook idempotente, ambiguidade sem update, permissao `cancel_ibs_cbs_event`, download/payload protegidos e documento base sem alteracao de status.
 - Fora de escopo: eventos `112120`, `112140`, `211xxx`, cancelamento generico, credito/debito, complementar tributaria, NFS-e e CT-e.
+
+##### Fase 2.4D.6.0 - Planejamento final dos Eventos IBS/CBS 112120 e 112140
+
+- Status: em planejamento documental.
+- Escopo: revalidar oficialmente `112120` e `112140`, auditar fontes locais e decidir se algum pode ser implementado agora.
+- Resultado recomendado: **adiar ambos** e planejar fase preparatoria.
+- `112120`: exige NF-e de importacao referenciada, contexto ALC/ZFM, item sequencial fiscal, valores IBS/CBS e `controle_estoque.quantidade/unidade`. O Hunter ainda nao possui projecao fiscal de XML/importacao com contexto ALC/ZFM para evento.
+- `112140`: exige item da nota de debito de pagamento antecipado, valores IBS/CBS e `controle_estoque.quantidade_nao_fornecida/unidade_nao_fornecida`. O Hunter ainda nao possui nota de debito/credito IBS/CBS funcional nem vinculo fiscal item-pagamento antecipado.
+- Cancelamento: manter por subfase posterior ao evento correspondente validado; nao generalizar cancelamento por UUID sem emissao/teste do codigo.
+- Fora de escopo confirmado: codigo funcional, migrations, services, views, templates, testes, eventos `211xxx`, credito/debito, complementar tributaria, NFS-e e CT-e.
 
 #### Fase 2.4E - Credito e debito
 

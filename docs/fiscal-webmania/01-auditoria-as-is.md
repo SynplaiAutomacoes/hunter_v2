@@ -215,3 +215,20 @@ Escopo: leitura de codigo em modo somente leitura para planejar eventos IBS/CBS 
 | Documentos externos | NF-e externa minima por chave nao contem itens ou sequenciais fiscais | Bloquear eventos com itens para documento externo sem XML/importacao validada |
 
 Conclusao: a infraestrutura tecnica de evento esta pronta para ser reutilizada, mas os tres codigos exigem regras de negocio distintas. O risco principal nao e HTTP/Webmania; e a fonte local confiavel para sequencial fiscal, valores IBS/CBS, quantidade/unidade e contexto operacional.
+
+### Auditoria tecnica Fase 2.4D.6.0 - Eventos IBS/CBS 112120 e 112140
+
+Escopo: leitura de codigo em modo somente leitura para decidir se os eventos restantes do grupo `112xxx` podem ser implementados com seguranca agora.
+
+| Fonte exigida | Evidencia no codigo atual | Existe fonte confiavel para 112120/112140? | Impacto |
+| ------------- | ------------------------- | ------------------------------------------ | ------- |
+| XML/importacao validada de NF-e externa | `apps/stock/forms.py` e `apps/stock/utils.py` possuem importacao/parser XML para estoque, mas isso nao projeta automaticamente `FiscalDocument` externo com itens fiscais, sequenciais, IBS/CBS e origem validada para eventos Webmania | Parcial e fora do dominio fiscal de eventos | Exige fase preparatoria para transformar XML/importacao em snapshot fiscal auditavel antes de permitir eventos com itens em documentos externos |
+| Snapshot fiscal por item | `FiscalDocument.request_payload`, `FiscalDocument.response_payload`, `NfeItem.raw_payload` e `NfeItem.log_payload` sao usados por devolucao/complementar/evento `112130` | Parcial para NF-e local ja emitida/projetada; nao garante importacao ALC/ZFM nem nota de debito antecipado | Pode apoiar validacao de item/sequencial, mas nao basta para `112120` ou `112140` sem contexto de negocio especifico |
+| Controle de estoque com perda/perecimento | `112130` aceita input fiscal confirmado para perecimento/perda/roubo/furto; app `stock` controla importacoes/produtos, mas nao ha evento operacional fiscal de conversao em isencao ALC/ZFM ou nao fornecimento antecipado | Nao para `112120`/`112140` | Criar evento agora exigiria input manual sem origem operacional suficiente |
+| Controle de transporte | `112130` foi implementado com confirmacao fiscal manual; nao ha fluxo de transporte fiscal para ALC/ZFM ou pagamento antecipado | Nao aplicavel/suficiente | Nao desbloqueia `112120`/`112140` |
+| Pagamento antecipado | `FinancialMovement`, `PaymentMethod` e `WorkOrderPaymentMethod` existem, mas representam financeiro operacional/OS; nao ha modelagem fiscal de pagamento antecipado vinculado a nota de debito e item fiscal | Nao | `112140` deve ficar bloqueado ate modelagem de pagamento antecipado fiscal e/ou nota de debito |
+| Nota de debito/credito | Fase 2.5.0 decidiu adiar credito/debito porque finalidades 5/6 dependem de IBS/CBS e regras exclusivas | Nao | `112140` referencia item da nota de debito de pagamento antecipado; bloquear ate credito/debito ou fluxo equivalente ser validado |
+| Vinculo financeiro -> item fiscal | O financeiro registra movimentos e pagamentos por OS, mas nao ha vinculo auditavel entre pagamento antecipado, item fiscal e sequencial de nota de debito | Nao | Sem esse vinculo, `quantidade_nao_fornecida` seria input manual de alto risco |
+| Quantidade/unidade nao fornecida | Nao ha entidade operacional de nao fornecimento associada a nota de debito/pagamento antecipado | Nao | Exige fase propria de regra financeira/operacional antes de `112140` |
+
+Conclusao 2.4D.6.0: o codigo ja possui infraestrutura tecnica reutilizavel para `FiscalDocumentEvent`, idempotencia, webhook e cancelamento por UUID, mas nao possui fontes de dominio suficientemente confiaveis para liberar `112120` ou `112140` agora. A decisao recomendada e adiar ambos e planejar uma fase preparatoria antes de qualquer implementacao funcional.

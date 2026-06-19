@@ -120,3 +120,10 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Manter eventos `211xxx` bloqueados ate decisao de papel destinatario, referencias externas e permissao fiscal.
 - Manter evento `211128`, credito/debito e complementar tributaria bloqueados ate base IBS/CBS correspondente estar funcional e aprovada.
 - Avaliar futura integracao com estoque/transporte para reduzir input manual do `112130`; a implementacao validada exige confirmacao fiscal e snapshot de item, mas nao automatiza baixa ou ocorrencia operacional.
+
+### Pendencias apos Fase 2.4D.6.0
+
+- `112120` permanece bloqueado ate existir importacao XML/projecao fiscal capaz de gerar `FiscalDocument` com itens, sequenciais fiscais, snapshot IBS/CBS e contexto ALC/ZFM validado.
+- `112140` permanece bloqueado ate existir nota de debito/pagamento antecipado ou fluxo fiscal equivalente com item fiscal, vinculo financeiro e quantidade/unidade nao fornecida auditavel.
+- Cancelamentos de `112120` e `112140` devem ficar em subfases posteriores a emissao correspondente, sem cancelamento generico.
+- A proxima fase funcional recomendada nao deve ser `112120` nem `112140`; deve ser preparatoria para fonte fiscal confiavel ou seguir para outra area autorizada com menor dependencia.

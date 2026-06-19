@@ -369,3 +369,15 @@ A UI minima do detalhe da NF-e passou a expor `Registrar evento IBS/CBS` para `1
 ### Resultado Fase 2.4D.5.2 - UX Cancelamento 112130
 
 A UI minima do detalhe da NF-e passou a expor cancelamento apenas para evento `112130` aprovado, com UUID remoto e usuario com `cancel_ibs_cbs_event`. O formulario exige confirmacao explicita e informa que o cancelamento afeta somente o evento IBS/CBS, nao a NF-e original. Nao ha acao generica para cancelamento de `112120`, `112140` ou eventos `211xxx`. Downloads e payloads permanecem protegidos por `download_ibs_cbs_event` e `view_ibs_cbs_event_payload`, com escopo por oficina.
+
+### Fase 2.4D.6.0 - UX planejada para 112120 e 112140
+
+Decisao: nao expor acoes de UI para `112120` ou `112140` agora.
+
+Quando houver fase preparatoria aprovada:
+
+- `112120` deve aparecer somente para usuario com `issue_ibs_cbs_event`, documento de importacao/ALC-ZFM validado e itens fiscais importados/projetados. A UI deve exibir item fiscal sequencial, quantidade/unidade sem conversao em isencao, valores IBS/CBS e confirmacao fiscal explicita.
+- `112140` deve aparecer somente depois de existir nota de debito/pagamento antecipado e vinculo financeiro-item fiscal. A UI deve exibir item da nota de debito, quantidade/unidade nao fornecida, valores IBS/CBS, referencia financeira e confirmacao explicita.
+- Cancelamento desses eventos deve aparecer somente apos a emissao correspondente validada e evento autorizado com UUID remoto.
+
+Permissoes: reutilizar `issue_ibs_cbs_event`, `cancel_ibs_cbs_event`, `view_ibs_cbs_event`, `download_ibs_cbs_event` e `view_ibs_cbs_event_payload`, sem fallback de NF-e/NFC-e, credito/debito, financeiro ou estoque.

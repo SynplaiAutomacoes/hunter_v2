@@ -435,3 +435,24 @@ Para Grupo C/D:
 
 - `FiscalPhaseTwoIbsCbsEvent112130CancellationTests`: payload oficial de cancelamento com somente `uuid`, `ambiente` e `url_notificacao` quando aplicavel; ausencia de `chave`, `cod_evento`, `evento`, `itens`, `controle_estoque`, `ibs_cbs`, produtos, credito/debito e campos de documento; bloqueio de evento sem UUID, falho/rejeitado/incerto, outro codigo, documento base cancelado e cancelamento duplicado/incerto; timeout `uncertain`, rejeicao remota sem marcar sucesso, payload congelado, webhook duplicado/idempotente e ambiguidade sem update; permissao, confirmacao explicita, cross-workshop, downloads e payload protegidos.
 - `FiscalPhaseTwoIbsCbsEvent112130CancellationConcurrentTests`: duas requisicoes concorrentes da mesma intencao de cancelamento resultam em uma unica chamada remota e um unico evento de cancelamento local.
+
+### Testes planejados apos Fase 2.4D.6.0
+
+Para `112120`, se houver fase futura:
+
+- payload oficial com `cod_evento=112120`, `evento` numerico, `itens[].item` como sequencial fiscal, `valor_ibs`, `valor_cbs`, `controle_estoque.quantidade` e `controle_estoque.unidade`;
+- bloqueio sem NF-e de importacao local/XML validada, sem contexto ALC/ZFM, sem snapshot IBS/CBS, sem sequencial fiscal ou com documento externo minimo;
+- idempotencia, concorrencia, timeout `uncertain`, webhook por UUID/fallback, permissao, cross-workshop, sanitizacao e regressao dos eventos ja validados.
+
+Para `112140`, se houver fase futura:
+
+- payload oficial com `cod_evento=112140`, `itens[].item` da nota de debito de pagamento antecipado, `valor_ibs`, `valor_cbs`, `controle_estoque.quantidade_nao_fornecida` e `controle_estoque.unidade_nao_fornecida`;
+- bloqueio sem nota de debito/pagamento antecipado, sem vinculo financeiro-item fiscal, sem snapshot IBS/CBS, sem sequencial fiscal ou sem quantidade nao fornecida auditavel;
+- bloqueio ate credito/debito IBS/CBS ou fluxo fiscal equivalente estar implementado e aprovado;
+- idempotencia, concorrencia, timeout `uncertain`, webhook por UUID/fallback, permissao, cross-workshop, sanitizacao e regressao de `112110`, `112150`, `112130` e cancelamentos.
+
+Para cancelamento futuro de `112120`/`112140`:
+
+- criar testes especificos por codigo somente apos emissao do codigo correspondente existir;
+- payload restrito a `uuid`, `ambiente` e `url_notificacao` quando aplicavel;
+- nao alterar `FiscalDocument` base nem criar cancelamento generico.

@@ -458,9 +458,27 @@ Resultado da Fase 2.4D.3: o Hunter passou a suportar somente o evento IBS/CBS `1
 
 Resultado da Fase 2.4D.4: o Hunter passou a suportar somente o cancelamento do evento IBS/CBS `112150` autorizado, por `PUT /1/nfe/evento-ibs-cbs/cancelar/`. O cancelamento e registrado como `FiscalDocumentEvent(event_type="ibs_cbs_cancellation", event_code="112150")` vinculado ao evento original, usa apenas UUID remoto do evento, ambiente e URL de notificacao quando aplicavel, e nao altera o status fiscal da NF-e base. Cancelamento generico, demais eventos IBS/CBS, credito/debito, complementar tributaria, NFS-e e CT-e permanecem fora do escopo.
 
+Resultado da Fase 2.4D.5.1: o Hunter passou a suportar somente o evento IBS/CBS `112130`, de perecimento, perda, roubo ou furto durante transporte contratado pelo fornecedor, como `FiscalDocumentEvent(event_type="ibs_cbs", event_code="112130")` vinculado a NF-e normal local autorizada. A implementacao exige snapshot fiscal original com item sequencial e IBS/CBS, nao usa `TaxClassNfe` atual como fallback e nao altera o status da NF-e base.
+
+Resultado da Fase 2.4D.5.2: o Hunter passou a suportar somente o cancelamento do evento IBS/CBS `112130` autorizado, por UUID remoto em `PUT /1/nfe/evento-ibs-cbs/cancelar/`. O ciclo completo validado de eventos IBS/CBS de emitente cobre agora `112110`, `112150` e `112130`, cada um com cancelamento pontual por codigo. Cancelamento generico, `112120`, `112140`, eventos `211xxx`, credito/debito, complementar tributaria, NFS-e e CT-e permanecem fora do escopo.
+
+## Fase 2.4D.6.0 - Planejamento final dos Eventos IBS/CBS 112120 e 112140
+
+Status: planejamento documental apos validacao da Fase 2.4D.5.2 no checkpoint `d7a82117`.
+
+Decisao de produto recomendada: adiar `112120` e `112140` e aprovar antes uma fase preparatoria de fontes fiscais confiaveis.
+
+Justificativa:
+
+- `112120` e um evento de importacao ALC/ZFM nao convertida em isencao. Embora o Hunter tenha importacao XML no app de estoque, ainda nao ha projecao fiscal validada para `FiscalDocument` com itens, sequenciais, IBS/CBS e contexto ALC/ZFM.
+- `112140` e um evento de fornecimento nao realizado com pagamento antecipado. O Hunter possui financeiro operacional, mas nao possui NF-e de debito/credito IBS/CBS funcional nem vinculo fiscal entre pagamento antecipado, item da nota de debito e quantidade nao fornecida.
+- Implementar qualquer um agora dependeria de input manual sem fonte fiscal suficiente, aumentando risco de evento incorreto.
+
+Recomendacao de proxima fase: criar uma fase preparatoria para importacao/validacao XML e snapshot fiscal de documentos externos ou, se a prioridade for `112140`, concluir antes credito/debito IBS/CBS e vinculo financeiro-item fiscal. Nao implementar UI ou service para `112120/112140` ate essa base existir.
+
 Eventos adiados:
 
-- `112120`, `112130` e `112140`: exigem itens fiscais, valores IBS/CBS, controle operacional/estoque/transporte ou pagamento antecipado.
+- `112120` e `112140`: exigem fontes fiscais/operacionais ainda ausentes. `112130` ja foi validado e encerrado.
 - `211128`: depende de nota de credito/debito e apuracao assistida.
 - `211110`, `211120`, `211124`, `211130`, `211140` e `211150`: dependem de papel destinatario, documento de aquisicao, apuracao externa, estoque ou contabilidade.
 - Cancelamento dos demais eventos IBS/CBS: nao generalizar sem subfase propria e testes especificos.
