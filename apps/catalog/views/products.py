@@ -302,7 +302,7 @@ class StockFieldsUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request, *args, **kwargs):
         product_id = request.POST.get("product_id")
 
-        stock_obj = get_object_or_404(StockProduct, product_id=product_id, workshop=self.workshop)
+        stock_obj = get_object_or_404(StockProduct, product_id=clean_id(product_id), workshop=self.workshop)
 
         allowed_fields = ["minimum_quantity", "restock_quantity"]
 
