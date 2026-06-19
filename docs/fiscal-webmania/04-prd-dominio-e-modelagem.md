@@ -571,3 +571,9 @@ Bloqueio permanente: `TaxClassNfe` atual nao pode ser fallback automatico para e
 O evento `112130` foi modelado como `FiscalDocumentEvent(event_type="ibs_cbs", event_code="112130", event_payload_type="supplier_transport_loss")` associado ao `FiscalDocument` original. Nenhum `FiscalDocument` novo e nenhum `FiscalDocumentLink` sao criados. A elegibilidade exige NF-e normal local autorizada, chave de acesso valida e snapshot fiscal original com item sequencial e bloco IBS/CBS. O snapshot da classe fiscal atual nao substitui o snapshot da nota ja emitida.
 
 O payload persistido e transmitido segue o contrato oficial com `itens[]`; o bloco top-level `ibs_cbs` nao e usado. A sequencia do evento continua compartilhando a constraint existente `(document, event_type, event_sequence)`, preservando limite de 20 eventos IBS/CBS por documento.
+
+### Resultado Fase 2.4D.5.2 - Cancelamento do Evento IBS/CBS 112130
+
+O cancelamento do evento `112130` foi modelado como `FiscalDocumentEvent(event_type="ibs_cbs_cancellation", event_code="112130", event_payload_type="cancellation", related_event=<evento 112130>)`, associado ao mesmo `FiscalDocument` base apenas para escopo e historico. Nenhum `FiscalDocument` novo e nenhum `FiscalDocumentLink` sao criados.
+
+A tentativa usa `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event_cancellation")`. Retorno remoto positivo atualiza o evento de cancelamento e marca somente o evento `112130` original como `cancelado`; o status, chave, XML e DANFE da NF-e base permanecem inalterados. Eventos sem UUID remoto, em estado incerto/falho/rejeitado ou ja cancelados bloqueiam antes do gateway.

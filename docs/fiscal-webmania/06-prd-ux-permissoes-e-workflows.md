@@ -365,3 +365,7 @@ Bloqueios:
 ### Resultado Fase 2.4D.5.1 - UX Evento 112130
 
 A UI minima do detalhe da NF-e passou a expor `Registrar evento IBS/CBS` para `112130` somente quando a NF-e local normal esta elegivel e o usuario possui `issue_ibs_cbs_event`. O formulario exige item fiscal, valores IBS/CBS, quantidade/unidade de perecimento, valores de estorno e confirmacao explicita. A tela informa que cancelamento do `112130`, eventos `112120/112140`, eventos `211xxx`, credito/debito e complementar tributaria permanecem fora do escopo. Downloads e payloads reutilizam `download_ibs_cbs_event` e `view_ibs_cbs_event_payload`, com escopo por oficina.
+
+### Resultado Fase 2.4D.5.2 - UX Cancelamento 112130
+
+A UI minima do detalhe da NF-e passou a expor cancelamento apenas para evento `112130` aprovado, com UUID remoto e usuario com `cancel_ibs_cbs_event`. O formulario exige confirmacao explicita e informa que o cancelamento afeta somente o evento IBS/CBS, nao a NF-e original. Nao ha acao generica para cancelamento de `112120`, `112140` ou eventos `211xxx`. Downloads e payloads permanecem protegidos por `download_ibs_cbs_event` e `view_ibs_cbs_event_payload`, com escopo por oficina.

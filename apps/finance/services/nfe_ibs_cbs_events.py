@@ -709,6 +709,17 @@ def is_ibs_cbs_event_112150_cancelable(event: FiscalDocumentEvent | None) -> boo
     )
 
 
+def is_ibs_cbs_event_112130_cancelable(event: FiscalDocumentEvent | None) -> bool:
+    if event is None:
+        return False
+    return (
+        event.event_type == FiscalDocumentEventType.IBS_CBS
+        and event.event_code == IBS_CBS_EVENT_112130
+        and event.status in {FiscalDocumentEventStatus.APPROVED, FiscalDocumentEventStatus.SUCCEEDED}
+        and bool(str(event.remote_uuid or "").strip())
+    )
+
+
 def _assert_event_cancelable(*, event: FiscalDocumentEvent, event_code: str) -> None:
     if event.event_type != FiscalDocumentEventType.IBS_CBS or event.event_code != event_code:
         raise NfeIbsCbsEventError(f"Cancelamento permitido somente para evento IBS/CBS {event_code} nesta fase.")
@@ -746,6 +757,10 @@ def _assert_event_cancelable_112150(*, event: FiscalDocumentEvent) -> None:
     _assert_event_cancelable(event=event, event_code=IBS_CBS_EVENT_112150)
 
 
+def _assert_event_cancelable_112130(*, event: FiscalDocumentEvent) -> None:
+    _assert_event_cancelable(event=event, event_code=IBS_CBS_EVENT_112130)
+
+
 def _build_event_cancellation_payload(*, event: FiscalDocumentEvent, request: HttpRequest | None = None) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "uuid": str(event.remote_uuid or "").strip(),
@@ -764,6 +779,10 @@ def _build_112110_cancellation_payload(*, event: FiscalDocumentEvent, request: H
 
 
 def _build_112150_cancellation_payload(*, event: FiscalDocumentEvent, request: HttpRequest | None = None) -> dict[str, Any]:
+    return _build_event_cancellation_payload(event=event, request=request)
+
+
+def _build_112130_cancellation_payload(*, event: FiscalDocumentEvent, request: HttpRequest | None = None) -> dict[str, Any]:
     return _build_event_cancellation_payload(event=event, request=request)
 
 
@@ -821,6 +840,42 @@ def create_112150_event_cancellation_attempt(*, event: FiscalDocumentEvent, requ
             related_event=locked_event,
             event_type=FiscalDocumentEventType.IBS_CBS_CANCELLATION,
             event_code=IBS_CBS_EVENT_112150,
+            event_sequence=locked_event.event_sequence,
+            event_payload_type="cancellation",
+            status=FiscalDocumentEventStatus.STARTED,
+            remote_model="ibs_cbs_cancellation",
+            request_payload=sanitized_payload,
+            requested_by=requested_by if getattr(requested_by, "is_authenticated", False) else None,
+            legal_confirmation=True,
+            confirmed_at=timezone.now(),
+        )
+        idempotency_key = _build_ibs_cbs_event_cancellation_idempotency_key(workshop_id=locked_event.document.workshop_id, original_event_id=locked_event.pk, cancellation_event_id=cancellation_event.pk)
+        attempt = begin_emission_attempt(
+            workshop=locked_event.document.workshop,
+            document_kind=FiscalEmissionDocumentKind.NFE,
+            operation_type=FiscalEmissionOperationType.NFE_IBS_CBS_EVENT_CANCELLATION,
+            request_model=FiscalDocumentEvent.__name__,
+            request_id=cancellation_event.pk,
+            fiscal_document=locked_event.document,
+            fiscal_document_event=cancellation_event,
+            idempotency_key=idempotency_key,
+            request_payload=sanitized_payload,
+            payload_hash=build_payload_hash(sanitized_payload),
+        )
+        return cancellation_event, attempt, payload
+
+
+def create_112130_event_cancellation_attempt(*, event: FiscalDocumentEvent, requested_by: Any | None, request: HttpRequest | None = None) -> tuple[FiscalDocumentEvent, FiscalEmissionAttempt, dict[str, Any]]:
+    with transaction.atomic():
+        locked_event = FiscalDocumentEvent.objects.select_for_update().select_related("document", "document__workshop").get(pk=event.pk)
+        _assert_event_cancelable_112130(event=locked_event)
+        payload = _build_112130_cancellation_payload(event=locked_event, request=request)
+        sanitized_payload = sanitize_fiscal_payload(payload)
+        cancellation_event = FiscalDocumentEvent.objects.create(
+            document=locked_event.document,
+            related_event=locked_event,
+            event_type=FiscalDocumentEventType.IBS_CBS_CANCELLATION,
+            event_code=IBS_CBS_EVENT_112130,
             event_sequence=locked_event.event_sequence,
             event_payload_type="cancellation",
             status=FiscalDocumentEventStatus.STARTED,
@@ -943,6 +998,15 @@ def cancel_ibs_cbs_event_112150(*, event: FiscalDocumentEvent, requested_by: Any
         raise NfeIbsCbsEventError(str(exc)) from exc
 
     return _transmit_ibs_cbs_event_cancellation(cancellation_event=cancellation_event, attempt=attempt, payload=payload, event_code=IBS_CBS_EVENT_112150)
+
+
+def cancel_ibs_cbs_event_112130(*, event: FiscalDocumentEvent, requested_by: Any | None = None, request: HttpRequest | None = None) -> FiscalDocumentEvent:
+    try:
+        cancellation_event, attempt, payload = create_112130_event_cancellation_attempt(event=event, requested_by=requested_by, request=request)
+    except FiscalEmissionAttemptBlocked as exc:
+        raise NfeIbsCbsEventError(str(exc)) from exc
+
+    return _transmit_ibs_cbs_event_cancellation(cancellation_event=cancellation_event, attempt=attempt, payload=payload, event_code=IBS_CBS_EVENT_112130)
 
 
 def resolve_ibs_cbs_event_cancellation_for_webhook(*, payload: dict[str, Any]) -> FiscalDocumentEvent | None:

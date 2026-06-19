@@ -81,7 +81,7 @@ from apps.finance.services.nfe_emission import (
 from apps.finance.services.nfce_emission import NfceEmissionError, build_nfce_payload, create_and_emit_nfce, create_nfce_draft, transmit_nfce_document, validate_nfce_configuration
 from apps.finance.services.nfce_cancellation import NfceCancellationError, cancel_nfce_document, create_nfce_cancellation_event_attempt
 from apps.finance.services.nfce_inutilization import NfceInutilizationError, create_and_transmit_nfce_inutilization, create_nfce_inutilization_draft, transmit_nfce_inutilization
-from apps.finance.services.nfe_ibs_cbs_events import IBS_CBS_EVENT_112110, IBS_CBS_EVENT_112130, IBS_CBS_EVENT_112150, NfeIbsCbsEventError, cancel_ibs_cbs_event_112110, cancel_ibs_cbs_event_112150, emit_ibs_cbs_event_112110, emit_ibs_cbs_event_112130, emit_ibs_cbs_event_112150, is_document_eligible_for_ibs_cbs_event_112110, is_document_eligible_for_ibs_cbs_event_112130, is_document_eligible_for_ibs_cbs_event_112150
+from apps.finance.services.nfe_ibs_cbs_events import IBS_CBS_EVENT_112110, IBS_CBS_EVENT_112130, IBS_CBS_EVENT_112150, NfeIbsCbsEventError, cancel_ibs_cbs_event_112110, cancel_ibs_cbs_event_112130, cancel_ibs_cbs_event_112150, emit_ibs_cbs_event_112110, emit_ibs_cbs_event_112130, emit_ibs_cbs_event_112150, is_document_eligible_for_ibs_cbs_event_112110, is_document_eligible_for_ibs_cbs_event_112130, is_document_eligible_for_ibs_cbs_event_112150
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfe_request_number, reserve_nfse_request_rps_number
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder, compute_slider_allocation, distribute_total_proportionally
 from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class
@@ -14094,6 +14094,251 @@ class FiscalPhaseTwoIbsCbsEvent112130ConcurrentTests(TransactionTestCase):
         self.assertEqual(results, ["sent"], errors)
         self.assertEqual(len(errors), 1, errors)
         self.assertEqual(FiscalDocumentEvent.objects.filter(document=self.document, event_type=FiscalDocumentEventType.IBS_CBS, event_code=IBS_CBS_EVENT_112130).count(), 1)
+
+
+class FiscalPhaseTwoIbsCbsEvent112130CancellationTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=97)
+        WebmaniaCompany.objects.create(workshop=self.workshop, webmania_company_id="IBSCBSCANCEL-112130")
+
+    def _create_document(self, *, suffix: int = 970, status: str = FiscalDocumentStatus.APPROVED) -> FiscalDocument:
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=timezone.now().date(), status=BudgetStatus.APPROVED)
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=workorder, tax_class="REFNFE")
+        item = NfeItem.objects.create(workshop=self.workshop, workorder=workorder, request=nfe_request, uuid=f"{suffix:08d}-c0da-46ee-a880-a03f8547a9bc", status="aprovado", access_key=f"35{suffix:042d}"[-44:], number=str(suffix), series="1")
+        return FiscalDocument.objects.create(workshop=self.workshop, account=self.workshop.account, document_type=FiscalDocumentType.NFE, origin=FiscalDocumentOrigin.LOCAL, purpose=FiscalDocumentPurpose.NORMAL, legacy_nfe_item=item, remote_uuid=item.uuid, access_key=item.access_key, environment="2", status=status, request_payload={"produtos": [{"item": 1, "impostos": {"ibs_cbs": {"situacao_tributaria": "000", "classificacao_tributaria": "000001"}}}]})
+
+    def _create_event(self, *, suffix: int = 970, status: str = FiscalDocumentEventStatus.APPROVED, event_code: str = IBS_CBS_EVENT_112130, remote_uuid: str | None = None, document_status: str = FiscalDocumentStatus.APPROVED) -> FiscalDocumentEvent:
+        document = self._create_document(suffix=suffix, status=document_status)
+        return FiscalDocumentEvent.objects.create(
+            document=document,
+            event_type=FiscalDocumentEventType.IBS_CBS,
+            event_code=event_code,
+            event_sequence=1,
+            event_payload_type="supplier_transport_loss",
+            status=status,
+            remote_uuid=remote_uuid if remote_uuid is not None else f"d1895e61-c0da-46ee-a880-a03f8547a{suffix % 1000:03d}",
+            remote_model="ibs_cbs",
+            request_payload={"chave": document.access_key, "cod_evento": event_code, "evento": 1, "itens": [{"item": 1}]},
+        )
+
+    def _cancellation_response(self, *, uuid: str = "d2895e61-c0da-46ee-a880-a03f8547a9bc", status: str = "aprovado") -> dict[str, Any]:
+        return {"uuid": uuid, "status": status, "cod_evento": "110001", "evento": 1, "modelo": "ibs_cbs_cancellation", "xml": "https://example.test/ibs-cbs-112130-cancel.xml", "log": {"token": "secret"}}
+
+    def test_112130_cancellation_payload_uses_uuid_only_contract_and_keeps_document_status(self) -> None:
+        event = self._create_event()
+        original_document_status = event.document.status
+        with (
+            patch("apps.finance.services.nfe_ibs_cbs_events._build_headers", return_value={"X-Access-Token": "secret"}),
+            patch("apps.finance.services.nfe_ibs_cbs_events.requests.put", return_value=_mock_response(self._cancellation_response())) as put_mock,
+        ):
+            cancellation = cancel_ibs_cbs_event_112130(event=event, requested_by=self.user)
+
+        sent_payload = put_mock.call_args.kwargs["json"]
+        self.assertEqual(sent_payload["uuid"], event.remote_uuid)
+        self.assertEqual(sent_payload["ambiente"], 2)
+        self.assertLessEqual(set(sent_payload), {"uuid", "ambiente", "url_notificacao"})
+        for forbidden_key in ("chave", "cod_evento", "evento", "itens", "ibs_cbs", "produtos", "pedido", "tipo_credito", "tipo_debito", "data_previsao_entrega"):
+            self.assertNotIn(forbidden_key, sent_payload)
+
+        event.refresh_from_db()
+        event.document.refresh_from_db()
+        cancellation.refresh_from_db()
+        self.assertEqual(cancellation.event_type, FiscalDocumentEventType.IBS_CBS_CANCELLATION)
+        self.assertEqual(cancellation.event_code, IBS_CBS_EVENT_112130)
+        self.assertEqual(cancellation.related_event, event)
+        self.assertEqual(cancellation.status, FiscalDocumentEventStatus.APPROVED)
+        self.assertEqual(cancellation.xml_url, "https://example.test/ibs-cbs-112130-cancel.xml")
+        self.assertEqual(event.status, FiscalDocumentEventStatus.CANCELED)
+        self.assertEqual(event.document.status, original_document_status)
+        self.assertEqual(FiscalDocument.objects.count(), 1)
+        self.assertNotIn("secret", str(cancellation.response_payload))
+        attempt = FiscalEmissionAttempt.objects.get(fiscal_document_event=cancellation)
+        self.assertEqual(attempt.operation_type, FiscalEmissionOperationType.NFE_IBS_CBS_EVENT_CANCELLATION)
+        self.assertEqual(attempt.status, FiscalEmissionAttemptStatus.SUCCEEDED)
+        self.assertEqual(attempt.request_payload, cancellation.request_payload)
+
+    def test_112130_cancellation_blocks_ineligible_events_before_gateway(self) -> None:
+        no_uuid = self._create_event(suffix=971, remote_uuid="")
+        with patch("apps.finance.services.nfe_ibs_cbs_events.requests.put") as put_mock:
+            with self.assertRaisesMessage(NfeIbsCbsEventError, "UUID remoto"):
+                cancel_ibs_cbs_event_112130(event=no_uuid, requested_by=self.user)
+        put_mock.assert_not_called()
+
+        cases = [
+            (FiscalDocumentEventStatus.FAILED, IBS_CBS_EVENT_112130, FiscalDocumentStatus.APPROVED, "autorizado"),
+            (FiscalDocumentEventStatus.REPROVED, IBS_CBS_EVENT_112130, FiscalDocumentStatus.APPROVED, "autorizado"),
+            (FiscalDocumentEventStatus.UNCERTAIN, IBS_CBS_EVENT_112130, FiscalDocumentStatus.APPROVED, "incerto"),
+            (FiscalDocumentEventStatus.APPROVED, IBS_CBS_EVENT_112110, FiscalDocumentStatus.APPROVED, "112130"),
+            (FiscalDocumentEventStatus.APPROVED, IBS_CBS_EVENT_112150, FiscalDocumentStatus.APPROVED, "112130"),
+            (FiscalDocumentEventStatus.APPROVED, IBS_CBS_EVENT_112130, FiscalDocumentStatus.CANCELED, "estado final invalido"),
+        ]
+        for index, (status, event_code, document_status, message) in enumerate(cases, start=1):
+            candidate = self._create_event(suffix=972 + index, status=status, event_code=event_code, document_status=document_status)
+            with patch("apps.finance.services.nfe_ibs_cbs_events.requests.put") as put_mock:
+                with self.assertRaisesMessage(NfeIbsCbsEventError, message):
+                    cancel_ibs_cbs_event_112130(event=candidate, requested_by=self.user)
+            put_mock.assert_not_called()
+
+        already_canceled = self._create_event(suffix=980)
+        FiscalDocumentEvent.objects.create(document=already_canceled.document, related_event=already_canceled, event_type=FiscalDocumentEventType.IBS_CBS_CANCELLATION, event_code=IBS_CBS_EVENT_112130, event_sequence=1, status=FiscalDocumentEventStatus.APPROVED, remote_uuid="d3895e61-c0da-46ee-a880-a03f8547a9bc")
+        with patch("apps.finance.services.nfe_ibs_cbs_events.requests.put") as put_mock:
+            with self.assertRaisesMessage(NfeIbsCbsEventError, "Ja existe cancelamento"):
+                cancel_ibs_cbs_event_112130(event=already_canceled, requested_by=self.user)
+        put_mock.assert_not_called()
+
+        active_cancellation = self._create_event(suffix=981)
+        FiscalDocumentEvent.objects.create(document=active_cancellation.document, related_event=active_cancellation, event_type=FiscalDocumentEventType.IBS_CBS_CANCELLATION, event_code=IBS_CBS_EVENT_112130, event_sequence=1, status=FiscalDocumentEventStatus.UNCERTAIN)
+        with patch("apps.finance.services.nfe_ibs_cbs_events.requests.put") as put_mock:
+            with self.assertRaisesMessage(NfeIbsCbsEventError, "Ja existe cancelamento"):
+                cancel_ibs_cbs_event_112130(event=active_cancellation, requested_by=self.user)
+        put_mock.assert_not_called()
+
+    def test_112130_cancellation_timeout_rejection_payload_freeze_and_webhook(self) -> None:
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        timeout_event = self._create_event(suffix=982)
+        with (
+            patch("apps.finance.services.nfe_ibs_cbs_events._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_ibs_cbs_events.requests.put", side_effect=requests.Timeout("timeout")) as put_mock,
+        ):
+            with self.assertRaisesMessage(NfeIbsCbsEventError, "estado remoto incerto"):
+                cancel_ibs_cbs_event_112130(event=timeout_event, requested_by=self.user)
+            with self.assertRaisesMessage(NfeIbsCbsEventError, "Ja existe cancelamento"):
+                cancel_ibs_cbs_event_112130(event=timeout_event, requested_by=self.user)
+        self.assertEqual(put_mock.call_count, 1)
+        uncertain_cancellation = FiscalDocumentEvent.objects.get(related_event=timeout_event, event_type=FiscalDocumentEventType.IBS_CBS_CANCELLATION)
+        self.assertEqual(uncertain_cancellation.status, FiscalDocumentEventStatus.UNCERTAIN)
+        self.assertEqual(uncertain_cancellation.request_payload["uuid"], timeout_event.remote_uuid)
+        self.assertEqual(FiscalEmissionAttempt.objects.get(fiscal_document_event=uncertain_cancellation).status, FiscalEmissionAttemptStatus.UNCERTAIN)
+
+        rejected_event = self._create_event(suffix=983)
+        with (
+            patch("apps.finance.services.nfe_ibs_cbs_events._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_ibs_cbs_events.requests.put", return_value=_mock_response(self._cancellation_response(status="rejeitado"))) as put_mock,
+        ):
+            with self.assertRaisesMessage(NfeIbsCbsEventError, "rejeitado"):
+                cancel_ibs_cbs_event_112130(event=rejected_event, requested_by=self.user)
+        self.assertEqual(put_mock.call_count, 1)
+        rejected_event.refresh_from_db()
+        self.assertEqual(rejected_event.status, FiscalDocumentEventStatus.APPROVED)
+        failed_cancellation = FiscalDocumentEvent.objects.get(related_event=rejected_event, event_type=FiscalDocumentEventType.IBS_CBS_CANCELLATION)
+        self.assertEqual(failed_cancellation.status, FiscalDocumentEventStatus.FAILED)
+
+        webhook_event = self._create_event(suffix=984)
+        with (
+            patch("apps.finance.services.nfe_ibs_cbs_events._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_ibs_cbs_events.requests.put", return_value=_mock_response(self._cancellation_response(uuid="d4895e61-c0da-46ee-a880-a03f8547a9bc"))),
+        ):
+            cancellation = cancel_ibs_cbs_event_112130(event=webhook_event, requested_by=self.user)
+        payload = {"modelo": "ibs_cbs_cancellation", "uuid": cancellation.remote_uuid, "status": "aprovado", "cod_evento": "110001", "evento": 1, "xml": "https://example.test/webhook-cancel-112130.xml"}
+        stored = store_webhook_event(payload=payload)
+        duplicate = store_webhook_event(payload=payload)
+        self.assertEqual(stored.pk, duplicate.pk)
+        self.assertTrue(process_webhook_event(stored))
+        cancellation.refresh_from_db()
+        webhook_event.document.refresh_from_db()
+        self.assertEqual(cancellation.xml_url, "https://example.test/webhook-cancel-112130.xml")
+        self.assertEqual(webhook_event.document.status, FiscalDocumentStatus.APPROVED)
+
+        ambiguous_first = self._create_event(suffix=985)
+        ambiguous_second = self._create_event(suffix=986)
+        shared_uuid = "d5895e61-c0da-46ee-a880-a03f8547a9bc"
+        FiscalEmissionAttempt.objects.create(workshop=self.workshop, document_kind=FiscalEmissionDocumentKind.NFE, operation_type=FiscalEmissionOperationType.NFE_IBS_CBS_EVENT_CANCELLATION, request_model=FiscalDocumentEvent.__name__, request_id=ambiguous_first.pk, fiscal_document=ambiguous_first.document, fiscal_document_event=ambiguous_first, idempotency_key="ambiguous-112130-cancel-1", request_payload={}, payload_hash="x", remote_uuid=shared_uuid)
+        FiscalEmissionAttempt.objects.create(workshop=self.workshop, document_kind=FiscalEmissionDocumentKind.NFE, operation_type=FiscalEmissionOperationType.NFE_IBS_CBS_EVENT_CANCELLATION, request_model=FiscalDocumentEvent.__name__, request_id=ambiguous_second.pk, fiscal_document=ambiguous_second.document, fiscal_document_event=ambiguous_second, idempotency_key="ambiguous-112130-cancel-2", request_payload={}, payload_hash="y", remote_uuid=shared_uuid)
+        ambiguous_payload = {"modelo": "ibs_cbs_cancellation", "uuid": shared_uuid, "status": "aprovado", "xml": "https://example.test/ambiguous-cancel-112130.xml"}
+        self.assertFalse(process_webhook_event(store_webhook_event(payload=ambiguous_payload)))
+        self.assertFalse(FiscalDocumentEvent.objects.filter(xml_url="https://example.test/ambiguous-cancel-112130.xml").exists())
+
+    def test_112130_cancellation_view_requires_permission_confirmation_and_cross_workshop(self) -> None:
+        from django.http import Http404
+
+        from apps.finance.views.nfe import NfeIbsCbsEvent112130CancelView
+
+        event = self._create_event(suffix=987)
+        post_request = RequestFactory().post("/", data={"confirm_ibs_cbs_event_cancel_112130": "on"})
+        post_request.user = self.user
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=False),
+            patch("apps.finance.views.nfe.cancel_ibs_cbs_event_112130") as service_mock,
+        ):
+            with self.assertRaises(PermissionDenied):
+                NfeIbsCbsEvent112130CancelView.as_view()(post_request, pk=event.document.legacy_nfe_item.request_id, event_pk=event.pk)
+        service_mock.assert_not_called()
+
+        no_confirmation = RequestFactory().post("/", data={})
+        no_confirmation.user = self.user
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfe.messages.error"),
+            patch("apps.finance.views.nfe.cancel_ibs_cbs_event_112130") as service_mock,
+        ):
+            response = NfeIbsCbsEvent112130CancelView.as_view()(no_confirmation, pk=event.document.legacy_nfe_item.request_id, event_pk=event.pk)
+        self.assertEqual(response.status_code, 302)
+        service_mock.assert_not_called()
+
+        _other_user, other_workshop = create_director_user_with_workshop(suffix=98)
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=other_workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            with self.assertRaises(Http404):
+                NfeIbsCbsEvent112130CancelView.as_view()(post_request, pk=event.document.legacy_nfe_item.request_id, event_pk=event.pk)
+
+
+class FiscalPhaseTwoIbsCbsEvent112130CancellationConcurrentTests(TransactionTestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=99)
+        WebmaniaCompany.objects.create(workshop=self.workshop, webmania_company_id="IBSCBSCANCEL-112130-CONC")
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=timezone.now().date(), status=BudgetStatus.APPROVED)
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=workorder, tax_class="REFNFE")
+        item = NfeItem.objects.create(workshop=self.workshop, workorder=workorder, request=nfe_request, uuid="00000999-c0da-46ee-a880-a03f8547a9bc", status="aprovado", access_key="35123456789012345678901234567890123456799900", number="999", series="1")
+        document = FiscalDocument.objects.create(workshop=self.workshop, account=self.workshop.account, document_type=FiscalDocumentType.NFE, origin=FiscalDocumentOrigin.LOCAL, purpose=FiscalDocumentPurpose.NORMAL, legacy_nfe_item=item, remote_uuid=item.uuid, access_key=item.access_key, environment="2", status=FiscalDocumentStatus.APPROVED)
+        self.event = FiscalDocumentEvent.objects.create(document=document, event_type=FiscalDocumentEventType.IBS_CBS, event_code=IBS_CBS_EVENT_112130, event_sequence=1, event_payload_type="supplier_transport_loss", status=FiscalDocumentEventStatus.APPROVED, remote_uuid="d6895e61-c0da-46ee-a880-a03f8547a9bc", remote_model="ibs_cbs", request_payload={"chave": document.access_key, "cod_evento": IBS_CBS_EVENT_112130, "evento": 1, "itens": [{"item": 1}]})
+
+    def test_concurrent_same_112130_cancellation_calls_remote_once(self) -> None:
+        response_payload = {"uuid": "d7895e61-c0da-46ee-a880-a03f8547a9bc", "modelo": "ibs_cbs_cancellation", "status": "aprovado", "cod_evento": "110001", "evento": 1, "xml": "https://example.test/event-112130-cancel.xml"}
+        start_barrier = threading.Barrier(2)
+        results: list[str] = []
+        errors: list[str] = []
+        results_lock = threading.Lock()
+
+        def put_side_effect(*args: Any, **kwargs: Any) -> Any:
+            time.sleep(0.1)
+            return _mock_response(response_payload)
+
+        def run_cancel() -> None:
+            close_old_connections()
+            try:
+                start_barrier.wait(timeout=5)
+                fresh_event = FiscalDocumentEvent.objects.get(pk=self.event.pk)
+                cancel_ibs_cbs_event_112130(event=fresh_event, requested_by=self.user)
+            except Exception as exc:
+                with results_lock:
+                    errors.append(str(exc))
+            else:
+                with results_lock:
+                    results.append("sent")
+            finally:
+                close_old_connections()
+
+        with (
+            patch("apps.finance.services.nfe_ibs_cbs_events._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_ibs_cbs_events.requests.put", side_effect=put_side_effect) as put_mock,
+        ):
+            threads = [threading.Thread(target=run_cancel), threading.Thread(target=run_cancel)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=10)
+
+        self.assertEqual(put_mock.call_count, 1)
+        self.assertEqual(results, ["sent"], errors)
+        self.assertEqual(len(errors), 1, errors)
+        self.assertEqual(FiscalDocumentEvent.objects.filter(related_event=self.event, event_type=FiscalDocumentEventType.IBS_CBS_CANCELLATION, event_code=IBS_CBS_EVENT_112130).count(), 1)
 
 
 class FiscalPhaseTwoIbsCbsEvent112150CancellationTests(TestCase):

@@ -115,7 +115,8 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 ### Pendencias apos Fase 2.4D.5.1
 
 - Implementar eventos IBS/CBS `112120` e `112140` em subfases proprias, sem reutilizar formulario generico do `112130`.
-- Planejar cancelamento do evento `112130` somente em subfase autorizada, por UUID remoto e sem cancelamento generico.
+- Fase 2.4D.5.2 validou cancelamento do evento `112130` por UUID remoto, sem cancelamento generico.
+- Planejar cancelamento dos eventos `112120` e `112140` somente depois de suas emissoes correspondentes serem implementadas e validadas.
 - Manter eventos `211xxx` bloqueados ate decisao de papel destinatario, referencias externas e permissao fiscal.
 - Manter evento `211128`, credito/debito e complementar tributaria bloqueados ate base IBS/CBS correspondente estar funcional e aprovada.
 - Avaliar futura integracao com estoque/transporte para reduzir input manual do `112130`; a implementacao validada exige confirmacao fiscal e snapshot de item, mas nao automatiza baixa ou ocorrencia operacional.

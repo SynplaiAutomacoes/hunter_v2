@@ -255,9 +255,10 @@ Subfases funcionais recomendadas:
 | 2.4D.4 | Cancelamento do evento `112150` | Validada | Baixo; reutiliza cancelamento por UUID, sem generalizar demais codigos. |
 | 2.4D.5.0 | Planejamento dos eventos de emitente com itens/controle: `112120`, `112130`, `112140` | Aprovada documentalmente | Medio/alto; definir fontes de snapshot, itens e bloqueios antes de codigo. |
 | 2.4D.5.1 | Evento `112130` isolado | Validada | Medio/alto; estorno IBS/CBS e perecimento/perda/roubo/furto em transporte contratado pelo fornecedor. |
-| 2.4D.5.2 | Evento `112120` isolado | 2.4D.5.0 aprovada e contexto ALC/ZFM validado | Alto; importacao/beneficio fiscal com baixa aderencia oficina. |
-| 2.4D.5.3 | Evento `112140` isolado | 2.4D.5.0 aprovada e regra de pagamento antecipado definida | Alto; depende de pagamento antecipado/nota de debito. |
-| 2.4D.5.4 | Cancelamento dos eventos `112120/112130/112140` | Evento correspondente validado e autorizado com UUID remoto | Medio/alto; nao generalizar sem testes por codigo. |
+| 2.4D.5.2 | Cancelamento do evento `112130` | Validada | Medio; reutiliza cancelamento por UUID sem generalizar demais codigos. |
+| 2.4D.5.3 | Evento `112120` isolado | 2.4D.5.0 aprovada e contexto ALC/ZFM validado | Alto; importacao/beneficio fiscal com baixa aderencia oficina. |
+| 2.4D.5.4 | Evento `112140` isolado | 2.4D.5.0 aprovada e regra de pagamento antecipado definida | Alto; depende de pagamento antecipado/nota de debito. |
+| 2.4D.5.5 | Cancelamento dos eventos `112120/112140` e futuros cancelamentos pontuais | Evento correspondente validado e autorizado com UUID remoto | Medio/alto; nao generalizar sem testes por codigo. |
 | 2.4D.6 | Eventos de destinatario: `211110`, `211120`, `211124`, `211130`, `211140`, `211150` | Decisao de papel destinatario e permissao | Alto; papel fiscal diferente e referencias externas. |
 | 2.4D.7 | Evento `211128` e relacao com credito/debito | 2.4E/2.5 funcional aprovada | Alto; depende de nota de credito/debito. |
 | 2.4D.8 | Cancelamento dos demais eventos IBS/CBS | Eventos correspondentes autorizados com UUID remoto | Medio/alto; cada codigo pode ter regra propria de reversao. |
@@ -324,6 +325,16 @@ Subfases funcionais recomendadas:
 - Regra de seguranca validada: usar somente NF-e normal local autorizada com snapshot fiscal original contendo sequencial fiscal e IBS/CBS por item; nao usar `TaxClassNfe` atual como fallback automatico.
 - Aceite validado: payload sem top-level `ibs_cbs`; bloqueios de documento inelegivel, snapshot ausente e item invalido antes do gateway; duplicidade por payload bloqueada; payload distinto permitido; timeout vira `uncertain`; webhook idempotente; ambiguidade sem update; permissao/download/payload protegidos; documento base sem alteracao de status.
 - Fora de escopo: `112120`, `112140`, eventos `211xxx`, cancelamento do `112130`, credito/debito, complementar tributaria, NFS-e e CT-e.
+
+##### Fase 2.4D.5.2 - Cancelamento do Evento IBS/CBS 112130
+
+- Status: validada em 2026-06-18.
+- Escopo entregue: `PUT /1/nfe/evento-ibs-cbs/cancelar/` somente para cancelamento de evento `112130` ja autorizado com UUID remoto.
+- Payload autorizado: `uuid`, `ambiente` opcional coerente com o documento/evento original e `url_notificacao` quando aplicavel.
+- Campos proibidos: `chave`, `cod_evento`, `evento`, `itens`, `ibs_cbs`, produtos, payload de nota fiscal, credito/debito ou complementar tributaria.
+- Modelagem: reutilizar `FiscalDocumentEvent(event_type="ibs_cbs_cancellation", event_code="112130", related_event=<112130>)` e `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event_cancellation")`; nao criar `FiscalDocument`.
+- Aceite validado: uma chamada remota por intencao, timeout vira `uncertain`, duplicidade bloqueada, webhook idempotente, ambiguidade sem update, permissao `cancel_ibs_cbs_event`, download/payload protegidos e documento base sem alteracao de status.
+- Fora de escopo: eventos `112120`, `112140`, `211xxx`, cancelamento generico, credito/debito, complementar tributaria, NFS-e e CT-e.
 
 #### Fase 2.4E - Credito e debito
 

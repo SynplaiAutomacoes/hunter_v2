@@ -339,6 +339,9 @@
                                                     {% if can_cancel_ibs_cbs_event_112110 and event.event_code == ibs_cbs_event_code_112110 and event.remote_uuid and event.status == 'aprovado' %}
                                                         <button type="button" class="btn btn-error btn-xs" onclick="ibs_cbs_event_cancel_{{ event.pk }}.showModal()">Cancelar evento</button>
                                                     {% endif %}
+                                                    {% if can_cancel_ibs_cbs_event_112130 and event.event_code == ibs_cbs_event_code_112130 and event.remote_uuid and event.status == 'aprovado' %}
+                                                        <button type="button" class="btn btn-error btn-xs" onclick="ibs_cbs_event_cancel_112130_{{ event.pk }}.showModal()">Cancelar evento</button>
+                                                    {% endif %}
                                                     {% if can_cancel_ibs_cbs_event_112150 and event.event_code == ibs_cbs_event_code_112150 and event.remote_uuid and event.status == 'aprovado' %}
                                                         <button type="button" class="btn btn-error btn-xs" onclick="ibs_cbs_event_cancel_112150_{{ event.pk }}.showModal()">Cancelar evento</button>
                                                     {% endif %}
@@ -358,6 +361,27 @@
                                                                 </label>
                                                                 <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
                                                                     <button type="button" class="btn-form-cancel" onclick="ibs_cbs_event_cancel_{{ event.pk }}.close()">Voltar</button>
+                                                                    <button type="submit" class="btn btn-error">Cancelar evento</button>
+                                                                </div>
+                                                            </form>
+                                                        </div>
+                                                    </dialog>
+                                                {% endif %}
+                                                {% if can_cancel_ibs_cbs_event_112130 and event.event_code == ibs_cbs_event_code_112130 and event.remote_uuid and event.status == 'aprovado' %}
+                                                    <dialog id="ibs_cbs_event_cancel_112130_{{ event.pk }}" class="modal" onclick="if (event.target === this) this.close()">
+                                                        <div class="modal-box w-11/12 max-w-2xl border border-base-300 bg-base-100 shadow-2xl text-left">
+                                                            <form method="post" action="{% url 'finance:nfe_ibs_cbs_event_112130_cancel' pk=nfe_request.pk event_pk=event.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
+                                                                {% csrf_token %}
+                                                                <h3 class="text-base font-semibold text-base-content">Cancelar evento IBS/CBS {{ event.event_code }}</h3>
+                                                                <div class="alert alert-warning mt-4 text-sm">
+                                                                    <span>Este cancelamento afeta somente o evento IBS/CBS {{ event.event_code }}. A NF-e original não será cancelada, eventos 112120/112140 e eventos 211xxx não estão implementados e crédito/débito permanece fora do escopo.</span>
+                                                                </div>
+                                                                <label class="label cursor-pointer justify-start gap-3 mt-3">
+                                                                    <input type="checkbox" name="confirm_ibs_cbs_event_cancel_112130" class="checkbox checkbox-sm" required>
+                                                                    <span class="label-text">Confirmo a responsabilidade fiscal pelo cancelamento do evento IBS/CBS {{ event.event_code }}.</span>
+                                                                </label>
+                                                                <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                                                                    <button type="button" class="btn-form-cancel" onclick="ibs_cbs_event_cancel_112130_{{ event.pk }}.close()">Voltar</button>
                                                                     <button type="submit" class="btn btn-error">Cancelar evento</button>
                                                                 </div>
                                                             </form>

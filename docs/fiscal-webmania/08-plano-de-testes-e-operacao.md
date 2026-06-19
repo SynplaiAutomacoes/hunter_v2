@@ -430,3 +430,8 @@ Para Grupo C/D:
 - `FiscalPhaseTwoIbsCbsEvent112130Tests`: payload oficial com `itens[]`, ausencia de top-level `ibs_cbs`, bloqueios de documento inelegivel, snapshot ausente, item inexistente, valores invalidos, duplicidade do mesmo payload, timeout `uncertain`, webhook por UUID/fallback/ambiguidade, permissao, cross-workshop, downloads e payload protegidos.
 - `FiscalPhaseTwoIbsCbsEvent112130ConcurrentTests`: duas requisicoes concorrentes da mesma intencao resultam em uma unica chamada remota e um unico evento local.
 - Regressao executada junto das suites fiscais direcionadas de Fase 1, CC-e, devolucao/estorno, complementar, ajuste, NFC-e simples, inutilizacao, IBS/CBS normal, derivados IBS/CBS e eventos `112110/112150`.
+
+### Testes adicionados na Fase 2.4D.5.2
+
+- `FiscalPhaseTwoIbsCbsEvent112130CancellationTests`: payload oficial de cancelamento com somente `uuid`, `ambiente` e `url_notificacao` quando aplicavel; ausencia de `chave`, `cod_evento`, `evento`, `itens`, `controle_estoque`, `ibs_cbs`, produtos, credito/debito e campos de documento; bloqueio de evento sem UUID, falho/rejeitado/incerto, outro codigo, documento base cancelado e cancelamento duplicado/incerto; timeout `uncertain`, rejeicao remota sem marcar sucesso, payload congelado, webhook duplicado/idempotente e ambiguidade sem update; permissao, confirmacao explicita, cross-workshop, downloads e payload protegidos.
+- `FiscalPhaseTwoIbsCbsEvent112130CancellationConcurrentTests`: duas requisicoes concorrentes da mesma intencao de cancelamento resultam em uma unica chamada remota e um unico evento de cancelamento local.

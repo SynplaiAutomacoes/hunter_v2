@@ -26,7 +26,7 @@ from apps.finance.services.nfe_adjustment import NfeAdjustmentError, create_and_
 from apps.finance.services.nfe_complementary import NfeComplementaryError, create_and_emit_nfe_complementary_price_quantity_from_item, is_local_nfe_eligible_for_complementary
 from apps.finance.services.nfe_emission import NfeEmissionError, cancel_nfe_document, download_nfe_preview_document, emit_nfe_request, invalidate_nfe_number, sync_nfe_emission_response
 from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction, is_nfe_item_eligible_for_cce
-from apps.finance.services.nfe_ibs_cbs_events import IBS_CBS_EVENT_112110, IBS_CBS_EVENT_112130, IBS_CBS_EVENT_112150, NfeIbsCbsEventError, cancel_ibs_cbs_event_112110, cancel_ibs_cbs_event_112150, emit_ibs_cbs_event_112110, emit_ibs_cbs_event_112130, emit_ibs_cbs_event_112150, is_document_eligible_for_ibs_cbs_event_112110, is_document_eligible_for_ibs_cbs_event_112130, is_document_eligible_for_ibs_cbs_event_112150
+from apps.finance.services.nfe_ibs_cbs_events import IBS_CBS_EVENT_112110, IBS_CBS_EVENT_112130, IBS_CBS_EVENT_112150, NfeIbsCbsEventError, cancel_ibs_cbs_event_112110, cancel_ibs_cbs_event_112130, cancel_ibs_cbs_event_112150, emit_ibs_cbs_event_112110, emit_ibs_cbs_event_112130, emit_ibs_cbs_event_112150, is_document_eligible_for_ibs_cbs_event_112110, is_document_eligible_for_ibs_cbs_event_112130, is_document_eligible_for_ibs_cbs_event_112150
 from apps.finance.services.nfe_returns import NfeReturnError, create_and_emit_nfe_return_from_item, is_local_nfe_eligible_for_return
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.views.ncm_validation import build_invalid_ncm_modal_context, pop_invalid_ncm_modal_context, store_invalid_ncm_modal_context
@@ -311,6 +311,7 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         can_issue_ibs_cbs_event_112130 = bool(fiscal_document and is_document_eligible_for_ibs_cbs_event_112130(fiscal_document) and _user_can_issue_ibs_cbs_event(user=self.request.user, workshop=self.workshop, request=self.request))
         can_issue_ibs_cbs_event_112150 = bool(fiscal_document and is_document_eligible_for_ibs_cbs_event_112150(fiscal_document) and _user_can_issue_ibs_cbs_event(user=self.request.user, workshop=self.workshop, request=self.request))
         can_cancel_ibs_cbs_event_112110 = _user_can_cancel_ibs_cbs_event(user=self.request.user, workshop=self.workshop, request=self.request)
+        can_cancel_ibs_cbs_event_112130 = can_cancel_ibs_cbs_event_112110
         can_cancel_ibs_cbs_event_112150 = can_cancel_ibs_cbs_event_112110
         cce_events = FiscalDocumentEvent.objects.none()
         ibs_cbs_events = FiscalDocumentEvent.objects.none()
@@ -352,6 +353,7 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
                 "can_issue_ibs_cbs_event_112130": can_issue_ibs_cbs_event_112130,
                 "can_issue_ibs_cbs_event_112150": can_issue_ibs_cbs_event_112150,
                 "can_cancel_ibs_cbs_event_112110": can_cancel_ibs_cbs_event_112110,
+                "can_cancel_ibs_cbs_event_112130": can_cancel_ibs_cbs_event_112130,
                 "can_cancel_ibs_cbs_event_112150": can_cancel_ibs_cbs_event_112150,
                 "ibs_cbs_event_code_112110": IBS_CBS_EVENT_112110,
                 "ibs_cbs_event_code_112130": IBS_CBS_EVENT_112130,
@@ -537,6 +539,34 @@ class NfeIbsCbsEvent112150CancelView(LoginRequiredMixin, WorkshopScopedMixin, Vi
             messages.error(request, str(exc))
         else:
             messages.success(request, "Cancelamento do evento IBS/CBS 112150 enviado para a Webmania.")
+        return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+
+class NfeIbsCbsEvent112130CancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "fiscaldocumentevent"
+    workshop_permission_codename = "cancel_ibs_cbs_event"
+
+    def post(self, request, *args, **kwargs):
+        nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+        event = get_object_or_404(
+            FiscalDocumentEvent.objects.select_related("document", "document__legacy_nfe_item"),
+            pk=kwargs.get("event_pk"),
+            document__workshop=self.workshop,
+            document__legacy_nfe_item__request=nfe_request,
+            event_type=FiscalDocumentEventType.IBS_CBS,
+            event_code=IBS_CBS_EVENT_112130,
+        )
+        if request.POST.get("confirm_ibs_cbs_event_cancel_112130") != "on":
+            messages.error(request, "Confirme a responsabilidade fiscal antes de cancelar o evento IBS/CBS.")
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+        try:
+            cancel_ibs_cbs_event_112130(event=event, requested_by=request.user, request=request)
+        except NfeIbsCbsEventError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, "Cancelamento do evento IBS/CBS 112130 enviado para a Webmania.")
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 

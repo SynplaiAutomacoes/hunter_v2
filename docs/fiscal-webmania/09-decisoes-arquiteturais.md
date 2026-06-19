@@ -437,3 +437,19 @@ Decisao: implementar o evento `112130` como caso especifico, usando `FiscalDocum
 Justificativa: o contrato oficial do `112130` exige payload proprio com `itens[]` e `controle_estoque` para perecimento/perda/roubo/furto no transporte contratado pelo fornecedor. Um formulario generico para eventos IBS/CBS aumentaria risco de payload fiscal incorreto e de uso indevido de eventos `112120`, `112140` ou `211xxx`.
 
 Consequencias: o Hunter exige snapshot fiscal original com sequencial fiscal e IBS/CBS por item; `TaxClassNfe` atual nao e fallback automatico para evento de documento ja emitido. Cancelamento do `112130`, eventos `112120/112140`, eventos `211xxx`, credito/debito e complementar tributaria permanecem para fases posteriores.
+
+## ADR - Cancelamento do evento IBS/CBS 112130 por UUID
+
+Status: aprovado e validado em 2026-06-18.
+
+Decisao: implementar somente o cancelamento do evento IBS/CBS `112130` autorizado, usando `PUT /1/nfe/evento-ibs-cbs/cancelar/`, sem criar cancelamento generico para `112120`, `112140` ou eventos `211xxx`.
+
+Contrato: payload restrito a `uuid` do evento original, `ambiente` quando aplicavel e `url_notificacao` opcional. O Hunter nao envia `chave`, `cod_evento`, `evento`, `itens`, `controle_estoque`, `ibs_cbs`, produtos, payload de nota, credito/debito ou dados de documento derivado.
+
+Modelagem: criar `FiscalDocumentEvent(event_type="ibs_cbs_cancellation", event_code="112130", related_event=<evento 112130>)`, com tentativa `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event_cancellation")`. Nenhum `FiscalDocument` novo e criado.
+
+Status: retorno remoto positivo atualiza o evento de cancelamento e marca o evento `112130` original como cancelado; o `FiscalDocument` base nao muda status. Timeout preserva evento/tentativa `uncertain` e bloqueia novo cancelamento automatico.
+
+Compatibilidade: cancelamentos validados de `112110` e `112150` permanecem intactos. Eventos `112120`, `112140`, `211xxx`, credito/debito e complementar tributaria continuam bloqueados ate autorizacao propria.
+
+Fase: 2.4D.5.2.
