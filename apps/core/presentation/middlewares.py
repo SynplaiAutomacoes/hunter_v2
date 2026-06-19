@@ -2,14 +2,37 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 
 from django.conf import settings
 from django.db import connections
 from django.shortcuts import redirect
 from django.urls import resolve, reverse
 
+from apps.core.logging_filters import clear_request_context, set_request_context
+
 
 logger = logging.getLogger("performance.request")
+
+
+class RequestIdMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        request_id = request.META.get("HTTP_X_REQUEST_ID") or str(uuid.uuid4())
+
+        workshop_id = getattr(getattr(request, "workshop", None), "id", None)
+        user_id = getattr(request.user, "id", None) if hasattr(request, "user") else None
+
+        set_request_context(request_id, workshop_id, user_id)
+
+        try:
+            response = self.get_response(request)
+            response["X-Request-ID"] = request_id
+            return response
+        finally:
+            clear_request_context()
 
 
 class RequestPerformanceLoggingMiddleware:

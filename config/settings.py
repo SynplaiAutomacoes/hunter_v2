@@ -41,10 +41,19 @@ PERF_LOGGING_ENABLED = os.getenv("PERF_LOGGING_ENABLED", "0").lower() in ("1", "
 PERF_LOG_QUERIES = os.getenv("PERF_LOG_QUERIES", "0").lower() in ("1", "true", "yes")
 PERF_LOG_MIN_MS = int(os.getenv("PERF_LOG_MIN_MS", "300"))
 
-FIPE_SYNC_EVERY_ACCESS = os.getenv("FIPE_SYNC_EVERY_ACCESS", "0").lower() in ("1", "true", "yes") # 0. Desligado, 1. Ligado
+# Environment (required for structured logging)
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+
+# Grafana Cloud Loki
+LOKI_ENABLED = os.getenv("LOKI_ENABLED", "false").lower() in ("1", "true", "yes")
+LOKI_ENDPOINT = os.getenv("LOKI_ENDPOINT", "")
+LOKI_USER = os.getenv("LOKI_USER", "")
+LOKI_API_KEY = os.getenv("LOKI_API_KEY", "")
+
+FIPE_SYNC_EVERY_ACCESS = os.getenv("FIPE_SYNC_EVERY_ACCESS", "0").lower() in ("1", "true", "yes")  # 0. Desligado, 1. Ligado
 FIPE_SYNC_ACCESS_INTERVAL = int(os.getenv("FIPE_SYNC_ACCESS_INTERVAL", "500"))
 FIPE_FUEL_CACHE_TTL_HOURS = int(os.getenv("FIPE_FUEL_CACHE_TTL_HOURS", "168"))
-FIPE_DEV_MODE = os.getenv("FIPE_DEV_MODE", "0").lower() in ("1", "true", "yes") #  0. Dev, 1. Prod
+FIPE_DEV_MODE = os.getenv("FIPE_DEV_MODE", "0").lower() in ("1", "true", "yes")  #  0. Dev, 1. Prod
 FIPE_API_TOKEN = os.getenv("FIPE_API_TOKEN", os.getenv("token_vehicle_api", ""))
 
 WEBMANIA_BASE_URL = "https://api.webmania.com.br/2/"
@@ -127,6 +136,8 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # Local (must be first)
+    "apps.core.presentation.middlewares.RequestIdMiddleware",
     # Django
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -259,51 +270,89 @@ PHONENUMBER_DEFAULT_FORMAT = "NATIONAL"
 DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "DEBUG").upper()
 DJANGO_ROOT_LOG_LEVEL = os.getenv("DJANGO_ROOT_LOG_LEVEL", "DEBUG").upper()
 
+LOKI_HANDLERS: list[str] = []
+if LOKI_ENABLED and LOKI_ENDPOINT:
+    LOKI_HANDLERS = ["loki"]
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
-        "standard": {
-            "format": "%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        "json": {
+            "()": "apps.core.json_formatter.JsonFormatter",
+        },
+    },
+    "filters": {
+        "context": {
+            "()": "apps.core.logging_filters.ContextFilter",
         },
     },
     "handlers": {
-        "console": {"class": "logging.StreamHandler", "formatter": "standard", "stream": sys.stdout},
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "json",
+            "stream": sys.stdout,
+        },
+        **(
+            {
+                "loki": {
+                    "()": "apps.core.loki_handler.LokiHandler",
+                    "url": LOKI_ENDPOINT,
+                    "labels": {
+                        "service": ENVIRONMENT,
+                    },
+                    "user": LOKI_USER,
+                    "api_key": LOKI_API_KEY,
+                    "batch_size": 50,
+                    "flush_interval": 5.0,
+                    "timeout": 5.0,
+                }
+            }
+            if LOKI_ENABLED and LOKI_ENDPOINT
+            else {}
+        ),
     },
     "loggers": {
         "apps.budget.views.item_views": {
-            "handlers": ["console"],
+            "handlers": ["console", *LOKI_HANDLERS],
             "level": DJANGO_LOG_LEVEL,
             "propagate": False,
+            "filters": ["context"],
         },
         "apps.budget.views.kit_views": {
-            "handlers": ["console"],
+            "handlers": ["console", *LOKI_HANDLERS],
             "level": DJANGO_LOG_LEVEL,
             "propagate": False,
+            "filters": ["context"],
         },
         "apps.catalog.views.kits": {
-            "handlers": ["console"],
+            "handlers": ["console", *LOKI_HANDLERS],
             "level": DJANGO_LOG_LEVEL,
             "propagate": False,
+            "filters": ["context"],
         },
         "apps.catalog.forms.kits": {
-            "handlers": ["console"],
+            "handlers": ["console", *LOKI_HANDLERS],
             "level": DJANGO_LOG_LEVEL,
             "propagate": False,
+            "filters": ["context"],
         },
         "apps.accounts.views": {
-            "handlers": ["console"],
+            "handlers": ["console", *LOKI_HANDLERS],
             "level": DJANGO_LOG_LEVEL,
             "propagate": False,
+            "filters": ["context"],
         },
         "django.request": {
-            "handlers": ["console"],
+            "handlers": ["console", *LOKI_HANDLERS],
             "level": "ERROR",
             "propagate": False,
+            "filters": ["context"],
         },
     },
     "root": {
-        "handlers": ["console"],
+        "handlers": ["console", *LOKI_HANDLERS],
         "level": DJANGO_ROOT_LOG_LEVEL,
+        "filters": ["context"],
     },
 }
