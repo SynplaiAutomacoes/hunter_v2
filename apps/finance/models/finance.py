@@ -1,4 +1,5 @@
 import logging
+from decimal import Decimal, ROUND_HALF_UP
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -940,14 +941,133 @@ class FiscalReferencedBasis(TimeStampedModel):
 
     def save(self, *args, **kwargs) -> None:
         if self.pk:
-            persisted = type(self).objects.filter(pk=self.pk).values("status", "ibs_cbs_snapshot").first()
-            if persisted and persisted["status"] == FiscalReferencedBasisStatus.APPROVED and persisted["ibs_cbs_snapshot"] != self.ibs_cbs_snapshot:
-                raise ValidationError("O snapshot IBS/CBS de uma base aprovada e imutavel.")
+            immutable_fields = (
+                "source_document_id",
+                "source_nfe_item_id",
+                "source_access_key",
+                "source_item_sequence",
+                "source_document_type",
+                "basis_type",
+                "fiscal_hypothesis",
+                "ibs_cbs_snapshot",
+                "financial_reference_id",
+                "stock_reference_id",
+                "external_origin",
+                "external_xml_validated",
+            )
+            persisted = type(self).objects.filter(pk=self.pk).values("status", *immutable_fields).first()
+            if persisted and persisted["status"] == FiscalReferencedBasisStatus.APPROVED and any(persisted[field] != getattr(self, field) for field in immutable_fields):
+                raise ValidationError("A origem, hipotese e os snapshots de uma base aprovada sao imutaveis.")
         self.full_clean()
         super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return f"FiscalReferencedBasis[{self.fiscal_hypothesis}:{self.source_access_key}:{self.source_item_sequence}]"
+
+
+class FiscalReferencedBasisItem(TimeStampedModel):
+    basis = models.OneToOneField(FiscalReferencedBasis, verbose_name="Base fiscal", on_delete=models.CASCADE, related_name="commercial_item")
+    source_item_sequence = models.PositiveSmallIntegerField(verbose_name="Sequencial fiscal do item")
+    source_item_description = models.CharField(verbose_name="Descricao fiscal do item", max_length=255, blank=True, default="")
+    source_item_code = models.CharField(verbose_name="Codigo fiscal do item", max_length=80, blank=True, default="")
+    source_item_ncm = models.CharField(verbose_name="NCM fiscal do item", max_length=8, blank=True, default="")
+    source_item_cfop = models.CharField(verbose_name="CFOP fiscal do item", max_length=4, blank=True, default="")
+    source_quantity = models.DecimalField(verbose_name="Quantidade fiscal", max_digits=18, decimal_places=6, null=True, blank=True, validators=[MinValueValidator(Decimal("0"))])
+    source_unit = models.CharField(verbose_name="Unidade fiscal", max_length=12, blank=True, default="")
+    source_unit_price = models.DecimalField(verbose_name="Valor unitario fiscal", max_digits=18, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(Decimal("0"))])
+    source_total_amount = models.DecimalField(verbose_name="Valor total fiscal", max_digits=18, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(Decimal("0"))])
+    principal_amount = models.DecimalField(verbose_name="Valor principal", max_digits=18, decimal_places=2, default=Decimal("0"), validators=[MinValueValidator(Decimal("0"))])
+    fine_amount = models.DecimalField(verbose_name="Valor de multa", max_digits=18, decimal_places=2, default=Decimal("0"), validators=[MinValueValidator(Decimal("0"))])
+    interest_amount = models.DecimalField(verbose_name="Valor de juros", max_digits=18, decimal_places=2, default=Decimal("0"), validators=[MinValueValidator(Decimal("0"))])
+    other_amount = models.DecimalField(verbose_name="Outros valores", max_digits=18, decimal_places=2, default=Decimal("0"), validators=[MinValueValidator(Decimal("0"))])
+    credit_debit_base_amount = models.DecimalField(verbose_name="Base monetaria credito/debito", max_digits=18, decimal_places=2, default=Decimal("0"), validators=[MinValueValidator(Decimal("0"))])
+    commercial_snapshot = models.JSONField(verbose_name="Snapshot comercial", default=dict)
+    monetary_snapshot = models.JSONField(verbose_name="Snapshot monetario", default=dict)
+
+    class Meta(TimeStampedModel.Meta):
+        indexes = [models.Index(fields=["source_item_cfop", "source_item_ncm"], name="fiscal_basis_item_tax_idx")]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(source_quantity__isnull=True) | models.Q(source_quantity__gte=0), name="fiscal_basis_item_quantity_nonnegative"),
+            models.CheckConstraint(condition=models.Q(source_unit_price__isnull=True) | models.Q(source_unit_price__gte=0), name="fiscal_basis_item_unit_price_nonnegative"),
+            models.CheckConstraint(condition=models.Q(source_total_amount__isnull=True) | models.Q(source_total_amount__gte=0), name="fiscal_basis_item_total_nonnegative"),
+            models.CheckConstraint(condition=models.Q(principal_amount__gte=0) & models.Q(fine_amount__gte=0) & models.Q(interest_amount__gte=0) & models.Q(other_amount__gte=0) & models.Q(credit_debit_base_amount__gte=0), name="fiscal_basis_item_money_nonnegative"),
+        ]
+
+    @property
+    def expected_base_amount(self) -> Decimal:
+        if self.basis.fiscal_hypothesis in {FiscalHypothesis.CREDIT_FINE_INTEREST, FiscalHypothesis.DEBIT_FINE_INTEREST}:
+            return (self.fine_amount + self.interest_amount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return (self.principal_amount + self.fine_amount + self.interest_amount + self.other_amount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    def approval_errors(self) -> list[str]:
+        errors: list[str] = []
+        required_text = {
+            "descricao": self.source_item_description,
+            "NCM": self.source_item_ncm,
+            "CFOP": self.source_item_cfop,
+            "unidade": self.source_unit,
+        }
+        errors.extend(label for label, value in required_text.items() if not str(value or "").strip())
+        if self.source_quantity is None or self.source_quantity <= 0:
+            errors.append("quantidade")
+        if self.source_unit_price is None or self.source_unit_price < 0:
+            errors.append("valor unitario")
+        if self.source_total_amount is None or self.source_total_amount < 0:
+            errors.append("valor total")
+        if not self.commercial_snapshot:
+            errors.append("snapshot comercial")
+        if self.credit_debit_base_amount <= 0:
+            errors.append("base monetaria positiva")
+        return errors
+
+    def clean(self) -> None:
+        super().clean()
+        if self.basis_id and self.source_item_sequence != self.basis.source_item_sequence:
+            raise ValidationError({"source_item_sequence": "O sequencial deve corresponder ao item da base fiscal."})
+        if self.source_item_ncm and (len(self.source_item_ncm) != 8 or not self.source_item_ncm.isdigit()):
+            raise ValidationError({"source_item_ncm": "O NCM deve possuir 8 digitos."})
+        if self.source_item_cfop and (len(self.source_item_cfop) != 4 or not self.source_item_cfop.isdigit()):
+            raise ValidationError({"source_item_cfop": "O CFOP deve possuir 4 digitos."})
+        if self.source_quantity is not None and self.source_unit_price is not None and self.source_total_amount is not None:
+            calculated = (self.source_quantity * self.source_unit_price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if abs(calculated - self.source_total_amount) > Decimal("0.01"):
+                raise ValidationError({"source_total_amount": "Quantidade x valor unitario diverge do total fiscal alem da tolerancia de R$ 0,01."})
+        if self.credit_debit_base_amount != self.expected_base_amount:
+            raise ValidationError({"credit_debit_base_amount": "A base monetaria nao corresponde a composicao explicita da hipotese fiscal."})
+        if self.basis_id and self.basis.status == FiscalReferencedBasisStatus.APPROVED:
+            missing = self.approval_errors()
+            if missing:
+                raise ValidationError(f"Base aprovada possui dados incompletos: {', '.join(missing)}.")
+
+    def save(self, *args, **kwargs) -> None:
+        if self.pk:
+            persisted = type(self).objects.filter(pk=self.pk).values().first()
+            if persisted and self.basis.status == FiscalReferencedBasisStatus.APPROVED:
+                immutable_fields = (
+                    "source_item_sequence",
+                    "source_item_description",
+                    "source_item_code",
+                    "source_item_ncm",
+                    "source_item_cfop",
+                    "source_quantity",
+                    "source_unit",
+                    "source_unit_price",
+                    "source_total_amount",
+                    "principal_amount",
+                    "fine_amount",
+                    "interest_amount",
+                    "other_amount",
+                    "credit_debit_base_amount",
+                    "commercial_snapshot",
+                    "monetary_snapshot",
+                )
+                if any(persisted[field] != getattr(self, field) for field in immutable_fields):
+                    raise ValidationError("Os snapshots comercial e monetario de uma base aprovada sao imutaveis.")
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"FiscalReferencedBasisItem[{self.basis_id}:{self.source_item_sequence}]"
 
 
 class FiscalDocumentEvent(TimeStampedModel):

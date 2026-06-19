@@ -24,7 +24,7 @@ class FiscalReferencedBasisPermissionMixin(LoginRequiredMixin, WorkshopScopedMix
     workshop_permission_model = "fiscalreferencedbasis"
 
     def get_basis_queryset(self):
-        return FiscalReferencedBasis.objects.filter(workshop=self.workshop).select_related("source_document", "source_nfe_item", "financial_reference", "stock_reference", "created_by", "approved_by")
+        return FiscalReferencedBasis.objects.filter(workshop=self.workshop).select_related("source_document", "source_nfe_item", "financial_reference", "stock_reference", "created_by", "approved_by", "commercial_item")
 
 
 class FiscalReferencedBasisListView(FiscalReferencedBasisPermissionMixin, ListView):
@@ -77,6 +77,10 @@ class FiscalReferencedBasisCreateView(FiscalReferencedBasisPermissionMixin, Form
                 financial_reference=form.cleaned_data.get("financial_reference"),
                 stock_reference=form.cleaned_data.get("stock_reference"),
                 notes=form.cleaned_data.get("notes", ""),
+                principal_amount=form.cleaned_data["principal_amount"],
+                fine_amount=form.cleaned_data["fine_amount"],
+                interest_amount=form.cleaned_data["interest_amount"],
+                other_amount=form.cleaned_data["other_amount"],
                 created_by=self.request.user,
             )
         except ValidationError as exc:
@@ -121,6 +125,8 @@ class FiscalReferencedBasisPayloadView(FiscalReferencedBasisPermissionMixin, Vie
                 "source_item_sequence": basis.source_item_sequence,
                 "fiscal_hypothesis": basis.fiscal_hypothesis,
                 "ibs_cbs_snapshot": sanitize_fiscal_payload(basis.ibs_cbs_snapshot),
+                "commercial_snapshot": sanitize_fiscal_payload(basis.commercial_item.commercial_snapshot),
+                "monetary_snapshot": sanitize_fiscal_payload(basis.commercial_item.monetary_snapshot),
                 "status": basis.status,
             }
         )

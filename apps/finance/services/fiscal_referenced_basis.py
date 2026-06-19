@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
 from django.core.exceptions import ValidationError
@@ -14,6 +15,7 @@ from apps.finance.models.finance import (
     FiscalDocumentType,
     FiscalHypothesis,
     FiscalReferencedBasis,
+    FiscalReferencedBasisItem,
     FiscalReferencedBasisStatus,
     FiscalReferencedBasisType,
     WebmaniaCompany,
@@ -35,6 +37,8 @@ FINANCIAL_REQUIRED_HYPOTHESES = {
     FiscalHypothesis.DEBIT_SN_EXCLUSION,
 }
 STOCK_REQUIRED_HYPOTHESES = {FiscalHypothesis.DEBIT_STOCK_LOSS}
+MONEY_QUANTIZER = Decimal("0.01")
+QUANTITY_QUANTIZER = Decimal("0.000001")
 
 
 def is_credit_debit_basis_enabled(*, workshop: Any) -> bool:
@@ -112,6 +116,90 @@ def extract_ibs_cbs_snapshot(*, document: FiscalDocument, item_sequence: int) ->
     raise ValidationError(f"Item fiscal {item_sequence} sem snapshot IBS/CBS completo. Campos ausentes: {', '.join(missing)}.")
 
 
+def _decimal(value: Any, *, places: Decimal, field_name: str) -> Decimal | None:
+    if value in (None, ""):
+        return None
+    try:
+        normalized = Decimal(str(value).replace(",", "."))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValidationError(f"{field_name} do snapshot fiscal e invalido.") from exc
+    if normalized < 0:
+        raise ValidationError(f"{field_name} nao pode ser negativo.")
+    return normalized.quantize(places, rounding=ROUND_HALF_UP)
+
+
+def extract_commercial_snapshot(*, document: FiscalDocument, item_sequence: int) -> dict[str, Any]:
+    for payload in _payload_sources(document):
+        for position, product in enumerate(_products(payload), start=1):
+            if _sequence(product, position) != item_sequence:
+                continue
+            quantity = _decimal(product.get("quantidade") or product.get("quantity"), places=QUANTITY_QUANTIZER, field_name="Quantidade")
+            unit_price = _decimal(product.get("subtotal") or product.get("valor_unitario") or product.get("unit_value"), places=MONEY_QUANTIZER, field_name="Valor unitario")
+            total = _decimal(product.get("total") or product.get("valor_total") or product.get("total_value"), places=MONEY_QUANTIZER, field_name="Valor total")
+            commercial = {
+                "source_item_sequence": item_sequence,
+                "source_item_description": str(product.get("nome") or product.get("descricao") or "").strip(),
+                "source_item_code": str(product.get("codigo") or product.get("codigo_produto") or product.get("sku") or "").strip(),
+                "source_item_ncm": "".join(char for char in str(product.get("ncm") or "") if char.isdigit()),
+                "source_item_cfop": "".join(char for char in str(product.get("codigo_cfop") or product.get("cfop") or "") if char.isdigit()),
+                "source_quantity": quantity,
+                "source_unit": str(product.get("unidade") or product.get("unit") or "").strip(),
+                "source_unit_price": unit_price,
+                "source_total_amount": total,
+            }
+            commercial["commercial_snapshot"] = sanitize_fiscal_payload(
+                {
+                    "sequencial": item_sequence,
+                    "descricao": commercial["source_item_description"],
+                    "codigo": commercial["source_item_code"],
+                    "ncm": commercial["source_item_ncm"],
+                    "codigo_cfop": commercial["source_item_cfop"],
+                    "quantidade": format(quantity, "f") if quantity is not None else "",
+                    "unidade": commercial["source_unit"],
+                    "valor_unitario": format(unit_price, "f") if unit_price is not None else "",
+                    "valor_total": format(total, "f") if total is not None else "",
+                }
+            )
+            return commercial
+    return {
+        "source_item_sequence": item_sequence,
+        "source_item_description": "",
+        "source_item_code": "",
+        "source_item_ncm": "",
+        "source_item_cfop": "",
+        "source_quantity": None,
+        "source_unit": "",
+        "source_unit_price": None,
+        "source_total_amount": None,
+        "commercial_snapshot": {},
+    }
+
+
+def _monetary_values(
+    *,
+    hypothesis: str,
+    principal_amount: Decimal,
+    fine_amount: Decimal,
+    interest_amount: Decimal,
+    other_amount: Decimal,
+) -> tuple[Decimal, dict[str, str]]:
+    values = {
+        "principal": principal_amount.quantize(MONEY_QUANTIZER, rounding=ROUND_HALF_UP),
+        "multa": fine_amount.quantize(MONEY_QUANTIZER, rounding=ROUND_HALF_UP),
+        "juros": interest_amount.quantize(MONEY_QUANTIZER, rounding=ROUND_HALF_UP),
+        "outros": other_amount.quantize(MONEY_QUANTIZER, rounding=ROUND_HALF_UP),
+    }
+    if any(value < 0 for value in values.values()):
+        raise ValidationError("Valores da composicao monetaria nao podem ser negativos.")
+    fine_interest = hypothesis in {FiscalHypothesis.CREDIT_FINE_INTEREST, FiscalHypothesis.DEBIT_FINE_INTEREST}
+    base = values["multa"] + values["juros"] if fine_interest else sum(values.values(), Decimal("0"))
+    rule = "fine_plus_interest" if fine_interest else "principal_plus_fine_plus_interest_plus_other"
+    snapshot = {key: format(value, "f") for key, value in values.items()}
+    snapshot["regra_composicao"] = rule
+    snapshot["base_credito_debito"] = format(base, "f")
+    return base, snapshot
+
+
 def _basis_type(hypothesis: str) -> str:
     if hypothesis.startswith("credit_"):
         return FiscalReferencedBasisType.CREDIT
@@ -140,6 +228,10 @@ def create_referenced_basis(
     financial_reference: Any | None = None,
     stock_reference: Any | None = None,
     notes: str = "",
+    principal_amount: Decimal = Decimal("0"),
+    fine_amount: Decimal = Decimal("0"),
+    interest_amount: Decimal = Decimal("0"),
+    other_amount: Decimal = Decimal("0"),
 ) -> FiscalReferencedBasis:
     if not is_credit_debit_basis_enabled(workshop=workshop):
         raise ValidationError("A preparacao de bases fiscais de credito/debito nao esta habilitada para esta oficina.")
@@ -153,6 +245,14 @@ def create_referenced_basis(
         if reference is not None and reference.workshop_id != workshop.pk:
             raise ValidationError(f"A movimentacao {label} pertence a outra oficina.")
     snapshot = extract_ibs_cbs_snapshot(document=locked_document, item_sequence=source_item_sequence)
+    commercial = extract_commercial_snapshot(document=locked_document, item_sequence=source_item_sequence)
+    base_amount, monetary_snapshot = _monetary_values(
+        hypothesis=fiscal_hypothesis,
+        principal_amount=principal_amount,
+        fine_amount=fine_amount,
+        interest_amount=interest_amount,
+        other_amount=other_amount,
+    )
     basis = FiscalReferencedBasis(
         workshop=workshop,
         source_document=locked_document,
@@ -167,11 +267,25 @@ def create_referenced_basis(
         stock_reference=stock_reference,
         external_origin=False,
         external_xml_validated=False,
-        status=FiscalReferencedBasisStatus.READY,
+        status=FiscalReferencedBasisStatus.DRAFT,
         created_by=created_by,
         notes=notes.strip(),
     )
     basis.save()
+    basis_item = FiscalReferencedBasisItem(
+        basis=basis,
+        **commercial,
+        principal_amount=principal_amount,
+        fine_amount=fine_amount,
+        interest_amount=interest_amount,
+        other_amount=other_amount,
+        credit_debit_base_amount=base_amount,
+        monetary_snapshot=sanitize_fiscal_payload(monetary_snapshot),
+    )
+    basis_item.save()
+    if not basis_item.approval_errors():
+        basis.status = FiscalReferencedBasisStatus.READY
+        basis.save(update_fields=["status", "atualizado_em"])
     return basis
 
 
@@ -189,6 +303,14 @@ def approve_referenced_basis(*, basis: FiscalReferencedBasis, approved_by: Any) 
         raise ValidationError("Documento externo sem XML/importacao validada nao pode ser aprovado.")
     if not locked.notes.strip():
         raise ValidationError("A aprovacao exige evidencia/observacao fiscal registrada.")
+    try:
+        basis_item = locked.commercial_item
+    except FiscalReferencedBasisItem.DoesNotExist as exc:
+        raise ValidationError("A base nao possui snapshot monetario/comercial por item.") from exc
+    missing = basis_item.approval_errors()
+    if missing:
+        raise ValidationError(f"Base monetaria/comercial incompleta: {', '.join(missing)}.")
+    basis_item.full_clean()
     locked.status = FiscalReferencedBasisStatus.APPROVED
     locked.approved_by = approved_by
     locked.approved_at = timezone.now()

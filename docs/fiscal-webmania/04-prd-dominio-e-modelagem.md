@@ -623,3 +623,14 @@ Nao criar os novos choices/campos antes da aprovacao funcional. A fase preparato
 Status: `draft`, `ready`, `approved`, `rejected`, `invalid`, `archived`. O snapshot de registro ja aprovado e imutavel no model. Aprovacao exige snapshot com situacao/classificacao, evidencia textual, referencias requeridas pela hipotese, oficina coerente e XML validado para origem externa.
 
 `WebmaniaCompany` recebeu `credit_debit_basis_enabled`, ator e timestamp de habilitacao. A flag nao cria novos purposes nem operation types de emissao.
+
+## Fase 2.5.2.0 - Lacuna de modelagem antes da emissao
+
+A futura fase preparatoria 2.5.2P deve ampliar a base, nao criar documento emitido, com snapshot comercial imutavel por item e valores `principal`, `multa`, `juros`, `total_fiscal`, unidade/quantidade e CFOP. Deve preservar origem e moeda com `Decimal`, validar soma e impedir alteracao apos aprovacao.
+
+Somente uma fase funcional posterior podera adicionar `FiscalDocumentPurpose.CREDIT`, `fiscal_purpose_type`, links `credits`, tentativa `nfe_credit_emission` e documento derivado. Nada disso e autorizado na 2.5.2.0.
+## FiscalReferencedBasisItem - Fase 2.5.2P
+
+Entidade one-to-one de `FiscalReferencedBasis`, criada porque a base principal ja identifica exatamente um item fiscal, enquanto o snapshot monetario/comercial possui regras proprias de completude e imutabilidade. Armazena sequencial, descricao, codigo, NCM, CFOP, quantidade, unidade, valor unitario, total original, principal, multa, juros, outros, base credito/debito e snapshots JSON sanitizados.
+
+Dinheiro usa `DecimalField(18,2)` e quantidade `DecimalField(18,6)`. Para `credit_fine_interest`/`debit_fine_interest`, `credit_debit_base_amount = fine_amount + interest_amount`; nas demais hipoteses, a composicao e principal + multa + juros + outros. Movimentacao financeira nao preenche valores automaticamente. Aprovacao congela item, CFOP, snapshots e todos os valores.

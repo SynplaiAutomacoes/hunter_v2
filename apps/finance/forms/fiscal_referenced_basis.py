@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 from django import forms
 
 from apps.core.forms import CoreModelForm
@@ -10,6 +12,10 @@ from apps.stock.models import StockMovement
 
 
 class FiscalReferencedBasisCreateForm(CoreModelForm):
+    principal_amount = forms.DecimalField(label="Valor principal", required=False, min_value=0, max_digits=18, decimal_places=2, initial=0, widget=NumberInput(attrs={"step": "0.01", "min": "0"}))
+    fine_amount = forms.DecimalField(label="Valor de multa", required=False, min_value=0, max_digits=18, decimal_places=2, initial=0, widget=NumberInput(attrs={"step": "0.01", "min": "0"}))
+    interest_amount = forms.DecimalField(label="Valor de juros", required=False, min_value=0, max_digits=18, decimal_places=2, initial=0, widget=NumberInput(attrs={"step": "0.01", "min": "0"}))
+    other_amount = forms.DecimalField(label="Outros valores", required=False, min_value=0, max_digits=18, decimal_places=2, initial=0, widget=NumberInput(attrs={"step": "0.01", "min": "0"}))
     confirm_preparation_only = forms.BooleanField(
         required=True,
         label="Confirmo que esta base nao emite NF-e de credito/debito",
@@ -43,9 +49,17 @@ class FiscalReferencedBasisCreateForm(CoreModelForm):
         self.fields["financial_reference"].required = False
         self.fields["stock_reference"].required = False
         self.fields["notes"].help_text = "Registre a evidencia operacional/fiscal. A base nao autoriza emissao."
+        self.fields["principal_amount"].help_text = "Valor explicito por item; nao e preenchido automaticamente pela movimentacao financeira."
+        self.fields["fine_amount"].help_text = "Para multa/juros, a base futura corresponde somente a multa + juros."
 
     def clean_source_document(self) -> FiscalDocument:
         document = self.cleaned_data["source_document"]
         if document.workshop_id != self.workshop.pk:
             raise forms.ValidationError("Documento fiscal de outra oficina.")
         return document
+
+    def clean(self):
+        cleaned = super().clean()
+        for field in ("principal_amount", "fine_amount", "interest_amount", "other_amount"):
+            cleaned[field] = cleaned.get(field) or Decimal("0")
+        return cleaned

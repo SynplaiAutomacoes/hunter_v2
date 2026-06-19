@@ -149,3 +149,17 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Modelar evidencia logistica de recusa/nao localizacao.
 - Modelar perda fiscal de estoque e pagamento antecipado com vinculo por item.
 - Emissao de credito/debito continua bloqueada mesmo para bases aprovadas ate nova fase explicita.
+
+## Pendencias Fase 2.5.2.0
+
+- Criar snapshot comercial imutavel por item antes de transmitir qualquer finalidade 5/6.
+- Modelar principal, multa e juros separadamente, com soma e origem financeira auditaveis.
+- Definir CFOP permitido para credito tipo 1 com responsavel fiscal; nao copiar automaticamente o CFOP original.
+- Manter debito tipo 4 posterior ao credito tipo 1 devido a `dfe_referenciado` por produto.
+- Demais 11 tipos continuam bloqueados por apuracao, estoque, sucessao, cooperativa, ZFM, logistica ou regime.
+## Pendencias apos Fase 2.5.2P
+
+- Definir fluxo auditavel para complementar bases antigas 2.5.1P sem `FiscalReferencedBasisItem`; nao existe backfill automatico.
+- Validar com fiscal/contabilidade a hipotese de credito tipo 1 antes de autorizar payload remoto.
+- Emissao, idempotencia remota, webhook, downloads e cancelamento de credito/debito permanecem nao iniciados.
+- `112120`, `112140`, eventos `211xxx`, complementar tributaria, NFS-e e CT-e permanecem bloqueados.

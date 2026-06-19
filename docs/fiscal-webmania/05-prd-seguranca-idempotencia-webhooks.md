@@ -540,3 +540,10 @@ Cancelamento futuro: somente apos emissao correspondente validada, usando `Fisca
 - Aprovacao bloqueia origem externa sem XML validado, snapshot incompleto, hipotese desconhecida, referencia obrigatoria ausente e cross-workshop.
 - Nenhum `FiscalEmissionAttempt` ou webhook novo foi criado, pois nao existe operacao remota nesta fase.
 - A flag por oficina nao adiciona `nfe_credit_emission` ou `nfe_debit_emission` aos choices existentes.
+
+## Fase 2.5.2.0 - Bloqueio mantido
+
+Mesmo uma `FiscalReferencedBasis` aprovada nao autoriza emissao enquanto nao houver valor fiscal tipado por item e snapshot comercial congelado. A futura idempotencia deve nascer apenas com o `FiscalDocument` de credito, usando tentativa `nfe_credit_emission`; nenhuma tentativa deve ser criada durante a preparacao 2.5.2P.
+## Protecao da base monetaria 2.5.2P
+
+A preparacao permanece fora do dominio de transmissao: nao cria `FiscalDocument` de credito/debito, `FiscalEmissionAttempt`, webhook ou reconciliacao. A feature flag controla apenas preparacao. Snapshots aprovados sao imutaveis; payload exposto usa sanitizacao fiscal e as consultas permanecem escopadas por oficina/permissao.

@@ -487,3 +487,17 @@ Fase: 2.4D.6.0.
 - Snapshot: extrair somente do documento emitido/NfeItem; nunca recalcular por `TaxClassNfe` atual; congelar apos aprovacao.
 - Habilitacao: flag auditavel em `WebmaniaCompany` permite preparar bases, nao emitir documentos.
 - Operacao remota: nenhuma. Nao criar `FiscalEmissionAttempt`, webhook ou reconciliacao nesta fase.
+
+## ADR-048 - Adiar primeiro tipo ate existir base monetaria por item
+
+- Status: proposto na Fase 2.5.2.0.
+- Decisao: Opcao D. `FiscalReferencedBasis` aprovada e necessaria, mas nao suficiente para emissao.
+- Motivo: o snapshot atual cobre IBS/CBS e identidade do item, enquanto o contrato exige produto comercial completo e valores fiscais. `FinancialMovement.amount` agregado nao separa principal, multa e juros por item.
+- Direcao: criar 2.5.2P sem operacao remota; depois priorizar credito tipo 1. Debito tipo 4 permanece posterior porque exige `dfe_referenciado` por produto.
+## ADR-049 - Snapshot monetario/comercial one-to-one
+
+- Status: aceita na Fase 2.5.2P.
+- Decisao: criar `FiscalReferencedBasisItem` one-to-one, preservando `FiscalReferencedBasis` como identidade/hipotese e evitando misturar seu ciclo com composicao monetaria.
+- Fonte: somente snapshots historicos do documento/NF-e legada; sem cadastro atual, classe fiscal ou valor financeiro agregado como fallback.
+- Composicao: multa/juros usa somente multa + juros; demais hipoteses somam principal + multa + juros + outros.
+- Consequencia: bases antigas sem item monetario continuam legiveis, mas nao podem ser aprovadas ate receberem uma preparacao valida por fluxo futuro controlado. Nenhum backfill implicito foi criado.

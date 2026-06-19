@@ -502,8 +502,33 @@ Regras comuns confirmadas:
 
 Nenhuma rota Webmania foi adicionada. O OpenAPI permanece como contrato futuro de `POST /1/nfe/emissao/`; `FiscalReferencedBasis` e requisito interno Hunter e nao foi representado como endpoint remoto.
 
+## Fase 2.5.2.0 - Matriz de escolha do primeiro tipo
+
+Revalidacao oficial em 2026-06-19: finalidades 5/6 reutilizam `POST /1/nfe/emissao/`, cliente, produtos e pedido. `codigo_cfop` fica na raiz do produto e cada item envia somente `impostos.ibs_cbs`. Credito documenta `nfe_referenciada[]`; debito tipos 3/4 exigem `produtos[].dfe_referenciado`. Resposta, XML/DANFE, webhook, consulta e cancelamento seguem o ciclo geral da NF-e emitida. A rejeicao 1001 deve ser prevenida bloqueando ICMS, IPI, PIS, COFINS, ISSQN e correlatos.
+
+| Tipo | Operacao | Dados exigidos | Fonte existe na 2.5.1P? | Risco fiscal | Risco tecnico | Pode ser o primeiro? |
+| --- | --- | --- | ---: | --- | --- | ---: |
+| Credito 1 | Multa/juros | NF-e referenciada, produto, CFOP, IBS/CBS, valores de multa/juros | Parcial | Alto: valor fiscal nao tipado | Medio | Nao agora; melhor candidato apos 2.5.2P |
+| Credito 2 | Credito presumido IBS ZFM | Apuracao ZFM, saldo e produtos IBS/CBS | Nao | Critico | Alto | Nao |
+| Credito 3 | Recusa/nao localizacao | NF-e, itens e evidencia logistica | Parcial | Alto | Alto | Nao |
+| Credito 4 | Reducao de valores | Base anterior, reducao por item e motivo | Parcial | Alto | Alto | Nao |
+| Credito 5 | Sucessao | Sucessor, saldo e apuracao | Nao | Critico | Alto | Nao |
+| Debito 1 | Cooperativas | Cooperativa, saldo, produtos IBS/CBS | Nao | Critico | Alto | Nao |
+| Debito 2 | Saidas imunes/isentas | Apuracao e saidas vinculadas | Nao | Critico | Alto | Nao |
+| Debito 3 | NFs nao processadas | Apuracao e `dfe_referenciado` por item | Nao | Critico | Alto | Nao |
+| Debito 4 | Multa/juros | Produto, valor tipado e `dfe_referenciado` por item | Parcial | Alto | Alto | Nao; mais complexo que credito 1 |
+| Debito 5 | Sucessao | Sucessor, saldo e apuracao | Nao | Critico | Alto | Nao |
+| Debito 6 | Pagamento antecipado | Adiantamento e vinculo item/financeiro | Parcial | Critico | Alto | Nao |
+| Debito 7 | Perda em estoque | Perda fiscal, item e valores | Parcial | Critico | Alto | Nao |
+| Debito 8 | Desenquadramento SN | Historico de regime e apuracao | Nao | Critico | Alto | Nao |
+
+O schema OpenAPI atual permanece suficiente; nenhuma correcao oficial adicional foi identificada nesta fase.
+
 Cancelamento: `112120` e `112140` devem seguir o mesmo padrao tecnico de cancelamento por UUID ja validado para `112110`, `112150` e `112130`, mas somente em subfases separadas apos a emissao correspondente existir e possuir testes proprios. Nao criar cancelamento generico de evento IBS/CBS.
 
 Relacao com credito/debito: `112140` depende semanticamente de nota de debito de pagamento antecipado e nao deve ser liberado antes de existir suporte funcional aprovado para credito/debito IBS/CBS ou um fluxo fiscal equivalente que produza documento, item, pagamento antecipado e quantidade nao fornecida auditaveis. `112120` nao depende diretamente de finalidade 5/6, mas depende de importacao ALC/ZFM e validacao fiscal externa.
 
 OpenAPI: o schema validado atual ja contem `NfeIbsCbsEventRequest`, `NfeIbsCbsEventItem` e `NfeIbsCbsEventStockControl` com campos documentados para `112120` e `112140`. Nenhuma correcao de OpenAPI foi necessaria nesta fase.
+### Limite da Fase 2.5.2P
+
+Nenhum endpoint, request ou response Webmania foi adicionado. A fase prepara exclusivamente dados internos para uma futura `finalidade=5/6`; o OpenAPI validado permanece inalterado. Credito tipo 1 continua candidato futuro, sem autorizacao de transmissao.

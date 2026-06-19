@@ -489,9 +489,20 @@ Recomendacao de proxima fase: criar uma fase preparatoria para importacao/valida
 
 Foi implementada somente a preparacao administrativa de bases fiscais referenciadas. A funcionalidade lista, cria, valida e aprova bases locais a partir de NF-e normal local autorizada e item fiscal com snapshot IBS/CBS completo. A flag por oficina habilita apenas preparacao. Nao existem service, rota, formulario, tentativa ou documento de emissao de credito/debito.
 
+## Fase 2.5.2.0 - Selecao do primeiro tipo
+
+- Status: documentada, aguardando aprovacao da Fase 2.5.2P; emissao continua bloqueada.
+- Decisao: Opcao D, nao implementar nenhum tipo ainda.
+- Candidato futuro preferencial: credito tipo 1 (multa/juros), por usar `nfe_referenciada[]` e nao exigir o `dfe_referenciado` por produto imposto ao debito tipo 4.
+- Bloqueio atual: falta snapshot comercial imutavel e decomposicao monetaria principal/multa/juros por item. O movimento financeiro generico nao e fonte fiscal suficiente.
+- Proxima fase recomendada: 2.5.2P, preparacao monetaria por item e evidencia tipada; somente depois reavaliar a implementacao funcional do credito tipo 1.
+
 Eventos adiados:
 
 - `112120` e `112140`: exigem fontes fiscais/operacionais ainda ausentes. `112130` ja foi validado e encerrado.
 - `211128`: depende de nota de credito/debito e apuracao assistida.
 - `211110`, `211120`, `211124`, `211130`, `211140` e `211150`: dependem de papel destinatario, documento de aquisicao, apuracao externa, estoque ou contabilidade.
 - Cancelamento dos demais eventos IBS/CBS: nao generalizar sem subfase propria e testes especificos.
+## Fase 2.5.2P - base monetaria/comercial
+
+Implementacao autorizada somente para preparacao interna. `FiscalReferencedBasisItem` congela um item comercial e sua composicao monetaria. Rascunhos incompletos sao permitidos; aprovacao exige fonte historica completa e base positiva reconciliada. Nenhuma NF-e de credito/debito, tentativa remota ou chamada Webmania faz parte desta fase.

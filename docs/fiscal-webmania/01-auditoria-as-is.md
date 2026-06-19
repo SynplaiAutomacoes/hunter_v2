@@ -259,4 +259,17 @@ Conclusao: nenhum tipo possui hoje fonte local completa e confiavel. A infraestr
 - `FiscalReferencedBasis` prepara e aprova dados locais; nao cria `FiscalDocument`, `FiscalEmissionAttempt` nem chama Webmania.
 - Documento externo permanece bloqueado sem projecao externa e XML/importacao realmente validada.
 
+## Auditoria Fase 2.5.2.0 - capacidade real da base preparada
+
+`FiscalReferencedBasis` congela chave, sequencial e snapshot `ibs_cbs`, mas nao congela ainda o snapshot comercial completo exigido em `produtos[]` (`nome`, NCM, quantidade, unidade, subtotal, total e CFOP) nem valores tipados de principal, multa e juros por item. `FinancialMovement.amount` e agregado e nao identifica parcela fiscal, item ou composicao multa/juros. As evidencias em `notes` sao auditaveis, mas nao substituem fonte monetaria estruturada.
+
+Conclusao: a 2.5.1P resolve identidade, tenancy, snapshot tributario e aprovacao, mas ainda nao fornece base quantitativa suficiente para transmitir qualquer tipo com seguranca.
+
 Conclusao 2.4D.6.0: o codigo ja possui infraestrutura tecnica reutilizavel para `FiscalDocumentEvent`, idempotencia, webhook e cancelamento por UUID, mas nao possui fontes de dominio suficientemente confiaveis para liberar `112120` ou `112140` agora. A decisao recomendada e adiar ambos e planejar uma fase preparatoria antes de qualquer implementacao funcional.
+## Auditoria Fase 2.5.2P - fonte monetaria e comercial
+
+- `FiscalReferencedBasis` ja e escopada por oficina, documento e sequencial fiscal, mas a 2.5.1P congelava somente identidade e `ibs_cbs_snapshot`.
+- `FiscalDocument.request_payload/response_payload` e `NfeItem.raw_payload/log_payload` sao as fontes historicas permitidas para descricao, codigo, NCM, CFOP, quantidade, unidade, valor unitario e total.
+- `FinancialMovement.amount` usa Decimal/Money, mas e agregado: nao separa principal, multa e juros por item e permanece apenas como evidencia vinculada.
+- O padrao de arredondamento fiscal existente usa `Decimal`, duas casas para dinheiro, seis para quantidade e `ROUND_HALF_UP`.
+- Cadastro atual de produto e `TaxClassNfe` nao sao fontes historicas validas e nao sao usados como fallback.

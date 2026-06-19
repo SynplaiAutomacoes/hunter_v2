@@ -388,6 +388,20 @@ Subfases funcionais recomendadas:
 - Candidato remoto mais simples: multa/juros; nao e candidato funcional enquanto a fonte fiscal permanecer ausente.
 - Demais tipos permanecem bloqueados e devem ser liberados individualmente.
 
+#### Fase 2.5.2.0 - Selecao documental
+
+- Status: documentada, aguardando aprovacao.
+- Decisao: Opcao D; nenhum tipo sera implementado ainda.
+- Justificativa: a base 2.5.1P nao congela os valores comerciais e a composicao monetaria por item exigidos pelo payload.
+- Candidato apos preparacao: credito tipo 1, menor que debito tipo 4 por nao exigir `dfe_referenciado` em cada produto.
+
+#### Fase 2.5.2P - Base monetaria por item
+
+- Congelar snapshot comercial, CFOP, quantidade/unidade, principal, multa, juros e total por item.
+- Vincular cada parcela ao `FinancialMovement` e ao item fiscal sem inferencia automatica.
+- Validar somas, imutabilidade, permissao, tenancy e ausencia de emissao.
+- Somente apos validacao permitir solicitar fase funcional de credito tipo 1.
+
 ## Fase 3 - Completar NFS-e
 
 - Objetivos: emissao manual, RPS/lote, capacidades municipais, substituicao, manifestacao, agendamento e downloads.
@@ -437,3 +451,10 @@ Subfases funcionais recomendadas:
 ## Gate permanente
 
 Nenhuma fase posterior deve iniciar sem aceite explicito da anterior.
+## Fase 2.5.2P - Base monetaria e comercial por item
+
+Status: implementada e validada em 2026-06-19. A Fase 2.5.2.0 foi aprovada com decisao de nao emitir credito/debito ainda.
+
+Escopo: criar snapshot imutavel por item fiscal com sequencial, descricao, codigo, NCM, CFOP, quantidade, unidade, valor unitario, total original e composicao explicita de principal, multa, juros e outros. Para hipoteses de multa/juros, a base futura e `multa + juros`; para as demais, `principal + multa + juros + outros`. A movimentacao financeira e somente evidencia e nao preenche valores automaticamente.
+
+Criterios: permitir rascunho incompleto, bloquear aprovacao sem fonte comercial historica completa ou composicao valida, manter feature flag/permissoes existentes, impedir alteracao apos aprovacao e provar ausencia de `FiscalDocument`, `FiscalEmissionAttempt` e chamada Webmania de credito/debito.

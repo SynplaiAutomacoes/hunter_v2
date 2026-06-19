@@ -395,3 +395,10 @@ UI minima futura, somente apos fase preparatoria: feature flag e habilitacao por
 - Visualizacao sanitizada do snapshot e aprovacao separada.
 - Avisos explicitos de que nenhuma NF-e de credito/debito e emitida.
 - Permissoes: `prepare_nfe_credit_debit_basis`, `approve_nfe_credit_debit_basis`, `view_nfe_credit_debit_basis` e `view_nfe_credit_debit_basis_payload`.
+
+## Fase 2.5.2.0 - UX futura
+
+Nao expor acao de emissao. A proxima UI preparatoria deve permitir decompor multa/juros por item fiscal, exibir o snapshot comercial/IBS-CBS, validar totais e exigir aprovacao fiscal separada. A futura emissao de credito tipo 1 exigira permissao `issue_nfe_credit`, feature flag funcional distinta da flag de preparacao e confirmacao explicita.
+## UI preparatoria 2.5.2P
+
+O formulario existente passou a receber principal, multa, juros e outros por item. O detalhe exibe descricao, NCM, CFOP, quantidade, unidade, valores originais e base calculada. As permissoes `prepare_nfe_credit_debit_basis`, `approve_nfe_credit_debit_basis`, `view_nfe_credit_debit_basis` e `view_nfe_credit_debit_basis_payload` foram reutilizadas. A interface informa explicitamente que nenhuma emissao esta disponivel.

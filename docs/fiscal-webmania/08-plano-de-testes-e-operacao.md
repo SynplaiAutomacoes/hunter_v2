@@ -473,3 +473,18 @@ Para cancelamento futuro de `112120`/`112140`:
 - 13 testes focados cobrem criacao, sequencial, snapshot, ausencia/incompletude, ausencia de fallback `TaxClassNfe`, imutabilidade, referencias, hipotese desconhecida, flag, tenancy, XML externo, permissao e ausencia de operation types de emissao.
 - Regressao fiscal direcionada: 192 testes das Fases 1 a 2.4D mais a base 2.5.1P passaram com PostgreSQL e `--keepdb`.
 - `makemigrations finance --check --dry-run`, ruff dos Python tocados e `git diff --check` compoem o fechamento.
+
+## Fase 2.5.2.0 - Testes planejados
+
+Para 2.5.2P: snapshot comercial por item; valores `Decimal`; decomposicao principal/multa/juros; soma consistente; movimento financeiro e item da mesma oficina; imutabilidade; flag de preparacao sem emissao.
+
+Para futura emissao credito tipo 1: base aprovada; `finalidade=5`; `tipo_credito=1`; `nfe_referenciada[]`; CFOP na raiz; somente `impostos.ibs_cbs`; bloqueio preventivo de ICMS/IPI/PIS/COFINS/ISSQN; documento/tentativa antes do gateway; concorrencia; timeout `uncertain`; webhook; reconciliacao sem emissao; permissoes; cross-workshop; sanitizacao; XML/DANFE; regressao de eventos IBS/CBS.
+## Testes Fase 2.5.2P
+
+- Extracao historica por sequencial de descricao, NCM, CFOP, quantidade, unidade, unitario e total.
+- Persistencia exclusiva em `Decimal`, consistencia com tolerancia de R$ 0,01 e rejeicao de negativos.
+- Composicao multa + juros para hipotese tipo 1; composicao integral nas demais hipoteses.
+- Rascunho incompleto permitido e aprovacao incompleta bloqueada.
+- Imutabilidade comercial, monetaria, CFOP e item apos aprovacao.
+- Ausencia de fallback por cadastro/`TaxClassNfe`, de documento derivado, tentativa remota e chamada Webmania.
+- Permissao, tenancy, feature flag e sanitizacao continuam cobertas pela suite 2.5.1P.

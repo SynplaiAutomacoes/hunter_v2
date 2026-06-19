@@ -17,6 +17,12 @@
         <div><dt class="text-xs text-base-content/60">Criada por</dt><dd>{{ basis.created_by|default:"-" }}</dd></div>
         <div><dt class="text-xs text-base-content/60">Referencia financeira</dt><dd>{{ basis.financial_reference|default:"-" }}</dd></div>
         <div><dt class="text-xs text-base-content/60">Referencia de estoque</dt><dd>{{ basis.stock_reference|default:"-" }}</dd></div>
+        <div><dt class="text-xs text-base-content/60">Descricao fiscal</dt><dd>{{ basis.commercial_item.source_item_description|default:"Pendente" }}</dd></div>
+        <div><dt class="text-xs text-base-content/60">NCM / CFOP</dt><dd>{{ basis.commercial_item.source_item_ncm|default:"-" }} / {{ basis.commercial_item.source_item_cfop|default:"-" }}</dd></div>
+        <div><dt class="text-xs text-base-content/60">Quantidade / unidade</dt><dd>{{ basis.commercial_item.source_quantity|default:"-" }} {{ basis.commercial_item.source_unit }}</dd></div>
+        <div><dt class="text-xs text-base-content/60">Unitario / total original</dt><dd>R$ {{ basis.commercial_item.source_unit_price|default:"-" }} / R$ {{ basis.commercial_item.source_total_amount|default:"-" }}</dd></div>
+        <div><dt class="text-xs text-base-content/60">Principal / multa / juros</dt><dd>R$ {{ basis.commercial_item.principal_amount }} / R$ {{ basis.commercial_item.fine_amount }} / R$ {{ basis.commercial_item.interest_amount }}</dd></div>
+        <div><dt class="text-xs text-base-content/60">Base credito/debito</dt><dd class="font-semibold">R$ {{ basis.commercial_item.credit_debit_base_amount }}</dd></div>
     </dl>
     <div class="flex flex-wrap gap-2">
         <a class="btn btn-outline" href="{% url 'finance:fiscal_referenced_basis_payload' pk=basis.pk %}">Visualizar snapshot</a>
