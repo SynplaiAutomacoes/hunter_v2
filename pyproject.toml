@@ -30,6 +30,7 @@ dependencies = [
     "pynfe>=0.6.5",
     "signxml>=4.2.2",
     "holidays>=0.96",
+    "python-json-logger>=3.3.0",
 ]
 
 [dependency-groups]

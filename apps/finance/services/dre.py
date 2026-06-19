@@ -100,13 +100,18 @@ def build_dre_calculation(
         return [_build_maquininha_detail(m, include_workshop_ref, budget_plan=cost_budget_plan) for m in mvs]
 
     cost_budget_plan = _resolve_default_sales_group(financial_groups=financial_groups)
+    card_fee_budget_plan = _resolve_financial_group_by_name(financial_groups=financial_groups, name="Taxa de Maquininhas")
 
     def workorder_cost_details(wos: list[WorkOrder]) -> list[dict]:
         return [_build_workorder_cost_detail(wo, include_workshop_ref, budget_plan=cost_budget_plan) for wo in wos]
 
     # Receita Bruta de Vendas e Serviços
     pagamentos_ordens_de_servico = (
-        WorkOrderPaymentMethod.objects.filter(workorder__workshop__in=workshops)
+        WorkOrderPaymentMethod.objects.filter(
+            workorder__workshop__in=workshops,
+            workorder__budget_type="sale",
+            workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+        )
         .select_related("workorder", "workorder__budget", "workorder__budget__customer", "payment_method")
         .prefetch_related(
             "workorder__items__product",
@@ -173,9 +178,15 @@ def build_dre_calculation(
     # ----------------------------------
 
     # Custos
-    delivered_payment_ids = [payment.pk for payment in pagamentos_ordens_de_servico if payment.workorder.status == WorkOrderStatus.APPROVED and payment.workorder.delivered_at is not None]
-
-    taxa_maquininha_os = FinancialMovement.objects.filter(workorder_payment_id__in=delivered_payment_ids, description="Pagamento da taxa da maquininha").select_related("workorder_payment", "workorder_payment__workorder")
+    taxa_maquininha_qs = FinancialMovement.objects.filter(
+        workshop__in=workshops,
+        budget_plan=card_fee_budget_plan,
+    )
+    if start_date is not None:
+        taxa_maquininha_qs = taxa_maquininha_qs.filter(due_date__gte=start_date)
+    if end_date is not None:
+        taxa_maquininha_qs = taxa_maquininha_qs.filter(due_date__lte=end_date)
+    taxa_maquininha_os = list(taxa_maquininha_qs.select_related("workorder_payment", "workorder_payment__workorder"))
 
     delivered_workorders_with_costs = _fetch_delivered_workorders_with_costs(payments=pagamentos_ordens_de_servico)
     delivered_workorders = [workorder for workorder, _ in delivered_workorders_with_costs]
@@ -431,7 +442,7 @@ def _fetch_delivered_workorders_with_costs(*, payments: list[WorkOrderPaymentMet
 
     payloads: list[tuple[WorkOrder, Money]] = []
     for workorder in workorders:
-        if workorder.status != WorkOrderStatus.APPROVED or workorder.delivered_at is None:
+        if workorder.delivered_at is None:
             continue
 
         total_cost = workorder.total_costs_products_value + workorder.total_costs_services_value
@@ -830,6 +841,14 @@ def _resolve_financial_group_for_revenue_movement(*, movement: FinancialMovement
         root_candidates.sort(key=lambda group: (getattr(group, "sort_key", ""), getattr(group, "pk", 0)))
         return root_candidates[0]
 
+    return None
+
+
+def _resolve_financial_group_by_name(*, financial_groups: list[FinancialGroup], name: str) -> FinancialGroup | None:
+    candidates = [group for group in financial_groups if str(getattr(group, "name", "")).strip().lower() == name.strip().lower()]
+    if candidates:
+        candidates.sort(key=lambda group: (getattr(group, "sort_key", ""), getattr(group, "pk", 0)))
+        return candidates[0]
     return None
 
 
