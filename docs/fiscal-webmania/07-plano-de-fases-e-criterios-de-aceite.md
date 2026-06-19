@@ -256,7 +256,7 @@ Subfases funcionais recomendadas:
 | 2.4D.5.0 | Planejamento dos eventos de emitente com itens/controle: `112120`, `112130`, `112140` | Aprovada documentalmente | Medio/alto; definir fontes de snapshot, itens e bloqueios antes de codigo. |
 | 2.4D.5.1 | Evento `112130` isolado | Validada | Medio/alto; estorno IBS/CBS e perecimento/perda/roubo/furto em transporte contratado pelo fornecedor. |
 | 2.4D.5.2 | Cancelamento do evento `112130` | Validada | Medio; reutiliza cancelamento por UUID sem generalizar demais codigos. |
-| 2.4D.6.0 | Planejamento final dos eventos `112120` e `112140` | Documentada | Alto; decisao recomendada de adiar ambos e exigir fase preparatoria. |
+| 2.4D.6.0 | Planejamento final dos eventos `112120` e `112140` | Aprovada | Alto; decisao aprovada de adiar ambos e exigir fase preparatoria. |
 | 2.4D.6.P | Fase preparatoria para `112120/112140` | 2.4D.6.0 aprovada e escopo autorizado | Alto; importacao XML/snapshot fiscal, ALC/ZFM, credito/debito ou pagamento antecipado. |
 | 2.4D.6.1 | Evento `112120` isolado | Fase preparatoria validada e contexto ALC/ZFM comprovado | Alto; importacao/beneficio fiscal com baixa aderencia oficina. |
 | 2.4D.6.2 | Evento `112140` isolado | Fase preparatoria validada e nota de debito/pagamento antecipado definidos | Alto; depende de pagamento antecipado/nota de debito. |
@@ -365,6 +365,28 @@ Subfases funcionais recomendadas:
 - Testes obrigatorios: `tipo_credito`/`tipo_debito` obrigatorios; finalidade correta; documento referenciado quando tipo exigir; bloqueio quando IBS/CBS for dependencia nao implementada; timeout `uncertain`; permissao restrita; cross-workshop; webhook/reconciliacao sem emissao; downloads e payload sanitizados.
 - Rollback: feature/action desligavel sem afetar NF-e normal.
 - Status: Fase 2.5.0 aprovada documentalmente. Recomendacao atual aceita: adiar codigo funcional ate fase IBS/CBS ou aprovacao explicita de subconjunto seguro.
+
+#### Fase 2.5.1.0 - Replanejamento final apos IBS/CBS
+
+- Status: aprovada; decisao de adiar todos os tipos aceita.
+- Decisao: adiar credito/debito funcional; nenhum dos 13 tipos possui fonte local fiscal completa.
+- Menor subconjunto seguro: nenhum. Multa/juros e o menor contrato remoto, mas o Hunter nao possui multa/juros fiscal IBS/CBS vinculada a item/DF-e.
+
+#### Fase 2.5.1P - Preparacao de fontes fiscais
+
+- Status: validada em 2026-06-19.
+- Escopo: preparar base fiscal referenciada auditavel, sem emissao de credito/debito e sem chamada remota de emissao.
+- Modelar/importar documento e item fiscal referenciado, snapshot IBS/CBS e evidencia da hipotese legal.
+- Criar vinculos auditaveis financeiro -> documento/item e estoque -> documento/item apenas para casos priorizados.
+- Definir primeiro tipo de negocio com contador/fiscal e validar payload em homologacao.
+- Criterio de aceite: uma fonte local deterministica, permissao, tenancy, rollback e testes de contrato para um unico tipo.
+- Resultado: base interna, snapshot imutavel, referencias opcionais, flag e UI administrativa implementados; emissao permanece bloqueada. Hipoteses que exigem financeiro/estoque nao aprovam sem referencia real.
+
+#### Fase 2.5.2 - Primeiro tipo isolado
+
+- Somente depois de 2.5.1P validada e autorizacao explicita.
+- Candidato remoto mais simples: multa/juros; nao e candidato funcional enquanto a fonte fiscal permanecer ausente.
+- Demais tipos permanecem bloqueados e devem ser liberados individualmente.
 
 ## Fase 3 - Completar NFS-e
 

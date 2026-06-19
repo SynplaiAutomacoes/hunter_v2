@@ -381,3 +381,17 @@ Quando houver fase preparatoria aprovada:
 - Cancelamento desses eventos deve aparecer somente apos a emissao correspondente validada e evento autorizado com UUID remoto.
 
 Permissoes: reutilizar `issue_ibs_cbs_event`, `cancel_ibs_cbs_event`, `view_ibs_cbs_event`, `download_ibs_cbs_event` e `view_ibs_cbs_event_payload`, sem fallback de NF-e/NFC-e, credito/debito, financeiro ou estoque.
+## Fase 2.5.1.0 - Permissoes e UX futura
+
+Permissoes planejadas: `issue_nfe_credit`, `issue_nfe_debit`, `view_nfe_credit_debit`, `download_nfe_credit_debit` e `view_nfe_credit_debit_payload`. Emissao deve ser restrita a perfil administrativo/fiscal e nao herdar fallback de NF-e normal.
+
+UI minima futura, somente apos fase preparatoria: feature flag e habilitacao por oficina; escolha credito/debito; lista limitada aos tipos habilitados pelas fontes locais; selecao de documento/item referenciado quando aplicavel; dados IBS/CBS somente leitura a partir do snapshot validado; confirmacao fiscal explicita; status, XML/DANFE e payload protegido. A UI nao deve oferecer tipos bloqueados nem permitir entrada livre que contorne a fonte fiscal.
+
+### UI implementada na Fase 2.5.1P
+
+- Listagem e detalhe de bases por oficina.
+- Habilitacao/desabilitacao administrativa auditada.
+- Criacao somente a partir de NF-e normal local autorizada, sequencial fiscal e hipotese.
+- Visualizacao sanitizada do snapshot e aprovacao separada.
+- Avisos explicitos de que nenhuma NF-e de credito/debito e emitida.
+- Permissoes: `prepare_nfe_credit_debit_basis`, `approve_nfe_credit_debit_basis`, `view_nfe_credit_debit_basis` e `view_nfe_credit_debit_basis_payload`.

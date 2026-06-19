@@ -470,6 +470,38 @@ Fonte oficial reconsultada em 2026-06-18: documentacao Webmania REST NF-e/NFC-e 
 
 Decisao 2.4D.6.0: **Opcao C - adiar ambos**, com recomendacao complementar de **Opcao D - planejar fase preparatoria**. Nenhum dos dois eventos deve ser implementado imediatamente porque a infraestrutura HTTP/evento ja existe, mas as fontes de dominio exigidas pela Webmania ainda nao estao modeladas com seguranca no Hunter.
 
+## Fase 2.5.1.0 - Matriz oficial revalidada de credito/debito
+
+Fonte revalidada em 2026-06-19: documentacao oficial Webmania NF-e/NFC-e, secoes "Emissao de Nota Fiscal de Credito" e "Emissao de Nota Fiscal de Debito". A resposta segue a emissao NF-e normal (`uuid`, `status`, `motivo`, numero, serie, recibo, chave, XML, DANFE e log quando aplicaveis), com notificacao pelo mecanismo NF-e existente quando `url_notificacao` for enviada. Cancelamento e consulta seguem as operacoes gerais do documento emitido; nao existe evento de cancelamento especifico de finalidade 5/6 documentado.
+
+| Operacao | Tipo remoto | Descricao oficial | Requer dfe_referenciado? | Requer item/produto? | Requer financeiro? | Requer evento IBS/CBS? | Pode implementar agora? | Risco |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Credito | 1 | Multa e juros | Nao; `nfe_referenciada` e o campo do credito | Sim | Sim | Nao como pre-condicao oficial | Nao | Alto: sem multa/juros fiscal por item |
+| Credito | 2 | Apropriacao de credito presumido de IBS sobre saldo devedor na ZFM | Nao; usa referencia NF-e quando aplicavel | Sim | Sim, apuracao | Nao substituir `211110` | Nao | Critico: ZFM e saldo nao modelados |
+| Credito | 3 | Retorno por recusa total ou nao localizacao do destinatario | Nao; usa `nfe_referenciada` | Sim | Nao necessariamente | Nao | Nao | Alto: sem evento logistico fiscal confiavel |
+| Credito | 4 | Reducao de valores | Nao; usa `nfe_referenciada` | Sim | Sim | Nao | Nao | Alto: sem causa/base fiscal auditavel |
+| Credito | 5 | Transferencia de credito na sucessao | Nao; usa `nfe_referenciada` quando aplicavel | Sim | Sim, apuracao | Nao | Nao | Critico: sucessao nao modelada |
+| Debito | 1 | Transferencia de creditos para cooperativas | Nao documentado como obrigatorio | Sim | Sim, apuracao | Nao | Nao | Critico: cooperativa/saldo ausentes |
+| Debito | 2 | Anulacao de credito por saidas imunes/isentas | Nao documentado como obrigatorio | Sim | Sim, apuracao | Nao | Nao | Critico: apuracao ausente |
+| Debito | 3 | Debitos de notas fiscais nao processadas na apuracao | Sim, em cada produto | Sim | Sim, apuracao | Nao | Nao | Critico: sem apuracao e referencia por item |
+| Debito | 4 | Multa e juros | Sim, em cada produto | Sim | Sim | Nao | Nao | Alto: sem multa/juros fiscal e referencia por item |
+| Debito | 5 | Transferencia de credito na sucessao | Nao documentado como obrigatorio | Sim | Sim, apuracao | Nao | Nao | Critico: sucessao nao modelada |
+| Debito | 6 | Pagamento antecipado | Nao documentado como obrigatorio | Sim | Sim | Relaciona-se ao futuro `112140`, mas nao o substitui | Nao | Critico: sem vinculo adiantamento-item fiscal |
+| Debito | 7 | Perda em estoque | Nao documentado como obrigatorio | Sim | Sim, apuracao | Nao substituir `112130`/`211124` | Nao | Critico: movimento de estoque nao prova perda fiscal |
+| Debito | 8 | Desenquadramento do SN | Nao documentado como obrigatorio | Sim | Sim, apuracao | Nao | Nao | Critico: sem historico/transicao/apuracao |
+
+Regras comuns confirmadas:
+
+- `produtos` e obrigatorio e cada item deve conter exclusivamente `impostos.ibs_cbs`; ICMS, IPI, PIS, COFINS e correlatos devem ser rejeitados preventivamente.
+- `codigo_cfop` permanece obrigatorio na raiz do produto.
+- Credito documenta `nfe_referenciada` como array de chaves de 44 digitos; a documentacao nao publica uma matriz de obrigatoriedade por `tipo_credito`, portanto o Hunter nao deve inventar condicional remota e deve exigir fonte fiscal coerente com a hipotese.
+- Debito tipos `3` e `4` exigem `produtos[].dfe_referenciado.chave`; `item` identifica o item anterior quando necessario.
+- A rejeicao 1001 deve ser prevenida removendo/bloqueando tributos incompatíveis, sem converter automaticamente payload normal em credito/debito.
+
+### Limite implementado na Fase 2.5.1P
+
+Nenhuma rota Webmania foi adicionada. O OpenAPI permanece como contrato futuro de `POST /1/nfe/emissao/`; `FiscalReferencedBasis` e requisito interno Hunter e nao foi representado como endpoint remoto.
+
 Cancelamento: `112120` e `112140` devem seguir o mesmo padrao tecnico de cancelamento por UUID ja validado para `112110`, `112150` e `112130`, mas somente em subfases separadas apos a emissao correspondente existir e possuir testes proprios. Nao criar cancelamento generico de evento IBS/CBS.
 
 Relacao com credito/debito: `112140` depende semanticamente de nota de debito de pagamento antecipado e nao deve ser liberado antes de existir suporte funcional aprovado para credito/debito IBS/CBS ou um fluxo fiscal equivalente que produza documento, item, pagamento antecipado e quantidade nao fornecida auditaveis. `112120` nao depende diretamente de finalidade 5/6, mas depende de importacao ALC/ZFM e validacao fiscal externa.

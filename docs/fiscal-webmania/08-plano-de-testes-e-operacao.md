@@ -456,3 +456,20 @@ Para cancelamento futuro de `112120`/`112140`:
 - criar testes especificos por codigo somente apos emissao do codigo correspondente existir;
 - payload restrito a `uuid`, `ambiente` e `url_notificacao` quando aplicavel;
 - nao alterar `FiscalDocument` base nem criar cancelamento generico.
+### Fase 2.5.1.0 - Testes planejados para credito/debito
+
+- `finalidade=5` exige `tipo_credito` permitido; `finalidade=6` exige `tipo_debito` permitido.
+- Credito serializa `nfe_referenciada[]` apenas a partir de referencias validadas.
+- Debito tipos `3`/`4` exigem `dfe_referenciado` dentro de cada produto e rejeitam chave/item ausente.
+- Cada produto envia `codigo_cfop` na raiz e somente `impostos.ibs_cbs`; tributos incompatíveis falham antes do gateway.
+- Tipos sem fonte local, documento externo sem XML/importacao validada, ausencia de item fiscal, apuracao ou vinculo financeiro exigido ficam bloqueados.
+- Documento/tentativa existem antes do gateway; retry e concorrencia fazem uma chamada; timeout vira `uncertain` e reconciliacao somente consulta.
+- Webhook atualiza somente o credito/debito correto; eventos IBS/CBS existentes nao regridem.
+- Permissao, feature flag, habilitacao por oficina, cross-workshop, payload/download e sanitizacao possuem cobertura dedicada.
+- Testes de regressao preservam emissoes normais, derivados e eventos `112110`, `112130`, `112150` e cancelamentos.
+
+### Evidencias executadas na Fase 2.5.1P
+
+- 13 testes focados cobrem criacao, sequencial, snapshot, ausencia/incompletude, ausencia de fallback `TaxClassNfe`, imutabilidade, referencias, hipotese desconhecida, flag, tenancy, XML externo, permissao e ausencia de operation types de emissao.
+- Regressao fiscal direcionada: 192 testes das Fases 1 a 2.4D mais a base 2.5.1P passaram com PostgreSQL e `--keepdb`.
+- `makemigrations finance --check --dry-run`, ruff dos Python tocados e `git diff --check` compoem o fechamento.

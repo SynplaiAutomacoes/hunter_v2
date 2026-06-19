@@ -1,5 +1,6 @@
 import logging
 
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
@@ -182,6 +183,36 @@ class FiscalNumberInutilizationStatus(models.TextChoices):
     SUCCEEDED = "succeeded", "Concluida"
     FAILED = "failed", "Falhou"
     UNCERTAIN = "uncertain", "Incerta"
+
+
+class FiscalReferencedBasisStatus(models.TextChoices):
+    DRAFT = "draft", "Rascunho"
+    READY = "ready", "Pronta para aprovacao"
+    APPROVED = "approved", "Aprovada"
+    REJECTED = "rejected", "Rejeitada"
+    INVALID = "invalid", "Invalida"
+    ARCHIVED = "archived", "Arquivada"
+
+
+class FiscalReferencedBasisType(models.TextChoices):
+    CREDIT = "credit", "Credito"
+    DEBIT = "debit", "Debito"
+
+
+class FiscalHypothesis(models.TextChoices):
+    CREDIT_FINE_INTEREST = "credit_fine_interest", "Credito - multa/juros"
+    CREDIT_ZFM_PRESUMED = "credit_zfm_presumed", "Credito - presumido ZFM"
+    CREDIT_REFUSAL = "credit_refusal", "Credito - recusa/nao localizacao"
+    CREDIT_VALUE_REDUCTION = "credit_value_reduction", "Credito - reducao de valores"
+    CREDIT_SUCCESSION = "credit_succession", "Credito - sucessao"
+    DEBIT_COOPERATIVE = "debit_cooperative", "Debito - cooperativas"
+    DEBIT_EXEMPT_OUTPUT = "debit_exempt_output", "Debito - saidas imunes/isentas"
+    DEBIT_UNPROCESSED_INVOICE = "debit_unprocessed_invoice", "Debito - NF nao processada"
+    DEBIT_FINE_INTEREST = "debit_fine_interest", "Debito - multa/juros"
+    DEBIT_SUCCESSION = "debit_succession", "Debito - sucessao"
+    DEBIT_ADVANCE_PAYMENT = "debit_advance_payment", "Debito - pagamento antecipado"
+    DEBIT_STOCK_LOSS = "debit_stock_loss", "Debito - perda de estoque"
+    DEBIT_SN_EXCLUSION = "debit_sn_exclusion", "Debito - desenquadramento do SN"
 
 
 class TaxClassNfe(TimeStampedModel):
@@ -431,6 +462,9 @@ class WebmaniaCompany(TimeStampedModel):
     nfce_numero_dev = models.PositiveIntegerField(verbose_name="Próximo número NFC-e homologação", null=True, blank=True)
     nfce_id_csc_dev = models.CharField(verbose_name="ID CSC NFC-e homologação", max_length=255, blank=True, default="")
     nfce_codigo_csc_dev = models.CharField(verbose_name="Código CSC NFC-e homologação", max_length=255, blank=True, default="")
+    credit_debit_basis_enabled = models.BooleanField(verbose_name="Preparacao de base credito/debito habilitada", default=False)
+    credit_debit_basis_enabled_by = models.ForeignKey("accounts.User", verbose_name="Base credito/debito habilitada por", on_delete=models.SET_NULL, null=True, blank=True, related_name="enabled_credit_debit_basis_companies")
+    credit_debit_basis_enabled_at = models.DateTimeField(verbose_name="Base credito/debito habilitada em", null=True, blank=True)
 
     informacoes_fisco = models.TextField(verbose_name="Informações ao fisco", blank=True, default="")
     nfse_rps_serie = models.CharField(verbose_name="Série RPS da Nota Fiscal de Serviço", max_length=10, blank=True, default="")
@@ -836,6 +870,84 @@ class FiscalDocumentLink(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"FiscalDocumentLink[{self.document_id}->{self.related_document_id}:{self.role}]"
+
+
+class FiscalReferencedBasis(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="fiscal_referenced_bases")
+    source_document = models.ForeignKey(FiscalDocument, verbose_name="Documento fiscal de origem", on_delete=models.PROTECT, null=True, blank=True, related_name="referenced_bases")
+    source_nfe_item = models.ForeignKey(NfeItem, verbose_name="NF-e legada de origem", on_delete=models.PROTECT, null=True, blank=True, related_name="referenced_bases")
+    source_access_key = models.CharField(verbose_name="Chave de acesso de origem", max_length=44, blank=True, default="", db_index=True)
+    source_item_sequence = models.PositiveSmallIntegerField(verbose_name="Sequencial fiscal do item")
+    source_document_type = models.CharField(verbose_name="Tipo do documento de origem", max_length=12, choices=FiscalDocumentType.choices, default=FiscalDocumentType.NFE)
+    basis_type = models.CharField(verbose_name="Tipo da base", max_length=12, choices=FiscalReferencedBasisType.choices, db_index=True)
+    fiscal_hypothesis = models.CharField(verbose_name="Hipotese fiscal", max_length=48, choices=FiscalHypothesis.choices, db_index=True)
+    ibs_cbs_snapshot = models.JSONField(verbose_name="Snapshot IBS/CBS", default=dict)
+    financial_reference = models.ForeignKey("finance.FinancialMovement", verbose_name="Movimentacao financeira", on_delete=models.PROTECT, null=True, blank=True, related_name="fiscal_referenced_bases")
+    stock_reference = models.ForeignKey("stock.StockMovement", verbose_name="Movimentacao de estoque", on_delete=models.PROTECT, null=True, blank=True, related_name="fiscal_referenced_bases")
+    external_origin = models.BooleanField(verbose_name="Origem externa", default=False)
+    external_xml_validated = models.BooleanField(verbose_name="XML externo validado", default=False)
+    status = models.CharField(verbose_name="Status", max_length=16, choices=FiscalReferencedBasisStatus.choices, default=FiscalReferencedBasisStatus.DRAFT, db_index=True)
+    created_by = models.ForeignKey("accounts.User", verbose_name="Criada por", on_delete=models.SET_NULL, null=True, blank=True, related_name="created_fiscal_referenced_bases")
+    approved_by = models.ForeignKey("accounts.User", verbose_name="Aprovada por", on_delete=models.SET_NULL, null=True, blank=True, related_name="approved_fiscal_referenced_bases")
+    approved_at = models.DateTimeField(verbose_name="Aprovada em", null=True, blank=True)
+    notes = models.TextField(verbose_name="Evidencias e observacoes", blank=True, default="")
+
+    class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["workshop", "source_document", "source_item_sequence", "fiscal_hypothesis"], condition=models.Q(source_document__isnull=False), name="unique_local_fiscal_referenced_basis"),
+            models.UniqueConstraint(fields=["workshop", "source_access_key", "source_item_sequence", "fiscal_hypothesis"], condition=models.Q(external_origin=True) & ~models.Q(source_access_key=""), name="unique_external_fiscal_referenced_basis"),
+        ]
+        indexes = [
+            models.Index(fields=["workshop", "status", "basis_type"], name="fiscal_basis_scope_status_idx"),
+            models.Index(fields=["source_document", "source_item_sequence"], name="fiscal_basis_source_item_idx"),
+        ]
+        permissions = [
+            ("prepare_nfe_credit_debit_basis", "Pode preparar base fiscal de credito/debito"),
+            ("approve_nfe_credit_debit_basis", "Pode aprovar base fiscal de credito/debito"),
+            ("view_nfe_credit_debit_basis", "Pode visualizar base fiscal de credito/debito"),
+            ("view_nfe_credit_debit_basis_payload", "Pode visualizar payload da base fiscal de credito/debito"),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if self.source_item_sequence <= 0 or self.source_item_sequence > 999:
+            raise ValidationError({"source_item_sequence": "O sequencial fiscal deve estar entre 1 e 999."})
+        if self.source_document_id and self.source_document.workshop_id != self.workshop_id:
+            raise ValidationError({"source_document": "O documento fiscal pertence a outra oficina."})
+        if self.source_nfe_item_id and self.source_nfe_item.workshop_id != self.workshop_id:
+            raise ValidationError({"source_nfe_item": "A NF-e de origem pertence a outra oficina."})
+        if self.source_document_id and self.source_document_type != self.source_document.document_type:
+            raise ValidationError({"source_document_type": "O tipo informado nao corresponde ao documento fiscal de origem."})
+        if self.source_document_id and self.source_nfe_item_id and self.source_document.legacy_nfe_item_id != self.source_nfe_item_id:
+            raise ValidationError({"source_nfe_item": "A NF-e legada nao corresponde ao documento fiscal de origem."})
+        if self.financial_reference_id and self.financial_reference.workshop_id != self.workshop_id:
+            raise ValidationError({"financial_reference": "A movimentacao financeira pertence a outra oficina."})
+        if self.stock_reference_id and self.stock_reference.workshop_id != self.workshop_id:
+            raise ValidationError({"stock_reference": "A movimentacao de estoque pertence a outra oficina."})
+        expected_basis_type = FiscalReferencedBasisType.CREDIT if self.fiscal_hypothesis.startswith("credit_") else FiscalReferencedBasisType.DEBIT if self.fiscal_hypothesis.startswith("debit_") else ""
+        if not expected_basis_type or self.basis_type != expected_basis_type:
+            raise ValidationError({"basis_type": "O tipo da base nao corresponde a hipotese fiscal."})
+        if not self.external_origin and self.source_document_id is None:
+            raise ValidationError({"source_document": "Base de origem local exige documento fiscal de origem."})
+        if not self.external_origin and self.source_document_id and self.source_document.origin != FiscalDocumentOrigin.LOCAL:
+            raise ValidationError({"source_document": "Base local exige documento fiscal de origem local."})
+        if self.external_origin and self.source_document_id and self.source_document.origin != FiscalDocumentOrigin.EXTERNAL:
+            raise ValidationError({"source_document": "Base externa exige projecao fiscal de origem externa."})
+        if self.external_origin and len("".join(char for char in self.source_access_key if char.isdigit())) != 44:
+            raise ValidationError({"source_access_key": "Base externa exige chave de acesso com 44 digitos."})
+        if self.external_origin and not self.external_xml_validated and self.status == FiscalReferencedBasisStatus.APPROVED:
+            raise ValidationError("Documento externo sem XML/importacao validada nao pode ser aprovado.")
+
+    def save(self, *args, **kwargs) -> None:
+        if self.pk:
+            persisted = type(self).objects.filter(pk=self.pk).values("status", "ibs_cbs_snapshot").first()
+            if persisted and persisted["status"] == FiscalReferencedBasisStatus.APPROVED and persisted["ibs_cbs_snapshot"] != self.ibs_cbs_snapshot:
+                raise ValidationError("O snapshot IBS/CBS de uma base aprovada e imutavel.")
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"FiscalReferencedBasis[{self.fiscal_hypothesis}:{self.source_access_key}:{self.source_item_sequence}]"
 
 
 class FiscalDocumentEvent(TimeStampedModel):

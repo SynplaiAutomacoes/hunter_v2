@@ -476,6 +476,19 @@ Justificativa:
 
 Recomendacao de proxima fase: criar uma fase preparatoria para importacao/validacao XML e snapshot fiscal de documentos externos ou, se a prioridade for `112140`, concluir antes credito/debito IBS/CBS e vinculo financeiro-item fiscal. Nao implementar UI ou service para `112120/112140` ate essa base existir.
 
+## Fase 2.5.1.0 - Replanejamento final de NF-e de credito e debito
+
+- Status: documentada, aguardando aprovacao da fase preparatoria; nenhum codigo funcional autorizado.
+- Base disponivel: classes e emissoes normais IBS/CBS, derivados 2.4C e ciclos completos dos eventos `112110`, `112130` e `112150`.
+- Contrato oficial: credito usa `finalidade=5`, `tipo_credito` e `nfe_referenciada`; debito usa `finalidade=6`, `tipo_debito` e, nos tipos `3`/`4`, `produtos[].dfe_referenciado`. Em ambos, cada item envia somente `impostos.ibs_cbs`, com `codigo_cfop` na raiz.
+- Decisao de escopo: Opcao D. Adiar todos os tipos e criar fase preparatoria de fontes fiscais. Nem mesmo multa/juros e seguro hoje, pois o financeiro nao distingue multa/juros fiscal IBS/CBS nem o vincula a DF-e/item.
+- Feature flag: futura emissao deve exigir flag global e habilitacao administrativa por oficina, alem de permissao fiscal especifica.
+- `112120`, `112140` e eventos `211xxx` continuam adiados e nao podem ser substituidos por nota de credito/debito.
+
+### Resultado Fase 2.5.1P
+
+Foi implementada somente a preparacao administrativa de bases fiscais referenciadas. A funcionalidade lista, cria, valida e aprova bases locais a partir de NF-e normal local autorizada e item fiscal com snapshot IBS/CBS completo. A flag por oficina habilita apenas preparacao. Nao existem service, rota, formulario, tentativa ou documento de emissao de credito/debito.
+
 Eventos adiados:
 
 - `112120` e `112140`: exigem fontes fiscais/operacionais ainda ausentes. `112130` ja foi validado e encerrado.

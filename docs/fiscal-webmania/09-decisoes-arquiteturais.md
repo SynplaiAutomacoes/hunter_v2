@@ -470,3 +470,20 @@ Justificativa:
 Consequencias: criar primeiro fase preparatoria de importacao XML/snapshot fiscal e/ou fase de credito/debito/pagamento antecipado. Cancelamentos de `112120` e `112140` so podem ser implementados depois da emissao do codigo correspondente estar validada.
 
 Fase: 2.4D.6.0.
+
+## ADR-046 - Adiar credito/debito ate existir fonte fiscal por tipo
+
+- Status: proposto na Fase 2.5.1.0.
+- Contexto: a base IBS/CBS e a infraestrutura de documentos/tentativas existem, mas o Hunter nao possui apuracao, evidencia legal e vinculo por item para nenhum dos tipos de credito/debito.
+- Decisao: escolher Opcao D e criar Fase 2.5.1P preparatoria. Nenhuma emissao sera liberada apenas por input manual ou por reaproveitamento de movimento financeiro/estoque generico.
+- Consequencias: `FiscalDocument` continua sendo o documento futuro; `fiscal_purpose_type` preservara o enum remoto; referencias serao modeladas por documento/item; emissao exigira feature flag global, habilitacao por oficina e permissao fiscal.
+- Contrato: credito usa `nfe_referenciada[]`; debito `3`/`4` usa `produtos[].dfe_referenciado`; todos os itens usam exclusivamente `impostos.ibs_cbs` e CFOP na raiz.
+- Separacao: notas de credito/debito nao substituem eventos IBS/CBS, inclusive `112140` e `211128`.
+
+## ADR-047 - Base fiscal referenciada e entidade propria sem emissao
+
+- Status: aprovada e implementada na Fase 2.5.1P.
+- Decisao: usar `FiscalReferencedBasis` para preparar documento/item, snapshot historico, hipotese e referencias operacionais. Nao reutilizar `FiscalDocumentLink`, pois ainda nao existe documento de credito/debito derivado.
+- Snapshot: extrair somente do documento emitido/NfeItem; nunca recalcular por `TaxClassNfe` atual; congelar apos aprovacao.
+- Habilitacao: flag auditavel em `WebmaniaCompany` permite preparar bases, nao emitir documentos.
+- Operacao remota: nenhuma. Nao criar `FiscalEmissionAttempt`, webhook ou reconciliacao nesta fase.

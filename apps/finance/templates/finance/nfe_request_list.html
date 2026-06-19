@@ -4,6 +4,7 @@
 {% block crud_subtitle %}Acompanhe as solicitacoes de emissao de Nota Fiscal vinculadas as ordens de servico.{% endblock %}
 
 {% block crud_header_actions %}
+    <a href="{% url 'finance:fiscal_referenced_basis_list' %}" class="btn btn-outline">Bases credito/debito</a>
     <a href="{% url 'finance:emission_create' %}?tipo=nfe&reset=1" class="btn btn-primary">Emitir nova Nota Fiscal</a>
 {% endblock %}
 

@@ -1,4 +1,4 @@
-from .finance import FiscalDocument, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, FiscalNumberInutilization, FiscalNumberInutilizationStatus, NfeItem, NfeRequest, NfseBatch, NfseItem, NfseRequest, TaxClassNfe, TaxClassNfeCofinsScenario, TaxClassNfeIcmsScenario, TaxClassNfeIpiScenario, TaxClassNfePisScenario, TaxClassNfse, TaxClassPreset, TaxClassPresetKind, TaxClassSyncState, WebmaniaCompany
+from .finance import FiscalDocument, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, FiscalHypothesis, FiscalNumberInutilization, FiscalNumberInutilizationStatus, FiscalReferencedBasis, FiscalReferencedBasisStatus, FiscalReferencedBasisType, NfeItem, NfeRequest, NfseBatch, NfseItem, NfseRequest, TaxClassNfe, TaxClassNfeCofinsScenario, TaxClassNfeIcmsScenario, TaxClassNfeIpiScenario, TaxClassNfePisScenario, TaxClassNfse, TaxClassPreset, TaxClassPresetKind, TaxClassSyncState, WebmaniaCompany
 from .financial_group import FinancialGroup
 from .payment_method import PaymentMethod
 from .movement_group import MovementGroup
@@ -18,8 +18,12 @@ __all__ = [
     "FiscalEmissionAttemptStatus",
     "FiscalEmissionDocumentKind",
     "FiscalEmissionOperationType",
+    "FiscalHypothesis",
     "FiscalNumberInutilization",
     "FiscalNumberInutilizationStatus",
+    "FiscalReferencedBasis",
+    "FiscalReferencedBasisStatus",
+    "FiscalReferencedBasisType",
     "NfeItem",
     "NfeRequest",
     "NfseBatch",

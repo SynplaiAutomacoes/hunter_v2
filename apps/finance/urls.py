@@ -12,6 +12,12 @@ from apps.finance.views import (
     FinancialGroupListView,
     FinancialReportsHomeView,
     FinancialGroupUpdateView,
+    FiscalReferencedBasisApproveView,
+    FiscalReferencedBasisCreateView,
+    FiscalReferencedBasisDetailView,
+    FiscalReferencedBasisFeatureToggleView,
+    FiscalReferencedBasisListView,
+    FiscalReferencedBasisPayloadView,
     IssuedDocumentsArchiveDownloadView,
     IssuedDocumentsListView,
     NfeCreateRedirectView,
@@ -96,6 +102,12 @@ from apps.finance.views.movement_group import GroupMovementWizardView, GroupMove
 app_name = "finance"
 
 urlpatterns = [
+    path("fiscal/bases-credito-debito/", FiscalReferencedBasisListView.as_view(), name="fiscal_referenced_basis_list"),
+    path("fiscal/bases-credito-debito/criar/", FiscalReferencedBasisCreateView.as_view(), name="fiscal_referenced_basis_create"),
+    path("fiscal/bases-credito-debito/habilitacao/", FiscalReferencedBasisFeatureToggleView.as_view(), name="fiscal_referenced_basis_toggle"),
+    path("fiscal/bases-credito-debito/<int:pk>/", FiscalReferencedBasisDetailView.as_view(), name="fiscal_referenced_basis_detail"),
+    path("fiscal/bases-credito-debito/<int:pk>/aprovar/", FiscalReferencedBasisApproveView.as_view(), name="fiscal_referenced_basis_approve"),
+    path("fiscal/bases-credito-debito/<int:pk>/payload/", FiscalReferencedBasisPayloadView.as_view(), name="fiscal_referenced_basis_payload"),
     path("reports/", FinancialReportsHomeView.as_view(), name="reports_home"),
     path("reports/movement/<int:pk>/edit/", ReportMovementEditView.as_view(), name="report_movement_edit"),
     path("reports/movement/<int:pk>/delete/", ReportMovementDeleteView.as_view(), name="report_movement_delete"),

@@ -595,3 +595,31 @@ Fase preparatoria recomendada antes de codigo funcional:
 2. modelar contexto ALC/ZFM/importacao para `112120`;
 3. modelar nota de debito/pagamento antecipado e vinculo item fiscal-financeiro para `112140`;
 4. definir saldos/quantidades afetadas e bloqueios de concorrencia antes de transmitir eventos.
+## Fase 2.5.1.0 - Modelagem final recomendada para credito/debito
+
+Reutilizar o nucleo, sem models legados paralelos:
+
+- `FiscalDocument(document_type="nfe", purpose="credit"|"debit", origin="manual"|origem futura aprovada)`.
+- Novo campo futuro `fiscal_purpose_type` como string curta, contendo o valor remoto de `tipo_credito` ou `tipo_debito`; a descricao deve vir de enum de aplicacao versionado, sem perder o valor bruto.
+- `FiscalDocumentLink(role="credits"|"debits")` apenas quando houver documento local/importado realmente referenciado. Para credito, `nfe_referenciada` pode representar uma ou mais NF-e e pode exigir tabela associativa/metadata de referencias; nao limitar a um unico link. Para debito `3`/`4`, o vinculo deve chegar ao item fiscal referenciado, nao apenas ao documento.
+- Snapshot imutavel por item: CFOP na raiz, dados comerciais, `impostos.ibs_cbs` exclusivo e `dfe_referenciado` quando aplicavel.
+- Fonte/justificativa fiscal persistida por tipo, com usuario, oficina, evidencia e periodo de apuracao quando aplicavel.
+
+Obrigatoriedade do link:
+
+| Caso | Link local | Referencia remota |
+| --- | --- | --- |
+| Credito com NF-e Hunter/importada | Obrigatorio para cada referencia conhecida | `nfe_referenciada[]` |
+| Credito cuja hipotese nao tenha documento comprovado | Bloquear ate regra oficial/negocio aprovada | Nao inventar chave |
+| Debito tipos 3/4 | Obrigatorio por documento e item | `produtos[].dfe_referenciado` obrigatorio |
+| Debito demais tipos | Opcional somente quando relacao real existir | Nao enviar `dfe_referenciado` sem fundamento |
+
+Nao criar os novos choices/campos antes da aprovacao funcional. A fase preparatoria deve primeiro modelar fontes e referencias por item.
+
+### Modelagem implementada na Fase 2.5.1P
+
+`FiscalReferencedBasis` contem oficina, documento e `NfeItem` de origem, chave, sequencial fiscal, tipo da base, hipotese, snapshot IBS/CBS, referencias opcionais financeira/estoque, marcadores de origem/XML externo, status, criador/aprovador, timestamps e evidencias. Constraints impedem duplicidade local por documento/item/hipotese e externa por chave/item/hipotese.
+
+Status: `draft`, `ready`, `approved`, `rejected`, `invalid`, `archived`. O snapshot de registro ja aprovado e imutavel no model. Aprovacao exige snapshot com situacao/classificacao, evidencia textual, referencias requeridas pela hipotese, oficina coerente e XML validado para origem externa.
+
+`WebmaniaCompany` recebeu `credit_debit_basis_enabled`, ator e timestamp de habilitacao. A flag nao cria novos purposes nem operation types de emissao.

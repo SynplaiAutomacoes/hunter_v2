@@ -127,3 +127,25 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - `112140` permanece bloqueado ate existir nota de debito/pagamento antecipado ou fluxo fiscal equivalente com item fiscal, vinculo financeiro e quantidade/unidade nao fornecida auditavel.
 - Cancelamentos de `112120` e `112140` devem ficar em subfases posteriores a emissao correspondente, sem cancelamento generico.
 - A proxima fase funcional recomendada nao deve ser `112120` nem `112140`; deve ser preparatoria para fonte fiscal confiavel ou seguir para outra area autorizada com menor dependencia.
+- Decisao aprovada: adiar `112120` e `112140`; nao generalizar cancelamento; manter `211xxx` adiados.
+
+## Pendencias Fase 2.5.1.0 - Credito/Debito apos IBS/CBS
+
+- Modelar uma fonte fiscal especifica antes de liberar qualquer tipo; nenhum subconjunto e seguro hoje.
+- Definir com responsavel fiscal qual tipo possui valor real para oficina e qual evidencia legal/operacional sera exigida.
+- Criar importacao/projecao validada de documento e item fiscal externo; chave manual isolada nao basta.
+- Modelar apuracao IBS/CBS para tipos 2/3/5/8 e hipoteses de cooperativa, imune/isenta, ZFM e sucessao.
+- Modelar multa/juros fiscal separado de taxa de pagamento e vinculado ao DF-e/item.
+- Modelar pagamento antecipado fiscal e vinculo financeiro -> item para debito 6 e futuro `112140`.
+- Modelar perda fiscal de estoque separada de movimento generico para debito 7.
+- Manter feature flag e habilitacao por oficina obrigatorias na futura implementacao.
+- Revalidar obrigatoriedade de `nfe_referenciada` por `tipo_credito` antes do codigo, pois a pagina oficial documenta o campo e o exemplo, mas nao publica matriz condicional por tipo.
+
+### Pendencias apos Fase 2.5.1P
+
+- Integrar importacao XML externa validada a uma projecao `FiscalDocument`/item antes de preparar base externa pela UI.
+- Criar fontes especializadas para apuracao, sucessao, ZFM, cooperativas, saidas imunes/isentas e desenquadramento SN.
+- Diferenciar multa/juros fiscal de taxas financeiras operacionais.
+- Modelar evidencia logistica de recusa/nao localizacao.
+- Modelar perda fiscal de estoque e pagamento antecipado com vinculo por item.
+- Emissao de credito/debito continua bloqueada mesmo para bases aprovadas ate nova fase explicita.

@@ -524,3 +524,19 @@ Bloqueios obrigatorios para futura implementacao:
 - Ambos: bloquear reenvio se houver evento ativo, aprovado, `processing` ou `uncertain` com mesma intencao; preservar payload congelado; webhook deve resolver por UUID remoto ou fallback candidato unico da mesma oficina/documento/codigo/sequencia.
 
 Cancelamento futuro: somente apos emissao correspondente validada, usando `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event_cancellation")` por codigo. Nao generalizar cancelamento por endpoint sem testes por codigo.
+## Fase 2.5.1.0 - Seguranca e idempotencia planejadas
+
+- Operacoes futuras: `nfe_credit_emission` e `nfe_debit_emission`.
+- Fluxo: criar documento local, validar tipo/fontes/referencias/IBS-CBS, criar e bloquear tentativa, congelar payload sanitizado, transmitir uma vez, persistir resposta e permitir somente consulta na reconciliacao `uncertain`.
+- Chave: hash de oficina, documento local, operacao e geracao da requisicao; payload fiscal nao e identidade suficiente para distinguir duas intencoes legitimas.
+- Bloquear: tipo sem fonte local; referencia obrigatoria ausente; documento externo sem XML/importacao validada; falta de snapshot IBS/CBS; qualquer tributo fora de `ibs_cbs`; ausencia de vinculo financeiro/item quando a hipotese exigir; uso de nota como substituto de evento ou vice-versa.
+- Webhook deve resolver por UUID remoto e tentativa associada, restringir oficina/tipo/finalidade e jamais atualizar documento/evento IBS/CBS diferente.
+- Feature flag global e habilitacao administrativa por oficina devem ser cumulativas; nenhuma permissao legada concede emissao.
+
+### Protecoes implementadas na Fase 2.5.1P
+
+- `transaction.atomic()` e lock no documento/base durante criacao/aprovacao.
+- Snapshot vem somente de payload historico do documento/NfeItem e e sanitizado.
+- Aprovacao bloqueia origem externa sem XML validado, snapshot incompleto, hipotese desconhecida, referencia obrigatoria ausente e cross-workshop.
+- Nenhum `FiscalEmissionAttempt` ou webhook novo foi criado, pois nao existe operacao remota nesta fase.
+- A flag por oficina nao adiciona `nfe_credit_emission` ou `nfe_debit_emission` aos choices existentes.

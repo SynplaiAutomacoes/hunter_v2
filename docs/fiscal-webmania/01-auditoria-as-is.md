@@ -231,4 +231,32 @@ Escopo: leitura de codigo em modo somente leitura para decidir se os eventos res
 | Vinculo financeiro -> item fiscal | O financeiro registra movimentos e pagamentos por OS, mas nao ha vinculo auditavel entre pagamento antecipado, item fiscal e sequencial de nota de debito | Nao | Sem esse vinculo, `quantidade_nao_fornecida` seria input manual de alto risco |
 | Quantidade/unidade nao fornecida | Nao ha entidade operacional de nao fornecimento associada a nota de debito/pagamento antecipado | Nao | Exige fase propria de regra financeira/operacional antes de `112140` |
 
+## Auditoria Fase 2.5.1.0 - fontes locais para credito/debito
+
+| Hipotese oficial | Fonte atual encontrada | Suficiente? | Lacuna impeditiva |
+| --- | --- | ---: | --- |
+| Multa/juros | `FinancialMovement`, `PaymentMethod` e parcelas de OS possuem valores/taxas operacionais | Nao | Nao ha classificacao fiscal de multa/juros IBS/CBS nem vinculo por item ao DF-e regularizado. Taxa de meio de pagamento nao equivale a multa/juros fiscal. |
+| Credito presumido IBS ZFM | Classe fiscal suporta grupos IBS/CBS; nao ha saldo ZFM/apuracao | Nao | Falta fonte de apuracao, elegibilidade ZFM e saldo de credito presumido. |
+| Recusa total/nao localizacao | Existem rejeicoes operacionais de OS, nao evento logistico fiscal de entrega | Nao | Falta prova de entrega/recusa vinculada a NF-e e aos itens fiscais. |
+| Reducao de valores | Documentos e movimentos guardam valores | Nao | Falta causa fiscal, base anterior, itens afetados e regra de calculo auditavel. |
+| Sucessao/transferencia | Nao localizado dominio de sucessao empresarial | Nao | Falta entidade sucessora, saldo transferido e fundamento fiscal. |
+| Cooperativas | Nao localizado dominio fiscal de cooperativas | Nao | Falta classificacao do participante e credito transferido. |
+| Saidas imunes/isentas | Classe fiscal possui configuracao tributaria, mas nao apuracao consolidada | Nao | Falta apuracao e rastreio das saidas que originaram a anulacao. |
+| NFs nao processadas na apuracao | Documentos fiscais existem; nao ha livro/apuracao IBS/CBS local | Nao | Falta periodo de apuracao, motivo de nao processamento e `dfe_referenciado` por item. |
+| Pagamento antecipado | Pagamentos de OS e movimentos financeiros existem | Nao | Falta conceito fiscal de adiantamento e vinculo pagamento -> item fiscal -> nota de debito. |
+| Perda em estoque | `StockMovement` registra entrada/saida/status | Nao | Falta motivo fiscal de perda, snapshot IBS/CBS e vinculo ao item/documento que originou o credito. |
+| Desenquadramento do SN | `WebmaniaCompany.regime_tributario` guarda regime atual | Nao | Falta historico de transicao, data de efeito e apuracao do debito. |
+| Documento original local | `FiscalDocument` guarda payload/resposta e links | Parcial | Pode fornecer chave/snapshot, mas nao prova a hipotese legal nem a apuracao de cada tipo. |
+| Documento externo | `StockImport`/XML e documento externo minimo existem em fluxos distintos | Nao | Nao ha projecao fiscal externa validada e vinculada ao item para credito/debito. |
+
+Conclusao: nenhum tipo possui hoje fonte local completa e confiavel. A infraestrutura fiscal e reutilizavel, mas nao substitui a modelagem das hipoteses legais. A Fase 2.5.1 funcional deve permanecer bloqueada.
+
+### Resultado tecnico da Fase 2.5.1P
+
+- `FiscalDocument`, `NfeItem.raw_payload/log_payload` e os payloads do documento fornecem o snapshot historico por item.
+- `TaxClassNfe` continua sendo configuracao atual e nao e fallback para documento ja emitido.
+- `FinancialMovement` e `StockMovement` agora podem ser referenciados opcionalmente por uma base, sem serem reinterpretados automaticamente como fato fiscal.
+- `FiscalReferencedBasis` prepara e aprova dados locais; nao cria `FiscalDocument`, `FiscalEmissionAttempt` nem chama Webmania.
+- Documento externo permanece bloqueado sem projecao externa e XML/importacao realmente validada.
+
 Conclusao 2.4D.6.0: o codigo ja possui infraestrutura tecnica reutilizavel para `FiscalDocumentEvent`, idempotencia, webhook e cancelamento por UUID, mas nao possui fontes de dominio suficientemente confiaveis para liberar `112120` ou `112140` agora. A decisao recomendada e adiar ambos e planejar uma fase preparatoria antes de qualquer implementacao funcional.
