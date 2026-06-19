@@ -8,6 +8,7 @@ from typing import Any
 from djmoney.money import Money
 
 from apps.budget.pricing import format_duration_display, money_div, money_from_decimal, zero_money
+from apps.budget.review_display import build_budget_review_display
 from apps.finance.services.pricing import distribute_total_proportionally
 from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.workorder.models import WorkOrderDiscountType
@@ -389,7 +390,6 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
             )
 
         kits = []
-
     workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=budget.workshop)
     total_services_cost_original_value = sum((line["service_cost_price"] for line in servicos), Money(0, "BRL"))
     total_services_mechanic_cost_value = sum((line["service_mechanic_cost_price"] for line in servicos), Money(0, "BRL"))
