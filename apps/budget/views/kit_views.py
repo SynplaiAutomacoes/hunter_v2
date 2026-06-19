@@ -17,7 +17,19 @@ from apps.catalog.models.services import Service
 from apps.catalog.price_tracking import record_product_last_used_price
 from apps.workshops.mixin import WorkshopScopedMixin
 
-from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _is_budget_edit_locked, _parse_duration_from_string, reset_steps_after_step_4, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
+from .shared import (
+    LOCKED_BUDGET_EDIT_MESSAGE,
+    _build_concurrent_budget_lock_response,
+    _build_locked_budget_response,
+    _check_concurrent_budget_lock,
+    _get_budget_for_workshop,
+    _get_budget_item_for_workshop,
+    _get_budget_workshop_cost,
+    _is_budget_edit_locked,
+    _parse_duration_from_string,
+    reset_steps_after_step_4,
+    sync_linked_workorder_from_budget,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -255,6 +267,7 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         item._clear_kit_snapshot_caches()
         item.refresh_kit_snapshot_totals()
+        sync_linked_workorder_from_budget(budget)
 
         # Force recalculation by accessing total_price
         _ = item.total_price
@@ -336,7 +349,10 @@ class BudgetKitProductCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
             },
         )
         record_product_last_used_price(product=product, price=Money(parsed_price, "BRL"))
+        item._clear_kit_snapshot_caches()
+        item.refresh_kit_snapshot_totals()
         reset_steps_after_step_4(budget)
+        sync_linked_workorder_from_budget(budget)
 
         return JsonResponse(
             {
@@ -411,6 +427,7 @@ class BudgetKitServiceCalculateView(LoginRequiredMixin, WorkshopScopedMixin, Vie
         item._clear_kit_snapshot_caches()
         item.refresh_kit_snapshot_totals()
         reset_steps_after_step_4(budget)
+        sync_linked_workorder_from_budget(budget)
 
         return JsonResponse(
             {

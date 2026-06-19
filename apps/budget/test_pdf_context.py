@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -60,9 +61,17 @@ class BudgetPdfContextTests(SimpleTestCase):
             product_id=None,
             service_id=None,
             kit_id=5,
-            _get_kit_override_maps=lambda: ({}, {}),
-            _iter_kit_products=lambda: [SimpleNamespace(product=product, product_id=1, quantity=1)],
-            _iter_kit_services=lambda: [],
+            _iter_frozen_kit_product_overrides=lambda: [
+                SimpleNamespace(
+                    product=product,
+                    product_id=1,
+                    quantity=1,
+                    shipping=zero_money(),
+                    product_selling_price=product.selling_price,
+                    product_cost_price=product.cost_price,
+                )
+            ],
+            _iter_frozen_kit_service_overrides=lambda: [],
         )
 
         snapshot = build_pricing_snapshot(
@@ -104,9 +113,17 @@ class BudgetPdfContextTests(SimpleTestCase):
             product_id=None,
             service_id=None,
             kit_id=5,
-            _get_kit_override_maps=lambda: ({}, {}),
-            _iter_kit_products=lambda: [SimpleNamespace(product=product, product_id=1, quantity=2)],
-            _iter_kit_services=lambda: [],
+            _iter_frozen_kit_product_overrides=lambda: [
+                SimpleNamespace(
+                    product=product,
+                    product_id=1,
+                    quantity=2,
+                    shipping=zero_money(),
+                    product_selling_price=product.selling_price,
+                    product_cost_price=product.cost_price,
+                )
+            ],
+            _iter_frozen_kit_service_overrides=lambda: [],
         )
 
         snapshot = build_pricing_snapshot(
@@ -174,7 +191,7 @@ class BudgetPdfContextTests(SimpleTestCase):
         )
 
         with patch("apps.budget.pdf_context.build_workshop_logo_data_uri", return_value=""):
-            context = build_budget_pdf_context(budget=budget, presentation="selected_items")
+            context = build_budget_pdf_context(budget=budget)
 
         self.assertEqual(len(context["produtos"]), 1)
         self.assertEqual(context["produtos"][0]["description"], "Filtro de Oleo")
@@ -246,6 +263,18 @@ class BudgetPdfContextTests(SimpleTestCase):
                 cost_total=Money(5, "BRL"),
                 has_kit_source=True,
             ),
+            ConsolidatedPricingLine(
+                line_id="service-zero-quantity",
+                source_item_id=6,
+                kind="service",
+                entity_id=6,
+                description="Servico com quantidade zerada",
+                quantity=0,
+                raw_total=Money(50, "BRL"),
+                adjusted_total=Money(50, "BRL"),
+                cost_total=Money(20, "BRL"),
+                has_direct_source=True,
+            ),
         ]
         snapshot = PricingSnapshot(
             product_lines=[visible_product, *zero_lines[:2]],
@@ -277,3 +306,69 @@ class BudgetPdfContextTests(SimpleTestCase):
         self.assertEqual(context["pages"][0]["produtos"], context["produtos"])
         self.assertEqual(context["pages"][0]["servicos"], context["servicos"])
         self.assertEqual(context["total_profit_product_value"], Money(5, "BRL"))
+
+    def test_selected_items_pdf_hides_zero_quantity_kit_components(self) -> None:
+        product = SimpleNamespace(name="Produto removido", application="", code="", location="")
+        service = SimpleNamespace(name="Servico removido", is_third_party=False)
+        kit_item = SimpleNamespace(
+            kit_id=10,
+            description="Kit teste",
+            quantity=1,
+            effective_kit_products_count=0,
+            effective_kit_services_count=0,
+            _iter_frozen_kit_product_overrides=lambda: [
+                SimpleNamespace(
+                    product=product,
+                    product_id=1,
+                    quantity=0,
+                    product_selling_price=Money(100, "BRL"),
+                    product_cost_price=Money(50, "BRL"),
+                    shipping=zero_money(),
+                )
+            ],
+            _iter_frozen_kit_service_overrides=lambda: [
+                SimpleNamespace(
+                    service=service,
+                    service_id=2,
+                    quantity=0,
+                    service_selling_price=Money(100, "BRL"),
+                    service_cost_price=Money(50, "BRL"),
+                    duration=None,
+                )
+            ],
+        )
+        snapshot = PricingSnapshot(
+            product_lines=[],
+            service_lines=[],
+            total_products_shipping=zero_money(),
+            total_costs_products_value=zero_money(),
+            total_products_value=zero_money(),
+            total_duration=timedelta(),
+            total_third_party_services_cost=zero_money(),
+            total_third_party_services_selling=zero_money(),
+            total_costs_services_value=zero_money(),
+            total_services_value=zero_money(),
+            total_labor_cost_value=zero_money(),
+            total_labor_selling_value=zero_money(),
+            total_labor_by_slider=zero_money(),
+            total_products_by_slider=zero_money(),
+            total_services_by_slider=zero_money(),
+            total_base_value=zero_money(),
+            resolved_discount_value=zero_money(),
+            resolved_discount_percentage=Decimal("0.00"),
+            total_budget_value=zero_money(),
+        )
+        review_display = SimpleNamespace(
+            direct_products=[],
+            direct_services=[],
+            kits=[SimpleNamespace(item=kit_item, products_summary="-", services_summary="-")],
+        )
+
+        with (
+            patch("apps.budget.pdf_context.build_budget_review_display", return_value=review_display),
+            patch("apps.budget.pdf_context.build_workshop_logo_data_uri", return_value=""),
+        ):
+            context = build_budget_pdf_context(budget=self._build_pdf_budget(snapshot), presentation="selected_items")
+
+        self.assertEqual(context["produtos"], [])
+        self.assertEqual(context["servicos"], [])
