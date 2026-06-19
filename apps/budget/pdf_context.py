@@ -19,7 +19,9 @@ _TWO_DECIMAL_PLACES = Decimal("0.01")
 
 
 def is_visible_pdf_pricing_line(line: Any) -> bool:
-    """Treat a zero-priced budget line as removed from every PDF."""
+    """Treat a zero-quantity or zero-priced budget line as removed from every PDF."""
+    if line.quantity <= 0:
+        return False
     line_value = line.raw_total - line.shipping if line.kind == "product" else line.raw_total
     return line_value.amount > _ZERO_DECIMAL
 
@@ -298,6 +300,8 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 product = override.product
                 quantity = override.quantity
                 total_quantity = quantity * kit_quantity
+                if total_quantity <= 0:
+                    continue
 
                 produtos.append({
                     "id": override.product_id,
@@ -320,6 +324,8 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 service = override.service
                 quantity = override.quantity
                 total_quantity = quantity * kit_quantity
+                if total_quantity <= 0:
+                    continue
                 service_cost_price = override.service_cost_price * total_quantity
                 service_mechanic_cost_price = _calculate_pdf_service_mechanic_cost(
                     budget=budget,
@@ -353,51 +359,8 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
             })
         produtos, servicos = _merge_selected_pdf_rows(produtos=produtos, servicos=servicos)
     else:
-        produtos = [
-            {
-                "id": line.entity_id,
-                "description": line.description,
-                "quantity": line.quantity,
-                "is_customer_supplied": line.is_customer_supplied,
-                "application": line.application or "-",
-                "code": line.code or "-",
-                "location": line.location or "-",
-                "unit_price": line.unit_price,
-                "adjusted_unit_price": line.adjusted_unit_price,
-                "shipping": line.shipping,
-                "total_price": line.total_price,
-                "product_cost_price": line.cost_total,
-                "profit_value": line.profit_value,
-                "show_kit_duplicate_warning": line.show_kit_duplicate_warning,
-            }
-            for line in snapshot.product_lines
-        ]
-        servicos = []
-        for line in snapshot.service_lines:
-            fallback_cost = line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total
-            service_mechanic_cost_price = _calculate_pdf_service_mechanic_cost(
-                budget=budget,
-                duration=line.duration,
-                quantity=1,
-                fallback_cost=fallback_cost,
-                is_third_party=line.third_party,
-            )
-            total_price = line.raw_total if line.has_kit_source else line.adjusted_total
-            unit_price = money_div(total_price, line.quantity) if line.has_kit_source else line.adjusted_unit_price
-            servicos.append(
-                {
-                    "id": line.entity_id,
-                    "description": line.description,
-                    "quantity": line.quantity,
-                    "unit_price": unit_price,
-                    "total_price": total_price,
-                    "service_cost_price": fallback_cost,
-                    "service_mechanic_cost_price": service_mechanic_cost_price,
-                    "profit_value": total_price - service_mechanic_cost_price,
-                    "duration_display": line.duration_display,
-                }
-            )
-
+        produtos = _build_snapshot_product_rows(snapshot=snapshot)
+        servicos = _build_snapshot_service_rows(budget=budget, snapshot=snapshot)
         kits = []
     workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=budget.workshop)
     total_services_cost_original_value = sum((line["service_cost_price"] for line in servicos), Money(0, "BRL"))
