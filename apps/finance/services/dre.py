@@ -3,20 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-import logging
-import json
 from typing import Sequence
 
 from djmoney.money import Money
 from django.db.models import Q
 
+from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.finance.models import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.models.workshops import Workshop
-
-
-logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -137,44 +133,6 @@ def build_dre_calculation(
         workorder_ids=list(workorder_payment_totals.keys()),
         selected_financial_groups=selected_financial_groups,
     )
-    logger.info(
-        "DRE revenue payment inputs | %s",
-        json.dumps(
-            {
-                "workshop_ids": [workshop.pk for workshop in workshops],
-                "start_date": start_date.isoformat() if start_date else None,
-                "end_date": end_date.isoformat() if end_date else None,
-                "tipo_data": tipo_data,
-                "selected_financial_group_ids": [group.pk for group in selected_financial_groups or []],
-                "gross_revenue_total": str(total_receita_bruta_de_vendas_e_servicos),
-                "workorder_payment_totals": {str(workorder_id): str(amount) for workorder_id, amount in workorder_payment_totals.items()},
-                "payments": [
-                    {
-                        "payment_id": payment.pk,
-                        "workorder_id": payment.workorder_id,
-                        "budget_id": getattr(getattr(payment.workorder, "budget", None), "pk", None),
-                        "due_date": payment.due_date.isoformat() if payment.due_date else None,
-                        "total_paid": str(payment.total_paid),
-                    }
-                    for payment in pagamentos_ordens_de_servico
-                ],
-                "revenue_movements": [
-                    {
-                        "movement_id": movement.pk,
-                        "workorder_id": getattr(movement, "workorder_id", None),
-                        "budget_id": getattr(getattr(movement.workorder, "budget", None), "pk", None),
-                        "movement_due_date": movement.due_date.isoformat() if movement.due_date else None,
-                        "budget_plan_id": getattr(getattr(movement, "budget_plan", None), "pk", None),
-                        "budget_plan_name": getattr(getattr(movement, "budget_plan", None), "name", None),
-                        "resolved_amount": str(_resolve_workorder_revenue_amount(movement=movement, workorder_payment_totals=workorder_payment_totals)),
-                    }
-                    for movement in workorder_revenue_movements
-                ],
-            },
-            ensure_ascii=True,
-            default=str,
-        ),
-    )
     # ----------------------------------
 
     # Custos
@@ -218,7 +176,7 @@ def build_dre_calculation(
         include_workshop_ref=include_workshop_ref,
         budget_plan=cost_budget_plan,
         component_label="Custo Mão de Obra da Oficina",
-        amount_resolver=lambda workorder: workorder.total_costs_services_value - workorder.total_third_party_services_cost,
+        amount_resolver=lambda workorder: getattr(workorder, "dre_local_cost", _ZERO),
     )
 
     total_custos_de_mercadorias_vendidas = _sum_detail_amounts(detail_taxas_maquininha) + _sum_detail_amounts(detail_custos_pecas) + _sum_detail_amounts(detail_fretes)
@@ -252,21 +210,6 @@ def build_dre_calculation(
         financial_groups=financial_groups,
     )
     detail_receitas_financeiras = fin_revenue_groups
-    logger.info(
-        "DRE revenue grouped output | %s",
-        json.dumps(
-            {
-                "workshop_ids": [workshop.pk for workshop in workshops],
-                "start_date": start_date.isoformat() if start_date else None,
-                "end_date": end_date.isoformat() if end_date else None,
-                "tipo_data": tipo_data,
-                "financial_revenue_total": str(total_receitas_financeiras),
-                "financial_revenue_groups": _serialize_group_nodes_for_log(fin_revenue_groups),
-            },
-            ensure_ascii=True,
-            default=str,
-        ),
-    )
     # -------------------
 
     # Despesas Financeiras
@@ -445,6 +388,23 @@ def _fetch_delivered_workorders_with_costs(*, payments: list[WorkOrderPaymentMet
         if workorder.delivered_at is None:
             continue
 
+        custo_local = _ZERO
+        budget = workorder.budget
+        if budget is not None:
+            snapshot = budget.pricing_snapshot
+            for line in snapshot.service_lines:
+                if line.third_party:
+                    continue
+                fallback_cost = line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total
+                mechanic_cost = calculate_mechanic_service_cost(
+                    budget=budget,
+                    duration=line.duration,
+                    quantity=1,
+                    fallback_cost=fallback_cost,
+                )
+                custo_local += mechanic_cost
+
+        setattr(workorder, "dre_local_cost", custo_local)
         total_cost = workorder.total_costs_products_value + workorder.total_costs_services_value
         setattr(workorder, "dre_total_cost", total_cost)
         payloads.append((workorder, total_cost))
@@ -732,7 +692,7 @@ def _build_workorder_cost_detail(wo: WorkOrder, include_workshop_ref: bool, budg
         "reference": reference,
         "entry_date": getattr(wo, "criado_em", None),
         "payment_date": getattr(wo, "criado_em", None),
-        "amount": getattr(wo, "dre_total_cost", wo.total_costs_products_value + wo.total_costs_services_value),
+        "amount": getattr(wo, "dre_local_cost", _ZERO),
         "budget_plan": budget_plan,
     }
 

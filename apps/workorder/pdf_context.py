@@ -6,7 +6,7 @@ from typing import Any
 
 from djmoney.money import Money
 
-from apps.budget.pdf_context import build_workshop_logo_data_uri
+from apps.budget.pdf_context import build_workshop_logo_data_uri, is_visible_pdf_pricing_line
 from apps.budget.pricing import money_from_decimal, zero_money
 from apps.finance.services.pricing import distribute_total_proportionally
 from apps.customer.models import Customer, Vehicle
@@ -90,6 +90,7 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
             "show_kit_duplicate_warning": line.show_kit_duplicate_warning,
         }
         for line in snapshot.product_lines
+        if is_visible_pdf_pricing_line(line)
     ]
 
     servicos = [
@@ -104,6 +105,7 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
             "duration_display": line.duration_display,
         }
         for line in snapshot.service_lines
+        if is_visible_pdf_pricing_line(line)
     ]
 
     budget_proxy = WorkOrderPdfBudgetProxy(
@@ -163,8 +165,8 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
         "total_geral": ZERO if is_warranty_or_courtesy else workorder.total_budget_value,
         "observations": observations,
         "fixed_observation": fixed_observation,
-        "total_profit_product_value": sum((line.profit_value for line in snapshot.product_lines), Money(0, "BRL")),
-        "total_profit_service_value": sum((line.profit_value for line in snapshot.service_lines), Money(0, "BRL")),
+        "total_profit_product_value": sum((line["profit_value"] for line in produtos), Money(0, "BRL")),
+        "total_profit_service_value": sum((line["profit_value"] for line in servicos), Money(0, "BRL")),
         "payments": payments,
         "is_warranty_or_courtesy": is_warranty_or_courtesy,
         "special_budget_label": special_budget_label,

@@ -43,7 +43,7 @@ from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
-from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _get_budget_for_workshop, _is_budget_edit_locked, logger, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response, CONCURRENT_BUDGET_LOCK_MESSAGE
+from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _get_budget_for_workshop, _is_budget_edit_locked, logger, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
 from ...core.utils import clean_id
 
 
@@ -70,7 +70,7 @@ def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, s
         result = send_budget_for_signature(budget=budget, request=request)
     except SuperSignError:
         budget.mark_signature_failed()
-        logger.exception("Falha ao enviar orcamento para assinatura", extra={"budget_id": budget.pk})
+        logger.exception("budget_signature_send_failed", extra={"budget_id": budget.pk, "workshop_id": getattr(request, "workshop_id", None)})
         return "error", "Falha ao enviar orçamento para assinatura. Tente novamente em instantes.", None
 
     budget.mark_signature_sent(result.envelope_id, document_id=result.document_id)
@@ -511,7 +511,7 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
 
         appointment = Appointment.objects.select_related("workorder").filter(pk=appointment_id, workshop=self.workshop).first()
         if appointment is None:
-            logger.warning("Agendamento de origem nao encontrado para sincronizar orcamento", extra={"appointment_id": appointment_id, "budget_id": budget.pk})
+            logger.warning("budget_sync_appointment_not_found", extra={"appointment_id": appointment_id, "budget_id": budget.pk, "workshop_id": self.workshop.pk})
             return
 
         appointment_customer_id = getattr(appointment, "customer_id", None)
@@ -520,15 +520,15 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
 
         if appointment_customer_id and budget.customer_id and appointment_customer_id != budget.customer_id:
             logger.info(
-                "Sincronizacao automatica ignorada por cliente divergente",
-                extra={"appointment_id": appointment.pk, "budget_id": budget.pk},
+                "budget_sync_ignored_customer_mismatch",
+                extra={"appointment_id": appointment.pk, "budget_id": budget.pk, "appointment_customer_id": appointment_customer_id, "budget_customer_id": budget.customer_id},
             )
             return
 
         if appointment_vehicle_id and budget.vehicle_id and appointment_vehicle_id != budget.vehicle_id:
             logger.info(
-                "Sincronizacao automatica ignorada por veiculo divergente",
-                extra={"appointment_id": appointment.pk, "budget_id": budget.pk},
+                "budget_sync_ignored_vehicle_mismatch",
+                extra={"appointment_id": appointment.pk, "budget_id": budget.pk, "appointment_vehicle_id": appointment_vehicle_id, "budget_vehicle_id": budget.vehicle_id},
             )
             return
 
@@ -676,7 +676,7 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         try:
             self.apply_step_status(budget=self.object, current_step=self.get_current_step(), actor=self.request.user)
         except Exception:
-            logger.exception("Falha ao aplicar status automatico no create do budget", extra={"budget_id": self.object.pk})
+            logger.exception("budget_auto_status_failed", extra={"budget_id": self.object.pk, "step": self.get_current_step(), "user_id": self.request.user.pk, "action": "create"})
 
         self._sync_step5_calculation_viewed_from_post(current_step)
         block_step5_response = self._block_step5_advance_if_needed(current_step)
@@ -789,7 +789,7 @@ class BudgetUpdateView(BudgetCreateView):
         try:
             self.apply_step_status(budget=self.object, current_step=self.get_current_step(), actor=self.request.user, isUpdate=True)
         except Exception:
-            logger.exception("Falha ao aplicar status automatico no update do budget", extra={"budget_id": self.object.pk})
+            logger.exception("budget_auto_status_failed", extra={"budget_id": self.object.pk, "step": self.get_current_step(), "user_id": self.request.user.pk, "action": "update"})
 
         current_step = self.get_current_step()
         self._sync_step5_calculation_viewed_from_post(current_step)
@@ -882,11 +882,12 @@ class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
             sync_budget_discount_to_workorder(budget=budget)
         except (ValueError, TypeError, InvalidOperation):
             logger.warning(
-                "Valor de desconto invalido recebido",
+                "budget_discount_invalid_value",
                 extra={
                     "budget_id": budget_id,
                     "raw_discount": request.POST.get("discount_value_0"),
                     "raw_discount_percentage": request.POST.get("discount_percentage"),
+                    "raw_discount_type": request.POST.get("discount_type"),
                 },
             )
 

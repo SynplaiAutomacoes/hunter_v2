@@ -83,7 +83,7 @@ def _send_whatsapp(user, code: str, tipo: str, phone: str | None = None) -> bool
         phone = _get_user_phone(user)
 
     if not phone:
-        logger.warning(f"User {user.id} has no phone number configured")
+        logger.warning("user_phone_missing", extra={"user_id": user.id, "tipo": tipo})
         return False
 
     normalized_phone = _normalize_phone(phone)
@@ -94,11 +94,11 @@ def _send_whatsapp(user, code: str, tipo: str, phone: str | None = None) -> bool
         whatsapp_service = get_whatsapp_service()
         whatsapp_service.send_text(normalized_phone, message)
 
-        logger.info(f"WhatsApp message sent to {normalized_phone}")
+        logger.info("whatsapp_message_sent", extra={"phone": _mask_phone(normalized_phone), "tipo": tipo, "user_id": user.id})
         return True
 
     except Exception as e:
-        logger.error(f"Failed to send WhatsApp message: {e}")
+        logger.error("whatsapp_send_failed", extra={"user_id": user.id, "tipo": tipo, "error": str(e)})
         return False
 
 
@@ -155,18 +155,18 @@ class PasswordResetWizardView(View):
         identifier = post_data.get("identifier", "")
         code = post_data.get("code", "")
 
-        logger.info(f"Password reset request | Step: {step}, Identifier: {identifier}, Code: {code}")
+        logger.info("password_reset_request", extra={"step": step, "identifier": identifier})
 
         if step == "1":
-            logger.info("Processing step 1 - User identification")
+            logger.info("password_reset_step1_started")
             form = UserIdentificationForm(data=post_data)
             if form.is_valid():
                 user = form.user
-                logger.info(f"User validated: {user.username}")
+                logger.info("password_reset_user_validated", extra={"user_id": user.id})
 
                 phone = _get_user_phone(user)
                 if not phone:
-                    logger.warning(f"User {user.id} has no phone number in User or WorkshopCollaborator")
+                    logger.warning("password_reset_user_no_phone", extra={"user_id": user.id})
                     return JsonResponse(
                         {
                             "success": False,
@@ -177,11 +177,11 @@ class PasswordResetWizardView(View):
                     )
 
                 token = PasswordResetToken.create_token(user)
-                logger.info(f"Token created for user {user.id}, token id: {token.pk}")
+                logger.info("password_reset_token_created", extra={"user_id": user.id, "token_id": token.pk})
 
                 sent = _send_whatsapp(tipo="password_reset", user=user, code=token.code, phone=phone)
                 if not sent:
-                    logger.error(f"Failed to send WhatsApp to user {user.id}")
+                    logger.error("password_reset_whatsapp_failed", extra={"user_id": user.id})
                     return JsonResponse(
                         {
                             "success": False,
@@ -201,14 +201,14 @@ class PasswordResetWizardView(View):
                         "message": "Código enviado via WhatsApp!",
                     }
                 )
-            logger.warning(f"Step 1 validation failed: {form.errors}")
+            logger.warning("password_reset_step1_validation_failed", extra={"errors": str(form.errors)})
             return JsonResponse({"success": False, "step": 1, "errors": form.errors}, status=400)
 
         elif step == "2":
-            logger.info("Processing step 2 - Code verification")
+            logger.info("password_reset_step2_started")
             token_id = request.session.get("password_reset_token_id")
             if not token_id:
-                logger.warning("Step 2 - No token_id in session")
+                logger.warning("password_reset_step2_no_token_in_session")
                 return JsonResponse(
                     {"success": False, "step": 1, "error": "Sessão expirada."},
                     status=400,
@@ -216,14 +216,14 @@ class PasswordResetWizardView(View):
             try:
                 token = PasswordResetToken.objects.get(id=token_id, used=False)
             except PasswordResetToken.DoesNotExist:
-                logger.warning(f"Step 2 - Token {token_id} not found or already used")
+                logger.warning("password_reset_step2_token_not_found", extra={"token_id": token_id})
                 return JsonResponse(
                     {"success": False, "step": 1, "error": "Token inválido ou expirado."},
                     status=400,
                 )
 
             if not token.is_valid():
-                logger.warning(f"Step 2 - Token expired for user {token.user.pk}")
+                logger.warning("password_reset_step2_token_expired", extra={"user_id": token.user.pk, "token_id": token_id})
                 token.used = True
                 token.save()
                 return JsonResponse(
@@ -232,7 +232,7 @@ class PasswordResetWizardView(View):
                 )
 
             if code.upper() != token.code.upper():
-                logger.warning("Step 2 - Invalid code submitted")
+                logger.warning("password_reset_step2_invalid_code", extra={"user_id": token.user.pk})
                 return JsonResponse(
                     {
                         "success": False,
@@ -242,15 +242,15 @@ class PasswordResetWizardView(View):
                     status=400,
                 )
 
-            logger.info(f"Step 2 - Code verified successfully for user {token.user.pk}")
+            logger.info("password_reset_step2_code_verified", extra={"user_id": token.user.pk})
             return JsonResponse({"success": True, "step": 3, "message": "Código validado!"})
 
         elif step == "3":
-            logger.info("Processing step 3 - Password reset")
+            logger.info("password_reset_step3_started")
             user_id = request.session.get("password_reset_user_id")
             token_id = request.session.get("password_reset_token_id")
             if not user_id or not token_id:
-                logger.warning("Step 3 - Missing user_id or token_id in session")
+                logger.warning("password_reset_step3_missing_session_data")
                 return JsonResponse(
                     {"success": False, "step": 1, "error": "Sessão expirada."},
                     status=400,
@@ -262,7 +262,7 @@ class PasswordResetWizardView(View):
             try:
                 user = User.objects.get(id=user_id)
             except User.DoesNotExist:
-                logger.warning(f"Step 3 - User {user_id} not found")
+                logger.warning("password_reset_step3_user_not_found", extra={"user_id": user_id})
                 return JsonResponse(
                     {"success": False, "step": 1, "error": "Usuário não encontrado."},
                     status=400,
@@ -270,7 +270,7 @@ class PasswordResetWizardView(View):
 
             form = PasswordResetForm(user, data=post_data)
             if form.is_valid():
-                logger.info(f"Step 3 - Password form valid, saving for user {user_id}")
+                logger.info("password_reset_step3_password_saved", extra={"user_id": user_id})
                 form.save()
                 try:
                     token = PasswordResetToken.objects.get(id=token_id)
@@ -282,21 +282,21 @@ class PasswordResetWizardView(View):
                 request.session.pop("password_reset_user_id", None)
                 request.session.pop("password_reset_token_id", None)
 
-                logger.info(f"Password reset completed for user {user_id}")
+                logger.info("password_reset_completed", extra={"user_id": user_id})
                 return JsonResponse({"success": True, "step": 4, "message": "Senha redefinida com sucesso!"})
-            logger.warning(f"Step 3 - Password validation failed: {form.errors}")
+            logger.warning("password_reset_step3_validation_failed", extra={"user_id": user_id, "errors": str(form.errors)})
             return JsonResponse({"success": False, "step": 3, "errors": form.errors}, status=400)
 
-        logger.warning(f"Invalid step received: {step}")
+        logger.warning("password_reset_invalid_step", extra={"step": step})
         return JsonResponse({"error": "Step inválido"}, status=400)
 
 
 class PasswordResetResendView(View):
     def post(self, request):
-        logger.info("Password reset resend requested")
+        logger.info("password_reset_resend_requested")
         user_id = request.session.get("password_reset_user_id")
         if not user_id:
-            logger.warning("Resend - No user_id in session")
+            logger.warning("password_reset_resend_no_user_in_session")
             return JsonResponse({"success": False, "error": "Sessão expirada."}, status=400)
 
         from django.contrib.auth import get_user_model
@@ -305,10 +305,10 @@ class PasswordResetResendView(View):
         try:
             user = User.objects.get(id=user_id)
         except User.DoesNotExist:
-            logger.warning(f"Resend - User {user_id} not found")
+            logger.warning("password_reset_resend_user_not_found", extra={"user_id": user_id})
             return JsonResponse({"success": False, "error": "Usuário não encontrado."}, status=400)
 
-        logger.info(f"Resend - Creating new token for user {user_id}")
+        logger.info("password_reset_resend_creating_token", extra={"user_id": user_id})
         token = PasswordResetToken.create_token(user)
         request.session["password_reset_token_id"] = token.pk
 
@@ -343,17 +343,18 @@ class LoginCodeWizardView(View):
         identifier = post_data.get("identifier", "")
         code = post_data.get("code", "")
 
-        logger.info(f"Login code request | Step: {step}, Identifier: {identifier}, Code: {code}")
+        logger.info("login_code_request", extra={"step": step, "identifier": identifier})
 
         if step == "1":
-            logger.info("Processing login code step 1 - User identification")
+            logger.info("login_code_step1_started")
             form = UserIdentificationForm(data=post_data)
             if form.is_valid():
                 user = form.user
-                logger.info(f"User validated for login code: {user.username}")
+                logger.info("login_code_user_validated", extra={"user_id": user.id})
 
                 phone = _get_user_phone(user)
                 if not phone:
+                    logger.warning("login_code_user_no_phone", extra={"user_id": user.id})
                     return JsonResponse(
                         {"success": False, "step": 1, "error": "Conta sem número de WhatsApp cadastrado."},
                         status=400,
@@ -364,10 +365,12 @@ class LoginCodeWizardView(View):
                 try:
                     token = LoginCodeToken.create_token(user)
                 except ValueError as e:
+                    logger.warning("login_code_token_creation_failed", extra={"user_id": user.id, "error": str(e)})
                     return JsonResponse({"success": False, "step": 1, "error": str(e)}, status=400)
 
                 sent = _send_whatsapp(tipo="login_code", user=user, code=token.code, phone=phone)
                 if not sent:
+                    logger.error("login_code_whatsapp_failed", extra={"user_id": user.id})
                     return JsonResponse(
                         {"success": False, "step": 1, "error": "Erro ao enviar código via WhatsApp. Tente novamente."},
                         status=500,
@@ -383,12 +386,14 @@ class LoginCodeWizardView(View):
                         "message": "Código enviado via WhatsApp!",
                     }
                 )
+            logger.warning("login_code_step1_validation_failed", extra={"errors": str(form.errors)})
             return JsonResponse({"success": False, "step": 1, "errors": form.errors}, status=400)
 
         elif step == "2":
-            logger.info("Processing login code step 2 - Code verification")
+            logger.info("login_code_step2_started")
             token_id = request.session.get("login_code_token_id")
             if not token_id:
+                logger.warning("login_code_step2_no_token_in_session")
                 return JsonResponse({"success": False, "step": 1, "error": "Sessão expirada."}, status=400)
 
             from apps.accounts.models import LoginCodeToken
@@ -396,12 +401,15 @@ class LoginCodeWizardView(View):
             try:
                 token = LoginCodeToken.objects.get(id=token_id)
             except LoginCodeToken.DoesNotExist:
+                logger.warning("login_code_step2_token_not_found", extra={"token_id": token_id})
                 return JsonResponse({"success": False, "step": 1, "error": "Token inválido."}, status=400)
 
             if token.used:
+                logger.warning("login_code_step2_token_already_used", extra={"user_id": token.user_id, "token_id": token_id})
                 return JsonResponse({"success": False, "step": 1, "error": "Token já utilizado ou invalidado."}, status=400)
 
             if not token.is_valid():
+                logger.warning("login_code_step2_token_expired", extra={"user_id": token.user_id, "token_id": token_id})
                 return JsonResponse({"success": False, "step": 1, "error": "Código expirado ou bloqueado por tentativas. Solicite um novo."}, status=400)
 
             if code.upper() != token.code.upper():
@@ -410,11 +418,12 @@ class LoginCodeWizardView(View):
                 if token.attempts >= 3:
                     token.used = True
                     token.save(update_fields=["used"])
+                    logger.warning("login_code_step2_max_attempts_reached", extra={"user_id": token.user_id})
                     return JsonResponse({"success": False, "step": 1, "error": "Limite de tentativas excedido. Solicite novo código."}, status=400)
 
+                logger.warning("login_code_step2_wrong_code", extra={"user_id": token.user_id, "attempts": token.attempts})
                 return JsonResponse({"success": False, "step": 2, "error": f"Código incorreto. Tentativas restantes: {3 - token.attempts}"}, status=400)
 
-            # Success
             token.used = True
             token.save(update_fields=["used"])
 
@@ -423,13 +432,14 @@ class LoginCodeWizardView(View):
             user = token.user
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
-            logger.info(f"User {user.id} logged in via WhatsApp code.")
+            logger.info("login_code_success", extra={"user_id": user.id})
 
             request.session.pop("login_code_user_id", None)
             request.session.pop("login_code_token_id", None)
 
             return JsonResponse({"success": True, "step": 3, "redirect_url": str(reverse_lazy("core:dashboard"))})
 
+        logger.warning("login_code_invalid_step", extra={"step": step})
         return JsonResponse({"error": "Step inválido"}, status=400)
 
 
