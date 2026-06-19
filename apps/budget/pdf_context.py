@@ -18,6 +18,12 @@ _ZERO_DECIMAL = Decimal("0.00")
 _TWO_DECIMAL_PLACES = Decimal("0.01")
 
 
+def is_visible_pdf_pricing_line(line: Any) -> bool:
+    """Treat a zero-priced budget line as removed from every PDF."""
+    line_value = line.raw_total - line.shipping if line.kind == "product" else line.raw_total
+    return line_value.amount > _ZERO_DECIMAL
+
+
 def _build_pdf_pages(produtos: list[dict], servicos: list[dict], kits: list[dict]) -> list[dict]:
     return [
         {
@@ -139,12 +145,15 @@ def _build_snapshot_product_rows(*, snapshot) -> list[dict[str, Any]]:
             "show_kit_duplicate_warning": line.show_kit_duplicate_warning,
         }
         for line in snapshot.product_lines
+        if is_visible_pdf_pricing_line(line)
     ]
 
 
 def _build_snapshot_service_rows(*, budget: Any, snapshot) -> list[dict[str, Any]]:
     servicos = []
     for line in snapshot.service_lines:
+        if not is_visible_pdf_pricing_line(line):
+            continue
         fallback_cost = line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total
         service_mechanic_cost_price = _calculate_pdf_service_mechanic_cost(
             budget=budget,
@@ -394,9 +403,11 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
     total_services_cost_original_value = sum((line["service_cost_price"] for line in servicos), Money(0, "BRL"))
     total_services_mechanic_cost_value = sum((line["service_mechanic_cost_price"] for line in servicos), Money(0, "BRL"))
     total_profit_service_value = sum((line["profit_value"] for line in servicos), Money(0, "BRL"))
+    total_products_cost_value = sum((line["product_cost_price"] for line in produtos), Money(0, "BRL"))
+    total_profit_product_value = sum((line["profit_value"] for line in produtos), Money(0, "BRL"))
     soma_markup = _calculate_soma_markup(
         total_budget_value=total_geral,
-        total_costs_products_value=snapshot.total_costs_products_value,
+        total_costs_products_value=total_products_cost_value,
         total_costs_services_value=total_services_mechanic_cost_value,
     )
 
@@ -417,7 +428,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         "soma_markup_display": _format_decimal_multiplier(soma_markup),
         "observations": budget.observations if observacao is None else observacao,
         "fixed_observation": budget.workshop.pdf_observation,
-        "total_profit_product_value": sum((line.profit_value for line in snapshot.product_lines), Money(0, "BRL")),
+        "total_profit_product_value": total_profit_product_value,
         "total_profit_service_value": total_profit_service_value,
         "total_services_cost_original_value": total_services_cost_original_value,
         "total_services_mechanic_cost_value": total_services_mechanic_cost_value,
