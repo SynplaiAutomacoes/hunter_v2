@@ -2722,8 +2722,7 @@ class BudgetStep5Form(CoreModelForm):
                                         </div>
                                         <span class="material-icons text-base-content/40">payments</span>
                                     </div>
-                                """
-                                ),
+                                """),
                                 Field("discount_value", wrapper_class="mb-0"),
                                 HTML("</div>"),
                                 css_class="h-full",
@@ -2738,8 +2737,7 @@ class BudgetStep5Form(CoreModelForm):
                                         </div>
                                         <span class="material-icons text-base-content/40">filter_alt</span>
                                     </div>
-                                """
-                                ),
+                                """),
                                 Field("discount_type", wrapper_class="mb-0"),
                                 HTML("</div>"),
                                 css_class="h-full",
@@ -2754,8 +2752,7 @@ class BudgetStep5Form(CoreModelForm):
                                         </div>
                                         <span class="material-icons text-base-content/40">percent</span>
                                     </div>
-                                """
-                                ),
+                                """),
                                 Field("discount_percentage", wrapper_class="mb-0"),
                                 HTML("</div>"),
                                 css_class="h-full",
@@ -2916,10 +2913,12 @@ class BudgetStep6Form(CoreModelForm):
         signature_blocked_json = "true" if signature_blockers else "false"
         signature_blocked_reason_json = escape(json.dumps(signature_blockers_display))
         can_toggle_signed_pdf = budget.signature_request_status in {SignatureStatus.SENT, SignatureStatus.APPROVED} and bool(budget.signature_external_id or budget.signature_document_id)
-        signed_pdf_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?variant=signed"
-        base_pdf_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?variant=base"
-        signed_pdf_download_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?download=1&variant=signed"
-        base_pdf_download_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?download=1&variant=base"
+        default_pdf_url = reverse("budget:visualizar_pdf_assinatura", args=[budget.pk])
+        default_pdf_download_url = f"{default_pdf_url}?download=1"
+        signed_pdf_url = f"{default_pdf_url}?variant=signed"
+        base_pdf_url = f"{default_pdf_url}?variant=base"
+        signed_pdf_download_url = f"{default_pdf_url}?download=1&variant=signed"
+        base_pdf_download_url = f"{default_pdf_url}?download=1&variant=base"
 
         saved_observation = budget.observations or ""
         saved_observation_html = escape(saved_observation)
@@ -3468,7 +3467,7 @@ class BudgetStep6Form(CoreModelForm):
                         HTML(f"""
                         <div class="grid grid-cols-12 gap-3 text-center mb-8">
                             <button type="button" class="btn btn-success col-span-4" data-allow-locked="1"
-                                onclick="openBudgetPdfModal({{ url: '{signed_pdf_url}', downloadUrl: '{signed_pdf_download_url}', showSignatureBtn: true, signatureButtonLabel: '{signature_button_label}', isSignatureResend: {"true" if is_signature_resend else "false"}, signatureBlocked: {signature_blocked_json}, signatureBlockedReason: {signature_blocked_reason_json}, showPdfVariantToggle: {"true" if can_toggle_signed_pdf else "false"}, pdfVariant: 'signed', signedPdfUrl: '{signed_pdf_url}', basePdfUrl: '{base_pdf_url}', signedDownloadUrl: '{signed_pdf_download_url}', baseDownloadUrl: '{base_pdf_download_url}' }})">
+                                onclick="openBudgetPdfModal({{ url: '{default_pdf_url}', downloadUrl: '{default_pdf_download_url}', showSignatureBtn: true, signatureButtonLabel: '{signature_button_label}', isSignatureResend: {"true" if is_signature_resend else "false"}, signatureBlocked: {signature_blocked_json}, signatureBlockedReason: {signature_blocked_reason_json}, showPdfVariantToggle: {"true" if can_toggle_signed_pdf else "false"}, pdfVariant: '', signedPdfUrl: '{signed_pdf_url}', basePdfUrl: '{base_pdf_url}', signedDownloadUrl: '{signed_pdf_download_url}', baseDownloadUrl: '{base_pdf_download_url}' }})">
                                 PDF Cliente
                             </button>
 
