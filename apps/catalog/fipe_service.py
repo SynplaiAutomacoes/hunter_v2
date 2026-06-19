@@ -52,11 +52,11 @@ def has_fipe_api_token() -> bool:
 
 def register_catalog_access_and_maybe_sync(*, vehicle_type: str = FipeVehicleType.CARROS) -> None:
     if is_dev_mode():
-        logger.info("FIPE dev mode enabled; skipping catalog bootstrap", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
+        logger.info("fipe_dev_mode_skipping_bootstrap", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
         return
 
     if not has_fipe_api_token():
-        logger.warning("FIPE token not configured; skipping catalog bootstrap", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
+        logger.warning("fipe_token_not_configured", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
         return
 
     if FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, is_active=True).exists():
@@ -68,7 +68,7 @@ def register_catalog_access_and_maybe_sync(*, vehicle_type: str = FipeVehicleTyp
 
         state, _ = FipeSyncState.objects.get_or_create(scope=FIPE_SYNC_SCOPE)
         if state.sync_in_progress:
-            logger.info("FIPE catalog bootstrap already in progress", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
+            logger.info("fipe_bootstrap_already_in_progress", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
             return
 
         state.sync_in_progress = True
@@ -170,7 +170,7 @@ def get_brand_options(*, vehicle_type: str = FipeVehicleType.CARROS) -> list[Fip
         try:
             sync_brands(vehicle_type=vehicle_type)
         except Exception:  # noqa: BLE001
-            logger.exception("FIPE brand sync failed while loading brand options", extra={"vehicle_type": vehicle_type})
+            logger.exception("fipe_brand_sync_failed", extra={"vehicle_type": vehicle_type})
 
     return [FipeOption(value=brand.name, label=brand.name) for brand in FipeVehicleBrand.objects.filter(vehicle_type=vehicle_type, is_active=True).order_by("name")]
 
@@ -219,7 +219,7 @@ def get_cached_fuel_options_for_model(*, brand_name: str, model_name: str, vehic
 
 
 def _start_full_sync_in_background(*, vehicle_type: str) -> None:
-    logger.info("FIPE full sync scheduled in background", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
+    logger.info("fipe_full_sync_scheduled", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
     sync_thread = threading.Thread(target=_run_full_sync_job, kwargs={"vehicle_type": vehicle_type}, daemon=True, name=f"fipe-sync-{vehicle_type}")
     sync_thread.start()
 
@@ -227,13 +227,13 @@ def _start_full_sync_in_background(*, vehicle_type: str) -> None:
 def _run_full_sync_job(*, vehicle_type: str) -> None:
     close_old_connections()
     try:
-        logger.info("FIPE full sync started", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
+        logger.info("fipe_full_sync_started", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
         sync_all_brands_and_models(vehicle_type=vehicle_type)
         FipeSyncState.objects.filter(scope=FIPE_SYNC_SCOPE).update(sync_in_progress=False, last_full_sync_at=timezone.now(), last_sync_error="")
-        logger.info("FIPE full sync finished", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
+        logger.info("fipe_full_sync_finished", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
     except Exception as exc:  # noqa: BLE001
         FipeSyncState.objects.filter(scope=FIPE_SYNC_SCOPE).update(sync_in_progress=False, last_sync_error=str(exc))
-        logger.exception("FIPE full sync failed", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
+        logger.exception("fipe_full_sync_failed", extra={"vehicle_type": vehicle_type, "scope": FIPE_SYNC_SCOPE})
     finally:
         close_old_connections()
 
@@ -475,20 +475,17 @@ def get_vehicle_model_metadata(
 def _request_json(path: str) -> list[dict[str, object]]:
     url = _build_url(path)
     started_at = time.monotonic()
-    logger.info("FIPE request started", extra={"path": path, "url": _mask_url_for_log(url)})
+    logger.info("fipe_api_request_started", extra={"path": path})
 
     try:
         response = requests.get(url, timeout=15)
         elapsed_ms = round((time.monotonic() - started_at) * 1000, 2)
-        logger.info(
-            "FIPE request finished",
-            extra={"path": path, "status_code": response.status_code, "elapsed_ms": elapsed_ms},
-        )
+        logger.info("fipe_api_request_finished", extra={"path": path, "status_code": response.status_code, "duration_ms": elapsed_ms})
         response.raise_for_status()
         payload = response.json()
     except Exception:
         elapsed_ms = round((time.monotonic() - started_at) * 1000, 2)
-        logger.exception("FIPE request failed", extra={"path": path, "elapsed_ms": elapsed_ms})
+        logger.exception("fipe_api_request_failed", extra={"path": path, "duration_ms": elapsed_ms})
         raise
 
     if not isinstance(payload, list):
