@@ -177,7 +177,7 @@ def signature_file(request, token):
             filename=f"orcamento_{budget.id}.pdf",
         )
     except Exception:
-        logger.exception("Falha ao gerar PDF via Playwright para assinatura", extra={"budget_id": budget.id})
+        logger.exception("budget_pdf_playwright_failed", extra={"budget_id": budget.id, "pdf_type": "signature"})
         return HttpResponse("Erro ao gerar arquivo de assinatura", status=500)
 
     return build_pdf_http_response(document=document, download=False)
@@ -224,14 +224,7 @@ def visualizar_pdf_assinatura(request, pk):
                 pdf_bytes=signed_pdf,
             )
         except SignatureServiceError:
-            logger.warning(
-                "Falha ao carregar PDF assinado; retornando PDF base",
-                extra={
-                    "budget_id": budget.id,
-                    "document_id": budget.signature_document_id,
-                    "envelope_id": budget.signature_external_id,
-                },
-            )
+            logger.warning("budget_signed_pdf_load_failed", extra={"budget_id": budget.id, "document_id": budget.signature_document_id, "envelope_id": budget.signature_external_id})
 
     try:
         document = render_budget_pdf_document(
@@ -240,7 +233,7 @@ def visualizar_pdf_assinatura(request, pk):
             filename=f"orcamento_{budget.id}_base.pdf",
         )
     except Exception:
-        logger.exception("Falha ao gerar PDF base para visualizacao", extra={"budget_id": budget.id})
+        logger.exception("budget_pdf_base_generation_failed", extra={"budget_id": budget.id, "pdf_type": "view"})
         return HttpResponse("Erro ao gerar PDF", status=500)
 
     return build_pdf_http_response(document=document, download=should_download)

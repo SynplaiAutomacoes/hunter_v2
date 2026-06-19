@@ -680,15 +680,7 @@ class UpdateWorkOrderDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View)
             )
             workorder.refresh_from_db()
         except (ValueError, TypeError, InvalidOperation):
-            logger.warning(
-                "Valor de desconto invalido recebido para ordem de servico",
-                extra={
-                    "workorder_id": pk,
-                    "raw_discount": request.POST.get("discount_value_0"),
-                    "raw_discount_percentage": request.POST.get("discount_percentage"),
-                    "raw_discount_type": request.POST.get("discount_type"),
-                },
-            )
+            logger.warning("workorder_discount_invalid_value", extra={"workorder_id": pk, "raw_discount": request.POST.get("discount_value_0"), "raw_discount_percentage": request.POST.get("discount_percentage"), "raw_discount_type": request.POST.get("discount_type")})
             return JsonResponse({"ok": False, "error": "Valor de desconto invalido."}, status=400)
 
         return JsonResponse(
@@ -803,15 +795,7 @@ class WorkOrderAddItemsBatchView(LoginRequiredMixin, WorkshopScopedMixin, View):
         selected_ids, invalid_ids = _normalize_selected_item_ids(raw_selected_ids)
 
         if invalid_ids:
-            logger.warning(
-                "IDs invalidos enviados para adicao em lote na ordem de servico",
-                extra={
-                    "workorder_id": pk,
-                    "item_type": item_type,
-                    "invalid_count": len(invalid_ids),
-                    "invalid_ids": invalid_ids[:10],
-                },
-            )
+            logger.warning("workorder_items_batch_add_invalid_ids", extra={"workorder_id": pk, "item_type": item_type, "invalid_count": len(invalid_ids), "invalid_ids": invalid_ids[:10]})
 
         if item_type == "kit":
             incompatible_kits = _get_incompatible_workorder_kits(workshop=self.workshop, workorder=workorder, selected_ids=selected_ids)
@@ -842,15 +826,7 @@ class WorkOrderAddItemsBatchView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "service": "services",
                 "kit": "kits",
             }.get(item_type, "products")
-            logger.exception(
-                "Falha ao adicionar itens em lote na ordem de servico",
-                extra={
-                    "workorder_id": pk,
-                    "item_type": item_type,
-                    "selected_count": len(raw_selected_ids),
-                    "selected_ids": raw_selected_ids[:20],
-                },
-            )
+            logger.exception("workorder_items_batch_add_failed", extra={"workorder_id": pk, "item_type": item_type, "selected_count": len(raw_selected_ids), "selected_ids": raw_selected_ids[:20]})
             return _render_edit_items_modal(request, workorder, active_tab)
 
         active_tab = request.POST.get("active_tab") or {
@@ -1215,7 +1191,7 @@ class UploadAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
                         content_type=getattr(uploaded_file, "content_type", None),
                     )
         except Exception:
-            logger.exception("Falha ao salvar anexos da ordem de servico", extra={"workorder_id": workorder.pk})
+            logger.exception("workorder_attachments_save_failed", extra={"workorder_id": workorder.pk, "files_count": len(uploaded_files)})
             response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
             response["HX-Trigger"] = json.dumps({"showToast": {"message": "Não foi possível salvar os anexos. Tente novamente.", "type": "error"}})
             return response
@@ -1307,7 +1283,7 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 response["HX-Trigger"] = json.dumps({"showToast": {"message": str(exc), "type": "error"}})
                 return response
             except Exception:
-                logger.exception("Falha ao concluir entrega da ordem de servico", extra={"workorder_id": workorder.pk})
+                logger.exception("workorder_delivery_failed", extra={"workorder_id": workorder.pk})
                 response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
                 response["HX-Trigger"] = json.dumps({"showToast": {"message": "Erro interno ao concluir a entrega da ordem de serviço.", "type": "error"}})
                 return response
@@ -1383,14 +1359,7 @@ def visualizar_pdf_workorder(request, pk):
                 pdf_bytes=signed_pdf,
             )
         except SignatureServiceError:
-            logger.warning(
-                "Falha ao carregar PDF assinado da ordem de servico; retornando PDF base",
-                extra={
-                    "workorder_id": workorder.get_id,
-                    "document_id": workorder.signature_document_id,
-                    "envelope_id": workorder.signature_external_id,
-                },
-            )
+            logger.warning("workorder_signed_pdf_load_failed", extra={"workorder_id": workorder.pk, "document_id": workorder.signature_document_id, "envelope_id": workorder.signature_external_id})
 
     try:
         document = render_workorder_pdf_document(
@@ -1399,7 +1368,7 @@ def visualizar_pdf_workorder(request, pk):
             filename=f"ordem_servico_{workorder.get_id}_base.pdf",
         )
     except Exception:
-        logger.exception("Falha ao gerar PDF base da ordem de servico", extra={"workorder_id": workorder.get_id})
+        logger.exception("workorder_pdf_base_generation_failed", extra={"workorder_id": workorder.pk, "pdf_type": "view"})
         return HttpResponse("Erro ao gerar PDF", status=500)
 
     return build_pdf_http_response(document=document, download=should_download)
@@ -1429,7 +1398,7 @@ def signature_file(request, token):
             filename=f"ordem_servico_{workorder.get_id}.pdf",
         )
     except Exception:
-        logger.exception("Falha ao gerar PDF via Playwright para assinatura da ordem de servico", extra={"workorder_id": workorder.get_id})
+        logger.exception("workorder_pdf_playwright_failed", extra={"workorder_id": workorder.pk, "pdf_type": "signature"})
         return HttpResponse("Erro ao gerar arquivo de assinatura", status=500)
 
     return build_pdf_http_response(document=document, download=False)

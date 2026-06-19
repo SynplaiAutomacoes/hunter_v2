@@ -38,7 +38,6 @@ from .shared import (
     reset_steps_after_step_4,
     sync_linked_workorder_from_budget,
 )
-from ...core.utils import clean_id
 
 THOUSAND_SEPARATED_INT_PATTERN = re.compile(r"^\d{1,3}(?:[\s.,]\d{3})+$")
 
@@ -353,30 +352,17 @@ class RemoveProductItemsBatchFromBudgetView(LoginRequiredMixin, WorkshopScopedMi
         selected_ids, invalid_ids = _normalize_selected_item_ids(raw_selected_ids)
 
         if invalid_ids:
-            logger.warning(
-                "IDs invalidos enviados para remocao em lote de pecas",
-                extra={
-                    "budget_id": budget_id,
-                    "invalid_count": len(invalid_ids),
-                    "invalid_ids": invalid_ids[:10],
-                },
-            )
+            logger.warning("budget_items_batch_remove_invalid_ids", extra={"budget_id": budget_id, "item_type": "product", "invalid_count": len(invalid_ids), "invalid_ids": invalid_ids[:10]})
 
         if not selected_ids:
-            logger.warning(
-                "Tentativa de remocao em lote de pecas sem selecao",
-                extra={"budget_id": budget_id},
-            )
+            logger.warning("budget_items_batch_remove_no_selection", extra={"budget_id": budget_id, "item_type": "product"})
             return _step_redirect_response(request, budget, fallback_step=4)
 
         budget_items = list(BudgetItem.objects.filter(workshop=self.workshop, budget=budget, id__in=selected_ids))
         deletable_ids = [item.pk for item in budget_items if _is_product_budget_item(item)]
 
         if not deletable_ids:
-            logger.warning(
-                "Tentativa de remocao em lote de pecas sem itens elegiveis",
-                extra={"budget_id": budget_id, "selected_count": len(selected_ids)},
-            )
+            logger.warning("budget_items_batch_remove_no_eligible_items", extra={"budget_id": budget_id, "item_type": "product", "selected_count": len(selected_ids)})
             return _step_redirect_response(request, budget, fallback_step=4)
 
         BudgetItem.objects.filter(workshop=self.workshop, budget=budget, id__in=deletable_ids).delete()
@@ -403,30 +389,17 @@ class RemoveServiceItemsBatchFromBudgetView(LoginRequiredMixin, WorkshopScopedMi
         selected_ids, invalid_ids = _normalize_selected_item_ids(raw_selected_ids)
 
         if invalid_ids:
-            logger.warning(
-                "IDs invalidos enviados para remocao em lote de servicos",
-                extra={
-                    "budget_id": budget_id,
-                    "invalid_count": len(invalid_ids),
-                    "invalid_ids": invalid_ids[:10],
-                },
-            )
+            logger.warning("budget_items_batch_remove_invalid_ids", extra={"budget_id": budget_id, "item_type": "service", "invalid_count": len(invalid_ids), "invalid_ids": invalid_ids[:10]})
 
         if not selected_ids:
-            logger.warning(
-                "Tentativa de remocao em lote de servicos sem selecao",
-                extra={"budget_id": budget_id},
-            )
+            logger.warning("budget_items_batch_remove_no_selection", extra={"budget_id": budget_id, "item_type": "service"})
             return _step_redirect_response(request, budget, fallback_step=4)
 
         budget_items = list(BudgetItem.objects.filter(workshop=self.workshop, budget=budget, id__in=selected_ids))
         deletable_ids = [item.pk for item in budget_items if _is_service_budget_item(item)]
 
         if not deletable_ids:
-            logger.warning(
-                "Tentativa de remocao em lote de servicos sem itens elegiveis",
-                extra={"budget_id": budget_id, "selected_count": len(selected_ids)},
-            )
+            logger.warning("budget_items_batch_remove_no_eligible_items", extra={"budget_id": budget_id, "item_type": "service", "selected_count": len(selected_ids)})
             return _step_redirect_response(request, budget, fallback_step=4)
 
         BudgetItem.objects.filter(workshop=self.workshop, budget=budget, id__in=deletable_ids).delete()
@@ -453,30 +426,17 @@ class RemoveKitItemsBatchFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin,
         selected_ids, invalid_ids = _normalize_selected_item_ids(raw_selected_ids)
 
         if invalid_ids:
-            logger.warning(
-                "IDs invalidos enviados para remocao em lote de kits",
-                extra={
-                    "budget_id": budget_id,
-                    "invalid_count": len(invalid_ids),
-                    "invalid_ids": invalid_ids[:10],
-                },
-            )
+            logger.warning("budget_items_batch_remove_invalid_ids", extra={"budget_id": budget_id, "item_type": "kit", "invalid_count": len(invalid_ids), "invalid_ids": invalid_ids[:10]})
 
         if not selected_ids:
-            logger.warning(
-                "Tentativa de remocao em lote de kits sem selecao",
-                extra={"budget_id": budget_id},
-            )
+            logger.warning("budget_items_batch_remove_no_selection", extra={"budget_id": budget_id, "item_type": "kit"})
             return _step_redirect_response(request, budget, fallback_step=4)
 
         budget_items = list(BudgetItem.objects.filter(workshop=self.workshop, budget=budget, id__in=selected_ids))
         deletable_ids = [item.pk for item in budget_items if _is_kit_budget_item(item)]
 
         if not deletable_ids:
-            logger.warning(
-                "Tentativa de remocao em lote de kits sem itens elegiveis",
-                extra={"budget_id": budget_id, "selected_count": len(selected_ids)},
-            )
+            logger.warning("budget_items_batch_remove_no_eligible_items", extra={"budget_id": budget_id, "item_type": "kit", "selected_count": len(selected_ids)})
             return _step_redirect_response(request, budget, fallback_step=4)
 
         BudgetItem.objects.filter(workshop=self.workshop, budget=budget, id__in=deletable_ids).delete()
@@ -546,15 +506,7 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 item = form.save()
                 self._sync_product_ncm(item=item, form=form)
             except Exception:
-                logger.exception(
-                    "Falha ao salvar item do orcamento",
-                    extra={
-                        "budget_id": budget_id,
-                        "item_id": item_id,
-                        "item_type": "service" if item.service_id else "product" if item.product_id else "kit" if item.kit_id else "unknown",
-                        "action": action,
-                    },
-                )
+                logger.exception("budget_item_save_failed", extra={"budget_id": budget_id, "item_id": item_id, "item_type": "service" if item.service_id else "product" if item.product_id else "kit" if item.kit_id else "unknown", "action": action})
                 raise
 
             # Reset etapas 5 e 6 após modificar a etapa 4
@@ -568,15 +520,7 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
             # para refletir imediatamente o reset das etapas 5 e 6.
             return _step_redirect_response(request, budget, fallback_step=4)
 
-        logger.warning(
-            "Formulario invalido ao salvar item do orcamento",
-            extra={
-                "budget_id": budget_id,
-                "item_id": item_id,
-                "item_type": "service" if item.service_id else "product" if item.product_id else "kit" if item.kit_id else "unknown",
-                "errors": form.errors.get_json_data(),
-            },
-        )
+        logger.warning("budget_item_form_invalid", extra={"budget_id": budget_id, "item_id": item_id, "item_type": "service" if item.service_id else "product" if item.product_id else "kit" if item.kit_id else "unknown", "errors": form.errors.get_json_data()})
 
         annotate_product_issues(workshop=self.workshop, items=[item])
         return self._render_edit_modal(request, form=form, item=item, budget_id=budget_id, in_queue=in_queue)
@@ -635,7 +579,7 @@ class BudgetItemCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         try:
             form.full_clean()
         except Exception:
-            logger.exception("Falha ao executar full_clean no calculo de item", extra={"budget_id": budget_id, "item_id": item_id})
+            logger.exception("budget_item_full_clean_failed", extra={"budget_id": budget_id, "item_id": item_id})
 
         cleaned_data = getattr(form, "cleaned_data", {})
 
@@ -733,10 +677,7 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
         modal_context = request.POST.get("modal_context", "")
 
         if item_type not in {"product", "service", "kit"}:
-            logger.warning(
-                "Tentativa de adicionar itens em lote com tipo invalido",
-                extra={"budget_id": budget_id, "item_type": item_type},
-            )
+            logger.warning("budget_items_batch_add_invalid_type", extra={"budget_id": budget_id, "item_type": item_type})
             return HttpResponse("Tipo de item inválido.", status=400)
 
         # Recebe IDs dos checkboxes marcados
@@ -744,21 +685,10 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
         selected_ids, invalid_ids = _normalize_selected_item_ids(raw_selected_ids)
 
         if invalid_ids:
-            logger.warning(
-                "IDs invalidos enviados para adicao em lote",
-                extra={
-                    "budget_id": clean_id(budget_id),
-                    "item_type": item_type,
-                    "invalid_count": len(invalid_ids),
-                    "invalid_ids": invalid_ids[:10],
-                },
-            )
+            logger.warning("budget_items_batch_add_invalid_ids", extra={"budget_id": budget_id, "item_type": item_type, "invalid_count": len(invalid_ids), "invalid_ids": invalid_ids[:10]})
 
         if not selected_ids:
-            logger.warning(
-                "Tentativa de adicionar itens em lote sem selecao",
-                extra={"budget_id": clean_id(budget_id), "item_type": item_type},
-            )
+            logger.warning("budget_items_batch_add_no_selection", extra={"budget_id": budget_id, "item_type": item_type})
             # Return error message in the modal container
             error_html = """
             <div class="modal-box w-11/12 max-w-md bg-base-100">
@@ -808,15 +738,7 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
                 created_items.append(budget_item.pk)
         except Exception:
-            logger.exception(
-                "Falha ao adicionar itens em lote ao orcamento",
-                extra={
-                    "budget_id": budget_id,
-                    "item_type": item_type,
-                    "selected_count": len(raw_selected_ids),
-                    "selected_ids": raw_selected_ids[:20],
-                },
-            )
+            logger.exception("budget_items_batch_add_failed", extra={"budget_id": budget_id, "item_type": item_type, "selected_count": len(raw_selected_ids), "selected_ids": raw_selected_ids[:20]})
             error_html = """
             <div class="modal-box w-11/12 max-w-md bg-base-100">
                 <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="form_modal.close()">✕</button>

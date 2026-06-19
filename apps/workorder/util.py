@@ -18,11 +18,9 @@ from apps.finance.services.pricing import distribute_total_proportionally
 from apps.core.domain.contracts.documents import DocumentPayload
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.domain.contracts.documents import SignatureTokenError
-from apps.core.domain.contracts.signature import SignatureServiceError
 from apps.core.infrastructure.providers import get_signature_service
 from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderCustomerApprovalForm, WorkOrderPaymentForm, WorkOrderReopenForm, WorkOrderStatusReasonForm
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus, \
-    WorkOrderDiscountType
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus, WorkOrderDiscountType
 from apps.workorder.service import (
     WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
     WORKORDER_SIGNATURE_TOKEN_SALT,
@@ -308,7 +306,7 @@ def trigger_workorder_signature_send_if_needed(*, workorder: WorkOrder) -> tuple
         result = send_workorder_for_signature(workorder=workorder)
     except WorkOrderSignatureError:
         workorder.mark_signature_failed()
-        logger.exception("Falha ao enviar ordem de servico para assinatura", extra={"workorder_id": workorder.pk})
+        logger.exception("workorder_signature_send_failed", extra={"workorder_id": workorder.pk})
         return "error", "Falha ao enviar ordem de serviço para assinatura. Tente novamente em instantes."
 
     workorder.mark_signature_sent(result.envelope_id, document_id=result.document_id)
@@ -355,6 +353,7 @@ CONCURRENT_LOCK_MESSAGE = "Outro usuário está editando esta O.S. neste momento
 
 def _check_concurrent_edit_lock(request, workorder: WorkOrder, check_session: bool = True) -> bool:
     from apps.core.domain.services.editing_lock_service import get_lock_info
+
     lock_info = get_lock_info(workorder)
     if lock_info is None:
         return True
@@ -365,6 +364,7 @@ def _check_concurrent_edit_lock(request, workorder: WorkOrder, check_session: bo
 
 def _build_concurrent_lock_response(request, workorder: WorkOrder, *, status_code: int = 409) -> HttpResponse:
     from apps.core.domain.services.editing_lock_service import get_lock_info
+
     lock_info = get_lock_info(workorder)
     user_name = lock_info["locked_by"] if lock_info else "outro usuário"
     message = f"Outro usuário ({user_name}) está editando esta O.S. neste momento. Tente novamente em instantes."

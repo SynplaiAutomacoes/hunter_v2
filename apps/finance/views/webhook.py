@@ -10,8 +10,6 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
-from apps.core.infrastructure.providers import get_fiscal_service
-from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.core.infrastructure.services.webmania.emission import build_webmania_webhook_token
 from apps.core.infrastructure.services.webmania.webmania_webhooks import extract_event_uuid, process_webhook_event, store_webhook_event
 
@@ -69,25 +67,25 @@ class WebhookView(View):
 
     def post(self, request):
         if not self._is_authorized_request(request):
-            logger.warning("Webhook da Webmania rejeitado por token invalido")
+            logger.warning("webmania_webhook_auth_failed", extra={"ip": request.META.get("REMOTE_ADDR")})
             return JsonResponse({"ok": False, "message": "Unauthorized webhook request"}, status=403)
 
         try:
             payload = self._parse_payload(request)
         except json.JSONDecodeError:
-            logger.warning("Payload invalido recebido no webhook da Webmania")
+            logger.warning("webmania_webhook_invalid_payload", extra={"ip": request.META.get("REMOTE_ADDR")})
             return JsonResponse({"ok": False, "message": "Invalid payload"}, status=400)
 
         model = str(payload.get("modelo") or "").strip().lower()
         if model not in self.supported_models:
-            logger.warning("Payload recebido com modelo invalido no webhook da Webmania", extra={"modelo": model})
+            logger.warning("webmania_webhook_unsupported_model", extra={"model": model})
             return JsonResponse({"ok": False, "message": "Missing or invalid 'modelo' field"}, status=400)
 
         event_uuid = extract_event_uuid(payload)
         if not event_uuid:
             return JsonResponse({"ok": False, "message": "Missing event uuid"}, status=400)
 
-        logger.info("webmania_webhook_received model=%s uuid=%s", model, event_uuid)
+        logger.info("webmania_webhook_received", extra={"model": model, "event_uuid": event_uuid})
 
         event = store_webhook_event(payload=payload)
         if process_webhook_event(event):

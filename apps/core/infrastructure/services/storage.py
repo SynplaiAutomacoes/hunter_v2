@@ -70,7 +70,7 @@ class S3StorageService(IStorageService):
                 Metadata=safe_metadata,
             )
         except (BotoCoreError, ClientError) as exc:
-            logger.exception("S3 put_object failed for key=%s", normalized_key)
+            logger.exception("s3_upload_failed", extra={"key": normalized_key, "bucket": self.bucket})
             raise StorageServiceError(f"Falha ao enviar arquivo para o bucket configurado: {exc}") from exc
 
     def read_file(self, key: str) -> StorageObject:
