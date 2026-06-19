@@ -21,6 +21,7 @@ from apps.finance.models.finance import NfseBatch, NfseItem, NfseRequest
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfse_request_rps_number
 from apps.finance.services.mappers import extract_items_from_batch, map_batch_payload, map_item_payload
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder
+from apps.workorder.models import WorkOrder, WorkOrderDiscountType
 from apps.core.infrastructure.services.webmania.webmania_auth import (
     WebmaniaAuthError,
     build_webmania_headers,
@@ -349,18 +350,71 @@ def _additional_information(nfse_request: NfseRequest) -> str:
     return str(getattr(nfse_request, "additional_information", "") or "").strip()
 
 
+def _quantize_money(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _compute_service_discount_for_nfse(
+    *,
+    workorder: WorkOrder,
+) -> Decimal:
+    """
+    Calcula o valor de desconto a ser aplicado nos servicos da NFS-e,
+    levando em consideracao o discount_type da WorkOrder:
+
+    - SERVICES: todo o desconto da WorkOrder vai para os servicos.
+    - PRODUCTS: o desconto e inteiramente para produtos; apenas o excesso
+      (quando total_discount > raw_products_total) vai para os servicos.
+    - BOTH: o desconto e distribuido proporcionalmente entre produtos e
+      servicos usando os valores brutos reais do pedido (independente do
+      slider de alocacao da NFS-e).
+    """
+    total_discount = _quantize_money(Decimal(str(workorder.resolved_discount_value.amount)))
+    if total_discount <= Decimal("0.00"):
+        return Decimal("0.00")
+
+    discount_type = workorder.discount_type
+
+    if discount_type == WorkOrderDiscountType.SERVICES:
+        return total_discount
+
+    # Para PRODUCTS e BOTH, usa os valores brutos reais (pre-slider) do pedido.
+    # O slider altera apenas a alocacao de receita para NF-e/NFS-e, mas nao
+    # deve afetar a proporcao do desconto entre produtos e servicos.
+    snapshot = workorder.pricing_snapshot
+    raw_products = _quantize_money(Decimal(str(snapshot.total_products_value.amount)))
+    raw_services = _quantize_money(Decimal(str(snapshot.total_services_value.amount)))
+
+    if discount_type == WorkOrderDiscountType.PRODUCTS:
+        # Desconto apenas para produtos; se superar o total de produtos, o excesso vai para servicos
+        excess = _quantize_money(max(Decimal("0.00"), total_discount - raw_products))
+        return excess
+
+    # BOTH: distribuicao proporcional entre produtos e servicos pelos valores brutos
+    raw_total = _quantize_money(raw_products + raw_services)
+    if raw_total <= Decimal("0.00"):
+        return Decimal("0.00")
+    return _quantize_money(total_discount * raw_services / raw_total)
+
+
 def _service_total_value(nfse_request: NfseRequest, *, slider_override: int | None = None) -> str:
     allocation = build_slider_allocation_for_workorder(
         workorder=nfse_request.workorder,
         persisted_slider=getattr(nfse_request, "pricing_slider", None),
         slider_override=slider_override,
     )
-    amount = allocation.services_target.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    gross_amount = allocation.services_target.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-    if amount <= 0:
+    if gross_amount <= 0:
         raise NfseEmissionError("A OS selecionada nao possui saldo de servicos para emissao de Nota Fiscal de Serviço com a configuracao atual do slider.")
 
-    return str(amount)
+    service_discount = _compute_service_discount_for_nfse(workorder=nfse_request.workorder)
+    net_amount = _quantize_money(gross_amount - service_discount)
+
+    if net_amount <= 0:
+        raise NfseEmissionError("O valor total do desconto aplicado e maior ou igual ao valor dos servicos para esta Nota Fiscal de Serviço.")
+
+    return str(net_amount)
 
 
 def build_nfse_payload(*, nfse_request: NfseRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:

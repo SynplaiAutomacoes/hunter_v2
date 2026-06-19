@@ -54,7 +54,7 @@ def _build_customer_history_vehicle_label(vehicle: Vehicle | None) -> str:
 
 
 def _build_customer_budget_history_entry(budget: Budget) -> dict[str, Any]:
-    pdf_url = f"{reverse('budget:visualizar_pdf_assinatura', kwargs={'pk': budget.pk})}?variant=signed"
+    pdf_url = reverse("budget:visualizar_pdf_assinatura", kwargs={"pk": budget.pk})
     return {
         "date": budget.criado_em,
         "type_label": "Orçamento",
@@ -64,12 +64,12 @@ def _build_customer_budget_history_entry(budget: Budget) -> dict[str, Any]:
         "status_badge": budget.budget_status_badge,
         "pdf_title": f"Orçamento #{budget.pk}",
         "pdf_url": pdf_url,
-        "pdf_download_url": f"{pdf_url}&download=1",
+        "pdf_download_url": f"{pdf_url}?download=1",
     }
 
 
 def _build_customer_workorder_history_entry(workorder: WorkOrder) -> dict[str, Any]:
-    pdf_url = f"{reverse('workorder:visualizar_pdf', kwargs={'pk': workorder.pk})}?variant=signed"
+    pdf_url = reverse("workorder:visualizar_pdf", kwargs={"pk": workorder.pk})
     return {
         "date": workorder.criado_em,
         "type_label": "OS",
@@ -79,7 +79,7 @@ def _build_customer_workorder_history_entry(workorder: WorkOrder) -> dict[str, A
         "status_badge": workorder.workorder_status_badge,
         "pdf_title": f"OS #{workorder.get_id}",
         "pdf_url": pdf_url,
-        "pdf_download_url": f"{pdf_url}&download=1",
+        "pdf_download_url": f"{pdf_url}?download=1",
     }
 
 
