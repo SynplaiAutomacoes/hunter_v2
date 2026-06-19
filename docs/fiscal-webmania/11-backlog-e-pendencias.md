@@ -84,6 +84,9 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Resolver divergencia documental de cronograma IBS/CBS com decisao fiscal final: PRDs aprovados citam `05/01/2026`, enquanto a pagina oficial REST consultada em 2026-06-02 exibiu producao obrigatoria a partir de `01/01/2026`. A Fase 2.4C.1 deve usar temporariamente a regra conservadora desde `01/01/2026`.
 - Fase 2.4D.1 implementou somente o evento IBS/CBS `112110`; Fase 2.4D.2 implementou somente o cancelamento desse mesmo evento autorizado por UUID remoto. Permanecem pendentes: cancelamento dos demais eventos IBS/CBS, demais codigos com itens/campos especificos, eventos de destinatario, relacao com credito/debito, complementar tributaria, NFS-e e CT-e.
 - Fases 2.4D.3 e 2.4D.4 validaram o ciclo basico do `112150` para NF-e normal local autorizada: emissao do evento de previsao de entrega e cancelamento por UUID remoto. Permanecem pendentes: suporte NFC-e para `112150` caso a regra operacional seja confirmada, `112120`, `112130` e `112140` com itens/valores IBS-CBS/controle operacional, `211128` dependente de credito/debito e demais `211xxx` dependentes de papel destinatario, documento de aquisicao ou apuracao externa.
+- Fase 2.4D.5.0 decidiu planejar `112120`, `112130` e `112140` um por vez. `112130` e o primeiro candidato funcional, mas exige snapshot fiscal do item, evento de transporte/estoque e valores de estorno confirmados. `112120` fica pendente de importacao ALC/ZFM validada. `112140` fica pendente de pagamento antecipado/nota de debito modelados.
+- Para eventos com itens, criar/importar snapshot fiscal externo por XML antes de permitir documento externo minimo; chave manual isolada nao e suficiente.
+- Nenhum evento IBS/CBS com itens deve usar `TaxClassNfe` atual como fallback automatico de documento ja emitido.
 - Revalidar campos especificos de cada `cod_evento` imediatamente antes de implementar, mesmo apos a matriz 2.4D.0, porque a Reforma Tributaria pode alterar payloads e validacoes.
 - Evento `211128` deve permanecer bloqueado ate Nota Fiscal de Credito/Debito com IBS/CBS estar implementada e validada.
 - Eventos de destinatario exigem decisao de produto sobre papel fiscal da oficina como destinatario; nao liberar por fallback de emissao NF-e.
@@ -109,3 +112,10 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - CT-e, MDF-e, NFCom e DC-e antes da estabilizacao NF-e/NFS-e.
 - Remocao de models legados.
 - Emissao real em testes automatizados.
+### Pendencias apos Fase 2.4D.5.1
+
+- Implementar eventos IBS/CBS `112120` e `112140` em subfases proprias, sem reutilizar formulario generico do `112130`.
+- Planejar cancelamento do evento `112130` somente em subfase autorizada, por UUID remoto e sem cancelamento generico.
+- Manter eventos `211xxx` bloqueados ate decisao de papel destinatario, referencias externas e permissao fiscal.
+- Manter evento `211128`, credito/debito e complementar tributaria bloqueados ate base IBS/CBS correspondente estar funcional e aprovada.
+- Avaliar futura integracao com estoque/transporte para reduzir input manual do `112130`; a implementacao validada exige confirmacao fiscal e snapshot de item, mas nao automatiza baixa ou ocorrencia operacional.

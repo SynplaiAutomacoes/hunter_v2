@@ -414,11 +414,19 @@ Resultado 2.4D.4:
 
 Para Grupo B (`112120`, `112130`, `112140`) quando autorizado:
 
-- testes de `itens[].item` como sequencial fiscal;
-- valores IBS/CBS e `controle_estoque` obrigatorios por codigo;
-- bloqueio de saldo/quantidade/controle insuficiente antes do gateway;
-- timeout e duplicidade com payload congelado.
+- `112120`: payload com `cod_evento=112120`, `itens[].item` como sequencial fiscal, `valor_ibs`, `valor_cbs`, `controle_estoque.quantidade` e `controle_estoque.unidade`; bloqueio sem contexto ALC/ZFM/importacao; bloqueio de NF-e externa minima.
+- `112130`: payload com `cod_evento=112130`, `quantidade_perecimento`, `unidade_perecimento`, `valor_ibs_estorno` e `valor_cbs_estorno`; bloqueio sem evento operacional de transporte/estoque; estorno IBS/CBS obrigatorio.
+- `112140`: payload com `cod_evento=112140`, item da nota de debito/pagamento antecipado, `quantidade_nao_fornecida` e `unidade_nao_fornecida`; bloqueio ate existir origem de pagamento antecipado confiavel.
+- Para todos: `itens[].item` deve ser sequencial fiscal, nao ID interno; `valor_ibs`/`valor_cbs` obrigatorios; snapshot fiscal original exigido; `TaxClassNfe` atual como fallback automatico deve ser bloqueado; divergencia entre itens selecionados e nota base deve bloquear antes do gateway.
+- Idempotencia: mesma intencao faz uma chamada remota; concorrencia da mesma intencao gera uma chamada; payload congelado; timeout marca `uncertain`; `uncertain` bloqueia reenvio automatico e preserva itens/valores.
+- Webhook: UUID remoto atualiza somente o evento; fallback por tentativa/chave+sequencia exige candidato unico; ambiguidade nao atualiza.
+- Regressao obrigatoria: eventos `112110`, cancelamento `112110`, `112150` e cancelamento `112150` continuam passando.
 
 Para Grupo C/D:
 
 - testes iniciais devem provar bloqueio por ausencia de credito/debito, papel destinatario, documento de aquisicao ou apuracao externa antes de qualquer chamada remota.
+### Testes adicionados na Fase 2.4D.5.1
+
+- `FiscalPhaseTwoIbsCbsEvent112130Tests`: payload oficial com `itens[]`, ausencia de top-level `ibs_cbs`, bloqueios de documento inelegivel, snapshot ausente, item inexistente, valores invalidos, duplicidade do mesmo payload, timeout `uncertain`, webhook por UUID/fallback/ambiguidade, permissao, cross-workshop, downloads e payload protegidos.
+- `FiscalPhaseTwoIbsCbsEvent112130ConcurrentTests`: duas requisicoes concorrentes da mesma intencao resultam em uma unica chamada remota e um unico evento local.
+- Regressao executada junto das suites fiscais direcionadas de Fase 1, CC-e, devolucao/estorno, complementar, ajuste, NFC-e simples, inutilizacao, IBS/CBS normal, derivados IBS/CBS e eventos `112110/112150`.

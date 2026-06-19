@@ -328,6 +328,29 @@ Resultado 2.4D.3: a UI minima do detalhe de NF-e passou a oferecer `112150` some
 
 Resultado 2.4D.4: a UI minima do detalhe de NF-e passou a oferecer cancelamento do evento `112150` somente quando o evento esta aprovado, possui UUID remoto e o usuario tem `cancel_ibs_cbs_event`. O formulario exige confirmacao explicita e informa que o cancelamento afeta apenas o evento IBS/CBS, nao a NF-e original. O cancelamento do `112110` permanece preservado; nao ha acao de cancelamento generico para outros codigos.
 
+## Fase 2.4D.5.0 - UX e permissoes planejadas para 112120/112130/112140
+
+Decisao: nao criar uma tela generica de JSON livre para eventos com itens. Cada codigo deve ter formulario proprio, com campos e avisos especificos.
+
+UI planejada por evento:
+
+- `112120`: selecao de itens fiscais de NF-e de importacao, quantidade/unidade sem conversao em isencao, valores IBS/CBS e confirmacao de contexto ALC/ZFM.
+- `112130`: selecao de itens fiscais, quantidade/unidade de perecimento/perda/roubo/furto, valores IBS/CBS relacionados e valores de estorno IBS/CBS, com confirmacao de transporte contratado pelo fornecedor.
+- `112140`: selecao de itens do documento/pagamento antecipado, quantidade/unidade nao fornecida e valores IBS/CBS, com confirmacao de que nao e nota de credito/debito nem cancelamento.
+
+Permissoes:
+
+- Reutilizar `issue_ibs_cbs_event`, `view_ibs_cbs_event`, `download_ibs_cbs_event` e `view_ibs_cbs_event_payload`.
+- Nao criar permissao por codigo nesta fase documental.
+- Nao conceder eventos por fallback de NF-e, NFC-e, devolucao, complementar, ajuste ou credito/debito.
+
+Bloqueios de UI:
+
+- Ocultar todos os tres eventos para documento externo minimo sem XML/importacao validada.
+- Ocultar evento quando o snapshot fiscal nao contem sequencial fiscal e IBS/CBS por item.
+- Ocultar `112140` ate haver regra de pagamento antecipado/documento de debito modelada.
+- Mostrar erro operacional ao emissor sem permissao administrativa para corrigir snapshot ou configuracao fiscal.
+
 Permissoes:
 
 - Reutilizar `issue_ibs_cbs_event`, `view_ibs_cbs_event`, `download_ibs_cbs_event` e `view_ibs_cbs_event_payload`.
@@ -339,3 +362,6 @@ Bloqueios:
 - Ocultar Grupo B ate haver origem operacional segura para item/estoque/transporte/pagamento antecipado.
 - Ocultar Grupo C ate credito/debito IBS/CBS estar implementado.
 - Ocultar Grupo D ate haver importacao/monitor/validador de documentos de aquisicao ou decisao fiscal equivalente.
+### Resultado Fase 2.4D.5.1 - UX Evento 112130
+
+A UI minima do detalhe da NF-e passou a expor `Registrar evento IBS/CBS` para `112130` somente quando a NF-e local normal esta elegivel e o usuario possui `issue_ibs_cbs_event`. O formulario exige item fiscal, valores IBS/CBS, quantidade/unidade de perecimento, valores de estorno e confirmacao explicita. A tela informa que cancelamento do `112130`, eventos `112120/112140`, eventos `211xxx`, credito/debito e complementar tributaria permanecem fora do escopo. Downloads e payloads reutilizam `download_ibs_cbs_event` e `view_ibs_cbs_event_payload`, com escopo por oficina.

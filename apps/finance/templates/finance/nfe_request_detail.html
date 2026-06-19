@@ -36,18 +36,18 @@
             Emitir Carta de Correção
         </button>
     {% endif %}
-    {% if can_issue_ibs_cbs_event_112110 or can_issue_ibs_cbs_event_112150 %}
+    {% if can_issue_ibs_cbs_event_112110 or can_issue_ibs_cbs_event_112130 or can_issue_ibs_cbs_event_112150 %}
         <button type="button" class="btn btn-sm btn-outline gap-2" onclick="ibs_cbs_event_nfe_modal.showModal()">
             <span class="material-icons text-sm">event_available</span>
             Registrar evento IBS/CBS
         </button>
     {% endif %}
-    {% if can_issue_ibs_cbs_event_112110 or can_issue_ibs_cbs_event_112150 %}
+    {% if can_issue_ibs_cbs_event_112110 or can_issue_ibs_cbs_event_112130 or can_issue_ibs_cbs_event_112150 %}
         <dialog id="ibs_cbs_event_nfe_modal" class="modal" onclick="if (event.target === this) this.close()">
             <div class="modal-box w-11/12 max-w-2xl border border-base-300 bg-base-100 shadow-2xl">
                 <h3 class="text-base font-semibold text-base-content">Registrar evento IBS/CBS</h3>
                 <div class="alert alert-warning mt-4 text-sm">
-                    <span>O evento não altera a nota fiscal, não emite nota de crédito ou débito, não cancela evento e não substitui complementar tributária. Cancelamento do evento 112150 e demais eventos IBS/CBS seguem fora do escopo.</span>
+                    <span>O evento não altera a nota fiscal, não emite nota de crédito ou débito, não cancela evento e não substitui complementar tributária. Cancelamento do evento 112130, eventos 112120/112140 e eventos 211xxx seguem fora do escopo.</span>
                 </div>
 
                 {% if can_issue_ibs_cbs_event_112110 %}
@@ -63,6 +63,53 @@
 
                         <div class="mt-4 flex justify-end">
                             <button type="submit" class="btn btn-primary btn-sm">Registrar {{ ibs_cbs_event_code_112110 }}</button>
+                        </div>
+                    </form>
+                {% endif %}
+
+                {% if can_issue_ibs_cbs_event_112130 %}
+                    <form method="post" action="{% url 'finance:nfe_ibs_cbs_event_112130_issue' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" class="mt-4 rounded-lg border border-base-200 p-4">
+                        {% csrf_token %}
+                        <h4 class="text-sm font-semibold text-base-content">Evento {{ ibs_cbs_event_code_112130 }} - Perecimento/perda no transporte</h4>
+                        <p class="mt-2 text-sm text-base-content/70">Informe o sequencial fiscal do item na NF-e original e os valores oficiais de IBS/CBS e estorno. A Webmania receberá `itens[]`; não será enviado bloco top-level `ibs_cbs`.</p>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                            <div>
+                                <label for="ibs-cbs-112130-item" class="label"><span class="label-text">Item fiscal</span></label>
+                                <input id="ibs-cbs-112130-item" type="number" min="1" max="999" name="item" class="input input-bordered w-full" required>
+                            </div>
+                            <div>
+                                <label for="ibs-cbs-112130-unit" class="label"><span class="label-text">Unidade perecimento</span></label>
+                                <input id="ibs-cbs-112130-unit" type="text" maxlength="6" name="unidade_perecimento" class="input input-bordered w-full" required>
+                            </div>
+                            <div>
+                                <label for="ibs-cbs-112130-valor-ibs" class="label"><span class="label-text">Valor IBS</span></label>
+                                <input id="ibs-cbs-112130-valor-ibs" type="number" step="0.01" min="0.01" name="valor_ibs" class="input input-bordered w-full" required>
+                            </div>
+                            <div>
+                                <label for="ibs-cbs-112130-valor-cbs" class="label"><span class="label-text">Valor CBS</span></label>
+                                <input id="ibs-cbs-112130-valor-cbs" type="number" step="0.01" min="0.01" name="valor_cbs" class="input input-bordered w-full" required>
+                            </div>
+                            <div>
+                                <label for="ibs-cbs-112130-qty" class="label"><span class="label-text">Quantidade perecimento</span></label>
+                                <input id="ibs-cbs-112130-qty" type="number" step="0.0001" min="0.0001" name="quantidade_perecimento" class="input input-bordered w-full" required>
+                            </div>
+                            <div>
+                                <label for="ibs-cbs-112130-valor-ibs-estorno" class="label"><span class="label-text">Valor IBS estorno</span></label>
+                                <input id="ibs-cbs-112130-valor-ibs-estorno" type="number" step="0.01" min="0.01" name="valor_ibs_estorno" class="input input-bordered w-full" required>
+                            </div>
+                            <div>
+                                <label for="ibs-cbs-112130-valor-cbs-estorno" class="label"><span class="label-text">Valor CBS estorno</span></label>
+                                <input id="ibs-cbs-112130-valor-cbs-estorno" type="number" step="0.01" min="0.01" name="valor_cbs_estorno" class="input input-bordered w-full" required>
+                            </div>
+                        </div>
+
+                        <label class="label cursor-pointer justify-start gap-3 mt-3">
+                            <input type="checkbox" name="confirm_ibs_cbs_event_112130" class="checkbox checkbox-sm" required>
+                            <span class="label-text">Confirmo a responsabilidade fiscal pelo registro do evento IBS/CBS {{ ibs_cbs_event_code_112130 }}.</span>
+                        </label>
+
+                        <div class="mt-4 flex justify-end">
+                            <button type="submit" class="btn btn-primary btn-sm">Registrar {{ ibs_cbs_event_code_112130 }}</button>
                         </div>
                     </form>
                 {% endif %}

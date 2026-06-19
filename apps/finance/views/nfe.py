@@ -26,7 +26,7 @@ from apps.finance.services.nfe_adjustment import NfeAdjustmentError, create_and_
 from apps.finance.services.nfe_complementary import NfeComplementaryError, create_and_emit_nfe_complementary_price_quantity_from_item, is_local_nfe_eligible_for_complementary
 from apps.finance.services.nfe_emission import NfeEmissionError, cancel_nfe_document, download_nfe_preview_document, emit_nfe_request, invalidate_nfe_number, sync_nfe_emission_response
 from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction, is_nfe_item_eligible_for_cce
-from apps.finance.services.nfe_ibs_cbs_events import IBS_CBS_EVENT_112110, IBS_CBS_EVENT_112150, NfeIbsCbsEventError, cancel_ibs_cbs_event_112110, cancel_ibs_cbs_event_112150, emit_ibs_cbs_event_112110, emit_ibs_cbs_event_112150, is_document_eligible_for_ibs_cbs_event_112110, is_document_eligible_for_ibs_cbs_event_112150
+from apps.finance.services.nfe_ibs_cbs_events import IBS_CBS_EVENT_112110, IBS_CBS_EVENT_112130, IBS_CBS_EVENT_112150, NfeIbsCbsEventError, cancel_ibs_cbs_event_112110, cancel_ibs_cbs_event_112150, emit_ibs_cbs_event_112110, emit_ibs_cbs_event_112130, emit_ibs_cbs_event_112150, is_document_eligible_for_ibs_cbs_event_112110, is_document_eligible_for_ibs_cbs_event_112130, is_document_eligible_for_ibs_cbs_event_112150
 from apps.finance.services.nfe_returns import NfeReturnError, create_and_emit_nfe_return_from_item, is_local_nfe_eligible_for_return
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.views.ncm_validation import build_invalid_ncm_modal_context, pop_invalid_ncm_modal_context, store_invalid_ncm_modal_context
@@ -121,6 +121,33 @@ class NfeAdjustmentForm(CoreForm):
 class NfeIbsCbsEvent112150Form(CoreForm):
     data_previsao_entrega = forms.DateField(input_formats=["%Y-%m-%d"])
     confirm_ibs_cbs_event_112150 = forms.BooleanField(required=True)
+
+
+class NfeIbsCbsEvent112130Form(CoreForm):
+    item = forms.IntegerField(min_value=1, max_value=999)
+    valor_ibs = forms.DecimalField(min_value=0, decimal_places=2, max_digits=15)
+    valor_cbs = forms.DecimalField(min_value=0, decimal_places=2, max_digits=15)
+    quantidade_perecimento = forms.DecimalField(min_value=0, decimal_places=4, max_digits=15)
+    unidade_perecimento = forms.CharField(min_length=1, max_length=6)
+    valor_ibs_estorno = forms.DecimalField(min_value=0, decimal_places=2, max_digits=15)
+    valor_cbs_estorno = forms.DecimalField(min_value=0, decimal_places=2, max_digits=15)
+    confirm_ibs_cbs_event_112130 = forms.BooleanField(required=True)
+
+    def clean_unidade_perecimento(self):
+        return str(self.cleaned_data.get("unidade_perecimento") or "").strip().upper()
+
+    def to_event_items(self) -> list[dict[str, object]]:
+        return [
+            {
+                "item": self.cleaned_data["item"],
+                "valor_ibs": self.cleaned_data["valor_ibs"],
+                "valor_cbs": self.cleaned_data["valor_cbs"],
+                "quantidade_perecimento": self.cleaned_data["quantidade_perecimento"],
+                "unidade_perecimento": self.cleaned_data["unidade_perecimento"],
+                "valor_ibs_estorno": self.cleaned_data["valor_ibs_estorno"],
+                "valor_cbs_estorno": self.cleaned_data["valor_cbs_estorno"],
+            }
+        ]
 
 
 def _can_invalidate_nfe_request(*, nfe_request: NfeRequest, latest_item: NfeItem | None) -> bool:
@@ -281,6 +308,7 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         can_issue_adjustment = _user_can_issue_adjustment(user=self.request.user, workshop=self.workshop, request=self.request)
         fiscal_document = FiscalDocument.objects.filter(workshop=self.workshop, legacy_nfe_item=latest_item).first() if latest_item is not None else None
         can_issue_ibs_cbs_event_112110 = bool(fiscal_document and is_document_eligible_for_ibs_cbs_event_112110(fiscal_document) and _user_can_issue_ibs_cbs_event(user=self.request.user, workshop=self.workshop, request=self.request))
+        can_issue_ibs_cbs_event_112130 = bool(fiscal_document and is_document_eligible_for_ibs_cbs_event_112130(fiscal_document) and _user_can_issue_ibs_cbs_event(user=self.request.user, workshop=self.workshop, request=self.request))
         can_issue_ibs_cbs_event_112150 = bool(fiscal_document and is_document_eligible_for_ibs_cbs_event_112150(fiscal_document) and _user_can_issue_ibs_cbs_event(user=self.request.user, workshop=self.workshop, request=self.request))
         can_cancel_ibs_cbs_event_112110 = _user_can_cancel_ibs_cbs_event(user=self.request.user, workshop=self.workshop, request=self.request)
         can_cancel_ibs_cbs_event_112150 = can_cancel_ibs_cbs_event_112110
@@ -321,10 +349,12 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
                 "can_issue_complementary_price_quantity": can_issue_complementary_price_quantity,
                 "can_issue_adjustment": can_issue_adjustment,
                 "can_issue_ibs_cbs_event_112110": can_issue_ibs_cbs_event_112110,
+                "can_issue_ibs_cbs_event_112130": can_issue_ibs_cbs_event_112130,
                 "can_issue_ibs_cbs_event_112150": can_issue_ibs_cbs_event_112150,
                 "can_cancel_ibs_cbs_event_112110": can_cancel_ibs_cbs_event_112110,
                 "can_cancel_ibs_cbs_event_112150": can_cancel_ibs_cbs_event_112150,
                 "ibs_cbs_event_code_112110": IBS_CBS_EVENT_112110,
+                "ibs_cbs_event_code_112130": IBS_CBS_EVENT_112130,
                 "ibs_cbs_event_code_112150": IBS_CBS_EVENT_112150,
                 "cce_form": NfeCorrectionForm(),
                 "cce_events": cce_events,
@@ -335,6 +365,7 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
                 "nfe_complementary_form": NfeComplementaryPriceQuantityForm(),
                 "complementary_documents": complementary_documents,
                 "nfe_adjustment_form": NfeAdjustmentForm(),
+                "ibs_cbs_event_112130_form": NfeIbsCbsEvent112130Form(),
                 "adjustment_documents": adjustment_documents,
             }
         )
@@ -423,6 +454,33 @@ class NfeIbsCbsEvent112150IssueView(LoginRequiredMixin, WorkshopScopedMixin, Vie
             messages.error(request, str(exc))
         else:
             messages.success(request, "Evento IBS/CBS 112150 enviado para a Webmania.")
+        return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+
+class NfeIbsCbsEvent112130IssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "fiscaldocumentevent"
+    workshop_permission_codename = "issue_ibs_cbs_event"
+
+    def post(self, request, *args, **kwargs):
+        nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+        latest_item = nfe_request.items.order_by("-id").first()
+        document = FiscalDocument.objects.filter(workshop=self.workshop, legacy_nfe_item=latest_item).first() if latest_item is not None else None
+        if document is None:
+            messages.error(request, "Evento IBS/CBS 112130 exige documento fiscal local projetado e autorizado.")
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+        form = NfeIbsCbsEvent112130Form(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Informe item, valores IBS/CBS, controle de perecimento e confirme a responsabilidade fiscal.")
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
+
+        try:
+            emit_ibs_cbs_event_112130(document=document, items=form.to_event_items(), requested_by=request.user, request=request)
+        except NfeIbsCbsEventError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, "Evento IBS/CBS 112130 enviado para a Webmania.")
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 

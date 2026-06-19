@@ -548,3 +548,26 @@ Cancelamento: nao generalizar o cancelamento validado em 2.4D.2 para todos os co
 Resultado 2.4D.3: `112150` foi modelado sem migration nova, reutilizando `FiscalDocumentEvent` existente com `event_type="ibs_cbs"`, `event_code="112150"`, `event_payload_type="delivery_forecast"` e `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event")`. A elegibilidade final ficou conservadora: somente `FiscalDocument(document_type="nfe", purpose="normal", origin="local", status="aprovado")` com chave de acesso. NFC-e foi bloqueada nesta subfase ate confirmacao operacional especifica, e documentos derivados/ajuste permanecem bloqueados. O evento nao cria `FiscalDocument`, nao usa `FiscalDocumentLink` e nao altera o status fiscal do documento base.
 
 Resultado 2.4D.4: o cancelamento do `112150` reutiliza `FiscalDocumentEvent` existente sem migration, com `event_type="ibs_cbs_cancellation"`, `event_code="112150"`, `related_event` apontando para o evento `112150` original e `event_payload_type="cancellation"`. A tentativa usa `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event_cancellation")`. O cancelamento nao cria `FiscalDocument`, nao usa `FiscalDocumentLink` e nao altera o status fiscal da NF-e base; apenas marca o evento original como cancelado quando o retorno remoto do cancelamento e positivo.
+
+## Fase 2.4D.5.0 - Modelagem planejada para eventos IBS/CBS com itens
+
+Eventos `112120`, `112130` e `112140` continuam sendo `FiscalDocumentEvent(event_type="ibs_cbs")` associados ao `FiscalDocument` base. Nenhum deles deve criar `FiscalDocument`, `FiscalDocumentLink` ou alterar status fiscal da NF-e/NFC-e base.
+
+| Codigo | `event_payload_type` recomendado | Dados especificos |
+| ------ | -------------------------------- | ----------------- |
+| `112120` | `import_alc_zfm_not_exempted` | Itens com sequencial fiscal, `valor_ibs`, `valor_cbs` e `controle_estoque.quantidade/unidade`. |
+| `112130` | `supplier_transport_loss` | Itens com sequencial fiscal, `valor_ibs`, `valor_cbs`, `quantidade_perecimento`, `unidade_perecimento`, `valor_ibs_estorno` e `valor_cbs_estorno`. |
+| `112140` | `advance_payment_not_supplied` | Itens da nota de debito/pagamento antecipado, `valor_ibs`, `valor_cbs`, `quantidade_nao_fornecida` e `unidade_nao_fornecida`. |
+
+Fonte de dados recomendada:
+
+- Snapshot fiscal do documento original em `FiscalDocument.request_payload`, `FiscalDocument.response_payload`, `NfeItem.raw_payload` ou `NfeItem.log_payload`, desde que contenha produtos, sequencial fiscal e IBS/CBS suficiente.
+- Dados de estoque/transporte/financeiro apenas como complemento auditavel para os fatos do evento.
+- Input manual somente com confirmacao fiscal explicita e sem recompor tributacao por inferencia.
+
+Bloqueio permanente: `TaxClassNfe` atual nao pode ser fallback automatico para eventos de documento ja emitido, porque a classe pode ter sido alterada depois da autorizacao da NF-e/NFC-e base.
+### Resultado Fase 2.4D.5.1 - Evento IBS/CBS 112130
+
+O evento `112130` foi modelado como `FiscalDocumentEvent(event_type="ibs_cbs", event_code="112130", event_payload_type="supplier_transport_loss")` associado ao `FiscalDocument` original. Nenhum `FiscalDocument` novo e nenhum `FiscalDocumentLink` sao criados. A elegibilidade exige NF-e normal local autorizada, chave de acesso valida e snapshot fiscal original com item sequencial e bloco IBS/CBS. O snapshot da classe fiscal atual nao substitui o snapshot da nota ja emitida.
+
+O payload persistido e transmitido segue o contrato oficial com `itens[]`; o bloco top-level `ibs_cbs` nao e usado. A sequencia do evento continua compartilhando a constraint existente `(document, event_type, event_sequence)`, preservando limite de 20 eventos IBS/CBS por documento.

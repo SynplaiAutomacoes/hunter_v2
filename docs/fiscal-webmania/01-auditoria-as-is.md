@@ -198,3 +198,20 @@ Decisao tecnica da auditoria: documentos derivados nao devem usar automaticament
 | Modelagem | Cria `FiscalDocumentEvent(event_type=ibs_cbs_cancellation, event_code=112150, related_event=<112150>)` e tentativa `nfe_ibs_cbs_event_cancellation` | Nao criar `FiscalDocument`, nao usar `FiscalDocumentLink`, preservar trilha auditavel separada |
 | Idempotencia | Constraint ativa de `related_event + event_type` e tentativa persistida bloqueiam duplicidade/concorrencia | Timeout deixa cancelamento `uncertain` e impede novo cancelamento automatico |
 | Webhook | Reutiliza resolucao de cancelamento IBS/CBS por UUID remoto/tentativa, rejeitando ambiguidade | Atualizar somente evento de cancelamento e marcar evento original como cancelado em retorno positivo; nao alterar documento base nem `NfeItem` |
+
+### Auditoria tecnica Fase 2.4D.5.0 - Eventos IBS/CBS 112120/112130/112140
+
+Escopo: leitura de codigo em modo somente leitura para planejar eventos IBS/CBS de emitente que exigem itens, valores e controle operacional.
+
+| Item auditado | Estado real atual | Impacto para 112120/112130/112140 |
+| ------------- | ----------------- | ---------------------------------- |
+| Service de eventos | `apps/finance/services/nfe_ibs_cbs_events.py` possui builders/transmissao para `112110`, `112150` e seus cancelamentos; constantes atuais cobrem apenas esses codigos | Reaproveitar transmissao, sanitizacao, sequencia e tentativa; criar builders por codigo para eventos com itens |
+| Modelagem | `FiscalDocumentEvent` ja possui `event_code`, `event_sequence`, `event_payload_type`, payload/resposta, UUID remoto e `related_event` para cancelamento | Nao exige nova entidade para os tres eventos; exige `event_payload_type` especifico por codigo |
+| Idempotencia | `FiscalEmissionAttempt(operation_type=nfe_ibs_cbs_event)` ja protege evento emitido; `uncertain` bloqueia reenvio | Reutilizar; chave deve incluir documento, codigo, sequencia e geracao |
+| Webhook | Resolve evento IBS/CBS por UUID remoto, tentativa e fallback chave+sequencia, rejeitando ambiguidade | Reutilizar, mas garantir filtro por `event_code` e candidato unico para eventos com itens |
+| Views/templates | Detalhe de NF-e expõe apenas acoes de `112110`, `112150` e cancelamentos validados | UI futura deve ser por codigo, sem formulario generico JSON |
+| Testes | `apps/finance/tests.py` cobre 112110/112150, idempotencia, concorrencia, webhook, permissao, downloads e cancelamentos | Novos testes devem reaproveitar base e adicionar validacao de itens, valores IBS/CBS e controle operacional |
+| Fonte fiscal de itens | Derivados 2.4C usam snapshot original em `FiscalDocument.request_payload`, `response_payload`, `NfeItem.raw_payload` e `log_payload`; NF-e/NFC-e normal usa `classe_imposto` | Eventos com itens devem usar snapshot fiscal do documento emitido; `TaxClassNfe` atual nao e fallback automatico |
+| Documentos externos | NF-e externa minima por chave nao contem itens ou sequenciais fiscais | Bloquear eventos com itens para documento externo sem XML/importacao validada |
+
+Conclusao: a infraestrutura tecnica de evento esta pronta para ser reutilizada, mas os tres codigos exigem regras de negocio distintas. O risco principal nao e HTTP/Webmania; e a fonte local confiavel para sequencial fiscal, valores IBS/CBS, quantidade/unidade e contexto operacional.

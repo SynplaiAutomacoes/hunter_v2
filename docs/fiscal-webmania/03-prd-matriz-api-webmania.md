@@ -406,3 +406,50 @@ Decisao recomendada: a proxima subfase funcional deve ser `2.4D.3 - Implementar 
 Resultado 2.4D.3: `POST /1/nfe/evento-ibs-cbs/` foi implementado somente para `cod_evento=112150`. A revalidacao oficial do exemplo de requisicao mostrou `data_previsao_entrega` como campo de topo do payload, enquanto `evento` permanece a sequencia numerica do evento. O OpenAPI validado permanece alinhado com essa forma operacional. O Hunter nao envia `ibs_cbs`, `itens`, `produtos`, `tipo_credito`, `tipo_debito` ou qualquer dado de cancelamento no `112150`.
 
 Resultado 2.4D.4: `PUT /1/nfe/evento-ibs-cbs/cancelar/` foi implementado tambem para cancelamento do evento `112150` autorizado. A revalidacao oficial confirmou payload de cancelamento por `uuid`, com `ambiente` e `url_notificacao` opcionais/aplicaveis; o Hunter nao envia `chave`, `cod_evento`, `evento`, `data_previsao_entrega`, `ibs_cbs`, produtos, nota fiscal ou credito/debito. O cancelamento do `112110` permanece intacto e nao foi criado cancelamento generico para outros codigos.
+
+## Fase 2.4D.5.0 - Planejamento dos Eventos IBS/CBS 112120, 112130 e 112140
+
+Fonte oficial reconsultada em 2026-06-17: documentacao Webmania REST NF-e/NFC-e em `https://webmania.com.br/docs/rest-api-nfe/1000/`, secao Eventos IBS/CBS. Os tres eventos usam `POST /1/nfe/evento-ibs-cbs/` com envelope `chave`, `ambiente`, `cod_evento`, `evento` e `url_notificacao` quando aplicavel. A resposta documentada contem `uuid`, `status`, `evento`, `modelo` e `log`.
+
+| cod_evento | Descrição oficial | Payload específico | Exige itens? | Exige valores IBS/CBS? | Fonte local confiável | Documento elegível | Pode cancelar? | Risco | Recomendação |
+| ---------- | ----------------- | ------------------ | -----------: | ---------------------: | --------------------- | ------------------ | -------------: | ----- | ------------ |
+| `112120` | Importacao em ALC/ZFM nao convertida em isencao. | `itens[].item`, `itens[].valor_ibs`, `itens[].valor_cbs`, `itens[].controle_estoque.quantidade`, `itens[].controle_estoque.unidade`. | Sim | Sim | Snapshot fiscal original com sequencial fiscal e IBS/CBS por item, mais contexto de importacao ALC/ZFM validado. `TaxClassNfe` atual nao e fallback. | NF-e de importacao local emitida/projetada com itens fiscais conhecidos; documento externo somente apos XML/importacao validada. | Sim, pelo endpoint generico de cancelamento de evento, mas em subfase separada. | Alto; baixa aderencia oficina, exige contexto fiscal de importacao/beneficio e quantidade sem conversao. | Adiar; implementar somente apos fluxo confiavel de importacao/ALC-ZFM ou feature fiscal administrativa restrita. |
+| `112130` | Perecimento, perda, roubo ou furto durante transporte contratado pelo fornecedor. | `itens[].item`, `valor_ibs`, `valor_cbs`, `controle_estoque.quantidade_perecimento`, `controle_estoque.unidade_perecimento`, `controle_estoque.valor_ibs_estorno`, `controle_estoque.valor_cbs_estorno`. | Sim | Sim | Snapshot fiscal original com sequencial fiscal/IBS/CBS e evento operacional de transporte/estoque com quantidade, unidade e estorno fiscal confirmados. | NF-e normal local de fornecimento, autorizada, com frete/entrega sob responsabilidade do fornecedor e item fiscal conhecido. | Sim, em subfase de cancelamento posterior. | Medio/alto; envolve estoque/transporte e estorno de credito IBS/CBS. | Implementar primeiro entre os tres, mas isoladamente, com input manual fiscal confirmado e bloqueio se faltar snapshot/item. |
+| `112140` | Fornecimento nao realizado com pagamento antecipado. | `itens[].item`, `valor_ibs`, `valor_cbs`, `controle_estoque.quantidade_nao_fornecida`, `controle_estoque.unidade_nao_fornecida`. | Sim | Sim | Snapshot fiscal do documento de debito/pagamento antecipado e dados financeiros/operacionais de nao fornecimento. | Documento local vinculado a pagamento antecipado e nao fornecimento; sem origem confiavel, bloquear. | Sim, em subfase de cancelamento posterior. | Alto; depende de pagamento antecipado, possivel nota de debito e regra financeira ainda nao modelada. | Adiar ate credito/debito/financeiro antecipado estarem modelados ou aprovados. |
+
+### Decisao de agrupamento 2.4D.5.0
+
+Decisao: **Opcao B - implementar um por vez**.
+
+Justificativa: apesar de todos exigirem `itens[]`, `valor_ibs` e `valor_cbs`, a semantica fiscal e a fonte operacional divergem. O `112120` depende de importacao ALC/ZFM; o `112130` depende de ocorrencia de transporte/estoque e estorno de credito; o `112140` depende de pagamento antecipado/nao fornecimento e possivel relacao com nota de debito. Agrupar os tres criaria formulario generico perigoso e incentivo a input manual sem fonte fiscal suficiente.
+
+Subfases recomendadas:
+
+| Subfase | Escopo | Motivo |
+| ------- | ------ | ------ |
+| `2.4D.5.1` | Evento `112130` isolado | Maior aderencia potencial ao dominio operacional de oficina; ainda exige snapshot fiscal e confirmacao de estoque/transporte. |
+| `2.4D.5.2` | Evento `112120` isolado | Baixa prioridade; liberar somente atras de habilitacao administrativa e prova de contexto de importacao. |
+| `2.4D.5.3` | Evento `112140` isolado | Depende de pagamento antecipado/nota de debito; melhor apos credito/debito ou decisao financeira explicita. |
+| `2.4D.5.4` | Cancelamento dos eventos `112120/112130/112140` | Subfase propria apos emissao de cada evento, usando UUID remoto e sem cancelamento generico. |
+
+### Fontes locais e bloqueios seguros
+
+Fontes permitidas para implementacao futura:
+
+- Snapshot fiscal do documento original em `FiscalDocument.request_payload`, `FiscalDocument.response_payload`, `NfeItem.raw_payload` ou `NfeItem.log_payload`, desde que contenha produtos, sequencial fiscal e IBS/CBS suficiente.
+- Dados operacionais de estoque/transporte somente como complemento, nunca como fonte tributaria unica.
+- Input manual com confirmacao fiscal explicita apenas para campos operacionais do evento, como quantidade/unidade/valores de estorno, e com payload auditavel.
+
+Bloqueios obrigatorios:
+
+- Bloquear documento externo sem XML/importacao validada.
+- Bloquear documento sem snapshot fiscal suficiente.
+- Bloquear item sem sequencial fiscal confiavel.
+- Bloquear divergencia entre itens selecionados e itens da NF-e/NFC-e original.
+- Bloquear valores IBS/CBS ausentes, zerados indevidamente ou incompletos.
+- Bloquear uso de `TaxClassNfe` atual como fallback automatico para evento de documento ja emitido.
+- Bloquear tentativa de usar qualquer um desses eventos como substituto de credito/debito, complementar tributaria ou ajuste.
+
+OpenAPI: atualizado nesta fase para explicitar os campos oficiais de `controle_estoque` usados por `112120`, `112130` e `112140`. Nenhum endpoint novo foi adicionado.
+
+Resultado 2.4D.5.1: o Hunter implementou somente `cod_evento=112130`. A revalidacao oficial confirmou que o payload operacional usa `itens[]` no topo, com `item`, `valor_ibs`, `valor_cbs` e `controle_estoque` contendo `quantidade_perecimento`, `unidade_perecimento`, `valor_ibs_estorno` e `valor_cbs_estorno`; nao existe top-level `ibs_cbs` neste evento. A implementacao bloqueia documentos sem NF-e normal local autorizada, sem chave, sem snapshot fiscal IBS/CBS por item ou com item fiscal inexistente. `112120`, `112140`, `211xxx` e cancelamento do `112130` permanecem fora do escopo.

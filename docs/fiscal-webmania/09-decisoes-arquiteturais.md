@@ -403,6 +403,18 @@
 - Status: validada na Fase 2.4D.4.
 - Fase: 2.4D.4.
 
+## ADR-045 - Eventos IBS/CBS 112120, 112130 e 112140 devem ser separados por semantica operacional
+
+- Contexto: a Webmania documenta `112120`, `112130` e `112140` como eventos de emitente por `POST /1/nfe/evento-ibs-cbs/`, todos com `itens[]`, sequencial fiscal do item, `valor_ibs`, `valor_cbs` e campos especificos de `controle_estoque`. Apesar da estrutura comum, cada codigo representa fato fiscal distinto: importacao ALC/ZFM nao convertida em isencao, perecimento/perda/roubo/furto em transporte contratado pelo fornecedor, e fornecimento nao realizado com pagamento antecipado.
+- Decisao: nao implementar os tres juntos. Planejar subfases isoladas, com `112130` como primeiro candidato funcional apenas se houver snapshot fiscal confiavel e input operacional/fiscal auditavel. `112120` fica atras de contexto de importacao/ALC-ZFM validado; `112140` fica atras de regra de pagamento antecipado/nota de debito.
+- Fonte de dados: usar snapshot fiscal do documento original (`FiscalDocument.request_payload`, `FiscalDocument.response_payload`, `NfeItem.raw_payload` ou `NfeItem.log_payload`) somente quando contiver item fiscal, sequencia e dados IBS/CBS suficientes. `TaxClassNfe` atual nao e fallback automatico para evento de documento ja emitido.
+- Bloqueio seguro: documentos externos sem XML/importacao validada, documentos sem snapshot suficiente, itens sem sequencial fiscal, divergencia de itens e valores IBS/CBS ausentes ou incompletos bloqueiam antes do gateway.
+- Cancelamento: manter em subfase separada por codigo, usando UUID remoto do evento autorizado. Nao criar cancelamento generico para `112120/112130/112140` junto com a emissao.
+- Alternativas consideradas: implementar os tres juntos por compartilharem `itens[]`; criar formulario generico de evento com JSON livre; usar classe fiscal atual para recompor valores. Rejeitadas por risco de payload fiscal incorreto e falta de fonte operacional uniforme.
+- Consequencias: menor velocidade de cobertura, mas maior controle sobre fonte fiscal, estoque/transporte e pagamento antecipado.
+- Status: proposta documental na Fase 2.4D.5.0.
+- Fase: 2.4D.5.
+
 ### ADR 2.4D.1 - Primeiro evento IBS/CBS implementado como evento, nao documento
 
 - Decisao: implementar `cod_evento=112110` como `FiscalDocumentEvent(event_type="ibs_cbs")`, associado a um `FiscalDocument` NF-e/NFC-e normal local autorizado.
@@ -416,3 +428,12 @@
 - Riscos: se a SEFAZ/Webmania retornar modelos/codigos diferentes por evento cancelado, o parser deve preservar resposta bruta sanitizada e mapear apenas campos confirmados.
 - Status: proposta documental na Fase 2.4D.0.
 - Fase: 2.4D.
+## ADR - Evento IBS/CBS 112130 isolado
+
+Status: aprovado e validado em 2026-06-18.
+
+Decisao: implementar o evento `112130` como caso especifico, usando `FiscalDocumentEvent` e `FiscalEmissionAttempt` existentes, sem criar model novo, sem `FiscalDocumentLink` e sem cancelamento nesta fase.
+
+Justificativa: o contrato oficial do `112130` exige payload proprio com `itens[]` e `controle_estoque` para perecimento/perda/roubo/furto no transporte contratado pelo fornecedor. Um formulario generico para eventos IBS/CBS aumentaria risco de payload fiscal incorreto e de uso indevido de eventos `112120`, `112140` ou `211xxx`.
+
+Consequencias: o Hunter exige snapshot fiscal original com sequencial fiscal e IBS/CBS por item; `TaxClassNfe` atual nao e fallback automatico para evento de documento ja emitido. Cancelamento do `112130`, eventos `112120/112140`, eventos `211xxx`, credito/debito e complementar tributaria permanecem para fases posteriores.

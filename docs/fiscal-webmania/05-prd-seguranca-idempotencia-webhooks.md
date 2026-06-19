@@ -480,6 +480,8 @@ Por grupo:
 
 - Grupo A (`112150`): mesma infraestrutura de `112110`, mas o hash do payload deve incluir `data_previsao_entrega`. Timeout preserva sequencia e data enviada.
 - Grupo B (`112120`, `112130`, `112140`): duplicidade deve considerar documento, codigo, sequencia e payload congelado de itens/valores/controle. O saldo/estoque operacional nao pode ser recalculado apos envio `sent` ou `uncertain`.
+
+Implementacao 2.4D.5.1: para `112130`, o Hunter cria `FiscalDocumentEvent` e `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event")` antes do POST remoto. A chave idempotente inclui oficina, documento, codigo do evento e sequencia reservada. O payload sanitizado fica congelado com `itens[]`; uma tentativa `uncertain` bloqueia reenvio automatico do mesmo payload. Webhook atualiza somente o evento resolvido por UUID remoto ou fallback seguro de chave + sequencia + `cod_evento`; ambiguidade nao altera nenhum registro.
 - Grupo C (`211128`): idempotencia deve incluir documento relacionado a credito/debito e `indicador_aceitacao`; bloquear ate credito/debito funcional.
 - Grupo D (`211110`, `211120`, `211124`, `211130`, `211140`, `211150`): idempotencia exige fonte externa auditavel do documento de aquisicao e itens; bloquear ate existir essa fonte.
 
@@ -488,3 +490,23 @@ Cancelamento: manter `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event_ca
 Resultado 2.4D.3: `112150` reutiliza a tentativa persistida `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event")`, com idempotencia por oficina, documento, tipo, codigo, sequencia e geracao. A mesma data de previsao de entrega fica bloqueada enquanto houver evento `112150` ativo, aprovado ou incerto; datas diferentes podem gerar nova sequencia, respeitando o limite de 20 eventos por documento/tipo. Timeout marca evento e tentativa como `uncertain`, preserva a sequencia e bloqueia reenvio automatico da mesma data. Webhook segue a resolucao validada por UUID remoto/tentativa ou fallback chave+sequencia, rejeitando ambiguidade e atualizando somente `FiscalDocumentEvent`.
 
 Resultado 2.4D.4: cancelamento do `112150` reutiliza `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event_cancellation")`, com chave por oficina, evento original, evento de cancelamento e geracao. A presenca de cancelamento `started`, `sent`, aprovado/cancelado ou `uncertain` bloqueia nova tentativa. Timeout marca o cancelamento como `uncertain` e preserva o payload por UUID. Webhook de cancelamento resolve por UUID remoto/tentativa, rejeita ambiguidade, atualiza somente o evento de cancelamento e marca o evento original como cancelado apenas em retorno remoto positivo, sem alterar o `FiscalDocument` base.
+
+## Fase 2.4D.5.0 - Idempotencia e bloqueios para 112120/112130/112140
+
+Eventos `112120`, `112130` e `112140` devem reutilizar `FiscalDocumentEvent(event_type="ibs_cbs")` e `FiscalEmissionAttempt(operation_type="nfe_ibs_cbs_event")`, mas nao devem compartilhar um builder generico sem validadores por codigo.
+
+Chave planejada:
+
+```text
+hash(workshop_id, fiscal_document_id, "ibs_cbs", cod_evento, event_sequence, request_generation)
+```
+
+Regras por codigo:
+
+- `112120`: permitir somente quando houver NF-e de importacao local ou importada por XML, item fiscal confiavel e contexto ALC/ZFM confirmado. Bloquear documento externo minimo.
+- `112130`: permitir somente quando houver snapshot fiscal do item e evento operacional de perecimento/perda/roubo/furto em transporte contratado pelo fornecedor, com valores de estorno IBS/CBS informados e confirmados.
+- `112140`: permitir somente quando houver documento/pagamento antecipado modelado e itens de nota de debito com quantidade nao fornecida. Bloquear ate existir essa origem.
+
+Estados `started`, `sent`, `processing`, `approved/succeeded` e `uncertain` devem bloquear repeticao do mesmo evento/codigo/sequencia. `uncertain` preserva itens, valores e `controle_estoque`, e nao pode ser recalculado por saldo/estoque posterior.
+
+Webhook futuro deve resolver primeiro por UUID remoto do evento; fallback por tentativa ou chave+sequencia so pode atualizar um candidato unico da mesma oficina, documento, `cod_evento` e sequencia. Ambiguidade deve deixar o webhook pendente. O status da NF-e/NFC-e base nao deve ser alterado.

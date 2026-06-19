@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from datetime import date
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
 import requests
@@ -44,9 +45,12 @@ from apps.finance.services.webmania_errors import build_webmania_request_excepti
 logger = logging.getLogger(__name__)
 
 IBS_CBS_EVENT_112110 = "112110"
+IBS_CBS_EVENT_112130 = "112130"
 IBS_CBS_EVENT_112150 = "112150"
 IBS_CBS_EVENT_MAX_SEQUENCE = 20
 IBS_CBS_EVENT_CANCELLATION_REMOTE_CODE = "110001"
+IBS_CBS_EVENT_112130_DECIMAL_PLACES = Decimal("0.01")
+IBS_CBS_EVENT_112130_QUANTITY_PLACES = Decimal("0.0001")
 
 
 class NfeIbsCbsEventError(NfeEmissionError):
@@ -106,6 +110,18 @@ def is_document_eligible_for_ibs_cbs_event_112150(document: FiscalDocument | Non
     return bool(str(document.access_key or "").strip())
 
 
+def is_document_eligible_for_ibs_cbs_event_112130(document: FiscalDocument | None) -> bool:
+    if document is None:
+        return False
+    if document.document_type != FiscalDocumentType.NFE:
+        return False
+    if document.origin != FiscalDocumentOrigin.LOCAL or document.purpose != FiscalDocumentPurpose.NORMAL:
+        return False
+    if document.status != FiscalDocumentStatus.APPROVED:
+        return False
+    return bool(str(document.access_key or "").strip())
+
+
 def _assert_document_eligible_for_112110(*, document: FiscalDocument) -> None:
     if document.document_type == FiscalDocumentType.NFE:
         if document.origin != FiscalDocumentOrigin.LOCAL or document.purpose != FiscalDocumentPurpose.NORMAL:
@@ -145,6 +161,23 @@ def _assert_document_eligible_for_112150(*, document: FiscalDocument) -> None:
         raise NfeIbsCbsEventError("Evento IBS/CBS 112150 exige chave de acesso valida.")
 
 
+def _assert_document_eligible_for_112130(*, document: FiscalDocument) -> None:
+    if document.document_type != FiscalDocumentType.NFE:
+        raise NfeIbsCbsEventError("Evento IBS/CBS 112130 permitido somente para NF-e nesta fase.")
+    if document.origin != FiscalDocumentOrigin.LOCAL or document.purpose != FiscalDocumentPurpose.NORMAL:
+        raise NfeIbsCbsEventError("Evento IBS/CBS 112130 permitido somente para NF-e normal local nesta fase.")
+    if document.status == FiscalDocumentStatus.CANCELED:
+        raise NfeIbsCbsEventError("Documento cancelado nao pode receber evento IBS/CBS 112130.")
+    if document.status == FiscalDocumentStatus.DENIED:
+        raise NfeIbsCbsEventError("Documento denegado nao pode receber evento IBS/CBS 112130.")
+    if document.status == FiscalDocumentStatus.UNCERTAIN:
+        raise NfeIbsCbsEventError("Documento em estado incerto deve ser reconciliado antes do evento IBS/CBS.")
+    if document.status != FiscalDocumentStatus.APPROVED:
+        raise NfeIbsCbsEventError("Evento IBS/CBS 112130 permitido somente para documento autorizado.")
+    if not str(document.access_key or "").strip():
+        raise NfeIbsCbsEventError("Evento IBS/CBS 112130 exige chave de acesso valida.")
+
+
 def _assert_no_existing_112110(*, document: FiscalDocument) -> None:
     blocking_statuses = [
         FiscalDocumentEventStatus.STARTED,
@@ -169,6 +202,19 @@ def _assert_no_incompatible_112150(*, document: FiscalDocument, delivery_date: d
     ]
     if document.events.filter(event_type=FiscalDocumentEventType.IBS_CBS, event_code=IBS_CBS_EVENT_112150, status__in=blocking_statuses, request_payload__data_previsao_entrega=delivery_date.isoformat()).exists():
         raise NfeIbsCbsEventError("Ja existe evento IBS/CBS 112150 ativo, aprovado ou incerto para esta data de previsao de entrega.")
+
+
+def _assert_no_incompatible_112130(*, document: FiscalDocument, items_payload: list[dict[str, Any]]) -> None:
+    blocking_statuses = [
+        FiscalDocumentEventStatus.STARTED,
+        FiscalDocumentEventStatus.SENT,
+        FiscalDocumentEventStatus.PROCESSING,
+        FiscalDocumentEventStatus.APPROVED,
+        FiscalDocumentEventStatus.SUCCEEDED,
+        FiscalDocumentEventStatus.UNCERTAIN,
+    ]
+    if document.events.filter(event_type=FiscalDocumentEventType.IBS_CBS, event_code=IBS_CBS_EVENT_112130, status__in=blocking_statuses, request_payload__itens=items_payload).exists():
+        raise NfeIbsCbsEventError("Ja existe evento IBS/CBS 112130 ativo, aprovado ou incerto com os mesmos itens e valores.")
 
 
 def _next_event_sequence(*, document: FiscalDocument, event_code: str) -> int:
@@ -209,6 +255,140 @@ def _build_112150_payload(*, document: FiscalDocument, event_sequence: int, deli
         "cod_evento": IBS_CBS_EVENT_112150,
         "evento": event_sequence,
         "data_previsao_entrega": delivery_date.isoformat(),
+    }
+    notification_url = build_webmania_webhook_url(request=request)
+    if notification_url:
+        payload["url_notificacao"] = notification_url
+    return payload
+
+
+def _coerce_positive_decimal(*, value: Any, label: str, places: Decimal) -> Decimal:
+    try:
+        normalized = Decimal(str(value).replace(",", ".").strip())
+    except (InvalidOperation, ValueError) as exc:
+        raise NfeIbsCbsEventError(f"{label} invalido para evento IBS/CBS 112130.") from exc
+    if normalized <= 0:
+        raise NfeIbsCbsEventError(f"{label} deve ser positivo para evento IBS/CBS 112130.")
+    return normalized.quantize(places, rounding=ROUND_HALF_UP)
+
+
+def _decimal_to_payload_string(value: Decimal) -> str:
+    return format(value, "f")
+
+
+def _event_item_sequence(value: Any) -> int:
+    try:
+        sequence = int(str(value).strip())
+    except (TypeError, ValueError) as exc:
+        raise NfeIbsCbsEventError("Item do evento IBS/CBS 112130 deve informar sequencial fiscal valido.") from exc
+    if sequence <= 0 or sequence > 999:
+        raise NfeIbsCbsEventError("Item do evento IBS/CBS 112130 deve estar entre 1 e 999.")
+    return sequence
+
+
+def _document_payload_sources(document: FiscalDocument) -> list[dict[str, Any]]:
+    sources: list[dict[str, Any]] = []
+    for payload in (document.request_payload, document.response_payload):
+        if isinstance(payload, dict):
+            sources.append(payload)
+    legacy_item = getattr(document, "legacy_nfe_item", None)
+    if legacy_item is not None:
+        for payload in (getattr(legacy_item, "raw_payload", None), getattr(legacy_item, "log_payload", None)):
+            if isinstance(payload, dict):
+                sources.append(payload)
+    return sources
+
+
+def _extract_products_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    products = payload.get("produtos")
+    if isinstance(products, list):
+        return [product for product in products if isinstance(product, dict)]
+    nfe_payload = payload.get("nfe")
+    if isinstance(nfe_payload, dict):
+        nested_products = nfe_payload.get("produtos")
+        if isinstance(nested_products, list):
+            return [product for product in nested_products if isinstance(product, dict)]
+    return []
+
+
+def _product_sequence(product: dict[str, Any], fallback_sequence: int) -> int:
+    for key in ("item", "sequencial", "sequencia", "numero_item", "nItem"):
+        raw_value = product.get(key)
+        if raw_value not in (None, ""):
+            return _event_item_sequence(raw_value)
+    return fallback_sequence
+
+
+def _product_ibs_cbs_payload(product: dict[str, Any]) -> dict[str, Any]:
+    direct_payload = product.get("ibs_cbs")
+    if isinstance(direct_payload, dict) and direct_payload:
+        return direct_payload
+    taxes_payload = product.get("impostos")
+    if isinstance(taxes_payload, dict):
+        nested_payload = taxes_payload.get("ibs_cbs")
+        if isinstance(nested_payload, dict) and nested_payload:
+            return nested_payload
+    return {}
+
+
+def _find_product_snapshot_for_sequence(*, document: FiscalDocument, sequence: int) -> dict[str, Any] | None:
+    for payload in _document_payload_sources(document):
+        for index, product in enumerate(_extract_products_from_payload(payload), start=1):
+            if _product_sequence(product, index) == sequence:
+                return product
+    return None
+
+
+def _assert_product_has_ibs_cbs_snapshot(*, product: dict[str, Any], sequence: int) -> None:
+    ibs_cbs_payload = _product_ibs_cbs_payload(product)
+    if not ibs_cbs_payload:
+        raise NfeIbsCbsEventError(f"Item fiscal {sequence} nao possui snapshot IBS/CBS no documento original.")
+    if not str(ibs_cbs_payload.get("situacao_tributaria") or "").strip() or not str(ibs_cbs_payload.get("classificacao_tributaria") or "").strip():
+        raise NfeIbsCbsEventError(f"Item fiscal {sequence} nao possui situacao/classificacao IBS/CBS no snapshot original.")
+
+
+def _normalize_112130_items(*, document: FiscalDocument, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not items:
+        raise NfeIbsCbsEventError("Evento IBS/CBS 112130 exige ao menos um item.")
+    normalized_items: list[dict[str, Any]] = []
+    seen_sequences: set[int] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            raise NfeIbsCbsEventError("Itens do evento IBS/CBS 112130 devem ser objetos.")
+        sequence = _event_item_sequence(item.get("item"))
+        if sequence in seen_sequences:
+            raise NfeIbsCbsEventError("Evento IBS/CBS 112130 nao permite item fiscal duplicado no mesmo payload.")
+        snapshot_product = _find_product_snapshot_for_sequence(document=document, sequence=sequence)
+        if snapshot_product is None:
+            raise NfeIbsCbsEventError(f"Item fiscal {sequence} nao encontrado no snapshot da NF-e original.")
+        _assert_product_has_ibs_cbs_snapshot(product=snapshot_product, sequence=sequence)
+        unit = str(item.get("unidade_perecimento") or "").strip().upper()
+        if not 1 <= len(unit) <= 6:
+            raise NfeIbsCbsEventError("Unidade de perecimento deve possuir entre 1 e 6 caracteres.")
+        normalized_items.append(
+            {
+                "item": sequence,
+                "valor_ibs": _decimal_to_payload_string(_coerce_positive_decimal(value=item.get("valor_ibs"), label="Valor IBS", places=IBS_CBS_EVENT_112130_DECIMAL_PLACES)),
+                "valor_cbs": _decimal_to_payload_string(_coerce_positive_decimal(value=item.get("valor_cbs"), label="Valor CBS", places=IBS_CBS_EVENT_112130_DECIMAL_PLACES)),
+                "controle_estoque": {
+                    "quantidade_perecimento": _decimal_to_payload_string(_coerce_positive_decimal(value=item.get("quantidade_perecimento"), label="Quantidade de perecimento", places=IBS_CBS_EVENT_112130_QUANTITY_PLACES)),
+                    "unidade_perecimento": unit,
+                    "valor_ibs_estorno": _decimal_to_payload_string(_coerce_positive_decimal(value=item.get("valor_ibs_estorno"), label="Valor IBS de estorno", places=IBS_CBS_EVENT_112130_DECIMAL_PLACES)),
+                    "valor_cbs_estorno": _decimal_to_payload_string(_coerce_positive_decimal(value=item.get("valor_cbs_estorno"), label="Valor CBS de estorno", places=IBS_CBS_EVENT_112130_DECIMAL_PLACES)),
+                },
+            }
+        )
+        seen_sequences.add(sequence)
+    return normalized_items
+
+
+def _build_112130_payload(*, document: FiscalDocument, event_sequence: int, items_payload: list[dict[str, Any]], request: HttpRequest | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "chave": str(document.access_key or "").strip(),
+        "ambiente": int(str(document.environment or getattr(settings, "WEBMANIA_AMBIENT", "2") or "2")),
+        "cod_evento": IBS_CBS_EVENT_112130,
+        "evento": event_sequence,
+        "itens": items_payload,
     }
     notification_url = build_webmania_webhook_url(request=request)
     if notification_url:
@@ -291,6 +471,49 @@ def create_112150_event_attempt(*, document: FiscalDocument, delivery_forecast_d
             workshop_id=locked_document.workshop_id,
             document_id=locked_document.pk,
             event_code=IBS_CBS_EVENT_112150,
+            event_sequence=event_sequence,
+        )
+        attempt = begin_emission_attempt(
+            workshop=locked_document.workshop,
+            document_kind=FiscalEmissionDocumentKind.NFE,
+            operation_type=FiscalEmissionOperationType.NFE_IBS_CBS_EVENT,
+            request_model=FiscalDocumentEvent.__name__,
+            request_id=event.pk,
+            fiscal_document=locked_document,
+            fiscal_document_event=event,
+            idempotency_key=idempotency_key,
+            request_payload=sanitized_payload,
+            payload_hash=build_payload_hash(sanitized_payload),
+        )
+        return event, attempt, payload
+
+
+def create_112130_event_attempt(*, document: FiscalDocument, items: list[dict[str, Any]], requested_by: Any | None, request: HttpRequest | None = None) -> tuple[FiscalDocumentEvent, FiscalEmissionAttempt, dict[str, Any]]:
+    with transaction.atomic():
+        locked_document = FiscalDocument.objects.select_for_update().select_related("workshop").get(pk=document.pk)
+        _assert_document_eligible_for_112130(document=locked_document)
+        items_payload = _normalize_112130_items(document=locked_document, items=items)
+        _assert_no_incompatible_112130(document=locked_document, items_payload=items_payload)
+        event_sequence = _next_event_sequence(document=locked_document, event_code=IBS_CBS_EVENT_112130)
+        payload = _build_112130_payload(document=locked_document, event_sequence=event_sequence, items_payload=items_payload, request=request)
+        sanitized_payload = sanitize_fiscal_payload(payload)
+        event = FiscalDocumentEvent.objects.create(
+            document=locked_document,
+            event_type=FiscalDocumentEventType.IBS_CBS,
+            event_code=IBS_CBS_EVENT_112130,
+            event_sequence=event_sequence,
+            event_payload_type="supplier_transport_loss",
+            status=FiscalDocumentEventStatus.STARTED,
+            remote_model="ibs_cbs",
+            request_payload=sanitized_payload,
+            requested_by=requested_by if getattr(requested_by, "is_authenticated", False) else None,
+            legal_confirmation=True,
+            confirmed_at=timezone.now(),
+        )
+        idempotency_key = _build_ibs_cbs_event_idempotency_key(
+            workshop_id=locked_document.workshop_id,
+            document_id=locked_document.pk,
+            event_code=IBS_CBS_EVENT_112130,
             event_sequence=event_sequence,
         )
         attempt = begin_emission_attempt(
@@ -404,6 +627,15 @@ def emit_ibs_cbs_event_112110(*, document: FiscalDocument, requested_by: Any | N
         raise NfeIbsCbsEventError(str(exc)) from exc
 
     return _transmit_ibs_cbs_event(event=event, attempt=attempt, payload=payload, event_code=IBS_CBS_EVENT_112110)
+
+
+def emit_ibs_cbs_event_112130(*, document: FiscalDocument, items: list[dict[str, Any]], requested_by: Any | None = None, request: HttpRequest | None = None) -> FiscalDocumentEvent:
+    try:
+        event, attempt, payload = create_112130_event_attempt(document=document, items=items, requested_by=requested_by, request=request)
+    except FiscalEmissionAttemptBlocked as exc:
+        raise NfeIbsCbsEventError(str(exc)) from exc
+
+    return _transmit_ibs_cbs_event(event=event, attempt=attempt, payload=payload, event_code=IBS_CBS_EVENT_112130)
 
 
 def emit_ibs_cbs_event_112150(*, document: FiscalDocument, delivery_forecast_date: date | str, requested_by: Any | None = None, request: HttpRequest | None = None) -> FiscalDocumentEvent:
