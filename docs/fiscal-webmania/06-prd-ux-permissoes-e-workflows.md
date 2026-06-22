@@ -439,6 +439,10 @@ Implementado: listagem, formulario, detalhe, aprovacao e payload sanitizado. A b
 ### UX e permissoes implementadas
 
 Foram adicionadas `issue_nfe_debit`, `view_nfe_debit`, `download_nfe_debit` e `view_nfe_debit_payload`. A listagem permite ativacao administrativa auditada e a tela da preview aprovada exibe confirmacao e emissao somente quando flag e permissao especifica estiverem presentes. Payload e downloads continuam escopados pela oficina.
+
+### Cancelamento de debito tipo 4
+
+`cancel_nfe_debit` e independente de `issue_nfe_debit` e das permissoes de credito. A tela da preview exibe motivo, confirmacao explicita, status do evento e XML somente para documento elegivel. O texto informa que nota original, base e preview permanecem imutaveis. Payload e download usam as permissoes de consulta do debito e escopo da oficina ativa.
 Permissoes futuras separadas: `issue_nfe_debit`, `view_nfe_debit`, `download_nfe_debit` e `view_nfe_debit_payload`. Preparar/aprovar base ou preview e emitir credito nao concedem emissao de debito.
 
 Criar flag administrativa propria `nfe_debit_emission_enabled` (nome final pode seguir padrao do model), separada de `credit_debit_basis_enabled`. UI minima: botao de emissao somente em preview aprovada/elegivel, confirmacao explicita de `finalidade=6`/`tipo_debito=4`, resumo do DF-e/item, produto e IBS/CBS, status, payload e downloads. Nao oferecer cancelamento na primeira emissao.

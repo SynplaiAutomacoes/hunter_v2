@@ -226,3 +226,9 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Planejar cancelamento da NF-e de debito tipo 4 em fase independente pelo cancelamento NF-e padrao.
 - Manter debitos 1-3/5-8, creditos 2-5, `112120`, `112140`, `211xxx`, complementar tributaria, NFS-e e CT-e bloqueados ate autorizacao especifica.
 - Origem externa permanece bloqueada ate existir importacao/validacao fiscal suficiente.
+
+## Pendencias apos Fase 2.5.8
+
+- Debito tipo 4 possui ciclo de emissao/cancelamento completo; nao ampliar para outros tipos sem nova auditoria e autorizacao.
+- Manter debitos 1-3/5-8, creditos 2-5, `112120`, `112140`, `211xxx`, complementar tributaria, NFS-e e CT-e bloqueados.
+- Origem externa e qualquer politica adicional de prazo/UF permanecem fora do escopo ate fonte fiscal confiavel.

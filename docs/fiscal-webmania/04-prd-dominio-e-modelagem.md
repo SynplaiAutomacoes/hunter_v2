@@ -689,6 +689,10 @@ Nao foram adicionados `FiscalDocument(purpose="debit")`, `FiscalEmissionAttempt(
 - `FiscalEmissionAttempt(operation_type="nfe_debit_emission")` associado ao documento derivado.
 - Flag auditavel `WebmaniaCompany.nfe_debit_emission_enabled` separada da preparacao.
 - Constraint exige base e preview para documentos de debito.
+
+### Cancelamento implementado na Fase 2.5.8
+
+O cancelamento reutiliza o `FiscalDocument` de debito e cria `FiscalDocumentEvent(event_type="cancellation", event_payload_type="nfe_debit_cancellation")`. Nao cria documento ou link novo. `FiscalEmissionAttempt(operation_type="nfe_debit_cancellation")` referencia documento e evento; o XML de cancelamento fica em `event.xml_url`.
 Adicionar somente na fase funcional aprovada:
 
 - `FiscalDocumentPurpose.DEBIT`;

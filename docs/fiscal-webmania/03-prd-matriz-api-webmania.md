@@ -651,6 +651,10 @@ Implementacao 2.5.6P: somente pre-payload local com `modelo=1`, `finalidade=6`, 
 ### Contrato implementado na Fase 2.5.7
 
 `POST /1/nfe/emissao/` com `modelo=1`, `finalidade=6`, `tipo_debito=4`, cliente, pedido e produtos vindos da preview. Cada produto inclui `codigo_cfop`, `dfe_referenciado` e somente `impostos.ibs_cbs`. Nao sao enviados `nfe_referenciada`, `tipo_credito`, tributos tradicionais ou campos de evento. O OpenAPI validado nao exigiu correcao.
+
+### Contrato revalidado para Fase 2.5.8
+
+`PUT /1/nfe/cancelar/` recebe somente `chave` ou `uuid` e `motivo` entre 15 e 255 caracteres. O ambiente permanece auditado localmente e nao integra o body oficial. Nao enviar `nfce_referenciada`, finalidade, tipo de debito, produto, imposto, DF-e referenciado ou campo de evento IBS/CBS. Resposta confirmada: `status`, `xml`, `xml_cancelamento` e `log`.
 Fonte oficial revalidada em 2026-06-22: `POST /1/nfe/emissao/`, `finalidade=6`, `tipo_debito=4`, `codigo_cfop` na raiz do produto, `dfe_referenciado.chave` obrigatorio por produto e `dfe_referenciado.item` para o sequencial fiscal. Cada produto envia somente `impostos.ibs_cbs`.
 
 `nfe_referenciada` **nao sera enviada**: a documentacao a define na secao de credito; para debito tipos 3/4, a referencia operacional documentada e `produtos[].dfe_referenciado`.

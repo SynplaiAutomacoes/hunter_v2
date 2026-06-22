@@ -539,6 +539,10 @@ Decisao recomendada: **implementar a NF-e de debito tipo 4 como proxima fase fun
 
 Implementada e validada tecnicamente a emissao de NF-e de debito tipo 4 para multa/juros. O produto permanece limitado a origem local, preview/base aprovadas, `dfe_referenciado` por produto e IBS/CBS exclusivo. Cancelamento, debitos 1-3/5-8 e creditos 2-5 continuam fora do escopo.
 
+## Fase 2.5.8 - Escopo autorizado
+
+Cancelar somente NF-e de debito tipo 4 autorizada, pelo endpoint NF-e padrao. O cancelamento cria evento auditavel no documento de debito, sem alterar NF-e original, base, item ou preview. Outros debitos e novas emissoes permanecem bloqueados.
+
 Nao incluir na primeira emissao: outros tipos de debito, origem externa, cancelamento, eventos IBS/CBS, creditos adicionais ou calculo tributario automatico.
 
 Continuam adiados:

@@ -326,6 +326,13 @@ Estado comprovado em 2026-06-22, sem alteracao funcional:
 - `FiscalDocument(purpose="debit", fiscal_purpose_type="4")`, link `debits` e tentativa `nfe_debit_emission` existem antes do gateway.
 - Webhook resolve UUID/chave globalmente sem associacao ambigua; reconciliacao usa somente consulta remota.
 - Nenhum cancelamento ou outro tipo de debito foi aberto.
+
+## Auditoria implementada - Fase 2.5.8
+
+- Cancelamento restrito a NF-e derivada de debito tipo 4 autorizada e com identificador remoto.
+- Evento `cancellation` e tentativa `nfe_debit_cancellation` sao persistidos antes do `PUT /1/nfe/cancelar/`.
+- Body contem apenas chave/UUID e motivo; ambiente e dados de emissao permanecem somente no dominio local.
+- Webhook e reconciliacao atualizam apenas o documento de debito; nota original, base, item e preview permanecem imutaveis.
 - checkpoint `189bf973` validou `FiscalDebitProductPreview`, migration `0057`, permissao, tenancy, imutabilidade e ausencia de gateway remoto;
 - a preview aprovada contem chave/item em `dfe_referenciado`, produto comercial, quantidade, unitario, total, CFOP e snapshot IBS/CBS exclusivo;
 - `FiscalDocument` ainda nao possui `purpose="debit"`, campo `debit_product_preview` ou constraint de documento de debito;

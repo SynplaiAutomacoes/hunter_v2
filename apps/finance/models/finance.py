@@ -119,6 +119,7 @@ class FiscalEmissionOperationType(models.TextChoices):
     NFE_CREDIT_EMISSION = "nfe_credit_emission", "Emissao NF-e de credito"
     NFE_CREDIT_CANCELLATION = "nfe_credit_cancellation", "Cancelamento NF-e de credito"
     NFE_DEBIT_EMISSION = "nfe_debit_emission", "Emissao NF-e de debito"
+    NFE_DEBIT_CANCELLATION = "nfe_debit_cancellation", "Cancelamento NF-e de debito"
 
 
 class FiscalDocumentType(models.TextChoices):
@@ -881,6 +882,7 @@ class FiscalDocument(TimeStampedModel):
             ("view_nfe_debit", "Pode visualizar NF-e de debito"),
             ("download_nfe_debit", "Pode baixar XML/DANFE de NF-e de debito"),
             ("view_nfe_debit_payload", "Pode visualizar payload de NF-e de debito"),
+            ("cancel_nfe_debit", "Pode cancelar NF-e de debito"),
         ]
 
     def __str__(self) -> str:

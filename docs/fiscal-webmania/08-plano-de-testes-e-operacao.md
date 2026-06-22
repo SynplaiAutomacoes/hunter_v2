@@ -551,6 +551,13 @@ Testes de emissao, idempotencia remota, concorrencia de gateway, timeout, webhoo
 - 276 testes fiscais dirigidos aprovados com `--keepdb`.
 - `makemigrations finance --check --dry-run`, Ruff dos arquivos tocados e `git diff --check` aprovados.
 - Regressao atualizada: preparar base/preview nao emite, embora o operation type de debito agora exista legitimamente.
+
+## Evidencia executada - Fase 2.5.8
+
+- 10 testes especificos de cancelamento de debito tipo 4 aprovados, incluindo concorrencia transacional.
+- 51 testes cruzados de emissao/cancelamento de credito e debito aprovados.
+- 286 testes fiscais dirigidos aprovados com `--keepdb`.
+- Contrato, permissao isolada, tenancy, sanitizacao, webhook ambiguo e reconciliacao sem reenvio comprovados.
 - cria documento `nfe/debit/4` somente de preview/base aprovadas e locais;
 - cria link `debits` e preserva original/base/item/preview;
 - payload usa `modelo=1`, `finalidade=6`, `tipo_debito=4` e nao usa `nfe_referenciada`;

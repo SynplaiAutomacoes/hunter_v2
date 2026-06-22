@@ -559,3 +559,11 @@ Fase: 2.4D.6.0.
 **Cancelamento:** fase posterior pelo cancelamento NF-e padrao, nunca pelo endpoint de cancelamento de evento IBS/CBS.
 
 **Auto-revisao:** a emissao exige nota original local normal e aprovada, chave coerente, snapshots comercial/monetario, composicao multa+juros e produto/IBS-CBS identicos aos valores congelados. O webhook verifica ambiguidade global antes de atualizar o debito.
+
+## ADR - Cancelamento da NF-e de debito tipo 4
+
+**Status:** implementado e validado tecnicamente na Fase 2.5.8.
+
+**Decisao:** usar `FiscalDocumentEvent(event_type="cancellation", event_payload_type="nfe_debit_cancellation")` e operation type especifico `nfe_debit_cancellation`. O body segue o contrato NF-e padrao com identificador e motivo, sem ambiente ou campos de emissao. O documento original, base e preview sao imutaveis.
+
+**Resolucao remota:** webhook de cancelamento de debito e avaliado antes do documento emitido, mas somente e aceito quando houver um unico evento candidato em todo o conjunto de cancelamentos NF-e. A reconciliacao consulta o documento e nunca reenvia o cancelamento.

@@ -157,3 +157,20 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 - Tres testes preparatorios antigos foram atualizados: o operation type agora existe, mas preparar base/preview continua sem criar documento ou tentativa.
 - Validacoes: 16 testes especificos e 276 testes fiscais dirigidos passaram; migration, Ruff e diff aprovados.
 - Cancelamento, outros debitos, creditos 2-5 e demais blocos permaneceram nao iniciados.
+
+## 2026-06-22 - Inicio da Fase 2.5.8
+
+- Fase 2.5.7 validada no checkpoint `9214150d`.
+- Autorizado somente cancelamento da NF-e de debito tipo 4 pelo endpoint NF-e padrao.
+- Contrato oficial revalidado: identificador e motivo no body; ambiente e dados de emissao nao sao enviados.
+- Decidida operacao propria `nfe_debit_cancellation`, sem reutilizar cancelamento de evento IBS/CBS.
+- Demais debitos, creditos 2-5 e demais fases permanecem bloqueados.
+
+## 2026-06-22 - Implementacao e validacao tecnica da Fase 2.5.8
+
+- Criados service de cancelamento, views, rotas, UI, migration `0059` e permissao `cancel_nfe_debit`.
+- Implementados evento `nfe_debit_cancellation`, tentativa homonima, webhook seguro e reconciliacao por consulta.
+- Auto-revisao confirmou body estrito, status cancelado somente com confirmacao remota e imutabilidade da nota original/base/preview.
+- Ajustes durante testes: mocks passaram a respeitar unicidade global de UUID de evento e assercoes comprovaram valor sensivel redigido em vez de ocultar o nome da chave.
+- Validacoes: 10 testes especificos, 51 cruzados e 286 fiscais dirigidos passaram; migration, Ruff e diff aprovados.
+- Outros debitos, creditos 2-5, eventos pendentes e demais fases nao foram iniciados.

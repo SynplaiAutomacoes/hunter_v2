@@ -569,6 +569,10 @@ O documento e bloqueado transacionalmente; evento e tentativa sao persistidos an
 ### Seguranca implementada na Fase 2.5.7
 
 A preview e bloqueada transacionalmente, o documento/link/tentativa sao persistidos antes do POST e a unicidade da preview impede segunda intencao. Timeout marca documento e tentativa como `uncertain`; retry nao reenvia. O webhook rejeita UUID/chave ambiguos em qualquer oficina ou proposito fiscal, e a reconciliacao executa apenas `GET /1/nfe/consulta/`.
+
+## Seguranca implementada - Fase 2.5.8
+
+O documento e bloqueado com `select_for_update`; cancelamento ativo ou `uncertain` impede nova transmissao. Timeout marca evento e tentativa como incertos. Resposta intermediaria nao cancela o documento e permanece bloqueada para consulta. A resolucao do webhook considera todos os cancelamentos NF-e para rejeitar colisao entre credito/debito e oficinas. Reconciliacao nunca executa `PUT`.
 A Fase 2.5.6.0 nao abre gateway remoto. A fase preparatoria recomendada deve:
 
 - impedir que uma preview de credito seja promovida ou convertida em debito;

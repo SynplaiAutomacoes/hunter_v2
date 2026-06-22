@@ -577,3 +577,11 @@ Status: validada tecnicamente em 2026-06-22; checkpoint desta entrega pendente.
 Escopo autorizado: somente `modelo=1`, `finalidade=6`, `tipo_debito=4`, origem local, preview/base aprovadas, `dfe_referenciado` por produto e IBS/CBS exclusivo. Cancelamento e qualquer outro tipo permanecem fora do escopo.
 
 Resultado: migration `0058`, service, UI, permissoes, flag, webhook, reconciliacao e downloads implementados. Os 16 testes especificos e o conjunto fiscal dirigido de 276 testes passaram, incluindo concorrencia real, timeout `uncertain`, ambiguidade de webhook e regressao do credito tipo 1.
+
+## Fase 2.5.8 - Cancelamento da NF-e de debito tipo 4
+
+Status: validada tecnicamente em 2026-06-22; checkpoint desta entrega pendente.
+
+Escopo: cancelar somente `FiscalDocument(document_type="nfe", purpose="debit", fiscal_purpose_type="4")` autorizado por `PUT /1/nfe/cancelar/`. O evento/tentativa deve ser persistido antes do gateway, timeout deve resultar em `uncertain`, e webhook/reconciliacao devem atualizar somente o documento de debito. Outros tipos e eventos permanecem bloqueados.
+
+Resultado: migration `0059`, service, UI, webhook, reconciliacao e permissao implementados. Os 10 testes especificos, 51 regressivos de credito/debito e 286 testes fiscais dirigidos passaram, incluindo concorrencia real, timeout, ambiguidade entre credito/debito e protecao cross-workshop.

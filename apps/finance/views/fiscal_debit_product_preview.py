@@ -11,11 +11,12 @@ from django.views import View
 from django.views.generic import DetailView, FormView, ListView
 
 from apps.finance.forms.fiscal_debit_product_preview import FiscalDebitProductPreviewCreateForm
-from apps.finance.models.finance import FiscalDebitProductPreview, FiscalDocument, FiscalDocumentPurpose, FiscalReferencedBasis
+from apps.finance.models.finance import FiscalDebitProductPreview, FiscalDocument, FiscalDocumentEventType, FiscalDocumentPurpose, FiscalReferencedBasis
 from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
 from apps.finance.services.fiscal_debit_product_preview import approve_debit_product_preview, create_debit_product_preview
 from apps.finance.services.fiscal_referenced_basis import is_credit_debit_basis_enabled
 from apps.finance.services.nfe_debit import is_nfe_debit_emission_enabled
+from apps.finance.services.nfe_debit_cancellation import is_nfe_debit_eligible_for_cancellation
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import has_workshop_perm
 
@@ -130,9 +131,12 @@ class FiscalDebitProductPreviewDetailView(FiscalDebitProductPreviewPermissionMix
         context["can_view_debit"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="fiscaldocument", codename="view_nfe_debit", request=self.request)
         context["can_download_debit"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="fiscaldocument", codename="download_nfe_debit", request=self.request)
         context["can_view_debit_payload"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="fiscaldocument", codename="view_nfe_debit_payload", request=self.request)
+        context["can_cancel_debit"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="fiscaldocument", codename="cancel_nfe_debit", request=self.request)
         debit_document = FiscalDocument.objects.filter(workshop=self.workshop, debit_product_preview=self.object, purpose=FiscalDocumentPurpose.DEBIT).first()
         context["debit_document"] = debit_document if context["can_view_debit"] else None
         context["debit_issue_enabled"] = is_nfe_debit_emission_enabled(workshop=self.workshop) and self.object.validation_status == "approved" and debit_document is None
+        context["debit_cancellation_enabled"] = context["can_cancel_debit"] and is_nfe_debit_emission_enabled(workshop=self.workshop) and is_nfe_debit_eligible_for_cancellation(debit_document)
+        context["debit_cancellation_events"] = debit_document.events.filter(event_type=FiscalDocumentEventType.CANCELLATION, event_payload_type="nfe_debit_cancellation").order_by("-event_sequence") if debit_document and context["can_view_debit"] else []
         return context
 
 
