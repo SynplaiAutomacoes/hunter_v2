@@ -12,6 +12,7 @@ from .fiscal_debit_product_preview import (
     FiscalDebitProductPreviewPayloadView as FiscalDebitProductPreviewPayloadView,
 )
 from .nfe_credit import NfeCreditCancellationDownloadView, NfeCreditCancellationPayloadView, NfeCreditCancellationView, NfeCreditDownloadView, NfeCreditIssueView, NfeCreditPayloadView
+from .nfe_debit import NfeDebitDownloadView as NfeDebitDownloadView, NfeDebitEmissionFeatureToggleView as NfeDebitEmissionFeatureToggleView, NfeDebitIssueView as NfeDebitIssueView, NfeDebitPayloadView as NfeDebitPayloadView
 from .common import DirectorWorkshopAccessMixin
 from .emission import EmissionPreviewView, EmissionRequestCreateView, EmissionWorkOrderItemUpdateView, EmissionWorkOrderKitComponentUpdateView, NfeCreateRedirectView, NfseCreateRedirectView
 from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocumentsListView

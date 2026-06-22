@@ -212,13 +212,14 @@ class FiscalPhaseTwoDebitProductPreviewTests(TestCase):
             preview.save()
         self.assertFalse(FiscalCreditProductPreview.objects.exists())
 
-    def test_disabled_feature_flag_blocks_preparation_but_does_not_create_emission_capability(self) -> None:
+    def test_disabled_preparation_flag_blocks_preview_without_emitting(self) -> None:
         self.company.credit_debit_basis_enabled = False
         self.company.save(update_fields=["credit_debit_basis_enabled"])
         with self.assertRaisesMessage(ValidationError, "desabilitada"):
             self.create_preview()
-        self.assertNotIn("nfe_debit_emission", FiscalEmissionOperationType.values)
+        self.assertIn("nfe_debit_emission", FiscalEmissionOperationType.values)
         self.assertFalse(FiscalEmissionAttempt.objects.exists())
+        self.assertFalse(FiscalDocument.objects.filter(purpose=FiscalDocumentPurpose.DEBIT).exists())
 
     def test_cross_workshop_is_blocked(self) -> None:
         other_user, other_workshop = _scope(62)

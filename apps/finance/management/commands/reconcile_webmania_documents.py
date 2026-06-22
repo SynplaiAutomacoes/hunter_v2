@@ -9,6 +9,7 @@ from apps.finance.services.nfe_adjustment import NfeAdjustmentError, reconcile_n
 from apps.finance.services.nfe_complementary import NfeComplementaryError, reconcile_nfe_complementary_document
 from apps.finance.services.nfe_credit import NfeCreditError, reconcile_nfe_credit_document
 from apps.finance.services.nfe_credit_cancellation import NfeCreditCancellationError, reconcile_nfe_credit_cancellation
+from apps.finance.services.nfe_debit import NfeDebitError, reconcile_nfe_debit_document
 from apps.finance.services.nfe_consulta import NfeConsultaError, reconcile_nfe_item
 from apps.finance.services.nfe_returns import NfeReturnError, reconcile_nfe_return_document
 from apps.finance.services.nfce_cancellation import NfceCancellationError, reconcile_nfce_cancellation_event
@@ -32,6 +33,7 @@ class Command(BaseCommand):
         reconciled_nfe_complementary = 0
         reconciled_nfe_adjustment = 0
         reconciled_nfe_credit = 0
+        reconciled_nfe_debit = 0
         reconciled_nfe_credit_cancellations = 0
         reconciled_nfce = 0
         reconciled_nfce_cancellations = 0
@@ -99,6 +101,20 @@ class Command(BaseCommand):
                 failed += 1
             else:
                 reconciled_nfe_credit += 1
+
+        pending_nfe_debit_documents = FiscalDocument.objects.filter(
+            origin=FiscalDocumentOrigin.DERIVED,
+            purpose=FiscalDocumentPurpose.DEBIT,
+            fiscal_purpose_type="4",
+            status__in=[FiscalDocumentStatus.PROCESSING, FiscalDocumentStatus.CONTINGENCY, FiscalDocumentStatus.UNCERTAIN],
+        ).select_related("workshop").order_by("pk")[:limit]
+        for pending_debit_document in pending_nfe_debit_documents:
+            try:
+                reconcile_nfe_debit_document(document=pending_debit_document)
+            except NfeDebitError:
+                failed += 1
+            else:
+                reconciled_nfe_debit += 1
 
         pending_credit_cancellations = FiscalDocumentEvent.objects.filter(
             event_type=FiscalDocumentEventType.CANCELLATION,
@@ -239,4 +255,4 @@ class Command(BaseCommand):
                     else:
                         uncertain_checked += 1
 
-        self.stdout.write(self.style.SUCCESS(f"Webhooks processados: {processed_webhooks}. NF-es reconciliadas: {reconciled_nfe}. Devolucoes/estornos reconciliados: {reconciled_nfe_returns}. Complementares reconciliadas: {reconciled_nfe_complementary}. Ajustes reconciliados: {reconciled_nfe_adjustment}. Creditos tipo 1 reconciliados: {reconciled_nfe_credit}. Cancelamentos de credito reconciliados: {reconciled_nfe_credit_cancellations}. NFC-es reconciliadas: {reconciled_nfce}. Cancelamentos NFC-e reconciliados: {reconciled_nfce_cancellations}. NFS-es reconciliadas: {reconciled_nfse}. Tentativas incertas consultadas: {uncertain_checked}. Falhas: {failed}."))
+        self.stdout.write(self.style.SUCCESS(f"Webhooks processados: {processed_webhooks}. NF-es reconciliadas: {reconciled_nfe}. Devolucoes/estornos reconciliados: {reconciled_nfe_returns}. Complementares reconciliadas: {reconciled_nfe_complementary}. Ajustes reconciliados: {reconciled_nfe_adjustment}. Creditos tipo 1 reconciliados: {reconciled_nfe_credit}. Debitos tipo 4 reconciliados: {reconciled_nfe_debit}. Cancelamentos de credito reconciliados: {reconciled_nfe_credit_cancellations}. NFC-es reconciliadas: {reconciled_nfce}. Cancelamentos NFC-e reconciliados: {reconciled_nfce_cancellations}. NFS-es reconciliadas: {reconciled_nfse}. Tentativas incertas consultadas: {uncertain_checked}. Falhas: {failed}."))

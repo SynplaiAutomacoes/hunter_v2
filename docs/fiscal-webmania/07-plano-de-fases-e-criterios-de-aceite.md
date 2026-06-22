@@ -530,3 +530,50 @@ Status: implementada e validada tecnicamente em 2026-06-22, aguardando checkpoin
 Escopo autorizado: modelagem, validacao e UI administrativa de preview propria para `finalidade=6`, `tipo_debito=4`, com `dfe_referenciado` obrigatorio e sem transmissao. Reutiliza a flag preparatoria geral existente, mas cria permissoes distintas das de credito. Emissao, documento fiscal de debito, tentativa remota, webhook, reconciliacao e cancelamento permanecem bloqueados.
 
 Resultado: criterios atendidos por `FiscalDebitProductPreview`, migration `0057`, service local, UI e 14 testes novos. A regressao fiscal dirigida passou com 260 testes.
+
+## Fase 2.5.7.0 - Planejamento final da emissao de debito tipo 4
+
+Status: aprovada em 2026-06-22. A Fase 2.5.6P foi validada no checkpoint `189bf973`.
+
+### Matriz de pre-condicoes
+
+| Pre-condicao | Fonte atual | Existe? | Bloqueio se ausente? | Observacao |
+| --- | --- | ---: | ---: | --- |
+| Base aprovada | `FiscalReferencedBasis` | Sim | Sim | Hipotese `debit_fine_interest` |
+| Item aprovado/congelado | `FiscalReferencedBasisItem` | Sim | Sim | Imutavel com base aprovada |
+| Preview aprovada | `FiscalDebitProductPreview` | Sim | Sim | Intencao exclusiva tipo 4 |
+| Chave original | Base/preview | Sim | Sim | 44 digitos |
+| `dfe_referenciado` | Preview/produto | Sim | Sim | Chave e item por produto |
+| Sequencial fiscal | Base/item/preview | Sim | Sim | 1 a 999 |
+| Snapshot IBS/CBS | Base/preview | Sim | Sim | Sem recalcule/fallback |
+| Snapshot comercial | Item/preview | Sim | Sim | Descricao, codigo, NCM, unidade |
+| Snapshot monetario | Item/preview | Sim | Sim | Multa e juros auditaveis |
+| CFOP | Preview | Sim | Sim | Na raiz do produto |
+| Quantidade fiscal | Preview | Sim | Sim | Valor explicito |
+| Valor unitario fiscal | Preview | Sim | Sim | Valor explicito |
+| Valor total fiscal | Preview | Sim | Sim | Fecha com quantidade x unitario |
+| Multa | Item | Sim | Sim | Nao negativa |
+| Juros | Item | Sim | Sim | Nao negativo |
+| Base multa + juros | Item/preview | Sim | Sim | Deve ser positiva e igual ao total |
+| Feature flag de emissao | Ainda nao existe | Nao | Sim | Criar separada da flag preparatoria |
+| Permissao `issue_nfe_debit` | Ainda nao existe | Nao | Sim | Criar somente na fase funcional |
+
+### Decisao
+
+Recomendar implementacao funcional como proxima fase, limitada a preview local aprovada. A lacuna restante e deliberadamente de controle de rollout: flag e permissoes de emissao, criadas junto com o documento/tentativa. Nao ha lacuna fiscal de item/payload que exija nova fase preparatoria.
+
+### Escopo proposto
+
+- documento derivado `purpose="debit"`, tipo `4`, link `debits`, preview/base obrigatorias;
+- POST unico em `/1/nfe/emissao/`, idempotencia persistida e `uncertain`;
+- cliente/pedido derivados da origem operacional local, como no credito tipo 1;
+- webhook, reconciliacao, payload e XML/DANFE protegidos;
+- sem cancelamento, origem externa, outros tipos ou eventos.
+
+## Fase 2.5.7 - Emissao da NF-e de debito tipo 4
+
+Status: validada tecnicamente em 2026-06-22; checkpoint desta entrega pendente.
+
+Escopo autorizado: somente `modelo=1`, `finalidade=6`, `tipo_debito=4`, origem local, preview/base aprovadas, `dfe_referenciado` por produto e IBS/CBS exclusivo. Cancelamento e qualquer outro tipo permanecem fora do escopo.
+
+Resultado: migration `0058`, service, UI, permissoes, flag, webhook, reconciliacao e downloads implementados. Os 16 testes especificos e o conjunto fiscal dirigido de 276 testes passaram, incluindo concorrencia real, timeout `uncertain`, ambiguidade de webhook e regressao do credito tipo 1.

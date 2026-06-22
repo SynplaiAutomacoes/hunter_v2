@@ -17,6 +17,7 @@ from apps.finance.services.nfe_adjustment import apply_nfe_adjustment_document_p
 from apps.finance.services.nfe_complementary import apply_nfe_complementary_document_payload, is_ambiguous_nfe_complementary_webhook, resolve_nfe_complementary_document_for_webhook
 from apps.finance.services.nfe_credit import apply_nfe_credit_document_payload, is_ambiguous_nfe_credit_webhook, resolve_nfe_credit_document_for_webhook
 from apps.finance.services.nfe_credit_cancellation import apply_credit_cancellation_payload, is_ambiguous_credit_cancellation_webhook, resolve_credit_cancellation_for_webhook
+from apps.finance.services.nfe_debit import apply_nfe_debit_document_payload, is_ambiguous_nfe_debit_webhook, resolve_nfe_debit_document_for_webhook
 from apps.finance.services.nfe_returns import apply_nfe_return_document_payload, is_ambiguous_nfe_return_webhook, resolve_nfe_return_document_for_webhook
 from apps.finance.services.nfce_cancellation import apply_nfce_cancellation_event_payload, is_ambiguous_nfce_cancellation_webhook, resolve_nfce_cancellation_event_for_webhook
 from apps.finance.services.nfce_emission import apply_nfce_document_payload, is_ambiguous_nfce_webhook, resolve_nfce_document_for_webhook
@@ -276,6 +277,19 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
             if is_ambiguous_credit_cancellation_webhook(payload=payload):
                 _mark_event_deferred(event, error=f"Cancelamento NF-e de credito {event_uuid or str(payload.get('chave') or '').strip()} ambiguo entre eventos.")
                 return False
+
+        debit_document = resolve_nfe_debit_document_for_webhook(payload=payload)
+        if debit_document is not None:
+            with transaction.atomic():
+                debit_document = debit_document.__class__.objects.select_for_update().get(pk=debit_document.pk)
+                if not _is_regressive_status(model="nfe", current_status=debit_document.status, incoming_status=str(payload.get("status") or "")):
+                    apply_nfe_debit_document_payload(document=debit_document, response_payload=payload)
+
+            _mark_event_processed(event)
+            return True
+        if is_ambiguous_nfe_debit_webhook(payload=payload):
+            _mark_event_deferred(event, error=f"NF-e de debito {event_uuid or str(payload.get('chave') or '').strip()} ambigua entre documentos.")
+            return False
 
         credit_document = resolve_nfe_credit_document_for_webhook(payload=payload)
         if credit_document is not None:

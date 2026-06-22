@@ -542,3 +542,26 @@ Testes de emissao, idempotencia remota, concorrencia de gateway, timeout, webhoo
 - suite fiscal dirigida completa: 260/260 testes passaram.
 - `makemigrations finance --check --dry-run`, Ruff dos arquivos tocados e `git diff --check`: aprovados.
 - o alvo solicitado `FiscalPhaseTwoCreditTypeOneEmissionTests` nao existe; foram usados os equivalentes reais `FiscalPhaseTwoCreditTypeOneTests` e `FiscalPhaseTwoCreditTypeOneConcurrentTests`.
+
+## Testes planejados - Emissao de debito tipo 4
+
+### Evidencia executada - Fase 2.5.7
+
+- 16 testes especificos de debito tipo 4 aprovados, incluindo `TransactionTestCase` concorrente.
+- 276 testes fiscais dirigidos aprovados com `--keepdb`.
+- `makemigrations finance --check --dry-run`, Ruff dos arquivos tocados e `git diff --check` aprovados.
+- Regressao atualizada: preparar base/preview nao emite, embora o operation type de debito agora exista legitimamente.
+- cria documento `nfe/debit/4` somente de preview/base aprovadas e locais;
+- cria link `debits` e preserva original/base/item/preview;
+- payload usa `modelo=1`, `finalidade=6`, `tipo_debito=4` e nao usa `nfe_referenciada`;
+- cada produto preserva `codigo_cfop`, valores e `dfe_referenciado` da preview;
+- envia somente `impostos.ibs_cbs`; bloqueia ICMS/IPI/PIS/COFINS/ISSQN/II, imposto devolvido, credito e eventos;
+- bloqueia snapshots/CFOP/referencia/valores ausentes ou divergentes;
+- exige flag de emissao e `issue_nfe_debit`; permissoes preparatorias ou de credito nao bastam;
+- bloqueia cross-workshop, origem externa e duplicidade por preview;
+- documento existe antes do gateway; uma chamada por intencao e concorrencia;
+- timeout/resposta incerta geram `uncertain` e bloqueiam retry;
+- webhook atualiza somente debito correto; ambiguidade nao atualiza;
+- reconciliacao consulta sem emitir; XML/DANFE e payload respeitam tenancy/permissao;
+- rejeicao com XML nao vira sucesso; payload/log ficam sanitizados;
+- regressao completa de credito tipo 1, NF-e/NFC-e e eventos IBS/CBS.

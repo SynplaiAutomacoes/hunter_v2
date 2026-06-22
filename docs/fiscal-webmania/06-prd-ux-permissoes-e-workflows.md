@@ -433,3 +433,12 @@ Nenhuma delas concede emissao. A futura permissao `issue_nfe_debit` deve ser cri
 UI minima preparatoria: listar bases aprovadas elegiveis, criar preview de debito tipo 4, exibir multa/juros, chave e item DF-e referenciado, CFOP, produto e IBS/CBS sanitizados, erros e aprovacao. Deve haver aviso explicito de que nao existe transmissao Webmania. Nao exibir outros tipos de debito, novos creditos ou eventos IBS/CBS.
 
 Implementado: listagem, formulario, detalhe, aprovacao e payload sanitizado. A base de hipotese `debit_fine_interest` oferece atalho somente com permissao propria. A flag geral `credit_debit_basis_enabled` habilita preparacao, mas nao concede permissao nem emissao.
+
+## UX e permissoes planejadas - Emissao debito tipo 4
+
+### UX e permissoes implementadas
+
+Foram adicionadas `issue_nfe_debit`, `view_nfe_debit`, `download_nfe_debit` e `view_nfe_debit_payload`. A listagem permite ativacao administrativa auditada e a tela da preview aprovada exibe confirmacao e emissao somente quando flag e permissao especifica estiverem presentes. Payload e downloads continuam escopados pela oficina.
+Permissoes futuras separadas: `issue_nfe_debit`, `view_nfe_debit`, `download_nfe_debit` e `view_nfe_debit_payload`. Preparar/aprovar base ou preview e emitir credito nao concedem emissao de debito.
+
+Criar flag administrativa propria `nfe_debit_emission_enabled` (nome final pode seguir padrao do model), separada de `credit_debit_basis_enabled`. UI minima: botao de emissao somente em preview aprovada/elegivel, confirmacao explicita de `finalidade=6`/`tipo_debito=4`, resumo do DF-e/item, produto e IBS/CBS, status, payload e downloads. Nao oferecer cancelamento na primeira emissao.

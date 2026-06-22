@@ -566,6 +566,9 @@ O documento e bloqueado transacionalmente; evento e tentativa sao persistidos an
 
 ## Seguranca planejada - debito tipo 4
 
+### Seguranca implementada na Fase 2.5.7
+
+A preview e bloqueada transacionalmente, o documento/link/tentativa sao persistidos antes do POST e a unicidade da preview impede segunda intencao. Timeout marca documento e tentativa como `uncertain`; retry nao reenvia. O webhook rejeita UUID/chave ambiguos em qualquer oficina ou proposito fiscal, e a reconciliacao executa apenas `GET /1/nfe/consulta/`.
 A Fase 2.5.6.0 nao abre gateway remoto. A fase preparatoria recomendada deve:
 
 - impedir que uma preview de credito seja promovida ou convertida em debito;
@@ -577,3 +580,9 @@ A Fase 2.5.6.0 nao abre gateway remoto. A fase preparatoria recomendada deve:
 Somente uma fase funcional posterior podera usar `FiscalEmissionAttempt(operation_type="nfe_debit_emission")`. Essa emissao devera manter uma chamada por intencao, `uncertain` bloqueante, webhook por UUID e reconciliacao sem reenvio. Cancelamento devera ser subfase separada pelo fluxo padrao NF-e.
 
 Resultado 2.5.6P: nenhuma operacao remota, idempotencia de emissao, webhook ou reconciliacao foi criada. A seguranca desta fase e local: transacao, lock da base, revisao unica, snapshots aprovados, imutabilidade, sanitizacao, permissao e tenancy.
+
+## Seguranca planejada - Fase posterior a 2.5.7.0
+
+Idempotencia: `hash(workshop_id, debit_document_id, "nfe_debit_emission", request_generation)`. Criar documento e tentativa dentro da mesma transacao antes do POST. A preview aprovada so pode possuir um documento. `sent`/`succeeded`/`uncertain` bloqueiam reenvio; timeout ou resposta indeterminada deixam documento e tentativa `uncertain`.
+
+Webhook resolve primeiro por UUID do documento de debito, depois por tentativa inequivoca; ambiguidade nao atualiza nada. Reconciliacao usa somente consulta NF-e e nunca reenvia. NF-e original, base, item e preview permanecem imutaveis.

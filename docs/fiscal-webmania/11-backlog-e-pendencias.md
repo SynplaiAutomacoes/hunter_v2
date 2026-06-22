@@ -210,3 +210,19 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Criar `FiscalDocument(purpose="debit")`, link, tentativa, gateway, webhook/reconciliacao e downloads somente na fase de emissao.
 - Cancelamento do debito deve permanecer em fase separada posterior a emissao validada.
 - Creditos 2-5, demais debitos, `112120`, `112140`, `211xxx`, complementar tributaria, NFS-e e CT-e permanecem nao iniciados.
+
+## Pendencias apos Fase 2.5.7.0
+
+- Aguardar autorizacao explicita para implementar a emissao de debito tipo 4.
+- Criar flag `nfe_debit_emission_enabled` e permissoes de emissao/consulta/download/payload na fase funcional.
+- Restringir primeira emissao a origem local; importacao/origem externa permanece fora do escopo.
+- Revalidar imediatamente antes do codigo `operacao`, natureza, cliente/pedido e resposta oficial vigente.
+- Nao enviar `nfe_referenciada`; preservar `dfe_referenciado` por produto.
+- Planejar cancelamento somente depois da emissao validada.
+- Outros debitos, creditos 2-5, eventos pendentes, complementar tributaria, NFS-e e CT-e continuam bloqueados.
+
+## Pendencias apos Fase 2.5.7
+
+- Planejar cancelamento da NF-e de debito tipo 4 em fase independente pelo cancelamento NF-e padrao.
+- Manter debitos 1-3/5-8, creditos 2-5, `112120`, `112140`, `211xxx`, complementar tributaria, NFS-e e CT-e bloqueados ate autorizacao especifica.
+- Origem externa permanece bloqueada ate existir importacao/validacao fiscal suficiente.

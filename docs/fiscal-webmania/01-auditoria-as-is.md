@@ -316,3 +316,21 @@ Estado comprovado em 2026-06-22, sem alteracao funcional:
 - `WebmaniaCompany.credit_debit_basis_enabled` e flag preparatoria geral ja existente; sera reutilizada, mas nao concede permissao nem abre emissao de debito.
 - permissoes de credito sao especificas e nao concedem acesso a preview de debito.
 - emissao/cancelamento de credito usam services e tentativas remotas proprios; a preview de debito nao os importara nem chamara.
+
+## Auditoria incremental - Fase 2.5.7.0
+
+## Auditoria implementada - Fase 2.5.7
+
+- A emissao usa exclusivamente `FiscalDebitProductPreview` aprovada, base aprovada e NF-e original local autorizada.
+- O produto preserva CFOP, valores e `dfe_referenciado` congelados; `impostos` aceita somente `ibs_cbs` do snapshot aprovado.
+- `FiscalDocument(purpose="debit", fiscal_purpose_type="4")`, link `debits` e tentativa `nfe_debit_emission` existem antes do gateway.
+- Webhook resolve UUID/chave globalmente sem associacao ambigua; reconciliacao usa somente consulta remota.
+- Nenhum cancelamento ou outro tipo de debito foi aberto.
+- checkpoint `189bf973` validou `FiscalDebitProductPreview`, migration `0057`, permissao, tenancy, imutabilidade e ausencia de gateway remoto;
+- a preview aprovada contem chave/item em `dfe_referenciado`, produto comercial, quantidade, unitario, total, CFOP e snapshot IBS/CBS exclusivo;
+- `FiscalDocument` ainda nao possui `purpose="debit"`, campo `debit_product_preview` ou constraint de documento de debito;
+- `FiscalDocumentLinkRole` ainda nao possui `debits`;
+- `FiscalEmissionOperationType` ainda nao possui `nfe_debit_emission`;
+- nao existem service, view, URL, webhook/reconciliacao ou permissoes de emissao/download de debito;
+- o fluxo de credito tipo 1 comprova a infraestrutura reutilizavel de auth, cliente, pedido, idempotencia, status, webhook, reconciliacao e downloads;
+- a primeira emissao de debito deve ficar restrita a origem local, pois cliente/pedido sao derivados da NF-e operacional local; origem externa exige fase propria.

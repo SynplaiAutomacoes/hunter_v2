@@ -118,6 +118,7 @@ class FiscalEmissionOperationType(models.TextChoices):
     NFE_IBS_CBS_EVENT_CANCELLATION = "nfe_ibs_cbs_event_cancellation", "Cancelamento de evento IBS/CBS"
     NFE_CREDIT_EMISSION = "nfe_credit_emission", "Emissao NF-e de credito"
     NFE_CREDIT_CANCELLATION = "nfe_credit_cancellation", "Cancelamento NF-e de credito"
+    NFE_DEBIT_EMISSION = "nfe_debit_emission", "Emissao NF-e de debito"
 
 
 class FiscalDocumentType(models.TextChoices):
@@ -149,6 +150,7 @@ class FiscalDocumentPurpose(models.TextChoices):
     COMPLEMENTARY = "complementary", "Complementar"
     ADJUSTMENT = "adjustment", "Ajuste"
     CREDIT = "credit", "Credito"
+    DEBIT = "debit", "Debito"
 
 
 class FiscalDocumentComplementaryType(models.TextChoices):
@@ -161,6 +163,7 @@ class FiscalDocumentLinkRole(models.TextChoices):
     COMPLEMENTS = "complements", "Complementa"
     ADJUSTS = "adjusts", "Ajusta"
     CREDITS = "credits", "Credita"
+    DEBITS = "debits", "Debita"
 
 
 class FiscalDocumentEventType(models.TextChoices):
@@ -477,6 +480,9 @@ class WebmaniaCompany(TimeStampedModel):
     credit_debit_basis_enabled = models.BooleanField(verbose_name="Preparacao de base credito/debito habilitada", default=False)
     credit_debit_basis_enabled_by = models.ForeignKey("accounts.User", verbose_name="Base credito/debito habilitada por", on_delete=models.SET_NULL, null=True, blank=True, related_name="enabled_credit_debit_basis_companies")
     credit_debit_basis_enabled_at = models.DateTimeField(verbose_name="Base credito/debito habilitada em", null=True, blank=True)
+    nfe_debit_emission_enabled = models.BooleanField(verbose_name="Emissao NF-e de debito habilitada", default=False)
+    nfe_debit_emission_enabled_by = models.ForeignKey("accounts.User", verbose_name="Emissao NF-e de debito habilitada por", on_delete=models.SET_NULL, null=True, blank=True, related_name="enabled_nfe_debit_emission_companies")
+    nfe_debit_emission_enabled_at = models.DateTimeField(verbose_name="Emissao NF-e de debito habilitada em", null=True, blank=True)
 
     informacoes_fisco = models.TextField(verbose_name="Informações ao fisco", blank=True, default="")
     nfse_rps_serie = models.CharField(verbose_name="Série RPS da Nota Fiscal de Serviço", max_length=10, blank=True, default="")
@@ -817,6 +823,7 @@ class FiscalDocument(TimeStampedModel):
     legacy_nfe_item = models.OneToOneField(NfeItem, verbose_name="Item legado NF-e", on_delete=models.CASCADE, null=True, blank=True, related_name="fiscal_document")
     referenced_basis = models.ForeignKey("FiscalReferencedBasis", verbose_name="Base fiscal referenciada", on_delete=models.PROTECT, null=True, blank=True, related_name="derived_documents")
     credit_product_preview = models.OneToOneField("FiscalCreditProductPreview", verbose_name="Previa fiscal de credito", on_delete=models.PROTECT, null=True, blank=True, related_name="credit_document")
+    debit_product_preview = models.OneToOneField("FiscalDebitProductPreview", verbose_name="Previa fiscal de debito", on_delete=models.PROTECT, null=True, blank=True, related_name="debit_document")
     remote_uuid = models.CharField(max_length=64, blank=True, default="", db_index=True)
     access_key = models.CharField(max_length=80, blank=True, default="", db_index=True)
     series = models.CharField(max_length=20, blank=True, default="")
@@ -839,6 +846,7 @@ class FiscalDocument(TimeStampedModel):
             models.UniqueConstraint(fields=["workshop", "document_type", "remote_uuid"], condition=~models.Q(remote_uuid=""), name="unique_fiscal_document_remote_uuid_per_workshop"),
             models.UniqueConstraint(fields=["workshop", "document_type", "access_key"], condition=~models.Q(access_key=""), name="unique_fiscal_document_access_key_per_workshop"),
             models.CheckConstraint(condition=~models.Q(purpose=FiscalDocumentPurpose.CREDIT) | models.Q(origin=FiscalDocumentOrigin.DERIVED, fiscal_purpose_type="1", referenced_basis__isnull=False, credit_product_preview__isnull=False), name="fiscal_credit_document_requires_basis_preview"),
+            models.CheckConstraint(condition=~models.Q(purpose=FiscalDocumentPurpose.DEBIT) | models.Q(origin=FiscalDocumentOrigin.DERIVED, fiscal_purpose_type="4", referenced_basis__isnull=False, debit_product_preview__isnull=False), name="fiscal_debit_document_requires_basis_preview"),
         ]
         indexes = [
             models.Index(fields=["workshop", "document_type", "status"]),
@@ -869,6 +877,10 @@ class FiscalDocument(TimeStampedModel):
             ("download_nfe_credit", "Pode baixar XML/DANFE de NF-e de credito"),
             ("view_nfe_credit_payload", "Pode visualizar payload de NF-e de credito"),
             ("cancel_nfe_credit", "Pode cancelar NF-e de credito"),
+            ("issue_nfe_debit", "Pode emitir NF-e de debito"),
+            ("view_nfe_debit", "Pode visualizar NF-e de debito"),
+            ("download_nfe_debit", "Pode baixar XML/DANFE de NF-e de debito"),
+            ("view_nfe_debit_payload", "Pode visualizar payload de NF-e de debito"),
         ]
 
     def __str__(self) -> str:

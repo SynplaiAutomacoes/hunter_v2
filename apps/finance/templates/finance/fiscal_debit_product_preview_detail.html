@@ -3,7 +3,7 @@
 {% block content %}
 <div class="mx-auto max-w-5xl space-y-5 p-4">
     <div class="flex items-center justify-between gap-3"><div><h1 class="text-2xl font-bold">Previa de debito #{{ preview.pk }}</h1><p class="text-sm text-base-content/70">Base #{{ preview.basis_id }} - revisao {{ preview.revision }}</p></div><a class="btn btn-ghost" href="{% url 'finance:fiscal_debit_product_preview_list' %}">Voltar</a></div>
-    <div class="alert alert-warning">Pre-payload local para finalidade 6 e tipo de debito 4. Nao existe transmissao Webmania nesta fase.</div>
+    <div class="alert alert-warning">Emissao restrita a finalidade 6, tipo de debito 4 e tributacao exclusivamente IBS/CBS. Outros tipos e cancelamento nao estao disponiveis.</div>
     <dl class="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div><dt class="text-xs text-base-content/60">DF-e referenciado</dt><dd class="font-mono break-all">{{ preview.source_access_key }}</dd></div>
         <div><dt class="text-xs text-base-content/60">Item / CFOP</dt><dd>{{ preview.source_item_sequence }} / {{ preview.product_cfop }}</dd></div>
@@ -15,6 +15,8 @@
     <div class="flex flex-wrap gap-2">
         {% if can_view_payload %}<a class="btn btn-outline" href="{% url 'finance:fiscal_debit_product_preview_payload' pk=preview.pk %}">Visualizar pre-payload</a>{% endif %}
         {% if preview.validation_status == 'validated' and can_approve_preview %}<form method="post" action="{% url 'finance:fiscal_debit_product_preview_approve' pk=preview.pk %}">{% csrf_token %}<button class="btn btn-primary" type="submit">Aprovar e congelar</button></form>{% endif %}
+        {% if debit_issue_enabled and can_issue_debit %}<form method="post" action="{% url 'finance:nfe_debit_issue' pk=preview.pk %}" class="space-y-2">{% csrf_token %}<label class="flex items-start gap-2"><input class="checkbox" type="checkbox" name="legal_confirmation" required><span>Confirmo a emissao fiscal com finalidade 6, tipo de debito 4, DF-e referenciado e somente IBS/CBS.</span></label><button class="btn btn-primary" type="submit">Emitir NF-e de debito</button></form>{% endif %}
     </div>
+    {% if debit_document %}<div class="border-t pt-4 space-y-3"><h2 class="text-lg font-semibold">NF-e de debito</h2><p>Status: {{ debit_document.get_status_display }}{% if debit_document.number %} - numero {{ debit_document.number }}{% endif %}</p><div class="flex gap-2">{% if can_download_debit and debit_document.xml_url %}<a class="btn btn-outline btn-sm" href="{% url 'finance:nfe_debit_download' pk=debit_document.pk document='xml' %}">XML</a>{% endif %}{% if can_download_debit and debit_document.danfe_url %}<a class="btn btn-outline btn-sm" href="{% url 'finance:nfe_debit_download' pk=debit_document.pk document='danfe' %}">DANFE</a>{% endif %}{% if can_view_debit_payload %}<a class="btn btn-ghost btn-sm" href="{% url 'finance:nfe_debit_payload' pk=debit_document.pk %}">Payload</a>{% endif %}</div></div>{% endif %}
 </div>
 {% endblock %}

@@ -531,6 +531,16 @@ Decisao recomendada: executar uma fase preparatoria para **NF-e de debito tipo 4
 
 Resultado da Fase 2.5.6P: a preview propria foi implementada sem abrir emissao. O escopo funcional termina na preparacao, validacao, aprovacao e consulta protegida do pre-payload.
 
+## Fase 2.5.7.0 - Decisao de produto
+
+Decisao recomendada: **implementar a NF-e de debito tipo 4 como proxima fase funcional**, limitada a multa/juros, origem local e preview aprovada. As fontes fiscais e monetarias estao congeladas, o contrato oficial e especifico e a infraestrutura de credito tipo 1 pode ser reutilizada sem compartilhar intencao ou documento.
+
+## Fase 2.5.7 - Resultado
+
+Implementada e validada tecnicamente a emissao de NF-e de debito tipo 4 para multa/juros. O produto permanece limitado a origem local, preview/base aprovadas, `dfe_referenciado` por produto e IBS/CBS exclusivo. Cancelamento, debitos 1-3/5-8 e creditos 2-5 continuam fora do escopo.
+
+Nao incluir na primeira emissao: outros tipos de debito, origem externa, cancelamento, eventos IBS/CBS, creditos adicionais ou calculo tributario automatico.
+
 Continuam adiados:
 
 - creditos 2 e 5 por ZFM/sucessao; credito 3 por evidencia logistica; credito 4 por regra de reducao ainda nao modelada;

@@ -11,10 +11,11 @@ from django.views import View
 from django.views.generic import DetailView, FormView, ListView
 
 from apps.finance.forms.fiscal_debit_product_preview import FiscalDebitProductPreviewCreateForm
-from apps.finance.models.finance import FiscalDebitProductPreview, FiscalReferencedBasis
+from apps.finance.models.finance import FiscalDebitProductPreview, FiscalDocument, FiscalDocumentPurpose, FiscalReferencedBasis
 from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
 from apps.finance.services.fiscal_debit_product_preview import approve_debit_product_preview, create_debit_product_preview
 from apps.finance.services.fiscal_referenced_basis import is_credit_debit_basis_enabled
+from apps.finance.services.nfe_debit import is_nfe_debit_emission_enabled
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import has_workshop_perm
 
@@ -39,6 +40,8 @@ class FiscalDebitProductPreviewListView(FiscalDebitProductPreviewPermissionMixin
         context = super().get_context_data(**kwargs)
         context["can_prepare_preview"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="fiscaldebitproductpreview", codename="prepare_nfe_debit_product_preview", request=self.request)
         context["preview_enabled"] = is_credit_debit_basis_enabled(workshop=self.workshop)
+        context["debit_emission_enabled"] = is_nfe_debit_emission_enabled(workshop=self.workshop)
+        context["can_manage_debit_emission"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="webmaniacompany", codename="change_webmaniacompany", request=self.request)
         return context
 
 
@@ -123,6 +126,13 @@ class FiscalDebitProductPreviewDetailView(FiscalDebitProductPreviewPermissionMix
         context = super().get_context_data(**kwargs)
         context["can_approve_preview"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="fiscaldebitproductpreview", codename="approve_nfe_debit_product_preview", request=self.request)
         context["can_view_payload"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="fiscaldebitproductpreview", codename="view_nfe_debit_product_preview_payload", request=self.request)
+        context["can_issue_debit"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="fiscaldocument", codename="issue_nfe_debit", request=self.request)
+        context["can_view_debit"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="fiscaldocument", codename="view_nfe_debit", request=self.request)
+        context["can_download_debit"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="fiscaldocument", codename="download_nfe_debit", request=self.request)
+        context["can_view_debit_payload"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="fiscaldocument", codename="view_nfe_debit_payload", request=self.request)
+        debit_document = FiscalDocument.objects.filter(workshop=self.workshop, debit_product_preview=self.object, purpose=FiscalDocumentPurpose.DEBIT).first()
+        context["debit_document"] = debit_document if context["can_view_debit"] else None
+        context["debit_issue_enabled"] = is_nfe_debit_emission_enabled(workshop=self.workshop) and self.object.validation_status == "approved" and debit_document is None
         return context
 
 

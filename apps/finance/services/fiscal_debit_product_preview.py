@@ -14,7 +14,7 @@ from apps.finance.services.fiscal_referenced_basis import is_credit_debit_basis_
 
 
 FORBIDDEN_TAX_GROUPS = {"icms", "ipi", "pis", "cofins", "issqn", "ii", "imposto_devolvido"}
-FORBIDDEN_PRODUCT_FIELDS = {"nfe_referenciada", "evento_ibs_cbs", "cod_evento", "tipo_credito"}
+FORBIDDEN_PRODUCT_FIELDS = {"nfe_referenciada", "nfe_credito", "evento_ibs_cbs", "cod_evento", "tipo_credito", "imposto_devolvido"}
 
 
 def _format_decimal(value: Decimal, *, places: str) -> str:

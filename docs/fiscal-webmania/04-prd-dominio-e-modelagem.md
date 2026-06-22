@@ -679,3 +679,25 @@ Nao reutilizar `FiscalCreditProductPreview` diretamente: a imutabilidade e a sem
 `FiscalDebitProductPreview` foi criada como entidade independente com base/item, revisao, operacao `debit`, tipo fiscal `4`, chave/item referenciados, `dfe_referenciado`, valores explicitos, produto, IBS/CBS, pre-payload, validacoes, autores e timestamps. Constraints garantem revisao unica por base e valores positivos. Payloads, referencias e valores tornam-se imutaveis apos aprovacao.
 
 Nao foram adicionados `FiscalDocument(purpose="debit")`, `FiscalEmissionAttempt(operation_type="nfe_debit_emission")` nem vinculo de documento remoto.
+
+## Modelagem futura - Emissao de debito tipo 4
+
+### Modelagem implementada na Fase 2.5.7
+
+- `FiscalDocument(document_type="nfe", purpose="debit", fiscal_purpose_type="4")` ligado de forma exclusiva a uma preview.
+- `FiscalDocumentLink(role="debits")` para a NF-e original local.
+- `FiscalEmissionAttempt(operation_type="nfe_debit_emission")` associado ao documento derivado.
+- Flag auditavel `WebmaniaCompany.nfe_debit_emission_enabled` separada da preparacao.
+- Constraint exige base e preview para documentos de debito.
+Adicionar somente na fase funcional aprovada:
+
+- `FiscalDocumentPurpose.DEBIT`;
+- `FiscalDocumentLinkRole.DEBITS`;
+- `FiscalDocument.debit_product_preview` como `OneToOneField(PROTECT)`;
+- constraint: documento `purpose="debit"` exige origem derivada, tipo fiscal `4`, base e preview de debito;
+- `FiscalEmissionOperationType.NFE_DEBIT_EMISSION`;
+- permissoes de emitir, visualizar, baixar e visualizar payload.
+
+Fluxo: preview aprovada -> criar `FiscalDocument(document_type="nfe", origin="derived", purpose="debit", fiscal_purpose_type="4")` -> vincular `referenced_basis` e `debit_product_preview` -> criar `FiscalDocumentLink(role="debits")` para a NF-e original local -> criar tentativa -> transmitir.
+
+A relacao com `FiscalReferencedBasisItem` permanece transitiva e imutavel por `debit_product_preview.basis_item`; nao duplicar FK no documento sem necessidade. Uma preview pode produzir no maximo um documento devido ao `OneToOneField`.

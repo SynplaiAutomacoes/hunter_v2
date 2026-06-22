@@ -645,3 +645,46 @@ Revalidacao oficial em 2026-06-22: credito usa `finalidade=5`, debito usa `final
 O OpenAPI validado ja contem enums, `nfe_referenciada`, `dfe_referenciado`, regra exclusiva de IBS/CBS e os codigos de evento. Nenhuma correcao foi necessaria nesta fase.
 
 Implementacao 2.5.6P: somente pre-payload local com `modelo=1`, `finalidade=6`, `tipo_debito=4` e `produtos[].dfe_referenciado`; nenhum endpoint remoto foi chamado ou exposto.
+
+## Fase 2.5.7.0 - Contrato final planejado para debito tipo 4
+
+### Contrato implementado na Fase 2.5.7
+
+`POST /1/nfe/emissao/` com `modelo=1`, `finalidade=6`, `tipo_debito=4`, cliente, pedido e produtos vindos da preview. Cada produto inclui `codigo_cfop`, `dfe_referenciado` e somente `impostos.ibs_cbs`. Nao sao enviados `nfe_referenciada`, `tipo_credito`, tributos tradicionais ou campos de evento. O OpenAPI validado nao exigiu correcao.
+Fonte oficial revalidada em 2026-06-22: `POST /1/nfe/emissao/`, `finalidade=6`, `tipo_debito=4`, `codigo_cfop` na raiz do produto, `dfe_referenciado.chave` obrigatorio por produto e `dfe_referenciado.item` para o sequencial fiscal. Cada produto envia somente `impostos.ibs_cbs`.
+
+`nfe_referenciada` **nao sera enviada**: a documentacao a define na secao de credito; para debito tipos 3/4, a referencia operacional documentada e `produtos[].dfe_referenciado`.
+
+Payload futuro:
+
+```json
+{
+  "ID": "debit-preview-{preview_id}",
+  "operacao": 1,
+  "natureza_operacao": "Debito por multa e juros",
+  "modelo": 1,
+  "finalidade": 6,
+  "tipo_debito": 4,
+  "ambiente": 2,
+  "cliente": {},
+  "produtos": [{
+    "nome": "snapshot aprovado",
+    "codigo": "snapshot aprovado",
+    "ncm": "snapshot aprovado",
+    "quantidade": "valor explicito da preview",
+    "unidade": "snapshot aprovado",
+    "subtotal": "unitario explicito da preview",
+    "total": "total explicito da preview",
+    "codigo_cfop": "CFOP aprovado",
+    "dfe_referenciado": {"chave": "44 digitos", "item": 1},
+    "impostos": {"ibs_cbs": {}}
+  }],
+  "pedido": {}
+}
+```
+
+Campos proibidos: `nfe_referenciada`, `tipo_credito`, `nfe_credito`, `evento_ibs_cbs`, `cod_evento`, `imposto_devolvido` e qualquer grupo em `impostos` diferente de `ibs_cbs`, incluindo ICMS, IPI, PIS, COFINS, ISSQN e II.
+
+Resposta e notificacao seguem NF-e padrao: UUID, status/motivo, numero, serie, recibo, chave, XML, DANFE e log sanitizado. Cancelamento futuro usa `PUT /1/nfe/cancelar/`, nunca cancelamento de evento IBS/CBS.
+
+O OpenAPI validado ja representa todos esses campos e condicoes; nenhuma alteracao foi necessaria.

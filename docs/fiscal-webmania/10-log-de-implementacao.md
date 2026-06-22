@@ -130,3 +130,30 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 - Auto-revisao confirmou ausencia de gateway, `FiscalDocument` de debito e `FiscalEmissionAttempt` de debito.
 - Correcao durante validacao: teste ajustado para comprovar que o enum/documento de debito sequer foi aberto.
 - Validacoes: 14 testes novos, 80 regressivos diretos e 260 fiscais dirigidos passaram; migrations, Ruff e diff aprovados.
+
+## 2026-06-22 - Fase 2.5.7.0 - Planejamento final debito tipo 4
+
+- Fase 2.5.6P reconhecida como validada no checkpoint `189bf973`.
+- Contrato Webmania revalidado para `finalidade=6`, `tipo_debito=4`, `dfe_referenciado` por produto, CFOP na raiz e IBS/CBS exclusivo.
+- Decidido nao enviar `nfe_referenciada` no debito tipo 4.
+- Matriz confirmou todas as fontes fiscais e monetarias; faltam somente flag e permissoes de emissao, que pertencem a fase funcional.
+- Recomendado implementar debito tipo 4 como proxima fase, restrito a origem local e preview aprovada.
+- Cancelamento mantido em fase posterior pelo fluxo NF-e padrao.
+- OpenAPI revisado e considerado suficiente; nenhum arquivo de API alterado.
+- Nenhum codigo funcional, migration, service, view, template ou teste foi alterado.
+
+## 2026-06-22 - Inicio da Fase 2.5.7
+
+- Fase 2.5.7.0 aprovada para implementar somente debito tipo 4, multa/juros e origem local.
+- Emissao deve partir exclusivamente de `FiscalDebitProductPreview` aprovada.
+- `nfe_referenciada`, tributos tradicionais, outros tipos, cancelamento e eventos permanecem proibidos.
+- Implementacao deve reutilizar infraestrutura segura do credito sem compartilhar intencao, permissao, flag ou documento.
+
+## 2026-06-22 - Implementacao e validacao tecnica da Fase 2.5.7
+
+- Criados service/UI de emissao, migration `0058`, flag auditavel e quatro permissoes especificas.
+- Implementados documento `debit`, link `debits`, tentativa `nfe_debit_emission`, webhook, reconciliacao por consulta e downloads protegidos.
+- Auto-revisao endureceu coerencia da origem local, chave, snapshots, composicao multa+juros, valores congelados e ambiguidade global do webhook.
+- Tres testes preparatorios antigos foram atualizados: o operation type agora existe, mas preparar base/preview continua sem criar documento ou tentativa.
+- Validacoes: 16 testes especificos e 276 testes fiscais dirigidos passaram; migration, Ruff e diff aprovados.
+- Cancelamento, outros debitos, creditos 2-5 e demais blocos permaneceram nao iniciados.

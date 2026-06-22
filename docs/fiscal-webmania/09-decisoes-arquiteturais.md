@@ -547,3 +547,15 @@ Fase: 2.4D.6.0.
 **OpenAPI:** nenhuma alteracao; o schema validado ja representa tipos, referencias, IBS/CBS exclusivo e eventos pendentes.
 
 **Implementacao:** model separado, sem heranca ou mutacao da preview de credito. A flag preparatoria geral foi reutilizada; quatro permissoes de preview de debito foram criadas. Nenhum gateway ou model remoto foi ampliado.
+
+## ADR - Emissao da NF-e de debito tipo 4
+
+**Status:** implementado e validado tecnicamente na Fase 2.5.7.
+
+**Decisao:** a proxima fase pode implementar somente debito tipo 4, a partir de `FiscalDebitProductPreview` aprovada e origem local. Nao enviar `nfe_referenciada`; usar exclusivamente `produtos[].dfe_referenciado` conforme contrato oficial. Criar flag de emissao propria, distinta da flag preparatoria.
+
+**Justificativa:** todos os snapshots fiscais/comerciais/monetarios estao congelados; o payload esta validado; a infraestrutura do credito e reutilizavel; a separacao de preview, documento, operation type, permissoes e flag impede confusao entre credito e debito.
+
+**Cancelamento:** fase posterior pelo cancelamento NF-e padrao, nunca pelo endpoint de cancelamento de evento IBS/CBS.
+
+**Auto-revisao:** a emissao exige nota original local normal e aprovada, chave coerente, snapshots comercial/monetario, composicao multa+juros e produto/IBS-CBS identicos aos valores congelados. O webhook verifica ambiguidade global antes de atualizar o debito.
