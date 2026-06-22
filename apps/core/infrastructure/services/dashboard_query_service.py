@@ -163,6 +163,7 @@ def calculate_average_markup(budgets: list[Budget]) -> Decimal:
             total_budget_value=budget.total_budget_value,
             total_costs_products_value=budget.total_costs_products_value,
             total_costs_services_value=budget.total_costs_services_value,
+            total_products_shipping=budget.total_products_shipping,
         )
         for budget in budgets
     ]

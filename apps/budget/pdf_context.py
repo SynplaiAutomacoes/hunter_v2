@@ -38,19 +38,20 @@ def _build_pdf_pages(produtos: list[dict], servicos: list[dict], kits: list[dict
     ]
 
 
-def calculate_markup_multiplier(*, total_budget_value: Money, total_costs_products_value: Money, total_costs_services_value: Money) -> Decimal:
-    total_cost_amount = total_costs_products_value.amount + total_costs_services_value.amount
+def calculate_markup_multiplier(*, total_budget_value: Money, total_costs_products_value: Money, total_costs_services_value: Money, total_products_shipping: Money = Money(0, "BRL")) -> Decimal:
+    total_cost_amount = total_costs_products_value.amount + total_costs_services_value.amount + total_products_shipping.amount
     if total_cost_amount <= _ZERO_DECIMAL:
         return _ZERO_DECIMAL
 
     return (total_budget_value.amount / total_cost_amount).quantize(_TWO_DECIMAL_PLACES, rounding=ROUND_HALF_UP)
 
 
-def _calculate_soma_markup(*, total_budget_value: Money, total_costs_products_value: Money, total_costs_services_value: Money) -> Decimal:
+def _calculate_soma_markup(*, total_budget_value: Money, total_costs_products_value: Money, total_costs_services_value: Money, total_products_shipping: Money = Money(0, "BRL")) -> Decimal:
     return calculate_markup_multiplier(
         total_budget_value=total_budget_value,
         total_costs_products_value=total_costs_products_value,
         total_costs_services_value=total_costs_services_value,
+        total_products_shipping=total_products_shipping,
     )
 
 
@@ -361,11 +362,13 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
     total_services_mechanic_cost_value = sum((line["service_mechanic_cost_price"] for line in servicos), Money(0, "BRL"))
     total_profit_service_value = sum((line["profit_value"] for line in servicos), Money(0, "BRL"))
     total_products_cost_value = sum((line["product_cost_price"] for line in produtos), Money(0, "BRL"))
+    total_products_shipping_value = sum((line["shipping"] for line in produtos), Money(0, "BRL"))
     total_profit_product_value = sum((line["profit_value"] for line in produtos), Money(0, "BRL"))
     soma_markup = _calculate_soma_markup(
         total_budget_value=total_geral,
         total_costs_products_value=total_products_cost_value,
         total_costs_services_value=total_services_mechanic_cost_value,
+        total_products_shipping=total_products_shipping_value,
     )
 
     return {
