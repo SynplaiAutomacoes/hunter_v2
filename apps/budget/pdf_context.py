@@ -215,10 +215,6 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
     desconto = budget.selected_items_total_base_value - budget.selected_items_total_budget_value
     total_geral = budget.selected_items_total_budget_value
 
-    is_client_warranty_pdf = is_warranty_or_courtesy and zero_warranty_prices
-    if is_client_warranty_pdf:
-        total_geral = Money(0, "BRL")
-
     discount_type = budget.discount_type or WorkOrderDiscountType.BOTH
     if desconto.amount <= 0:
         discount_products = zero_money()
