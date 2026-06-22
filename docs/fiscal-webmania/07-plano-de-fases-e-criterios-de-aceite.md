@@ -490,3 +490,43 @@ Status: implementada e validada tecnicamente em 2026-06-22, apos validacao da Fa
 Escopo: cancelar somente `FiscalDocument(document_type="nfe", purpose="credit", fiscal_purpose_type="1")` autorizado, por `PUT /1/nfe/cancelar/`, com chave ou UUID e motivo entre 15 e 255 caracteres. O contrato oficial nao inclui `ambiente` no body; o ambiente permanece auditado localmente. O cancelamento e evento do documento, nao evento IBS/CBS.
 
 Bloqueios: debito, credito tipos 2-5, novos tipos de emissao, `112120`, `112140`, eventos `211xxx`, complementar tributaria e demais familias fiscais.
+
+## Fase 2.5.6.0 - Reavaliacao do proximo bloco
+
+Status: aprovada em 2026-06-22. A Fase 2.5.5 foi validada no checkpoint `5d612544` e encerrou o ciclo do credito tipo 1.
+
+### Decisao recomendada
+
+Escolher **Opcao E - nova fase preparatoria**: `Fase 2.5.6P - Preview fiscal de debito tipo 4 (multa/juros), sem transmissao`.
+
+Justificativa: debito tipo 4 e o candidato funcional com maior reaproveitamento, pois o contrato exige `dfe_referenciado` por item e a base atual ja possui chave, sequencial, snapshots IBS/CBS, comercial/monetario e multa+juros. Entretanto, nao e seguro reaproveitar diretamente a preview de credito: finalidade, tipo, CFOP, produto e intencao fiscal precisam ser aprovados como debito.
+
+### Escopo proposto para 2.5.6P
+
+- model irmao `FiscalDebitProductPreview`, ou equivalente explicitamente restrito a `finalidade=6`/`tipo_debito=4`;
+- nenhuma chamada Webmania, `FiscalDocument` ou `FiscalEmissionAttempt`;
+- fonte exclusiva em base/item aprovados da mesma oficina;
+- congelamento de `dfe_referenciado`, produto, CFOP, valores e IBS/CBS;
+- feature flag administrativa para preparacao de debito e permissoes separadas;
+- UI administrativa de preparar, revisar e aprovar sem botao de emissao;
+- bloqueio de tributos tradicionais, valores nao positivos, snapshots ausentes, cross-workshop e fallback atual.
+
+### Criterios de aceite propostos
+
+1. Preview registra `finalidade=6`, `tipo_debito=4` e `dfe_referenciado` por item sem transmitir.
+2. Base e item precisam estar aprovados e congelados.
+3. Multa + juros, produto, quantidade, valor unitario, total, CFOP e IBS/CBS devem ser coerentes e auditaveis.
+4. Payload aprovado e imutavel e contem somente IBS/CBS.
+5. Nao cria documento, tentativa, webhook, reconciliacao ou download fiscal remoto.
+6. Permissoes e feature flag nao liberam emissao.
+7. Demais tipos, eventos, NFS-e e CT-e continuam bloqueados.
+
+Uma futura `2.5.7` podera planejar a emissao do debito tipo 4; cancelamento ficara em subfase posterior independente.
+
+## Fase 2.5.6P - Preview fiscal de debito tipo 4
+
+Status: implementada e validada tecnicamente em 2026-06-22, aguardando checkpoint.
+
+Escopo autorizado: modelagem, validacao e UI administrativa de preview propria para `finalidade=6`, `tipo_debito=4`, com `dfe_referenciado` obrigatorio e sem transmissao. Reutiliza a flag preparatoria geral existente, mas cria permissoes distintas das de credito. Emissao, documento fiscal de debito, tentativa remota, webhook, reconciliacao e cancelamento permanecem bloqueados.
+
+Resultado: criterios atendidos por `FiscalDebitProductPreview`, migration `0057`, service local, UI e 14 testes novos. A regressao fiscal dirigida passou com 260 testes.

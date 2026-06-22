@@ -101,6 +101,7 @@ class FiscalReferencedBasisDetailView(FiscalReferencedBasisPermissionMixin, Deta
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         context["can_prepare_credit_preview"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="fiscalcreditproductpreview", codename="prepare_nfe_credit_product_preview", request=self.request)
+        context["can_prepare_debit_preview"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="fiscaldebitproductpreview", codename="prepare_nfe_debit_product_preview", request=self.request)
         return context
 
 

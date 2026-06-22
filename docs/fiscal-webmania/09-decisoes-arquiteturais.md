@@ -527,3 +527,23 @@ Fase: 2.4D.6.0.
 - Status: aceita na Fase 2.5.5.
 - Decisao: usar `FiscalDocumentEvent(cancellation)` e operacao especifica `nfe_credit_cancellation`, sem reutilizar cancelamento de evento IBS/CBS. O body segue estritamente o contrato oficial: chave/UUID e motivo, sem ambiente ou dados da emissao.
 - Consequencia: somente resposta, webhook ou consulta remota com status positivo altera o documento de credito; origem, base e preview permanecem imutaveis. Tipos 2-5 e debito continuam bloqueados.
+
+## ADR - Proximo bloco apos credito tipo 1
+
+**Status:** aprovado na Fase 2.5.6.0 e implementado na Fase 2.5.6P.
+
+**Decisao:** priorizar debito tipo 4, mas iniciar por uma preview fiscal propria sem transmissao. Nao reutilizar nem mutar `FiscalCreditProductPreview`.
+
+**Motivos:**
+
+- o contrato oficial e claro: `finalidade=6`, `tipo_debito=4`, `dfe_referenciado` por produto, CFOP na raiz e somente IBS/CBS;
+- `FiscalReferencedBasis` e `FiscalReferencedBasisItem` ja fornecem chave, sequencial e snapshots necessarios;
+- a composicao multa + juros ja e auditavel;
+- credito e debito sao intencoes fiscais diferentes, portanto precisam de aprovacao e payload congelado independentes;
+- uma preview sem gateway reduz o risco de rejeicao 1001 e de transmissao semanticamente incorreta.
+
+**Alternativas rejeitadas agora:** reutilizar preview de credito; emitir debito diretamente; priorizar creditos 2-5; retomar eventos sem fonte local; iniciar NFS-e/CT-e antes das auditorias proprias.
+
+**OpenAPI:** nenhuma alteracao; o schema validado ja representa tipos, referencias, IBS/CBS exclusivo e eventos pendentes.
+
+**Implementacao:** model separado, sem heranca ou mutacao da preview de credito. A flag preparatoria geral foi reutilizada; quatro permissoes de preview de debito foram criadas. Nenhum gateway ou model remoto foi ampliado.

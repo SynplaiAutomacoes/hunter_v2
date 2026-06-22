@@ -563,3 +563,17 @@ A autorizacao explicita desta fase amplia `credit_debit_basis_enabled` para habi
 ## Seguranca Fase 2.5.5
 
 O documento e bloqueado transacionalmente; evento e tentativa sao persistidos antes do `PUT`. A chave idempotente inclui oficina, documento, operacao, evento e geracao. Cancelamento ativo ou `uncertain` impede nova tentativa; timeout preserva o evento incerto sem mudar o documento. Webhook resolve primeiro o evento de cancelamento por UUID/chave/tentativa, rejeita ambiguidade e somente entao marca o credito cancelado. Reconciliacao usa `GET /1/nfe/consulta/` e nunca reenvia o cancelamento.
+
+## Seguranca planejada - debito tipo 4
+
+A Fase 2.5.6.0 nao abre gateway remoto. A fase preparatoria recomendada deve:
+
+- impedir que uma preview de credito seja promovida ou convertida em debito;
+- exigir base/item aprovados, mesma oficina, feature flag e permissoes proprias;
+- congelar payload de produto e `dfe_referenciado` depois da aprovacao;
+- bloquear tributos tradicionais e qualquer fallback para cadastro fiscal atual;
+- registrar validacoes sem criar `FiscalDocument` ou `FiscalEmissionAttempt`.
+
+Somente uma fase funcional posterior podera usar `FiscalEmissionAttempt(operation_type="nfe_debit_emission")`. Essa emissao devera manter uma chamada por intencao, `uncertain` bloqueante, webhook por UUID e reconciliacao sem reenvio. Cancelamento devera ser subfase separada pelo fluxo padrao NF-e.
+
+Resultado 2.5.6P: nenhuma operacao remota, idempotencia de emissao, webhook ou reconciliacao foi criada. A seguranca desta fase e local: transacao, lock da base, revisao unica, snapshots aprovados, imutabilidade, sanitizacao, permissao e tenancy.

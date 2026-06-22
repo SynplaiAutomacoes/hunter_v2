@@ -103,3 +103,30 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 | `uv run python manage.py test apps.workorder --keepdb` | Falhou em testes de OS/reabertura/assinatura/filtros, fora do escopo da Fase 1. |
 | `uv run ruff check .` | Falhou por imports F401 preexistentes em `movement_group.py`, `workorder/reopening.py`, `workorder/views.py`. |
 | `uv run mypy .` | Falhou com erros amplos preexistentes de stubs/tipos; branch atual mediu 2755 erros em 216 arquivos contra baseline medido de 2756 erros em 216 arquivos. |
+
+## 2026-06-22 - Fase 2.5.6.0 - Reavaliacao documental
+
+- Fase 2.5.5 reconhecida como validada no checkpoint `5d612544`.
+- Registrado ciclo completo do credito tipo 1: base fiscal, base comercial/monetaria, preview, emissao e cancelamento.
+- Revalidada documentacao oficial para creditos 1-5, debitos 1-8, `dfe_referenciado`, exclusividade IBS/CBS e eventos pendentes.
+- Comparados credito 2-5, debito 4/6/7, `112120`, `112140`, `211xxx`, NFS-e e CT-e.
+- Decisao recomendada: Fase 2.5.6P preparatoria para preview fiscal propria de debito tipo 4, sem transmissao.
+- OpenAPI validado revisado e considerado suficiente; nenhum schema alterado.
+- Planejamento encerrado como documentado e aguardando aprovacao da Fase 2.5.6P.
+- Nenhum codigo funcional, migration, service, view, template ou teste foi alterado.
+
+## 2026-06-22 - Inicio da Fase 2.5.6P
+
+- Fase 2.5.6.0 aprovada; debito tipo 4 selecionado como proximo candidato.
+- Auditoria confirmou base/item e snapshots reutilizaveis, mas preview de credito semanticamente imutavel e nao reutilizavel.
+- Decidido reutilizar somente `credit_debit_basis_enabled` como flag preparatoria geral; permissoes e preview de debito serao proprias.
+- Emissao de debito e qualquer chamada Webmania permanecem bloqueadas.
+
+## 2026-06-22 - Implementacao e validacao da Fase 2.5.6P
+
+- Criado `FiscalDebitProductPreview`, migration `0057_fiscaldebitproductpreview.py`, service local, form, views, URLs e templates.
+- Reutilizada somente a flag preparatoria geral; criadas quatro permissoes especificas de preview de debito.
+- Pre-payload congela `finalidade=6`, `tipo_debito=4`, `dfe_referenciado`, produto, CFOP, valores e somente IBS/CBS.
+- Auto-revisao confirmou ausencia de gateway, `FiscalDocument` de debito e `FiscalEmissionAttempt` de debito.
+- Correcao durante validacao: teste ajustado para comprovar que o enum/documento de debito sequer foi aberto.
+- Validacoes: 14 testes novos, 80 regressivos diretos e 260 fiscais dirigidos passaram; migrations, Ruff e diff aprovados.

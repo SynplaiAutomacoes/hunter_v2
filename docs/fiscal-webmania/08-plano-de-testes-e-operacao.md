@@ -516,3 +516,29 @@ Cobertura: contrato finalidade/tipo, somente IBS/CBS, campos proibidos, preview/
 ## Testes Fase 2.5.5
 
 Cobertura: elegibilidade por tipo/status/flag; motivo e confirmacao; payload somente com identificador e motivo; evento/tentativa antes do gateway; nenhuma nova nota; imutabilidade da origem/base/preview; concorrencia real; timeout `uncertain`; rejeicao com XML; webhook idempotente e ambiguo; reconciliacao sem `PUT`; permissoes, tenancy, download e payload sanitizado; regressao fiscal integral.
+
+## Testes planejados - Preview de debito tipo 4
+
+- cria preview somente a partir de base/item aprovados;
+- persiste `finalidade=6`, `tipo_debito=4`, chave e item em `dfe_referenciado`;
+- congela produto, CFOP, snapshots comercial/monetario e IBS/CBS;
+- valida composicao multa + juros positiva e coerente;
+- bloqueia base/item incompletos, valores zero/negativos e CFOP ausente;
+- bloqueia ICMS, IPI, PIS, COFINS, ISSQN, II e grupos estranhos;
+- bloqueia uso de `FiscalCreditProductPreview`, `TaxClassNfe` atual ou cadastro atual como fallback;
+- exige feature flag e permissoes preparatorias proprias;
+- bloqueia cross-workshop e protege payload;
+- payload aprovado fica imutavel;
+- nao cria `FiscalDocument`, `FiscalEmissionAttempt`, webhook/reconciliacao ou chamada HTTP;
+- regressao: credito tipo 1 e eventos IBS/CBS existentes permanecem operacionais;
+- demais creditos/debitos continuam indisponiveis.
+
+Testes de emissao, idempotencia remota, concorrencia de gateway, timeout, webhook, reconciliacao, downloads e cancelamento pertencem a fases funcionais posteriores.
+
+### Evidencia executada em 2026-06-22
+
+- `FiscalPhaseTwoDebitProductPreviewTests`: 14/14 testes passaram.
+- regressao direta de base, previews e ciclo de credito: 80/80 testes passaram.
+- suite fiscal dirigida completa: 260/260 testes passaram.
+- `makemigrations finance --check --dry-run`, Ruff dos arquivos tocados e `git diff --check`: aprovados.
+- o alvo solicitado `FiscalPhaseTwoCreditTypeOneEmissionTests` nao existe; foram usados os equivalentes reais `FiscalPhaseTwoCreditTypeOneTests` e `FiscalPhaseTwoCreditTypeOneConcurrentTests`.

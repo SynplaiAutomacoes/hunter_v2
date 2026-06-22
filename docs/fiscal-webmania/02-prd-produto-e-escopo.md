@@ -522,3 +522,18 @@ Primeira emissao real de NF-e de credito, limitada a multa/juros (`finalidade=5`
 ## Escopo implementado na Fase 2.5.5
 
 Cancelamento padrao exclusivamente da NF-e de credito tipo 1 autorizada. A operacao fecha o ciclo emissao/cancelamento desse unico tipo, sem criar documento novo e sem alterar NF-e original, base, item da base ou preview.
+
+## Fase 2.5.6.0 - Reavaliacao apos credito tipo 1
+
+O credito tipo 1 foi encerrado no checkpoint `5d612544` com base fiscal, base comercial/monetaria, preview, emissao e cancelamento. O proximo incremento deve maximizar reaproveitamento sem transformar uma evidencia de credito em evidencia de debito.
+
+Decisao recomendada: executar uma fase preparatoria para **NF-e de debito tipo 4 - multa e juros**, sem transmissao. O contrato oficial e claro (`finalidade=6`, `tipo_debito=4`, `dfe_referenciado` por produto e somente `impostos.ibs_cbs`), e a base local ja preserva quase todas as fontes necessarias. Ainda assim, o produto precisa de uma preview irma, com intencao de debito explicita, CFOP e valoracao aprovados para debito.
+
+Resultado da Fase 2.5.6P: a preview propria foi implementada sem abrir emissao. O escopo funcional termina na preparacao, validacao, aprovacao e consulta protegida do pre-payload.
+
+Continuam adiados:
+
+- creditos 2 e 5 por ZFM/sucessao; credito 3 por evidencia logistica; credito 4 por regra de reducao ainda nao modelada;
+- debitos 1, 2, 3, 5 e 8 por apuracao/regime externo; debito 6 por pagamento antecipado; debito 7 por perda fiscal de estoque;
+- `112120`, `112140` e `211xxx` pelas fontes locais ausentes ja documentadas;
+- expansao NFS-e e CT-e, que possuem blast radius e requisitos de dominio maiores que a preview preparatoria proposta.

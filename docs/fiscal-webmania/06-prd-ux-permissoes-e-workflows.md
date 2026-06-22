@@ -418,3 +418,18 @@ A preview aprovada elegivel oferece confirmacao explicita e acao unica "Emitir N
 ## UI e permissao Fase 2.5.5
 
 Documento de credito autorizado e sem cancelamento ativo exibe formulario de motivo e confirmacao explicita. `cancel_nfe_credit` e independente de `issue_nfe_credit`; payload e XML do evento continuam protegidos por `view_nfe_credit_payload` e `download_nfe_credit`. A interface informa que origem, base e preview permanecem imutaveis.
+
+## UX e permissoes recomendadas - Fase 2.5.6P
+
+Permissoes preparatorias separadas:
+
+- `prepare_nfe_debit_product_preview`;
+- `approve_nfe_debit_product_preview`;
+- `view_nfe_debit_product_preview`;
+- `view_nfe_debit_product_preview_payload`.
+
+Nenhuma delas concede emissao. A futura permissao `issue_nfe_debit` deve ser criada somente na fase de transmissao e nao pode decorrer de permissoes de credito.
+
+UI minima preparatoria: listar bases aprovadas elegiveis, criar preview de debito tipo 4, exibir multa/juros, chave e item DF-e referenciado, CFOP, produto e IBS/CBS sanitizados, erros e aprovacao. Deve haver aviso explicito de que nao existe transmissao Webmania. Nao exibir outros tipos de debito, novos creditos ou eventos IBS/CBS.
+
+Implementado: listagem, formulario, detalhe, aprovacao e payload sanitizado. A base de hipotese `debit_fine_interest` oferece atalho somente com permissao propria. A flag geral `credit_debit_basis_enabled` habilita preparacao, mas nao concede permissao nem emissao.

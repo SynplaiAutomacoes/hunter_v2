@@ -658,3 +658,24 @@ Cada revisao e imutavel apos aprovacao. A criacao bloqueia a base para reservar 
 ## Cancelamento do credito tipo 1 - Fase 2.5.5
 
 O cancelamento cria `FiscalDocumentEvent(event_type="cancellation", event_payload_type="nfe_credit_cancellation")` associado ao documento de credito e tentativa `nfe_credit_cancellation`. Nao cria `FiscalDocument` nem link. `xml_url` do evento guarda prioritariamente `xml_cancelamento`; a resposta integral sanitizada preserva tambem o XML original quando retornado.
+
+## Modelagem recomendada apos a Fase 2.5.6.0
+
+Proxima fase recomendada: `2.5.6P - Preview fiscal de debito tipo 4`, sem `FiscalDocument`, `FiscalEmissionAttempt` ou gateway remoto.
+
+Criar uma modelagem irma da preview de credito, preferencialmente `FiscalDebitProductPreview`, associada obrigatoriamente a `FiscalReferencedBasis` e `FiscalReferencedBasisItem`. Ela deve congelar:
+
+- `operation_type="debit"` e `fiscal_purpose_type="4"`;
+- `dfe_referenciado.chave` e `dfe_referenciado.item` vindos da base aprovada;
+- produto comercial/monetario explicitamente aprovado para debito;
+- `codigo_cfop` de debito, sem copiar automaticamente o CFOP do credito ou do documento original;
+- `impostos.ibs_cbs` do snapshot aprovado, sem recalcule ou fallback para `TaxClassNfe` atual;
+- ausencia comprovada de ICMS, IPI, PIS, COFINS, ISSQN, II e demais grupos proibidos.
+
+Nao reutilizar `FiscalCreditProductPreview` diretamente: a imutabilidade e a semantica aprovada daquela entidade pertencem a `finalidade=5`, `tipo_credito=1`. Uma futura emissao, somente apos nova aprovacao, usara `FiscalDocument(purpose="debit", fiscal_purpose_type="4")`, link `debits` e tentativa `nfe_debit_emission`.
+
+### Implementacao validada da Fase 2.5.6P
+
+`FiscalDebitProductPreview` foi criada como entidade independente com base/item, revisao, operacao `debit`, tipo fiscal `4`, chave/item referenciados, `dfe_referenciado`, valores explicitos, produto, IBS/CBS, pre-payload, validacoes, autores e timestamps. Constraints garantem revisao unica por base e valores positivos. Payloads, referencias e valores tornam-se imutaveis apos aprovacao.
+
+Nao foram adicionados `FiscalDocument(purpose="debit")`, `FiscalEmissionAttempt(operation_type="nfe_debit_emission")` nem vinculo de documento remoto.

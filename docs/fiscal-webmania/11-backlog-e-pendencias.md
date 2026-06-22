@@ -192,3 +192,21 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Credito tipo 1 possui ciclo emissao/cancelamento; nenhuma extensao para tipos 2-5 foi autorizada.
 - NF-e de debito permanece bloqueada.
 - `112120`, `112140`, eventos `211xxx`, complementar tributaria, NFS-e, CT-e e demais familias permanecem nao iniciados.
+
+## Pendencias apos Fase 2.5.6.0
+
+- Aprovar ou rejeitar a Fase 2.5.6P proposta para preview fiscal de debito tipo 4 sem transmissao.
+- Validar com responsavel fiscal o CFOP, natureza/operacao e representacao comercial de multa/juros no debito tipo 4; nao copiar automaticamente do credito tipo 1.
+- Criar feature flag e permissoes preparatorias separadas para debito; a infraestrutura de credito nao concede debito.
+- Manter emissao de debito bloqueada ate preview propria aprovada e nova autorizacao.
+- Manter debitos 1/2/3/5/6/7/8 e creditos 2-5 adiados conforme dependencias da matriz 2.5.6.0.
+- `112120` continua dependente de ALC/ZFM; `112140`, de pagamento antecipado/nao fornecimento; `211xxx`, de papel destinatario e fontes fiscais externas.
+- NFS-e deve passar por auditoria IBS/CBS/municipal antes de expansao; CT-e deve nascer conforme Reforma Tributaria e dominio de transporte.
+
+## Pendencias apos Fase 2.5.6P
+
+- Emissao de debito tipo 4 exige nova fase documental/funcional e aprovacao explicita.
+- Antes da transmissao, revalidar cliente, pedido/pagamento, natureza/operacao, CFOP e contrato remoto vigente.
+- Criar `FiscalDocument(purpose="debit")`, link, tentativa, gateway, webhook/reconciliacao e downloads somente na fase de emissao.
+- Cancelamento do debito deve permanecer em fase separada posterior a emissao validada.
+- Creditos 2-5, demais debitos, `112120`, `112140`, `211xxx`, complementar tributaria, NFS-e e CT-e permanecem nao iniciados.

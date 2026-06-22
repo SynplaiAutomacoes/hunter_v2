@@ -35,6 +35,9 @@
         {% if basis.status == 'approved' and can_prepare_credit_preview and basis.fiscal_hypothesis == 'credit_fine_interest' %}
         <a class="btn btn-outline" href="{% url 'finance:fiscal_credit_product_preview_create' %}?basis={{ basis.pk }}">Preparar previa de multa/juros</a>
         {% endif %}
+        {% if basis.status == 'approved' and can_prepare_debit_preview and basis.fiscal_hypothesis == 'debit_fine_interest' %}
+        <a class="btn btn-outline" href="{% url 'finance:fiscal_debit_product_preview_create' %}?basis={{ basis.pk }}">Preparar previa de debito multa/juros</a>
+        {% endif %}
     </div>
 </div>
 {% endblock %}

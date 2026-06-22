@@ -294,3 +294,25 @@ A emissao de credito tipo 1 reutiliza os helpers da NF-e normal para `cliente` e
 ## Resultado tecnico Fase 2.5.5
 
 O cancelamento do credito reutiliza a estrutura `FiscalDocumentEvent`/`FiscalEmissionAttempt` do cancelamento NFC-e, com service separado e filtros estritos de NF-e, `purpose=credit` e tipo `1`. O cancelamento legado de `NfeItem` nao foi alterado. Webhook e reconciliacao atuam somente no evento/documento de credito.
+
+## Auditoria incremental - Fase 2.5.6.0
+
+Estado comprovado em 2026-06-22, sem alteracao funcional:
+
+- o checkpoint `5d612544` encerrou o ciclo do credito tipo 1: `FiscalReferencedBasis`, `FiscalReferencedBasisItem`, snapshots comerciais/monetarios, `FiscalCreditProductPreview`, emissao e cancelamento;
+- a base referenciada preserva chave da NF-e, sequencial fiscal, CFOP, snapshot IBS/CBS e composicao multa + juros por item;
+- `FiscalCreditProductPreview` e semanticamente restrita a credito tipo 1 e nao deve ser reutilizada diretamente para debito;
+- nao existe preview, documento, tentativa, permissao ou UI funcional de debito;
+- `112120` continua sem fonte local ALC/ZFM validada; `112140` continua sem fonte de pagamento antecipado/nao fornecimento;
+- eventos `211xxx` continuam dependentes de papel de destinatario, entrada/importacao fiscal, estoque ou apuracao externa;
+- NFS-e existente e legado operacional que exige auditoria IBS/CBS propria antes de expansao; CT-e ainda nao possui dominio operacional local.
+
+### Auditoria tecnica inicial da Fase 2.5.6P
+
+- `FiscalReferencedBasis` concentra chave, hipotese fiscal, snapshot IBS/CBS, origem financeira e aprovacao congelada.
+- `FiscalReferencedBasisItem` concentra identidade fiscal sequencial, snapshot comercial e base monetaria imutavel, incluindo multa, juros e soma.
+- `FiscalCreditProductPreview` possui model, service, forms, views, templates e testes proprios; sua semantica e imutavel para `finalidade=5`/`tipo_credito=1` e nao sera convertida.
+- `fiscal_credit_product_preview.py` valida quantidade, unitario, total, CFOP, IBS/CBS exclusivo, feature flag e ausencia de fallback atual.
+- `WebmaniaCompany.credit_debit_basis_enabled` e flag preparatoria geral ja existente; sera reutilizada, mas nao concede permissao nem abre emissao de debito.
+- permissoes de credito sao especificas e nao concedem acesso a preview de debito.
+- emissao/cancelamento de credito usam services e tentativas remotas proprios; a preview de debito nao os importara nem chamara.

@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="mx-auto max-w-5xl space-y-5 p-4">
+    <div class="flex items-center justify-between gap-3"><div><h1 class="text-2xl font-bold">Previa de debito #{{ preview.pk }}</h1><p class="text-sm text-base-content/70">Base #{{ preview.basis_id }} - revisao {{ preview.revision }}</p></div><a class="btn btn-ghost" href="{% url 'finance:fiscal_debit_product_preview_list' %}">Voltar</a></div>
+    <div class="alert alert-warning">Pre-payload local para finalidade 6 e tipo de debito 4. Nao existe transmissao Webmania nesta fase.</div>
+    <dl class="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div><dt class="text-xs text-base-content/60">DF-e referenciado</dt><dd class="font-mono break-all">{{ preview.source_access_key }}</dd></div>
+        <div><dt class="text-xs text-base-content/60">Item / CFOP</dt><dd>{{ preview.source_item_sequence }} / {{ preview.product_cfop }}</dd></div>
+        <div><dt class="text-xs text-base-content/60">Quantidade</dt><dd>{{ preview.product_quantity }}</dd></div>
+        <div><dt class="text-xs text-base-content/60">Unitario / total</dt><dd>R$ {{ preview.product_unit_price }} / R$ {{ preview.product_total_amount }}</dd></div>
+        <div><dt class="text-xs text-base-content/60">Status</dt><dd>{{ preview.get_validation_status_display }}</dd></div>
+        <div><dt class="text-xs text-base-content/60">Erros</dt><dd>{{ preview.validation_errors|default:"Nenhum" }}</dd></div>
+    </dl>
+    <div class="flex flex-wrap gap-2">
+        {% if can_view_payload %}<a class="btn btn-outline" href="{% url 'finance:fiscal_debit_product_preview_payload' pk=preview.pk %}">Visualizar pre-payload</a>{% endif %}
+        {% if preview.validation_status == 'validated' and can_approve_preview %}<form method="post" action="{% url 'finance:fiscal_debit_product_preview_approve' pk=preview.pk %}">{% csrf_token %}<button class="btn btn-primary" type="submit">Aprovar e congelar</button></form>{% endif %}
+    </div>
+</div>
+{% endblock %}

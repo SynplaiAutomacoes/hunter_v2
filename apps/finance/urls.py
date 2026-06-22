@@ -23,6 +23,11 @@ from apps.finance.views import (
     FiscalCreditProductPreviewDetailView,
     FiscalCreditProductPreviewListView,
     FiscalCreditProductPreviewPayloadView,
+    FiscalDebitProductPreviewApproveView,
+    FiscalDebitProductPreviewCreateView,
+    FiscalDebitProductPreviewDetailView,
+    FiscalDebitProductPreviewListView,
+    FiscalDebitProductPreviewPayloadView,
     IssuedDocumentsArchiveDownloadView,
     IssuedDocumentsListView,
     NfeCreateRedirectView,
@@ -113,6 +118,11 @@ from apps.finance.views.movement_group import GroupMovementWizardView, GroupMove
 app_name = "finance"
 
 urlpatterns = [
+    path("fiscal/previas-debito-multa-juros/", FiscalDebitProductPreviewListView.as_view(), name="fiscal_debit_product_preview_list"),
+    path("fiscal/previas-debito-multa-juros/criar/", FiscalDebitProductPreviewCreateView.as_view(), name="fiscal_debit_product_preview_create"),
+    path("fiscal/previas-debito-multa-juros/<int:pk>/", FiscalDebitProductPreviewDetailView.as_view(), name="fiscal_debit_product_preview_detail"),
+    path("fiscal/previas-debito-multa-juros/<int:pk>/aprovar/", FiscalDebitProductPreviewApproveView.as_view(), name="fiscal_debit_product_preview_approve"),
+    path("fiscal/previas-debito-multa-juros/<int:pk>/payload/", FiscalDebitProductPreviewPayloadView.as_view(), name="fiscal_debit_product_preview_payload"),
     path("fiscal/previas-credito-multa-juros/", FiscalCreditProductPreviewListView.as_view(), name="fiscal_credit_product_preview_list"),
     path("fiscal/previas-credito-multa-juros/criar/", FiscalCreditProductPreviewCreateView.as_view(), name="fiscal_credit_product_preview_create"),
     path("fiscal/previas-credito-multa-juros/<int:pk>/", FiscalCreditProductPreviewDetailView.as_view(), name="fiscal_credit_product_preview_detail"),

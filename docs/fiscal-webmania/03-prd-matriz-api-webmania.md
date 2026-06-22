@@ -603,3 +603,45 @@ Validador preventivo rejeita qualquer grupo tributario diferente de `ibs_cbs`, a
 ### Cancelamento operacional Fase 2.5.5
 
 `PUT /1/nfe/cancelar/` recebe somente `chave` ou `uuid` e `motivo` de 15 a 255 caracteres. O contrato oficial revalidado em 2026-06-22 nao inclui `ambiente`; o Hunter o preserva apenas no documento local. `finalidade`, `tipo_credito`, produtos, impostos, IBS/CBS, campos de evento e `nfce_referenciada` nao sao enviados. Resposta: `status`, `xml`, `xml_cancelamento` e `log` sanitizado.
+
+## Fase 2.5.6.0 - Matriz comparativa do proximo bloco
+
+Revalidacao oficial em 2026-06-22: credito usa `finalidade=5`, debito usa `finalidade=6`; ambos usam `POST /1/nfe/emissao/`, `codigo_cfop` na raiz do produto e somente `produtos[].impostos.ibs_cbs`. Para debito tipos 3 e 4, `dfe_referenciado.chave` e obrigatorio em cada produto e `dfe_referenciado.item` identifica o item quando aplicavel. A regra preventiva da rejeicao 1001 continua proibindo tributos tradicionais nessas finalidades. Cancelamento continua pelo fluxo NF-e padrao.
+
+| Bloco | Candidato | Fonte local existe? | Reaproveita base atual? | Dependencia externa | Risco fiscal | Recomendacao |
+| --- | --- | ---: | ---: | --- | ---: | --- |
+| Credito | Tipo 2 - credito presumido ZFM | Parcial | Parcial | Apuracao e contexto ZFM | Alto | Adiar |
+| Credito | Tipo 3 - recusa/nao localizacao | Nao | Parcial | Evidencia logistica | Alto | Adiar |
+| Credito | Tipo 4 - reducao de valores | Parcial | Parcial | Regra fiscal da reducao | Medio/alto | Adiar |
+| Credito | Tipo 5 - sucessao | Nao | Baixo | Sucessao e transferencia fiscal | Alto | Adiar |
+| Debito | Tipo 1 - transferencia a cooperativas | Nao | Baixo | Cooperativa e transferencia fiscal | Alto | Adiar |
+| Debito | Tipo 2 - anulacao por saidas imunes/isentas | Nao | Parcial | Apuracao e qualificacao das saidas | Alto | Adiar |
+| Debito | Tipo 3 - notas nao processadas na apuracao | Parcial | Alto | Apuracao fiscal externa; exige `dfe_referenciado` | Alto | Adiar |
+| Debito | Tipo 4 - multa/juros | Sim, quase completa | Alto | Validacao fiscal da intencao de debito | Medio | **Preparar preview irma sem transmissao** |
+| Debito | Tipo 5 - sucessao | Nao | Baixo | Sucessao e transferencia fiscal | Alto | Adiar |
+| Debito | Tipo 6 - pagamento antecipado | Nao | Parcial | Vinculo financeiro-item | Alto | Adiar; pre-requisito de `112140` |
+| Debito | Tipo 7 - perda em estoque | Nao | Parcial | Evento fiscal de estoque | Alto | Adiar |
+| Debito | Tipo 8 - desenquadramento do SN | Nao | Baixo | Regime/apuracao fiscal externa | Alto | Adiar |
+| Evento | `112120` | Nao | Parcial | Importacao ALC/ZFM validada | Alto | Adiar |
+| Evento | `112140` | Nao | Parcial | Debito/pagamento antecipado e nao fornecimento | Alto | Adiar |
+| Eventos | `211xxx` | Nao suficiente | Baixo/parcial | Papel destinatario, entrada, estoque ou apuracao | Alto | Adiar |
+| NFS-e | Expansao | Legado parcial | Baixo | Municipio/provedor e IBS/CBS NFS-e | Alto | Auditoria propria futura |
+| CT-e | Primeira implementacao | Nao | Baixo | Dominio de transporte e API v2 | Alto | Adiar |
+
+### Eventos oficiais pendentes revalidados
+
+| Codigo | Descricao oficial resumida | Papel | Bloqueio local |
+| --- | --- | --- | --- |
+| `112120` | Importacao ALC/ZFM nao convertida em isencao | Emitente | Sem importacao/contexto ALC/ZFM |
+| `112140` | Fornecimento nao realizado com pagamento antecipado | Emitente | Sem nota de debito/pagamento antecipado por item |
+| `211110` | Apropriacao de credito presumido | Destinatario | Sem apuracao/entrada fiscal |
+| `211120` | Destinacao para consumo pessoal | Emitente/destinatario | Sem classificacao operacional auditavel |
+| `211124` | Perecimento sob responsabilidade do adquirente | Destinatario | Sem entrada/estoque fiscal do adquirente |
+| `211128` | Aceite de debito por nota de credito | Destinatario | Exige fluxo de credito/debito e apuracao |
+| `211130` | Imobilizacao de item | Destinatario | Sem ativo imobilizado fiscal |
+| `211140` | Apropriacao de credito de combustivel | Destinatario | Sem dominio fiscal de combustivel |
+| `211150` | Credito dependente da atividade do adquirente | Destinatario | Sem apuracao/atividade fiscal |
+
+O OpenAPI validado ja contem enums, `nfe_referenciada`, `dfe_referenciado`, regra exclusiva de IBS/CBS e os codigos de evento. Nenhuma correcao foi necessaria nesta fase.
+
+Implementacao 2.5.6P: somente pre-payload local com `modelo=1`, `finalidade=6`, `tipo_debito=4` e `produtos[].dfe_referenciado`; nenhum endpoint remoto foi chamado ou exposto.
