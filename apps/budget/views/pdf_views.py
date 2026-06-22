@@ -29,7 +29,7 @@ BASE_PDF_VARIANT = "base"
 def visualizar_pdf(request, pk):
     workshop = get_active_workshop_or_404(request)
     budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle", "workshop"), pk=pk, workshop=workshop)
-    context = build_budget_pdf_context(budget=budget, request=request, zero_warranty_prices=True, presentation="selected_items")
+    context = build_budget_pdf_context(budget=budget, request=request, presentation="selected_items")
 
     return render(request, "budget/partials/pdf/visualizarPDF.html", context)
 
@@ -162,7 +162,7 @@ def _get_budget_from_signature_token(token):
 
 def signature_preview(request, token):
     budget = _get_budget_from_signature_token(token)
-    context = build_budget_pdf_context(budget=budget, request=request, zero_warranty_prices=True, presentation="selected_items")
+    context = build_budget_pdf_context(budget=budget, request=request, presentation="selected_items")
 
     return render(request, "budget/partials/pdf/visualizarPDF.html", context)
 

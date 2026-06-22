@@ -198,30 +198,27 @@ def build_workshop_logo_data_uri(*, workshop) -> str:
     return f"data:{stored_logo.content_type};base64,{encoded_logo}"
 
 
-def build_budget_pdf_context(*, budget, request=None, observacao: str | None = None, zero_warranty_prices: bool = False, presentation: str = "expanded") -> dict:
+def build_budget_pdf_context(*, budget, request=None, observacao: str | None = None, presentation: str = "expanded") -> dict:
     snapshot = budget.pricing_snapshot
+
     is_courtesy_budget = budget.budget_type == "courtesy"
     is_warranty_budget = not is_courtesy_budget and (budget.is_warranty_budget or budget.budget_type == "warranty")
     is_warranty_or_courtesy = is_warranty_budget or is_courtesy_budget
     special_budget_label = "Orçamento de Cortesia" if is_courtesy_budget else "Orçamento de Garantia" if is_warranty_budget else ""
+
     warranty_message = ""
     if is_courtesy_budget:
         warranty_message = "Ordem de serviço de cortesia. Documento apenas para a visualização, peças e serviços descritos não foram cobrados do cliente"
     elif is_warranty_budget:
         warranty_message = "Ordem de serviço de garantia. Documento apenas para a visualização, peças e serviços descritos não foram cobrados do cliente"
-    is_client_warranty_pdf = is_warranty_or_courtesy and zero_warranty_prices
-    if is_client_warranty_pdf:
-        total_produtos = Money(0, "BRL")
-        total_servicos = Money(0, "BRL")
-        desconto = Money(0, "BRL")
-        total_geral = Money(0, "BRL")
-    else:
-        total_produtos = budget.selected_items_total_products_without_shipping
-        total_servicos = budget.selected_items_total_services_value
-        desconto = budget.selected_items_total_base_value - budget.selected_items_total_budget_value
-        total_geral = budget.selected_items_total_budget_value
+
+    total_produtos = budget.selected_items_total_products_without_shipping
+    total_servicos = budget.selected_items_total_services_value
+    desconto = budget.selected_items_total_base_value - budget.selected_items_total_budget_value
+    total_geral = budget.selected_items_total_budget_value
 
     discount_type = budget.discount_type or WorkOrderDiscountType.BOTH
+
     if desconto.amount <= 0:
         discount_products = zero_money()
         discount_services = zero_money()
@@ -238,10 +235,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
             discount_products = zero_money()
             discount_services = zero_money()
         else:
-            allocated = distribute_total_proportionally(
-                base_values=[products_decimal, services_decimal],
-                target_total=Decimal(str(desconto.amount)),
-            )
+            allocated = distribute_total_proportionally(base_values=[products_decimal, services_decimal], target_total=Decimal(str(desconto.amount)))
             discount_products = money_from_decimal(allocated[0])
             discount_services = money_from_decimal(allocated[1])
 

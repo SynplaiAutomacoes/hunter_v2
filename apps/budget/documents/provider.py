@@ -6,7 +6,7 @@ from apps.core.infrastructure.pdf.renderer import render_template_request_to_pdf
 
 
 def build_budget_pdf_render_request(*, budget, request=None, filename: str | None = None) -> DocumentRenderRequest:
-    context = build_budget_pdf_context(budget=budget, request=request, zero_warranty_prices=True, presentation="selected_items")
+    context = build_budget_pdf_context(budget=budget, request=request, presentation="selected_items")
     resolved_filename = filename or f"orcamento_{budget.id}.pdf"
     return DocumentRenderRequest(
         template_name="budget/partials/pdf/visualizarPDF.html",
