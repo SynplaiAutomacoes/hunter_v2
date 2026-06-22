@@ -512,3 +512,7 @@ Para futura emissao credito tipo 1: base aprovada; `finalidade=5`; `tipo_credito
 ## Testes Fase 2.5.4
 
 Cobertura: contrato finalidade/tipo, somente IBS/CBS, campos proibidos, preview/base/flag/permissao, tenancy, documento/link/tentativa antes do gateway, retry, concorrencia real, timeout `uncertain`, resposta rejeitada, webhook idempotente/ambiguo, reconciliacao sem emissao, downloads/payload sanitizados e regressao fiscal das fases anteriores.
+
+## Testes Fase 2.5.5
+
+Cobertura: elegibilidade por tipo/status/flag; motivo e confirmacao; payload somente com identificador e motivo; evento/tentativa antes do gateway; nenhuma nova nota; imutabilidade da origem/base/preview; concorrencia real; timeout `uncertain`; rejeicao com XML; webhook idempotente e ambiguo; reconciliacao sem `PUT`; permissoes, tenancy, download e payload sanitizado; regressao fiscal integral.

@@ -16,6 +16,7 @@ from apps.finance.services.nfe_emission import apply_nfe_item_payload
 from apps.finance.services.nfe_adjustment import apply_nfe_adjustment_document_payload, is_ambiguous_nfe_adjustment_webhook, resolve_nfe_adjustment_document_for_webhook
 from apps.finance.services.nfe_complementary import apply_nfe_complementary_document_payload, is_ambiguous_nfe_complementary_webhook, resolve_nfe_complementary_document_for_webhook
 from apps.finance.services.nfe_credit import apply_nfe_credit_document_payload, is_ambiguous_nfe_credit_webhook, resolve_nfe_credit_document_for_webhook
+from apps.finance.services.nfe_credit_cancellation import apply_credit_cancellation_payload, is_ambiguous_credit_cancellation_webhook, resolve_credit_cancellation_for_webhook
 from apps.finance.services.nfe_returns import apply_nfe_return_document_payload, is_ambiguous_nfe_return_webhook, resolve_nfe_return_document_for_webhook
 from apps.finance.services.nfce_cancellation import apply_nfce_cancellation_event_payload, is_ambiguous_nfce_cancellation_webhook, resolve_nfce_cancellation_event_for_webhook
 from apps.finance.services.nfce_emission import apply_nfce_document_payload, is_ambiguous_nfce_webhook, resolve_nfce_document_for_webhook
@@ -264,6 +265,18 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
         return False
 
     if model == "nfe":
+        if str(payload.get("status") or "").strip().lower() in {"cancelado", "cancelada", "canceled"}:
+            credit_cancellation = resolve_credit_cancellation_for_webhook(payload=payload)
+            if credit_cancellation is not None:
+                with transaction.atomic():
+                    credit_cancellation = FiscalDocumentEvent.objects.select_for_update().select_related("document").get(pk=credit_cancellation.pk)
+                    apply_credit_cancellation_payload(event=credit_cancellation, response_payload=payload)
+                _mark_event_processed(event)
+                return True
+            if is_ambiguous_credit_cancellation_webhook(payload=payload):
+                _mark_event_deferred(event, error=f"Cancelamento NF-e de credito {event_uuid or str(payload.get('chave') or '').strip()} ambiguo entre eventos.")
+                return False
+
         credit_document = resolve_nfe_credit_document_for_webhook(payload=payload)
         if credit_document is not None:
             with transaction.atomic():

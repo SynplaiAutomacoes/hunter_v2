@@ -482,3 +482,11 @@ Escopo: emitir exclusivamente `modelo=1`, `finalidade=5`, `tipo_credito=1` por `
 Bloqueios: debito; credito tipos 2-5; cancelamento de credito; eventos `112120`, `112140` e `211xxx`; complementar tributaria; NFS-e; CT-e; e demais familias.
 
 Criterios de aceite: payload contem somente IBS/CBS nos produtos; idempotencia persistida gera uma chamada por preview; timeout resulta em `uncertain`; permissoes e oficina sao validadas antes do gateway; XML/DANFE e payload ficam protegidos; webhook/reconciliacao atingem somente o documento de credito; testes direcionados, Ruff, migrations e diff check passam.
+
+## Fase 2.5.5 - Cancelamento NF-e de credito tipo 1
+
+Status: implementada e validada tecnicamente em 2026-06-22, apos validacao da Fase 2.5.4 no checkpoint `a79f6b7f`.
+
+Escopo: cancelar somente `FiscalDocument(document_type="nfe", purpose="credit", fiscal_purpose_type="1")` autorizado, por `PUT /1/nfe/cancelar/`, com chave ou UUID e motivo entre 15 e 255 caracteres. O contrato oficial nao inclui `ambiente` no body; o ambiente permanece auditado localmente. O cancelamento e evento do documento, nao evento IBS/CBS.
+
+Bloqueios: debito, credito tipos 2-5, novos tipos de emissao, `112120`, `112140`, eventos `211xxx`, complementar tributaria e demais familias fiscais.

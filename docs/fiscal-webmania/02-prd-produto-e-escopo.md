@@ -518,3 +518,7 @@ A previa fiscal local foi implementada com abordagem administrativa explicita: u
 ## Escopo implementado na Fase 2.5.4
 
 Primeira emissao real de NF-e de credito, limitada a multa/juros (`finalidade=5`, `tipo_credito=1`) e originada obrigatoriamente de preview aprovada. Debito, credito tipos 2-5 e cancelamento do credito continuam fora do escopo.
+
+## Escopo implementado na Fase 2.5.5
+
+Cancelamento padrao exclusivamente da NF-e de credito tipo 1 autorizada. A operacao fecha o ciclo emissao/cancelamento desse unico tipo, sem criar documento novo e sem alterar NF-e original, base, item da base ou preview.

@@ -11,10 +11,11 @@ from django.views import View
 from django.views.generic import DetailView, FormView, ListView
 
 from apps.finance.forms.fiscal_credit_product_preview import FiscalCreditProductPreviewCreateForm
-from apps.finance.models.finance import FiscalCreditProductPreview, FiscalDocument, FiscalDocumentPurpose, FiscalReferencedBasis, FiscalProductPreviewStatus
+from apps.finance.models.finance import FiscalCreditProductPreview, FiscalDocument, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentPurpose, FiscalReferencedBasis, FiscalProductPreviewStatus
 from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
 from apps.finance.services.fiscal_credit_product_preview import approve_credit_product_preview, create_credit_product_preview
 from apps.finance.services.fiscal_referenced_basis import is_credit_debit_basis_enabled
+from apps.finance.services.nfe_credit_cancellation import is_nfe_credit_eligible_for_cancellation
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import has_workshop_perm
 
@@ -113,9 +114,13 @@ class FiscalCreditProductPreviewDetailView(FiscalCreditProductPreviewPermissionM
         context["can_view_credit"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="fiscaldocument", codename="view_nfe_credit", request=self.request)
         context["can_download_credit"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="fiscaldocument", codename="download_nfe_credit", request=self.request)
         context["can_view_credit_payload"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="fiscaldocument", codename="view_nfe_credit_payload", request=self.request)
+        context["can_cancel_credit"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="fiscaldocument", codename="cancel_nfe_credit", request=self.request)
         credit_document = FiscalDocument.objects.filter(workshop=self.workshop, credit_product_preview=self.object, purpose=FiscalDocumentPurpose.CREDIT).first()
         context["credit_document"] = credit_document if context["can_view_credit"] else None
         context["credit_issue_enabled"] = is_credit_debit_basis_enabled(workshop=self.workshop) and self.object.validation_status == FiscalProductPreviewStatus.APPROVED and credit_document is None
+        context["credit_cancellation_enabled"] = context["can_cancel_credit"] and is_nfe_credit_eligible_for_cancellation(credit_document)
+        context["credit_cancellation_events"] = credit_document.events.filter(event_type=FiscalDocumentEventType.CANCELLATION, event_payload_type="nfe_credit_cancellation").order_by("-event_sequence") if credit_document and context["can_view_credit"] else []
+        context["active_credit_cancellation"] = any(event.status in {FiscalDocumentEventStatus.STARTED, FiscalDocumentEventStatus.SENT, FiscalDocumentEventStatus.PROCESSING, FiscalDocumentEventStatus.UNCERTAIN} for event in context["credit_cancellation_events"])
         return context
 
 

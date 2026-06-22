@@ -599,3 +599,7 @@ Validador preventivo rejeita qualquer grupo tributario diferente de `ibs_cbs`, a
 ### Contrato operacional Fase 2.5.4
 
 `POST /1/nfe/emissao/`: `modelo=1`, `finalidade=5`, `tipo_credito=1`, `nfe_referenciada`, `cliente`, `produtos`, `pedido` e notificacao quando configurada. Cada produto envia `codigo_cfop` e somente `impostos.ibs_cbs`; ICMS, IPI, PIS, COFINS, ISSQN, II, imposto devolvido, debito e campos de evento sao proibidos preventivamente.
+
+### Cancelamento operacional Fase 2.5.5
+
+`PUT /1/nfe/cancelar/` recebe somente `chave` ou `uuid` e `motivo` de 15 a 255 caracteres. O contrato oficial revalidado em 2026-06-22 nao inclui `ambiente`; o Hunter o preserva apenas no documento local. `finalidade`, `tipo_credito`, produtos, impostos, IBS/CBS, campos de evento e `nfce_referenciada` nao sao enviados. Resposta: `status`, `xml`, `xml_cancelamento` e `log` sanitizado.

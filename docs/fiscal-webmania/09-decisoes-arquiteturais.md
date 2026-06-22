@@ -521,3 +521,9 @@ Fase: 2.4D.6.0.
 - Status: aceita na Fase 2.5.4.
 - Decisao: produto e IBS/CBS sao copiados exclusivamente da preview imutavel; cliente e pedido reutilizam os builders da NF-e normal vinculada a origem. O documento derivado possui FK para base, one-to-one para preview, link `credits` e tentativa persistida antes do gateway.
 - Consequencia: uma nova emissao legitima exige nova preview aprovada. Cancelamento e tipos 2-5 exigem fases proprias.
+
+## ADR - Cancelamento padrao da NF-e de credito tipo 1
+
+- Status: aceita na Fase 2.5.5.
+- Decisao: usar `FiscalDocumentEvent(cancellation)` e operacao especifica `nfe_credit_cancellation`, sem reutilizar cancelamento de evento IBS/CBS. O body segue estritamente o contrato oficial: chave/UUID e motivo, sem ambiente ou dados da emissao.
+- Consequencia: somente resposta, webhook ou consulta remota com status positivo altera o documento de credito; origem, base e preview permanecem imutaveis. Tipos 2-5 e debito continuam bloqueados.

@@ -4,7 +4,7 @@ from apps.finance.services.webmania_b2b import sync_b2b_companies_to_database
 from .financial_group import FinancialGroupCreateView, FinancialGroupDeleteView, FinancialGroupListView, FinancialGroupUpdateView
 from .fiscal_referenced_basis import FiscalReferencedBasisApproveView, FiscalReferencedBasisCreateView, FiscalReferencedBasisDetailView, FiscalReferencedBasisFeatureToggleView, FiscalReferencedBasisListView, FiscalReferencedBasisPayloadView
 from .fiscal_credit_product_preview import FiscalCreditProductPreviewApproveView, FiscalCreditProductPreviewCreateView, FiscalCreditProductPreviewDetailView, FiscalCreditProductPreviewListView, FiscalCreditProductPreviewPayloadView
-from .nfe_credit import NfeCreditDownloadView, NfeCreditIssueView, NfeCreditPayloadView
+from .nfe_credit import NfeCreditCancellationDownloadView, NfeCreditCancellationPayloadView, NfeCreditCancellationView, NfeCreditDownloadView, NfeCreditIssueView, NfeCreditPayloadView
 from .common import DirectorWorkshopAccessMixin
 from .emission import EmissionPreviewView, EmissionRequestCreateView, EmissionWorkOrderItemUpdateView, EmissionWorkOrderKitComponentUpdateView, NfeCreateRedirectView, NfseCreateRedirectView
 from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocumentsListView
@@ -52,6 +52,9 @@ __all__ = [
     "NfeCreditDownloadView",
     "NfeCreditIssueView",
     "NfeCreditPayloadView",
+    "NfeCreditCancellationView",
+    "NfeCreditCancellationPayloadView",
+    "NfeCreditCancellationDownloadView",
     "IssuedDocumentsArchiveDownloadView",
     "IssuedDocumentsListView",
     "CommissionReportView",

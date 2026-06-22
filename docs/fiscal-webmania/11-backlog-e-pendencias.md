@@ -186,3 +186,9 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Planejar cancelamento padrao da NF-e de credito em fase separada.
 - Credito tipos 2-5 e toda NF-e de debito permanecem bloqueados.
 - `112120`, `112140`, eventos `211xxx`, complementar tributaria, NFS-e e CT-e permanecem nao iniciados.
+
+## Pendencias apos Fase 2.5.5
+
+- Credito tipo 1 possui ciclo emissao/cancelamento; nenhuma extensao para tipos 2-5 foi autorizada.
+- NF-e de debito permanece bloqueada.
+- `112120`, `112140`, eventos `211xxx`, complementar tributaria, NFS-e, CT-e e demais familias permanecem nao iniciados.

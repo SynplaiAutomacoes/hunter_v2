@@ -414,3 +414,7 @@ Listagem, formulario, detalhe, aprovacao e visualizacao sanitizada do pre-payloa
 ## UI e permissoes Fase 2.5.4
 
 A preview aprovada elegivel oferece confirmacao explicita e acao unica "Emitir NF-e de credito". Emissao, visualizacao, download e payload usam respectivamente `issue_nfe_credit`, `view_nfe_credit`, `download_nfe_credit` e `view_nfe_credit_payload`, sempre escopados a oficina. Permissoes de preparar/aprovar base ou preview nao concedem emissao.
+
+## UI e permissao Fase 2.5.5
+
+Documento de credito autorizado e sem cancelamento ativo exibe formulario de motivo e confirmacao explicita. `cancel_nfe_credit` e independente de `issue_nfe_credit`; payload e XML do evento continuam protegidos por `view_nfe_credit_payload` e `download_nfe_credit`. A interface informa que origem, base e preview permanecem imutaveis.

@@ -8,6 +8,7 @@ from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplement
 from apps.finance.services.nfe_adjustment import NfeAdjustmentError, reconcile_nfe_adjustment_document
 from apps.finance.services.nfe_complementary import NfeComplementaryError, reconcile_nfe_complementary_document
 from apps.finance.services.nfe_credit import NfeCreditError, reconcile_nfe_credit_document
+from apps.finance.services.nfe_credit_cancellation import NfeCreditCancellationError, reconcile_nfe_credit_cancellation
 from apps.finance.services.nfe_consulta import NfeConsultaError, reconcile_nfe_item
 from apps.finance.services.nfe_returns import NfeReturnError, reconcile_nfe_return_document
 from apps.finance.services.nfce_cancellation import NfceCancellationError, reconcile_nfce_cancellation_event
@@ -31,6 +32,7 @@ class Command(BaseCommand):
         reconciled_nfe_complementary = 0
         reconciled_nfe_adjustment = 0
         reconciled_nfe_credit = 0
+        reconciled_nfe_credit_cancellations = 0
         reconciled_nfce = 0
         reconciled_nfce_cancellations = 0
         reconciled_nfse = 0
@@ -98,6 +100,21 @@ class Command(BaseCommand):
             else:
                 reconciled_nfe_credit += 1
 
+        pending_credit_cancellations = FiscalDocumentEvent.objects.filter(
+            event_type=FiscalDocumentEventType.CANCELLATION,
+            event_payload_type="nfe_credit_cancellation",
+            document__purpose=FiscalDocumentPurpose.CREDIT,
+            document__fiscal_purpose_type="1",
+            status__in=[FiscalDocumentEventStatus.SENT, FiscalDocumentEventStatus.PROCESSING, FiscalDocumentEventStatus.UNCERTAIN],
+        ).select_related("document", "document__workshop").order_by("pk")[:limit]
+        for cancellation_event in pending_credit_cancellations:
+            try:
+                reconcile_nfe_credit_cancellation(event=cancellation_event)
+            except NfeCreditCancellationError:
+                failed += 1
+            else:
+                reconciled_nfe_credit_cancellations += 1
+
         pending_nfce_documents = FiscalDocument.objects.filter(
             document_type=FiscalDocumentType.NFCE,
             origin=FiscalDocumentOrigin.MANUAL,
@@ -138,6 +155,15 @@ class Command(BaseCommand):
         uncertain_attempts = FiscalEmissionAttempt.objects.filter(status=FiscalEmissionAttemptStatus.UNCERTAIN).select_related("workshop", "fiscal_document").order_by("pk")[:limit]
         for attempt in uncertain_attempts:
             if attempt.document_kind == "nfe":
+                if attempt.fiscal_document_event_id and attempt.operation_type == FiscalEmissionOperationType.NFE_CREDIT_CANCELLATION:
+                    try:
+                        reconcile_nfe_credit_cancellation(event=attempt.fiscal_document_event)
+                    except (NfeCreditCancellationError, AttributeError):
+                        failed += 1
+                    else:
+                        uncertain_checked += 1
+                    continue
+
                 if attempt.fiscal_document_id and attempt.operation_type == FiscalEmissionOperationType.NFE_CREDIT_EMISSION:
                     try:
                         reconcile_nfe_credit_document(document=attempt.fiscal_document)
@@ -213,4 +239,4 @@ class Command(BaseCommand):
                     else:
                         uncertain_checked += 1
 
-        self.stdout.write(self.style.SUCCESS(f"Webhooks processados: {processed_webhooks}. NF-es reconciliadas: {reconciled_nfe}. Devolucoes/estornos reconciliados: {reconciled_nfe_returns}. Complementares reconciliadas: {reconciled_nfe_complementary}. Ajustes reconciliados: {reconciled_nfe_adjustment}. Creditos tipo 1 reconciliados: {reconciled_nfe_credit}. NFC-es reconciliadas: {reconciled_nfce}. Cancelamentos NFC-e reconciliados: {reconciled_nfce_cancellations}. NFS-es reconciliadas: {reconciled_nfse}. Tentativas incertas consultadas: {uncertain_checked}. Falhas: {failed}."))
+        self.stdout.write(self.style.SUCCESS(f"Webhooks processados: {processed_webhooks}. NF-es reconciliadas: {reconciled_nfe}. Devolucoes/estornos reconciliados: {reconciled_nfe_returns}. Complementares reconciliadas: {reconciled_nfe_complementary}. Ajustes reconciliados: {reconciled_nfe_adjustment}. Creditos tipo 1 reconciliados: {reconciled_nfe_credit}. Cancelamentos de credito reconciliados: {reconciled_nfe_credit_cancellations}. NFC-es reconciliadas: {reconciled_nfce}. Cancelamentos NFC-e reconciliados: {reconciled_nfce_cancellations}. NFS-es reconciliadas: {reconciled_nfse}. Tentativas incertas consultadas: {uncertain_checked}. Falhas: {failed}."))

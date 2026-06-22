@@ -559,3 +559,7 @@ Nao existe idempotencia remota porque nao existe operacao remota. A transacao bl
 ## Seguranca Fase 2.5.4
 
 A autorizacao explicita desta fase amplia `credit_debit_basis_enabled` para habilitar tambem o credito tipo 1. A preview e bloqueada por `select_for_update(of=("self",))`; documento, link e `FiscalEmissionAttempt(operation_type="nfe_credit_emission")` sao persistidos antes do HTTP. Timeout/resposta nao interpretavel gera `uncertain`, que bloqueia nova intencao. Webhook resolve somente documentos `purpose=credit`/tipo `1`, rejeita ambiguidade e nao altera origem, base ou preview. Reconciliacao usa apenas consulta remota.
+
+## Seguranca Fase 2.5.5
+
+O documento e bloqueado transacionalmente; evento e tentativa sao persistidos antes do `PUT`. A chave idempotente inclui oficina, documento, operacao, evento e geracao. Cancelamento ativo ou `uncertain` impede nova tentativa; timeout preserva o evento incerto sem mudar o documento. Webhook resolve primeiro o evento de cancelamento por UUID/chave/tentativa, rejeita ambiguidade e somente entao marca o credito cancelado. Reconciliacao usa `GET /1/nfe/consulta/` e nunca reenvia o cancelamento.

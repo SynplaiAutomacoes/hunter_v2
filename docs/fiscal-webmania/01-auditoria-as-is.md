@@ -290,3 +290,7 @@ Conclusao 2.4D.6.0: o codigo ja possui infraestrutura tecnica reutilizavel para 
 ## Resultado tecnico Fase 2.5.4
 
 A emissao de credito tipo 1 reutiliza os helpers da NF-e normal para `cliente` e `pedido`, mas consome `produtos[]` exclusivamente da `FiscalCreditProductPreview` aprovada. O novo service transmite somente `modelo=1`, `finalidade=5`, `tipo_credito=1` e `impostos.ibs_cbs`; nenhum dado fiscal e recalculado a partir de `TaxClassNfe` ou cadastro atual.
+
+## Resultado tecnico Fase 2.5.5
+
+O cancelamento do credito reutiliza a estrutura `FiscalDocumentEvent`/`FiscalEmissionAttempt` do cancelamento NFC-e, com service separado e filtros estritos de NF-e, `purpose=credit` e tipo `1`. O cancelamento legado de `NfeItem` nao foi alterado. Webhook e reconciliacao atuam somente no evento/documento de credito.
