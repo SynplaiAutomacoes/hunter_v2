@@ -23,7 +23,7 @@
     <div class="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
         <div class="space-y-4">
             <section class="rounded-[1.75rem] border border-base-300/70 bg-base-100 p-4 shadow-sm sm:p-5">
-                <div class="grid gap-3 md:grid-cols-3">
+                <div class="grid gap-3 {% if indicator == 'carros_mes' or indicator == 'garantia_cortesia_mes' %}md:grid-cols-5{% else %}md:grid-cols-3{% endif %}">
                     <div class="rounded-[1.25rem] border border-base-300/60 bg-base-200/70 px-4 py-3">
                         <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-base-content/50">Quantidade de Veículos</p>
                         <p class="mt-1 text-2xl font-black tabular-nums text-base-content">{{ summary_count }}</p>
@@ -32,6 +32,27 @@
                         <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-base-content/50">Quantidade de O.S.</p>
                         <p class="mt-1 text-2xl font-black tabular-nums text-base-content">{{ record_count }}</p>
                     </div>
+                    {% if indicator == 'carros_mes' %}
+                        <div class="rounded-[1.25rem] border border-primary/20 bg-primary/10 px-4 py-3">
+                            <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/70">Valor pago esse mês</p>
+                            <p class="mt-1 text-2xl font-black tabular-nums text-primary">{{ valor_pago_esse_mes|money_br }}</p>
+                            <p class="mt-2 text-xs text-base-content/50">Total dos pagamentos com vencimento neste mês</p>
+                        </div>
+                        <div class="rounded-[1.25rem] border border-warning/20 bg-warning/10 px-4 py-3">
+                            <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-warning/70">Sinal pago mês anterior</p>
+                            <p class="mt-1 text-2xl font-black tabular-nums text-warning">{{ sinal_pago_mes_anterior|money_br }}</p>
+                            <p class="mt-2 text-xs text-base-content/50">Valor dos pagamentos realizados em meses anteriores</p>
+                        </div>
+                    {% elif indicator == 'garantia_cortesia_mes' %}
+                        <div class="rounded-[1.25rem] border border-error/20 bg-error/10 px-4 py-3">
+                            <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-error/70">Garantia</p>
+                            <p class="mt-1 text-2xl font-black tabular-nums text-error">{{ warranty_count }} veículo(s)</p>
+                        </div>
+                        <div class="rounded-[1.25rem] border border-info/20 bg-info/10 px-4 py-3">
+                            <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-info/70">Cortesia</p>
+                            <p class="mt-1 text-2xl font-black tabular-nums text-info">{{ courtesy_count }} veículo(s)</p>
+                        </div>
+                    {% endif %}
                     <div class="rounded-[1.25rem] border border-success/15 bg-success/10 px-4 py-3">
                         <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-success/70">Valor Total Entregue</p>
                         <p class="mt-1 text-2xl font-black tabular-nums text-success">{{ total_value|money_br }}</p>
@@ -100,11 +121,13 @@
                                                 {% endif %}
                                             </div>
                                         </div>
-                                        <div class="rounded-[1.25rem] border border-success/20 bg-success/10 p-4 text-left xl:text-right">
-                                            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-success/70">Total</p>
-                                            <p class="mt-2 text-3xl font-black tabular-nums text-success">{{ group.group_total|money_br }}</p>
+                                        {% with color=group.primary_item.budget_type|budget_type_color %}
+                                        <div class="rounded-[1.25rem] border border-{{ color }}/20 bg-{{ color }}/10 p-4 text-left xl:text-right">
+                                            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-{{ color }}/70">Total</p>
+                                            <p class="mt-2 text-3xl font-black tabular-nums text-{{ color }}">{{ group.group_total|money_br }}</p>
                                             <p class="mt-2 text-xs text-base-content/50 group-open:hidden">Clique para expandir o detalhamento</p>
                                         </div>
+                                        {% endwith %}
                                     </div>
                                 </summary>
 
@@ -121,7 +144,8 @@
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                <tr class="bg-success/5">
+                                                {% with color=group.primary_item.budget_type|budget_type_color %}
+                                                <tr class="bg-{{ color }}/5">
                                                     <td class="font-semibold">#{{ group.primary_item.get_id }}</td>
                                                     <td class="font-medium">{{ group.primary_item.budget.customer|default:"-" }}</td>
                                                     <td>{{ group.primary_item.budget.vehicle|default:"-" }}</td>
@@ -132,8 +156,9 @@
                                                             {{ group.primary_item.criado_em|date:"d/m/Y"|default:"-" }}
                                                         {% endif %}
                                                     </td>
-                                                    <td class="text-right font-bold tabular-nums text-success">{{ group.primary_amount|money_br }}</td>
+                                                    <td class="text-right font-bold tabular-nums text-{{ color }}">{{ group.primary_amount|money_br }}</td>
                                                 </tr>
+                                                {% endwith %}
                                                 {% for child in group.child_items %}
                                                     <tr class="hover">
                                                         <td class="pl-6 font-semibold">#{{ child.get_id }}</td>
@@ -146,20 +171,24 @@
                                                                 {{ child.criado_em|date:"d/m/Y"|default:"-" }}
                                                             {% endif %}
                                                         </td>
-                                                        <td class="text-right font-semibold tabular-nums">
-                                                            {% if indicator|slice:':10' == 'a_receber_' %}
-                                                                {{ child.pending_payment_value|money_br }}
-                                                            {% else %}
-                                                                {{ child.total_budget_value|money_br }}
-                                                            {% endif %}
-                                                        </td>
+                                                    {% with color=child.budget_type|budget_type_color %}
+                                                    <td class="text-right font-semibold tabular-nums text-{{ color }}">
+                                                        {% if indicator|slice:':10' == 'a_receber_' %}
+                                                            {{ child.pending_payment_value|money_br }}
+                                                        {% else %}
+                                                            {{ child.total_budget_value|money_br }}
+                                                        {% endif %}
+                                                    </td>
+                                                    {% endwith %}
                                                     </tr>
                                                 {% endfor %}
                                             </tbody>
                                             <tfoot>
                                                 <tr class="bg-base-200/60">
                                                     <td colspan="4" class="text-right text-sm font-semibold">Total consolidado do grupo</td>
-                                                    <td class="text-right text-base font-black tabular-nums text-success">{{ group.group_total|money_br }}</td>
+                                                    {% with color=group.primary_item.budget_type|budget_type_color %}
+                                                    <td class="text-right text-base font-black tabular-nums text-{{ color }}">{{ group.group_total|money_br }}</td>
+                                                    {% endwith %}
                                                 </tr>
                                             </tfoot>
                                         </table>
