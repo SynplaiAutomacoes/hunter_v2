@@ -402,3 +402,11 @@ Nao expor acao de emissao. A proxima UI preparatoria deve permitir decompor mult
 ## UI preparatoria 2.5.2P
 
 O formulario existente passou a receber principal, multa, juros e outros por item. O detalhe exibe descricao, NCM, CFOP, quantidade, unidade, valores originais e base calculada. As permissoes `prepare_nfe_credit_debit_basis`, `approve_nfe_credit_debit_basis`, `view_nfe_credit_debit_basis` e `view_nfe_credit_debit_basis_payload` foram reutilizadas. A interface informa explicitamente que nenhuma emissao esta disponivel.
+## UX/permissoes futuras - credito tipo 1
+
+Permissoes planejadas: `issue_nfe_credit`, `view_nfe_credit`, `download_nfe_credit` e `view_nfe_credit_payload`. Preparar ou aprovar base nao concede emissao. A futura emissao exigira `credit_debit_basis_enabled=true` e uma habilitacao administrativa de emissao distinta (ou flag equivalente mais restritiva); a flag de preparacao isolada nunca libera o gateway.
+
+UI futura minima: acao a partir de base aprovada, resumo imutavel do item/NF-e original, multa, juros, base, CFOP e IBS/CBS, confirmacao fiscal explicita e aviso de que se trata de novo documento. Enquanto a regra de valoracao estiver pendente, nenhuma acao de emissao deve ser exibida.
+## UI implementada na 2.5.3P
+
+Listagem, formulario, detalhe, aprovacao e visualizacao sanitizada do pre-payload foram adicionados. O formulario mostra multa, juros e total esperado quando a base e selecionada por contexto. Permissoes: `prepare_nfe_credit_product_preview`, `approve_nfe_credit_product_preview`, `view_nfe_credit_product_preview`, `view_nfe_credit_product_preview_payload`. Nenhuma acao de emissao existe.

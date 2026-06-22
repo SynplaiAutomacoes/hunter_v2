@@ -547,3 +547,11 @@ Mesmo uma `FiscalReferencedBasis` aprovada nao autoriza emissao enquanto nao hou
 ## Protecao da base monetaria 2.5.2P
 
 A preparacao permanece fora do dominio de transmissao: nao cria `FiscalDocument` de credito/debito, `FiscalEmissionAttempt`, webhook ou reconciliacao. A feature flag controla apenas preparacao. Snapshots aprovados sao imutaveis; payload exposto usa sanitizacao fiscal e as consultas permanecem escopadas por oficina/permissao.
+## Seguranca planejada - credito tipo 1
+
+A futura intencao deve criar `FiscalDocument` e `FiscalEmissionAttempt` antes do gateway, congelar o payload e usar `uncertain` sem retry automatico. Base e item aprovados devem ser bloqueados para uso concorrente pela mesma intencao. Webhook resolve primeiro por UUID do credito e depois por tentativa nao ambigua; nunca atualiza a NF-e original ou evento IBS/CBS.
+
+Bloqueios pre-gateway: base/item incompletos, valor `multa + juros <= 0`, chave/CFOP ausentes, qualquer tributo tradicional, `tipo_debito`, evento IBS/CBS, documento externo sem XML validado, oficina divergente, `credit_debit_basis_enabled` inativa, habilitacao administrativa de emissao ausente, permissao ausente e tentativa `uncertain`.
+## Seguranca implementada na 2.5.3P
+
+Nao existe idempotencia remota porque nao existe operacao remota. A transacao bloqueia base e item, gera revisao unica e congela payload aprovado. A flag `credit_debit_basis_enabled` controla somente preparacao. Payload e IBS/CBS exigem permissao propria e passam por sanitizacao antes da resposta JSON.

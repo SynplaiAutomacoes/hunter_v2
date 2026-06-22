@@ -32,6 +32,9 @@
             <button class="btn btn-primary" type="submit">Aprovar base</button>
         </form>
         {% endif %}
+        {% if basis.status == 'approved' and can_prepare_credit_preview and basis.fiscal_hypothesis == 'credit_fine_interest' %}
+        <a class="btn btn-outline" href="{% url 'finance:fiscal_credit_product_preview_create' %}?basis={{ basis.pk }}">Preparar previa de multa/juros</a>
+        {% endif %}
     </div>
 </div>
 {% endblock %}

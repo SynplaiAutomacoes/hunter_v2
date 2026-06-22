@@ -18,6 +18,11 @@ from apps.finance.views import (
     FiscalReferencedBasisFeatureToggleView,
     FiscalReferencedBasisListView,
     FiscalReferencedBasisPayloadView,
+    FiscalCreditProductPreviewApproveView,
+    FiscalCreditProductPreviewCreateView,
+    FiscalCreditProductPreviewDetailView,
+    FiscalCreditProductPreviewListView,
+    FiscalCreditProductPreviewPayloadView,
     IssuedDocumentsArchiveDownloadView,
     IssuedDocumentsListView,
     NfeCreateRedirectView,
@@ -102,6 +107,11 @@ from apps.finance.views.movement_group import GroupMovementWizardView, GroupMove
 app_name = "finance"
 
 urlpatterns = [
+    path("fiscal/previas-credito-multa-juros/", FiscalCreditProductPreviewListView.as_view(), name="fiscal_credit_product_preview_list"),
+    path("fiscal/previas-credito-multa-juros/criar/", FiscalCreditProductPreviewCreateView.as_view(), name="fiscal_credit_product_preview_create"),
+    path("fiscal/previas-credito-multa-juros/<int:pk>/", FiscalCreditProductPreviewDetailView.as_view(), name="fiscal_credit_product_preview_detail"),
+    path("fiscal/previas-credito-multa-juros/<int:pk>/aprovar/", FiscalCreditProductPreviewApproveView.as_view(), name="fiscal_credit_product_preview_approve"),
+    path("fiscal/previas-credito-multa-juros/<int:pk>/payload/", FiscalCreditProductPreviewPayloadView.as_view(), name="fiscal_credit_product_preview_payload"),
     path("fiscal/bases-credito-debito/", FiscalReferencedBasisListView.as_view(), name="fiscal_referenced_basis_list"),
     path("fiscal/bases-credito-debito/criar/", FiscalReferencedBasisCreateView.as_view(), name="fiscal_referenced_basis_create"),
     path("fiscal/bases-credito-debito/habilitacao/", FiscalReferencedBasisFeatureToggleView.as_view(), name="fiscal_referenced_basis_toggle"),

@@ -532,3 +532,66 @@ OpenAPI: o schema validado atual ja contem `NfeIbsCbsEventRequest`, `NfeIbsCbsEv
 ### Limite da Fase 2.5.2P
 
 Nenhum endpoint, request ou response Webmania foi adicionado. A fase prepara exclusivamente dados internos para uma futura `finalidade=5/6`; o OpenAPI validado permanece inalterado. Credito tipo 1 continua candidato futuro, sem autorizacao de transmissao.
+## Fase 2.5.3.0 - Credito tipo 1 multa/juros
+
+Fonte oficial revalidada em 2026-06-22: documentacao REST NF-e/NFC-e Webmania, secao "Emissao de Nota Fiscal de Credito". O endpoint e `POST /1/nfe/emissao/`; credito usa `finalidade=5`, `tipo_credito=1`, `nfe_referenciada[]`, blocos usuais `cliente`, `produtos` e `pedido`, CFOP na raiz do produto e exclusivamente `impostos.ibs_cbs`. A pagina reserva `dfe_referenciado` ao debito tipos 3/4. Resposta, webhook, XML/DANFE, consulta e cancelamento seguem o ciclo geral da NF-e.
+
+### Matriz de pre-condicoes
+
+| Pre-condicao | Fonte atual | Existe? | Bloqueio se ausente? | Observacao |
+| --- | --- | ---: | ---: | --- |
+| `FiscalReferencedBasis` aprovada | Fase 2.5.1P | Sim | Sim | Deve ser `credit_fine_interest`, oficina ativa e origem elegivel. |
+| `FiscalReferencedBasisItem` aprovado | One-to-one validado na 2.5.2P | Sim, pela aprovacao imutavel da base pai | Sim | O item nao possui status independente; a aprovacao da base valida e congela o item. |
+| Chave da NF-e original | `source_access_key`/documento original | Sim | Sim | 44 digitos; compoe `nfe_referenciada[]`. |
+| Item fiscal sequencial | Base e item comercial | Sim | Sim | Rastreabilidade interna; nao enviar `dfe_referenciado`. |
+| Snapshot IBS/CBS por item | `ibs_cbs_snapshot` | Sim | Sim | Identidade/classificacao existe; valores especificos de multa/juros ainda precisam regra confirmada. |
+| Snapshot comercial por item | `commercial_snapshot` | Sim | Sim | Descricao/codigo/NCM/unidade/origem historicos. |
+| Snapshot monetario por item | `monetary_snapshot` | Sim | Sim | Congela principal, multa, juros, outros e regra. |
+| CFOP | `source_item_cfop` | Sim | Sim | Nao copiar automaticamente sem validacao do CFOP aplicavel ao credito. |
+| Quantidade fiscal original | `source_quantity` | Sim | Sim | Nao prova qual quantidade deve constar no novo item de multa/juros. |
+| Valor unitario fiscal original | `source_unit_price` | Sim | Sim | Nao deve ser repetido silenciosamente no credito. |
+| Valor total fiscal original | `source_total_amount` | Sim | Sim | Serve como evidencia/limite, nao como total automatico do credito. |
+| Multa | `fine_amount` | Sim | Sim quando multa e parte da hipotese | Decimal, explicita e imutavel. |
+| Juros | `interest_amount` | Sim | Sim quando juros sao parte da hipotese | Decimal, explicita e imutavel. |
+| Base multa + juros | `credit_debit_base_amount` | Sim | Sim | Deve ser positiva e igual a multa + juros. |
+| Feature flag por oficina | `WebmaniaCompany.credit_debit_basis_enabled` | Parcial | Sim | Flag atual libera apenas preparacao; emissao futura deve possuir habilitacao administrativa explicita. |
+| Permissao especifica | Planejada `issue_nfe_credit` | Nao | Sim | Permissoes de preparar/aprovar base nao autorizam emissao. |
+
+### Payload futuro confirmado e pontos bloqueados
+
+Envelope confirmado:
+
+```json
+{
+  "modelo": 1,
+  "finalidade": 5,
+  "tipo_credito": 1,
+  "nfe_referenciada": ["<chave-original-44-digitos>"],
+  "cliente": {},
+  "produtos": [
+    {
+      "nome": "<descricao-fiscal-validada>",
+      "codigo": "<codigo-historico-ou-especifico-validado>",
+      "ncm": "<ncm-validado>",
+      "quantidade": "<regra-pendente>",
+      "unidade": "<unidade-validada>",
+      "subtotal": "<regra-pendente>",
+      "total": "<multa-mais-juros, somente apos validacao fiscal>",
+      "codigo_cfop": "<cfop-validado>",
+      "impostos": {"ibs_cbs": {}}
+    }
+  ],
+  "pedido": {}
+}
+```
+
+O esqueleto nao autoriza implementacao: `quantidade`, `subtotal`, `total`, CFOP e conteudo/valores de `ibs_cbs` dependem de validacao fiscal. Nao assumir quantidade 1, nao reaproveitar integralmente quantidade/unitario/total originais e nao proporcionalizar IBS/CBS automaticamente.
+
+Campos proibidos: `impostos.icms`, `impostos.ipi`, `impostos.pis`, `impostos.cofins`, `impostos.issqn`, `impostos.ii`, `imposto_devolvido`, `evento_ibs_cbs`, `cod_evento`, `tipo_debito` e `dfe_referenciado`. A rejeicao 1001 deve ser prevenida antes do gateway.
+
+Observacao de contrato: o exemplo oficial atual mostra `modelo="nfe"`, enquanto o contrato operacional validado e os builders Hunter usam `modelo=1`. Registrar a divergencia e revalidar imediatamente antes de qualquer codigo; o OpenAPI nao foi alterado nesta fase porque o contrato operacional existente permanece consistente com os fluxos atuais.
+### Pre-payload implementado na 2.5.3P
+
+O preview local contem apenas `modelo=1`, `finalidade=5`, `tipo_credito=1`, `nfe_referenciada[]` e um produto com identidade historica, valores administrativos explicitos, CFOP explicito e `impostos.ibs_cbs` historico. Nao contem `cliente`/`pedido` completos e nao e request transmitivel. O OpenAPI remoto permanece inalterado.
+
+Validador preventivo rejeita qualquer grupo tributario diferente de `ibs_cbs`, alem de `dfe_referenciado`, `evento_ibs_cbs`, `cod_evento` e `tipo_debito`.

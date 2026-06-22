@@ -458,3 +458,17 @@ Status: implementada e validada em 2026-06-19. A Fase 2.5.2.0 foi aprovada com d
 Escopo: criar snapshot imutavel por item fiscal com sequencial, descricao, codigo, NCM, CFOP, quantidade, unidade, valor unitario, total original e composicao explicita de principal, multa, juros e outros. Para hipoteses de multa/juros, a base futura e `multa + juros`; para as demais, `principal + multa + juros + outros`. A movimentacao financeira e somente evidencia e nao preenche valores automaticamente.
 
 Criterios: permitir rascunho incompleto, bloquear aprovacao sem fonte comercial historica completa ou composicao valida, manter feature flag/permissoes existentes, impedir alteracao apos aprovacao e provar ausencia de `FiscalDocument`, `FiscalEmissionAttempt` e chamada Webmania de credito/debito.
+## Fase 2.5.3.0 - Planejamento final credito tipo 1
+
+Status: documentada em 2026-06-22, aguardando aprovacao. A Fase 2.5.2P foi validada no checkpoint `638d4c12`.
+
+Decisao: adiar a emissao funcional. A base local atende identidade, snapshot, valores e imutabilidade, mas o contrato consultado nao define com seguranca a valoracao de `produtos[]` para multa/juros nem os valores IBS/CBS correspondentes.
+
+Proxima fase recomendada: `2.5.3P - Validacao fiscal do produto de multa/juros`, exclusivamente documental/configuracional e sem transmissao. Criterios: confirmar modelo operacional (`1` versus `"nfe"`), CFOP, descricao/NCM/unidade, quantidade, subtotal, total, regra IBS/CBS, cliente/pedido e evidencias exigidas. Somente depois uma `2.5.3.1` funcional podera ser autorizada.
+## Fase 2.5.3P - Validacao fiscal do produto multa/juros
+
+Status: em implementacao controlada. Opcao A aprovada tecnicamente para a previa: quantidade, valor unitario, total e CFOP sao informados explicitamente por usuario autorizado; nenhuma regra e inferida. A aprovacao exige `quantidade x unitario = total` dentro de R$ 0,01 e `total = multa + juros`, com IBS/CBS vindo somente do snapshot aprovado.
+
+Esta fase nao cria documento fiscal, tentativa remota, gateway ou botao de emissao.
+
+Resultado: implementada e validada em 2026-06-22 com model local, valores explicitos, revisao, validacao, aprovacao imutavel, UI minima e permissoes proprias. A regressao fiscal completa passou antes do checkpoint.

@@ -488,3 +488,23 @@ Para futura emissao credito tipo 1: base aprovada; `finalidade=5`; `tipo_credito
 - Imutabilidade comercial, monetaria, CFOP e item apos aprovacao.
 - Ausencia de fallback por cadastro/`TaxClassNfe`, de documento derivado, tentativa remota e chamada Webmania.
 - Permissao, tenancy, feature flag e sanitizacao continuam cobertas pela suite 2.5.1P.
+## Testes planejados - futura emissao credito tipo 1
+
+- Exige `FiscalReferencedBasis` aprovada e `FiscalReferencedBasisItem` completo/imutavel.
+- Bloqueia base nao aprovada, snapshot ausente, chave/CFOP ausentes, documento externo sem XML validado e `multa + juros <= 0`.
+- Payload fixa `finalidade=5`, `tipo_credito=1`, `nfe_referenciada[]`, CFOP na raiz e somente `impostos.ibs_cbs`.
+- Rejeita ICMS, IPI, PIS, COFINS, ISSQN, II, imposto devolvido, `tipo_debito`, `dfe_referenciado` e campos de evento IBS/CBS.
+- Valida regra fiscal aprovada de quantidade, unitario, total e IBS/CBS sem inferencia/copia silenciosa.
+- Cria documento/link/tentativa antes do gateway; retry/concorrencia fazem uma chamada; timeout fica `uncertain`.
+- Duas intencoes legitimas usam documentos distintos; payload enviado e imutavel.
+- Webhook/reconciliacao atualizam somente o credito; original e eventos nao mudam; reconciliacao nunca emite.
+- Permissao `issue_nfe_credit`, feature flag de emissao, tenancy, sanitizacao e downloads protegidos.
+- Regressao da base 2.5.1P/2.5.2P e dos eventos IBS/CBS.
+## Testes implementados - Fase 2.5.3P
+
+- Preview exige base aprovada, item congelado, hipotese multa/juros, flag e oficina correta.
+- Quantidade/unitario/total positivos, confirmados explicitamente e reconciliados com `multa + juros`.
+- Produto usa identidade historica e somente IBS/CBS historico; `TaxClassNfe` e cadastro atual nao sao fallback.
+- Detector bloqueia tributos tradicionais, tipo debito, DF-e por item e campos de evento.
+- Preview aprovado e imutavel; payload protegido por permissao/tenancy e sanitizado.
+- Contagens provam ausencia de documento/tentativa; choices provam ausencia de `nfe_credit_emission`.

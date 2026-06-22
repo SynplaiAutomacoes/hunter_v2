@@ -1,4 +1,4 @@
-from .finance import FiscalDocument, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, FiscalHypothesis, FiscalNumberInutilization, FiscalNumberInutilizationStatus, FiscalReferencedBasis, FiscalReferencedBasisItem, FiscalReferencedBasisStatus, FiscalReferencedBasisType, NfeItem, NfeRequest, NfseBatch, NfseItem, NfseRequest, TaxClassNfe, TaxClassNfeCofinsScenario, TaxClassNfeIcmsScenario, TaxClassNfeIpiScenario, TaxClassNfePisScenario, TaxClassNfse, TaxClassPreset, TaxClassPresetKind, TaxClassSyncState, WebmaniaCompany
+from .finance import FiscalCreditProductPreview, FiscalDocument, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, FiscalHypothesis, FiscalNumberInutilization, FiscalNumberInutilizationStatus, FiscalProductPreviewStatus, FiscalReferencedBasis, FiscalReferencedBasisItem, FiscalReferencedBasisStatus, FiscalReferencedBasisType, NfeItem, NfeRequest, NfseBatch, NfseItem, NfseRequest, TaxClassNfe, TaxClassNfeCofinsScenario, TaxClassNfeIcmsScenario, TaxClassNfeIpiScenario, TaxClassNfePisScenario, TaxClassNfse, TaxClassPreset, TaxClassPresetKind, TaxClassSyncState, WebmaniaCompany
 from .financial_group import FinancialGroup
 from .payment_method import PaymentMethod
 from .movement_group import MovementGroup
@@ -8,6 +8,7 @@ __all__ = [
     "FinancialGroup",
     "MovementGroup",
     "FinancialMovement",
+    "FiscalCreditProductPreview",
     "FiscalDocument",
     "FiscalDocumentEvent",
     "FiscalDocumentEventStatus",
@@ -21,6 +22,7 @@ __all__ = [
     "FiscalHypothesis",
     "FiscalNumberInutilization",
     "FiscalNumberInutilizationStatus",
+    "FiscalProductPreviewStatus",
     "FiscalReferencedBasis",
     "FiscalReferencedBasisItem",
     "FiscalReferencedBasisStatus",

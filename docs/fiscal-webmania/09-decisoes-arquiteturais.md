@@ -501,3 +501,17 @@ Fase: 2.4D.6.0.
 - Fonte: somente snapshots historicos do documento/NF-e legada; sem cadastro atual, classe fiscal ou valor financeiro agregado como fallback.
 - Composicao: multa/juros usa somente multa + juros; demais hipoteses somam principal + multa + juros + outros.
 - Consequencia: bases antigas sem item monetario continuam legiveis, mas nao podem ser aprovadas ate receberem uma preparacao valida por fluxo futuro controlado. Nenhum backfill implicito foi criado.
+## ADR-050 - Adiar credito tipo 1 ate validar valoracao fiscal
+
+- Status: proposta pela Fase 2.5.3.0, aguardando aprovacao.
+- Contexto: a base 2.5.2P congela item e `multa + juros`, mas o contrato oficial consultado nao determina como esses valores ocupam quantidade/subtotal/total nem como formar IBS/CBS do produto de credito.
+- Decisao: nao inventar quantidade 1, nao copiar o item original integralmente e nao proporcionalizar IBS/CBS automaticamente. Adiar gateway ate confirmacao fiscal/documental.
+- Contrato confirmado: `finalidade=5`, `tipo_credito=1`, `nfe_referenciada[]`, CFOP na raiz, apenas `impostos.ibs_cbs`; sem `dfe_referenciado`.
+- Consequencia: proxima fase recomendada `2.5.3P`; futura emissao usa documento derivado, link `credits`, tentativa `nfe_credit_emission`, flag/permissoes proprias e cancelamento posterior pelo fluxo NF-e padrao.
+## ADR-051 - Preview fiscal versionado sem transmissao
+
+- Status: aceita na Fase 2.5.3P.
+- Decisao: criar `FiscalCreditProductPreview` separado da base. Quantidade, unitario, total e CFOP sao input administrativo explicito; total deve fechar com quantidade x unitario e com multa + juros.
+- IBS/CBS: copia sanitizada e imutavel do snapshot aprovado, sem calculo e sem `TaxClassNfe` atual.
+- Seguranca: permissoes proprias, revisao por base, imutabilidade apos aprovacao e nenhum objeto remoto.
+- Consequencia: a previa reduz ambiguidade tecnica, mas ainda nao autoriza emissao fiscal; cliente/pedido e validacao externa permanecem pendentes.

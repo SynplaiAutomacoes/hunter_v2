@@ -634,3 +634,19 @@ Somente uma fase funcional posterior podera adicionar `FiscalDocumentPurpose.CRE
 Entidade one-to-one de `FiscalReferencedBasis`, criada porque a base principal ja identifica exatamente um item fiscal, enquanto o snapshot monetario/comercial possui regras proprias de completude e imutabilidade. Armazena sequencial, descricao, codigo, NCM, CFOP, quantidade, unidade, valor unitario, total original, principal, multa, juros, outros, base credito/debito e snapshots JSON sanitizados.
 
 Dinheiro usa `DecimalField(18,2)` e quantidade `DecimalField(18,6)`. Para `credit_fine_interest`/`debit_fine_interest`, `credit_debit_base_amount = fine_amount + interest_amount`; nas demais hipoteses, a composicao e principal + multa + juros + outros. Movimentacao financeira nao preenche valores automaticamente. Aprovacao congela item, CFOP, snapshots e todos os valores.
+## Modelagem futura - credito tipo 1
+
+- `FiscalDocument(document_type="nfe", purpose="credit", origin="derived", fiscal_purpose_type="1")`, criado antes do gateway em estado inicial/processing.
+- `FiscalDocumentLink(document=credito, related_document=original, role="credits")` obrigatorio para cada NF-e referenciada conhecida localmente. A primeira implementacao deve limitar-se a uma base/uma NF-e original; multiplas referencias exigem decisao posterior.
+- Relacao obrigatoria e imutavel do documento de credito com `FiscalReferencedBasis`; o `FiscalReferencedBasisItem` e alcancado pela one-to-one e deve estar congelado pela aprovacao da base.
+- `FiscalEmissionAttempt(operation_type="nfe_credit_emission")`, chaveada por oficina, documento de credito, operacao e geracao da requisicao.
+- Payload sanitizado congelado antes de `POST /1/nfe/emissao/`; timeout produz `uncertain` e bloqueia reenvio.
+- Webhook/reconciliacao atualizam somente o documento de credito por UUID/tentativa segura; XML/DANFE permanecem no derivado.
+- Cancelamento nao integra a primeira emissao: sera fase posterior pelo fluxo padrao de cancelamento NF-e, nunca pelo cancelamento de evento IBS/CBS.
+
+Nenhum desses campos/choices/models foi criado na Fase 2.5.3.0.
+## FiscalCreditProductPreview - Fase 2.5.3P
+
+Entidade local com oficina, base, item, revisao, operacao `credit`, tipo fiscal `1`, chave/sequencial, CFOP, quantidade, unitario, total, produto, IBS/CBS, pre-payload, grupos proibidos, erros, status, confirmacao e atores/timestamps. Constraints garantem revisao unica por base e valores positivos; indices cobrem oficina/status e chave/item.
+
+Cada revisao e imutavel apos aprovacao. A criacao bloqueia a base para reservar revisao e bloqueia o item separadamente. Nao ha FK para `FiscalDocument` derivado ou `FiscalEmissionAttempt`, porque essas entidades permanecem proibidas nesta fase.

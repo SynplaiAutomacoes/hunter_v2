@@ -200,6 +200,13 @@ class FiscalReferencedBasisType(models.TextChoices):
     DEBIT = "debit", "Debito"
 
 
+class FiscalProductPreviewStatus(models.TextChoices):
+    DRAFT = "draft", "Rascunho"
+    VALIDATED = "validated", "Validada"
+    APPROVED = "approved", "Aprovada"
+    INVALID = "invalid", "Invalida"
+
+
 class FiscalHypothesis(models.TextChoices):
     CREDIT_FINE_INTEREST = "credit_fine_interest", "Credito - multa/juros"
     CREDIT_ZFM_PRESUMED = "credit_zfm_presumed", "Credito - presumido ZFM"
@@ -1068,6 +1075,119 @@ class FiscalReferencedBasisItem(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"FiscalReferencedBasisItem[{self.basis_id}:{self.source_item_sequence}]"
+
+
+class FiscalCreditProductPreview(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="fiscal_credit_product_previews")
+    basis = models.ForeignKey(FiscalReferencedBasis, verbose_name="Base fiscal", on_delete=models.PROTECT, related_name="credit_product_previews")
+    basis_item = models.ForeignKey(FiscalReferencedBasisItem, verbose_name="Item da base", on_delete=models.PROTECT, related_name="credit_product_previews")
+    revision = models.PositiveSmallIntegerField(verbose_name="Revisao", default=1)
+    operation_type = models.CharField(verbose_name="Tipo da operacao", max_length=12, default="credit")
+    fiscal_purpose_type = models.CharField(verbose_name="Tipo fiscal remoto", max_length=4, default="1")
+    source_access_key = models.CharField(verbose_name="Chave da NF-e referenciada", max_length=44, db_index=True)
+    source_item_sequence = models.PositiveSmallIntegerField(verbose_name="Sequencial fiscal do item")
+    product_cfop = models.CharField(verbose_name="CFOP validado", max_length=4)
+    product_quantity = models.DecimalField(verbose_name="Quantidade explicita", max_digits=18, decimal_places=6, validators=[MinValueValidator(Decimal("0.000001"))])
+    product_unit_price = models.DecimalField(verbose_name="Valor unitario explicito", max_digits=18, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))])
+    product_total_amount = models.DecimalField(verbose_name="Total explicito", max_digits=18, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))])
+    product_payload = models.JSONField(verbose_name="Produto fiscal validado", default=dict)
+    ibs_cbs_payload = models.JSONField(verbose_name="IBS/CBS historico", default=dict)
+    preview_payload = models.JSONField(verbose_name="Pre-payload futuro", default=dict)
+    forbidden_tax_groups_detected = models.JSONField(verbose_name="Grupos tributarios proibidos", default=list, blank=True)
+    validation_status = models.CharField(verbose_name="Status", max_length=16, choices=FiscalProductPreviewStatus.choices, default=FiscalProductPreviewStatus.DRAFT, db_index=True)
+    validation_errors = models.JSONField(verbose_name="Erros de validacao", default=list, blank=True)
+    explicit_value_confirmation = models.BooleanField(verbose_name="Valores informados explicitamente", default=False)
+    created_by = models.ForeignKey("accounts.User", verbose_name="Criada por", on_delete=models.SET_NULL, null=True, blank=True, related_name="created_fiscal_credit_product_previews")
+    approved_by = models.ForeignKey("accounts.User", verbose_name="Aprovada por", on_delete=models.SET_NULL, null=True, blank=True, related_name="approved_fiscal_credit_product_previews")
+    approved_at = models.DateTimeField(verbose_name="Aprovada em", null=True, blank=True)
+
+    class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["basis", "revision"], name="unique_fiscal_credit_preview_revision"),
+            models.CheckConstraint(condition=models.Q(product_quantity__gt=0), name="fiscal_credit_preview_quantity_positive"),
+            models.CheckConstraint(condition=models.Q(product_unit_price__gt=0), name="fiscal_credit_preview_unit_price_positive"),
+            models.CheckConstraint(condition=models.Q(product_total_amount__gt=0), name="fiscal_credit_preview_total_positive"),
+        ]
+        indexes = [
+            models.Index(fields=["workshop", "validation_status"], name="fisc_credit_prev_scope_idx"),
+            models.Index(fields=["source_access_key", "source_item_sequence"], name="fisc_credit_prev_source_idx"),
+        ]
+        permissions = [
+            ("prepare_nfe_credit_product_preview", "Pode preparar previa de produto de credito"),
+            ("approve_nfe_credit_product_preview", "Pode aprovar previa de produto de credito"),
+            ("view_nfe_credit_product_preview", "Pode visualizar previa de produto de credito"),
+            ("view_nfe_credit_product_preview_payload", "Pode visualizar payload da previa de produto de credito"),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if self.basis_id and self.basis.workshop_id != self.workshop_id:
+            raise ValidationError({"basis": "A base pertence a outra oficina."})
+        if self.basis_item_id and self.basis_item.basis_id != self.basis_id:
+            raise ValidationError({"basis_item": "O item nao pertence a base informada."})
+        if self.basis_id and self.basis.status != FiscalReferencedBasisStatus.APPROVED:
+            raise ValidationError({"basis": "A previa exige base fiscal aprovada."})
+        if self.basis_id and self.basis.fiscal_hypothesis != FiscalHypothesis.CREDIT_FINE_INTEREST:
+            raise ValidationError({"basis": "A previa exige hipotese de credito por multa/juros."})
+        if self.basis_id and self.basis.external_origin and not self.basis.external_xml_validated:
+            raise ValidationError({"basis": "Documento externo exige XML/importacao validada."})
+        if self.operation_type != "credit" or self.fiscal_purpose_type != "1":
+            raise ValidationError("A previa atual suporta somente credito tipo 1.")
+        if self.source_item_sequence != self.basis.source_item_sequence:
+            raise ValidationError({"source_item_sequence": "Sequencial divergente da base aprovada."})
+        if len(self.source_access_key) != 44 or not self.source_access_key.isdigit():
+            raise ValidationError({"source_access_key": "A chave referenciada deve possuir 44 digitos."})
+        if len(self.product_cfop) != 4 or not self.product_cfop.isdigit():
+            raise ValidationError({"product_cfop": "O CFOP deve possuir 4 digitos."})
+        calculated = (self.product_quantity * self.product_unit_price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if abs(calculated - self.product_total_amount) > Decimal("0.01"):
+            raise ValidationError({"product_total_amount": "Quantidade x valor unitario diverge do total alem da tolerancia de R$ 0,01."})
+        if self.product_total_amount != self.basis_item.credit_debit_base_amount:
+            raise ValidationError({"product_total_amount": "O total deve ser exatamente igual a multa + juros da base aprovada."})
+        if not self.explicit_value_confirmation:
+            raise ValidationError({"explicit_value_confirmation": "Confirme que quantidade, valor unitario, total e CFOP foram definidos explicitamente."})
+        required_ibs = ("situacao_tributaria", "classificacao_tributaria")
+        missing_ibs = [field for field in required_ibs if not str(self.ibs_cbs_payload.get(field) or "").strip()]
+        if missing_ibs:
+            raise ValidationError({"ibs_cbs_payload": f"IBS/CBS incompleto: {', '.join(missing_ibs)}."})
+        if self.forbidden_tax_groups_detected:
+            raise ValidationError({"forbidden_tax_groups_detected": "A previa contem grupos tributarios proibidos."})
+        required_product = ("nome", "ncm", "quantidade", "unidade", "subtotal", "total", "codigo_cfop", "impostos")
+        missing_product = [field for field in required_product if self.product_payload.get(field) in (None, "", {})]
+        if missing_product:
+            raise ValidationError({"product_payload": f"Produto fiscal incompleto: {', '.join(missing_product)}."})
+        if self.validation_status == FiscalProductPreviewStatus.APPROVED and self.validation_errors:
+            raise ValidationError({"validation_errors": "Previa com erros nao pode ser aprovada."})
+
+    def save(self, *args, **kwargs) -> None:
+        if self.pk:
+            immutable_fields = (
+                "workshop_id",
+                "basis_id",
+                "basis_item_id",
+                "revision",
+                "operation_type",
+                "fiscal_purpose_type",
+                "source_access_key",
+                "source_item_sequence",
+                "product_cfop",
+                "product_quantity",
+                "product_unit_price",
+                "product_total_amount",
+                "product_payload",
+                "ibs_cbs_payload",
+                "preview_payload",
+                "forbidden_tax_groups_detected",
+                "explicit_value_confirmation",
+            )
+            persisted = type(self).objects.filter(pk=self.pk).values("validation_status", *immutable_fields).first()
+            if persisted and persisted["validation_status"] == FiscalProductPreviewStatus.APPROVED and any(persisted[field] != getattr(self, field) for field in immutable_fields):
+                raise ValidationError("Os payloads e valores de uma previa aprovada sao imutaveis.")
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"FiscalCreditProductPreview[{self.basis_id}:r{self.revision}]"
 
 
 class FiscalDocumentEvent(TimeStampedModel):

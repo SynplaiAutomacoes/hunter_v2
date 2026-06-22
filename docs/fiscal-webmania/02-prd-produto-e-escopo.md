@@ -506,3 +506,11 @@ Eventos adiados:
 ## Fase 2.5.2P - base monetaria/comercial
 
 Implementacao autorizada somente para preparacao interna. `FiscalReferencedBasisItem` congela um item comercial e sua composicao monetaria. Rascunhos incompletos sao permitidos; aprovacao exige fonte historica completa e base positiva reconciliada. Nenhuma NF-e de credito/debito, tentativa remota ou chamada Webmania faz parte desta fase.
+## Fase 2.5.3.0 - decisao do credito tipo 1
+
+Decisao recomendada: **adiar a emissao funcional**. A base tecnica esta pronta, mas a regra fiscal de valoracao do produto de multa/juros e do IBS/CBS correspondente nao esta confirmada. A proxima fase deve ser preparatoria e restrita a validar/parametrizar essa regra com responsavel fiscal e contrato oficial, sem gateway remoto.
+
+Credito tipo 1 permanece o primeiro candidato. Quando autorizado, sera exclusivamente NF-e `finalidade=5`, `tipo_credito=1`, vinculada por `nfe_referenciada[]`, sem `dfe_referenciado` e sem tributos tradicionais.
+## Resultado Fase 2.5.3P
+
+A previa fiscal local foi implementada com abordagem administrativa explicita: usuario autorizado informa quantidade, unitario, total e CFOP, confirma a origem desses valores e recebe validacao contra `multa + juros`. O recurso nao declara que essa combinacao e fiscalmente transmissivel; serve como evidencia congelada para validacao posterior. Emissao continua indisponivel.

@@ -273,3 +273,16 @@ Conclusao 2.4D.6.0: o codigo ja possui infraestrutura tecnica reutilizavel para 
 - `FinancialMovement.amount` usa Decimal/Money, mas e agregado: nao separa principal, multa e juros por item e permanece apenas como evidencia vinculada.
 - O padrao de arredondamento fiscal existente usa `Decimal`, duas casas para dinheiro, seis para quantidade e `ROUND_HALF_UP`.
 - Cadastro atual de produto e `TaxClassNfe` nao sao fontes historicas validas e nao sao usados como fallback.
+## Auditoria Fase 2.5.3.0 - credito tipo 1
+
+- A Fase 2.5.2P foi validada no checkpoint `638d4c12`; `FiscalReferencedBasisItem` fornece item, CFOP historico, quantidade, unitario, total original e composicao explicita `multa + juros`.
+- A base local resolve rastreabilidade e imutabilidade, mas nao define a semantica fiscal do novo produto de credito.
+- A documentacao oficial confirma `POST /1/nfe/emissao/`, `finalidade=5`, `tipo_credito=1`, `nfe_referenciada[]`, `codigo_cfop` na raiz e somente `impostos.ibs_cbs`.
+- `dfe_referenciado` e documentado apenas para debito tipos 3/4; nao deve ser enviado no credito tipo 1.
+- Lacuna bloqueante: nao ha regra oficial consultada para converter multa/juros em `quantidade`, `subtotal`, `total` ou para derivar/proporcionar os valores IBS/CBS. Copiar o item ou imposto original seria inferencia insegura.
+## Resultado tecnico Fase 2.5.3P
+
+- `FiscalCreditProductPreview` foi criado como entidade local versionada por base/revisao.
+- Reutiliza somente `FiscalReferencedBasis` aprovada, `FiscalReferencedBasisItem` congelado e `ibs_cbs_snapshot`; nao consulta cadastro atual nem `TaxClassNfe`.
+- Form/view atuais da base foram reutilizados apenas para navegacao; a previa possui quatro permissoes proprias e tenancy por oficina.
+- Nao foram adicionados purpose `credit`, operation type remoto, gateway, webhook ou reconciliacao.

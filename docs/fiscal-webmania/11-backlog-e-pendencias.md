@@ -163,3 +163,20 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Validar com fiscal/contabilidade a hipotese de credito tipo 1 antes de autorizar payload remoto.
 - Emissao, idempotencia remota, webhook, downloads e cancelamento de credito/debito permanecem nao iniciados.
 - `112120`, `112140`, eventos `211xxx`, complementar tributaria, NFS-e e CT-e permanecem bloqueados.
+## Pendencias Fase 2.5.3.0
+
+- Obter confirmacao oficial/fiscal para representar multa/juros em `quantidade`, `subtotal` e `total`; nao assumir quantidade 1.
+- Definir CFOP, descricao, NCM e unidade aplicaveis ao item de credito tipo 1; nao copiar automaticamente os dados originais.
+- Definir quais campos e valores `ibs_cbs` representam a multa/juros e se existe proporcionalidade permitida; nao recalcular automaticamente.
+- Resolver divergencia documental `modelo=1` no contrato operacional versus `modelo="nfe"` no exemplo oficial atual antes do codigo.
+- Confirmar cliente, pedido/pagamento e natureza/operacao para o caso real da oficina.
+- Criar permissoes/feature flag de emissao somente apos a validacao fiscal; a flag de preparacao nao autoriza gateway.
+- Cancelamento futuro deve usar fluxo padrao NF-e e ficar fora da primeira emissao.
+- Emissao credito/debito, `112120`, `112140`, eventos `211xxx`, complementar tributaria, NFS-e e CT-e continuam bloqueados.
+## Pendencias apos implementacao 2.5.3P
+
+- Submeter previews aprovados a validacao fiscal externa antes de autorizar transmissao.
+- Confirmar se a regra administrativa explicita escolhida pode ser convertida em regra fiscal de emissao; nao promover automaticamente.
+- Completar cliente, pedido/pagamento, natureza/operacao e contrato `modelo` somente em fase funcional futura aprovada.
+- Definir flag administrativa de emissao separada; a flag atual continua apenas preparatoria.
+- Cancelamento, webhook/reconciliacao e downloads de credito permanecem inexistentes porque nao ha documento emitido.

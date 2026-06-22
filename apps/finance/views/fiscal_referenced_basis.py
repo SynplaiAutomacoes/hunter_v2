@@ -98,6 +98,11 @@ class FiscalReferencedBasisDetailView(FiscalReferencedBasisPermissionMixin, Deta
     def get_queryset(self):
         return self.get_basis_queryset()
 
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["can_prepare_credit_preview"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="fiscalcreditproductpreview", codename="prepare_nfe_credit_product_preview", request=self.request)
+        return context
+
 
 class FiscalReferencedBasisApproveView(FiscalReferencedBasisPermissionMixin, View):
     workshop_permission_codename = "approve_nfe_credit_debit_basis"
