@@ -179,7 +179,29 @@ def build_dre_calculation(
         amount_resolver=lambda workorder: getattr(workorder, "dre_local_cost", _ZERO),
     )
 
-    total_custos_de_mercadorias_vendidas = _sum_detail_amounts(detail_taxas_maquininha) + _sum_detail_amounts(detail_custos_pecas) + _sum_detail_amounts(detail_fretes)
+    transporte_group = _resolve_financial_group_by_name(
+        financial_groups=financial_groups, name="Transporte e Fretes"
+    )
+    transporte_group_ids = set()
+    if transporte_group is not None:
+        transporte_sort_key_prefix = transporte_group.sort_key
+        transporte_group_ids = {
+            g.pk for g in financial_groups
+            if g.sort_key.startswith(transporte_sort_key_prefix)
+        }
+    detail_fretes_financeiro = []
+    if transporte_group_ids:
+        fretes_movements = [
+            m for m in movements
+            if m.direction == FinancialMovement.MovementDirection.DEBIT
+            and m.budget_plan_id in transporte_group_ids
+        ]
+        detail_fretes_financeiro = [
+            _build_detail(m, include_workshop_ref)
+            for m in fretes_movements
+        ]
+
+    total_custos_de_mercadorias_vendidas = _sum_detail_amounts(detail_taxas_maquininha) + _sum_detail_amounts(detail_custos_pecas) + _sum_detail_amounts(detail_fretes) + _sum_detail_amounts(detail_fretes_financeiro)
     total_custos_de_servicos_vendidos = _sum_detail_amounts(detail_servicos_terceiros) + _sum_detail_amounts(detail_mao_de_obra)
     total_custos = total_custos_de_mercadorias_vendidas + total_custos_de_servicos_vendidos
 
@@ -188,6 +210,7 @@ def build_dre_calculation(
             ("Taxas Maquininhas", detail_taxas_maquininha),
             ("Custos de Peças", detail_custos_pecas),
             ("Fretes", detail_fretes),
+            ("Transporte e Fretes", detail_fretes_financeiro),
         ]
     )
     detail_custos_servicos_vendidos = _build_static_group_tree(
