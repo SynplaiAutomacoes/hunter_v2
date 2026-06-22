@@ -116,6 +116,7 @@ class FiscalEmissionOperationType(models.TextChoices):
     NFCE_INUTILIZATION = "nfce_inutilization", "Inutilizacao NFC-e"
     NFE_IBS_CBS_EVENT = "nfe_ibs_cbs_event", "Evento IBS/CBS"
     NFE_IBS_CBS_EVENT_CANCELLATION = "nfe_ibs_cbs_event_cancellation", "Cancelamento de evento IBS/CBS"
+    NFE_CREDIT_EMISSION = "nfe_credit_emission", "Emissao NF-e de credito"
 
 
 class FiscalDocumentType(models.TextChoices):
@@ -146,6 +147,7 @@ class FiscalDocumentPurpose(models.TextChoices):
     REVERSAL = "reversal", "Estorno"
     COMPLEMENTARY = "complementary", "Complementar"
     ADJUSTMENT = "adjustment", "Ajuste"
+    CREDIT = "credit", "Credito"
 
 
 class FiscalDocumentComplementaryType(models.TextChoices):
@@ -157,6 +159,7 @@ class FiscalDocumentLinkRole(models.TextChoices):
     REVERSES = "reverses", "Estorna"
     COMPLEMENTS = "complements", "Complementa"
     ADJUSTS = "adjusts", "Ajusta"
+    CREDITS = "credits", "Credita"
 
 
 class FiscalDocumentEventType(models.TextChoices):
@@ -809,7 +812,10 @@ class FiscalDocument(TimeStampedModel):
     origin = models.CharField(max_length=16, choices=FiscalDocumentOrigin.choices, default=FiscalDocumentOrigin.LOCAL, db_index=True)
     purpose = models.CharField(max_length=24, choices=FiscalDocumentPurpose.choices, default=FiscalDocumentPurpose.NORMAL, db_index=True)
     complementary_type = models.CharField(max_length=32, choices=FiscalDocumentComplementaryType.choices, blank=True, default="", db_index=True)
+    fiscal_purpose_type = models.CharField(max_length=8, blank=True, default="", db_index=True)
     legacy_nfe_item = models.OneToOneField(NfeItem, verbose_name="Item legado NF-e", on_delete=models.CASCADE, null=True, blank=True, related_name="fiscal_document")
+    referenced_basis = models.ForeignKey("FiscalReferencedBasis", verbose_name="Base fiscal referenciada", on_delete=models.PROTECT, null=True, blank=True, related_name="derived_documents")
+    credit_product_preview = models.OneToOneField("FiscalCreditProductPreview", verbose_name="Previa fiscal de credito", on_delete=models.PROTECT, null=True, blank=True, related_name="credit_document")
     remote_uuid = models.CharField(max_length=64, blank=True, default="", db_index=True)
     access_key = models.CharField(max_length=80, blank=True, default="", db_index=True)
     series = models.CharField(max_length=20, blank=True, default="")
@@ -831,12 +837,14 @@ class FiscalDocument(TimeStampedModel):
             models.UniqueConstraint(fields=["workshop", "legacy_nfe_item"], name="unique_fiscal_document_per_legacy_nfe_item"),
             models.UniqueConstraint(fields=["workshop", "document_type", "remote_uuid"], condition=~models.Q(remote_uuid=""), name="unique_fiscal_document_remote_uuid_per_workshop"),
             models.UniqueConstraint(fields=["workshop", "document_type", "access_key"], condition=~models.Q(access_key=""), name="unique_fiscal_document_access_key_per_workshop"),
+            models.CheckConstraint(condition=~models.Q(purpose=FiscalDocumentPurpose.CREDIT) | models.Q(origin=FiscalDocumentOrigin.DERIVED, fiscal_purpose_type="1", referenced_basis__isnull=False, credit_product_preview__isnull=False), name="fiscal_credit_document_requires_basis_preview"),
         ]
         indexes = [
             models.Index(fields=["workshop", "document_type", "status"]),
             models.Index(fields=["legacy_nfe_item"]),
             models.Index(fields=["workshop", "document_type", "origin", "purpose"]),
             models.Index(fields=["workshop", "document_type", "purpose", "complementary_type"]),
+            models.Index(fields=["workshop", "document_type", "purpose", "fiscal_purpose_type"]),
         ]
         permissions = [
             ("issue_nfe_return", "Pode emitir NF-e de devolucao"),
@@ -855,6 +863,10 @@ class FiscalDocument(TimeStampedModel):
             ("download_nfce", "Pode baixar XML/DANFE de NFC-e"),
             ("view_nfce_payload", "Pode visualizar payload de NFC-e"),
             ("cancel_nfce", "Pode cancelar NFC-e"),
+            ("issue_nfe_credit", "Pode emitir NF-e de credito"),
+            ("view_nfe_credit", "Pode visualizar NF-e de credito"),
+            ("download_nfe_credit", "Pode baixar XML/DANFE de NF-e de credito"),
+            ("view_nfe_credit_payload", "Pode visualizar payload de NF-e de credito"),
         ]
 
     def __str__(self) -> str:

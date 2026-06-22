@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import Http404, HttpResponse, JsonResponse
+from django.shortcuts import get_object_or_404, redirect
+from django.views import View
+
+from apps.finance.models.finance import FiscalCreditProductPreview, FiscalDocument, FiscalDocumentPurpose, FiscalProductPreviewStatus
+from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
+from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
+from apps.finance.services.fiscal_referenced_basis import is_credit_debit_basis_enabled
+from apps.finance.services.nfe_credit import NfeCreditError, create_and_emit_nfe_credit_type_one
+from apps.workshops.mixin import WorkshopScopedMixin
+
+
+class NfeCreditIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "fiscaldocument"
+    workshop_permission_codename = "issue_nfe_credit"
+
+    def post(self, request, *args, **kwargs):
+        preview = get_object_or_404(
+            FiscalCreditProductPreview.objects.select_related("basis__source_document__legacy_nfe_item__request__workorder__budget__customer", "basis_item"),
+            pk=kwargs["pk"],
+            workshop=self.workshop,
+            validation_status=FiscalProductPreviewStatus.APPROVED,
+        )
+        if not is_credit_debit_basis_enabled(workshop=self.workshop):
+            messages.error(request, "A emissao de NF-e de credito esta desabilitada para esta oficina.")
+            return redirect("finance:fiscal_credit_product_preview_detail", pk=preview.pk)
+        try:
+            document = create_and_emit_nfe_credit_type_one(
+                preview=preview,
+                workshop=self.workshop,
+                requested_by=request.user,
+                legal_confirmation=request.POST.get("legal_confirmation") == "on",
+                request=request,
+            )
+        except NfeCreditError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, f"NF-e de credito tipo 1 registrada com status {document.get_status_display()}.")
+        return redirect("finance:fiscal_credit_product_preview_detail", pk=preview.pk)
+
+
+class NfeCreditPayloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "fiscaldocument"
+    workshop_permission_codename = "view_nfe_credit_payload"
+
+    def get(self, request, *args, **kwargs):
+        document = get_object_or_404(FiscalDocument, pk=kwargs["pk"], workshop=self.workshop, purpose=FiscalDocumentPurpose.CREDIT, fiscal_purpose_type="1")
+        return JsonResponse({"request": sanitize_fiscal_payload(document.request_payload), "response": sanitize_fiscal_payload(document.response_payload), "status": document.status})
+
+
+class NfeCreditDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "fiscaldocument"
+    workshop_permission_codename = "download_nfe_credit"
+    document_fields = {"xml": ("xml_url", "xml"), "danfe": ("danfe_url", "pdf")}
+
+    def get(self, request, *args, **kwargs):
+        document_kind = str(kwargs.get("document") or "").strip().lower()
+        if document_kind not in self.document_fields:
+            raise Http404("Documento nao suportado")
+        document = get_object_or_404(FiscalDocument, pk=kwargs["pk"], workshop=self.workshop, purpose=FiscalDocumentPurpose.CREDIT, fiscal_purpose_type="1")
+        field_name, extension = self.document_fields[document_kind]
+        try:
+            downloaded = download_webmania_document(workshop=self.workshop, url=str(getattr(document, field_name, "") or "").strip())
+        except WebmaniaDocumentDownloadError as exc:
+            return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
+        response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
+        identifier = str(document.number or document.access_key or document.remote_uuid or document.pk).replace(" ", "-")
+        response["Content-Disposition"] = f'attachment; filename="nfe-credito-{document_kind}-{identifier}.{extension}"'
+        return response

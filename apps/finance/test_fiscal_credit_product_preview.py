@@ -17,7 +17,6 @@ from apps.finance.models.finance import (
     FiscalDocumentStatus,
     FiscalDocumentType,
     FiscalEmissionAttempt,
-    FiscalEmissionOperationType,
     FiscalHypothesis,
     FiscalProductPreviewStatus,
     FiscalReferencedBasis,
@@ -127,7 +126,7 @@ class FiscalPhaseTwoCreditProductPreviewTests(TestCase):
         self.assertEqual(preview.product_payload["total"], "7.00")
         self.assertEqual(FiscalDocument.objects.count(), 1)
         self.assertFalse(FiscalEmissionAttempt.objects.exists())
-        self.assertNotIn("nfe_credit_emission", FiscalEmissionOperationType.values)
+        self.assertFalse(FiscalDocument.objects.filter(purpose=FiscalDocumentPurpose.CREDIT).exists())
 
     def test_product_uses_explicit_values_and_historical_identity_only(self) -> None:
         preview = self.create_preview(quantity=Decimal("4.000000"), unit_price=Decimal("1.75"), total_amount=Decimal("7.00"), cfop="6102")
@@ -199,12 +198,13 @@ class FiscalPhaseTwoCreditProductPreviewTests(TestCase):
         with self.assertRaisesMessage(ValidationError, "imutaveis"):
             preview.save()
 
-    def test_disabled_feature_flag_blocks_preview_and_does_not_enable_emission(self) -> None:
+    def test_disabled_feature_flag_blocks_preview_and_creates_no_emission(self) -> None:
         self.company.credit_debit_basis_enabled = False
         self.company.save(update_fields=["credit_debit_basis_enabled"])
         with self.assertRaisesMessage(ValidationError, "desabilitada"):
             self.create_preview()
-        self.assertNotIn("nfe_credit_emission", FiscalEmissionOperationType.values)
+        self.assertFalse(FiscalEmissionAttempt.objects.exists())
+        self.assertFalse(FiscalDocument.objects.filter(purpose=FiscalDocumentPurpose.CREDIT).exists())
 
     def test_cross_workshop_is_blocked(self) -> None:
         other_user, other_workshop = _scope(52)

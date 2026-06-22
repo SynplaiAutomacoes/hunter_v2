@@ -180,3 +180,9 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Completar cliente, pedido/pagamento, natureza/operacao e contrato `modelo` somente em fase funcional futura aprovada.
 - Definir flag administrativa de emissao separada; a flag atual continua apenas preparatoria.
 - Cancelamento, webhook/reconciliacao e downloads de credito permanecem inexistentes porque nao ha documento emitido.
+
+## Pendencias apos Fase 2.5.4
+
+- Planejar cancelamento padrao da NF-e de credito em fase separada.
+- Credito tipos 2-5 e toda NF-e de debito permanecem bloqueados.
+- `112120`, `112140`, eventos `211xxx`, complementar tributaria, NFS-e e CT-e permanecem nao iniciados.

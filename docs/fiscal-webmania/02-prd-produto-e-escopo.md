@@ -514,3 +514,7 @@ Credito tipo 1 permanece o primeiro candidato. Quando autorizado, sera exclusiva
 ## Resultado Fase 2.5.3P
 
 A previa fiscal local foi implementada com abordagem administrativa explicita: usuario autorizado informa quantidade, unitario, total e CFOP, confirma a origem desses valores e recebe validacao contra `multa + juros`. O recurso nao declara que essa combinacao e fiscalmente transmissivel; serve como evidencia congelada para validacao posterior. Emissao continua indisponivel.
+
+## Escopo implementado na Fase 2.5.4
+
+Primeira emissao real de NF-e de credito, limitada a multa/juros (`finalidade=5`, `tipo_credito=1`) e originada obrigatoriamente de preview aprovada. Debito, credito tipos 2-5 e cancelamento do credito continuam fora do escopo.

@@ -15,6 +15,7 @@ from apps.finance.services.nfe_ibs_cbs_events import apply_ibs_cbs_event_cancell
 from apps.finance.services.nfe_emission import apply_nfe_item_payload
 from apps.finance.services.nfe_adjustment import apply_nfe_adjustment_document_payload, is_ambiguous_nfe_adjustment_webhook, resolve_nfe_adjustment_document_for_webhook
 from apps.finance.services.nfe_complementary import apply_nfe_complementary_document_payload, is_ambiguous_nfe_complementary_webhook, resolve_nfe_complementary_document_for_webhook
+from apps.finance.services.nfe_credit import apply_nfe_credit_document_payload, is_ambiguous_nfe_credit_webhook, resolve_nfe_credit_document_for_webhook
 from apps.finance.services.nfe_returns import apply_nfe_return_document_payload, is_ambiguous_nfe_return_webhook, resolve_nfe_return_document_for_webhook
 from apps.finance.services.nfce_cancellation import apply_nfce_cancellation_event_payload, is_ambiguous_nfce_cancellation_webhook, resolve_nfce_cancellation_event_for_webhook
 from apps.finance.services.nfce_emission import apply_nfce_document_payload, is_ambiguous_nfce_webhook, resolve_nfce_document_for_webhook
@@ -263,6 +264,19 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
         return False
 
     if model == "nfe":
+        credit_document = resolve_nfe_credit_document_for_webhook(payload=payload)
+        if credit_document is not None:
+            with transaction.atomic():
+                credit_document = credit_document.__class__.objects.select_for_update().get(pk=credit_document.pk)
+                if not _is_regressive_status(model="nfe", current_status=credit_document.status, incoming_status=str(payload.get("status") or "")):
+                    apply_nfe_credit_document_payload(document=credit_document, response_payload=payload)
+
+            _mark_event_processed(event)
+            return True
+        if is_ambiguous_nfe_credit_webhook(payload=payload):
+            _mark_event_deferred(event, error=f"NF-e de credito {event_uuid or str(payload.get('chave') or '').strip()} ambigua entre documentos.")
+            return False
+
         adjustment_document = resolve_nfe_adjustment_document_for_webhook(payload=payload)
         if adjustment_document is not None:
             with transaction.atomic():

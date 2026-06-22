@@ -165,9 +165,11 @@ class FiscalPhaseTwoCreditDebitBasisTests(TestCase):
         with self.assertRaisesMessage(ValidationError, "nao esta habilitada"):
             create_referenced_basis(workshop=self.workshop, source_document=self.document, source_item_sequence=1, fiscal_hypothesis=FiscalHypothesis.CREDIT_REFUSAL, created_by=self.user)
 
-    def test_feature_flag_does_not_enable_credit_or_debit_emission_operations(self) -> None:
-        self.assertNotIn("nfe_credit_emission", FiscalEmissionOperationType.values)
+    def test_feature_flag_alone_does_not_emit_credit_or_enable_debit(self) -> None:
+        self.assertIn("nfe_credit_emission", FiscalEmissionOperationType.values)
         self.assertNotIn("nfe_debit_emission", FiscalEmissionOperationType.values)
+        self.assertFalse(FiscalEmissionAttempt.objects.exists())
+        self.assertFalse(FiscalDocument.objects.filter(purpose=FiscalDocumentPurpose.CREDIT).exists())
 
     def test_cross_workshop_document_and_reference_are_blocked(self) -> None:
         other_user, other_workshop = _user_and_workshop(32)
@@ -417,9 +419,10 @@ class FiscalPhaseTwoCreditDebitMonetaryBasisTests(TestCase):
         self.assertNotIn('"consumer_secret": "secret"', payload)
         self.assertIn("[REDACTED]", payload)
 
-    def test_feature_flag_does_not_create_remote_emission_capability(self) -> None:
+    def test_basis_creation_does_not_create_remote_emission(self) -> None:
         self.create_basis()
-        self.assertNotIn("nfe_credit_emission", FiscalEmissionOperationType.values)
+        self.assertIn("nfe_credit_emission", FiscalEmissionOperationType.values)
         self.assertNotIn("nfe_debit_emission", FiscalEmissionOperationType.values)
         self.assertFalse(FiscalEmissionAttempt.objects.exists())
+        self.assertFalse(FiscalDocument.objects.filter(purpose=FiscalDocumentPurpose.CREDIT).exists())
         self.assertEqual(FiscalReferencedBasisItem.objects.count(), 1)

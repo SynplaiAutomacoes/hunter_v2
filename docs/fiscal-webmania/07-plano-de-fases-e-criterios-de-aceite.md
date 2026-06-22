@@ -472,3 +472,13 @@ Status: em implementacao controlada. Opcao A aprovada tecnicamente para a previa
 Esta fase nao cria documento fiscal, tentativa remota, gateway ou botao de emissao.
 
 Resultado: implementada e validada em 2026-06-22 com model local, valores explicitos, revisao, validacao, aprovacao imutavel, UI minima e permissoes proprias. A regressao fiscal completa passou antes do checkpoint.
+
+## Fase 2.5.4 - Emissao NF-e de credito tipo 1 por multa/juros
+
+Status: implementada e validada tecnicamente em 2026-06-22, apos validacao da Fase 2.5.3P no checkpoint `0d95a026`.
+
+Escopo: emitir exclusivamente `modelo=1`, `finalidade=5`, `tipo_credito=1` por `POST /1/nfe/emissao/`, consumindo uma unica `FiscalCreditProductPreview` aprovada. O documento local deve ser criado antes do gateway, ligado a base fiscal e a NF-e original, protegido por tentativa `nfe_credit_emission` e atualizado por webhook/reconciliacao sem alterar origem, base ou preview.
+
+Bloqueios: debito; credito tipos 2-5; cancelamento de credito; eventos `112120`, `112140` e `211xxx`; complementar tributaria; NFS-e; CT-e; e demais familias.
+
+Criterios de aceite: payload contem somente IBS/CBS nos produtos; idempotencia persistida gera uma chamada por preview; timeout resulta em `uncertain`; permissoes e oficina sao validadas antes do gateway; XML/DANFE e payload ficam protegidos; webhook/reconciliacao atingem somente o documento de credito; testes direcionados, Ruff, migrations e diff check passam.

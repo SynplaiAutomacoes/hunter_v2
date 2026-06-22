@@ -595,3 +595,7 @@ Observacao de contrato: o exemplo oficial atual mostra `modelo="nfe"`, enquanto 
 O preview local contem apenas `modelo=1`, `finalidade=5`, `tipo_credito=1`, `nfe_referenciada[]` e um produto com identidade historica, valores administrativos explicitos, CFOP explicito e `impostos.ibs_cbs` historico. Nao contem `cliente`/`pedido` completos e nao e request transmitivel. O OpenAPI remoto permanece inalterado.
 
 Validador preventivo rejeita qualquer grupo tributario diferente de `ibs_cbs`, alem de `dfe_referenciado`, `evento_ibs_cbs`, `cod_evento` e `tipo_debito`.
+
+### Contrato operacional Fase 2.5.4
+
+`POST /1/nfe/emissao/`: `modelo=1`, `finalidade=5`, `tipo_credito=1`, `nfe_referenciada`, `cliente`, `produtos`, `pedido` e notificacao quando configurada. Cada produto envia `codigo_cfop` e somente `impostos.ibs_cbs`; ICMS, IPI, PIS, COFINS, ISSQN, II, imposto devolvido, debito e campos de evento sao proibidos preventivamente.

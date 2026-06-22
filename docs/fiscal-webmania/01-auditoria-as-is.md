@@ -286,3 +286,7 @@ Conclusao 2.4D.6.0: o codigo ja possui infraestrutura tecnica reutilizavel para 
 - Reutiliza somente `FiscalReferencedBasis` aprovada, `FiscalReferencedBasisItem` congelado e `ibs_cbs_snapshot`; nao consulta cadastro atual nem `TaxClassNfe`.
 - Form/view atuais da base foram reutilizados apenas para navegacao; a previa possui quatro permissoes proprias e tenancy por oficina.
 - Nao foram adicionados purpose `credit`, operation type remoto, gateway, webhook ou reconciliacao.
+
+## Resultado tecnico Fase 2.5.4
+
+A emissao de credito tipo 1 reutiliza os helpers da NF-e normal para `cliente` e `pedido`, mas consome `produtos[]` exclusivamente da `FiscalCreditProductPreview` aprovada. O novo service transmite somente `modelo=1`, `finalidade=5`, `tipo_credito=1` e `impostos.ibs_cbs`; nenhum dado fiscal e recalculado a partir de `TaxClassNfe` ou cadastro atual.

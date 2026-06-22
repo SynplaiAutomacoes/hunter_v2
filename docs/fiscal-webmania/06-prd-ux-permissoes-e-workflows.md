@@ -410,3 +410,7 @@ UI futura minima: acao a partir de base aprovada, resumo imutavel do item/NF-e o
 ## UI implementada na 2.5.3P
 
 Listagem, formulario, detalhe, aprovacao e visualizacao sanitizada do pre-payload foram adicionados. O formulario mostra multa, juros e total esperado quando a base e selecionada por contexto. Permissoes: `prepare_nfe_credit_product_preview`, `approve_nfe_credit_product_preview`, `view_nfe_credit_product_preview`, `view_nfe_credit_product_preview_payload`. Nenhuma acao de emissao existe.
+
+## UI e permissoes Fase 2.5.4
+
+A preview aprovada elegivel oferece confirmacao explicita e acao unica "Emitir NF-e de credito". Emissao, visualizacao, download e payload usam respectivamente `issue_nfe_credit`, `view_nfe_credit`, `download_nfe_credit` e `view_nfe_credit_payload`, sempre escopados a oficina. Permissoes de preparar/aprovar base ou preview nao concedem emissao.

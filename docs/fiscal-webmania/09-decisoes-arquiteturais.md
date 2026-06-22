@@ -515,3 +515,9 @@ Fase: 2.4D.6.0.
 - IBS/CBS: copia sanitizada e imutavel do snapshot aprovado, sem calculo e sem `TaxClassNfe` atual.
 - Seguranca: permissoes proprias, revisao por base, imutabilidade apos aprovacao e nenhum objeto remoto.
 - Consequencia: a previa reduz ambiguidade tecnica, mas ainda nao autoriza emissao fiscal; cliente/pedido e validacao externa permanecem pendentes.
+
+## ADR - Emissao de credito tipo 1 consome preview aprovada
+
+- Status: aceita na Fase 2.5.4.
+- Decisao: produto e IBS/CBS sao copiados exclusivamente da preview imutavel; cliente e pedido reutilizam os builders da NF-e normal vinculada a origem. O documento derivado possui FK para base, one-to-one para preview, link `credits` e tentativa persistida antes do gateway.
+- Consequencia: uma nova emissao legitima exige nova preview aprovada. Cancelamento e tipos 2-5 exigem fases proprias.

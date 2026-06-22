@@ -650,3 +650,7 @@ Nenhum desses campos/choices/models foi criado na Fase 2.5.3.0.
 Entidade local com oficina, base, item, revisao, operacao `credit`, tipo fiscal `1`, chave/sequencial, CFOP, quantidade, unitario, total, produto, IBS/CBS, pre-payload, grupos proibidos, erros, status, confirmacao e atores/timestamps. Constraints garantem revisao unica por base e valores positivos; indices cobrem oficina/status e chave/item.
 
 Cada revisao e imutavel apos aprovacao. A criacao bloqueia a base para reservar revisao e bloqueia o item separadamente. Nao ha FK para `FiscalDocument` derivado ou `FiscalEmissionAttempt`, porque essas entidades permanecem proibidas nesta fase.
+
+## Documento de credito tipo 1 - Fase 2.5.4
+
+`FiscalDocument(document_type="nfe", purpose="credit", fiscal_purpose_type="1", origin="derived")` referencia obrigatoriamente `FiscalReferencedBasis` e uma unica `FiscalCreditProductPreview`. A constraint `fiscal_credit_document_requires_basis_preview` protege a estrutura e a relacao one-to-one da preview impede duas intencoes para o mesmo pre-payload. `FiscalDocumentLink(role="credits")` liga o credito a NF-e original local sem altera-la.

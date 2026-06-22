@@ -508,3 +508,7 @@ Para futura emissao credito tipo 1: base aprovada; `finalidade=5`; `tipo_credito
 - Detector bloqueia tributos tradicionais, tipo debito, DF-e por item e campos de evento.
 - Preview aprovado e imutavel; payload protegido por permissao/tenancy e sanitizado.
 - Contagens provam ausencia de documento/tentativa; choices provam ausencia de `nfe_credit_emission`.
+
+## Testes Fase 2.5.4
+
+Cobertura: contrato finalidade/tipo, somente IBS/CBS, campos proibidos, preview/base/flag/permissao, tenancy, documento/link/tentativa antes do gateway, retry, concorrencia real, timeout `uncertain`, resposta rejeitada, webhook idempotente/ambiguo, reconciliacao sem emissao, downloads/payload sanitizados e regressao fiscal das fases anteriores.
