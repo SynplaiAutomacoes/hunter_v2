@@ -31,7 +31,7 @@
 
             {{ field }}
 
-            {% if field.name == "product_selling_price" %}
+            {% if field.name == "product_selling_price" or field.name == "service_selling_price" %}
                 <label class="label hidden" id="lower-price-help-label">
                     <span class="label-text-alt text-warning" id="lower-price-help-text"></span>
                 </label>

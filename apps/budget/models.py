@@ -10,7 +10,7 @@ from djmoney.money import Money
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
-from apps.catalog.price_tracking import record_product_last_used_price
+from apps.catalog.price_tracking import record_product_last_used_price, record_service_last_used_price
 from apps.catalog.product_issues import ProductIssueSummary, annotate_product_issues
 from apps.catalog.util import calculate_catalog_service_prices
 from apps.core.infrastructure.models import TimeStampedModel
@@ -982,6 +982,9 @@ class BudgetItem(TimeStampedModel):
 
         if self.product_id:
             record_product_last_used_price(product=self.product, price=self.product_selling_price)
+
+        if self.service_id:
+            record_service_last_used_price(service=self.service, price=self.service_selling_price)
 
     def _clear_kit_snapshot_caches(self) -> None:
         for cache_name in ("_kit_override_maps_cache", "_kit_unit_totals_cache"):
