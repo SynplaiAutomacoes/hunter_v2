@@ -354,6 +354,9 @@ class DashboardQueryService:
         total_sold = self._calculate_total_sold(
             workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year
         )
+        today_sales = self._calculate_today_sales(
+            workshop_id=workshop_id, today=hoje
+        )
 
         logger.info(
             "Dashboard total vendido calculado | workshop_id=%s mes=%s ano=%s total_vendido=%s",
@@ -411,6 +414,7 @@ class DashboardQueryService:
             configured_working_days=projection_data["configured_working_days"],
             business_holidays=projection_data["business_holidays"],
             total_sold_to_date=total_sold,
+            today_sales=today_sales,
             accumulated_profitability=approved_budget_metrics.accumulated_profitability,
             accumulated_markup=approved_budget_metrics.accumulated_markup,
             accumulated_markup_progress=calculate_markup_progress(approved_budget_metrics.accumulated_markup),
@@ -527,6 +531,26 @@ class DashboardQueryService:
                 workorder__budget_type="sale",
                 due_date__month=selected_month,
                 due_date__year=selected_year,
+            )
+            .annotate(
+                payment_total=ExpressionWrapper(
+                    F("first_installment_amount")
+                    + (F("installments_count") - 1) * F("remaining_installments_amount"),
+                    output_field=DecimalField(max_digits=14, decimal_places=2),
+                )
+            )
+            .aggregate(total=Sum("payment_total"))
+        )
+        return result["total"] or Decimal("0.00")
+
+    @staticmethod
+    def _calculate_today_sales(*, workshop_id: int, today: date) -> Decimal:
+        result = (
+            WorkOrderPaymentMethod.objects.filter(
+                workorder__workshop_id=workshop_id,
+                workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+                workorder__budget_type="sale",
+                due_date=today,
             )
             .annotate(
                 payment_total=ExpressionWrapper(

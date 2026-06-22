@@ -353,7 +353,7 @@
 
     {% if meta_faturamento_bruto is not None %}
     <!-- Financial Goals Section -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mt-6">
         <div class="stat bg-base-100 shadow rounded-box">
             <div class="stat-title text-base-content/70">Meta de Faturamento Bruto</div>
             <div class="stat-value text-accent mt-2">R$ {{ meta_faturamento_bruto|floatformat:2 }}</div>
@@ -377,6 +377,12 @@
                 {% endif %}
             </div>
             <div class="stat-desc">Média diária de faturamento realizada até o momento.</div>
+        </div>
+
+        <div class="stat bg-base-100 shadow rounded-box">
+            <div class="stat-title text-base-content/70">Venda do Dia</div>
+            <div class="stat-value text-primary mt-2">R$ {{ venda_do_dia|floatformat:2 }}</div>
+            <div class="stat-desc">Total de pagamentos de OS com vencimento hoje.</div>
         </div>
     </div>
     {% endif %}
