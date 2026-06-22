@@ -7,10 +7,10 @@
     <select
         id="active-workshop-select"
         name="workshop_id"
-        class="select select-xs bg-base-100 text-base-content min-w-40 max-w-56 outline-0 truncate"
+        class="select select-xs bg-base-100 text-base-content min-w-40 max-w-56 outline-0"
     >
         {% for workshop in active_workshops %}
-            <option value="{{ workshop.pk }}" {% if workshop.pk == active_workshop_id %}selected{% endif %} class="truncate">
+            <option value="{{ workshop.pk }}" {% if workshop.pk == active_workshop_id %}selected{% endif %}>
                 {{ workshop.name }}
             </option>
         {% empty %}
