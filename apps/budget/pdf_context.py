@@ -209,17 +209,15 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         warranty_message = "Ordem de serviço de cortesia. Documento apenas para a visualização, peças e serviços descritos não foram cobrados do cliente"
     elif is_warranty_budget:
         warranty_message = "Ordem de serviço de garantia. Documento apenas para a visualização, peças e serviços descritos não foram cobrados do cliente"
+
+    total_produtos = budget.selected_items_total_products_without_shipping
+    total_servicos = budget.selected_items_total_services_value
+    desconto = budget.selected_items_total_base_value - budget.selected_items_total_budget_value
+    total_geral = budget.selected_items_total_budget_value
+
     is_client_warranty_pdf = is_warranty_or_courtesy and zero_warranty_prices
     if is_client_warranty_pdf:
-        total_produtos = Money(0, "BRL")
-        total_servicos = Money(0, "BRL")
-        desconto = Money(0, "BRL")
         total_geral = Money(0, "BRL")
-    else:
-        total_produtos = budget.selected_items_total_products_without_shipping
-        total_servicos = budget.selected_items_total_services_value
-        desconto = budget.selected_items_total_base_value - budget.selected_items_total_budget_value
-        total_geral = budget.selected_items_total_budget_value
 
     discount_type = budget.discount_type or WorkOrderDiscountType.BOTH
     if desconto.amount <= 0:
