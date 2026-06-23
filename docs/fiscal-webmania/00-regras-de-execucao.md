@@ -13,7 +13,7 @@
 - Nao permitir acesso cross-workshop em emissao, consulta, cancelamento, download, webhook, reconciliacao ou payload.
 - Nao executar reemissao automatica quando o estado remoto for incerto.
 - Nao apagar legado antes de plano de migracao e backfill aprovado.
-- Nao usar DC-e sem feature flag, habilitacao administrativa e sinalizacao beta.
+- Nao usar NFCom ou DC-e sem feature flag e habilitacao administrativa. A documentacao oficial revalidada em 2026-06-23 identifica ambas como API v2.0.0 e nao mais como beta; remover apenas a sinalizacao beta, preservando o isolamento interno.
 
 ## Limites da Fase 0
 
@@ -34,3 +34,7 @@ Proibido:
 ## Regra de parada
 
 Ao concluir Fase 0, parar e aguardar aprovacao dos PRDs e da primeira fase de codigo.
+
+## Regra da Fase 3.0
+
+Auditar e planejar NFS-e somente em `docs/fiscal-webmania/**`. Nao criar models, migrations, gateways, telas ou testes. Creditos 2-5, debitos restantes, eventos `112120`/`112140`/`211xxx`, complementar tributaria, CT-e, MDF-e, NFCom e DC-e permanecem adiados.

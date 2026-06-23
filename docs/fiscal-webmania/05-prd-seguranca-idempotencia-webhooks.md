@@ -590,3 +590,29 @@ Resultado 2.5.6P: nenhuma operacao remota, idempotencia de emissao, webhook ou r
 Idempotencia: `hash(workshop_id, debit_document_id, "nfe_debit_emission", request_generation)`. Criar documento e tentativa dentro da mesma transacao antes do POST. A preview aprovada so pode possuir um documento. `sent`/`succeeded`/`uncertain` bloqueiam reenvio; timeout ou resposta indeterminada deixam documento e tentativa `uncertain`.
 
 Webhook resolve primeiro por UUID do documento de debito, depois por tentativa inequivoca; ambiguidade nao atualiza nada. Reconciliacao usa somente consulta NF-e e nunca reenvia. NF-e original, base, item e preview permanecem imutaveis.
+
+## Seguranca planejada apos a Fase 2.6.0
+
+A Fase 3.0 deve auditar o fluxo NFS-e existente antes de ampliar operacoes. O plano deve preservar idempotencia persistida antes do POST, estado `uncertain` bloqueante, webhook duplicado/fora de ordem e reconciliacao exclusivamente consultiva.
+
+Substituicao e manifestacao precisam de chaves idempotentes e resolucao de tenancy proprias. Capacidades municipais devem bloquear operacoes nao suportadas antes do gateway. Nenhum fallback por permissao NF-e/NFC-e deve conceder operacoes NFS-e, e nenhuma reconciliacao pode emitir, substituir, manifestar ou cancelar documento.
+
+### Operation types e estados planejados
+
+- `nfse_emission`: preservar uma chamada por `NfseRequest`/documento e migrar o operation type generico sem duplicar tentativas existentes.
+- `nfse_query`: trilha opcional de consulta, sem semantica de emissao e sem bloquear consulta operacional.
+- `nfse_cancellation`, `nfse_substitution`, `nfse_manifestation`: tentativa persistida antes do HTTP, payload congelado e `uncertain` sem retry automatico.
+
+Estados de documento: `draft`, `processing`, `authorized`, `rejected`, `cancelled`, `substituted`, `uncertain`, `failed`; estados de tentativa permanecem `started`, `sent`, `succeeded`, `failed`, `uncertain`. `scheduled` e `contingency` sao estados remotos preservados, nao sinonimos de sucesso.
+
+Webhook: fingerprint continua obrigatorio, mas cada item/lote deve persistir o ultimo `atualizado_em`. UUID e oficina devem resultar em candidato unico; fallback por tentativa so e aceito quando inequivoco. Payload antigo deve ser marcado processado sem regredir estado. Payload ambiguo permanece pendente.
+
+Reconciliacao: GET por UUID para item/lote e operacoes incertas quando o contrato permitir. Nunca chamar emissao, cancelamento, substituicao ou manifestacao. Cancelamento atual e prioridade alta da 3.3 porque nao possui essa protecao.
+
+### Garantias validadas na Fase 3.1
+
+- payload e fingerprint do webhook sao calculados sobre estrutura sanitizada;
+- `atualizado_em` remoto prevalece quando presente, com fallback seguro para o rank legado quando ausente;
+- timestamp anterior ou rank regressivo nao altera item, lote ou request;
+- ambiguidade continua impedindo associacao automatica;
+- reconciliacao NFS-e executa somente consulta por UUID e preserva erro/estado sem operacao mutavel.

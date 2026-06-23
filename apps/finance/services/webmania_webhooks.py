@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from apps.finance.models.finance import FiscalDocumentEvent, NfeItem, NfseBatch, NfseItem, WebmaniaWebhookEvent
 from apps.finance.services.emission import apply_nfse_batch_payload, apply_nfse_item_payload
+from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
 from apps.finance.services.mappers import extract_items_from_batch
 from apps.finance.services.nfe_events import apply_cce_event_payload
 from apps.finance.services.nfe_ibs_cbs_events import apply_ibs_cbs_event_cancellation_payload, apply_ibs_cbs_event_payload, is_ambiguous_ibs_cbs_event_cancellation_webhook, is_ambiguous_ibs_cbs_event_webhook, resolve_ibs_cbs_event_cancellation_for_webhook, resolve_ibs_cbs_event_for_webhook
@@ -43,13 +44,14 @@ def build_webhook_fingerprint(*, payload: dict[str, Any]) -> str:
 
 
 def store_webhook_event(*, payload: dict[str, Any]) -> WebmaniaWebhookEvent:
-    fingerprint = build_webhook_fingerprint(payload=payload)
+    sanitized_payload = sanitize_fiscal_payload(payload)
+    fingerprint = build_webhook_fingerprint(payload=sanitized_payload)
     event, _ = WebmaniaWebhookEvent.objects.get_or_create(
         fingerprint=fingerprint,
         defaults={
-            "model": str(payload.get("modelo") or "").strip().lower(),
-            "event_uuid": extract_event_uuid(payload),
-            "payload": payload,
+            "model": str(sanitized_payload.get("modelo") or "").strip().lower(),
+            "event_uuid": extract_event_uuid(sanitized_payload),
+            "payload": sanitized_payload,
         },
     )
     return event

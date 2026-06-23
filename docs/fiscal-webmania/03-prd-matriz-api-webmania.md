@@ -57,9 +57,9 @@ Fonte oficial consultada:
 | NFCom        | Status                    | GET             | `/2/nfcom/status`                     | Bearer v2    | N/A                                         | status SEFAZ                    | N/A               | Nao     | 6    |
 | NFCom        | XML                       | GET             | `/xmlnfcom/{identifier}`              | Bearer v2    | uuid/chave                                  | arquivo                         | XML               | Nao     | 6    |
 | NFCom        | DANFECOM                  | GET             | `/danfecom/{identifier}`              | Bearer v2    | uuid/chave                                  | arquivo                         | PDF               | Nao     | 6    |
-| DC-e         | Emissao beta              | POST            | `/2/dce/emissao`                      | Bearer v2    | remetente/destinatario/itens/transporte     | uuid, chave, status             | XML/DACE          | Sim     | 7    |
-| DC-e         | Consulta beta             | GET             | `/2/dce/consulta/{identifier}`        | Bearer v2    | uuid/chave                                  | status, URLs                    | XML/DACE          | Nao     | 7    |
-| DC-e         | Cancelamento beta         | PUT             | `/2/dce/cancelar`                     | Bearer v2    | uuid/chave, motivo                          | status/xml_cancelamento         | XML               | Sim     | 7    |
+| DC-e         | Emissao                   | POST            | `/2/dce/emissao`                      | Bearer v2    | remetente/destinatario/itens/transporte     | uuid, chave, status             | XML/DACE          | Sim     | 7    |
+| DC-e         | Consulta                  | GET             | `/2/dce/consulta/{identifier}`        | Bearer v2    | uuid/chave                                  | status, URLs                    | XML/DACE          | Nao     | 7    |
+| DC-e         | Cancelamento              | PUT             | `/2/dce/cancelar`                     | Bearer v2    | uuid/chave, motivo                          | status/xml_cancelamento         | XML               | Sim     | 7    |
 
 ## Uso no Hunter V2
 
@@ -67,8 +67,8 @@ Fonte oficial consultada:
 - NFS-e: servicos de OS, servico avulso, substituicao quando municipio suportar.
 - CT-e/CT-e OS: uso medio, manual ou vinculado a documentos de transporte.
 - MDF-e: manifesto de documentos, pendencia operacional quando autorizado e nao encerrado.
-- NFCom: beta, uso manual de baixa prioridade, isolada por feature flag e habilitacao administrativa por oficina.
-- DC-e: beta, isolada por feature flag e habilitacao administrativa por oficina.
+- NFCom: API v2.0.0, uso manual de baixa prioridade, isolada por feature flag e habilitacao administrativa por oficina como politica interna.
+- DC-e: API v2.0.0, isolada por feature flag e habilitacao administrativa por oficina como politica interna.
 
 ## Planejamento Fase 2.0 - NF-e/NFC-e
 
@@ -157,7 +157,7 @@ Webhook: tratar `modelo=nfe` como documento derivado quando `uuid`/tentativa/cha
 | CT-e OS simplificada   | Endpoint marcado geral                 | Docs dizem CT-e OS ainda nao disponivel           | Bloquear CT-e OS simplificada            |
 | CT-e eventos pagamento | Presentes                              | Confirmados em secao de funcoes                   | Manter, fase 4                           |
 | MDF-e consulta         | Path-param no OpenAPI                  | Listagem cita `/2/mdfe/consulta`, exemplo oficial usa `/2/mdfe/consulta/{uuid-ou-chave}` | Registrar divergencia e modelar rota operacional por path-param |
-| NFCom                  | Marcada beta                           | Docs indicam versao 0.1.2 beta                    | Sinalizar risco e baixa prioridade       |
+| NFCom                  | Marcada beta no insumo antigo          | Docs atuais indicam versao 2.0.0 sem marcador beta | Corrigir classificacao; manter rollout interno controlado |
 | DC-e downloads         | Nao endpoints dedicados no guia rapido | Payload retorna `xml`, `xml_cancelamento`, `dace` | Tratar downloads por URL retornada       |
 
 ## Divergencias oficiais registradas na Fase 0.1
@@ -167,8 +167,8 @@ Webhook: tratar `modelo=nfe` como documento derivado quando `uuid`/tentativa/cha
 | Consulta NFS-e | `/2/nfse/consulta` | `GET /2/nfse/consulta/{uuid}` | O OpenAPI validado modela `/2/nfse/consulta/{identifier}` porque e a forma operacional demonstrada no exemplo oficial. |
 | Consulta MDF-e | `/2/mdfe/consulta` | `GET /2/mdfe/consulta/{uuid-ou-chave}` | O OpenAPI validado modela `/2/mdfe/consulta/{identifier}` porque e a forma operacional demonstrada no exemplo oficial. |
 | CT-e simplificado | CT-e simplificado listado | CT-e OS simplificado indicado como nao disponivel/condicional | O Hunter nao deve habilitar CT-e OS simplificado sem nova confirmacao oficial. |
-| NFCom | Documentacao beta | API v0.1.2 beta | Implementar somente com feature flag e habilitacao administrativa por oficina. |
-| DC-e | Documentacao beta | API beta | Implementar somente com feature flag e habilitacao administrativa por oficina. |
+| NFCom | Documentacao antiga indicava beta | API v2.0.0 sem marcador beta oficial | Manter feature flag e habilitacao administrativa por politica interna. |
+| DC-e | Documentacao antiga indicava beta | API v2.0.0 sem marcador beta oficial | Manter feature flag e habilitacao administrativa por politica interna. |
 
 ## Autenticacao validada
 
@@ -692,3 +692,64 @@ Campos proibidos: `nfe_referenciada`, `tipo_credito`, `nfe_credito`, `evento_ibs
 Resposta e notificacao seguem NF-e padrao: UUID, status/motivo, numero, serie, recibo, chave, XML, DANFE e log sanitizado. Cancelamento futuro usa `PUT /1/nfe/cancelar/`, nunca cancelamento de evento IBS/CBS.
 
 O OpenAPI validado ja representa todos esses campos e condicoes; nenhuma alteracao foi necessaria.
+
+## Fase 2.6.0 - Matriz comparativa do roadmap
+
+Revalidacao oficial em 2026-06-23: NF-e/NFC-e mantem finalidades 5/6, tipos oficiais, IBS/CBS exclusivo e eventos pendentes; NFS-e v2 documenta emissao, consulta, cancelamento, substituicao, manifestacao, capacidades municipais e IBS/CBS; CT-e, MDF-e, NFCom e DC-e possuem APIs v2 delimitadas. NFCom e DC-e agora aparecem como versao 2.0.0, sem marcador beta oficial.
+
+| Bloco | Candidato | Fonte local existe? | Reaproveita infraestrutura atual? | Dependencia externa | Risco fiscal | Valor de negocio | Recomendacao |
+| --- | --- | ---: | ---: | --- | --- | --- | --- |
+| Credito | Tipo 2 - credito presumido ZFM | Nao suficiente | Alta | Apuracao IBS e contexto ZFM | Alto | Baixo | Adiar |
+| Credito | Tipo 3 - recusa/nao localizacao | Parcial | Alta | Evidencia logistica auditavel | Alto | Medio | Fase preparatoria futura |
+| Credito | Tipo 4 - reducao de valores | Parcial | Alta | Regra fiscal e valores aprovados | Medio/alto | Medio | Adiar |
+| Credito | Tipo 5 - sucessao | Nao | Media | Sucessao juridica/fiscal | Alto | Baixo | Adiar |
+| Debito | Tipo 1 - cooperativas | Nao | Media | Credito/cooperativa | Alto | Baixo | Adiar |
+| Debito | Tipo 2 - saidas imunes/isentas | Nao | Media | Apuracao fiscal | Alto | Baixo | Adiar |
+| Debito | Tipo 3 - notas fora da apuracao | Parcial | Alta | Apuracao externa e DF-e por item | Alto | Medio | Adiar |
+| Debito | Tipo 5 - sucessao | Nao | Media | Sucessao juridica/fiscal | Alto | Baixo | Adiar |
+| Debito | Tipo 6 - pagamento antecipado | Nao suficiente | Media | Vinculo financeiro-item e nao fornecimento | Alto | Medio | Fase preparatoria futura; desbloqueia `112140` |
+| Debito | Tipo 7 - perda em estoque | Parcial | Media | Evidencia fiscal de estoque | Alto | Medio | Fase preparatoria futura |
+| Debito | Tipo 8 - desenquadramento SN | Nao | Baixa | Regime e apuracao externa | Alto | Baixo | Adiar |
+| Evento | `112120` | Nao | Alta | Importacao ALC/ZFM validada | Alto | Baixo | Adiar |
+| Evento | `112140` | Nao | Alta | Debito tipo 6 e pagamento antecipado por item | Alto | Medio | Adiar |
+| Eventos | `211xxx` | Nao suficiente | Alta tecnica, baixa de dominio | Papel destinatario, entrada, ativo, combustivel ou apuracao | Alto | Baixo/medio | Adiar |
+| NF-e | Complementar tributaria | Parcial | Alta | Base tributaria aprovada por imposto | Alto | Medio | Auditoria preparatoria posterior |
+| NFS-e | Expansao e conformidade | Sim, legado operacional | Alta | Municipio/provedor, Padrao Nacional e IBS/CBS | Medio/alto | **Muito alto** | **Proxima Fase 3.0 documental** |
+| CT-e | Emissao/operacao | Nao | Media tecnica | Dominio de transporte, tomadores e cargas | Alto | Baixo | Adiar |
+| MDF-e | Emissao/encerramento | Nao | Baixa | CT-e, veiculos, condutores e percurso | Alto | Baixo | Adiar apos CT-e |
+| NFCom | Emissao v2.0.0 | Nao | Media tecnica | Dominio de telecomunicacoes | Alto | Muito baixo | Adiar; flag interna |
+| DC-e | Emissao v2.0.0 | Nao | Media tecnica | Dominio especifico sem demanda confirmada | Alto | Muito baixo | Adiar; flag interna |
+
+### Decisao
+
+Escolher **Opcao D com fase preparatoria**: `Fase 3.0 - Auditoria e Planejamento Tecnico da NFS-e Expandida`. O OpenAPI foi corrigido somente para remover a classificacao beta desatualizada de NFCom/DC-e e registrar API v2.0.0; os schemas e endpoints permanecem suficientes para planejamento.
+
+## Fase 3.0 - Matriz operacional NFS-e
+
+Documentacao oficial revalidada em 2026-06-23: Webmania NFS-e v3.1.1 e Portal Nacional NFS-e, documentacao de producao vigente. A API Webmania usa Bearer API 2.0 e `Content-Type`/`Accept: application/json`.
+
+| Operacao | Endpoint/contrato | Metodo | Existe no Hunter? | Qualidade atual | Lacunas | Proxima acao |
+| --- | --- | --- | ---: | --- | --- | --- |
+| Emissao | `/2/nfse/emissao` | POST | Sim | Tentativa persistida, RPS, lote/item e `uncertain` | Acoplada a OS; sem capacidade municipal persistida; operation type generico | 3.1 estabilizar e bloquear por capacidade |
+| Consulta | `/2/nfse/consulta/{uuid}` | GET | Sim | Consulta por UUID e reconciliacao sem emissao | Sem trilha de consulta/lote e sem timestamp remoto canonico | 3.2 ampliar reconciliacao |
+| Cancelamento/agendamento | `/2/nfse/cancelar` com `uuid`, `motivo` 1/2/4 | PUT | Sim | UI e endpoint funcionais | Sem tentativa/idempotencia/`uncertain`; confirma cancelamento cedo demais | 3.3 reimplementar sobre evento/tentativa |
+| Substituicao | `/2/nfse/substituir` com `ambiente`, `codigo_verificacao`, `motivo`, `rps` objeto | POST | Nao | Ausente | Capacidade municipal, documento substituto, link e idempotencia | 3.4 apos 3.1-3.3 |
+| Manifestacao | `/2/nfse/manifestar`; somente Padrao Nacional | POST | Nao | Ausente | Papel tomador/intermediario, evento, rejeicao, permissao e capacidade | 3.5 apos capacidade nacional |
+| Status municipal | `/2/nfse/status` | GET | Nao | Configuracao local estatica | Falta persistir `status`, modelo, versao, ambientes, autenticacao, emissao, funcoes, servicos e parametros | 3.1 criar snapshot de capacidade |
+| Agendamento | `data_agendamento` na emissao; cancelamento pelo endpoint padrao | POST/PUT | Nao na UI/payload | Status local possui `scheduled` | Falta capacidade, timezone, idempotencia e UX | Adiar para subfase propria apos 3.3 |
+| XML/PDF | URLs `xml`, `pdf_nfse`, `pdf_rps`; acesso autenticado/token/IP/painel | GET por URL retornada | Sim | Proxy autenticado e permissao legada | Permissoes granulares e politica de disponibilidade/senha | 3.7 consolidar |
+| Webhook | POST em `url_notificacao`, modelos `nfse`/`lote_rps` | POST inbound | Sim | Fingerprint, UUID e anti-regressao por rank | Ordem nao garantida; falta usar `atualizado_em` canonico | 3.1 estabilizar |
+| Reconciliacao | consulta por UUID | GET | Sim | Itens pendentes e tentativas incertas, sem POST | Cobertura limitada a item; falta lote/eventos futuros | 3.2 ampliar |
+
+### Contratos confirmados
+
+- Emissao aceita `ID`, `ambiente`, `rps` (1 a 50), `url_notificacao` e `data_agendamento`; lote em massa depende de `lote_rps` no status municipal.
+- Retorno pode ser `nfse` ou `lote_rps`; estados documentados incluem processamento/processando, aprovado/processado, agendado, reprovado, cancelado e contingencia conforme modelo.
+- Webhooks nao garantem ordem. `atualizado_em` ISO-8601 e a referencia canonica; atualizacoes mais antigas do mesmo UUID devem ser descartadas.
+- Substituicao referencia a nota por `codigo_verificacao`, nao por `uuid` no body oficial atual, e recebe um unico objeto `rps`.
+- Manifestacao exige `ambiente`, `chave|uuid`, `manifestador` 1/2 e `evento` 1/2; rejeicao exige motivo e, para motivo 9, justificativa de 15 a 255 caracteres.
+- O Padrao Nacional vigente publica manuais de contribuinte, APIs ADN, anexos DPS/NFS-e e eventos. DPS e o artefato nacional; RPS/lote permanecem contratos Webmania/provedores municipais e nao devem ser tratados como sinonimos automaticos. Hunter continuara integrando pela Webmania; esses documentos sao referencia semantica, nao um segundo gateway.
+
+### Resultado operacional da Fase 3.1
+
+Emissao legada passou a consultar capacidade municipal antes do POST; webhook e consulta persistem `atualizado_em` e rejeitam retorno antigo/regressivo; reconciliacao continua usando somente `GET /2/nfse/consulta/{uuid}`. Nao houve mudanca adicional no OpenAPI validado nesta implementacao.

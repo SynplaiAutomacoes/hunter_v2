@@ -408,7 +408,21 @@ Subfases funcionais recomendadas:
 - Dependencias: Fase 1 validada.
 - Migrations: capacidades municipais.
 - Testes: municipio com/sem recurso, substituicao, cancelamento agendado.
-- Status: nao iniciada.
+- Status: Fase 3.0 documental em planejamento; nenhuma subfase funcional iniciada.
+
+### Roadmap aprovado para detalhamento na Fase 3.0
+
+| Subfase | Objetivo | Dependencias | Risco | Criterio principal |
+| --- | --- | --- | --- | --- |
+| 3.1 | Estabilizar legado, operation type, `atualizado_em`, capacidades e feature flag | 3.0 aprovada | Alto | Emissao existente preservada e bloqueada quando capacidade/configuracao forem invalidas |
+| 3.2 | Consulta e reconciliacao de item/lote por UUID | 3.1 | Medio | Nenhum caminho de reconciliacao transmite operacao mutavel |
+| 3.3 | Cancelamento idempotente | 3.1/3.2 | Alto | Tentativa antes do PUT, timeout `uncertain`, status apenas com confirmacao valida |
+| 3.4 | Substituicao | 3.1-3.3 | Alto | Novo documento/link auditavel, capacidade municipal e uma chamada por intencao |
+| 3.5 | Manifestacao Padrao Nacional | 3.1/3.2 | Medio/alto | Papel/evento/rejeicao validados e documento original preservado |
+| 3.6 | Rollout municipal e emissao manual | 3.1-3.5 | Alto | Flags por oficina/municipio, sem request legado paralelo |
+| 3.7 | Downloads e observabilidade | transversal | Medio | XML/PDF/RPS protegidos, logs sanitizados e metricas operacionais |
+
+Agendamento deve ser planejado como extensao posterior de 3.3/3.6. Lote RPS nao e subfase isolada: faz parte da estabilizacao e reconciliacao porque ja existe no legado.
 
 ## Fase 4 - CT-e e CT-e OS
 
@@ -432,10 +446,10 @@ Subfases funcionais recomendadas:
 - Aceite: NFCom pode ser desligada sem afetar outros modelos fiscais.
 - Status: nao iniciada.
 
-## Fase 7 - DC-e beta
+## Fase 7 - DC-e v2.0.0 com rollout interno controlado
 
-- Objetivos: feature flag, emissao, consulta, cancelamento, sinalizacao beta.
-- Dependencias: configuracao beta por oficina.
+- Objetivos: feature flag interna, emissao, consulta, cancelamento e rollout controlado.
+- Dependencias: habilitacao administrativa por oficina.
 - Alteracoes permitidas: somente atras de feature flag, permissao especifica e habilitacao administrativa por oficina.
 - Alteracoes proibidas: usar DC-e em producao sem decisao explicita e sem sinalizacao beta.
 - Testes: feature flag desligada, permissao, emissao mockada, consulta, cancelamento e isolamento de erro beta.
@@ -585,3 +599,39 @@ Status: validada tecnicamente em 2026-06-22; checkpoint desta entrega pendente.
 Escopo: cancelar somente `FiscalDocument(document_type="nfe", purpose="debit", fiscal_purpose_type="4")` autorizado por `PUT /1/nfe/cancelar/`. O evento/tentativa deve ser persistido antes do gateway, timeout deve resultar em `uncertain`, e webhook/reconciliacao devem atualizar somente o documento de debito. Outros tipos e eventos permanecem bloqueados.
 
 Resultado: migration `0059`, service, UI, webhook, reconciliacao e permissao implementados. Os 10 testes especificos, 51 regressivos de credito/debito e 286 testes fiscais dirigidos passaram, incluindo concorrencia real, timeout, ambiguidade entre credito/debito e protecao cross-workshop.
+
+## Fase 2.6.0 - Reavaliacao do roadmap fiscal
+
+Status: em planejamento documental em 2026-06-23. A Fase 2.5.8 foi validada no checkpoint `df1a163e`.
+
+Decisao: selecionar a Opcao D por meio de uma etapa preparatoria. A proxima fase recomendada e `Fase 3.0 - Auditoria e Planejamento Tecnico da NFS-e Expandida`, sem codigo funcional. NFS-e combina alto valor para oficinas com infraestrutura legada existente; a variacao municipal, o Padrao Nacional e a transicao ISS/IBS-CBS impedem expansao segura sem auditoria previa.
+
+### Escopo proposto da Fase 3.0
+
+- auditar models, services, views, forms, templates, URLs, webhook, reconciliacao, downloads, permissoes e tenancy NFS-e atuais;
+- comparar o fluxo com `/2/nfse/emissao`, `/consulta/{identifier}`, `/status`, `/cancelar`, `/substituir` e `/manifestar`;
+- mapear RPS/lotes, capacidades municipais/provedor, ISS, IBS/CBS e Padrao Nacional;
+- definir compatibilidade do legado, idempotencia persistida, `uncertain`, webhook e reconciliacao sem emissao;
+- propor subfases 3.1 estabilizacao/capacidades, 3.2 consulta/reconciliacao, 3.3 cancelamento, 3.4 substituicao, 3.5 manifestacao, 3.6 rollout/emissao manual e 3.7 downloads/observabilidade;
+- documentar rollout, rollback, gaps, ADRs e criterios de aceite, sem migrations ou codigo.
+
+### Criterios de aceite da Fase 3.0
+
+1. Inventario as-is NFS-e com evidencias de arquivos e fluxos reais.
+2. Matriz endpoint/capacidade municipal/estado local completa.
+3. Decisao explicita sobre legado, projecao fiscal e eventual backfill.
+4. Contratos de idempotencia, webhook, reconciliacao, tenancy e permissao definidos.
+5. Plano de testes, rollout e rollback por subfase.
+6. Nenhuma alteracao funcional realizada.
+
+Resultado da auditoria: a primeira fase funcional recomendada e 3.1. Nao iniciar 3.2 ou posteriores automaticamente.
+
+## Fase 3.1 - Estabilizacao NFS-e legado
+
+Status: em implementacao controlada em 2026-06-23.
+
+Escopo: capacidade municipal minima, flag de compatibilidade legada, bloqueios pre-gateway, persistencia/ordenacao por `atualizado_em`, reconciliacao sem operacoes mutaveis e UI administrativa minima. Preservar `NfseRequest`, `NfseBatch`, `NfseItem`, wizard por OS, RPS/lote, tentativa existente e downloads.
+
+Fora do escopo: cancelamento idempotente, substituicao, manifestacao, emissao manual, projecao generalizada `FiscalDocument(nfse)`, backfill e demais familias fiscais.
+
+Status: **validada em 2026-06-23**. Migration `0060_nfsebatch_remote_updated_at_and_more`; 13 testes especificos e 297 testes fiscais direcionados aprovados. `makemigrations finance --check --dry-run`, Ruff nos Python tocados e `git diff --check` aprovados. Nenhuma subfase 3.2+ foi iniciada.

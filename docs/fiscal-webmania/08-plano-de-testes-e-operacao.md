@@ -82,7 +82,7 @@ uv run mypy .
 | 4 | CT-e/CT-e OS emissao/consulta/cancelamento/eventos | Bloqueio CT-e OS simplificado |
 | 5 | MDF-e pendente nao encerrado e encerramento/cancelamento | Vinculos com NF-e/CT-e |
 | 6 | NFCom feature flag, emissao manual, consulta, download | Desligamento sem efeito colateral |
-| 7 | DC-e beta isolada, feature flag e cancelamento | Desativacao segura |
+| 7 | DC-e v2.0.0 isolada, feature flag interna e cancelamento | Desativacao segura |
 | 8 | Backfill dry-run, migracao, rollback e comparacao legado/unificado | Remocao controlada apos validacao |
 
 ## Fase 2.0 - Testes planejados NF-e/NFC-e
@@ -558,6 +558,43 @@ Testes de emissao, idempotencia remota, concorrencia de gateway, timeout, webhoo
 - 51 testes cruzados de emissao/cancelamento de credito e debito aprovados.
 - 286 testes fiscais dirigidos aprovados com `--keepdb`.
 - Contrato, permissao isolada, tenancy, sanitizacao, webhook ambiguo e reconciliacao sem reenvio comprovados.
+
+## Testes planejados para a expansao NFS-e
+
+A Fase 3.0 deve produzir casos de teste detalhados, sem implementa-los, cobrindo:
+
+- capacidades municipais bloqueando emissao, cancelamento, substituicao ou manifestacao nao suportada;
+- payload ISS/IBS-CBS e Padrao Nacional conforme municipio, provedor, ambiente e regime;
+- RPS, lote e item preservando identidade e sequencia;
+- concorrencia com uma chamada remota por intencao, retry idempotente e timeout `uncertain`;
+- webhook duplicado e fora de ordem sem regressao de status;
+- reconciliacao usando somente consulta, sem POST de emissao/substituicao/manifestacao;
+- substituicao vinculando novo documento sem mutar incorretamente o original;
+- manifestacao com papel, motivo e estado validos;
+- isolamento por oficina, permissoes separadas, downloads protegidos e sanitizacao de credenciais;
+- regressao dos fluxos NFS-e legados durante a convivencia.
+
+Operacionalmente, a futura liberacao deve ser incremental por oficina/municipio, com checklist de capacidades, homologacao previa e rollback que desative novas operacoes sem apagar documentos ou eventos persistidos.
+
+### Matriz minima de testes 3.x
+
+- emissao simples sincrona e retorno `nfse`;
+- emissao/lote assincrono e multiplos RPS;
+- consulta de item e lote por UUID;
+- cancelamento elegivel, rejeitado, concorrente e timeout `uncertain`;
+- substituicao criando novo documento e preservando o substituido;
+- manifestacao de tomador/intermediario, confirmacao/rejeicao e justificativa condicional;
+- webhook duplicado, fora de ordem por `atualizado_em`, ambiguo e anterior a sincronizacao local;
+- reconciliacao de `uncertain` somente por GET;
+- municipio inativo, sem homologacao, sem lote, sem cancelamento, sem substituicao ou fora do Padrao Nacional;
+- RPS/serie/lote concorrentes sem duplicidade;
+- permissao legada preservada e novas permissoes isoladas;
+- cross-workshop em lista, detalhe, operacao, payload e download;
+- XML/PDF/RPS autenticados e indisponibilidade de PDF tratada;
+- segredos e payloads sanitizados;
+- regressao do wizard por OS, modo NF-e+NFS-e, pricing slider, NF-e/NFC-e e eventos IBS/CBS.
+
+Rollback: flags desligam novas operacoes e capacidades sem apagar legado. Migrations futuras devem ser aditivas; projecoes `FiscalDocument` nao podem assumir ownership exclusivo antes de backfill separado e aprovado.
 - cria documento `nfe/debit/4` somente de preview/base aprovadas e locais;
 - cria link `debits` e preserva original/base/item/preview;
 - payload usa `modelo=1`, `finalidade=6`, `tipo_debito=4` e nao usa `nfe_referenciada`;
@@ -572,3 +609,7 @@ Testes de emissao, idempotencia remota, concorrencia de gateway, timeout, webhoo
 - reconciliacao consulta sem emitir; XML/DANFE e payload respeitam tenancy/permissao;
 - rejeicao com XML nao vira sucesso; payload/log ficam sanitizados;
 - regressao completa de credito tipo 1, NF-e/NFC-e e eventos IBS/CBS.
+
+## Evidencia da Fase 3.1
+
+Executados 13 testes especificos de capacidade, compatibilidade, webhook, sanitizacao, reconciliacao e permissao. A regressao fiscal dirigida totalizou 297 testes e concluiu com `OK`. A primeira execucao ampla foi interrompida exclusivamente pelo limite de 300 segundos; a repeticao com janela suficiente concluiu em 410,316 segundos sem falhas.

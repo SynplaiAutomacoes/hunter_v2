@@ -512,6 +512,7 @@ class WebmaniaCompany(TimeStampedModel):
     exclusao_difal_pis_cofins = models.BooleanField(verbose_name="Exclusão DIFAL PIS/COFINS", null=True, blank=True)
     deduzir_desconto_ipi = models.BooleanField(verbose_name="Deduzir desconto IPI", null=True, blank=True)
     email_automatico_nfse = models.BooleanField(verbose_name="E-mail automático NFS-e", null=True, blank=True)
+    nfse_legacy_compatibility_enabled = models.BooleanField(verbose_name="Compatibilidade legada NFS-e habilitada", default=True)
     desativar_epec = models.CharField(verbose_name="Desativar EPEC", max_length=4, blank=True, default="")
     ocultar_total_etiqueta = models.CharField(verbose_name="Ocultar total etiqueta", max_length=4, blank=True, default="")
 
@@ -721,6 +722,64 @@ class NfeRequest(TimeStampedModel):
         return str(first_item.number or "-")
 
 
+class NfseMunicipalCapability(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="nfse_municipal_capabilities")
+    company = models.ForeignKey(WebmaniaCompany, verbose_name="Empresa Webmania", on_delete=models.PROTECT, related_name="nfse_municipal_capabilities")
+    city_code = models.CharField(verbose_name="Codigo IBGE do municipio", max_length=7)
+    city_name = models.CharField(verbose_name="Municipio", max_length=120)
+    state = models.CharField(verbose_name="UF", max_length=2)
+    provider = models.CharField(verbose_name="Provedor/modelo", max_length=80, blank=True, default="")
+    provider_version = models.CharField(verbose_name="Versao do provedor", max_length=40, blank=True, default="")
+    is_active = models.BooleanField(verbose_name="Capacidade ativa", default=True)
+    national_standard_enabled = models.BooleanField(verbose_name="Padrao Nacional", default=False)
+    legacy_municipal_enabled = models.BooleanField(verbose_name="Padrao municipal legado", default=True)
+    emission_enabled = models.BooleanField(verbose_name="Emissao habilitada", default=False)
+    query_enabled = models.BooleanField(verbose_name="Consulta habilitada", default=True)
+    cancellation_enabled = models.BooleanField(verbose_name="Cancelamento habilitado", default=False)
+    substitution_enabled = models.BooleanField(verbose_name="Substituicao habilitada", default=False)
+    manifestation_enabled = models.BooleanField(verbose_name="Manifestacao habilitada", default=False)
+    batch_required = models.BooleanField(verbose_name="Lote RPS obrigatorio", default=False)
+    rps_required = models.BooleanField(verbose_name="RPS obrigatorio", default=True)
+    synchronous_emission = models.BooleanField(verbose_name="Emissao sincrona", default=False)
+    xml_download_enabled = models.BooleanField(verbose_name="Download XML disponivel", default=True)
+    pdf_download_enabled = models.BooleanField(verbose_name="Download PDF NFS-e disponivel", default=True)
+    rps_pdf_enabled = models.BooleanField(verbose_name="Download PDF RPS disponivel", default=True)
+    requires_municipal_registration = models.BooleanField(verbose_name="Exige inscricao municipal", default=False)
+    requires_service_code = models.BooleanField(verbose_name="Exige codigo de servico", default=False)
+    requires_cnae = models.BooleanField(verbose_name="Exige CNAE", default=False)
+    requires_iss_rate = models.BooleanField(verbose_name="Exige aliquota ISS", default=False)
+    remote_payload = models.JSONField(verbose_name="Payload remoto sanitizado", blank=True, default=dict)
+    last_synced_at = models.DateTimeField(verbose_name="Ultima sincronizacao", null=True, blank=True)
+    notes = models.TextField(verbose_name="Observacoes", blank=True, default="")
+
+    class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["workshop", "company", "city_code"], name="unique_nfse_capability_scope"),
+        ]
+        indexes = [
+            models.Index(fields=["workshop", "city_code", "is_active"], name="nfse_cap_workshop_city_idx"),
+            models.Index(fields=["company", "state", "city_name"], name="nfse_cap_company_city_idx"),
+        ]
+        permissions = [
+            ("manage_nfse_capabilities", "Pode gerenciar capacidades municipais NFS-e"),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        self.city_code = str(self.city_code or "").strip()
+        self.city_name = str(self.city_name or "").strip()
+        self.state = str(self.state or "").strip().upper()
+        if not self.city_code.isdigit() or len(self.city_code) != 7:
+            raise ValidationError({"city_code": "Informe o codigo IBGE do municipio com 7 digitos."})
+        if len(self.state) != 2:
+            raise ValidationError({"state": "Informe a UF com 2 caracteres."})
+        if self.company_id and self.workshop_id and self.company.workshop_id != self.workshop_id:
+            raise ValidationError({"company": "A empresa Webmania deve pertencer a oficina informada."})
+
+    def __str__(self) -> str:
+        return f"NFS-e {self.city_name}/{self.state} [{self.workshop_id}]"
+
+
 class NfseBatch(models.Model):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE)
     workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE)
@@ -736,6 +795,7 @@ class NfseBatch(models.Model):
     log_payload = models.JSONField(blank=True, default=dict)
     raw_payload = models.JSONField(blank=True, default=dict)
     last_webhook_at = models.DateTimeField(null=True, blank=True)
+    remote_updated_at = models.DateTimeField(verbose_name="Atualizacao remota canonica", null=True, blank=True, db_index=True)
     last_sync_error = models.TextField(blank=True, default="")
 
     class Meta:
@@ -768,6 +828,7 @@ class NfseItem(models.Model):
     log_payload = models.JSONField(blank=True, default=dict)
     raw_payload = models.JSONField(blank=True, default=dict)
     last_webhook_at = models.DateTimeField(null=True, blank=True)
+    remote_updated_at = models.DateTimeField(verbose_name="Atualizacao remota canonica", null=True, blank=True, db_index=True)
     last_reconciled_at = models.DateTimeField(null=True, blank=True)
     last_sync_error = models.TextField(blank=True, default="")
 

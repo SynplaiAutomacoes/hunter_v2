@@ -7,7 +7,7 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 | Data       | Fase | Objetivo                      | Arquivos alterados       | Migrations | Testes executados | Decisoes       | Pendencias     | Riscos                                          | Proxima acao       |
 | ---------- | ---- | ----------------------------- | ------------------------ | ---------- | ----------------- | -------------- | -------------- | ----------------------------------------------- | ------------------ |
 | 2026-05-28 | 0    | Criar PRDs e OpenAPI validado | `docs/fiscal-webmania/*` | Nenhuma    | Nao aplicavel     | ADRs propostas | Aprovada pelo usuario | Docs podem ficar desatualizados se codigo mudar | Manter docs sincronizados |
-| 2026-05-28 | 0.1  | Reforcar OpenAPI, divergencias e regras beta | `docs/fiscal-webmania/*` | Nenhuma | Parse JSON e contagem OpenAPI | Consultas NFS-e/MDF-e conforme exemplo oficial; NFCom/DC-e beta com feature flag | Aprovada pelo usuario | Schemas devem ser reconferidos antes de cada fase de codigo | Revalidar antes de novas familias |
+| 2026-05-28 | 0.1  | Reforcar OpenAPI, divergencias e regras beta | `docs/fiscal-webmania/*` | Nenhuma | Parse JSON e contagem OpenAPI | Consultas NFS-e/MDF-e conforme exemplo oficial; classificacao NFCom/DC-e da epoca, superada na 2.6.0 | Aprovada pelo usuario | Schemas devem ser reconferidos antes de cada fase de codigo | Revalidar antes de novas familias |
 | 2026-05-28 | 1    | Estabilizar NF-e/NFS-e existentes | `apps/finance/models/finance.py`, `apps/finance/models/__init__.py`, `apps/finance/migrations/0041_fiscalemissionattempt_and_more.py`, `apps/finance/services/fiscal_attempts.py`, `apps/finance/services/nfe_emission.py`, `apps/finance/services/emission.py`, `apps/finance/services/tax_classes.py`, `apps/finance/services/webmania_webhooks.py`, `apps/finance/management/commands/reconcile_webmania_documents.py`, `apps/finance/views/nfe.py`, `apps/workshops/mixin.py`, `apps/finance/tests.py`, `docs/fiscal-webmania/*` | `finance.0041_fiscalemissionattempt_and_more` | `FiscalPhaseOneStabilizationTests` e `FiscalPhaseOneConcurrentEmissionTests` OK; `makemigrations finance --check --dry-run` OK; ruff nos arquivos tocados OK; `git diff --check` OK; falhas globais aceitas como preexistentes | Manter `NfeRequest`/`NfseRequest`; tentativa persistida por intencao; `uncertain` bloqueia reenvio; webhook por fingerprint; NF-e usa permissao propria com fallback legado | Validada tecnicamente com dividas preexistentes registradas e aceitas pelo usuario | Reconciliacao e webhook nao emitem; tentativa incerta exige consulta/reconciliacao manual antes de nova emissao | Aguardar autorizacao explicita da Fase 2 |
 | 2026-05-28 | 2.0  | Planejar expansao NF-e/NFC-e | `docs/fiscal-webmania/*` | Nenhuma | Revisao documental e rechecagem oficial NF-e/NFC-e | Recomendar nucleo minimo; usuario decidiu que `FiscalDocumentLink` fica somente para 2.2; dividir Fase 2 em 2.1 CC-e, 2.2 derivados, 2.3 NFC-e, 2.4 manifestacao/IBS-CBS | Aprovada pelo usuario | Endpoints e Reforma Tributaria devem ser revalidados antes de codigo | Fase 2.1 implementada para revisao |
 | 2026-05-28 | 2.1  | Implementar CC-e Webmania | `apps/finance/models/finance.py`, `apps/finance/models/__init__.py`, `apps/finance/migrations/0042_fiscalemissionattempt_operation_type_and_more.py`, `apps/finance/services/fiscal_attempts.py`, `apps/finance/services/nfe_events.py`, `apps/finance/services/webmania_webhooks.py`, `apps/finance/views/nfe.py`, `apps/finance/views/__init__.py`, `apps/finance/urls.py`, `apps/finance/templates/finance/nfe_request_detail.html`, `apps/finance/tests.py`, `docs/fiscal-webmania/*` | `finance.0042_fiscalemissionattempt_operation_type_and_more` | `makemigrations finance --check --dry-run` OK; `FiscalPhaseOne*` + `FiscalPhaseTwoCorrection*` OK com 27 testes; ruff nos arquivos Python tocados OK; `git diff --check` OK | Criar apenas `FiscalDocument`/`FiscalDocumentEvent`; `FiscalDocumentLink` fica para 2.2; CC-e e evento, nao nota comum; idempotencia por sequencia 1-20; webhook CC-e por UUID e fallback por chave+sequencia com ambiguidade rejeitada | Validada | Webmania CC-e deve ser reconferida em homologacao antes de producao; `uncertain` exige resolucao manual/reconciliacao futura | Aguardar autorizacao explicita da Fase 2.2 |
@@ -115,6 +115,33 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 - Planejamento encerrado como documentado e aguardando aprovacao da Fase 2.5.6P.
 - Nenhum codigo funcional, migration, service, view, template ou teste foi alterado.
 
+## 2026-06-23 - Fechamento da Fase 3.1
+
+- Criados `NfseMunicipalCapability`, flag `WebmaniaCompany.nfse_legacy_compatibility_enabled` e campos `remote_updated_at` em lote/item pela migration `0060`.
+- Emissao legada valida capacidade e requisitos municipais antes do gateway; ausencia de capacidade preserva o legado somente sob flag explicita.
+- Webhook/consulta usam payload sanitizado, `atualizado_em` canonico e anti-regressao por timestamp/rank.
+- Reconciliacao confirmada como somente consulta por UUID, sem reemissao, cancelamento, substituicao ou manifestacao.
+- Validacao: `makemigrations finance --check --dry-run` OK; Ruff dos Python tocados OK; 13 testes NFS-e 3.1 OK; 297 testes fiscais direcionados OK; `git diff --check` OK.
+- Status: validada; fases 3.2 e posteriores nao iniciadas.
+
+## 2026-06-23 - Inicio da Fase 3.1
+
+- Fase 3.0 aprovada; autorizada somente estabilizacao do legado NFS-e.
+- Regra de rollout: capacidade aplicavel prevalece; sem capacidade, o legado funciona apenas com compatibilidade explicita ativa na empresa.
+- Escopo tecnico: model de capacidade, validacao pre-gateway, timestamp remoto `atualizado_em`, reconciliacao nao emissora, permissao/UI e testes.
+- Cancelamento idempotente, substituicao, manifestacao, emissao manual e `FiscalDocument(nfse)` permanecem proibidos.
+
+## 2026-06-23 - Fase 3.0 - Auditoria e planejamento NFS-e expandida
+
+- Fase 2.6.0 reconhecida como aprovada; NFS-e expandida priorizada sem autorizacao funcional.
+- Auditados models, configuracao, emissao, RPS/lote, consulta, cancelamento, webhook, reconciliacao, UI, downloads, permissoes e testes NFS-e atuais.
+- Revalidada Webmania NFS-e v3.1.1: Bearer v2, `/status`, emissao, consulta por UUID, cancelamento/agendamento, substituicao, manifestacao Padrao Nacional, downloads e webhook com `atualizado_em`.
+- Revalidada a documentacao de producao do Padrao Nacional, incluindo manuais de contribuinte, APIs ADN e anexos DPS/NFS-e/eventos.
+- Decidida convivencia gradual do legado com projecao `FiscalDocument` sob demanda e capacidade municipal separada.
+- Roadmap 3.1-3.7 definido; primeira fase funcional recomendada: 3.1.
+- OpenAPI corrigido para substituicao, manifestacao, status municipal, agendamento e `atualizado_em`.
+- Nenhum codigo funcional, migration, service, view, template ou teste foi alterado.
+
 ## 2026-06-22 - Inicio da Fase 2.5.6P
 
 - Fase 2.5.6.0 aprovada; debito tipo 4 selecionado como proximo candidato.
@@ -174,3 +201,13 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 - Ajustes durante testes: mocks passaram a respeitar unicidade global de UUID de evento e assercoes comprovaram valor sensivel redigido em vez de ocultar o nome da chave.
 - Validacoes: 10 testes especificos, 51 cruzados e 286 fiscais dirigidos passaram; migration, Ruff e diff aprovados.
 - Outros debitos, creditos 2-5, eventos pendentes e demais fases nao foram iniciados.
+
+## 2026-06-23 - Fase 2.6.0 - Reavaliacao documental do roadmap
+
+- Fase 2.5.8 reconhecida como validada no checkpoint `df1a163e`.
+- Registrados os ciclos completos do credito tipo 1, debito tipo 4 e eventos IBS/CBS `112110`, `112130` e `112150`.
+- Revalidados contratos oficiais de NF-e/NFC-e, NFS-e, CT-e, MDF-e, NFCom e DC-e.
+- Comparados creditos 2-5, debitos 1-3/5-8, `112120`, `112140`, `211xxx`, complementar tributaria e demais familias.
+- Decisao recomendada: iniciar Fase 3.0 documental de auditoria e planejamento NFS-e expandida.
+- Corrigida a classificacao oficial de NFCom/DC-e para API v2.0.0; flags administrativas permanecem como politica interna.
+- Nenhum codigo funcional, migration, service, view, template ou teste foi alterado.

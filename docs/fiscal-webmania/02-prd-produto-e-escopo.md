@@ -179,6 +179,8 @@ NFCom e DC-e sao tratadas como APIs beta no planejamento do Hunter V2. Ambas so 
 - testes isolados;
 - capacidade de desativacao sem afetar os demais modelos fiscais.
 
+Atualizacao 2026-06-23: a documentacao oficial passou a identificar NFCom e DC-e como API v2.0.0 sem marcador beta. A classificacao beta acima fica superada. Feature flag e habilitacao administrativa permanecem por decisao interna de risco e aderencia ao produto.
+
 ## Fase 2.2C - Nota Fiscal de Ajuste validada
 
 Objetivo implementado: emitir Nota Fiscal de Ajuste por `POST /1/nfe/ajuste/` como documento fiscal proprio, sem exigir documento original.
@@ -543,6 +545,10 @@ Implementada e validada tecnicamente a emissao de NF-e de debito tipo 4 para mul
 
 Cancelar somente NF-e de debito tipo 4 autorizada, pelo endpoint NF-e padrao. O cancelamento cria evento auditavel no documento de debito, sem alterar NF-e original, base, item ou preview. Outros debitos e novas emissoes permanecem bloqueados.
 
+## Fase 2.6.0 - Decisao de produto
+
+Selecionar **NFS-e expandida**, iniciando por uma Fase 3.0 exclusivamente documental de auditoria e planejamento. Servicos automotivos ja usam NFS-e no Hunter, a infraestrutura local existe e o contrato v2 atual cobre capacidades municipais, IBS/CBS, substituicao e manifestacao. Nenhuma dessas operacoes adicionais deve ser liberada antes da auditoria do legado, do Padrao Nacional e das diferencas por municipio/provedor.
+
 Nao incluir na primeira emissao: outros tipos de debito, origem externa, cancelamento, eventos IBS/CBS, creditos adicionais ou calculo tributario automatico.
 
 Continuam adiados:
@@ -551,3 +557,15 @@ Continuam adiados:
 - debitos 1, 2, 3, 5 e 8 por apuracao/regime externo; debito 6 por pagamento antecipado; debito 7 por perda fiscal de estoque;
 - `112120`, `112140` e `211xxx` pelas fontes locais ausentes ja documentadas;
 - expansao NFS-e e CT-e, que possuem blast radius e requisitos de dominio maiores que a preview preparatoria proposta.
+
+## Fase 3.0 - Escopo de produto NFS-e expandida
+
+Objetivo: preservar a emissao NFS-e por OS existente e planejar consulta, cancelamento seguro, substituicao, manifestacao do Padrao Nacional, capacidades municipais, RPS/lotes e downloads sem dupla emissao.
+
+Decisao de produto: comecar por estabilizacao e capacidade municipal. Emissao manual avulsa, substituicao e manifestacao so entram em subfases posteriores, depois de o legado possuir idempotencia/status/webhook coerentes e a oficina estar habilitada para a funcao pelo `/2/nfse/status`.
+
+Fora do escopo funcional da Fase 3.0: qualquer alteracao de comportamento NFS-e e todos os demais blocos fiscais adiados na Fase 2.6.0.
+
+### Resultado da Fase 3.1
+
+A estabilizacao foi implementada e validada sem reescrever o fluxo por OS. Capacidade municipal minima, compatibilidade legada explicita, bloqueios pre-gateway e timestamp remoto canonico foram incorporados. Cancelamento idempotente, substituicao, manifestacao, emissao manual nova e projecao `FiscalDocument(nfse)` continuam fora do escopo.

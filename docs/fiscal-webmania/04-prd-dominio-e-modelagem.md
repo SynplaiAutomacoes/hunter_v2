@@ -705,3 +705,47 @@ Adicionar somente na fase funcional aprovada:
 Fluxo: preview aprovada -> criar `FiscalDocument(document_type="nfe", origin="derived", purpose="debit", fiscal_purpose_type="4")` -> vincular `referenced_basis` e `debit_product_preview` -> criar `FiscalDocumentLink(role="debits")` para a NF-e original local -> criar tentativa -> transmitir.
 
 A relacao com `FiscalReferencedBasisItem` permanece transitiva e imutavel por `debit_product_preview.basis_item`; nao duplicar FK no documento sem necessidade. Uma preview pode produzir no maximo um documento devido ao `OneToOneField`.
+
+## Direcao de dominio apos a Fase 2.6.0
+
+A proxima etapa recomendada e `Fase 3.0 - Auditoria e Planejamento Tecnico da NFS-e Expandida`, exclusivamente documental. O fluxo NFS-e existente deve ser auditado antes de qualquer nova modelagem para decidir a evolucao de `NfseRequest`, `NfseItem` e `NfseBatch`, a projecao em `FiscalDocument` e a compatibilidade com RPS/lotes e capacidades municipais.
+
+Nenhum novo model e autorizado na Fase 3.0. O planejamento deve definir, com evidencia do codigo e do contrato municipal/Webmania:
+
+- identidade do documento e do RPS, incluindo municipio, provedor e ambiente;
+- representacao de ISS e IBS/CBS durante a transicao;
+- vinculos de substituicao e manifestacao sem alterar indevidamente o documento original;
+- estrategia de convivencia/backfill para o legado;
+- capacidades municipais como dado configuravel e auditavel, sem inferencia automatica.
+
+## Decisao de modelagem NFS-e - Fase 3.0
+
+Adotar convivencia gradual:
+
+1. `NfseRequest`, `NfseBatch` e `NfseItem` permanecem fonte operacional do fluxo por OS nas subfases iniciais.
+2. `FiscalDocument(document_type="nfse")` sera projecao sob demanda de `NfseItem` quando uma nova operacao exigir evento/link, sem backfill em massa.
+3. Emissao manual futura nascera diretamente em `FiscalDocument`; nao criar um segundo request legado.
+4. `FiscalDocumentEvent` representara cancelamento e manifestacao; substituicao criara novo `FiscalDocument` e `FiscalDocumentLink(role="substitutes")` para a nota anterior.
+5. `FiscalEmissionAttempt` sera estendido com operation types NFS-e especificos e associado ao legado/projecao durante a convivencia.
+
+### Capacidade municipal planejada
+
+Recomenda-se `NfseMunicipalCapability` separado, versionado por oficina, codigo IBGE/municipio, provedor/modelo, versao e ambiente. O snapshot deve armazenar `status`, ambientes, autenticacoes, modelos de emissao, funcoes, codigos de servico, parametros disponiveis, `fetched_at`, payload sanitizado e erro de sincronizacao.
+
+Campos derivados pesquisaveis: Padrao Nacional, emissao sincrona/assincrona, `nfse`/`lote_rps`, consulta, cancelamento, substituicao, manifestacao, homologacao, XML/PDF/RPS e requisitos de IM/CNAE/codigo de servico. Prazo de cancelamento nao deve ser inferido quando `/status` nao o informar; permanecer como regra administrativa confirmada por municipio.
+
+`WebmaniaCompany` deve manter credenciais e defaults da oficina, nao absorver matriz municipal dinamica. Nenhuma capacidade pode ser considerada valida indefinidamente; definir TTL e bloqueio seguro na Fase 3.1.
+
+### Compatibilidade legada
+
+- manter URLs, wizard, templates e permissoes atuais durante 3.1-3.3;
+- adicionar flags por oficina para cada comportamento novo, com fallback exclusivo para o fluxo legado ja validado;
+- fazer a tentativa existente por `NfseRequest` ser a autoridade de idempotencia da emissao durante a convivencia;
+- impedir que uma projecao `FiscalDocument` crie segunda tentativa para a mesma request/UUID;
+- criar projecao transacional e idempotente somente quando necessaria, sem alterar ownership do legado;
+- medir requests sem item/lote, UUID ambiguo, webhook pendente e status divergente antes de aprovar qualquer backfill;
+- rollback desliga flags novas e mantem leitura dos dados adicionados, sem apagar request/item/lote.
+
+### Modelagem implementada na Fase 3.1
+
+`NfseMunicipalCapability` possui unicidade por `(workshop, company, city_code)`, indices por oficina/municipio/atividade e empresa/UF/municipio, flags de operacao e requisitos municipais. `WebmaniaCompany.nfse_legacy_compatibility_enabled` controla explicitamente a ausencia de cadastro. `NfseBatch` e `NfseItem` receberam `remote_updated_at`; nenhum dado legado foi transformado ou preenchido em massa.

@@ -15,8 +15,8 @@
 - Avaliar migration futura de criptografia/backfill para valores CSC antigos que possam ter sido armazenados em texto puro antes da Fase 2.3.1; formularios atuais nao exibem os valores e criptografam novos envios.
 - Prioridade real de CT-e/MDF-e para oficinas.
 - Se NFCom deve ficar apenas manual.
-- Criterios de ativacao de NFCom beta.
-- Criterios de ativacao de DC-e beta.
+- Criterios de ativacao interna de NFCom v2.0.0.
+- Criterios de ativacao interna de DC-e v2.0.0.
 
 ## Divida tecnica
 
@@ -232,3 +232,30 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Debito tipo 4 possui ciclo de emissao/cancelamento completo; nao ampliar para outros tipos sem nova auditoria e autorizacao.
 - Manter debitos 1-3/5-8, creditos 2-5, `112120`, `112140`, `211xxx`, complementar tributaria, NFS-e e CT-e bloqueados.
 - Origem externa e qualquer politica adicional de prazo/UF permanecem fora do escopo ate fonte fiscal confiavel.
+
+## Backlog apos Fase 2.6.0
+
+- Executar Fase 3.0 documental para auditar NFS-e legada, capacidades municipais, Padrao Nacional, ISS/IBS-CBS, substituicao e manifestacao.
+- Manter creditos 2-5 e debitos 1-3/5-8 bloqueados ate existirem fontes locais confiaveis para ZFM/ALC, cooperativas, imunes/isentas, sucessao, apuracao, pagamento antecipado ou estoque fiscal.
+- `112120` continua dependente de importacao ALC/ZFM; `112140`, de nota de debito/pagamento antecipado e vinculo item-financeiro.
+- Eventos `211xxx` continuam dependentes do papel de destinatario e de fontes fiscais externas auditaveis.
+- Complementar tributaria permanece pendente de auditoria especifica por imposto e coexistencia IBS/CBS.
+- CT-e deve ser planejado com conformidade IBS/CBS; MDF-e depende do dominio logistico/CT-e.
+- NFCom e DC-e sao APIs Webmania v2.0.0, mas permanecem desabilitadas por feature flag/habilitacao administrativa ate haver necessidade de negocio e fase propria.
+
+## Backlog apos Fase 3.0
+
+- Aprovar ou rejeitar 3.1: estabilizacao NFS-e, capacidades municipais, `atualizado_em`, operation types e flags.
+- Definir TTL e politica de falha fechada para `/2/nfse/status` por oficina/municipio.
+- Corrigir cancelamento legado somente na 3.3: tentativa persistida, concorrencia, `uncertain` e confirmacao remota positiva.
+- Definir ownership de RPS/lote por provedor e compatibilidade com numeracao Webmania/prefeitura antes de ampliar emissao.
+- Planejar agendamento depois da estabilizacao, com timezone e cancelamento idempotente.
+- Nao executar backfill `NfseItem -> FiscalDocument` sem fase propria, metricas e rollback.
+- Manter todos os blocos adiados na Fase 2.6.0 fora do roadmap 3.x.
+
+## Backlog apos Fase 3.1
+
+- Fase 3.2: ampliar consulta/reconciliacao de item e lote, mantendo somente operacoes de leitura.
+- Fase 3.3: implementar cancelamento NFS-e idempotente com tentativa anterior ao PUT e `uncertain` bloqueante.
+- Sincronizacao automatica/TTL de capacidades via `/2/nfse/status`; a Fase 3.1 usa cadastro administrativo auditavel.
+- Substituicao, manifestacao, emissao manual nova e projecao sob demanda `FiscalDocument(nfse)` exigem autorizacao propria.

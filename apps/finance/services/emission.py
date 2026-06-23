@@ -19,6 +19,8 @@ from django.urls import reverse
 
 from apps.finance.models.finance import NfseBatch, NfseItem, NfseRequest
 from apps.finance.services.fiscal_attempts import FiscalEmissionAttemptBlocked, begin_emission_attempt, mark_attempt_failed, mark_attempt_sent, mark_attempt_succeeded, mark_attempt_uncertain, sanitize_fiscal_payload
+from apps.finance.services.nfse_capabilities import NfseCapabilityError, validate_nfse_emission_capability
+from apps.finance.services.nfse_remote_updates import should_apply_nfse_update
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfse_request_rps_number
 from apps.finance.services.mappers import extract_items_from_batch, map_batch_payload, map_item_payload
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder
@@ -607,6 +609,12 @@ def download_nfse_preview_document(*, nfse_request: NfseRequest, request: HttpRe
 
 
 def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:
+    if isinstance(nfse_request, NfseRequest):
+        try:
+            validate_nfse_emission_capability(nfse_request=nfse_request)
+        except NfseCapabilityError as exc:
+            raise NfseEmissionError(str(exc)) from exc
+
     emit_url = _build_emit_url()
     headers = _build_headers(workshop=nfse_request.workshop)
 
@@ -781,19 +789,28 @@ def apply_nfse_batch_payload(
     response_payload: dict[str, Any],
     webhook_received_at=None,
 ) -> NfseBatch:
-    mapped_batch = map_batch_payload(response_payload)
+    sanitized_response = sanitize_fiscal_payload(response_payload)
+    if not should_apply_nfse_update(
+        model="lote_rps",
+        current_status=batch.status,
+        current_remote_updated_at=batch.remote_updated_at,
+        payload=sanitized_response,
+    ):
+        return batch
+
+    mapped_batch = map_batch_payload(sanitized_response)
     for key, value in mapped_batch.items():
         if key == "uuid":
             continue
         setattr(batch, key, value)
-    batch.raw_payload = response_payload
+    batch.raw_payload = sanitized_response
     if webhook_received_at is not None:
         batch.last_webhook_at = webhook_received_at
     batch.last_sync_error = ""
     batch.save()
 
     if batch.request:
-        batch.request.update_status_based_on_request(response_payload.get("status"))
+        batch.request.update_status_based_on_request(sanitized_response.get("status"))
 
     return batch
 
@@ -805,12 +822,21 @@ def apply_nfse_item_payload(
     webhook_received_at=None,
     reconciled_at=None,
 ) -> NfseItem:
-    mapped_item = map_item_payload(response_payload)
+    sanitized_response = sanitize_fiscal_payload(response_payload)
+    if not should_apply_nfse_update(
+        model="nfse",
+        current_status=item.status,
+        current_remote_updated_at=item.remote_updated_at,
+        payload=sanitized_response,
+    ):
+        return item
+
+    mapped_item = map_item_payload(sanitized_response)
     for key, value in mapped_item.items():
         if key == "uuid":
             continue
         setattr(item, key, value)
-    item.raw_payload = response_payload
+    item.raw_payload = sanitized_response
     if webhook_received_at is not None:
         item.last_webhook_at = webhook_received_at
     if reconciled_at is not None:
@@ -819,7 +845,7 @@ def apply_nfse_item_payload(
     item.save()
 
     if item.request:
-        item.request.update_status_based_on_request(response_payload.get("status"))
+        item.request.update_status_based_on_request(sanitized_response.get("status"))
 
     return item
 
@@ -834,6 +860,7 @@ def _replay_pending_nfse_webhooks_for_uuid(*, model: str, event_uuid: str) -> No
 
 
 def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[str, Any]) -> None:
+    response_payload = sanitize_fiscal_payload(response_payload)
     _debug_print("Iniciando sincronizacao da resposta", response_payload)
     logger.info(
         "nfse_sync_started nfse_request_id=%s workshop_id=%s model=%s",

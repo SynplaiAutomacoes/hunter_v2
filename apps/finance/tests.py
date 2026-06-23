@@ -14818,3 +14818,228 @@ class FiscalPhaseTwoIbsCbsEvent112110CancellationConcurrentTests(TransactionTest
         self.assertEqual(results, ["sent"], errors)
         self.assertEqual(len(errors), 1, errors)
         self.assertEqual(FiscalDocumentEvent.objects.filter(related_event=self.event, event_type=FiscalDocumentEventType.IBS_CBS_CANCELLATION).count(), 1)
+
+
+class FiscalPhaseThreeNfseStabilizationTests(TestCase):
+    def setUp(self) -> None:
+        from apps.finance.models.finance import NfseMunicipalCapability
+
+        self.NfseMunicipalCapability = NfseMunicipalCapability
+        self.user, self.workshop = create_director_user_with_workshop(suffix=61)
+        self.company = WebmaniaCompany.objects.create(
+            workshop=self.workshop,
+            webmania_company_id="NFSE-301",
+            bearer_access_token="encrypted-token",
+            cidade="Sao Paulo",
+            uf="SP",
+            nfse_rps_serie="A1",
+            nfse_rps_numero=100,
+            nfse_rps_numero_dev=900,
+        )
+        self.budget = Budget.objects.create(workshop=self.workshop, entry_date=timezone.now().date())
+        self.workorder = WorkOrder.objects.create(workshop=self.workshop, budget=self.budget, status=WorkOrderStatus.APPROVED)
+        self.nfse_request = NfseRequest.objects.create(workshop=self.workshop, workorder=self.workorder, tax_class="REFNFSE301")
+        self.tax_class = TaxClassNfse.objects.create(workshop=self.workshop, reference="REFNFSE301", codigo_servico="0105", iss=Decimal("5.00"))
+
+    def _capability(self, **overrides: object):
+        values: dict[str, object] = {
+            "workshop": self.workshop,
+            "company": self.company,
+            "city_code": "3550308",
+            "city_name": "Sao Paulo",
+            "state": "SP",
+            "provider": "padrao_nacional",
+            "emission_enabled": True,
+        }
+        values.update(overrides)
+        return self.NfseMunicipalCapability.objects.create(**values)
+
+    def _emit_with_mocked_gateway(self) -> tuple[dict[str, Any], Mock]:
+        response_payload = {"modelo": "nfse", "status": "processando", "uuid": "31000000-0000-0000-0000-000000000001"}
+        with (
+            patch("apps.finance.services.emission._build_headers", return_value={}),
+            patch("apps.finance.services.emission._validate_tax_class_for_emission", return_value={}),
+            patch("apps.finance.services.emission.reserve_nfse_request_rps_number"),
+            patch("apps.finance.services.emission.build_nfse_payload", return_value={"ID": str(self.nfse_request.pk), "ambiente": 2, "rps": []}),
+            patch("apps.finance.services.emission.requests.post", return_value=_mock_response(response_payload)) as post_mock,
+        ):
+            result = emit_nfse_request(nfse_request=self.nfse_request)
+        return result, post_mock
+
+    def test_capability_is_scoped_by_workshop_company_and_city(self) -> None:
+        capability = self._capability()
+        self.assertEqual(capability.workshop, self.workshop)
+        self.assertEqual(capability.company, self.company)
+        self.assertEqual(capability.city_code, "3550308")
+
+        _other_user, other_workshop = create_director_user_with_workshop(suffix=62)
+        capability.workshop = other_workshop
+        with self.assertRaises(ValidationError):
+            capability.full_clean()
+
+    def test_emission_is_blocked_when_capability_disables_it(self) -> None:
+        self._capability(emission_enabled=False)
+        with patch("apps.finance.services.emission.requests.post") as post_mock:
+            with self.assertRaisesMessage(NfseEmissionError, "desabilitada"):
+                emit_nfse_request(nfse_request=self.nfse_request)
+        post_mock.assert_not_called()
+
+    def test_required_municipal_registration_blocks_before_gateway(self) -> None:
+        self._capability(requires_municipal_registration=True)
+        with patch("apps.finance.services.emission.requests.post") as post_mock:
+            with self.assertRaisesMessage(NfseEmissionError, "inscricao municipal"):
+                emit_nfse_request(nfse_request=self.nfse_request)
+        post_mock.assert_not_called()
+
+    def test_required_service_code_blocks_before_gateway(self) -> None:
+        self.tax_class.codigo_servico = ""
+        self.tax_class.save(update_fields=["codigo_servico"])
+        self._capability(requires_service_code=True)
+        with patch("apps.finance.services.emission.requests.post") as post_mock:
+            with self.assertRaisesMessage(NfseEmissionError, "codigo de servico"):
+                emit_nfse_request(nfse_request=self.nfse_request)
+        post_mock.assert_not_called()
+
+    def test_required_cnae_blocks_before_gateway(self) -> None:
+        self._capability(requires_cnae=True)
+        with patch("apps.finance.services.emission.requests.post") as post_mock:
+            with self.assertRaisesMessage(NfseEmissionError, "CNAE"):
+                emit_nfse_request(nfse_request=self.nfse_request)
+        post_mock.assert_not_called()
+
+    def test_required_iss_rate_blocks_before_gateway(self) -> None:
+        self.tax_class.iss = None
+        self.tax_class.save(update_fields=["iss"])
+        self._capability(requires_iss_rate=True)
+        with patch("apps.finance.services.emission.requests.post") as post_mock:
+            with self.assertRaisesMessage(NfseEmissionError, "aliquota ISS"):
+                emit_nfse_request(nfse_request=self.nfse_request)
+        post_mock.assert_not_called()
+
+    def test_legacy_compatibility_allows_existing_flow_without_capability(self) -> None:
+        result, post_mock = self._emit_with_mocked_gateway()
+        self.assertEqual(result["uuid"], "31000000-0000-0000-0000-000000000001")
+        post_mock.assert_called_once()
+
+    def test_disabled_legacy_compatibility_requires_capability(self) -> None:
+        self.company.nfse_legacy_compatibility_enabled = False
+        self.company.save(update_fields=["nfse_legacy_compatibility_enabled"])
+        with patch("apps.finance.services.emission.requests.post") as post_mock:
+            with self.assertRaisesMessage(NfseEmissionError, "Cadastre a capacidade"):
+                emit_nfse_request(nfse_request=self.nfse_request)
+        post_mock.assert_not_called()
+
+    def test_webhook_uses_remote_timestamp_and_rejects_older_payload(self) -> None:
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        item = NfseItem.objects.create(workshop=self.workshop, workorder=self.workorder, request=self.nfse_request, uuid="31000000-0000-0000-0000-000000000002", status="processando")
+        newer = store_webhook_event(payload={"modelo": "nfse", "uuid": str(item.uuid), "status": "aprovado", "atualizado_em": "2026-06-23T12:00:00-03:00"})
+        self.assertTrue(process_webhook_event(newer))
+        item.refresh_from_db()
+        self.assertEqual(item.status, "aprovado")
+        self.assertEqual(item.remote_updated_at.isoformat(), "2026-06-23T15:00:00+00:00")
+
+        older = store_webhook_event(payload={"modelo": "nfse", "uuid": str(item.uuid), "status": "cancelado", "atualizado_em": "2026-06-23T11:00:00-03:00"})
+        self.assertTrue(process_webhook_event(older))
+        item.refresh_from_db()
+        self.assertEqual(item.status, "aprovado")
+        self.assertEqual(item.remote_updated_at.isoformat(), "2026-06-23T15:00:00+00:00")
+
+    def test_webhook_without_remote_timestamp_uses_status_fallback(self) -> None:
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        item = NfseItem.objects.create(workshop=self.workshop, workorder=self.workorder, request=self.nfse_request, uuid="31000000-0000-0000-0000-000000000003", status="processando")
+        event = store_webhook_event(payload={"modelo": "nfse", "uuid": str(item.uuid), "status": "aprovado"})
+        self.assertTrue(process_webhook_event(event))
+        item.refresh_from_db()
+        self.assertEqual(item.status, "aprovado")
+        self.assertIsNone(item.remote_updated_at)
+
+    def test_webhook_fingerprint_ambiguity_and_sanitization_are_preserved(self) -> None:
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        shared_uuid = "31000000-0000-0000-0000-000000000004"
+        NfseItem.objects.create(workshop=self.workshop, workorder=self.workorder, request=self.nfse_request, uuid=shared_uuid, status="processando")
+        _other_user, other_workshop = create_director_user_with_workshop(suffix=63)
+        other_budget = Budget.objects.create(workshop=other_workshop, entry_date=timezone.now().date())
+        other_workorder = WorkOrder.objects.create(workshop=other_workshop, budget=other_budget, status=WorkOrderStatus.APPROVED)
+        other_request = NfseRequest.objects.create(workshop=other_workshop, workorder=other_workorder, tax_class="REFOTHER")
+        NfseItem.objects.create(workshop=other_workshop, workorder=other_workorder, request=other_request, uuid=shared_uuid, status="processando")
+
+        payload = {"modelo": "nfse", "uuid": shared_uuid, "status": "aprovado", "access_token": "sensitive"}
+        event = store_webhook_event(payload=payload)
+        duplicate = store_webhook_event(payload=payload)
+        self.assertEqual(event.pk, duplicate.pk)
+        self.assertEqual(event.payload["access_token"], "[REDACTED]")
+        self.assertFalse(process_webhook_event(event))
+        self.assertIn("ambigua", WebmaniaWebhookEvent.objects.get(pk=event.pk).processing_error)
+
+    def test_reconciliation_uses_get_does_not_regress_or_mutate_remotely(self) -> None:
+        from apps.finance.models.finance import FiscalEmissionAttempt
+        from apps.finance.services.nfse_consulta import NfseConsultaError, reconcile_nfse_item
+
+        item = NfseItem.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            request=self.nfse_request,
+            uuid="31000000-0000-0000-0000-000000000005",
+            status="aprovado",
+            remote_updated_at=datetime.fromisoformat("2026-06-23T15:00:00+00:00"),
+        )
+        attempt = FiscalEmissionAttempt.objects.create(
+            workshop=self.workshop,
+            document_kind="nfse",
+            request_model="NfseRequest",
+            request_id=self.nfse_request.pk,
+            idempotency_key=f"nfse:request:{self.nfse_request.pk}",
+            status="uncertain",
+        )
+        older_payload = {"modelo": "nfse", "uuid": str(item.uuid), "status": "processando", "atualizado_em": "2026-06-23T11:00:00-03:00"}
+        with (
+            patch("apps.finance.services.nfse_consulta._build_headers", return_value={}),
+            patch("apps.finance.services.nfse_consulta.requests.get", return_value=_mock_response(older_payload)) as get_mock,
+            patch("apps.finance.services.nfse_consulta.requests.post") as post_mock,
+            patch("apps.finance.services.nfse_consulta.requests.put") as put_mock,
+        ):
+            reconcile_nfse_item(item=item)
+        item.refresh_from_db()
+        attempt.refresh_from_db()
+        self.assertEqual(item.status, "aprovado")
+        self.assertEqual(attempt.status, "uncertain")
+        get_mock.assert_called_once()
+        post_mock.assert_not_called()
+        put_mock.assert_not_called()
+
+        with (
+            patch("apps.finance.services.nfse_consulta._build_headers", return_value={}),
+            patch("apps.finance.services.nfse_consulta.requests.get", side_effect=requests.Timeout("timeout")),
+        ):
+            with self.assertRaises(NfseConsultaError):
+                reconcile_nfse_item(item=item)
+        item.refresh_from_db()
+        attempt.refresh_from_db()
+        self.assertEqual(item.status, "aprovado")
+        self.assertEqual(attempt.status, "uncertain")
+
+    def test_capability_views_require_permission_and_scope_workshop(self) -> None:
+        from django.http import Http404
+
+        from apps.finance.views.nfse_capabilities import NfseMunicipalCapabilityListView, NfseMunicipalCapabilityUpdateView
+
+        capability = self._capability()
+        request = RequestFactory().get("/")
+        request.user = self.user
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=False),
+        ):
+            with self.assertRaises(PermissionDenied):
+                NfseMunicipalCapabilityListView.as_view()(request)
+
+        _other_user, other_workshop = create_director_user_with_workshop(suffix=64)
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=other_workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            with self.assertRaises(Http404):
+                NfseMunicipalCapabilityUpdateView.as_view()(request, pk=capability.pk)

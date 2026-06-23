@@ -333,6 +333,14 @@ Estado comprovado em 2026-06-22, sem alteracao funcional:
 - Evento `cancellation` e tentativa `nfe_debit_cancellation` sao persistidos antes do `PUT /1/nfe/cancelar/`.
 - Body contem apenas chave/UUID e motivo; ambiente e dados de emissao permanecem somente no dominio local.
 - Webhook e reconciliacao atualizam apenas o documento de debito; nota original, base, item e preview permanecem imutaveis.
+
+## Auditoria de roadmap - Fase 2.6.0
+
+- O Hunter ja possui NFS-e operacional legada (`NfseRequest`, `NfseItem`, `NfseBatch`, emissao, webhook, downloads e reconciliacao), enquanto CT-e, MDF-e, NFCom e DC-e nao possuem dominio funcional local.
+- A API NFS-e v2 oficial oferece emissao, consulta operacional por UUID, cancelamento/agendamento, substituicao, manifestacao no Padrao Nacional e `/2/nfse/status` para capacidades municipais, alem de documentar IBS/CBS.
+- `112120` continua sem fonte ALC/ZFM; `112140` continua sem debito tipo 6/pagamento antecipado por item; `211xxx` continuam sem papel destinatario e documento de aquisicao confiavel.
+- Os tipos restantes de credito/debito dependem de apuracao, sucessao, logistica, estoque fiscal ou contexto especializado nao modelado.
+- NFCom e DC-e aparecem agora como API v2.0.0, sem marcador beta oficial. A baixa aderencia ao produto permanece e feature flag continua decisao interna.
 - checkpoint `189bf973` validou `FiscalDebitProductPreview`, migration `0057`, permissao, tenancy, imutabilidade e ausencia de gateway remoto;
 - a preview aprovada contem chave/item em `dfe_referenciado`, produto comercial, quantidade, unitario, total, CFOP e snapshot IBS/CBS exclusivo;
 - `FiscalDocument` ainda nao possui `purpose="debit"`, campo `debit_product_preview` ou constraint de documento de debito;
@@ -341,3 +349,37 @@ Estado comprovado em 2026-06-22, sem alteracao funcional:
 - nao existem service, view, URL, webhook/reconciliacao ou permissoes de emissao/download de debito;
 - o fluxo de credito tipo 1 comprova a infraestrutura reutilizavel de auth, cliente, pedido, idempotencia, status, webhook, reconciliacao e downloads;
 - a primeira emissao de debito deve ficar restrita a origem local, pois cliente/pedido sao derivados da NF-e operacional local; origem externa exige fase propria.
+
+## Fase 3.0 - Inventario NFS-e atual no Hunter
+
+| Area | Arquivos principais | Responsabilidade atual | Avaliacao |
+| --- | --- | --- | --- |
+| Dominio legado | `apps/finance/models/finance.py` | `NfseRequest` por OS, `NfseBatch`, `NfseItem`, status, RPS, XML/PDF e payload bruto | Operacional, acoplado a `WorkOrder`; sem substituicao/manifestacao |
+| Configuracao | `WebmaniaCompany`, `TaxClassNfse` | Bearer, IM, RPS/lote, login/senha/token, certificado, classe ISS/IBS-CBS | Rica, mas sem snapshot de capacidades municipais |
+| Emissao | `services/emission.py` | valida classe remota, reserva RPS, monta `rps[]`, cria tentativa persistida, POST e sincroniza lote/item | Idempotencia da emissao existe; operation type ainda generico; payload depende de OS |
+| Numeracao | `services/numbering.py` | reserva RPS por ambiente com lock | Reutilizavel; ownership e compatibilidade por provedor precisam ser explicitados |
+| Consulta | `services/nfse_consulta.py` | GET operacional por UUID e aplicacao do retorno | Consulta segura e sem emissao; sem tentativa/trilha propria |
+| Cancelamento | `services/emission.py`, `views/nfse.py` | PUT por UUID/motivo e atualizacao direta do item/request | Lacuna alta: sem tentativa persistida, `uncertain`, concorrencia ou validacao positiva robusta do status |
+| Webhook | `services/webmania_webhooks.py`, `views/webhook.py` | fingerprint, UUID, bloqueio de ambiguidade, rank anti-regressao | Boa base; nao persiste/ordena pelo `atualizado_em` canonico documentado pela Webmania |
+| Reconciliacao | `services/nfse_consulta.py`, comando `reconcile_webmania_documents` | consulta itens pendentes e tentativas incertas | Nao reemite; precisa cobrir lote, cancelamento, substituicao e manifestacao futuras |
+| UI/rotas | `views/nfse.py`, `forms/nfse.py`, `templates/finance/nfse_*`, `urls.py` | wizard por OS, lista/detalhe, cancelamento, consulta, previa e downloads | Preservar; nao existe emissao manual, substituicao, manifestacao ou capacidade municipal |
+| Downloads | `NfseDocumentDownloadView`, `services/webmania_documents.py` | proxy autenticado de XML, PDF NFS-e e PDF RPS | Escopo por oficina/permissao existe; separar permissoes futuras por operacao |
+| Integracao operacional | wizard unificado, `WorkOrder`/`Budget` e pricing | NFS-e isolada ou junto com NF-e; valor de servicos por slider | Fluxo critico que nao pode regredir |
+| Testes | `apps/finance/tests.py` | payload, RPS, auth, emissao, duplicidade, cancelamento, consulta, downloads, wizard e reconciliacao | Cobertura relevante; faltam concorrencia/timeout do cancelamento, capacidades, substituicao e manifestacao |
+
+### Achados de risco
+
+1. Constraints de lote/item usam `(workorder, uuid)`, nao unicidade condicional por oficina/UUID; o webhook compensa ambiguidade em aplicacao, mas o dominio permanece legado.
+2. `raw_payload` e `log_payload` existem, porem a ordenacao oficial por `atualizado_em` nao e armazenada como timestamp canonico.
+3. Cancelamento marca o item/request como cancelado apos resposta HTTP valida sem trilha `FiscalEmissionAttempt` e sem estado `uncertain`.
+4. `/2/nfse/status` nao e consultado/persistido; UI pode oferecer operacoes sem conhecer ambiente, autenticacao, emissao ou funcoes do provedor.
+5. Substituicao, manifestacao e agendamento nao possuem dominio funcional local. Manifestacao oficial e exclusiva do Padrao Nacional.
+6. NFS-e pode retornar `nfse` sincrona ou `lote_rps` assincrono; lote com varios RPS e sempre assincrono segundo a documentacao oficial.
+
+## Fase 3.1 - Resultado da estabilizacao
+
+- `NfseRequest`, `NfseBatch` e `NfseItem` permanecem como base operacional; nao houve backfill nem projecao generalizada em `FiscalDocument`.
+- `NfseMunicipalCapability` representa capacidade por oficina, empresa e municipio sem substituir `WebmaniaCompany`.
+- `NfseBatch.remote_updated_at` e `NfseItem.remote_updated_at` preservam o `atualizado_em` remoto canonico.
+- Emissao sem capacidade continua somente quando `WebmaniaCompany.nfse_legacy_compatibility_enabled` estiver ativa; capacidade cadastrada aplica bloqueios conservadores antes do gateway.
+- Reconciliacao permanece consulta por UUID e nao executa emissao, cancelamento, substituicao ou manifestacao.

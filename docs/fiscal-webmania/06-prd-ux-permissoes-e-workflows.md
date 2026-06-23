@@ -12,8 +12,8 @@
 - Alertas de homologacao e producao.
 - Alertas de contingencia.
 - Alerta MDF-e autorizado nao encerrado.
-- Badge NFCom beta.
-- Badge DC-e beta.
+- Indicacao NFCom v2.0.0 com rollout interno controlado.
+- Indicacao DC-e v2.0.0 com rollout interno controlado.
 - Erro de configuracao incompleta.
 - Bloqueio por municipio/provedor para NFS-e.
 
@@ -446,3 +446,29 @@ Foram adicionadas `issue_nfe_debit`, `view_nfe_debit`, `download_nfe_debit` e `v
 Permissoes futuras separadas: `issue_nfe_debit`, `view_nfe_debit`, `download_nfe_debit` e `view_nfe_debit_payload`. Preparar/aprovar base ou preview e emitir credito nao concedem emissao de debito.
 
 Criar flag administrativa propria `nfe_debit_emission_enabled` (nome final pode seguir padrao do model), separada de `credit_debit_basis_enabled`. UI minima: botao de emissao somente em preview aprovada/elegivel, confirmacao explicita de `finalidade=6`/`tipo_debito=4`, resumo do DF-e/item, produto e IBS/CBS, status, payload e downloads. Nao oferecer cancelamento na primeira emissao.
+
+## UX e permissoes recomendadas apos a Fase 2.6.0
+
+A Fase 3.0 deve mapear as telas NFS-e legadas e propor evolucao incremental, sem central fiscal nova. O planejamento deve separar emissao, consulta/download, cancelamento, substituicao e manifestacao, sempre por oficina e capacidade municipal.
+
+Permissoes NFS-e legadas devem ser auditadas antes de qualquer nova permissao. A UI futura deve ocultar ou bloquear operacoes nao suportadas pelo municipio/provedor, informar o regime ISS/IBS-CBS aplicavel e preservar as telas existentes durante a transicao.
+
+NFCom e DC-e sao documentadas atualmente pela Webmania como APIs v2.0.0. A feature flag e a habilitacao administrativa por oficina continuam obrigatorias como politica interna de rollout do Hunter, nao como classificacao oficial beta.
+
+## Fase 3.0 - UX e permissoes NFS-e planejadas
+
+Permissoes futuras separadas: `issue_nfse`, `query_nfse`, `cancel_nfse`, `substitute_nfse`, `manifest_nfse`, `download_nfse`, `view_nfse_payload` e `manage_nfse_capabilities`. Durante a convivencia, mapear explicitamente as permissoes legadas `nfserequest` para consulta/emissao existente; nao conceder novas operacoes por fallback.
+
+UI incremental:
+
+- preservar lista, detalhe e wizard por OS;
+- adicionar checklist de capacidade/configuracao por oficina antes de novas acoes;
+- exibir consulta/reconciliacao sem permitir reemissao;
+- mostrar cancelamento, substituicao e manifestacao apenas quando status local, capacidade municipal, Padrao Nacional e permissao permitirem;
+- exibir XML, PDF NFS-e e PDF RPS por proxy autenticado;
+- informar modelo/provedor, ambiente, ultima sincronizacao e indisponibilidade municipal;
+- feature flag por oficina para cada nova subfase, sem central fiscal nova.
+
+### UI entregue na Fase 3.1
+
+Foi adicionada listagem e edicao minima de capacidades municipais no fluxo NFS-e existente, protegida por `finance.manage_nfse_capabilities` e pelo escopo da oficina ativa. A tela nao libera cancelamento, substituicao, manifestacao ou emissao manual nova; flags dessas operacoes permanecem informativas e desabilitadas por padrao.

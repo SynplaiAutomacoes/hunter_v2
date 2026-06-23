@@ -64,11 +64,11 @@
 - Status: proposta.
 - Fase: 3.
 
-## ADR-010 - NFCom e DC-e beta com feature flag
+## ADR-010 - NFCom e DC-e com feature flag
 
-- Decisao: NFCom e DC-e so podem ser implementadas atras de feature flag, com habilitacao administrativa explicita por oficina e sinalizacao visual de API beta.
-- Alternativas consideradas: liberar por permissao comum; manter totalmente fora do produto; esconder apenas por menu. Rejeitadas porque APIs beta exigem isolamento operacional e desativacao sem afetar NF-e/NFS-e.
-- Consequencias: modelos beta exigirao configuracao por oficina, testes isolados e rollback independente.
+- Decisao atualizada na Fase 2.6.0: NFCom e DC-e so podem ser implementadas atras de feature flag e habilitacao administrativa explicita por oficina. As APIs oficiais atuais sao v2.0.0 e nao possuem marcador beta.
+- Alternativas consideradas: liberar por permissao comum; manter totalmente fora do produto; esconder apenas por menu. Rejeitadas porque o baixo valor imediato e o risco operacional exigem isolamento e desativacao sem afetar NF-e/NFS-e.
+- Consequencias: as futuras implementacoes exigirao configuracao por oficina, testes isolados e rollback independente; a UI nao deve rotula-las como beta sem evidencia oficial vigente.
 - Riscos: mudancas de contrato remoto Webmania podem exigir ajustes antes de producao.
 - Status: proposta.
 - Fase: 6/7.
@@ -567,3 +567,29 @@ Fase: 2.4D.6.0.
 **Decisao:** usar `FiscalDocumentEvent(event_type="cancellation", event_payload_type="nfe_debit_cancellation")` e operation type especifico `nfe_debit_cancellation`. O body segue o contrato NF-e padrao com identificador e motivo, sem ambiente ou campos de emissao. O documento original, base e preview sao imutaveis.
 
 **Resolucao remota:** webhook de cancelamento de debito e avaliado antes do documento emitido, mas somente e aceito quando houver um unico evento candidato em todo o conjunto de cancelamentos NF-e. A reconciliacao consulta o documento e nunca reenvia o cancelamento.
+
+## ADR - Proximo bloco apos credito/debito de multa e juros
+
+**Status:** proposto na Fase 2.6.0.
+
+**Decisao:** priorizar `Fase 3.0 - Auditoria e Planejamento Tecnico da NFS-e Expandida`, sem codigo funcional, antes de continuar os tipos restantes de credito/debito ou eventos IBS/CBS pendentes.
+
+**Justificativa:** NFS-e possui alto valor direto para oficinas e fluxo operacional legado reutilizavel, mas exige decisao explicita sobre capacidades municipais, Padrao Nacional, ISS/IBS-CBS, RPS/lotes, substituicao e manifestacao. Os demais candidatos dependem de ZFM/ALC, sucessao, estoque fiscal, apuracao externa, pagamento antecipado ou fontes do destinatario ainda inexistentes.
+
+**Rollout:** a auditoria deve propor flags/capacidades por oficina e municipio, mantendo compatibilidade legada. Nenhum model, migration ou gateway e autorizado pela decisao documental.
+
+**NFCom/DC-e:** a classificacao oficial atual foi corrigida para API v2.0.0. Feature flag e habilitacao administrativa permanecem como politica interna Hunter devido ao baixo valor imediato e ao risco de rollout, nao por status beta oficial.
+
+## ADR - Evolucao gradual da NFS-e legada
+
+**Status:** proposto na Fase 3.0.
+
+**Decisao:** preservar `NfseRequest`, `NfseBatch` e `NfseItem` como fonte operacional do fluxo por OS. Criar projecao `FiscalDocument(nfse)` somente sob demanda para novas operacoes; emissao manual futura nasce no dominio fiscal novo. Nao executar backfill em massa na estabilizacao.
+
+**Capacidades:** usar entidade `NfseMunicipalCapability` separada de `WebmaniaCompany`, porque status, versao, ambientes, autenticacao, emissao, funcoes, servicos e parametros variam por municipio/provedor e no tempo.
+
+**Ordem:** 3.1 estabiliza idempotencia/webhook/capacidades; 3.2 amplia consulta; 3.3 corrige cancelamento; 3.4 substituicao; 3.5 manifestacao; 3.6 rollout/emissao manual; 3.7 downloads/observabilidade.
+
+**Consequencias:** compatibilidade legada e flags por oficina sao obrigatorias. Nenhuma nova operacao herda permissao legada automaticamente. O gateway continua sendo Webmania; documentos nacionais definem semantica, nao uma integracao paralela.
+
+**Status da decisao em 2026-06-23:** aceita e implementada na Fase 3.1. A primeira versao usa snapshot administrativo local por oficina/empresa/municipio e compatibilidade legada explicita; sincronizacao automatica e TTL remoto permanecem para fase futura. O timestamp remoto canonico foi adicionado ao item/lote sem backfill.

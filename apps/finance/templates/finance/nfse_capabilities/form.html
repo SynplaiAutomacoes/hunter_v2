@@ -1,0 +1,5 @@
+{% extends 'crud/form_page.html' %}
+
+{% block crud_title %}{% if object %}Editar capacidade NFS-e{% else %}Nova capacidade NFS-e{% endif %}{% endblock %}
+{% block crud_subtitle %}A configuracao limita o legado; ela nao habilita substituicao, manifestacao ou emissao manual.{% endblock %}
+{% block crud_back_url %}{% url 'finance:nfse_capability_list' %}{% endblock %}
