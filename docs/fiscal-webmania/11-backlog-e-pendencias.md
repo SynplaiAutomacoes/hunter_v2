@@ -266,3 +266,9 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Avaliar TTL/agendamento de `/2/nfse/status`; a 3.2 implementa consulta manual e snapshot informativo.
 - Consulta por numero RPS nao foi implementada porque o contrato oficial confirmado exige UUID.
 - Substituicao, manifestacao, emissao manual nova, projecao `FiscalDocument(nfse)` e backfill continuam dependendo de fases proprias.
+## Apos a Fase 3.3
+
+- substituicao NFS-e idempotente;
+- manifestacao NFS-e, condicionada a contrato/capacidade municipal;
+- emissao manual nova e eventual projecao `FiscalDocument(nfse)` sob demanda;
+- regras municipais adicionais de prazo de cancelamento, sem inferencia local enquanto nao confirmadas.

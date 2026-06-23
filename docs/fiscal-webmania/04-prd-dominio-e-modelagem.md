@@ -756,3 +756,6 @@ Campos derivados pesquisaveis: Padrao Nacional, emissao sincrona/assincrona, `nf
 - `NfseItem`: `last_update_source`, reutilizando `last_reconciled_at` existente.
 - `NfseMunicipalCapability`: `remote_status` e `last_status_error`, reutilizando `remote_payload`/`last_synced_at`.
 - Nenhum `FiscalDocument(nfse)`, backfill ou modelo de cancelamento/substituicao/manifestacao foi criado.
+## `NfseCancellation`
+
+Trilha propria ligada a um `NfseItem`, `NfseRequest` e oficina. Persiste motivo, payload congelado, resposta sanitizada, XML, solicitante e timestamps. Uma constraint parcial permite no maximo um cancelamento reservante (`started`, `sent`, `uncertain` ou `succeeded`) por item; falha remota conclusiva pode originar nova intencao. Nao existe vinculo com `FiscalDocument` e o lote nao e atualizado pelo cancelamento individual.

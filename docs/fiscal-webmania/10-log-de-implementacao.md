@@ -139,6 +139,22 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 - Validacao: 14 testes 3.2 OK; 2 testes legados de consulta OK; 311 testes fiscais direcionados OK; migration-check, Ruff e diff-check OK.
 - Status: validada; cancelamento idempotente, substituicao, manifestacao e emissao manual nova nao iniciados.
 
+## 2026-06-23 - Inicio da Fase 3.3
+
+- Fase 3.2 validada no checkpoint `ad93e87308959d9f4b0f6fc69cfa9ec83c45b428`.
+- Cancelamento legado auditado: PUT direto em `emission.py`, permissao generica, sem tentativa persistida, concorrencia ou `uncertain`.
+- Escopo autorizado: somente cancelamento idempotente de `NfseItem` legado; lote, NFS-e original relacionada e demais operacoes nao podem ser alterados.
+- Substituicao, manifestacao, emissao manual nova e projecao generalizada `FiscalDocument(nfse)` permanecem bloqueadas.
+
+## 2026-06-23 - Fechamento tecnico da Fase 3.3
+
+- Criados `NfseCancellation`, permissao `cancel_nfse` e `FiscalEmissionAttempt(operation_type="nfse_cancellation")`.
+- PUT restrito a `{uuid, motivo}`; timeout e resposta inconclusiva reservam a intencao como `uncertain` sem reenvio.
+- Webhook confirma somente UUID nao ambiguo, respeita `atualizado_em` e preserva o XML original; reconciliacao usa apenas GET.
+- Auto-revisao corrigiu lock com join anulavel, separacao do XML de cancelamento e historico com unicidade condicional para permitir nova intencao somente apos falha conclusiva.
+- Validacao: 14 testes 3.3, 219 testes fiscais existentes e 104 testes equivalentes de credito/debito aprovados; migration-check, Ruff e diff-check aprovados. Mypy manteve erros de baseline preexistentes fora do escopo.
+- Substituicao, manifestacao, emissao manual nova, CT-e, MDF-e, NFCom e DC-e nao iniciados.
+
 ## 2026-06-23 - Inicio da Fase 3.1
 
 - Fase 3.0 aprovada; autorizada somente estabilizacao do legado NFS-e.

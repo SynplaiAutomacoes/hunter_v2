@@ -5,7 +5,7 @@ import logging
 from django import forms
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.decorators import method_decorator
 from django.urls import reverse
@@ -18,9 +18,10 @@ from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.forms import NfseRequestStep1Form, NfseRequestStep2Form, NfseRequestStep3Form
-from apps.finance.models.finance import NfseItem, NfseRequest, NfseRequestStatus
+from apps.finance.models.finance import FiscalEmissionAttemptStatus, NfseCancellation, NfseItem, NfseRequest, NfseRequestStatus
+from apps.finance.services.nfse_cancellation import NfseCancellationError, cancel_nfse_item, is_nfse_item_eligible_for_cancellation
 from apps.finance.services.nfse_consulta import NfseConsultaError, reconcile_nfse_batch, reconcile_nfse_item
-from apps.finance.services.emission import NfseEmissionError, cancel_nfse_document, download_nfse_preview_document, emit_nfse_request, sync_emission_response
+from apps.finance.services.emission import NfseEmissionError, download_nfse_preview_document, emit_nfse_request, sync_emission_response
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url
 from apps.finance.views.request_workflow import (
@@ -45,6 +46,7 @@ class NfseCancelForm(CoreForm):
     ]
 
     reason_code = forms.ChoiceField(choices=REASON_CHOICES, required=True)
+    confirmed = forms.BooleanField(required=True)
 
     def clean_reason_code(self) -> int:
         value = str(self.cleaned_data.get("reason_code") or "").strip()
@@ -114,7 +116,18 @@ class NfseRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView)
         context = super().get_context_data(**kwargs)
         latest_item = self.object.items.order_by("-id").first()
         latest_batch = self.object.batches.order_by("-id").first()
-        can_cancel = bool(latest_item and str(getattr(latest_item, "status", "")).strip().lower() in {"aprovado", "agendado", "contingencia"})
+        cancellation = latest_item.cancellations.order_by("-pk").first() if latest_item is not None else None
+        can_cancel = bool(
+            is_nfse_item_eligible_for_cancellation(latest_item)
+            and has_workshop_perm(
+                user=self.request.user,
+                workshop=self.workshop,
+                app_label="finance",
+                model="nfserequest",
+                codename="cancel_nfse",
+                request=self.request,
+            )
+        )
         fallback_back_url = reverse("finance:nfse_list")
         context.update(
             {
@@ -122,6 +135,7 @@ class NfseRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView)
                 "latest_item": latest_item,
                 "latest_batch": latest_batch,
                 "can_cancel": can_cancel,
+                "nfse_cancellation": cancellation,
                 "request_fields": [
                     _build_field("ID da requisição", self.object.pk),
                     _build_field("Ordem de serviço", self.object.workorder),
@@ -174,7 +188,7 @@ class NfseRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView)
 class NfseRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_app_label = "finance"
     workshop_permission_model = "nfserequest"
-    workshop_permission_codename = "change_nfserequest"
+    workshop_permission_codename = "cancel_nfse"
 
     def post(self, request, *args, **kwargs):
         nfse_request = get_object_or_404(NfseRequest, pk=kwargs.get("pk"), workshop=self.workshop)
@@ -183,40 +197,54 @@ class NfseRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
             messages.error(request, "A Nota Fiscal de Serviço ainda nao possui item sincronizado para cancelamento.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
 
-        status = str(getattr(latest_item, "status", "")).strip().lower()
-        if status not in {"aprovado", "agendado", "contingencia"}:
-            messages.error(request, "Somente Nota Fiscal de Serviço aprovada, agendada ou em contingencia pode ser cancelada.")
-            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
-
         form = NfseCancelForm(request.POST)
         if not form.is_valid():
-            messages.error(request, "Selecione um motivo para cancelar a Nota Fiscal de Serviço.")
+            messages.error(request, "Selecione o motivo e confirme explicitamente o cancelamento da Nota Fiscal de Serviço.")
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
 
         reason_code = int(form.cleaned_data["reason_code"])
-        reason_label = dict(NfseCancelForm.REASON_CHOICES).get(str(reason_code), "Cancelamento solicitado")
 
         try:
-            response_payload = cancel_nfse_document(
-                workshop=self.workshop,
-                event_uuid=str(latest_item.uuid),
+            cancellation = cancel_nfse_item(
+                item=latest_item,
                 reason_code=reason_code,
+                requested_by=request.user,
             )
-        except NfseEmissionError as exc:
+        except NfseCancellationError as exc:
             messages.error(request, str(exc))
             return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
 
-        latest_item.status = "cancelado"
-        latest_item.reason = str(response_payload.get("motivo") or reason_label)
-        latest_item.raw_payload = response_payload
-        xml_url = str(response_payload.get("xml") or "").strip()
-        if xml_url:
-            latest_item.xml_url = xml_url
-        latest_item.save(update_fields=["status", "reason", "raw_payload", "xml_url"])
-
-        nfse_request.set_status(NfseRequestStatus.CANCELED)
-        messages.success(request, "Nota Fiscal de Serviço cancelada com sucesso.")
+        if cancellation.status == FiscalEmissionAttemptStatus.SUCCEEDED:
+            messages.success(request, "Nota Fiscal de Serviço cancelada com sucesso.")
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
+
+
+class NfseCancellationPayloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "cancel_nfse"
+
+    def get(self, request, *args, **kwargs):
+        cancellation = get_object_or_404(NfseCancellation, pk=kwargs.get("cancellation_pk"), request_id=kwargs.get("pk"), workshop=self.workshop)
+        return JsonResponse({"request": cancellation.request_payload, "response": cancellation.response_payload, "status": cancellation.status})
+
+
+class NfseCancellationDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "cancel_nfse"
+
+    def get(self, request, *args, **kwargs):
+        cancellation = get_object_or_404(NfseCancellation, pk=kwargs.get("cancellation_pk"), request_id=kwargs.get("pk"), workshop=self.workshop)
+        if not cancellation.xml_url:
+            raise Http404("XML de cancelamento indisponivel")
+        try:
+            downloaded = download_webmania_document(workshop=self.workshop, url=cancellation.xml_url)
+        except WebmaniaDocumentDownloadError as exc:
+            return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
+        response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
+        response["Content-Disposition"] = f'attachment; filename="nfse-cancelamento-{cancellation.item_id}.xml"'
+        return response
 
 
 class NfseRequestReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):

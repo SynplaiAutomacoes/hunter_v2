@@ -120,6 +120,7 @@ class FiscalEmissionOperationType(models.TextChoices):
     NFE_CREDIT_CANCELLATION = "nfe_credit_cancellation", "Cancelamento NF-e de credito"
     NFE_DEBIT_EMISSION = "nfe_debit_emission", "Emissao NF-e de debito"
     NFE_DEBIT_CANCELLATION = "nfe_debit_cancellation", "Cancelamento NF-e de debito"
+    NFSE_CANCELLATION = "nfse_cancellation", "Cancelamento NFS-e"
 
 
 class FiscalDocumentType(models.TextChoices):
@@ -554,6 +555,7 @@ class NfseRequest(TimeStampedModel):
         permissions = [
             ("query_nfse", "Pode consultar NFS-e por UUID"),
             ("query_nfse_batch", "Pode consultar lote RPS por UUID"),
+            ("cancel_nfse", "Pode cancelar NFS-e"),
         ]
 
     def save(self, *args, **kwargs):
@@ -852,6 +854,50 @@ class NfseItem(models.Model):
         indexes = [
             models.Index(fields=["workshop", "status"]),
         ]
+
+
+class NfseCancellation(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="nfse_cancellations")
+    request = models.ForeignKey(NfseRequest, verbose_name="Requisicao NFS-e", on_delete=models.CASCADE, related_name="cancellations")
+    item = models.ForeignKey(NfseItem, verbose_name="NFS-e", on_delete=models.PROTECT, related_name="cancellations")
+    status = models.CharField(max_length=20, choices=FiscalEmissionAttemptStatus.choices, default=FiscalEmissionAttemptStatus.STARTED, db_index=True)
+    reason_code = models.PositiveSmallIntegerField(verbose_name="Motivo")
+    reason_label = models.CharField(max_length=80)
+    request_payload = models.JSONField(blank=True, default=dict)
+    response_payload = models.JSONField(blank=True, default=dict)
+    xml_url = models.URLField(blank=True, default="")
+    requested_by = models.ForeignKey("accounts.User", verbose_name="Solicitante", on_delete=models.SET_NULL, null=True, blank=True, related_name="nfse_cancellations")
+    sent_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=["item"],
+                condition=models.Q(status__in=[FiscalEmissionAttemptStatus.STARTED, FiscalEmissionAttemptStatus.SENT, FiscalEmissionAttemptStatus.SUCCEEDED, FiscalEmissionAttemptStatus.UNCERTAIN]),
+                name="unique_active_nfse_cancellation",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["workshop", "status"], name="nfse_cancel_scope_status_idx"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk and self.request_payload:
+            previous_payload = type(self).objects.filter(pk=self.pk).values_list("request_payload", flat=True).first()
+            if previous_payload and previous_payload != self.request_payload:
+                raise ValidationError("O payload do cancelamento NFS-e nao pode ser alterado apos ser persistido.")
+        super().save(*args, **kwargs)
+
+    def clean(self) -> None:
+        super().clean()
+        if self.item_id and self.workshop_id and self.item.workshop_id != self.workshop_id:
+            raise ValidationError("O cancelamento e a NFS-e devem pertencer a mesma oficina.")
+        if self.item_id and self.request_id and self.item.request_id != self.request_id:
+            raise ValidationError("O cancelamento e a NFS-e devem pertencer a mesma requisicao.")
+
+    def __str__(self) -> str:
+        return f"NfseCancellation[{self.item_id}:{self.status}]"
 
 
 class NfeItem(models.Model):

@@ -626,3 +626,6 @@ Reconciliacao: GET por UUID para item/lote e operacoes incertas quando o contrat
 - GET nao cria `FiscalEmissionAttempt`: retry manual e seguro, enquanto horario/origem/payload/erro formam a trilha local;
 - timeout de consulta registra erro, mas nao transforma o status fiscal em `uncertain` sem evidencia remota;
 - comando de reconciliacao nao executa POST, PUT, cancelamento, substituicao ou manifestacao.
+## Fase 3.3 - cancelamento NFS-e
+
+Fluxo: bloquear item e validar oficina/capacidade/status -> criar `NfseCancellation` -> criar tentativa `nfse_cancellation` -> congelar `{uuid, motivo}` -> executar um unico PUT. Timeout ou resposta inconclusiva marca ambos como `uncertain` e impede reenvio. Webhook pode confirmar pelo UUID unico; `atualizado_em` e rank impedem reabertura por retorno antigo. A reconciliacao de `uncertain` executa somente GET de consulta e nunca repete o cancelamento.

@@ -479,3 +479,6 @@ Foi adicionada listagem e edicao minima de capacidades municipais no fluxo NFS-e
 - `query_nfse_batch`: consulta lote RPS; sem fallback legado.
 - `query_nfse_status`: consulta status municipal e protege retorno sanitizado; gerenciar capacidade nao implica consultar automaticamente.
 - detalhe da request separa “Consultar NFS-e” de “Consultar lote RPS”; tela da capacidade exibe status, horario, erro e ultimo retorno sanitizado.
+## Fase 3.3 - UX e permissao
+
+`cancel_nfse` e obrigatoria e nao possui fallback para permissao generica de alteracao. A acao aparece apenas para item autorizado, com UUID, sem cancelamento reservado e com capacidade municipal compativel. O formulario exige motivo oficial e confirmacao explicita, informa que cancelamento nao e substituicao e protege payload/XML por oficina e permissao.

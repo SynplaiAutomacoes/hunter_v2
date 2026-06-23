@@ -763,3 +763,10 @@ Emissao legada passou a consultar capacidade municipal antes do POST; webhook e 
 | Status municipal | `GET /2/nfse/status` | `remote_status`, payload sanitizado, horario e erro | nao altera provider, versao ou flags administrativas |
 
 O OpenAPI validado ja representava os dois GETs e nao precisou de alteracao na Fase 3.2.
+## NFS-e - cancelamento idempotente legado
+
+| Operacao | Endpoint | Metodo | Body confirmado | Persistencia Hunter |
+| --- | --- | --- | --- | --- |
+| Cancelar NFS-e | `/2/nfse/cancelar` | `PUT` | somente `uuid` e `motivo` (`1`, `2` ou `4`) | `NfseCancellation` e tentativa `nfse_cancellation` |
+
+O retorno confirmado pode conter `uuid`, `status=cancelado`, `xml` e `log`. O XML de cancelamento pertence a trilha de cancelamento e nao substitui o XML original da NFS-e.

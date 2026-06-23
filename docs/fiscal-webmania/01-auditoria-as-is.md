@@ -390,3 +390,6 @@ Estado comprovado em 2026-06-22, sem alteracao funcional:
 - O legado consultava somente o ultimo `NfseItem`; lote pendente e `info_nfse` nao eram reconciliados pelo comando.
 - A Fase 3.2 adicionou reconciliacao transacional de lote e itens, validacao UUID/modelo, bloqueio global de ambiguidade e origem `query|webhook|sync`.
 - `/2/nfse/status` passou a alimentar snapshot sanitizado e informativo em `NfseMunicipalCapability`, sem alterar flags administrativas.
+## Fase 3.3 - auditoria do cancelamento NFS-e legado
+
+O caminho anterior executava `PUT /2/nfse/cancelar` diretamente em `emission.py`, com permissao generica e sem intencao persistida, bloqueio concorrente ou estado `uncertain`. A Fase 3.3 substitui esse ponto por `NfseCancellation` + `FiscalEmissionAttempt(operation_type="nfse_cancellation")`, preservando `NfseRequest`, `NfseBatch` e `NfseItem` e sem criar `FiscalDocument(nfse)`.

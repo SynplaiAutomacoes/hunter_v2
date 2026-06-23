@@ -643,3 +643,11 @@ Status: **validada em 2026-06-23**. A Fase 3.1 foi encerrada no checkpoint `3901
 Escopo: consolidar o GET `/2/nfse/consulta/{uuid}` para item e lote, aplicar o retorno pelo `modelo` remoto, reconciliar itens de `info_nfse`, consultar `/2/nfse/status` como snapshot informativo sanitizado e expor acoes protegidas. Nenhum caminho pode emitir, cancelar, substituir ou manifestar.
 
 Resultado: migration `0061_alter_nfsemunicipalcapability_options_and_more`; 14 testes especificos da 3.2, 2 regressões legadas de consulta e 311 testes fiscais direcionados aprovados. `makemigrations finance --check --dry-run`, Ruff dos Python tocados e `git diff --check` aprovados. Fase 3.3 nao iniciada.
+
+## Fase 3.3 - Cancelamento idempotente de NFS-e legada
+
+Status: **implementada e validada tecnicamente em 2026-06-23**. A Fase 3.2 foi encerrada no checkpoint `ad93e87308959d9f4b0f6fc69cfa9ec83c45b428`.
+
+Escopo: substituir o PUT legado direto por cancelamento persistido ligado a `NfseItem`, tentativa `nfse_cancellation`, concorrencia segura, payload congelado, timeout `uncertain`, confirmacao por retorno/webhook e reconciliacao somente consultiva. Nenhum `FiscalDocument(nfse)`, substituicao, manifestacao ou emissao manual nova.
+
+Resultado: migration `0062_alter_nfserequest_options_and_more`; 14 testes especificos da Fase 3.3, 219 testes dos alvos fiscais existentes e 104 testes dos alvos de credito/debito localizados em modulos separados aprovados. Migration-check, Ruff e diff-check aprovados; mypy permaneceu bloqueado pelo baseline amplo preexistente do repositorio.

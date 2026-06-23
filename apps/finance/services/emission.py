@@ -121,15 +121,6 @@ def _build_emit_url() -> str:
     return f"{base_url}/nfse/emissao/"
 
 
-def _build_cancel_url() -> str:
-    custom_endpoint = sanitize_webmania_setting(getattr(settings, "WEBMANIA_NFSE_CANCEL_ENDPOINT", ""))
-    if custom_endpoint:
-        return f"{custom_endpoint.rstrip('/')}/"
-
-    base_url = sanitize_webmania_setting(getattr(settings, "WEBMANIA_BASE_URL", "https://api.webmania.com.br/2/")).rstrip("/")
-    return f"{base_url}/nfse/cancelar/"
-
-
 def _build_tax_class_url() -> str:
     custom_endpoint = sanitize_webmania_setting(getattr(settings, "WEBMANIA_TAX_CLASS_ENDPOINT", ""))
     if custom_endpoint:
@@ -740,46 +731,6 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None 
     )
 
     mark_attempt_succeeded(attempt=attempt, response_payload=data)
-    return data
-
-
-def cancel_nfse_document(*, workshop, event_uuid: str, reason_code: int) -> dict[str, Any]:
-    headers = _build_headers(workshop=workshop)
-    cancel_url = _build_cancel_url()
-
-    event_uuid_value = str(event_uuid or "").strip()
-    if not event_uuid_value:
-        raise NfseEmissionError("Nao foi possivel identificar a Nota Fiscal de Serviço para cancelamento.")
-
-    try:
-        motivo = int(reason_code)
-    except (TypeError, ValueError) as exc:
-        raise NfseEmissionError("Motivo de cancelamento invalido.") from exc
-
-    if motivo not in {1, 2, 4}:
-        raise NfseEmissionError("Motivo de cancelamento invalido.")
-
-    payload = {"uuid": event_uuid_value, "motivo": motivo}
-
-    try:
-        response = requests.put(cancel_url, json=payload, headers=headers, timeout=30)
-        response.raise_for_status()
-    except requests.RequestException as exc:
-        message = build_webmania_request_exception_message(exc, default="Falha ao cancelar Nota Fiscal de Serviço", scope="nfse")
-        raise NfseEmissionError(message) from exc
-
-    try:
-        data = response.json()
-    except ValueError as exc:
-        raise NfseEmissionError("Resposta invalida da API de cancelamento de Nota Fiscal de Serviço.") from exc
-
-    if not isinstance(data, dict):
-        raise NfseEmissionError("Resposta invalida da API de cancelamento de Nota Fiscal de Serviço.")
-
-    error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfse")
-    if error_message:
-        raise NfseEmissionError(error_message)
-
     return data
 
 

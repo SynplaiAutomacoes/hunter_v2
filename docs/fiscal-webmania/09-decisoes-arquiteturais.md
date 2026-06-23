@@ -601,3 +601,8 @@ Fase: 2.4D.6.0.
 **Lote:** o UUID do `lote_rps` usa o mesmo endpoint de consulta. Batch e `info_nfse` sao aplicados transacionalmente; nao foi inventada consulta por numero RPS.
 
 **Status municipal:** resposta remota e snapshot informativo. Somente acao administrativa futura pode alterar flags aprovadas.
+## ADR - cancelamento NFS-e legado sem `FiscalDocument`
+
+**Decisao:** manter a base operacional legada e criar `NfseCancellation` como trilha auditavel, referenciada pela tentativa via `request_model/request_id`.
+
+**Motivo:** a Fase 3.3 nao autoriza projecao generalizada `FiscalDocument(nfse)` nem backfill. A constraint parcial e o bloqueio pessimista do item resolvem concorrencia sem acoplar o legado ao dominio novo. `nfse_cancellation` permanece separado de emissao e de qualquer futura substituicao.

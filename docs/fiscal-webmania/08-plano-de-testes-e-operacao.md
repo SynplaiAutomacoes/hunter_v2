@@ -620,3 +620,6 @@ Executados 13 testes especificos de capacidade, compatibilidade, webhook, saniti
 - 2 testes legados de consulta por view confirmaram a compatibilidade de `change_nfserequest`.
 - 311 testes fiscais direcionados concluidos em 425,444 segundos com `OK`.
 - Migration-check, Ruff e diff-check aprovados.
+## Fase 3.3 - cobertura obrigatoria
+
+Contrato restrito a `uuid`/`motivo`; elegibilidade; capacidade municipal; permissao e tenancy; payload imutavel; concorrencia com uma chamada; timeout `uncertain`; rejeicao sem falso sucesso; webhook anti-regressao; reconciliacao somente consultiva; XML separado do documento original; regressao de emissao, consulta e downloads legados.

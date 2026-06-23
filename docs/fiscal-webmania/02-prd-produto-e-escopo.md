@@ -573,3 +573,6 @@ A estabilizacao foi implementada e validada sem reescrever o fluxo por OS. Capac
 ### Resultado da Fase 3.2
 
 Consulta manual e operacional agora cobre NFS-e e lote RPS por UUID, incluindo itens retornados em `info_nfse`. Status municipal e somente diagnostico: nao habilita emissao ou funcoes futuras. Consultas sao repetiveis, nao criam documento/tentativa fiscal e nao executam operacao mutavel.
+## Fase 3.3 - escopo entregue
+
+Cancelamento padrao somente de NFS-e legada autorizada, identificada por UUID remoto. Substituicao, manifestacao e nova emissao manual permanecem indisponiveis. O cancelamento altera apenas o `NfseItem` correspondente e sua requisicao; lote e demais itens nao sao alterados.

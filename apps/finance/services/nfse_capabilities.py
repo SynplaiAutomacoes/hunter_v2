@@ -79,3 +79,12 @@ def validate_nfse_query_capability(*, nfse_request: NfseRequest) -> NfseCapabili
     if resolution.capability is not None and not resolution.capability.query_enabled:
         raise NfseCapabilityError("A consulta NFS-e esta desabilitada para o municipio configurado.")
     return resolution
+
+
+def validate_nfse_cancellation_capability(*, nfse_request: NfseRequest) -> NfseCapabilityResolution:
+    if not WebmaniaCompany.objects.filter(workshop=nfse_request.workshop).exists():
+        return NfseCapabilityResolution(capability=None, legacy_compatibility_used=True)
+    resolution = resolve_nfse_capability(nfse_request=nfse_request)
+    if resolution.capability is not None and not resolution.capability.cancellation_enabled:
+        raise NfseCapabilityError("O cancelamento NFS-e esta desabilitado para o municipio configurado.")
+    return resolution

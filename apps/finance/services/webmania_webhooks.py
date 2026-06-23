@@ -23,6 +23,7 @@ from apps.finance.services.nfe_debit_cancellation import apply_debit_cancellatio
 from apps.finance.services.nfe_returns import apply_nfe_return_document_payload, is_ambiguous_nfe_return_webhook, resolve_nfe_return_document_for_webhook
 from apps.finance.services.nfce_cancellation import apply_nfce_cancellation_event_payload, is_ambiguous_nfce_cancellation_webhook, resolve_nfce_cancellation_event_for_webhook
 from apps.finance.services.nfce_emission import apply_nfce_document_payload, is_ambiguous_nfce_webhook, resolve_nfce_document_for_webhook
+from apps.finance.services.nfse_cancellation import NfseCancellationError, confirm_nfse_cancellation_from_payload
 
 
 def _unique_or_none(queryset: Any) -> Any | None:
@@ -202,12 +203,21 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
 
         with transaction.atomic():
             if not _is_regressive_status(model="nfse", current_status=nfse_item.status, incoming_status=str(payload.get("status") or "")):
-                apply_nfse_item_payload(
-                    item=nfse_item,
-                    response_payload=payload,
-                    webhook_received_at=webhook_received_at,
-                    update_source="webhook",
-                )
+                is_cancellation = str(payload.get("status") or "").strip().lower() in {"cancelado", "cancelada", "canceled"}
+                has_cancellation_intent = nfse_item.cancellations.exclude(status="failed").exists()
+                if is_cancellation and has_cancellation_intent:
+                    try:
+                        confirm_nfse_cancellation_from_payload(item=nfse_item, payload=payload, update_source="webhook")
+                    except NfseCancellationError as exc:
+                        _mark_event_deferred(event, error=str(exc))
+                        return False
+                else:
+                    apply_nfse_item_payload(
+                        item=nfse_item,
+                        response_payload=payload,
+                        webhook_received_at=webhook_received_at,
+                        update_source="webhook",
+                    )
 
         _mark_event_processed(event)
         return True
