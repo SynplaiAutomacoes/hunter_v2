@@ -1,5 +1,26 @@
+{% if form.item_benefit_type and item.budget.budget_type == "sale" %}
+<div class="form-control w-full md:col-span-2" id="div_id_item_benefit_type">
+    <label class="label">
+        <span class="label-text font-semibold flex items-center gap-2">
+            <span class="material-icons text-sm">card_giftcard</span>
+            Tipo de Benefício
+        </span>
+    </label>
+    <div class="flex gap-4">
+    {% for radio in form.item_benefit_type %}
+        {{ radio }}
+    {% endfor %}
+    </div>
+    {% if form.item_benefit_type.errors %}
+    <label class="label">
+        <span class="label-text-alt text-error">{{ form.item_benefit_type.errors.0 }}</span>
+    </label>
+    {% endif %}
+</div>
+{% endif %}
+
 {% for field in form %}
-    {% if not item.product or field.name != "is_customer_supplied" %}
+    {% if field.name != "item_benefit_type" and field.name != "is_customer_supplied" or field.name != "item_benefit_type" and not item.product %}
     {% with field_name=field.name|lower %}
         <div id="div_id_{{ field.name }}" class="form-control w-full {% if 'description' in field_name or 'descri' in field_name %}md:col-span-2{% endif %}" {% if oob_fields and field.name in oob_fields %}hx-swap-oob="true"{% endif %}>
             <label class="label">

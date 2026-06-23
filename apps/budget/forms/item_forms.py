@@ -1,8 +1,9 @@
 from django import forms
+from django.forms import RadioSelect
 from django.urls import reverse
 from djmoney.forms import MoneyField
 
-from apps.budget.models import BudgetItem
+from apps.budget.models import BudgetItem, BudgetItemBenefitType
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
@@ -17,7 +18,9 @@ class BudgetItemEditForm(CoreModelForm):
 
     class Meta:
         model = BudgetItem
-        fields = ["description", "quantity", "is_customer_supplied", "product_selling_price", "product_cost_price", "shipping", "service_selling_price", "service_cost_price", "duration", "ncm"]
+        fields = ["description", "quantity", "is_customer_supplied", "product_selling_price",
+                  "product_cost_price", "shipping", "service_selling_price", "service_cost_price",
+                  "duration", "ncm", "item_benefit_type"]
 
         widgets = {
             "description": TextInput(),
@@ -29,12 +32,21 @@ class BudgetItemEditForm(CoreModelForm):
             "service_selling_price": MoneyInput(),
             "service_cost_price": MoneyInput(),
             "duration": DurationInput(),
+            "item_benefit_type": RadioSelect(),
         }
 
     def __init__(self, *args, budget_id=None, **kwargs):
         super().__init__(*args, **kwargs)
         item = self.instance
         is_warranty_budget = bool(getattr(getattr(item, "budget", None), "is_warranty_budget", False))
+        item_benefit_type = getattr(item, "item_benefit_type", "normal")
+        is_benefit = item_benefit_type != "normal"
+        budget_type = getattr(getattr(item, "budget", None), "budget_type", "sale")
+        is_fixed_budget = budget_type in ("warranty", "courtesy")
+
+        # Se budget for warranty/courtesy, o campo item_benefit_type é readonly
+        if is_fixed_budget:
+            self.fields["item_benefit_type"].disabled = True
 
         # Se for kit, remover todos os campos de edição (kits usam modal próprio)
         if item.kit:
@@ -50,7 +62,7 @@ class BudgetItemEditForm(CoreModelForm):
             self.fields.pop("service_selling_price")
             self.fields.pop("service_cost_price")
             self.fields.pop("duration")
-            if is_warranty_budget and "product_selling_price" in self.fields:
+            if (is_warranty_budget or is_benefit) and "product_selling_price" in self.fields:
                 self.fields.pop("product_selling_price")
             if item.product is None:
                 self.fields.pop("ncm")
@@ -63,7 +75,7 @@ class BudgetItemEditForm(CoreModelForm):
             self.fields.pop("shipping")
             self.fields.pop("is_customer_supplied")
             self.fields.pop("ncm")
-            if is_warranty_budget and "service_selling_price" in self.fields:
+            if (is_warranty_budget or is_benefit) and "service_selling_price" in self.fields:
                 self.fields.pop("service_selling_price")
 
             if budget_id:
@@ -80,6 +92,16 @@ class BudgetItemEditForm(CoreModelForm):
         else:
             self.fields.pop("is_customer_supplied")
             self.fields.pop("ncm")
+
+    def clean_item_benefit_type(self):
+        value = self.cleaned_data.get("item_benefit_type")
+        item = self.instance
+        budget_type = getattr(getattr(item, "budget", None), "budget_type", "sale")
+        if budget_type == "warranty" and value != BudgetItemBenefitType.WARRANTY:
+            raise forms.ValidationError("Itens em orçamento de garantia devem ser do tipo 'Garantia'.")
+        if budget_type == "courtesy" and value != BudgetItemBenefitType.COURTESY:
+            raise forms.ValidationError("Itens em orçamento de cortesia devem ser do tipo 'Cortesia'.")
+        return value
 
 
 class BudgetKitProductEditRowForm(CoreForm):
@@ -99,22 +121,30 @@ class BudgetKitServiceEditRowForm(CoreForm):
 class LocalProductForm(CoreModelForm):
     class Meta:
         model = BudgetItem
-        fields = ["description", "quantity", "product_cost_price", "product_selling_price", "shipping"]
+        fields = ["description", "quantity", "product_cost_price", "product_selling_price", "shipping", "item_benefit_type"]
         widgets = {
             "description": TextInput(attrs={"placeholder": "Ex: Parafuso XPTO"}),
             "quantity": NumberInput(),
             "product_cost_price": MoneyInput(),
             "product_selling_price": MoneyInput(),
             "shipping": MoneyInput(),
+            "item_benefit_type": RadioSelect(),
         }
 
-    def __init__(self, *args, is_warranty_budget=False, **kwargs):
+    def __init__(self, *args, is_warranty_budget=False, item_benefit_type="normal", **kwargs):
         super().__init__(*args, **kwargs)
+        is_benefit = item_benefit_type != "normal"
+        is_fixed_budget = is_warranty_budget or is_benefit
         self.fields["description"].label = "Descrição"
         self.fields["quantity"].label = "Quantidade"
         self.fields["product_cost_price"].label = "Custo"
         self.fields["shipping"].label = "Frete"
+
+        # Disable item_benefit_type if budget is fixed
         if is_warranty_budget:
+            self.fields["item_benefit_type"].disabled = True
+
+        if is_fixed_budget:
             self.fields.pop("product_selling_price")
         else:
             self.fields["product_selling_price"].label = "Valor de Venda"
@@ -123,22 +153,30 @@ class LocalProductForm(CoreModelForm):
 class LocalServiceForm(CoreModelForm):
     class Meta:
         model = BudgetItem
-        fields = ["description", "quantity", "service_cost_price", "service_selling_price", "duration"]
+        fields = ["description", "quantity", "service_cost_price", "service_selling_price", "duration", "item_benefit_type"]
         widgets = {
             "description": TextInput(attrs={"placeholder": "Ex: Serviço Especial Ferrari"}),
             "quantity": NumberInput(),
             "service_cost_price": MoneyInput(),
             "service_selling_price": MoneyInput(),
             "duration": DurationInput(),
+            "item_benefit_type": RadioSelect(),
         }
 
-    def __init__(self, *args, budget_id=None, is_warranty_budget=False, **kwargs):
+    def __init__(self, *args, budget_id=None, is_warranty_budget=False, item_benefit_type="normal", **kwargs):
         super().__init__(*args, **kwargs)
+        is_benefit = item_benefit_type != "normal"
+        is_fixed_budget = is_warranty_budget or is_benefit
         self.fields["description"].label = "Descrição"
         self.fields["quantity"].label = "Quantidade"
         self.fields["service_cost_price"].label = "Custo"
         self.fields["duration"].label = "Duração"
+
+        # Disable item_benefit_type if budget is fixed
         if is_warranty_budget:
+            self.fields["item_benefit_type"].disabled = True
+
+        if is_fixed_budget:
             self.fields.pop("service_selling_price")
         else:
             self.fields["service_selling_price"].label = "Valor de Venda"

@@ -12,7 +12,14 @@
     </td>
     {% endif %}
 
-    <td class="budget-step4-description break-words whitespace-normal leading-snug">{{ item.kit.name }}</td>
+    <td class="budget-step4-description break-words whitespace-normal leading-snug">
+        {{ item.kit.name }}
+        {% if item.item_benefit_type == "warranty" %}
+            <span class="badge badge-error badge-xs gap-1">Garantia</span>
+        {% elif item.item_benefit_type == "courtesy" %}
+            <span class="badge badge-info badge-xs gap-1">Cortesia</span>
+        {% endif %}
+    </td>
     <td class="text-center">{{ item.quantity }}</td>
     <td class="text-center">{{ item.effective_kit_products_count }}</td>
     <td class="text-center">{{ item.effective_kit_services_count }}</td>
