@@ -41,4 +41,8 @@ Auditar e planejar NFS-e somente em `docs/fiscal-webmania/**`. Nao criar models,
 
 ## Regra da Fase 3.2
 
-Somente operacoes GET de consulta NFS-e, lote RPS e status municipal foram autorizadas. Nenhum caminho pode emitir, cancelar, substituir ou manifestar; cancelamento idempotente permanece reservado a Fase 3.3.
+Somente operacoes GET de consulta NFS-e, lote RPS e status municipal foram autorizadas nessa fase. A Fase 3.3 posteriormente implementou e validou o cancelamento idempotente de NFS-e legada. Substituicao, manifestacao e emissao manual nova continuam dependendo de autorizacao propria.
+
+## Regra da Fase 3.4.0
+
+Planejar a substituicao de NFS-e legada somente em `docs/fiscal-webmania/**`. Nao executar `POST /2/nfse/substituir`, nao criar preview, tentativa, model, migration, service, view, template ou teste. A proxima etapa recomendada e preparatoria: congelar e aprovar o novo RPS antes de qualquer transmissao remota.

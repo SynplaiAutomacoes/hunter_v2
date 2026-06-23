@@ -129,6 +129,7 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
             "regime_especial_municipal",
             "nfse_lote_rps_numero",
             "nfse_rps_numero_dev",
+            "nfse_substitution_preview_enabled",
             "certificado",
             "certificado_senha",
             "partilha_icms_contribuinte",
@@ -196,6 +197,7 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
             "deduzir_desconto_ipi": CheckboxInput(),
             "email_automatico_nfse": CheckboxInput(),
             "nfce_enabled": CheckboxInput(),
+            "nfse_substitution_preview_enabled": CheckboxInput(),
         }
 
     def __init__(self, *args, **kwargs):
@@ -281,6 +283,7 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
                 Field("regime_apuracao_sn", wrapper_class="col-span-12 lg:col-span-3"),
                 Field("regime_especial_nacional", wrapper_class="col-span-12 lg:col-span-3"),
                 Field("regime_especial_municipal", wrapper_class="col-span-12 lg:col-span-3"),
+                Field("nfse_substitution_preview_enabled", wrapper_class="col-span-12 lg:col-span-4"),
             ]
         )
 

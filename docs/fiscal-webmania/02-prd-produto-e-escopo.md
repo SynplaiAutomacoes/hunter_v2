@@ -576,3 +576,51 @@ Consulta manual e operacional agora cobre NFS-e e lote RPS por UUID, incluindo i
 ## Fase 3.3 - escopo entregue
 
 Cancelamento padrao somente de NFS-e legada autorizada, identificada por UUID remoto. Substituicao, manifestacao e nova emissao manual permanecem indisponiveis. O cancelamento altera apenas o `NfseItem` correspondente e sua requisicao; lote e demais itens nao sao alterados.
+
+## Fase 3.4.0 - decisao de produto
+
+Selecionada a **Opcao B - criar preview de substituicao**. A substituicao funcional permanece bloqueada porque o endpoint cria uma nova NFS-e a partir de um novo RPS e o legado nao possui snapshot aprovado desse payload. A Fase 3.4P deve permitir preparar, validar, revisar e congelar o novo RPS sem chamar a Webmania. Somente fase posterior podera transmitir a preview aprovada.
+
+### Matriz de pre-condicoes
+
+| Pre-condicao | Fonte atual | Existe? | Bloqueio se ausente? | Observacao |
+| --- | --- | ---: | ---: | --- |
+| NFS-e original autorizada | `NfseItem.status=aprovado` | Sim | Sim | Processando, rejeitada, cancelada, substituida ou incerta nao entra na preview |
+| UUID da original | `NfseItem.uuid` | Sim | Sim | Metadado interno obrigatorio; contrato oficial permanece inconsistente sobre envio no POST |
+| XML original | `NfseItem.xml_url` | Parcial | Sim | Preview deve preservar URL/hash ou snapshot obtido por download protegido |
+| Status nao cancelado | `NfseItem.status` | Sim | Sim | Cancelamento 3.3 e substituicao sao operacoes distintas |
+| Status nao `uncertain` | tentativa de emissao/cancelamento e futuras substituicoes | Sim | Sim | Qualquer intencao incerta reserva a original |
+| Motivo de substituicao | input administrativo `1`, `2` ou `4` | Nao persistido | Sim | Valor explicito na preview |
+| Novo payload de servico/RPS | `build_nfse_payload()` reconstrói dados atuais | Nao seguro | Sim | Deve ser snapshot novo, validado e congelado; reconstrucao automatica e proibida |
+| Cliente/tomador | OS/orcamento/cliente atuais | Sim, mutavel | Sim | Congelar identificacao, endereco e contatos efetivamente enviados |
+| Servico | `NfseRequest`, OS e `TaxClassNfse` | Sim, mutavel | Sim | Congelar discriminacao, classe/codigo de servico e dados municipais |
+| Valores | calculo atual da OS/slider | Sim, mutavel | Sim | Congelar valor de servicos, deducoes, desconto, base e total |
+| Impostos e retencoes | classe fiscal e payload de emissao historico | Parcial/mutavel | Sim | Nao recalcular silenciosamente; validar schema municipal e IBS/CBS quando aplicavel |
+| Oficina/empresa emissora | `NfseRequest.workshop` e `WebmaniaCompany` | Sim | Sim | Mesma oficina, empresa e ambiente da operacao planejada |
+| Permissao especifica | inexistente | Nao | Sim | Separar preparar, aprovar, transmitir e visualizar payload |
+| Feature flag | apenas capability municipal | Nao | Sim | Criar rollout por oficina; capability nao substitui autorizacao de produto |
+| Idempotencia | `FiscalEmissionAttempt` reutilizavel | Parcial | Sim | Operacao futura `nfse_substitution`, uma intencao ativa por preview/original |
+| Webhook | NFS-e por UUID e `atualizado_em` | Sim, generico | Sim | Expandir para relacionar substituta e `nfse_substituida` sem ambiguidade |
+| Reconciliacao | GET por UUID de item/lote | Sim, parcial | Sim | Consultar substituta quando UUID conhecido; nunca repetir POST |
+
+### Payload futuro planejado
+
+```json
+{
+  "ambiente": 1,
+  "codigo_verificacao": "CODIGO-ORIGINAL",
+  "motivo": 1,
+  "rps": {
+    "numero": 123,
+    "serie": "A1",
+    "servico": {},
+    "tomador": {}
+  }
+}
+```
+
+O objeto `rps` deve usar os mesmos campos municipais validados para emissao, mas como snapshot especifico da substituicao. O UUID original, XML original e hashes ficam nos metadados internos da preview. Nao enviar `uuid` no body ate a inconsistencia oficial ser resolvida; nao adicionar payload de cancelamento, manifestacao, lote ou campos nao documentados. `url_notificacao` tambem nao deve ser presumida no endpoint de substituicao sem confirmacao explicita.
+
+## Fase 3.4P implementada
+
+`NfseSubstitutionPreview` monta e valida localmente o novo RPS a partir de entrada administrativa explicita. A original deve estar aprovada e possuir UUID, codigo de verificacao e URL XML. A preview exige numero/serie, tomador com documento/nome, servico com discriminacao/valor positivo e classe de imposto ou impostos explicitos. Nenhuma substituicao e transmitida e a original permanece inalterada.

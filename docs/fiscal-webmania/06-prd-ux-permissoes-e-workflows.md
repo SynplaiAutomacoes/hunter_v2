@@ -482,3 +482,13 @@ Foi adicionada listagem e edicao minima de capacidades municipais no fluxo NFS-e
 ## Fase 3.3 - UX e permissao
 
 `cancel_nfse` e obrigatoria e nao possui fallback para permissao generica de alteracao. A acao aparece apenas para item autorizado, com UUID, sem cancelamento reservado e com capacidade municipal compativel. O formulario exige motivo oficial e confirmacao explicita, informa que cancelamento nao e substituicao e protege payload/XML por oficina e permissao.
+
+## Fase 3.4.0 - UX planejada
+
+- Permissoes separadas: `prepare_nfse_substitution`, `approve_nfse_substitution`, `substitute_nfse` e leitura protegida de payload/XML.
+- Preparar/aprovar preview nao concede `substitute_nfse`; permissoes de emissao/cancelamento legadas nao possuem fallback.
+- Acao disponivel somente para NFS-e autorizada, nao cancelada/substituida/incerta, com UUID/codigo de verificacao/XML, capability `substitution_enabled` e feature flag de rollout por oficina.
+- Formulario da preview exibe original, motivo e novo RPS completo; exige confirmacao de que a operacao pode substituir/cancelar a original. A Fase 3.4P nao possui botao de transmissao.
+- Futuro detalhe mostra original e substituta, payload, erros, status e XMLs separados.
+
+Implementado na 3.4P: lista, formulario, detalhe, aprovacao local e JSON sanitizado. Permissoes efetivas: `prepare_nfse_substitution`, `approve_nfse_substitution`, `view_nfse_substitution_preview` e `view_nfse_substitution_preview_payload`. O detalhe da NFS-e original oferece apenas **Preparar substituicao** quando elegivel; nao existe botao de transmissao.

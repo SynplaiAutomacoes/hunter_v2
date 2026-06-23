@@ -514,6 +514,7 @@ class WebmaniaCompany(TimeStampedModel):
     deduzir_desconto_ipi = models.BooleanField(verbose_name="Deduzir desconto IPI", null=True, blank=True)
     email_automatico_nfse = models.BooleanField(verbose_name="E-mail automático NFS-e", null=True, blank=True)
     nfse_legacy_compatibility_enabled = models.BooleanField(verbose_name="Compatibilidade legada NFS-e habilitada", default=True)
+    nfse_substitution_preview_enabled = models.BooleanField(verbose_name="Preview de substituicao NFS-e habilitada", default=False)
     desativar_epec = models.CharField(verbose_name="Desativar EPEC", max_length=4, blank=True, default="")
     ocultar_total_etiqueta = models.CharField(verbose_name="Ocultar total etiqueta", max_length=4, blank=True, default="")
 
@@ -898,6 +899,99 @@ class NfseCancellation(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"NfseCancellation[{self.item_id}:{self.status}]"
+
+
+class NfseSubstitutionPreview(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="nfse_substitution_previews")
+    original_nfse = models.ForeignKey(NfseItem, verbose_name="NFS-e original", on_delete=models.PROTECT, related_name="substitution_previews")
+    original_uuid = models.UUIDField(verbose_name="UUID original", db_index=True)
+    original_verification_code = models.CharField(verbose_name="Codigo de verificacao original", max_length=60)
+    original_xml_snapshot = models.JSONField(verbose_name="Snapshot do XML original", default=dict)
+    environment = models.CharField(verbose_name="Ambiente", max_length=1, choices=(("1", "Producao"), ("2", "Homologacao")))
+    reason_code = models.PositiveSmallIntegerField(verbose_name="Motivo", choices=((1, "Erro na emissao"), (2, "Servico nao prestado"), (4, "Duplicidade da nota")))
+    rps_payload = models.JSONField(verbose_name="Novo RPS congelado", default=dict)
+    request_payload = models.JSONField(verbose_name="Pre-payload de substituicao", default=dict)
+    validation_status = models.CharField(verbose_name="Status", max_length=16, choices=FiscalProductPreviewStatus.choices, default=FiscalProductPreviewStatus.DRAFT, db_index=True)
+    validation_errors = models.JSONField(verbose_name="Erros de validacao", default=list, blank=True)
+    forbidden_fields_detected = models.JSONField(verbose_name="Campos proibidos detectados", default=list, blank=True)
+    is_approved = models.BooleanField(verbose_name="Aprovada", default=False, db_index=True)
+    created_by = models.ForeignKey("accounts.User", verbose_name="Criada por", on_delete=models.SET_NULL, null=True, blank=True, related_name="created_nfse_substitution_previews")
+    approved_by = models.ForeignKey("accounts.User", verbose_name="Aprovada por", on_delete=models.SET_NULL, null=True, blank=True, related_name="approved_nfse_substitution_previews")
+    approved_at = models.DateTimeField(verbose_name="Aprovada em", null=True, blank=True)
+
+    class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["original_nfse"], condition=models.Q(is_approved=True), name="unique_approved_nfse_subst_preview"),
+        ]
+        indexes = [
+            models.Index(fields=["workshop", "validation_status"], name="nfse_subst_prev_scope_idx"),
+            models.Index(fields=["original_nfse", "is_approved"], name="nfse_subst_prev_orig_idx"),
+        ]
+        permissions = [
+            ("prepare_nfse_substitution", "Pode preparar substituicao NFS-e"),
+            ("approve_nfse_substitution", "Pode aprovar substituicao NFS-e"),
+            ("view_nfse_substitution_preview", "Pode visualizar preview de substituicao NFS-e"),
+            ("view_nfse_substitution_preview_payload", "Pode visualizar payload da preview de substituicao NFS-e"),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if self.original_nfse_id and self.original_nfse.workshop_id != self.workshop_id:
+            raise ValidationError({"original_nfse": "A NFS-e original pertence a outra oficina."})
+        if self.original_nfse_id and str(self.original_nfse.uuid) != str(self.original_uuid):
+            raise ValidationError({"original_uuid": "O UUID congelado diverge da NFS-e original."})
+        if self.original_nfse_id and self.original_nfse.verification_code != self.original_verification_code:
+            raise ValidationError({"original_verification_code": "O codigo de verificacao congelado diverge da NFS-e original."})
+        if self.original_nfse_id and self.original_nfse.status != NfseItemStatus.aprovado:
+            raise ValidationError({"original_nfse": "A preview exige NFS-e original autorizada."})
+        if not self.original_verification_code.strip():
+            raise ValidationError({"original_verification_code": "Codigo de verificacao obrigatorio."})
+        if not isinstance(self.original_xml_snapshot, dict) or not self.original_xml_snapshot.get("url"):
+            raise ValidationError({"original_xml_snapshot": "O XML original deve possuir snapshot com URL."})
+        required_rps = ("numero", "serie", "servico", "tomador")
+        missing_rps = [field for field in required_rps if self.rps_payload.get(field) in (None, "", {})]
+        if missing_rps:
+            raise ValidationError({"rps_payload": f"Novo RPS incompleto: {', '.join(missing_rps)}."})
+        if self.forbidden_fields_detected:
+            raise ValidationError({"forbidden_fields_detected": "A preview contem campos fora do contrato preparatorio."})
+        expected_request = {
+            "ambiente": int(self.environment),
+            "codigo_verificacao": self.original_verification_code,
+            "motivo": self.reason_code,
+            "rps": self.rps_payload,
+        }
+        if self.request_payload != expected_request:
+            raise ValidationError({"request_payload": "O pre-payload nao corresponde aos dados congelados."})
+        if self.is_approved != (self.validation_status == FiscalProductPreviewStatus.APPROVED):
+            raise ValidationError("Status e marcador de aprovacao devem permanecer consistentes.")
+        if self.is_approved and (self.approved_by_id is None or self.approved_at is None):
+            raise ValidationError("A aprovacao exige usuario e timestamp.")
+
+    def save(self, *args, **kwargs) -> None:
+        if self.pk:
+            immutable_fields = (
+                "workshop_id",
+                "original_nfse_id",
+                "original_uuid",
+                "original_verification_code",
+                "original_xml_snapshot",
+                "environment",
+                "reason_code",
+                "rps_payload",
+                "request_payload",
+                "forbidden_fields_detected",
+            )
+            persisted = type(self).objects.filter(pk=self.pk).values("is_approved", "validation_status", *immutable_fields).first()
+            if persisted and persisted["is_approved"]:
+                changed_payload = any(persisted[field] != getattr(self, field) for field in immutable_fields)
+                changed_approval = not self.is_approved or self.validation_status != FiscalProductPreviewStatus.APPROVED
+                if changed_payload or changed_approval:
+                    raise ValidationError("Os dados e o estado de uma preview de substituicao aprovada sao imutaveis.")
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"NfseSubstitutionPreview[{self.original_nfse_id}:{self.validation_status}]"
 
 
 class NfeItem(models.Model):

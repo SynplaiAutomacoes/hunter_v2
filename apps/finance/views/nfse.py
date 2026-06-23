@@ -21,6 +21,7 @@ from apps.finance.forms import NfseRequestStep1Form, NfseRequestStep2Form, NfseR
 from apps.finance.models.finance import FiscalEmissionAttemptStatus, NfseCancellation, NfseItem, NfseRequest, NfseRequestStatus
 from apps.finance.services.nfse_cancellation import NfseCancellationError, cancel_nfse_item, is_nfse_item_eligible_for_cancellation
 from apps.finance.services.nfse_consulta import NfseConsultaError, reconcile_nfse_batch, reconcile_nfse_item
+from apps.finance.services.nfse_substitution_preview import is_nfse_substitution_preview_enabled
 from apps.finance.services.emission import NfseEmissionError, download_nfse_preview_document, emit_nfse_request, sync_emission_response
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url
@@ -177,6 +178,21 @@ class NfseRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView)
                         app_label="finance",
                         model="nfserequest",
                         codename="query_nfse_batch",
+                        request=self.request,
+                    )
+                ),
+                "can_prepare_substitution_preview": bool(
+                    latest_item
+                    and latest_item.status == "aprovado"
+                    and latest_item.verification_code
+                    and latest_item.xml_url
+                    and is_nfse_substitution_preview_enabled(workshop=self.workshop)
+                    and has_workshop_perm(
+                        user=self.request.user,
+                        workshop=self.workshop,
+                        app_label="finance",
+                        model="nfsesubstitutionpreview",
+                        codename="prepare_nfse_substitution",
                         request=self.request,
                     )
                 ),

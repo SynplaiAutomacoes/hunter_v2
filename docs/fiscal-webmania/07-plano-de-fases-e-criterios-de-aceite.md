@@ -651,3 +651,15 @@ Status: **implementada e validada tecnicamente em 2026-06-23**. A Fase 3.2 foi e
 Escopo: substituir o PUT legado direto por cancelamento persistido ligado a `NfseItem`, tentativa `nfse_cancellation`, concorrencia segura, payload congelado, timeout `uncertain`, confirmacao por retorno/webhook e reconciliacao somente consultiva. Nenhum `FiscalDocument(nfse)`, substituicao, manifestacao ou emissao manual nova.
 
 Resultado: migration `0062_alter_nfserequest_options_and_more`; 14 testes especificos da Fase 3.3, 219 testes dos alvos fiscais existentes e 104 testes dos alvos de credito/debito localizados em modulos separados aprovados. Migration-check, Ruff e diff-check aprovados; mypy permaneceu bloqueado pelo baseline amplo preexistente do repositorio.
+
+## Fase 3.4.0 - Planejamento da substituicao NFS-e legada
+
+Status: **planejamento documental concluido em 2026-06-23**. A Fase 3.3 foi validada no checkpoint `401b6553302ae1250a5b8838c77a43fa32ef9daa`.
+
+Decisao: **Opcao B - Fase 3.4P preparatoria**. O endpoint requer um novo objeto RPS e a base legada atual so consegue reconstrui-lo de fontes mutaveis. A 3.4P deve congelar preview completa e auditavel, sem POST, tentativa remota ou alteracao da NFS-e original.
+
+Ordem proposta: `3.4P` preview e aprovacao local -> `3.4.1` transmissao idempotente de preview aprovada -> `3.4.2` revisao/validacao e fechamento. Manifestacao e emissao manual nova continuam fora de escopo.
+
+### Fase 3.4P
+
+Status: **implementada e validada tecnicamente em 2026-06-23**. Migration `0063` cria flag e preview; service, forms, views, templates e testes comprovam preparacao/aprovacao local sem HTTP, tentativa, item substituto ou mudanca da original. A 3.4.1 continua bloqueada ate confirmacao contratual e nova autorizacao.

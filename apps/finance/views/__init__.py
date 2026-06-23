@@ -21,6 +21,7 @@ from .nfe import NfeAdjustmentDownloadView, NfeAdjustmentIssueView, NfeComplemen
 from .nfce import NfceCancellationDownloadView, NfceCancellationView, NfceDocumentDownloadView, NfceDocumentListView, NfceDocumentPayloadView, NfceInutilizationDownloadView, NfceInutilizationPayloadView, NfceInutilizationView, NfceManualEmissionView
 from .nfse import NfseBatchReconcileView, NfseCancellationDownloadView, NfseCancellationPayloadView, NfseDocumentDownloadView, NfsePreviewPdfView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestReconcileView, NfseRequestUpdateView
 from .nfse_capabilities import NfseMunicipalCapabilityCreateView, NfseMunicipalCapabilityListView, NfseMunicipalCapabilityStatusView, NfseMunicipalCapabilityUpdateView
+from .nfse_substitution_preview import NfseSubstitutionPreviewApproveView, NfseSubstitutionPreviewCreateView, NfseSubstitutionPreviewDetailView, NfseSubstitutionPreviewListView, NfseSubstitutionPreviewPayloadView
 from .reports import FinancialReportsHomeView, ReportMovementEditView, ReportMovementDeleteView
 from .tax_class import TaxClassCreateView, TaxClassListView, TaxClassManagerView, TaxClassPresetCreateView, TaxClassPresetListView, TaxClassPresetUpdateView, TaxClassUpdateView
 from .webhook import WebhookView
@@ -118,6 +119,11 @@ __all__ = [
     "NfseMunicipalCapabilityListView",
     "NfseMunicipalCapabilityStatusView",
     "NfseMunicipalCapabilityUpdateView",
+    "NfseSubstitutionPreviewApproveView",
+    "NfseSubstitutionPreviewCreateView",
+    "NfseSubstitutionPreviewDetailView",
+    "NfseSubstitutionPreviewListView",
+    "NfseSubstitutionPreviewPayloadView",
     "TaxClassCreateView",
     "TaxClassListView",
     "TaxClassManagerView",

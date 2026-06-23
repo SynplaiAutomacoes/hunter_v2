@@ -606,3 +606,13 @@ Fase: 2.4D.6.0.
 **Decisao:** manter a base operacional legada e criar `NfseCancellation` como trilha auditavel, referenciada pela tentativa via `request_model/request_id`.
 
 **Motivo:** a Fase 3.3 nao autoriza projecao generalizada `FiscalDocument(nfse)` nem backfill. A constraint parcial e o bloqueio pessimista do item resolvem concorrencia sem acoplar o legado ao dominio novo. `nfse_cancellation` permanece separado de emissao e de qualquer futura substituicao.
+
+## ADR - preview obrigatoria antes da substituicao NFS-e
+
+**Contexto:** `POST /2/nfse/substituir` cria nova NFS-e a partir de `rps`. A documentacao oficial apresenta inconsistencia entre o texto (`uuid`/`motivo`) e a tabela/exemplo (`ambiente`, `codigo_verificacao`, `motivo`, `rps`). O Hunter pode reconstruir RPS usando dados atuais, mas eles sao mutaveis.
+
+**Decisao:** adotar a Opcao B. Criar primeiro `NfseSubstitutionPreview` imutavel e aprovada, sem transmissao. A fase funcional futura usa somente preview aprovada, capability municipal e feature flag. `NfseSubstitution` representa a operacao e liga dois `NfseItem`; nao e cancelamento e nao requer `FiscalDocument(nfse)` generalizado.
+
+**Consequencias:** evita substituir com tomador, servico, valor ou tributacao alterados silenciosamente; permite auditoria e testes do novo RPS. O custo e uma fase preparatoria adicional e a necessidade de nova confirmacao contratual sobre a identificacao da original antes do POST funcional.
+
+**Implementacao 3.4P:** entidade propria no legado NFS-e, sem `FiscalDocument(nfse)` e sem tentativa remota. O snapshot XML preserva URL, identificadores e payload remoto sanitizado disponivel; o Hunter nao baixa nem reconstrói conteudo XML durante a preparacao. Tomador, servico, valores e tributacao do novo RPS sao input administrativo explicito.

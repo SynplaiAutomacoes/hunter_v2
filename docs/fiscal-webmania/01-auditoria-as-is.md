@@ -393,3 +393,21 @@ Estado comprovado em 2026-06-22, sem alteracao funcional:
 ## Fase 3.3 - auditoria do cancelamento NFS-e legado
 
 O caminho anterior executava `PUT /2/nfse/cancelar` diretamente em `emission.py`, com permissao generica e sem intencao persistida, bloqueio concorrente ou estado `uncertain`. A Fase 3.3 substitui esse ponto por `NfseCancellation` + `FiscalEmissionAttempt(operation_type="nfse_cancellation")`, preservando `NfseRequest`, `NfseBatch` e `NfseItem` e sem criar `FiscalDocument(nfse)`.
+
+## Fase 3.4.0 - auditoria da substituicao legada
+
+- `NfseItem` preserva UUID, codigo de verificacao e URLs XML/PDF da original, mas nao congela o request fiscal completo que originou a nota.
+- `NfseRequest` e `build_nfse_payload()` conseguem reconstruir um RPS a partir da OS, tomador, classe fiscal e precificacao atuais; essas fontes continuam mutaveis depois da emissao e nao constituem snapshot seguro para uma substituicao.
+- A tentativa de emissao pode conter payload historico, mas a substituicao exige um **novo** RPS explicitamente revisado; copiar o request anterior ou reconstruir silenciosamente a partir do cadastro atual e proibido.
+- `NfseMunicipalCapability.substitution_enabled` ja representa a capacidade municipal, mas nao libera operacao funcional.
+
+### Auditoria inicial da Fase 3.4P
+
+- `NfseItem` preserva UUID, codigo de verificacao, URL do XML e payloads remotos, mas nao armazena o conteudo XML original localmente.
+- `NfseRequest` e `build_nfse_payload()` reconstroem tomador, servico, valores e tributacao a partir da OS e cadastros atuais mutaveis; esse caminho nao sera usado como fonte silenciosa da preview.
+- A preview exige entrada administrativa explicita do novo RPS e congela os identificadores, a URL do XML e o payload original sanitizado disponivel como snapshot auditavel.
+- O cancelamento NFS-e usa `NfseCancellation` e tentativa remota propria; nenhuma dessas estruturas sera reutilizada para transmitir substituicao.
+- Webhook, reconciliacao e downloads permanecem somente leitura para esta fase. Nao existe chamada Webmania, tentativa `nfse_substitution`, nova `NfseItem` ou mudanca de status da original.
+- Nao existe `NfseSubstitution`, preview, permissao `substitute_nfse`, feature flag de rollout ou estado local `substituido`.
+
+Conclusao: a infraestrutura de consulta, webhook, `atualizado_em` e tentativas e reutilizavel, mas a fonte do novo RPS ainda nao e imutavel. A proxima fase deve ser preparatoria, sem POST remoto.

@@ -759,3 +759,19 @@ Campos derivados pesquisaveis: Padrao Nacional, emissao sincrona/assincrona, `nf
 ## `NfseCancellation`
 
 Trilha propria ligada a um `NfseItem`, `NfseRequest` e oficina. Persiste motivo, payload congelado, resposta sanitizada, XML, solicitante e timestamps. Uma constraint parcial permite no maximo um cancelamento reservante (`started`, `sent`, `uncertain` ou `succeeded`) por item; falha remota conclusiva pode originar nova intencao. Nao existe vinculo com `FiscalDocument` e o lote nao e atualizado pelo cancelamento individual.
+
+## Modelagem planejada para substituicao NFS-e
+
+### Fase preparatoria 3.4P
+
+`NfseSubstitutionPreview`: oficina, requisicao/item original, UUID e codigo de verificacao originais, ambiente, motivo, `rps_payload` sanitizado, snapshot do XML original/URL e hash, erros/status de validacao, criador/aprovador e timestamps. A aprovacao congela o payload. Nao cria `FiscalEmissionAttempt`, NFS-e substituta nem chamada remota.
+
+### Fase funcional posterior
+
+`NfseSubstitution`: oficina, preview aprovada, item original, item substituto anulavel ate retorno, UUIDs original/substituto, payload/response, XML original snapshot, XML substituto, status e solicitante. A tentativa usa `operation_type="nfse_substitution"`. Nao modelar como mero evento: o endpoint cria uma nova NFS-e, enquanto a original deve permanecer auditavel e passar a `substituido` somente por confirmacao remota valida. Nao criar `FiscalDocument(nfse)` generalizado nesta etapa.
+
+Uma preview aprovada pode originar no maximo uma substituicao ativa, incerta ou concluida. O item substituto pertence a mesma oficina/requisicao operacional, mas possui UUID, numero, verificacao, XML/PDF e status proprios.
+
+### Modelagem implementada na Fase 3.4P
+
+`NfseSubstitutionPreview` referencia `NfseItem` original e congela UUID, codigo de verificacao, snapshot auditavel do XML/retorno original, ambiente, motivo, novo RPS e request planejado. Status, erros, campos proibidos, criador e aprovador formam a trilha local. Constraint permite somente uma preview aprovada por original. Payload, referencia, motivo, ambiente e snapshot tornam-se imutaveis apos aprovacao. `WebmaniaCompany.nfse_substitution_preview_enabled` e a flag preparatoria; `NfseMunicipalCapability.substitution_enabled` continua sendo o controle municipal.

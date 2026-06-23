@@ -623,3 +623,17 @@ Executados 13 testes especificos de capacidade, compatibilidade, webhook, saniti
 ## Fase 3.3 - cobertura obrigatoria
 
 Contrato restrito a `uuid`/`motivo`; elegibilidade; capacidade municipal; permissao e tenancy; payload imutavel; concorrencia com uma chamada; timeout `uncertain`; rejeicao sem falso sucesso; webhook anti-regressao; reconciliacao somente consultiva; XML separado do documento original; regressao de emissao, consulta e downloads legados.
+
+## Testes planejados para Fase 3.4P e substituicao futura
+
+- preview exige original autorizada, UUID, codigo de verificacao, XML, motivo e novo RPS completo;
+- bloquear original cancelada, substituida, `uncertain`, sem XML ou de outra oficina;
+- snapshot de tomador, servico, valores, impostos/retencoes e RPS permanece imutavel apos aprovacao;
+- dados atuais da OS, cliente ou classe fiscal nao alteram preview aprovada;
+- capability, feature flag e permissoes separadas; preparar/aprovar nao transmite;
+- fase funcional: payload exato, uma chamada por preview, concorrencia, timeout `uncertain` e nenhum reenvio;
+- retorno/webhook associa `nfse_substituida` a original correta, preserva XML original e separa XML substituto;
+- ambiguidade nao atualiza documentos; reconciliacao somente consulta;
+- cancelamento idempotente da Fase 3.3 e emissao/consulta/downloads legados nao regridem.
+
+Cobertura implementada na 3.4P: payload exato; original inelegivel; UUID/codigo/XML; RPS/tomador/servico/valor; flag/capability; oficina/permissoes; uma preview aprovada por original; imutabilidade de payload/XML/estado; ausencia de POST/PUT, `FiscalEmissionAttempt`, item substituto e alteracao da original; regressao do cancelamento NFS-e.

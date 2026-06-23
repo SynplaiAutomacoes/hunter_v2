@@ -15699,3 +15699,209 @@ class FiscalPhaseThreeNfseCancellationConcurrentTests(TransactionTestCase):
         self.assertEqual(put_mock.call_count, 1, results)
         self.assertEqual(NfseCancellation.objects.filter(item=self.item).count(), 1)
         self.assertIn("sent", results)
+
+
+class FiscalPhaseThreeNfseSubstitutionPreviewTests(TestCase):
+    def setUp(self) -> None:
+        from apps.finance.models.finance import NfseMunicipalCapability
+
+        self.user, self.workshop = create_director_user_with_workshop(suffix=81)
+        self.company = WebmaniaCompany.objects.create(
+            workshop=self.workshop,
+            webmania_company_id="NFSE-SUBST-PREVIEW",
+            nfse_substitution_preview_enabled=True,
+        )
+        NfseMunicipalCapability.objects.create(
+            workshop=self.workshop,
+            company=self.company,
+            city_code="3550308",
+            city_name="Sao Paulo",
+            state="SP",
+            substitution_enabled=True,
+        )
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=timezone.now().date())
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        self.nfse_request = NfseRequest.objects.create(workshop=self.workshop, workorder=workorder)
+        self.item = NfseItem.objects.create(
+            workshop=self.workshop,
+            workorder=workorder,
+            request=self.nfse_request,
+            uuid="34000000-0000-0000-0000-000000000001",
+            status="aprovado",
+            number="1001",
+            verification_code="VERIFY-1001",
+            xml_url="https://example.test/nfse-1001.xml",
+            raw_payload={"status": "aprovado", "segredo": "[REDACTED]"},
+        )
+
+    def _create(self, **overrides):
+        from apps.finance.services.nfse_substitution_preview import create_nfse_substitution_preview
+
+        values = {
+            "workshop": self.workshop,
+            "original_nfse": self.item,
+            "environment": "2",
+            "reason_code": 1,
+            "rps_number": 2001,
+            "rps_series": "SUB",
+            "service_payload": {"valor_servicos": "150.00", "discriminacao": "Servico corrigido", "classe_imposto": "REFNFSE001"},
+            "taker_payload": {"cnpj": "11.222.333/0001-44", "razao_social": "Cliente Teste Ltda"},
+            "created_by": self.user,
+        }
+        values.update(overrides)
+        return create_nfse_substitution_preview(**values)
+
+    def test_creates_exact_local_preview_without_remote_side_effects(self) -> None:
+        from apps.finance.models.finance import NfseSubstitutionPreview
+
+        item_count = NfseItem.objects.count()
+        with patch("requests.post") as post_mock, patch("requests.put") as put_mock:
+            preview = self._create()
+
+        self.assertEqual(preview.request_payload, {
+            "ambiente": 2,
+            "codigo_verificacao": "VERIFY-1001",
+            "motivo": 1,
+            "rps": {
+                "numero": 2001,
+                "serie": "SUB",
+                "servico": {"valor_servicos": "150.00", "discriminacao": "Servico corrigido", "classe_imposto": "REFNFSE001"},
+                "tomador": {"cnpj": "11.222.333/0001-44", "razao_social": "Cliente Teste Ltda"},
+            },
+        })
+        self.assertEqual(preview.original_xml_snapshot["url"], self.item.xml_url)
+        self.assertEqual(NfseSubstitutionPreview.objects.count(), 1)
+        self.assertEqual(NfseItem.objects.count(), item_count)
+        self.assertFalse(FiscalEmissionAttempt.objects.filter(operation_type="nfse_substitution").exists())
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.status, "aprovado")
+        self.assertEqual(self.item.xml_url, "https://example.test/nfse-1001.xml")
+        post_mock.assert_not_called()
+        put_mock.assert_not_called()
+
+    def test_blocks_ineligible_original_and_incomplete_contract(self) -> None:
+        for status in ("cancelado", "processando", "reprovado", "uncertain"):
+            self.item.status = status
+            self.item.save(update_fields=["status"])
+            with self.subTest(status=status), self.assertRaises(ValidationError):
+                self._create()
+        self.item.status = "aprovado"
+        self.item.save(update_fields=["status"])
+
+        cases = (
+            {"rps_series": ""},
+            {"service_payload": {}},
+            {"service_payload": {"valor_servicos": "0", "discriminacao": "Servico", "classe_imposto": "REF"}},
+            {"service_payload": {"valor_servicos": "10", "classe_imposto": "REF"}},
+            {"service_payload": {"valor_servicos": "10", "discriminacao": "Servico"}},
+            {"taker_payload": {}},
+            {"taker_payload": {"cnpj": "11222333000144"}},
+        )
+        for overrides in cases:
+            with self.subTest(overrides=overrides), self.assertRaises(ValidationError):
+                self._create(**overrides)
+
+    def test_blocks_missing_verification_xml_feature_and_capability(self) -> None:
+        self.item.verification_code = ""
+        self.item.save(update_fields=["verification_code"])
+        with self.assertRaisesMessage(ValidationError, "codigo de verificacao"):
+            self._create()
+        self.item.verification_code = "VERIFY-1001"
+        self.item.xml_url = ""
+        self.item.save(update_fields=["verification_code", "xml_url"])
+        with self.assertRaisesMessage(ValidationError, "XML"):
+            self._create()
+        self.item.xml_url = "https://example.test/nfse-1001.xml"
+        self.item.save(update_fields=["xml_url"])
+
+        self.company.nfse_substitution_preview_enabled = False
+        self.company.save(update_fields=["nfse_substitution_preview_enabled"])
+        with self.assertRaisesMessage(ValidationError, "desabilitada"):
+            self._create()
+        self.company.nfse_substitution_preview_enabled = True
+        self.company.save(update_fields=["nfse_substitution_preview_enabled"])
+        capability = self.company.nfse_municipal_capabilities.get()
+        capability.substitution_enabled = False
+        capability.save(update_fields=["substitution_enabled"])
+        with self.assertRaisesMessage(ValidationError, "capacidade municipal"):
+            self._create()
+
+    def test_approval_freezes_payload_xml_and_original(self) -> None:
+        from apps.finance.services.nfse_substitution_preview import approve_nfse_substitution_preview
+
+        preview = self._create()
+        original_status = self.item.status
+        original_xml = self.item.xml_url
+        approve_nfse_substitution_preview(preview=preview, approved_by=self.user)
+        preview.refresh_from_db()
+        self.assertTrue(preview.is_approved)
+        self.assertEqual(preview.validation_status, "approved")
+
+        for field, value in (
+            ("request_payload", {"ambiente": 1}),
+            ("rps_payload", {"numero": 999}),
+            ("reason_code", 2),
+            ("original_verification_code", "CHANGED"),
+            ("original_xml_snapshot", {"url": "https://example.test/changed.xml"}),
+        ):
+            setattr(preview, field, value)
+            with self.subTest(field=field), self.assertRaises(ValidationError):
+                preview.save()
+            preview.refresh_from_db()
+
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.status, original_status)
+        self.assertEqual(self.item.xml_url, original_xml)
+
+    def test_only_one_approved_preview_per_original(self) -> None:
+        from apps.finance.services.nfse_substitution_preview import approve_nfse_substitution_preview
+
+        first = self._create(rps_number=2001)
+        approve_nfse_substitution_preview(preview=first, approved_by=self.user)
+        second = self._create(rps_number=2002)
+        with self.assertRaisesMessage(ValidationError, "Ja existe preview aprovada"):
+            approve_nfse_substitution_preview(preview=second, approved_by=self.user)
+
+    def test_service_blocks_cross_workshop(self) -> None:
+        _other_user, other_workshop = create_director_user_with_workshop(suffix=82)
+        with self.assertRaises(ValidationError):
+            self._create(workshop=other_workshop)
+
+    def test_views_require_distinct_permissions_and_scope_payload(self) -> None:
+        from apps.finance.views.nfse_substitution_preview import NfseSubstitutionPreviewApproveView, NfseSubstitutionPreviewCreateView, NfseSubstitutionPreviewPayloadView
+
+        preview = self._create()
+        request = RequestFactory().get("/")
+        request.user = self.user
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=False), self.assertRaises(PermissionDenied):
+            NfseSubstitutionPreviewCreateView.as_view()(request)
+
+        approve_request = RequestFactory().post("/")
+        approve_request.user = self.user
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=False), self.assertRaises(PermissionDenied):
+            NfseSubstitutionPreviewApproveView.as_view()(approve_request, pk=preview.pk)
+
+        _other_user, other_workshop = create_director_user_with_workshop(suffix=83)
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=other_workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=True), self.assertRaises(Http404):
+            NfseSubstitutionPreviewApproveView.as_view()(approve_request, pk=preview.pk)
+
+        payload_request = RequestFactory().get("/")
+        payload_request.user = self.user
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=False), self.assertRaises(PermissionDenied):
+            NfseSubstitutionPreviewPayloadView.as_view()(payload_request, pk=preview.pk)
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=other_workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=True), self.assertRaises(Http404):
+            NfseSubstitutionPreviewPayloadView.as_view()(payload_request, pk=preview.pk)
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=True):
+            response = NfseSubstitutionPreviewPayloadView.as_view()(payload_request, pk=preview.pk)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "consumer_secret")
+
+    def test_cancel_permission_does_not_grant_preview_permission(self) -> None:
+        permission = Permission.objects.get(codename="cancel_nfse")
+        self.user.user_permissions.add(permission)
+        request = RequestFactory().get("/")
+        request.user = self.user
+        from apps.finance.views.nfse_substitution_preview import NfseSubstitutionPreviewCreateView
+
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=False), self.assertRaises(PermissionDenied):
+            NfseSubstitutionPreviewCreateView.as_view()(request)

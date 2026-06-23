@@ -770,3 +770,21 @@ O OpenAPI validado ja representava os dois GETs e nao precisou de alteracao na F
 | Cancelar NFS-e | `/2/nfse/cancelar` | `PUT` | somente `uuid` e `motivo` (`1`, `2` ou `4`) | `NfseCancellation` e tentativa `nfse_cancellation` |
 
 O retorno confirmado pode conter `uuid`, `status=cancelado`, `xml` e `log`. O XML de cancelamento pertence a trilha de cancelamento e nao substitui o XML original da NFS-e.
+
+## Fase 3.4.0 - contrato oficial de substituicao NFS-e
+
+Fonte revalidada em 2026-06-23: [documentacao oficial Webmania NFS-e](https://webmania.com.br/docs/rest-api-nfse/).
+
+| Aspecto | Contrato confirmado | Decisao Hunter |
+| --- | --- | --- |
+| Endpoint | `POST /2/nfse/substituir` | sem chamada na 3.4.0/3.4P |
+| Identificacao original | o texto introdutorio cita `uuid` e `motivo`; tabela/exemplo usam `codigo_verificacao` e nao exibem `uuid` | tratar como inconsistencia oficial; congelar UUID e codigo de verificacao, transmitir somente apos nova confirmacao de contrato |
+| Body da tabela/exemplo | `ambiente`, `codigo_verificacao`, `motivo` (`1`, `2`, `4`) e `rps` objeto | preview deve conter exatamente esses blocos e manter UUID original como metadado interno |
+| Novo documento | `rps` e convertido na NFS-e substituta | exige snapshot novo, completo e aprovado; nao reutilizar dados mutaveis automaticamente |
+| Retorno | UUID/status/numero/codigo de verificacao/serie e numero RPS da substituta, `nfse_substituida`, XML e log | criar item substituto e relacionar original somente na fase funcional |
+| Webhook | notificacao NFS-e padrao por UUID, com `atualizado_em`; ordem nao garantida | resolver substituta por UUID, tentativa e referencia original; ambiguidade bloqueia |
+| Capacidade | `/2/nfse/status` inclui funcao `substituir` | exigir capability e feature flag; status remoto nao altera flag administrativa |
+
+O OpenAPI validado ja representa a tabela/exemplo oficial com `ambiente`, `codigo_verificacao`, `motivo` e `rps` objeto. Nenhuma alteracao foi necessaria nesta fase.
+
+Na Fase 3.4P o contrato e apenas pre-payload local: `{ambiente, codigo_verificacao, motivo, rps}`. Nao existe chamada HTTP, `uuid` enviado, `url_notificacao`, webhook ou consulta remota de substituicao.

@@ -1,5 +1,16 @@
 # Log de implementacao fiscal
 
+## Fase 3.4P - inicio
+
+- Fase 3.4.0 aprovada: criar preview imutavel do novo RPS antes da substituicao remota.
+- Escopo autorizado: modelagem, validacao, permissao, feature flag e UI administrativa da preview, sem `POST /2/nfse/substituir`.
+- Divergencia Webmania preservada: texto introdutorio menciona `uuid`, enquanto tabela/exemplo usam `ambiente`, `codigo_verificacao`, `motivo` e `rps`.
+- Auditoria local confirmou que OS, tomador, classe fiscal e valores atuais sao mutaveis; a preview nao reutilizara `build_nfse_payload()` como snapshot implicito.
+- Implementados `NfseSubstitutionPreview`, flag `nfse_substitution_preview_enabled`, quatro permissoes, service local, forms, views, URLs e templates pela migration `0063`.
+- Validacao: 54 testes direcionados das Fases 1/3.1/3.2/3.3/3.4P passaram; `makemigrations --check`, ruff e `git diff --check` passaram.
+- `mypy` foi executado como nao bloqueante e manteve 1110 erros preexistentes em 117 arquivos, incluindo dependencias sem stubs e modulos fora do escopo.
+- Auto-revisao corrigiu lock PostgreSQL sobre FK anulavel, tornou o estado aprovado irreversivel por edicao e adicionou cobertura explicita do payload por permissao/tenancy.
+
 Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 
 ## Entradas
@@ -154,6 +165,13 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 - Auto-revisao corrigiu lock com join anulavel, separacao do XML de cancelamento e historico com unicidade condicional para permitir nova intencao somente apos falha conclusiva.
 - Validacao: 14 testes 3.3, 219 testes fiscais existentes e 104 testes equivalentes de credito/debito aprovados; migration-check, Ruff e diff-check aprovados. Mypy manteve erros de baseline preexistentes fora do escopo.
 - Substituicao, manifestacao, emissao manual nova, CT-e, MDF-e, NFCom e DC-e nao iniciados.
+
+## 2026-06-23 - Fase 3.4.0 documental
+
+- Fase 3.3 validada no checkpoint `401b6553302ae1250a5b8838c77a43fa32ef9daa`; cancelamento idempotente, XML separado e `uncertain` sem reenvio confirmados.
+- Revalidado `POST /2/nfse/substituir`: tabela/exemplo exigem `ambiente`, `codigo_verificacao`, motivo `1/2/4` e novo `rps`; resposta retorna substituta e objeto `nfse_substituida`.
+- Identificada inconsistencia oficial: texto introdutorio cita `uuid`, mas tabela/exemplo nao o enviam. O OpenAPI validado permanece alinhado a tabela/exemplo e nao foi alterado.
+- Decisao: Opcao B, criar Fase 3.4P para preview imutavel do novo RPS sem transmissao. Substituicao funcional, manifestacao e emissao manual nova nao iniciadas.
 
 ## 2026-06-23 - Inicio da Fase 3.1
 

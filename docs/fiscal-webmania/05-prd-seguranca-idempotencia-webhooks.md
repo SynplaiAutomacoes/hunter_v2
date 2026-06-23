@@ -629,3 +629,11 @@ Reconciliacao: GET por UUID para item/lote e operacoes incertas quando o contrat
 ## Fase 3.3 - cancelamento NFS-e
 
 Fluxo: bloquear item e validar oficina/capacidade/status -> criar `NfseCancellation` -> criar tentativa `nfse_cancellation` -> congelar `{uuid, motivo}` -> executar um unico PUT. Timeout ou resposta inconclusiva marca ambos como `uncertain` e impede reenvio. Webhook pode confirmar pelo UUID unico; `atualizado_em` e rank impedem reabertura por retorno antigo. A reconciliacao de `uncertain` executa somente GET de consulta e nunca repete o cancelamento.
+
+## Fase 3.4.0 - seguranca planejada da substituicao
+
+Fluxo futuro: validar preview/base/original/capability/flag -> criar `NfseSubstitution` -> reservar tentativa `nfse_substitution` -> congelar payload -> executar um POST -> atualizar somente original e substituta confirmadas. Timeout gera `uncertain`; nunca repetir POST automaticamente. Enquanto o UUID substituto for desconhecido, consultar a original e registrar pendencia administrativa, sem presumir que ela foi substituida. Quando o retorno/webhook trouxer `nfse_substituida`, validar o UUID original antes de aplicar.
+
+Webhook: resolver primeiro UUID da substituta; fallback por tentativa e `nfse_substituida.uuid`; rejeitar multiplas correspondencias; usar `atualizado_em`; preservar XML original e armazenar XML substituto separadamente. Reconciliacao consulta UUID conhecido e jamais substitui novamente.
+
+Na Fase 3.4P nao existe idempotencia remota, webhook ou reconciliacao. A transacao bloqueia o `NfseItem` original durante a criacao, sanitiza e congela o pre-payload; a aprovacao bloqueia a preview e impede mutacao ou reversao direta do estado aprovado. Tenancy, feature flag, capability e permissoes sao verificadas antes da preparacao/aprovacao.

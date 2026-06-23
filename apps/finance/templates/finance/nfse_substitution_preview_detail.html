@@ -1,0 +1,14 @@
+{% extends 'crud/detail.html' %}
+{% block crud_title %}Preview de substituicao NFS-e{% endblock %}
+{% block crud_subtitle %}Snapshot imutavel do novo RPS, sem chamada remota.{% endblock %}
+{% block crud_back_url %}{% url 'finance:nfse_substitution_preview_list' %}{% endblock %}
+{% block crud_header_actions %}{% if can_approve and not preview.is_approved %}<form method="post" action="{% url 'finance:nfse_substitution_preview_approve' preview.pk %}">{% csrf_token %}<button class="btn btn-primary btn-sm">Aprovar e congelar</button></form>{% endif %}{% endblock %}
+{% block crud_detail_content %}
+<div class="alert alert-info mb-4">Nenhuma substituicao foi transmitida. A NFS-e original continua com status {{ preview.original_nfse.status }}.</div>
+<div class="card bg-base-100 shadow"><div class="card-body"><div class="grid md:grid-cols-2 gap-4">
+<div><span class="text-sm opacity-70">UUID original</span><p class="break-all">{{ preview.original_uuid }}</p></div>
+<div><span class="text-sm opacity-70">Codigo de verificacao</span><p>{{ preview.original_verification_code }}</p></div>
+<div><span class="text-sm opacity-70">Novo RPS</span><p>{{ preview.rps_payload.numero }}/{{ preview.rps_payload.serie }}</p></div>
+<div><span class="text-sm opacity-70">Status</span><p>{{ preview.get_validation_status_display }}</p></div>
+</div>{% if can_view_payload %}<div class="mt-4"><a class="btn btn-outline btn-sm" href="{% url 'finance:nfse_substitution_preview_payload' preview.pk %}">Ver payload sanitizado</a></div>{% endif %}</div></div>
+{% endblock %}

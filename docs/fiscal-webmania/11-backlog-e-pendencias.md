@@ -262,7 +262,7 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 
 ## Backlog apos Fase 3.2
 
-- Fase 3.3: cancelamento NFS-e idempotente com evento/tentativa, concorrencia e `uncertain`; nao reutilizar o GET como autorizacao de cancelamento.
+- Resolvido na Fase 3.3: cancelamento NFS-e idempotente com tentativa, concorrencia e `uncertain`, validado no checkpoint `401b6553302ae1250a5b8838c77a43fa32ef9daa`.
 - Avaliar TTL/agendamento de `/2/nfse/status`; a 3.2 implementa consulta manual e snapshot informativo.
 - Consulta por numero RPS nao foi implementada porque o contrato oficial confirmado exige UUID.
 - Substituicao, manifestacao, emissao manual nova, projecao `FiscalDocument(nfse)` e backfill continuam dependendo de fases proprias.
@@ -272,3 +272,11 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - manifestacao NFS-e, condicionada a contrato/capacidade municipal;
 - emissao manual nova e eventual projecao `FiscalDocument(nfse)` sob demanda;
 - regras municipais adicionais de prazo de cancelamento, sem inferencia local enquanto nao confirmadas.
+
+## Apos a Fase 3.4.0
+
+- Fase 3.4P implementada: preview imutavel do novo RPS, aprovacao fiscal, permissoes e feature flag, sem POST remoto;
+- confirmar com fonte oficial/contratual se `uuid` tambem deve ser enviado ou se `codigo_verificacao` identifica integralmente a original;
+- somente depois implementar `NfseSubstitution` + tentativa `nfse_substitution` e relacionamento original/substituta;
+- definir reconciliacao administrativa quando timeout ocorrer antes de o UUID substituto ser conhecido;
+- manifestacao e emissao manual nova permanecem fases independentes.

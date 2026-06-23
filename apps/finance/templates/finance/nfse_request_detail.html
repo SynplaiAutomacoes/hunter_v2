@@ -33,6 +33,12 @@
             Cancelar Nota Fiscal de Serviço
         </button>
     {% endif %}
+    {% if can_prepare_substitution_preview %}
+        <a href="{% url 'finance:nfse_substitution_preview_create' %}?original_nfse={{ latest_item.pk }}" class="btn btn-sm btn-outline gap-2">
+            <span class="material-icons text-sm">difference</span>
+            Preparar substituicao
+        </a>
+    {% endif %}
 {% endblock %}
 
 {% block crud_detail_content %}
