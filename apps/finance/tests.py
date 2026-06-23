@@ -15043,3 +15043,356 @@ class FiscalPhaseThreeNfseStabilizationTests(TestCase):
         ):
             with self.assertRaises(Http404):
                 NfseMunicipalCapabilityUpdateView.as_view()(request, pk=capability.pk)
+
+
+class FiscalPhaseThreeNfseQueryReconciliationTests(TestCase):
+    def setUp(self) -> None:
+        from apps.finance.models.finance import NfseMunicipalCapability
+
+        self.NfseMunicipalCapability = NfseMunicipalCapability
+        self.user, self.workshop = create_director_user_with_workshop(suffix=65)
+        self.company = WebmaniaCompany.objects.create(
+            workshop=self.workshop,
+            webmania_company_id="NFSE-QUERY-301",
+            bearer_access_token="encrypted-token",
+            cidade="Sao Paulo",
+            uf="SP",
+        )
+        self.budget = Budget.objects.create(workshop=self.workshop, entry_date=timezone.now().date())
+        self.workorder = WorkOrder.objects.create(workshop=self.workshop, budget=self.budget, status=WorkOrderStatus.APPROVED)
+        self.nfse_request = NfseRequest.objects.create(workshop=self.workshop, workorder=self.workorder, tax_class="REFQUERY301")
+
+    def _item(self, *, uuid: str = "32000000-0000-0000-0000-000000000001", status: str = "processando") -> NfseItem:
+        return NfseItem.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            request=self.nfse_request,
+            uuid=uuid,
+            status=status,
+        )
+
+    def _batch(self, *, uuid: str = "32000000-0000-0000-0000-000000000010", status: str = "processando"):
+        from apps.finance.models.finance import NfseBatch
+
+        return NfseBatch.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            request=self.nfse_request,
+            uuid=uuid,
+            status=status,
+        )
+
+    def _capability(self, **overrides: object):
+        values: dict[str, object] = {
+            "workshop": self.workshop,
+            "company": self.company,
+            "city_code": "3550308",
+            "city_name": "Sao Paulo",
+            "state": "SP",
+            "provider": "configured-provider",
+            "provider_version": "1.00",
+            "emission_enabled": True,
+            "cancellation_enabled": False,
+        }
+        values.update(overrides)
+        return self.NfseMunicipalCapability.objects.create(**values)
+
+    def test_item_query_updates_only_matching_nfse_with_canonical_timestamp(self) -> None:
+        from apps.finance.models.finance import FiscalEmissionAttempt
+        from apps.finance.services.nfse_consulta import reconcile_nfse_item
+
+        item = self._item()
+        payload = {
+            "modelo": "nfse",
+            "uuid": str(item.uuid),
+            "status": "aprovado",
+            "motivo": "Autorizada",
+            "numero": "9001",
+            "xml": "https://example.test/nfse.xml",
+            "pdf_nfse": "https://example.test/nfse.pdf",
+            "atualizado_em": "2026-06-23T12:00:00-03:00",
+        }
+        with (
+            patch("apps.finance.services.nfse_consulta._build_headers", return_value={}),
+            patch("apps.finance.services.nfse_consulta.requests.get", return_value=_mock_response(payload)) as get_mock,
+            patch("apps.finance.services.nfse_consulta.requests.post") as post_mock,
+            patch("apps.finance.services.nfse_consulta.requests.put") as put_mock,
+        ):
+            reconcile_nfse_item(item=item)
+
+        item.refresh_from_db()
+        self.nfse_request.refresh_from_db()
+        self.assertEqual(item.status, "aprovado")
+        self.assertEqual(item.number, "9001")
+        self.assertEqual(item.last_update_source, "query")
+        self.assertIsNotNone(item.last_reconciled_at)
+        self.assertEqual(item.remote_updated_at.isoformat(), "2026-06-23T15:00:00+00:00")
+        self.assertEqual(self.nfse_request.status, NfseRequestStatus.APPROVED)
+        self.assertFalse(FiscalEmissionAttempt.objects.filter(request_id=self.nfse_request.pk, document_kind="nfse").exists())
+        get_mock.assert_called_once()
+        post_mock.assert_not_called()
+        put_mock.assert_not_called()
+
+    def test_query_without_uuid_is_blocked_before_http(self) -> None:
+        from apps.finance.services.nfse_consulta import NfseConsultaError, consult_nfse_uuid
+
+        with patch("apps.finance.services.nfse_consulta.requests.get") as get_mock, self.assertRaisesMessage(NfseConsultaError, "sem UUID"):
+            consult_nfse_uuid(workshop=self.workshop, event_uuid="")
+        get_mock.assert_not_called()
+
+    def test_configured_capability_can_disable_document_query_before_http(self) -> None:
+        from apps.finance.services.nfse_consulta import NfseConsultaError, reconcile_nfse_item
+
+        self._capability(query_enabled=False)
+        item = self._item(uuid="32000000-0000-0000-0000-000000000003")
+        with patch("apps.finance.services.nfse_consulta.requests.get") as get_mock, self.assertRaisesMessage(NfseConsultaError, "consulta NFS-e esta desabilitada"):
+            reconcile_nfse_item(item=item)
+        get_mock.assert_not_called()
+
+    def test_item_query_rejects_old_or_mismatched_response(self) -> None:
+        from apps.finance.services.nfse_consulta import NfseConsultaError, reconcile_nfse_item
+
+        item = self._item(status="aprovado")
+        item.remote_updated_at = datetime.fromisoformat("2026-06-23T15:00:00+00:00")
+        item.save(update_fields=["remote_updated_at"])
+        old_payload = {"modelo": "nfse", "uuid": str(item.uuid), "status": "processando", "atualizado_em": "2026-06-23T11:00:00-03:00"}
+        with patch("apps.finance.services.nfse_consulta._build_headers", return_value={}), patch("apps.finance.services.nfse_consulta.requests.get", return_value=_mock_response(old_payload)):
+            reconcile_nfse_item(item=item)
+        item.refresh_from_db()
+        self.assertEqual(item.status, "aprovado")
+        self.assertEqual(item.remote_updated_at.isoformat(), "2026-06-23T15:00:00+00:00")
+
+        mismatched = {"modelo": "lote_rps", "uuid": str(item.uuid), "status": "processado"}
+        with patch("apps.finance.services.nfse_consulta._build_headers", return_value={}), patch("apps.finance.services.nfse_consulta.requests.get", return_value=_mock_response(mismatched)), self.assertRaisesMessage(NfseConsultaError, "modelo fiscal diferente"):
+            reconcile_nfse_item(item=item)
+
+    def test_item_query_blocks_ambiguous_uuid_across_workshops(self) -> None:
+        from apps.finance.services.nfse_consulta import NfseConsultaError, reconcile_nfse_item
+
+        item = self._item(uuid="32000000-0000-0000-0000-000000000002")
+        _other_user, other_workshop = create_director_user_with_workshop(suffix=66)
+        other_budget = Budget.objects.create(workshop=other_workshop, entry_date=timezone.now().date())
+        other_workorder = WorkOrder.objects.create(workshop=other_workshop, budget=other_budget, status=WorkOrderStatus.APPROVED)
+        other_request = NfseRequest.objects.create(workshop=other_workshop, workorder=other_workorder)
+        other_item = NfseItem.objects.create(workshop=other_workshop, workorder=other_workorder, request=other_request, uuid=item.uuid)
+        payload = {"modelo": "nfse", "uuid": str(item.uuid), "status": "aprovado"}
+        with patch("apps.finance.services.nfse_consulta._build_headers", return_value={}), patch("apps.finance.services.nfse_consulta.requests.get", return_value=_mock_response(payload)), self.assertRaisesMessage(NfseConsultaError, "ambiguo"):
+            reconcile_nfse_item(item=item)
+        item.refresh_from_db()
+        other_item.refresh_from_db()
+        self.assertEqual(item.status, "processando")
+        self.assertEqual(other_item.status, "processando")
+
+    def test_batch_query_updates_batch_and_items_without_reemission(self) -> None:
+        from apps.finance.services.nfse_consulta import reconcile_nfse_batch
+
+        batch = self._batch()
+        payload = {
+            "modelo": "lote_rps",
+            "uuid": str(batch.uuid),
+            "status": "processado",
+            "numero_lote": "77",
+            "protocolo": "PROTO-77",
+            "atualizado_em": "2026-06-23T12:00:00-03:00",
+            "info_nfse": [
+                {
+                    "modelo": "nfse",
+                    "uuid": "32000000-0000-0000-0000-000000000011",
+                    "status": "aprovado",
+                    "motivo": "Autorizada pelo lote",
+                    "numero": "9100",
+                    "codigo_verificacao": "VERIFY-9100",
+                    "xml": "https://example.test/9100.xml",
+                    "pdf_nfse": "https://example.test/9100.pdf",
+                    "atualizado_em": "2026-06-23T12:00:01-03:00",
+                }
+            ],
+        }
+        with (
+            patch("apps.finance.services.nfse_consulta._build_headers", return_value={}),
+            patch("apps.finance.services.nfse_consulta.requests.get", return_value=_mock_response(payload)) as get_mock,
+            patch("apps.finance.services.nfse_consulta.requests.post") as post_mock,
+            patch("apps.finance.services.nfse_consulta.requests.put") as put_mock,
+        ):
+            reconcile_nfse_batch(batch=batch)
+
+        batch.refresh_from_db()
+        item = NfseItem.objects.get(batch=batch)
+        self.assertEqual(batch.status, "processado")
+        self.assertEqual(batch.batch_number, "77")
+        self.assertEqual(batch.last_update_source, "query")
+        self.assertIsNotNone(batch.last_reconciled_at)
+        self.assertEqual(item.status, "aprovado")
+        self.assertEqual(item.reason, "Autorizada pelo lote")
+        self.assertEqual(item.number, "9100")
+        self.assertEqual(item.verification_code, "VERIFY-9100")
+        self.assertEqual(item.last_update_source, "query")
+        get_mock.assert_called_once()
+        post_mock.assert_not_called()
+        put_mock.assert_not_called()
+
+    def test_batch_query_does_not_regress_newer_batch_or_item(self) -> None:
+        from apps.finance.services.nfse_consulta import reconcile_nfse_batch
+
+        batch = self._batch(status="processado")
+        batch.remote_updated_at = datetime.fromisoformat("2026-06-23T15:00:00+00:00")
+        batch.save(update_fields=["remote_updated_at"])
+        item = self._item(uuid="32000000-0000-0000-0000-000000000012", status="aprovado")
+        item.batch = batch
+        item.remote_updated_at = datetime.fromisoformat("2026-06-23T15:00:00+00:00")
+        item.save(update_fields=["batch", "remote_updated_at"])
+        payload = {
+            "modelo": "lote_rps",
+            "uuid": str(batch.uuid),
+            "status": "processando",
+            "atualizado_em": "2026-06-23T11:00:00-03:00",
+            "info_nfse": [{"modelo": "nfse", "uuid": str(item.uuid), "status": "processando", "atualizado_em": "2026-06-23T11:00:00-03:00"}],
+        }
+        with patch("apps.finance.services.nfse_consulta._build_headers", return_value={}), patch("apps.finance.services.nfse_consulta.requests.get", return_value=_mock_response(payload)):
+            reconcile_nfse_batch(batch=batch)
+        batch.refresh_from_db()
+        item.refresh_from_db()
+        self.assertEqual(batch.status, "processado")
+        self.assertEqual(item.status, "aprovado")
+
+    def test_batch_query_blocks_ambiguous_batch_uuid(self) -> None:
+        from apps.finance.services.nfse_consulta import NfseConsultaError, reconcile_nfse_batch
+
+        batch = self._batch(uuid="32000000-0000-0000-0000-000000000013")
+        _other_user, other_workshop = create_director_user_with_workshop(suffix=67)
+        other_budget = Budget.objects.create(workshop=other_workshop, entry_date=timezone.now().date())
+        other_workorder = WorkOrder.objects.create(workshop=other_workshop, budget=other_budget, status=WorkOrderStatus.APPROVED)
+        other_request = NfseRequest.objects.create(workshop=other_workshop, workorder=other_workorder)
+        from apps.finance.models.finance import NfseBatch
+
+        NfseBatch.objects.create(workshop=other_workshop, workorder=other_workorder, request=other_request, uuid=batch.uuid)
+        payload = {"modelo": "lote_rps", "uuid": str(batch.uuid), "status": "processado", "info_nfse": []}
+        with patch("apps.finance.services.nfse_consulta._build_headers", return_value={}), patch("apps.finance.services.nfse_consulta.requests.get", return_value=_mock_response(payload)), self.assertRaisesMessage(NfseConsultaError, "ambiguo"):
+            reconcile_nfse_batch(batch=batch)
+        batch.refresh_from_db()
+        self.assertEqual(batch.status, "processando")
+
+    def test_batch_query_blocks_ambiguous_item_without_partial_update(self) -> None:
+        from apps.finance.services.nfse_consulta import NfseConsultaError, reconcile_nfse_batch
+
+        batch = self._batch(uuid="32000000-0000-0000-0000-000000000016")
+        shared_item_uuid = "32000000-0000-0000-0000-000000000017"
+        self._item(uuid=shared_item_uuid)
+        other_budget = Budget.objects.create(workshop=self.workshop, entry_date=timezone.now().date())
+        other_workorder = WorkOrder.objects.create(workshop=self.workshop, budget=other_budget, status=WorkOrderStatus.APPROVED)
+        other_request = NfseRequest.objects.create(workshop=self.workshop, workorder=other_workorder)
+        NfseItem.objects.create(workshop=self.workshop, workorder=other_workorder, request=other_request, uuid=shared_item_uuid)
+        payload = {
+            "modelo": "lote_rps",
+            "uuid": str(batch.uuid),
+            "status": "processado",
+            "numero_lote": "should-rollback",
+            "info_nfse": [{"modelo": "nfse", "uuid": shared_item_uuid, "status": "aprovado"}],
+        }
+        with patch("apps.finance.services.nfse_consulta._build_headers", return_value={}), patch("apps.finance.services.nfse_consulta.requests.get", return_value=_mock_response(payload)), self.assertRaisesMessage(NfseConsultaError, "ambiguo"):
+            reconcile_nfse_batch(batch=batch)
+        batch.refresh_from_db()
+        self.assertEqual(batch.status, "processando")
+        self.assertEqual(batch.batch_number, "")
+
+    def test_municipal_status_is_sanitized_and_does_not_change_admin_flags(self) -> None:
+        from apps.finance.services.nfse_status import consult_nfse_municipal_status
+
+        capability = self._capability()
+        payload = {
+            "status": True,
+            "modelo": "padrao_nacional",
+            "versao": "2.00",
+            "emissao": ["nfse"],
+            "funcoes": ["consultar", "cancelar", "substituir"],
+            "access_token": "secret",
+        }
+        with patch("apps.finance.services.nfse_status._build_headers", return_value={}), patch("apps.finance.services.nfse_status.requests.get", return_value=_mock_response(payload)):
+            consult_nfse_municipal_status(capability=capability)
+        capability.refresh_from_db()
+        self.assertIs(capability.remote_status, True)
+        self.assertEqual(capability.remote_payload["access_token"], "[REDACTED]")
+        self.assertEqual(capability.provider, "configured-provider")
+        self.assertEqual(capability.provider_version, "1.00")
+        self.assertTrue(capability.emission_enabled)
+        self.assertFalse(capability.cancellation_enabled)
+        self.assertIsNotNone(capability.last_synced_at)
+
+    def test_municipal_status_error_does_not_break_or_mutate_capability(self) -> None:
+        from apps.finance.services.nfse_status import NfseStatusError, consult_nfse_municipal_status
+
+        capability = self._capability()
+        with patch("apps.finance.services.nfse_status._build_headers", return_value={}), patch("apps.finance.services.nfse_status.requests.get", side_effect=requests.Timeout("timeout")), self.assertRaises(NfseStatusError):
+            consult_nfse_municipal_status(capability=capability)
+        capability.refresh_from_db()
+        self.assertTrue(capability.emission_enabled)
+        self.assertFalse(capability.cancellation_enabled)
+        self.assertIsNone(capability.remote_status)
+        self.assertIn("consultar status", capability.last_status_error)
+
+    def test_query_views_require_specific_permissions_and_scope(self) -> None:
+        from django.http import Http404
+
+        from apps.finance.views.nfse import NfseBatchReconcileView, NfseRequestReconcileView
+        from apps.finance.views.nfse_capabilities import NfseMunicipalCapabilityStatusView
+
+        item = self._item()
+        batch = self._batch()
+        capability = self._capability()
+        request = RequestFactory().post("/")
+        request.user = self.user
+        request._messages = Mock()
+        for view, pk in ((NfseRequestReconcileView, self.nfse_request.pk), (NfseBatchReconcileView, self.nfse_request.pk), (NfseMunicipalCapabilityStatusView, capability.pk)):
+            with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=False), self.assertRaises(PermissionDenied):
+                view.as_view()(request, pk=pk)
+
+        _other_user, other_workshop = create_director_user_with_workshop(suffix=68)
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=other_workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=True), self.assertRaises(Http404):
+            NfseMunicipalCapabilityStatusView.as_view()(request, pk=capability.pk)
+        item.delete()
+        batch.delete()
+
+    def test_management_command_reconciles_batch_without_mutating_operation(self) -> None:
+        from apps.finance.services.nfse_consulta import reconcile_nfse_batch
+
+        batch = self._batch(uuid="32000000-0000-0000-0000-000000000018")
+        with (
+            patch("apps.finance.management.commands.reconcile_webmania_documents.process_pending_webhook_events", return_value=0),
+            patch("apps.finance.management.commands.reconcile_webmania_documents.reconcile_nfse_batch", wraps=reconcile_nfse_batch) as reconcile_batch_mock,
+            patch("apps.finance.services.nfse_consulta._build_headers", return_value={}),
+            patch("apps.finance.services.nfse_consulta.requests.get", return_value=_mock_response({"modelo": "lote_rps", "uuid": str(batch.uuid), "status": "processado", "info_nfse": []})) as get_mock,
+            patch("apps.finance.services.nfse_consulta.requests.post") as post_mock,
+            patch("apps.finance.services.nfse_consulta.requests.put") as put_mock,
+        ):
+            call_command("reconcile_webmania_documents", limit=10)
+        reconcile_batch_mock.assert_called_once()
+        get_mock.assert_called_once()
+        post_mock.assert_not_called()
+        put_mock.assert_not_called()
+
+    def test_webhook_and_query_share_safe_application_without_double_mapping(self) -> None:
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        batch = self._batch(uuid="32000000-0000-0000-0000-000000000014")
+        payload = {
+            "modelo": "lote_rps",
+            "uuid": str(batch.uuid),
+            "status": "processado",
+            "info_nfse": [
+                {
+                    "modelo": "nfse",
+                    "uuid": "32000000-0000-0000-0000-000000000015",
+                    "status": "aprovado",
+                    "motivo": "Webhook preservado",
+                    "numero": "9200",
+                    "xml": "https://example.test/9200.xml",
+                }
+            ],
+        }
+        event = store_webhook_event(payload=payload)
+        self.assertTrue(process_webhook_event(event))
+        item = NfseItem.objects.get(batch=batch)
+        self.assertEqual(item.reason, "Webhook preservado")
+        self.assertEqual(item.number, "9200")
+        self.assertEqual(item.xml_url, "https://example.test/9200.xml")
+        self.assertEqual(item.last_update_source, "webhook")

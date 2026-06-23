@@ -70,3 +70,12 @@ def validate_nfse_emission_capability(*, nfse_request: NfseRequest) -> NfseCapab
         raise NfseCapabilityError("A aliquota ISS e obrigatoria para emitir NFS-e neste municipio.")
 
     return resolution
+
+
+def validate_nfse_query_capability(*, nfse_request: NfseRequest) -> NfseCapabilityResolution:
+    if not WebmaniaCompany.objects.filter(workshop=nfse_request.workshop).exists():
+        return NfseCapabilityResolution(capability=None, legacy_compatibility_used=True)
+    resolution = resolve_nfse_capability(nfse_request=nfse_request)
+    if resolution.capability is not None and not resolution.capability.query_enabled:
+        raise NfseCapabilityError("A consulta NFS-e esta desabilitada para o municipio configurado.")
+    return resolution

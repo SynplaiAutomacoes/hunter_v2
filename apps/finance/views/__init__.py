@@ -19,8 +19,8 @@ from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocument
 from .commissions import CommissionReportView
 from .nfe import NfeAdjustmentDownloadView, NfeAdjustmentIssueView, NfeComplementaryDownloadView, NfeComplementaryPriceQuantityIssueView, NfeCorrectionDownloadView, NfeCorrectionIssueView, NfeDocumentDownloadView, NfeIbsCbsEvent112110CancelView, NfeIbsCbsEvent112110IssueView, NfeIbsCbsEvent112130CancelView, NfeIbsCbsEvent112130IssueView, NfeIbsCbsEvent112150CancelView, NfeIbsCbsEvent112150IssueView, NfeIbsCbsEventDownloadView, NfeIbsCbsEventPayloadView, NfePreviewPdfView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestInvalidateView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView, NfeReturnDownloadView, NfeReturnIssueView
 from .nfce import NfceCancellationDownloadView, NfceCancellationView, NfceDocumentDownloadView, NfceDocumentListView, NfceDocumentPayloadView, NfceInutilizationDownloadView, NfceInutilizationPayloadView, NfceInutilizationView, NfceManualEmissionView
-from .nfse import NfseDocumentDownloadView, NfsePreviewPdfView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestReconcileView, NfseRequestUpdateView
-from .nfse_capabilities import NfseMunicipalCapabilityCreateView, NfseMunicipalCapabilityListView, NfseMunicipalCapabilityUpdateView
+from .nfse import NfseBatchReconcileView, NfseDocumentDownloadView, NfsePreviewPdfView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestReconcileView, NfseRequestUpdateView
+from .nfse_capabilities import NfseMunicipalCapabilityCreateView, NfseMunicipalCapabilityListView, NfseMunicipalCapabilityStatusView, NfseMunicipalCapabilityUpdateView
 from .reports import FinancialReportsHomeView, ReportMovementEditView, ReportMovementDeleteView
 from .tax_class import TaxClassCreateView, TaxClassListView, TaxClassManagerView, TaxClassPresetCreateView, TaxClassPresetListView, TaxClassPresetUpdateView, TaxClassUpdateView
 from .webhook import WebhookView
@@ -104,6 +104,7 @@ __all__ = [
     "NfceCancellationView",
     "NfseCreateRedirectView",
     "NfseRequestCancelView",
+    "NfseBatchReconcileView",
     "NfseDocumentDownloadView",
     "NfsePreviewPdfView",
     "NfseRequestCreateView",
@@ -113,6 +114,7 @@ __all__ = [
     "NfseRequestUpdateView",
     "NfseMunicipalCapabilityCreateView",
     "NfseMunicipalCapabilityListView",
+    "NfseMunicipalCapabilityStatusView",
     "NfseMunicipalCapabilityUpdateView",
     "TaxClassCreateView",
     "TaxClassListView",

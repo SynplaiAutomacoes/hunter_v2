@@ -613,3 +613,10 @@ Rollback: flags desligam novas operacoes e capacidades sem apagar legado. Migrat
 ## Evidencia da Fase 3.1
 
 Executados 13 testes especificos de capacidade, compatibilidade, webhook, sanitizacao, reconciliacao e permissao. A regressao fiscal dirigida totalizou 297 testes e concluiu com `OK`. A primeira execucao ampla foi interrompida exclusivamente pelo limite de 300 segundos; a repeticao com janela suficiente concluiu em 410,316 segundos sem falhas.
+
+## Evidencia da Fase 3.2
+
+- 14 testes especificos: item/lote, identidade, ambiguidade, transacao, anti-regressao, capacidade, status municipal, permissao, tenancy, comando e webhook compartilhado.
+- 2 testes legados de consulta por view confirmaram a compatibilidade de `change_nfserequest`.
+- 311 testes fiscais direcionados concluidos em 425,444 segundos com `OK`.
+- Migration-check, Ruff e diff-check aprovados.

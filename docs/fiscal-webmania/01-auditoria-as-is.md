@@ -383,3 +383,10 @@ Estado comprovado em 2026-06-22, sem alteracao funcional:
 - `NfseBatch.remote_updated_at` e `NfseItem.remote_updated_at` preservam o `atualizado_em` remoto canonico.
 - Emissao sem capacidade continua somente quando `WebmaniaCompany.nfse_legacy_compatibility_enabled` estiver ativa; capacidade cadastrada aplica bloqueios conservadores antes do gateway.
 - Reconciliacao permanece consulta por UUID e nao executa emissao, cancelamento, substituicao ou manifestacao.
+
+## Fase 3.2 - Resultado da auditoria e implementacao
+
+- O contrato oficial usa o mesmo `GET /2/nfse/consulta/{uuid}` para retornos `modelo=nfse` e `modelo=lote_rps`; nao existe consulta separada documentada por numero de RPS.
+- O legado consultava somente o ultimo `NfseItem`; lote pendente e `info_nfse` nao eram reconciliados pelo comando.
+- A Fase 3.2 adicionou reconciliacao transacional de lote e itens, validacao UUID/modelo, bloqueio global de ambiguidade e origem `query|webhook|sync`.
+- `/2/nfse/status` passou a alimentar snapshot sanitizado e informativo em `NfseMunicipalCapability`, sem alterar flags administrativas.

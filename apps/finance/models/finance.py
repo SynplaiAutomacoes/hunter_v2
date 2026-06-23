@@ -550,6 +550,12 @@ class NfseRequest(TimeStampedModel):
     reserved_rps_number = models.PositiveIntegerField(verbose_name="RPS reservado", null=True, blank=True)
     reserved_rps_series = models.CharField(verbose_name="Série RPS reservada", max_length=20, blank=True, default="")
 
+    class Meta(TimeStampedModel.Meta):
+        permissions = [
+            ("query_nfse", "Pode consultar NFS-e por UUID"),
+            ("query_nfse_batch", "Pode consultar lote RPS por UUID"),
+        ]
+
     def save(self, *args, **kwargs):
         if self.pk is None and self.pricing_slider is None:
             default_slider = _default_pricing_slider_from_workorder(workorder_id=self.workorder_id, workorder=getattr(self, "workorder", None))
@@ -749,7 +755,9 @@ class NfseMunicipalCapability(TimeStampedModel):
     requires_cnae = models.BooleanField(verbose_name="Exige CNAE", default=False)
     requires_iss_rate = models.BooleanField(verbose_name="Exige aliquota ISS", default=False)
     remote_payload = models.JSONField(verbose_name="Payload remoto sanitizado", blank=True, default=dict)
+    remote_status = models.BooleanField(verbose_name="Status remoto do municipio", null=True, blank=True)
     last_synced_at = models.DateTimeField(verbose_name="Ultima sincronizacao", null=True, blank=True)
+    last_status_error = models.TextField(verbose_name="Ultimo erro de consulta", blank=True, default="")
     notes = models.TextField(verbose_name="Observacoes", blank=True, default="")
 
     class Meta(TimeStampedModel.Meta):
@@ -762,6 +770,7 @@ class NfseMunicipalCapability(TimeStampedModel):
         ]
         permissions = [
             ("manage_nfse_capabilities", "Pode gerenciar capacidades municipais NFS-e"),
+            ("query_nfse_status", "Pode consultar status municipal NFS-e"),
         ]
 
     def clean(self) -> None:
@@ -796,6 +805,8 @@ class NfseBatch(models.Model):
     raw_payload = models.JSONField(blank=True, default=dict)
     last_webhook_at = models.DateTimeField(null=True, blank=True)
     remote_updated_at = models.DateTimeField(verbose_name="Atualizacao remota canonica", null=True, blank=True, db_index=True)
+    last_reconciled_at = models.DateTimeField(verbose_name="Ultima consulta", null=True, blank=True)
+    last_update_source = models.CharField(verbose_name="Origem da ultima atualizacao", max_length=20, blank=True, default="")
     last_sync_error = models.TextField(blank=True, default="")
 
     class Meta:
@@ -830,6 +841,7 @@ class NfseItem(models.Model):
     last_webhook_at = models.DateTimeField(null=True, blank=True)
     remote_updated_at = models.DateTimeField(verbose_name="Atualizacao remota canonica", null=True, blank=True, db_index=True)
     last_reconciled_at = models.DateTimeField(null=True, blank=True)
+    last_update_source = models.CharField(verbose_name="Origem da ultima atualizacao", max_length=20, blank=True, default="")
     last_sync_error = models.TextField(blank=True, default="")
 
     class Meta:

@@ -19,7 +19,7 @@ from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.forms import NfseRequestStep1Form, NfseRequestStep2Form, NfseRequestStep3Form
 from apps.finance.models.finance import NfseItem, NfseRequest, NfseRequestStatus
-from apps.finance.services.nfse_consulta import NfseConsultaError, reconcile_nfse_item
+from apps.finance.services.nfse_consulta import NfseConsultaError, reconcile_nfse_batch, reconcile_nfse_item
 from apps.finance.services.emission import NfseEmissionError, cancel_nfse_document, download_nfse_preview_document, emit_nfse_request, sync_emission_response
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.views.navigation import build_detail_url_with_preserved_origin, build_issued_documents_back_url
@@ -30,6 +30,7 @@ from apps.finance.views.request_workflow import (
     render_emission_preview_modal,
 )
 from apps.workshops.mixin import WorkshopScopedMixin
+from apps.workshops.util.workshops import has_workshop_perm
 
 
 logger = logging.getLogger(__name__)
@@ -133,6 +134,38 @@ class NfseRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView)
                     _build_field("Atualizado em", self.object.atualizado_em.strftime("%d/%m/%Y %H:%M") if self.object.atualizado_em else "-"),
                 ],
                 "latest_item_status_badge": _format_item_status_badge(getattr(latest_item, "status", "")),
+                "can_query_item": bool(
+                    latest_item
+                    and (
+                        has_workshop_perm(
+                            user=self.request.user,
+                            workshop=self.workshop,
+                            app_label="finance",
+                            model="nfserequest",
+                            codename="query_nfse",
+                            request=self.request,
+                        )
+                        or has_workshop_perm(
+                            user=self.request.user,
+                            workshop=self.workshop,
+                            app_label="finance",
+                            model="nfserequest",
+                            codename="change_nfserequest",
+                            request=self.request,
+                        )
+                    )
+                ),
+                "can_query_batch": bool(
+                    latest_batch
+                    and has_workshop_perm(
+                        user=self.request.user,
+                        workshop=self.workshop,
+                        app_label="finance",
+                        model="nfserequest",
+                        codename="query_nfse_batch",
+                        request=self.request,
+                    )
+                ),
             }
         )
         return context
@@ -189,7 +222,8 @@ class NfseRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
 class NfseRequestReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_app_label = "finance"
     workshop_permission_model = "nfserequest"
-    workshop_permission_codename = "change_nfserequest"
+    workshop_permission_codename = "query_nfse"
+    workshop_permission_fallbacks = (("finance", "nfserequest", "change_nfserequest"),)
 
     def post(self, request, *args, **kwargs):
         nfse_request = get_object_or_404(NfseRequest, pk=kwargs.get("pk"), workshop=self.workshop)
@@ -204,6 +238,28 @@ class NfseRequestReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):
             messages.error(request, str(exc))
         else:
             messages.success(request, "Status da Nota Fiscal de Serviço atualizado com sucesso.")
+
+        return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
+
+
+class NfseBatchReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "query_nfse_batch"
+
+    def post(self, request, *args, **kwargs):
+        nfse_request = get_object_or_404(NfseRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+        batch = nfse_request.batches.order_by("-id").first()
+        if batch is None:
+            messages.error(request, "A requisicao ainda nao possui lote RPS sincronizado para consulta.")
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
+
+        try:
+            reconcile_nfse_batch(batch=batch)
+        except NfseConsultaError as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, "Lote RPS e itens reconciliados com sucesso.")
 
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
 

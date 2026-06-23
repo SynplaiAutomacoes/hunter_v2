@@ -472,3 +472,10 @@ UI incremental:
 ### UI entregue na Fase 3.1
 
 Foi adicionada listagem e edicao minima de capacidades municipais no fluxo NFS-e existente, protegida por `finance.manage_nfse_capabilities` e pelo escopo da oficina ativa. A tela nao libera cancelamento, substituicao, manifestacao ou emissao manual nova; flags dessas operacoes permanecem informativas e desabilitadas por padrao.
+
+### UX e permissoes da Fase 3.2
+
+- `query_nfse`: consulta item por UUID; `change_nfserequest` permanece fallback explicito somente para compatibilidade da acao legada.
+- `query_nfse_batch`: consulta lote RPS; sem fallback legado.
+- `query_nfse_status`: consulta status municipal e protege retorno sanitizado; gerenciar capacidade nao implica consultar automaticamente.
+- detalhe da request separa “Consultar NFS-e” de “Consultar lote RPS”; tela da capacidade exibe status, horario, erro e ultimo retorno sanitizado.

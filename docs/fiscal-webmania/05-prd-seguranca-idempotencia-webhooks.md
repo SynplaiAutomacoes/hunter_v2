@@ -616,3 +616,13 @@ Reconciliacao: GET por UUID para item/lote e operacoes incertas quando o contrat
 - timestamp anterior ou rank regressivo nao altera item, lote ou request;
 - ambiguidade continua impedindo associacao automatica;
 - reconciliacao NFS-e executa somente consulta por UUID e preserva erro/estado sem operacao mutavel.
+
+## Garantias da Fase 3.2
+
+- consulta valida UUID e `modelo` antes de qualquer escrita;
+- UUID duplicado entre oficinas ou registros bloqueia atualizacao automatica;
+- lote e itens sao aplicados na mesma transacao, com rollback integral em ambiguidade;
+- webhook e query reutilizam `apply_nfse_*_payload`, rank e `atualizado_em`;
+- GET nao cria `FiscalEmissionAttempt`: retry manual e seguro, enquanto horario/origem/payload/erro formam a trilha local;
+- timeout de consulta registra erro, mas nao transforma o status fiscal em `uncertain` sem evidencia remota;
+- comando de reconciliacao nao executa POST, PUT, cancelamento, substituicao ou manifestacao.

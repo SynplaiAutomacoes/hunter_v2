@@ -569,3 +569,7 @@ Fora do escopo funcional da Fase 3.0: qualquer alteracao de comportamento NFS-e 
 ### Resultado da Fase 3.1
 
 A estabilizacao foi implementada e validada sem reescrever o fluxo por OS. Capacidade municipal minima, compatibilidade legada explicita, bloqueios pre-gateway e timestamp remoto canonico foram incorporados. Cancelamento idempotente, substituicao, manifestacao, emissao manual nova e projecao `FiscalDocument(nfse)` continuam fora do escopo.
+
+### Resultado da Fase 3.2
+
+Consulta manual e operacional agora cobre NFS-e e lote RPS por UUID, incluindo itens retornados em `info_nfse`. Status municipal e somente diagnostico: nao habilita emissao ou funcoes futuras. Consultas sao repetiveis, nao criam documento/tentativa fiscal e nao executam operacao mutavel.

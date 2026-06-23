@@ -124,6 +124,21 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 - Validacao: `makemigrations finance --check --dry-run` OK; Ruff dos Python tocados OK; 13 testes NFS-e 3.1 OK; 297 testes fiscais direcionados OK; `git diff --check` OK.
 - Status: validada; fases 3.2 e posteriores nao iniciadas.
 
+## 2026-06-23 - Inicio da Fase 3.2
+
+- Fase 3.1 validada no checkpoint `3901cf9325864663412af29e72a98d9500907b15`.
+- Auditados `NfseRequest`, `NfseBatch`, `NfseItem`, `NfseMunicipalCapability`, consulta, webhook, reconciliacao, UI e testes da 3.1.
+- Contrato Webmania NFS-e v3.1.1 revalidado: `GET /2/nfse/consulta/{uuid}` retorna `modelo=nfse|lote_rps`; `GET /2/nfse/status` retorna capacidades do provedor; `atualizado_em` permanece referencia canonica.
+- Escopo autorizado: somente consulta/reconciliacao de item/lote/status municipal. Cancelamento, substituicao, manifestacao e emissao manual nova permanecem bloqueados.
+
+## 2026-06-23 - Fechamento da Fase 3.2
+
+- Implementados GET por UUID para `NfseItem`/`NfseBatch`, reconciliacao de `info_nfse`, snapshot `/2/nfse/status`, auditoria de origem e permissões especificas.
+- Corrigidos durante auto-revisao: lock PostgreSQL sobre FK nullable; remapeamento duplo de item no webhook de lote; lote ausente no comando; compatibilidade de query legada sem empresa/permissao nova.
+- Migration `0061_alter_nfsemunicipalcapability_options_and_more` sem alteracao destrutiva ou backfill.
+- Validacao: 14 testes 3.2 OK; 2 testes legados de consulta OK; 311 testes fiscais direcionados OK; migration-check, Ruff e diff-check OK.
+- Status: validada; cancelamento idempotente, substituicao, manifestacao e emissao manual nova nao iniciados.
+
 ## 2026-06-23 - Inicio da Fase 3.1
 
 - Fase 3.0 aprovada; autorizada somente estabilizacao do legado NFS-e.

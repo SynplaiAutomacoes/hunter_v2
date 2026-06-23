@@ -259,3 +259,10 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Fase 3.3: implementar cancelamento NFS-e idempotente com tentativa anterior ao PUT e `uncertain` bloqueante.
 - Sincronizacao automatica/TTL de capacidades via `/2/nfse/status`; a Fase 3.1 usa cadastro administrativo auditavel.
 - Substituicao, manifestacao, emissao manual nova e projecao sob demanda `FiscalDocument(nfse)` exigem autorizacao propria.
+
+## Backlog apos Fase 3.2
+
+- Fase 3.3: cancelamento NFS-e idempotente com evento/tentativa, concorrencia e `uncertain`; nao reutilizar o GET como autorizacao de cancelamento.
+- Avaliar TTL/agendamento de `/2/nfse/status`; a 3.2 implementa consulta manual e snapshot informativo.
+- Consulta por numero RPS nao foi implementada porque o contrato oficial confirmado exige UUID.
+- Substituicao, manifestacao, emissao manual nova, projecao `FiscalDocument(nfse)` e backfill continuam dependendo de fases proprias.

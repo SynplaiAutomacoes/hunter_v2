@@ -10,7 +10,7 @@ from django.utils import timezone
 from apps.finance.models.finance import FiscalDocumentEvent, NfeItem, NfseBatch, NfseItem, WebmaniaWebhookEvent
 from apps.finance.services.emission import apply_nfse_batch_payload, apply_nfse_item_payload
 from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
-from apps.finance.services.mappers import extract_items_from_batch
+from apps.finance.services.mappers import extract_raw_items_from_batch
 from apps.finance.services.nfe_events import apply_cce_event_payload
 from apps.finance.services.nfe_ibs_cbs_events import apply_ibs_cbs_event_cancellation_payload, apply_ibs_cbs_event_payload, is_ambiguous_ibs_cbs_event_cancellation_webhook, is_ambiguous_ibs_cbs_event_webhook, resolve_ibs_cbs_event_cancellation_for_webhook, resolve_ibs_cbs_event_for_webhook
 from apps.finance.services.nfe_emission import apply_nfe_item_payload
@@ -165,8 +165,9 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
                     batch=batch,
                     response_payload=payload,
                     webhook_received_at=webhook_received_at,
+                    update_source="webhook",
                 )
-                for item_payload in extract_items_from_batch(payload):
+                for item_payload in extract_raw_items_from_batch(payload):
                     item_uuid = str(item_payload.get("uuid") or "").strip()
                     if not item_uuid:
                         continue
@@ -187,6 +188,7 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
                             item=item,
                             response_payload=item_payload,
                             webhook_received_at=webhook_received_at,
+                            update_source="webhook",
                         )
 
         _mark_event_processed(event)
@@ -204,6 +206,7 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
                     item=nfse_item,
                     response_payload=payload,
                     webhook_received_at=webhook_received_at,
+                    update_source="webhook",
                 )
 
         _mark_event_processed(event)

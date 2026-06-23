@@ -63,3 +63,10 @@ def extract_items_from_batch(payload: dict) -> list[dict]:
     if not isinstance(items, list):
         return []
     return [map_item_payload(item) for item in items if isinstance(item, dict)]
+
+
+def extract_raw_items_from_batch(payload: dict) -> list[dict]:
+    items = payload.get("info_nfse", [])
+    if not isinstance(items, list):
+        return []
+    return [item for item in items if isinstance(item, dict)]

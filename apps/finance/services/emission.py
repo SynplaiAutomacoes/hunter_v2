@@ -788,6 +788,8 @@ def apply_nfse_batch_payload(
     batch: NfseBatch,
     response_payload: dict[str, Any],
     webhook_received_at=None,
+    reconciled_at=None,
+    update_source: str = "",
 ) -> NfseBatch:
     sanitized_response = sanitize_fiscal_payload(response_payload)
     if not should_apply_nfse_update(
@@ -806,6 +808,10 @@ def apply_nfse_batch_payload(
     batch.raw_payload = sanitized_response
     if webhook_received_at is not None:
         batch.last_webhook_at = webhook_received_at
+    if reconciled_at is not None:
+        batch.last_reconciled_at = reconciled_at
+    if update_source:
+        batch.last_update_source = update_source
     batch.last_sync_error = ""
     batch.save()
 
@@ -821,6 +827,7 @@ def apply_nfse_item_payload(
     response_payload: dict[str, Any],
     webhook_received_at=None,
     reconciled_at=None,
+    update_source: str = "",
 ) -> NfseItem:
     sanitized_response = sanitize_fiscal_payload(response_payload)
     if not should_apply_nfse_update(
@@ -841,6 +848,8 @@ def apply_nfse_item_payload(
         item.last_webhook_at = webhook_received_at
     if reconciled_at is not None:
         item.last_reconciled_at = reconciled_at
+    if update_source:
+        item.last_update_source = update_source
     item.last_sync_error = ""
     item.save()
 
@@ -895,6 +904,7 @@ def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[
                     "workshop": nfse_request.workshop,
                     "request": nfse_request,
                     "raw_payload": response_payload,
+                    "last_update_source": "sync",
                     "last_sync_error": "",
                     **mapped_batch,
                 },
@@ -930,6 +940,7 @@ def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[
                         "request": nfse_request,
                         "batch": batch,
                         "raw_payload": response_payload,
+                        "last_update_source": "sync",
                         "last_sync_error": "",
                         **item_payload,
                     },
@@ -981,6 +992,7 @@ def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[
                 "workshop": nfse_request.workshop,
                 "request": nfse_request,
                 "raw_payload": response_payload,
+                "last_update_source": "sync",
                 "last_sync_error": "",
                 **mapped_item,
             },

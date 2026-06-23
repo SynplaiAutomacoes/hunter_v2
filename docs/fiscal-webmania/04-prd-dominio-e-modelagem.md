@@ -749,3 +749,10 @@ Campos derivados pesquisaveis: Padrao Nacional, emissao sincrona/assincrona, `nf
 ### Modelagem implementada na Fase 3.1
 
 `NfseMunicipalCapability` possui unicidade por `(workshop, company, city_code)`, indices por oficina/municipio/atividade e empresa/UF/municipio, flags de operacao e requisitos municipais. `WebmaniaCompany.nfse_legacy_compatibility_enabled` controla explicitamente a ausencia de cadastro. `NfseBatch` e `NfseItem` receberam `remote_updated_at`; nenhum dado legado foi transformado ou preenchido em massa.
+
+### Extensao minima da Fase 3.2
+
+- `NfseBatch`: `last_reconciled_at` e `last_update_source`.
+- `NfseItem`: `last_update_source`, reutilizando `last_reconciled_at` existente.
+- `NfseMunicipalCapability`: `remote_status` e `last_status_error`, reutilizando `remote_payload`/`last_synced_at`.
+- Nenhum `FiscalDocument(nfse)`, backfill ou modelo de cancelamento/substituicao/manifestacao foi criado.

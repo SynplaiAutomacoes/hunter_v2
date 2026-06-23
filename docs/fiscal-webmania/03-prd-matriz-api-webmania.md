@@ -753,3 +753,13 @@ Documentacao oficial revalidada em 2026-06-23: Webmania NFS-e v3.1.1 e Portal Na
 ### Resultado operacional da Fase 3.1
 
 Emissao legada passou a consultar capacidade municipal antes do POST; webhook e consulta persistem `atualizado_em` e rejeitam retorno antigo/regressivo; reconciliacao continua usando somente `GET /2/nfse/consulta/{uuid}`. Nao houve mudanca adicional no OpenAPI validado nesta implementacao.
+
+### Matriz implementada na Fase 3.2
+
+| Operacao | Endpoint | Resultado local | Garantia |
+| --- | --- | --- | --- |
+| Consultar NFS-e | `GET /2/nfse/consulta/{uuid}` | `NfseItem`, request, XML/PDF/RPS e auditoria | UUID/modelo unicos; rank + `atualizado_em`; sem POST/PUT |
+| Consultar lote RPS | `GET /2/nfse/consulta/{uuid}` | `NfseBatch` e itens de `info_nfse` em transacao | rollback integral em ambiguidade; sem reemissao |
+| Status municipal | `GET /2/nfse/status` | `remote_status`, payload sanitizado, horario e erro | nao altera provider, versao ou flags administrativas |
+
+O OpenAPI validado ja representava os dois GETs e nao precisou de alteracao na Fase 3.2.

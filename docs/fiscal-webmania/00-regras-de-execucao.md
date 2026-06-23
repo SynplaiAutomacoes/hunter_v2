@@ -38,3 +38,7 @@ Ao concluir Fase 0, parar e aguardar aprovacao dos PRDs e da primeira fase de co
 ## Regra da Fase 3.0
 
 Auditar e planejar NFS-e somente em `docs/fiscal-webmania/**`. Nao criar models, migrations, gateways, telas ou testes. Creditos 2-5, debitos restantes, eventos `112120`/`112140`/`211xxx`, complementar tributaria, CT-e, MDF-e, NFCom e DC-e permanecem adiados.
+
+## Regra da Fase 3.2
+
+Somente operacoes GET de consulta NFS-e, lote RPS e status municipal foram autorizadas. Nenhum caminho pode emitir, cancelar, substituir ou manifestar; cancelamento idempotente permanece reservado a Fase 3.3.

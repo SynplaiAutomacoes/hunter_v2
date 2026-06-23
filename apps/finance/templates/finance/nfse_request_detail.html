@@ -9,13 +9,24 @@
         <span class="material-icons text-sm">edit</span>
         Editar
     </a>
-    <form method="post" action="{% url 'finance:nfse_reconcile' pk=nfse_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-sm btn-outline gap-2">
-            <span class="material-icons text-sm">sync</span>
-            Reconsultar status
-        </button>
-    </form>
+    {% if can_query_item %}
+        <form method="post" action="{% url 'finance:nfse_reconcile' pk=nfse_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-outline gap-2">
+                <span class="material-icons text-sm">sync</span>
+                Consultar NFS-e
+            </button>
+        </form>
+    {% endif %}
+    {% if can_query_batch %}
+        <form method="post" action="{% url 'finance:nfse_batch_reconcile' pk=nfse_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-outline gap-2">
+                <span class="material-icons text-sm">sync</span>
+                Consultar lote RPS
+            </button>
+        </form>
+    {% endif %}
     {% if can_cancel %}
         <button type="button" class="btn btn-sm btn-error gap-2" onclick="cancel_nfse_modal.showModal()">
             <span class="material-icons text-sm">cancel</span>

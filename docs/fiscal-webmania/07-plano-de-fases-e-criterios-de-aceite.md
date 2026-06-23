@@ -635,3 +635,11 @@ Escopo: capacidade municipal minima, flag de compatibilidade legada, bloqueios p
 Fora do escopo: cancelamento idempotente, substituicao, manifestacao, emissao manual, projecao generalizada `FiscalDocument(nfse)`, backfill e demais familias fiscais.
 
 Status: **validada em 2026-06-23**. Migration `0060_nfsebatch_remote_updated_at_and_more`; 13 testes especificos e 297 testes fiscais direcionados aprovados. `makemigrations finance --check --dry-run`, Ruff nos Python tocados e `git diff --check` aprovados. Nenhuma subfase 3.2+ foi iniciada.
+
+## Fase 3.2 - Consulta e reconciliacao NFS-e ampliada
+
+Status: **validada em 2026-06-23**. A Fase 3.1 foi encerrada no checkpoint `3901cf9325864663412af29e72a98d9500907b15` com `NfseMunicipalCapability` e `atualizado_em` canonico.
+
+Escopo: consolidar o GET `/2/nfse/consulta/{uuid}` para item e lote, aplicar o retorno pelo `modelo` remoto, reconciliar itens de `info_nfse`, consultar `/2/nfse/status` como snapshot informativo sanitizado e expor acoes protegidas. Nenhum caminho pode emitir, cancelar, substituir ou manifestar.
+
+Resultado: migration `0061_alter_nfsemunicipalcapability_options_and_more`; 14 testes especificos da 3.2, 2 regressões legadas de consulta e 311 testes fiscais direcionados aprovados. `makemigrations finance --check --dry-run`, Ruff dos Python tocados e `git diff --check` aprovados. Fase 3.3 nao iniciada.

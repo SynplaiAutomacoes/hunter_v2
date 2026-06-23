@@ -593,3 +593,11 @@ Fase: 2.4D.6.0.
 **Consequencias:** compatibilidade legada e flags por oficina sao obrigatorias. Nenhuma nova operacao herda permissao legada automaticamente. O gateway continua sendo Webmania; documentos nacionais definem semantica, nao uma integracao paralela.
 
 **Status da decisao em 2026-06-23:** aceita e implementada na Fase 3.1. A primeira versao usa snapshot administrativo local por oficina/empresa/municipio e compatibilidade legada explicita; sincronizacao automatica e TTL remoto permanecem para fase futura. O timestamp remoto canonico foi adicionado ao item/lote sem backfill.
+
+## ADR - Consultas NFS-e nao usam tentativa de emissao
+
+**Decisao:** consultas da Fase 3.2 sao GETs repetiveis e nao recebem `FiscalEmissionAttempt`. A trilha usa `last_reconciled_at`, `last_update_source`, payload sanitizado e erro. Isso evita aplicar semantica `uncertain` de transmissao a uma leitura: timeout de GET nao prova alteracao fiscal remota.
+
+**Lote:** o UUID do `lote_rps` usa o mesmo endpoint de consulta. Batch e `info_nfse` sao aplicados transacionalmente; nao foi inventada consulta por numero RPS.
+
+**Status municipal:** resposta remota e snapshot informativo. Somente acao administrativa futura pode alterar flags aprovadas.
