@@ -775,3 +775,7 @@ Uma preview aprovada pode originar no maximo uma substituicao ativa, incerta ou 
 ### Modelagem implementada na Fase 3.4P
 
 `NfseSubstitutionPreview` referencia `NfseItem` original e congela UUID, codigo de verificacao, snapshot auditavel do XML/retorno original, ambiente, motivo, novo RPS e request planejado. Status, erros, campos proibidos, criador e aprovador formam a trilha local. Constraint permite somente uma preview aprovada por original. Payload, referencia, motivo, ambiente e snapshot tornam-se imutaveis apos aprovacao. `WebmaniaCompany.nfse_substitution_preview_enabled` e a flag preparatoria; `NfseMunicipalCapability.substitution_enabled` continua sendo o controle municipal.
+
+### Modelagem implementada na Fase 3.4.1
+
+`NfseSubstitution` possui preview one-to-one, original, substituta opcional, UUIDs, codigo original, motivo, payload/response, snapshots XML separados, status, `is_uncertain`, solicitante e timestamps. Constraint impede duas operacoes ativas para a mesma original. `NfseItemStatus.substituido` protege anti-regressao. Nao existe `FiscalDocument(nfse)`.

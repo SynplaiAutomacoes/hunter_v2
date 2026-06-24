@@ -624,3 +624,7 @@ O objeto `rps` deve usar os mesmos campos municipais validados para emissao, mas
 ## Fase 3.4P implementada
 
 `NfseSubstitutionPreview` monta e valida localmente o novo RPS a partir de entrada administrativa explicita. A original deve estar aprovada e possuir UUID, codigo de verificacao e URL XML. A preview exige numero/serie, tomador com documento/nome, servico com discriminacao/valor positivo e classe de imposto ou impostos explicitos. Nenhuma substituicao e transmitida e a original permanece inalterada.
+
+## Fase 3.4.1 implementada
+
+A acao remota fica disponivel somente na preview aprovada e exige confirmacao explicita, feature flag, capability municipal e `substitute_nfse`. O payload enviado e exatamente o snapshot aprovado. Resposta positiva exige UUID substituto e confirmacao de `nfse_substituida.uuid` no retorno sincrono; somente entao cria o novo `NfseItem` e marca a original como substituida.

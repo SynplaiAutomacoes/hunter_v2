@@ -4,7 +4,7 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
 
-from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionOperationType, NfeItem, NfseBatch, NfseCancellation, NfseItem
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionOperationType, NfeItem, NfseBatch, NfseCancellation, NfseItem, NfseSubstitution
 from apps.finance.services.nfe_adjustment import NfeAdjustmentError, reconcile_nfe_adjustment_document
 from apps.finance.services.nfe_complementary import NfeComplementaryError, reconcile_nfe_complementary_document
 from apps.finance.services.nfe_credit import NfeCreditError, reconcile_nfe_credit_document
@@ -17,6 +17,7 @@ from apps.finance.services.nfce_cancellation import NfceCancellationError, recon
 from apps.finance.services.nfce_emission import NfceEmissionError, reconcile_nfce_document
 from apps.finance.services.nfse_consulta import NfseConsultaError, reconcile_nfse_batch, reconcile_nfse_item
 from apps.finance.services.nfse_cancellation import NfseCancellationError, reconcile_nfse_cancellation
+from apps.finance.services.nfse_substitution import NfseSubstitutionError, reconcile_nfse_substitution
 from apps.finance.services.webmania_webhooks import process_pending_webhook_events
 
 
@@ -198,6 +199,15 @@ class Command(BaseCommand):
                 reconciled_nfse += 1
 
         uncertain_checked = 0
+        pending_nfse_substitutions = NfseSubstitution.objects.filter(status=FiscalEmissionAttemptStatus.SENT, uuid_replacement__isnull=False).select_related("workshop", "preview", "original_nfse").order_by("pk")[:limit]
+        for pending_substitution in pending_nfse_substitutions:
+            try:
+                reconcile_nfse_substitution(substitution=pending_substitution)
+            except NfseSubstitutionError:
+                failed += 1
+            else:
+                uncertain_checked += 1
+
         uncertain_attempts = FiscalEmissionAttempt.objects.filter(status=FiscalEmissionAttemptStatus.UNCERTAIN).select_related("workshop", "fiscal_document").order_by("pk")[:limit]
         for attempt in uncertain_attempts:
             if attempt.document_kind == "nfe":
@@ -285,6 +295,17 @@ class Command(BaseCommand):
                 continue
 
             if attempt.document_kind == "nfse":
+                if attempt.operation_type == FiscalEmissionOperationType.NFSE_SUBSTITUTION and attempt.request_model == NfseSubstitution.__name__:
+                    substitution = NfseSubstitution.objects.filter(pk=attempt.request_id, workshop=attempt.workshop).select_related("original_nfse", "preview").first()
+                    if substitution is not None:
+                        try:
+                            reconcile_nfse_substitution(substitution=substitution)
+                        except NfseSubstitutionError:
+                            failed += 1
+                        else:
+                            uncertain_checked += 1
+                    continue
+
                 if attempt.operation_type == FiscalEmissionOperationType.NFSE_CANCELLATION and attempt.request_model == NfseCancellation.__name__:
                     cancellation = NfseCancellation.objects.filter(pk=attempt.request_id, workshop=attempt.workshop).select_related("item", "request").first()
                     if cancellation is not None:

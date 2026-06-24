@@ -24,6 +24,7 @@ from apps.finance.services.nfe_returns import apply_nfe_return_document_payload,
 from apps.finance.services.nfce_cancellation import apply_nfce_cancellation_event_payload, is_ambiguous_nfce_cancellation_webhook, resolve_nfce_cancellation_event_for_webhook
 from apps.finance.services.nfce_emission import apply_nfce_document_payload, is_ambiguous_nfce_webhook, resolve_nfce_document_for_webhook
 from apps.finance.services.nfse_cancellation import NfseCancellationError, confirm_nfse_cancellation_from_payload
+from apps.finance.services.nfse_substitution import NfseSubstitutionError, confirm_nfse_substitution_from_payload, is_ambiguous_nfse_substitution_webhook, resolve_nfse_substitution_for_webhook
 
 
 def _unique_or_none(queryset: Any) -> Any | None:
@@ -77,6 +78,7 @@ def _status_rank(model: str, status: str) -> int:
             "aprovado": 30,
             "reprovado": 40,
             "cancelado": 50,
+            "substituido": 50,
         }.get(normalized, 0)
     if model == "nfe":
         return {
@@ -196,6 +198,19 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
         return True
 
     if model == "nfse":
+        substitution = resolve_nfse_substitution_for_webhook(payload=payload)
+        if substitution is not None:
+            try:
+                confirm_nfse_substitution_from_payload(substitution=substitution, payload=payload, update_source="webhook")
+            except NfseSubstitutionError as exc:
+                _mark_event_deferred(event, error=str(exc))
+                return False
+            _mark_event_processed(event)
+            return True
+        if is_ambiguous_nfse_substitution_webhook(payload=payload):
+            _mark_event_deferred(event, error=f"Substituicao NFS-e {event_uuid} ambigua entre intencoes.")
+            return False
+
         nfse_item = _unique_or_none(NfseItem.objects.filter(uuid=event_uuid).select_related("request"))
         if nfse_item is None:
             _mark_event_deferred(event, error=f"Nota Fiscal de Serviço {event_uuid} ainda nao foi sincronizada localmente ou esta ambigua entre oficinas.")

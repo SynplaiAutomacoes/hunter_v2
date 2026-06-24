@@ -492,3 +492,5 @@ Foi adicionada listagem e edicao minima de capacidades municipais no fluxo NFS-e
 - Futuro detalhe mostra original e substituta, payload, erros, status e XMLs separados.
 
 Implementado na 3.4P: lista, formulario, detalhe, aprovacao local e JSON sanitizado. Permissoes efetivas: `prepare_nfse_substitution`, `approve_nfse_substitution`, `view_nfse_substitution_preview` e `view_nfse_substitution_preview_payload`. O detalhe da NFS-e original oferece apenas **Preparar substituicao** quando elegivel; nao existe botao de transmissao.
+
+Implementado na 3.4.1: **Substituir NFS-e** aparece apenas em preview aprovada elegivel e abre confirmacao explicita. `substitute_nfse` nao possui fallback para preparar, aprovar ou cancelar. `view_nfse_substitution_payload` e `download_nfse_substitution` protegem request/response, XML original, XML/PDF substitutos e tenancy.

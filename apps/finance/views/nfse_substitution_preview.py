@@ -5,15 +5,17 @@ from typing import Any
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
-from django.http import JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.views import View
 from django.views.generic import DetailView, FormView, ListView
 
 from apps.finance.forms.nfse_substitution_preview import NfseSubstitutionPreviewCreateForm
-from apps.finance.models.finance import NfseSubstitutionPreview
+from apps.finance.models.finance import FiscalEmissionAttemptStatus, NfseSubstitution, NfseSubstitutionPreview
 from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
 from apps.finance.services.nfse_substitution_preview import approve_nfse_substitution_preview, create_nfse_substitution_preview, is_nfse_substitution_preview_enabled
+from apps.finance.services.nfse_substitution import NfseSubstitutionError, is_nfse_substitution_eligible, substitute_nfse_from_preview
+from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import has_workshop_perm
 
@@ -92,6 +94,11 @@ class NfseSubstitutionPreviewDetailView(NfseSubstitutionPreviewPermissionMixin, 
         context = super().get_context_data(**kwargs)
         context["can_approve"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfsesubstitutionpreview", codename="approve_nfse_substitution", request=self.request)
         context["can_view_payload"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfsesubstitutionpreview", codename="view_nfse_substitution_preview_payload", request=self.request)
+        context["can_substitute"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfsesubstitution", codename="substitute_nfse", request=self.request)
+        context["can_view_substitution_payload"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfsesubstitution", codename="view_nfse_substitution_payload", request=self.request)
+        context["can_download_substitution"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfsesubstitution", codename="download_nfse_substitution", request=self.request)
+        context["substitution"] = NfseSubstitution.objects.filter(preview=self.object, workshop=self.workshop).select_related("replacement_nfse").first()
+        context["substitution_eligible"] = context["can_substitute"] and is_nfse_substitution_eligible(self.object)
         return context
 
 
@@ -124,3 +131,61 @@ class NfseSubstitutionPreviewPayloadView(NfseSubstitutionPreviewPermissionMixin,
                 "validation_errors": preview.validation_errors,
             }
         )
+
+
+class NfseSubstitutionIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfsesubstitution"
+    workshop_permission_codename = "substitute_nfse"
+
+    def post(self, request, *args, **kwargs):
+        preview = get_object_or_404(NfseSubstitutionPreview.objects.select_related("original_nfse", "original_nfse__request"), pk=kwargs["pk"], workshop=self.workshop)
+        if request.POST.get("confirmed") != "1":
+            messages.error(request, "Confirme explicitamente a substituicao remota da NFS-e.")
+            return redirect("finance:nfse_substitution_preview_detail", pk=preview.pk)
+        try:
+            substitution = substitute_nfse_from_preview(preview=preview, requested_by=request.user)
+        except NfseSubstitutionError as exc:
+            messages.error(request, str(exc))
+        else:
+            if substitution.status == FiscalEmissionAttemptStatus.SUCCEEDED:
+                messages.success(request, "NFS-e substituida com confirmacao remota valida.")
+            else:
+                messages.info(request, "Substituicao enviada e aguardando confirmacao remota.")
+        return redirect("finance:nfse_substitution_preview_detail", pk=preview.pk)
+
+
+class NfseSubstitutionPayloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfsesubstitution"
+    workshop_permission_codename = "view_nfse_substitution_payload"
+
+    def get(self, request, *args, **kwargs):
+        substitution = get_object_or_404(NfseSubstitution, pk=kwargs["substitution_pk"], preview_id=kwargs["pk"], workshop=self.workshop)
+        return JsonResponse({"request": sanitize_fiscal_payload(substitution.request_payload), "response": sanitize_fiscal_payload(substitution.response_payload), "status": substitution.status})
+
+
+class NfseSubstitutionDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfsesubstitution"
+    workshop_permission_codename = "download_nfse_substitution"
+
+    def get(self, request, *args, **kwargs):
+        substitution = get_object_or_404(NfseSubstitution, pk=kwargs["substitution_pk"], preview_id=kwargs["pk"], workshop=self.workshop)
+        document = kwargs["document"]
+        urls = {
+            "original_xml": str(substitution.original_xml_snapshot.get("url") or ""),
+            "replacement_xml": substitution.replacement_xml_url,
+            "replacement_pdf": substitution.replacement_pdf_url,
+        }
+        url = urls.get(document, "")
+        if not url:
+            raise Http404("Documento da substituicao indisponivel")
+        try:
+            downloaded = download_webmania_document(workshop=self.workshop, url=url)
+        except WebmaniaDocumentDownloadError as exc:
+            return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
+        extension = "pdf" if document.endswith("pdf") else "xml"
+        response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
+        response["Content-Disposition"] = f'attachment; filename="nfse-substituicao-{substitution.pk}-{document}.{extension}"'
+        return response

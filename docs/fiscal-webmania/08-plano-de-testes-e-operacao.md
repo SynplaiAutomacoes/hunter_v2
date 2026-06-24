@@ -637,3 +637,5 @@ Contrato restrito a `uuid`/`motivo`; elegibilidade; capacidade municipal; permis
 - cancelamento idempotente da Fase 3.3 e emissao/consulta/downloads legados nao regridem.
 
 Cobertura implementada na 3.4P: payload exato; original inelegivel; UUID/codigo/XML; RPS/tomador/servico/valor; flag/capability; oficina/permissoes; uma preview aprovada por original; imutabilidade de payload/XML/estado; ausencia de POST/PUT, `FiscalEmissionAttempt`, item substituto e alteracao da original; regressao do cancelamento NFS-e.
+
+Cobertura 3.4.1: body exato sem `uuid`; preview/original/flag/capability; confirmacao cruzada da original; criacao tardia da substituta; XMLs separados; rejeicao; timeout/uncertain; retry; concorrencia; webhook direto e fallback; duplicidade; anti-regressao; GET sem POST; permissao/tenancy e regressao 3.1-3.4P.

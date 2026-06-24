@@ -48,6 +48,7 @@ class NfseItemStatus(models.TextChoices):
     reprovado = "reprovado"
     cancelado = "cancelado"
     contingencia = "contingencia"
+    substituido = "substituido"
 
 
 class NfsePdfStatus(models.TextChoices):
@@ -121,6 +122,7 @@ class FiscalEmissionOperationType(models.TextChoices):
     NFE_DEBIT_EMISSION = "nfe_debit_emission", "Emissao NF-e de debito"
     NFE_DEBIT_CANCELLATION = "nfe_debit_cancellation", "Cancelamento NF-e de debito"
     NFSE_CANCELLATION = "nfse_cancellation", "Cancelamento NFS-e"
+    NFSE_SUBSTITUTION = "nfse_substitution", "Substituicao NFS-e"
 
 
 class FiscalDocumentType(models.TextChoices):
@@ -992,6 +994,65 @@ class NfseSubstitutionPreview(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"NfseSubstitutionPreview[{self.original_nfse_id}:{self.validation_status}]"
+
+
+class NfseSubstitution(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="nfse_substitutions")
+    preview = models.OneToOneField(NfseSubstitutionPreview, verbose_name="Preview aprovada", on_delete=models.PROTECT, related_name="substitution")
+    original_nfse = models.ForeignKey(NfseItem, verbose_name="NFS-e original", on_delete=models.PROTECT, related_name="outgoing_substitutions")
+    replacement_nfse = models.OneToOneField(NfseItem, verbose_name="NFS-e substituta", on_delete=models.PROTECT, null=True, blank=True, related_name="incoming_substitution")
+    uuid_original = models.UUIDField(verbose_name="UUID original", db_index=True)
+    uuid_replacement = models.UUIDField(verbose_name="UUID substituta", null=True, blank=True, db_index=True)
+    original_verification_code = models.CharField(verbose_name="Codigo de verificacao original", max_length=60)
+    reason_code = models.PositiveSmallIntegerField(verbose_name="Motivo")
+    request_payload = models.JSONField(verbose_name="Payload enviado", default=dict)
+    response_payload = models.JSONField(verbose_name="Resposta remota", default=dict, blank=True)
+    original_xml_snapshot = models.JSONField(verbose_name="Snapshot XML original", default=dict)
+    replacement_xml_url = models.URLField(verbose_name="XML substituta", blank=True, default="")
+    replacement_pdf_url = models.URLField(verbose_name="PDF substituta", blank=True, default="")
+    status = models.CharField(max_length=20, choices=FiscalEmissionAttemptStatus.choices, default=FiscalEmissionAttemptStatus.STARTED, db_index=True)
+    is_uncertain = models.BooleanField(default=False, db_index=True)
+    requested_by = models.ForeignKey("accounts.User", verbose_name="Solicitante", on_delete=models.SET_NULL, null=True, blank=True, related_name="nfse_substitutions")
+    sent_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["original_nfse"], condition=models.Q(status__in=[FiscalEmissionAttemptStatus.STARTED, FiscalEmissionAttemptStatus.SENT, FiscalEmissionAttemptStatus.SUCCEEDED, FiscalEmissionAttemptStatus.UNCERTAIN]), name="unique_active_nfse_substitution"),
+        ]
+        indexes = [models.Index(fields=["workshop", "status"], name="nfse_subst_scope_status_idx")]
+        permissions = [
+            ("substitute_nfse", "Pode substituir NFS-e"),
+            ("view_nfse_substitution_payload", "Pode visualizar payload da substituicao NFS-e"),
+            ("download_nfse_substitution", "Pode baixar documentos da substituicao NFS-e"),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if self.preview_id and (not self.preview.is_approved or self.preview.validation_status != FiscalProductPreviewStatus.APPROVED):
+            raise ValidationError({"preview": "A substituicao exige preview aprovada."})
+        if self.preview_id and self.preview.workshop_id != self.workshop_id:
+            raise ValidationError({"preview": "A preview pertence a outra oficina."})
+        if self.original_nfse_id and self.original_nfse.workshop_id != self.workshop_id:
+            raise ValidationError({"original_nfse": "A NFS-e original pertence a outra oficina."})
+        if self.preview_id and self.original_nfse_id and self.preview.original_nfse_id != self.original_nfse_id:
+            raise ValidationError("A original deve corresponder a preview aprovada.")
+        if self.replacement_nfse_id and self.replacement_nfse.workshop_id != self.workshop_id:
+            raise ValidationError({"replacement_nfse": "A substituta pertence a outra oficina."})
+        if self.is_uncertain != (self.status == FiscalEmissionAttemptStatus.UNCERTAIN):
+            raise ValidationError("Status uncertain e marcador de incerteza devem permanecer consistentes.")
+
+    def save(self, *args, **kwargs) -> None:
+        if self.pk:
+            immutable_fields = ("workshop_id", "preview_id", "original_nfse_id", "uuid_original", "original_verification_code", "reason_code", "request_payload", "original_xml_snapshot")
+            persisted = type(self).objects.filter(pk=self.pk).values(*immutable_fields).first()
+            if persisted and any(persisted[field] != getattr(self, field) for field in immutable_fields):
+                raise ValidationError("A intencao e o payload da substituicao NFS-e sao imutaveis.")
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"NfseSubstitution[{self.original_nfse_id}:{self.status}]"
 
 
 class NfeItem(models.Model):

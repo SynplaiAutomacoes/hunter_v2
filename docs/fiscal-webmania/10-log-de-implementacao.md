@@ -1,5 +1,16 @@
 # Log de implementacao fiscal
 
+## Fase 3.4.1 - inicio
+
+- Fase 3.4P validada no checkpoint `747b6750a62d6ed59bed84c4616f89793c4247b4`.
+- `NfseSubstitutionPreview` aprovada e imutavel passa a ser a unica origem permitida do payload remoto.
+- Contrato oficial revalidado em 2026-06-24: texto introdutorio ainda cita `uuid`, mas tabela/exemplo confirmam `ambiente`, `codigo_verificacao`, `motivo` e `rps`; nao sera enviado payload hibrido.
+- Escopo autorizado: somente `POST /2/nfse/substituir`, idempotencia, confirmacao original/substituta, webhook/reconciliacao consultiva, permissoes e UI minima.
+- Implementados `NfseSubstitution`, tentativa `nfse_substitution`, estado `NfseItem.substituido`, service remoto, webhook, reconciliacao GET-only, UI, payload e downloads protegidos pela migration `0064`.
+- Auto-revisao adicionou rank terminal `substituido`, fallback seguro por `nfse_substituida.uuid`, bloqueio de ambiguidade e reconciliacao de respostas assíncronas sem novo POST.
+- Validacao final: 66 testes direcionados passaram; `makemigrations --check`, ruff e `git diff --check` passaram.
+- `mypy` nao bloqueante: 1118 erros no grafo de 118 arquivos; isolamento encontrou `requests` sem stubs e erro interno do `django-stubs`, sem mudar o baseline aceito.
+
 ## Fase 3.4P - inicio
 
 - Fase 3.4.0 aprovada: criar preview imutavel do novo RPS antes da substituicao remota.

@@ -408,6 +408,6 @@ O caminho anterior executava `PUT /2/nfse/cancelar` diretamente em `emission.py`
 - A preview exige entrada administrativa explicita do novo RPS e congela os identificadores, a URL do XML e o payload original sanitizado disponivel como snapshot auditavel.
 - O cancelamento NFS-e usa `NfseCancellation` e tentativa remota propria; nenhuma dessas estruturas sera reutilizada para transmitir substituicao.
 - Webhook, reconciliacao e downloads permanecem somente leitura para esta fase. Nao existe chamada Webmania, tentativa `nfse_substitution`, nova `NfseItem` ou mudanca de status da original.
-- Nao existe `NfseSubstitution`, preview, permissao `substitute_nfse`, feature flag de rollout ou estado local `substituido`.
+- A Fase 3.4P criou preview, permissoes preparatorias e feature flag; a Fase 3.4.1 adicionou `NfseSubstitution`, permissao `substitute_nfse`, tentativa `nfse_substitution` e estado local `substituido`.
 
-Conclusao: a infraestrutura de consulta, webhook, `atualizado_em` e tentativas e reutilizavel, mas a fonte do novo RPS ainda nao e imutavel. A proxima fase deve ser preparatoria, sem POST remoto.
+Conclusao atual: o POST consome exclusivamente preview aprovada. A substituta nasce como novo `NfseItem` somente com resposta/webhook aprovado e identidade segura; a original conserva seu XML e muda para `substituido` apenas nessa confirmacao.

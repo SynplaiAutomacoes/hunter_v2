@@ -788,3 +788,5 @@ Fonte revalidada em 2026-06-23: [documentacao oficial Webmania NFS-e](https://we
 O OpenAPI validado ja representa a tabela/exemplo oficial com `ambiente`, `codigo_verificacao`, `motivo` e `rps` objeto. Nenhuma alteracao foi necessaria nesta fase.
 
 Na Fase 3.4P o contrato e apenas pre-payload local: `{ambiente, codigo_verificacao, motivo, rps}`. Nao existe chamada HTTP, `uuid` enviado, `url_notificacao`, webhook ou consulta remota de substituicao.
+
+Na Fase 3.4.1 o mesmo objeto congelado e enviado por `POST /2/nfse/substituir`. Nao se envia `uuid`, `url_notificacao` ou campos livres. Resposta mapeada: `uuid`, `status`, `numero`, `codigo_verificacao`, `serie_rps`, `numero_rps`, `nfse_substituida`, `xml`, `pdf`/`pdf_nfse` e `log`. O OpenAPI validado permaneceu suficiente e nao foi alterado.

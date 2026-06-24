@@ -44,7 +44,7 @@ from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.movement_group import MovementGroup
-from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentLink, FiscalDocumentLinkRole, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, FiscalNumberInutilization, FiscalNumberInutilizationStatus, NfeItem, NfeRequest, NfeRequestStatus, NfseCancellation, NfseItem, NfseRequest, NfseRequestStatus, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentLink, FiscalDocumentLinkRole, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, FiscalNumberInutilization, FiscalNumberInutilizationStatus, NfeItem, NfeRequest, NfeRequestStatus, NfseCancellation, NfseItem, NfseRequest, NfseRequestStatus, NfseSubstitutionPreview, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
@@ -15905,3 +15905,291 @@ class FiscalPhaseThreeNfseSubstitutionPreviewTests(TestCase):
 
         with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=False), self.assertRaises(PermissionDenied):
             NfseSubstitutionPreviewCreateView.as_view()(request)
+
+
+class FiscalPhaseThreeNfseSubstitutionTests(TestCase):
+    def setUp(self) -> None:
+        from apps.finance.models.finance import NfseMunicipalCapability
+        from apps.finance.services.nfse_substitution_preview import approve_nfse_substitution_preview, create_nfse_substitution_preview
+
+        self.user, self.workshop = create_director_user_with_workshop(suffix=84)
+        self.company = WebmaniaCompany.objects.create(workshop=self.workshop, webmania_company_id="NFSE-SUBSTITUTION", bearer_access_token="encrypted-token", cidade="Sao Paulo", uf="SP", nfse_substitution_preview_enabled=True)
+        self.capability = NfseMunicipalCapability.objects.create(workshop=self.workshop, company=self.company, city_code="3550308", city_name="Sao Paulo", state="SP", substitution_enabled=True, query_enabled=True)
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=timezone.now().date())
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        self.nfse_request = NfseRequest.objects.create(workshop=self.workshop, workorder=workorder)
+        self.original = NfseItem.objects.create(workshop=self.workshop, workorder=workorder, request=self.nfse_request, uuid="35000000-0000-0000-0000-000000000001", status="aprovado", number="100", verification_code="VERIFY-ORIGINAL", xml_url="https://example.test/original.xml")
+        self.preview = create_nfse_substitution_preview(
+            workshop=self.workshop,
+            original_nfse=self.original,
+            environment="1",
+            reason_code=1,
+            rps_number=200,
+            rps_series="SUB",
+            service_payload={"valor_servicos": "250.00", "discriminacao": "Servico substituto", "classe_imposto": "REFNFSE"},
+            taker_payload={"cnpj": "11.222.333/0001-44", "razao_social": "Cliente Substituicao"},
+            created_by=self.user,
+        )
+        approve_nfse_substitution_preview(preview=self.preview, approved_by=self.user)
+        self.preview.refresh_from_db()
+
+    def _success_payload(self) -> dict[str, Any]:
+        return {
+            "modelo": "nfse",
+            "uuid": "35000000-0000-0000-0000-000000000002",
+            "status": "aprovado",
+            "numero": "101",
+            "codigo_verificacao": "VERIFY-NEW",
+            "serie_rps": "SUB",
+            "numero_rps": "200",
+            "nfse_substituida": {"uuid": str(self.original.uuid), "numero": "100", "codigo_verificacao": "VERIFY-ORIGINAL"},
+            "xml": "https://example.test/replacement.xml",
+            "pdf_nfse": "https://example.test/replacement.pdf",
+        }
+
+    def _substitute(self, payload: dict[str, Any] | None = None):
+        from apps.finance.services.nfse_substitution import substitute_nfse_from_preview
+
+        with patch("apps.finance.services.nfse_substitution._build_headers", return_value={"X-Test": "ok"}), patch("apps.finance.services.nfse_substitution._build_substitution_url", return_value="https://api.webmania.com.br/2/nfse/substituir"), patch("apps.finance.services.nfse_substitution.requests.post", return_value=_mock_response(payload or self._success_payload())) as post_mock:
+            substitution = substitute_nfse_from_preview(preview=self.preview, requested_by=self.user)
+        return substitution, post_mock
+
+    def test_exact_contract_creates_replacement_only_after_valid_confirmation(self) -> None:
+        from apps.finance.models.finance import NfseSubstitution
+
+        original_xml = self.original.xml_url
+        item_count = NfseItem.objects.count()
+        substitution, post_mock = self._substitute()
+        post_mock.assert_called_once_with("https://api.webmania.com.br/2/nfse/substituir", json=self.preview.request_payload, headers={"X-Test": "ok"}, timeout=30)
+        sent = post_mock.call_args.kwargs["json"]
+        self.assertEqual(set(sent), {"ambiente", "codigo_verificacao", "motivo", "rps"})
+        self.assertNotIn("uuid", sent)
+        self.assertEqual(substitution.status, FiscalEmissionAttemptStatus.SUCCEEDED)
+        self.assertIsInstance(substitution, NfseSubstitution)
+        self.assertEqual(substitution.preview, self.preview)
+        self.assertEqual(NfseItem.objects.count(), item_count + 1)
+        replacement = substitution.replacement_nfse
+        self.assertEqual(str(replacement.uuid), str(substitution.uuid_replacement))
+        self.assertEqual(replacement.xml_url, "https://example.test/replacement.xml")
+        self.original.refresh_from_db()
+        self.assertEqual(self.original.status, "substituido")
+        self.assertEqual(self.original.xml_url, original_xml)
+        attempt = FiscalEmissionAttempt.objects.get(operation_type="nfse_substitution")
+        self.assertEqual(attempt.status, FiscalEmissionAttemptStatus.SUCCEEDED)
+        self.assertFalse(FiscalDocument.objects.filter(document_type="nfse").exists())
+
+    def test_approved_response_without_matching_original_is_uncertain_and_creates_nothing(self) -> None:
+        from apps.finance.models.finance import NfseSubstitution
+        from apps.finance.services.nfse_substitution import NfseSubstitutionError
+
+        payload = self._success_payload()
+        payload["nfse_substituida"] = {"uuid": "35000000-0000-0000-0000-000000000099"}
+        with self.assertRaisesMessage(NfseSubstitutionError, "outra NFS-e original"):
+            self._substitute(payload)
+        substitution = NfseSubstitution.objects.get(preview=self.preview)
+        self.assertEqual(substitution.status, FiscalEmissionAttemptStatus.UNCERTAIN)
+        self.assertIsNone(substitution.replacement_nfse)
+        self.original.refresh_from_db()
+        self.assertEqual(self.original.status, "aprovado")
+
+    def test_draft_feature_capability_status_and_cross_workshop_are_blocked(self) -> None:
+        from apps.finance.services.nfse_substitution import NfseSubstitutionError, substitute_nfse_from_preview
+
+        self.preview.validation_status = "validated"
+        self.preview.is_approved = False
+        NfseSubstitutionPreview.objects.filter(pk=self.preview.pk).update(validation_status="validated", is_approved=False)
+        self.preview.refresh_from_db()
+        with patch("apps.finance.services.nfse_substitution.requests.post") as post_mock, self.assertRaises(NfseSubstitutionError):
+            substitute_nfse_from_preview(preview=self.preview, requested_by=self.user)
+        post_mock.assert_not_called()
+        NfseSubstitutionPreview.objects.filter(pk=self.preview.pk).update(validation_status="approved", is_approved=True)
+        self.preview.refresh_from_db()
+
+        for status in ("cancelado", "uncertain", "processando"):
+            NfseItem.objects.filter(pk=self.original.pk).update(status=status)
+            self.original.refresh_from_db()
+            with self.subTest(status=status), patch("apps.finance.services.nfse_substitution.requests.post") as post_mock, self.assertRaises(NfseSubstitutionError):
+                substitute_nfse_from_preview(preview=self.preview, requested_by=self.user)
+            post_mock.assert_not_called()
+        NfseItem.objects.filter(pk=self.original.pk).update(status="aprovado")
+        self.original.refresh_from_db()
+
+        self.company.nfse_substitution_preview_enabled = False
+        self.company.save(update_fields=["nfse_substitution_preview_enabled"])
+        with self.assertRaisesMessage(NfseSubstitutionError, "desabilitada"):
+            substitute_nfse_from_preview(preview=self.preview, requested_by=self.user)
+        self.company.nfse_substitution_preview_enabled = True
+        self.company.save(update_fields=["nfse_substitution_preview_enabled"])
+        self.capability.substitution_enabled = False
+        self.capability.save(update_fields=["substitution_enabled"])
+        with self.assertRaisesMessage(NfseSubstitutionError, "desabilitada"):
+            substitute_nfse_from_preview(preview=self.preview, requested_by=self.user)
+
+        _other_user, other_workshop = create_director_user_with_workshop(suffix=85)
+        foreign = NfseSubstitutionPreview.objects.filter(pk=self.preview.pk, workshop=other_workshop).first()
+        self.assertIsNone(foreign)
+
+    def test_timeout_marks_uncertain_and_retry_does_not_resend(self) -> None:
+        from apps.finance.models.finance import NfseSubstitution
+        from apps.finance.services.nfse_substitution import NfseSubstitutionError, substitute_nfse_from_preview
+
+        with patch("apps.finance.services.nfse_substitution._build_headers", return_value={}), patch("apps.finance.services.nfse_substitution.requests.post", side_effect=requests.Timeout("timeout")) as post_mock, self.assertRaisesMessage(NfseSubstitutionError, "estado remoto incerto"):
+            substitute_nfse_from_preview(preview=self.preview, requested_by=self.user)
+        substitution = NfseSubstitution.objects.get(preview=self.preview)
+        self.assertTrue(substitution.is_uncertain)
+        self.assertEqual(substitution.status, FiscalEmissionAttemptStatus.UNCERTAIN)
+        with patch("apps.finance.services.nfse_substitution.requests.post") as retry_mock, self.assertRaises(NfseSubstitutionError):
+            substitute_nfse_from_preview(preview=self.preview, requested_by=self.user)
+        self.assertEqual(post_mock.call_count, 1)
+        retry_mock.assert_not_called()
+
+    def test_missing_original_identifiers_are_blocked_before_gateway(self) -> None:
+        from apps.finance.services.nfse_substitution import NfseSubstitutionError, substitute_nfse_from_preview
+
+        for field in ("verification_code", "xml_url"):
+            original_value = getattr(self.original, field)
+            NfseItem.objects.filter(pk=self.original.pk).update(**{field: ""})
+            self.original.refresh_from_db()
+            with self.subTest(field=field), patch("apps.finance.services.nfse_substitution.requests.post") as post_mock, self.assertRaises(NfseSubstitutionError):
+                substitute_nfse_from_preview(preview=self.preview, requested_by=self.user)
+            post_mock.assert_not_called()
+            NfseItem.objects.filter(pk=self.original.pk).update(**{field: original_value})
+            self.original.refresh_from_db()
+
+    def test_rejection_does_not_create_replacement_or_change_original(self) -> None:
+        from apps.finance.models.finance import NfseSubstitution
+        from apps.finance.services.nfse_substitution import NfseSubstitutionError
+
+        with self.assertRaises(NfseSubstitutionError):
+            self._substitute({"modelo": "nfse", "status": "reprovado", "uuid": "35000000-0000-0000-0000-000000000003", "xml": "https://example.test/rejected.xml", "error": "Rejeitada"})
+        substitution = NfseSubstitution.objects.get(preview=self.preview)
+        self.assertEqual(substitution.status, FiscalEmissionAttemptStatus.FAILED)
+        self.assertIsNone(substitution.replacement_nfse)
+        self.original.refresh_from_db()
+        self.assertEqual(self.original.status, "aprovado")
+        self.assertEqual(self.original.xml_url, "https://example.test/original.xml")
+
+    def test_processing_webhook_confirms_replacement_and_duplicate_is_idempotent(self) -> None:
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        processing = {"modelo": "nfse", "status": "processando", "uuid": "35000000-0000-0000-0000-000000000002"}
+        substitution, _ = self._substitute(processing)
+        self.assertEqual(substitution.status, FiscalEmissionAttemptStatus.SENT)
+        self.assertIsNone(substitution.replacement_nfse)
+        event = store_webhook_event(payload=self._success_payload())
+        self.assertTrue(process_webhook_event(event))
+        self.assertTrue(process_webhook_event(event))
+        substitution.refresh_from_db()
+        self.assertEqual(substitution.status, FiscalEmissionAttemptStatus.SUCCEEDED)
+        self.assertEqual(NfseItem.objects.filter(uuid=substitution.uuid_replacement).count(), 1)
+
+        old_original = store_webhook_event(payload={"modelo": "nfse", "uuid": str(self.original.uuid), "status": "aprovado", "atualizado_em": "2026-06-23T10:00:00-03:00"})
+        self.assertTrue(process_webhook_event(old_original))
+        self.original.refresh_from_db()
+        self.assertEqual(self.original.status, "substituido")
+
+    def test_uncertain_webhook_falls_back_by_original_reference_without_reposting(self) -> None:
+        from apps.finance.models.finance import NfseSubstitution
+        from apps.finance.services.nfse_substitution import NfseSubstitutionError, substitute_nfse_from_preview
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        with patch("apps.finance.services.nfse_substitution._build_headers", return_value={}), patch("apps.finance.services.nfse_substitution.requests.post", side_effect=requests.Timeout("timeout")), self.assertRaises(NfseSubstitutionError):
+            substitute_nfse_from_preview(preview=self.preview, requested_by=self.user)
+        substitution = NfseSubstitution.objects.get(preview=self.preview)
+        self.assertIsNone(substitution.uuid_replacement)
+        with patch("apps.finance.services.nfse_substitution.requests.post") as post_mock:
+            self.assertTrue(process_webhook_event(store_webhook_event(payload=self._success_payload())))
+        post_mock.assert_not_called()
+        substitution.refresh_from_db()
+        self.assertEqual(substitution.status, FiscalEmissionAttemptStatus.SUCCEEDED)
+
+    def test_ambiguous_replacement_uuid_webhook_updates_nothing(self) -> None:
+        from apps.finance.models.finance import NfseSubstitution
+        from apps.finance.services.nfse_substitution_preview import approve_nfse_substitution_preview, create_nfse_substitution_preview
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        processing = {"modelo": "nfse", "status": "processando", "uuid": "35000000-0000-0000-0000-000000000002"}
+        first, _ = self._substitute(processing)
+        second_original = NfseItem.objects.create(workshop=self.workshop, workorder=self.original.workorder, request=self.nfse_request, uuid="35000000-0000-0000-0000-000000000010", status="aprovado", verification_code="VERIFY-SECOND", xml_url="https://example.test/second.xml")
+        second_preview = create_nfse_substitution_preview(workshop=self.workshop, original_nfse=second_original, environment="1", reason_code=1, rps_number=201, rps_series="SUB", service_payload={"valor_servicos": "20", "discriminacao": "Outro servico", "classe_imposto": "REF"}, taker_payload={"cpf": "12345678901", "nome_completo": "Outro Cliente"}, created_by=self.user)
+        approve_nfse_substitution_preview(preview=second_preview, approved_by=self.user)
+        second_preview.refresh_from_db()
+        second = NfseSubstitution.objects.create(workshop=self.workshop, preview=second_preview, original_nfse=second_original, uuid_original=second_original.uuid, uuid_replacement=first.uuid_replacement, original_verification_code=second_original.verification_code, reason_code=1, request_payload=second_preview.request_payload, original_xml_snapshot=second_preview.original_xml_snapshot, status=FiscalEmissionAttemptStatus.SENT)
+        event = store_webhook_event(payload=self._success_payload())
+        self.assertFalse(process_webhook_event(event))
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(first.status, FiscalEmissionAttemptStatus.SENT)
+        self.assertEqual(second.status, FiscalEmissionAttemptStatus.SENT)
+
+    def test_reconciliation_queries_without_reposting(self) -> None:
+        from apps.finance.services.nfse_substitution import reconcile_nfse_substitution
+
+        processing = {"modelo": "nfse", "status": "processando", "uuid": "35000000-0000-0000-0000-000000000002"}
+        substitution, _ = self._substitute(processing)
+        with patch("apps.finance.services.nfse_consulta._build_headers", return_value={}), patch("apps.finance.services.nfse_consulta.requests.get", return_value=_mock_response(self._success_payload())) as get_mock, patch("apps.finance.services.nfse_substitution.requests.post") as post_mock:
+            reconcile_nfse_substitution(substitution=substitution)
+        get_mock.assert_called_once()
+        post_mock.assert_not_called()
+        substitution.refresh_from_db()
+        self.assertEqual(substitution.status, FiscalEmissionAttemptStatus.SUCCEEDED)
+
+    def test_issue_and_payload_views_require_specific_permissions_and_scope(self) -> None:
+        from apps.finance.views.nfse_substitution_preview import NfseSubstitutionIssueView, NfseSubstitutionPayloadView
+
+        request = RequestFactory().post("/", {"confirmed": "1"})
+        request.user = self.user
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=False), self.assertRaises(PermissionDenied):
+            NfseSubstitutionIssueView.as_view()(request, pk=self.preview.pk)
+
+        substitution, _ = self._substitute()
+        payload_request = RequestFactory().get("/")
+        payload_request.user = self.user
+        _other_user, other_workshop = create_director_user_with_workshop(suffix=86)
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=other_workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=True), self.assertRaises(Http404):
+            NfseSubstitutionPayloadView.as_view()(payload_request, pk=self.preview.pk, substitution_pk=substitution.pk)
+
+
+class FiscalPhaseThreeNfseSubstitutionConcurrentTests(TransactionTestCase):
+    reset_sequences = True
+
+    def test_concurrent_same_preview_calls_gateway_once(self) -> None:
+        from apps.finance.models.finance import NfseMunicipalCapability
+        from apps.finance.services.nfse_substitution import substitute_nfse_from_preview
+        from apps.finance.services.nfse_substitution_preview import approve_nfse_substitution_preview, create_nfse_substitution_preview
+
+        user, workshop = create_director_user_with_workshop(suffix=87)
+        company = WebmaniaCompany.objects.create(workshop=workshop, webmania_company_id="NFSE-SUB-CONCURRENT", cidade="Sao Paulo", uf="SP", nfse_substitution_preview_enabled=True)
+        NfseMunicipalCapability.objects.create(workshop=workshop, company=company, city_code="3550308", city_name="Sao Paulo", state="SP", substitution_enabled=True)
+        budget = Budget.objects.create(workshop=workshop, entry_date=timezone.now().date())
+        workorder = WorkOrder.objects.create(workshop=workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        nfse_request = NfseRequest.objects.create(workshop=workshop, workorder=workorder)
+        original = NfseItem.objects.create(workshop=workshop, workorder=workorder, request=nfse_request, uuid="36000000-0000-0000-0000-000000000001", status="aprovado", verification_code="VERIFY", xml_url="https://example.test/original.xml")
+        preview = create_nfse_substitution_preview(workshop=workshop, original_nfse=original, environment="1", reason_code=1, rps_number=2, rps_series="SUB", service_payload={"valor_servicos": "10", "discriminacao": "Servico", "classe_imposto": "REF"}, taker_payload={"cpf": "12345678901", "nome_completo": "Cliente"}, created_by=user)
+        approve_nfse_substitution_preview(preview=preview, approved_by=user)
+        barrier = threading.Barrier(2)
+        results: list[str] = []
+
+        def post_side_effect(*args, **kwargs):
+            time.sleep(0.2)
+            return _mock_response({"modelo": "nfse", "uuid": "36000000-0000-0000-0000-000000000002", "status": "aprovado", "nfse_substituida": {"uuid": str(original.uuid)}})
+
+        def run() -> None:
+            close_old_connections()
+            try:
+                barrier.wait(timeout=5)
+                substitute_nfse_from_preview(preview=NfseSubstitutionPreview.objects.get(pk=preview.pk), requested_by=user)
+                results.append("sent")
+            except Exception as exc:
+                results.append(type(exc).__name__)
+            finally:
+                close_old_connections()
+
+        with patch("apps.finance.services.nfse_substitution._build_headers", return_value={}), patch("apps.finance.services.nfse_substitution.requests.post", side_effect=post_side_effect) as post_mock:
+            threads = [threading.Thread(target=run), threading.Thread(target=run)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=10)
+        self.assertEqual(post_mock.call_count, 1, results)
+        self.assertIn("sent", results)

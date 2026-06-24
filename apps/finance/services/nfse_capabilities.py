@@ -88,3 +88,10 @@ def validate_nfse_cancellation_capability(*, nfse_request: NfseRequest) -> NfseC
     if resolution.capability is not None and not resolution.capability.cancellation_enabled:
         raise NfseCapabilityError("O cancelamento NFS-e esta desabilitado para o municipio configurado.")
     return resolution
+
+
+def validate_nfse_substitution_capability(*, nfse_request: NfseRequest) -> NfseCapabilityResolution:
+    resolution = resolve_nfse_capability(nfse_request=nfse_request)
+    if resolution.capability is None or not resolution.capability.substitution_enabled:
+        raise NfseCapabilityError("A substituicao NFS-e esta desabilitada para o municipio configurado.")
+    return resolution

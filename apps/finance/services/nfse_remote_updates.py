@@ -16,6 +16,7 @@ _ITEM_STATUS_RANK = {
     "aprovado": 30,
     "reprovado": 40,
     "cancelado": 50,
+    "substituido": 50,
 }
 
 _BATCH_STATUS_RANK = {

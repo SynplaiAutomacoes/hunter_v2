@@ -616,3 +616,5 @@ Fase: 2.4D.6.0.
 **Consequencias:** evita substituir com tomador, servico, valor ou tributacao alterados silenciosamente; permite auditoria e testes do novo RPS. O custo e uma fase preparatoria adicional e a necessidade de nova confirmacao contratual sobre a identificacao da original antes do POST funcional.
 
 **Implementacao 3.4P:** entidade propria no legado NFS-e, sem `FiscalDocument(nfse)` e sem tentativa remota. O snapshot XML preserva URL, identificadores e payload remoto sanitizado disponivel; o Hunter nao baixa nem reconstrói conteudo XML durante a preparacao. Tomador, servico, valores e tributacao do novo RPS sao input administrativo explicito.
+
+**Implementacao 3.4.1:** seguir tabela/exemplo oficial e nao a frase contraditoria sobre `uuid`. A operacao remota usa `NfseSubstitution` + tentativa; retorno sincrono aprovado exige `nfse_substituida.uuid` igual a original. Webhook por UUID substituto pode concluir uma intencao previamente identificada. XML original nunca e sobrescrito; estado `substituido` possui rank terminal equivalente a cancelado.

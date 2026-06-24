@@ -663,3 +663,7 @@ Ordem proposta: `3.4P` preview e aprovacao local -> `3.4.1` transmissao idempote
 ### Fase 3.4P
 
 Status: **implementada e validada tecnicamente em 2026-06-23**. Migration `0063` cria flag e preview; service, forms, views, templates e testes comprovam preparacao/aprovacao local sem HTTP, tentativa, item substituto ou mudanca da original. A 3.4.1 continua bloqueada ate confirmacao contratual e nova autorizacao.
+
+### Fase 3.4.1
+
+Status: **implementada e validada tecnicamente em 2026-06-24**. Migration `0064`; POST restrito ao payload aprovado; original/substituta confirmadas de forma atomica; idempotencia, webhook, reconciliacao consultiva, UI e downloads protegidos. Manifestacao e emissao manual nova seguem bloqueadas.
