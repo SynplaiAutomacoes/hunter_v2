@@ -210,6 +210,10 @@ class Budget(TimeStampedModel):
         return self.status in BUDGET_REOPENABLE_STATUSES
 
     @property
+    def is_fixed_budget(self) -> bool:
+        return self.budget_type in ("warranty", "courtesy")
+
+    @property
     def warranty_items_count(self) -> int:
         return self.items.filter(item_benefit_type="warranty").count()
 

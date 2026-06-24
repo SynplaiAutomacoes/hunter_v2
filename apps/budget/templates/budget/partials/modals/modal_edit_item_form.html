@@ -20,7 +20,8 @@
 {% endif %}
 
 {% for field in form %}
-    {% if field.name != "item_benefit_type" and field.name != "is_customer_supplied" or field.name != "item_benefit_type" and not item.product %}
+    {% if field.name != "item_benefit_type" %}
+    {% if not item.product or field.name != "is_customer_supplied" %}
     {% with field_name=field.name|lower %}
         <div id="div_id_{{ field.name }}" class="form-control w-full {% if 'description' in field_name or 'descri' in field_name %}md:col-span-2{% endif %}" {% if oob_fields and field.name in oob_fields %}hx-swap-oob="true"{% endif %}>
             <label class="label">
@@ -68,5 +69,6 @@
             {% endif %}
         </div>
     {% endwith %}
+    {% endif %}
     {% endif %}
 {% endfor %}
