@@ -6,12 +6,15 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from django.db.models import DecimalField, ExpressionWrapper, F, Prefetch, Sum
+from _decimal import Decimal
+from django.db.models import DecimalField, ExpressionWrapper, F, Prefetch, Q, Sum
 from django.utils import timezone
 
 from apps.budget.models import Budget, BudgetItem, BudgetStatus, BudgetType
 from apps.budget.pdf_context import calculate_markup_multiplier
+from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.core.domain.services.dashboard_service import DashboardMetrics
+from apps.finance.models import FinancialGroup, FinancialMovement
 from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
@@ -172,9 +175,16 @@ def calculate_aggregate_markup(*, workshop_id: int, month: int, year: int) -> De
     if not workorder_ids:
         return Decimal("0.00")
 
-    total_product_cost, total_service_cost, total_shipping = _aggregate_costs(workorder_ids=workorder_ids)
+    total_product_cost, total_third_party_cost, total_mechanic_cost, total_shipping = _aggregate_costs(
+        workorder_ids=workorder_ids
+    )
+    total_freight_movements = _aggregate_freight_movements(
+        workshop_id=workshop_id, month=month, year=year
+    )
 
-    total_cost = total_product_cost + total_service_cost + total_shipping
+    total_service_cost = total_third_party_cost + total_mechanic_cost
+    total_freight = total_shipping + total_freight_movements
+    total_cost = total_product_cost + total_service_cost + total_freight
     if total_cost <= Decimal("0.00"):
         return Decimal("0.00")
 
@@ -218,17 +228,73 @@ def _get_workorder_ids_from_payments(*, workshop_id: int, month: int, year: int)
     )
 
 
-def _aggregate_costs(*, workorder_ids: list[int]) -> tuple[int, int, int]:
+def _calculate_dre_local_cost(workorder: WorkOrder) -> Decimal:
+    budget = workorder.budget
+    if budget is None:
+        return Decimal("0.00")
+    snapshot = budget.pricing_snapshot
+    total = Decimal("0.00")
+    for line in snapshot.service_lines:
+        if line.third_party:
+            continue
+        fallback_cost = line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total
+        mechanic_cost = calculate_mechanic_service_cost(
+            budget=budget,
+            duration=line.duration,
+            quantity=1,
+            fallback_cost=fallback_cost,
+        )
+        total += resolve_decimal_amount(mechanic_cost)
+    return total
+
+
+def _aggregate_freight_movements(*, workshop_id: int, month: int, year: int) -> Decimal:
+    transporte_group = FinancialGroup.objects.filter(
+        workshop_id=workshop_id,
+        name__iexact="Transporte e Fretes",
+    ).first()
+    if transporte_group is None:
+        return Decimal("0.00")
+
+    transporte_group_ids = list(
+        FinancialGroup.objects.filter(
+            workshop_id=workshop_id,
+            sort_key__startswith=transporte_group.sort_key,
+        ).values_list("pk", flat=True)
+    )
+    if not transporte_group_ids:
+        return Decimal("0.00")
+
+    movements = FinancialMovement.objects.filter(
+        workshop_id=workshop_id,
+        budget_plan_id__in=transporte_group_ids,
+        direction=FinancialMovement.MovementDirection.DEBIT,
+        due_date__month=month,
+        due_date__year=year,
+    ).filter(
+        Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT)
+    )
+
+    total = Decimal("0.00")
+    for m in movements:
+        total += abs(resolve_decimal_amount(m.amount))
+    return total
+
+
+def _aggregate_costs(*, workorder_ids: list[int]) -> tuple[int, int, int, int]:
     workorders = list(
         WorkOrder.objects.filter(
             pk__in=workorder_ids,
             delivered_at__isnull=False,
-        ).prefetch_related(_WORKORDER_ITEMS_PREFETCH)
+        )
+        .select_related("budget")
+        .prefetch_related(_WORKORDER_ITEMS_PREFETCH)
     )
     total_pcost = sum(resolve_decimal_amount(wo.total_costs_products_value) for wo in workorders)
-    total_scost = sum(resolve_decimal_amount(wo.total_costs_services_value) for wo in workorders)
+    total_third_party = sum(resolve_decimal_amount(wo.total_third_party_services_cost) for wo in workorders)
+    total_mechanic = sum(_calculate_dre_local_cost(wo) for wo in workorders)
     total_shipping = sum(resolve_decimal_amount(wo.total_products_shipping) for wo in workorders)
-    return total_pcost, total_scost, total_shipping
+    return total_pcost, total_third_party, total_mechanic, total_shipping
 
 
 def calculate_markup_progress(markup: Decimal) -> int:
