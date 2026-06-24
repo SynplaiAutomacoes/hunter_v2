@@ -38,7 +38,7 @@ def visualizar_pdf(request, pk):
 def visualizar_pdf_gestor(request, pk):
     workshop = get_active_workshop_or_404(request)
     budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle", "workshop"), pk=pk, workshop=workshop)
-    context = build_budget_pdf_context(budget=budget, request=request)
+    context = build_budget_pdf_context(budget=budget, request=request, presentation="selected_items")
 
     return render(request, "budget/partials/pdf/visualizarPDFGestor.html", context)
 
@@ -47,7 +47,7 @@ def visualizar_pdf_gestor(request, pk):
 def visualizar_pdf_mecanico(request, pk):
     workshop = get_active_workshop_or_404(request)
     budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle", "workshop"), pk=pk, workshop=workshop)
-    context = build_budget_pdf_context(budget=budget, request=request)
+    context = build_budget_pdf_context(budget=budget, request=request, presentation="selected_items")
 
     return render(request, "budget/partials/pdf/visualizarPDFMecanico.html", context)
 
