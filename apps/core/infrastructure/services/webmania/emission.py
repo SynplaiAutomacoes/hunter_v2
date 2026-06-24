@@ -397,7 +397,7 @@ def _compute_service_discount_for_nfse(
     return _quantize_money(total_discount * raw_services / raw_total)
 
 
-def _service_total_value(nfse_request: NfseRequest, *, slider_override: int | None = None) -> str:
+def calculate_nfse_service_total(nfse_request: NfseRequest, *, slider_override: int | None = None) -> str:
     allocation = build_slider_allocation_for_workorder(
         workorder=nfse_request.workorder,
         persisted_slider=getattr(nfse_request, "pricing_slider", None),
@@ -423,7 +423,7 @@ def build_nfse_payload(*, nfse_request: NfseRequest, request: HttpRequest | None
 
     first_rps: dict[str, Any] = {
         "servico": {
-            "valor_servicos": _service_total_value(nfse_request, slider_override=slider_override),
+            "valor_servicos": calculate_nfse_service_total(nfse_request, slider_override=slider_override),
             "discriminacao": _default_service_description(nfse_request),
             "classe_imposto": nfse_request.tax_class,
         },
