@@ -25,11 +25,12 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def get(self, request, budget_id, item_type):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
 
+        default_benefit = "warranty" if budget.budget_type == "warranty" else ("courtesy" if budget.budget_type == "courtesy" else "normal")
         if item_type == "product":
-            form = LocalProductForm(is_warranty_budget=budget.is_warranty_budget)
+            form = LocalProductForm(is_warranty_budget=budget.is_warranty_budget, item_benefit_type=default_benefit)
             title = "Incluir Novo Produto Local"
         elif item_type == "service":
-            form = LocalServiceForm(budget_id=budget_id, is_warranty_budget=budget.is_warranty_budget)
+            form = LocalServiceForm(budget_id=budget_id, is_warranty_budget=budget.is_warranty_budget, item_benefit_type=default_benefit)
             title = "Incluir Novo Serviço Local"
         else:
             return HttpResponse("Tipo inválido", status=400)
@@ -49,10 +50,11 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if _is_budget_edit_locked(budget):
             return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
 
+        default_benefit = "warranty" if budget.budget_type == "warranty" else ("courtesy" if budget.budget_type == "courtesy" else "normal")
         if item_type == "product":
-            form = LocalProductForm(request.POST, is_warranty_budget=budget.is_warranty_budget)
+            form = LocalProductForm(request.POST, is_warranty_budget=budget.is_warranty_budget, item_benefit_type=default_benefit)
         elif item_type == "service":
-            form = LocalServiceForm(request.POST, budget_id=budget_id, is_warranty_budget=budget.is_warranty_budget)
+            form = LocalServiceForm(request.POST, budget_id=budget_id, is_warranty_budget=budget.is_warranty_budget, item_benefit_type=default_benefit)
         else:
             return HttpResponse("Tipo inválido", status=400)
 
@@ -234,7 +236,8 @@ class CalculateLocalServiceView(LoginRequiredMixin, WorkshopScopedMixin, View):
             data["service_selling_price_0"] = str(service_selling_price.amount.quantize(Decimal("0.01"), ROUND_HALF_UP))
             data["service_selling_price_1"] = "BRL"
 
-        form = LocalServiceForm(data, budget_id=budget_id, is_warranty_budget=budget.is_warranty_budget)
+        default_benefit = "warranty" if budget.budget_type == "warranty" else ("courtesy" if budget.budget_type == "courtesy" else "normal")
+        form = LocalServiceForm(data, budget_id=budget_id, is_warranty_budget=budget.is_warranty_budget, item_benefit_type=default_benefit)
 
         context = {
             "form": form,

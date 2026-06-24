@@ -9,6 +9,12 @@
                 <span class="material-icons text-primary text-3xl flex-shrink-0">edit</span>
                 <h3 class="font-bold text-xl text-base-content {% if in_queue %}flex-1 min-w-0 truncate{% else %}truncate{% endif %}">{% if in_queue %}{{ item.description }}{% else %}{{ item.description|truncatewords:6 }}{% endif %}</h3>
 
+                {% if item.item_benefit_type == "warranty" %}
+                    <span class="badge badge-error gap-1 shrink-0">Garantia</span>
+                {% elif item.item_benefit_type == "courtesy" %}
+                    <span class="badge badge-info gap-1 shrink-0">Cortesia</span>
+                {% endif %}
+
                 <!-- Calculation Indicator -->
                 <div id="calculation-indicator" class="htmx-indicator flex items-center gap-2 px-3 py-1 bg-info/10 text-info rounded-full text-sm animate-pulse flex-shrink-0">
                     <span class="material-icons text-sm animate-spin">sync</span>
