@@ -32,9 +32,8 @@
             min-width: 0;
         }
 
-        .benefit-strikethrough {
-            text-decoration: line-through;
-            color: #9ca3af;
+        .benefit-dimmed {
+            opacity: 0.45;
         }
 
         .benefit-badge {
@@ -323,8 +322,8 @@
                         </td>
                         <td class="p-1 text-center">{{ p.quantity }}</td>
                         <td class="p-1 text-center">{% if p.is_customer_supplied %}Sim{% else %}Não{% endif %}</td>
-                        <td class="p-1 text-right{% if p.item_benefit_type != "normal" %} benefit-strikethrough{% endif %}">{{ p.unit_price }}</td>
-                        <td class="p-1 text-right font-medium{% if p.item_benefit_type != "normal" %} benefit-strikethrough{% endif %}">{{ p.total_price }}</td>
+                        <td class="p-1 text-right{% if p.item_benefit_type != "normal" or p.is_customer_supplied %} benefit-dimmed{% endif %}">{{ p.unit_price }}</td>
+                        <td class="p-1 text-right font-medium{% if p.item_benefit_type != "normal" or p.is_customer_supplied %} benefit-dimmed{% endif %}">{{ p.total_price }}</td>
                     </tr>
                     {% empty %}
                     <tr class="border-b border-gray-100">
@@ -348,7 +347,7 @@
                 </thead>
                 <tbody>
                     {% for s in page.servicos %}
-                    <tr class="border-b border-gray-100">
+                    <tr class="border-b border-gray-100{% if s.item_benefit_type != "normal" or s.is_customer_supplied %} benefit-dimmed{% endif %}">
                         <td class="p-1 font-medium">
                             <span class="desc-truncate">{{ s.description }}</span>
                             {% if s.item_benefit_type == "warranty" %}
