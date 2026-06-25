@@ -33,7 +33,7 @@
         }
 
         .benefit-dimmed {
-            opacity: 0.45;
+            opacity: 0.65;
         }
 
         .benefit-badge {
@@ -347,7 +347,7 @@
                 </thead>
                 <tbody>
                     {% for s in page.servicos %}
-                    <tr class="border-b border-gray-100{% if s.item_benefit_type != "normal" or s.is_customer_supplied %} benefit-dimmed{% endif %}">
+                    <tr class="border-b border-gray-100">
                         <td class="p-1 font-medium">
                             <span class="desc-truncate">{{ s.description }}</span>
                             {% if s.item_benefit_type == "warranty" %}
