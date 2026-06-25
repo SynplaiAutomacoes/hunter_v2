@@ -163,7 +163,6 @@
             x-ref="searchInput"
             :value="open ? search : label"
             @focus="openDropdown()"
-            @blur="closeDropdown()"
             @click="if (!open) openDropdown()"
             @input="search = $event.target.value; open = true"
             @keydown.escape.stop="closeDropdown()"
