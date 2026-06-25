@@ -263,6 +263,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 "product_cost_price": line.item.product_cost_price * line.item.quantity,
                 "profit_value": line.total_price - (line.item.product_cost_price * line.item.quantity),
                 "show_kit_duplicate_warning": False,
+                "item_benefit_type": line.item.item_benefit_type,
             })
 
         for line in review_display.direct_services:
@@ -285,6 +286,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 "profit_value": line.total_price - service_mechanic_cost_price,
                 "duration_display": line.duration_display,
                 "_duration_seconds": _duration_seconds(line.item.duration) * int(line.item.quantity or 0),
+                "item_benefit_type": line.item.item_benefit_type,
             })
 
         for line in review_display.kits:
@@ -313,6 +315,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                     "product_cost_price": override.product_cost_price * total_quantity,
                     "profit_value": (override.product_selling_price * total_quantity) - (override.product_cost_price * total_quantity),
                     "show_kit_duplicate_warning": False,
+                    "item_benefit_type": kit_item.item_benefit_type,
                 })
 
             for override in kit_item._iter_frozen_kit_service_overrides():
@@ -341,6 +344,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                     "profit_value": (override.service_selling_price * total_quantity) - service_mechanic_cost_price,
                     "duration_display": format_duration_display(override.duration * total_quantity) if override.duration else "00h 00m",
                     "_duration_seconds": _duration_seconds(override.duration) * total_quantity if override.duration else 0,
+                    "item_benefit_type": kit_item.item_benefit_type,
                 })
 
             kits.append({

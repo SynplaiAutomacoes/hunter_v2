@@ -1254,31 +1254,29 @@ class BudgetItem(TimeStampedModel):
 
     @property
     def display_product_selling_price(self) -> Money:
-        if self.budget.is_warranty_budget or self.item_benefit_type != "normal":
+        if self.budget.is_warranty_budget:
             return Money(0, "BRL")
         return self.product_selling_price
 
     @property
     def display_service_selling_price(self) -> Money:
-        if self.budget.is_warranty_budget or self.item_benefit_type != "normal":
+        if self.budget.is_warranty_budget:
             return Money(0, "BRL")
         return self.service_selling_price
 
     @property
     def display_total_price(self) -> Money:
-        is_benefit = self.item_benefit_type != "normal"
-        if not self.budget.is_warranty_budget and not is_benefit:
+        if not self.budget.is_warranty_budget:
             return self.total_price
         if self.kit:
             return self.get_kit_products_cost_total() + self.get_kit_products_shipping_total() + self.get_kit_services_cost_total()
-        if self.product_id or self.is_local and ((self.product_cost_price and self.product_cost_price.amount > 0) or (self.shipping and self.shipping.amount > 0)):
+        if (self.product_id or self.is_local) and ((self.product_cost_price and self.product_cost_price.amount > 0) or (self.shipping and self.shipping.amount > 0)):
             return (self.product_cost_price * self.quantity) + self.shipping
         return self.service_cost_price * self.quantity
 
     @property
     def display_unit_price(self) -> Money:
-        is_benefit = self.item_benefit_type != "normal"
-        if not self.budget.is_warranty_budget and not is_benefit:
+        if not self.budget.is_warranty_budget:
             return self.unit_price
         if self.quantity <= 0:
             return Money(0, "BRL")
@@ -1290,7 +1288,7 @@ class BudgetItem(TimeStampedModel):
 
     @property
     def display_kit_unit_price(self) -> Money:
-        if self.budget.is_warranty_budget or self.item_benefit_type != "normal":
+        if self.budget.is_warranty_budget:
             return Money(0, "BRL")
         return self.kit_unit_price
 
