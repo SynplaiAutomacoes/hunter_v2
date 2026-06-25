@@ -272,6 +272,28 @@ class AppointmentForm(CoreModelForm):
         registered_field.initial = is_customer_registered
         self.initial["is_customer_registered"] = is_customer_registered
 
+        guest_field_names = [
+            "guest_customer_name", "guest_customer_cpf", "guest_customer_phone",
+            "guest_vehicle_plate", "guest_vehicle_brand", "guest_vehicle_model",
+            "guest_vehicle_year_fabrication", "guest_vehicle_year_model",
+            "guest_vehicle_engine", "guest_vehicle_fuel",
+        ]
+        for field_name in guest_field_names:
+            self.fields[field_name].required = True
+        self.fields["customer"].required = True
+
+        customer_field.error_messages["required"] = "Selecione um cliente cadastrado para continuar."
+        self.fields["guest_customer_name"].error_messages["required"] = "Informe o nome do cliente."
+        self.fields["guest_customer_cpf"].error_messages["required"] = "Informe o CPF do cliente."
+        self.fields["guest_customer_phone"].error_messages["required"] = "Informe o telefone do cliente."
+        self.fields["guest_vehicle_plate"].error_messages["required"] = "Informe a placa do veiculo."
+        self.fields["guest_vehicle_brand"].error_messages["required"] = "Informe a marca do veiculo."
+        self.fields["guest_vehicle_model"].error_messages["required"] = "Informe o modelo do veiculo."
+        self.fields["guest_vehicle_year_fabrication"].error_messages["required"] = "Informe o ano de fabricacao."
+        self.fields["guest_vehicle_year_model"].error_messages["required"] = "Informe o ano do modelo."
+        self.fields["guest_vehicle_engine"].error_messages["required"] = "Informe a motorizacao."
+        self.fields["guest_vehicle_fuel"].error_messages["required"] = "Informe o combustivel."
+
         selected_customer_id = ""
         selected_vehicle_id = ""
         if self.is_bound:
@@ -962,40 +984,21 @@ class AppointmentForm(CoreModelForm):
         cleaned_data["guest_vehicle_engine"] = guest_vehicle_engine
         cleaned_data["guest_vehicle_fuel"] = guest_vehicle_fuel
 
+        guest_field_names = [
+            "guest_customer_name", "guest_customer_cpf", "guest_customer_phone",
+            "guest_vehicle_plate", "guest_vehicle_brand", "guest_vehicle_model",
+            "guest_vehicle_year_fabrication", "guest_vehicle_year_model",
+            "guest_vehicle_engine", "guest_vehicle_fuel",
+        ]
         if is_customer_registered:
-            if customer is None:
-                self.add_error("customer", "Selecione um cliente cadastrado para continuar.")
-            cleaned_data["guest_customer_name"] = ""
-            cleaned_data["guest_customer_cpf"] = ""
-            cleaned_data["guest_customer_phone"] = ""
-            cleaned_data["guest_vehicle_plate"] = ""
-            cleaned_data["guest_vehicle_brand"] = ""
-            cleaned_data["guest_vehicle_model"] = ""
-            cleaned_data["guest_vehicle_year_fabrication"] = ""
-            cleaned_data["guest_vehicle_year_model"] = ""
-            cleaned_data["guest_vehicle_engine"] = ""
-            cleaned_data["guest_vehicle_fuel"] = ""
+            for field_name in guest_field_names:
+                self.errors.pop(field_name, None)
+                cleaned_data[field_name] = ""
         else:
-            if not guest_customer_name:
-                self.add_error("guest_customer_name", "Informe o nome do cliente.")
-            if not guest_customer_cpf:
-                self.add_error("guest_customer_cpf", "Informe o CPF do cliente.")
-            elif not is_valid_cpf(guest_customer_cpf):
+            self.errors.pop("customer", None)
+            if guest_customer_cpf and not is_valid_cpf(guest_customer_cpf):
                 self.add_error("guest_customer_cpf", "Informe um CPF valido.")
-            if not guest_customer_phone:
-                self.add_error("guest_customer_phone", "Informe o telefone do cliente.")
-            if not guest_vehicle_plate:
-                self.add_error("guest_vehicle_plate", "Informe a placa do veiculo.")
-            if not guest_vehicle_brand:
-                self.add_error("guest_vehicle_brand", "Informe a marca do veiculo.")
-            if not guest_vehicle_model:
-                self.add_error("guest_vehicle_model", "Informe o modelo do veiculo.")
-            if not guest_vehicle_year_fabrication:
-                self.add_error("guest_vehicle_year_fabrication", "Informe o ano de fabricacao.")
-            if not guest_vehicle_year_model:
-                self.add_error("guest_vehicle_year_model", "Informe o ano do modelo.")
-            if not guest_vehicle_engine and "guest_vehicle_engine" not in self.errors:
-                self.add_error("guest_vehicle_engine", "Informe a motorizacao.")
+            self.instance._guest_validation_done = True
             cleaned_data["customer"] = None
             cleaned_data["vehicle"] = None
             cleaned_data["budget"] = None
