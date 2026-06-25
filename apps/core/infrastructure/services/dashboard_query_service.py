@@ -178,13 +178,9 @@ def calculate_aggregate_markup(*, workshop_id: int, month: int, year: int) -> De
     total_product_cost, total_third_party_cost, total_mechanic_cost, total_shipping = _aggregate_costs(
         workorder_ids=workorder_ids
     )
-    total_freight_movements = _aggregate_freight_movements(
-        workshop_id=workshop_id, month=month, year=year
-    )
 
     total_service_cost = total_third_party_cost + total_mechanic_cost
-    total_freight = total_shipping + total_freight_movements
-    total_cost = total_product_cost + total_service_cost + total_freight
+    total_cost = total_product_cost + total_service_cost + total_shipping
     if total_cost <= Decimal("0.00"):
         return Decimal("0.00")
 
@@ -248,39 +244,6 @@ def _calculate_dre_local_cost(workorder: WorkOrder) -> Decimal:
     return total
 
 
-def _aggregate_freight_movements(*, workshop_id: int, month: int, year: int) -> Decimal:
-    transporte_group = FinancialGroup.objects.filter(
-        workshop_id=workshop_id,
-        name__iexact="Transporte e Fretes",
-    ).first()
-    if transporte_group is None:
-        return Decimal("0.00")
-
-    transporte_group_ids = list(
-        FinancialGroup.objects.filter(
-            workshop_id=workshop_id,
-            sort_key__startswith=transporte_group.sort_key,
-        ).values_list("pk", flat=True)
-    )
-    if not transporte_group_ids:
-        return Decimal("0.00")
-
-    movements = FinancialMovement.objects.filter(
-        workshop_id=workshop_id,
-        budget_plan_id__in=transporte_group_ids,
-        direction=FinancialMovement.MovementDirection.DEBIT,
-        due_date__month=month,
-        due_date__year=year,
-    ).filter(
-        Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT)
-    )
-
-    total = Decimal("0.00")
-    for m in movements:
-        total += abs(resolve_decimal_amount(m.amount))
-    return total
-
-
 def _aggregate_costs(*, workorder_ids: list[int]) -> tuple[int, int, int, int]:
     workorders = list(
         WorkOrder.objects.filter(
@@ -294,6 +257,10 @@ def _aggregate_costs(*, workorder_ids: list[int]) -> tuple[int, int, int, int]:
     total_third_party = sum(resolve_decimal_amount(wo.total_third_party_services_cost) for wo in workorders)
     total_mechanic = sum(_calculate_dre_local_cost(wo) for wo in workorders)
     total_shipping = sum(resolve_decimal_amount(wo.total_products_shipping) for wo in workorders)
+    print(f"total_pcost: {total_pcost}")
+    print(f"total_third_party: {total_third_party}")
+    print(f"total_mechanic: {total_mechanic}")
+    print(f"total_shipping: {total_shipping}")
     return total_pcost, total_third_party, total_mechanic, total_shipping
 
 
