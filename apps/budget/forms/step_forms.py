@@ -2940,7 +2940,7 @@ class BudgetStep6Form(CoreModelForm):
             history_rows = "".join(
                 (
                     "<div class='rounded-lg border border-base-300 bg-base-100 p-3'>"
-                    f"<p class='text-sm font-medium text-base-content'>{entry.criado_em.strftime('%d/%m/%Y %H:%M')} - Orçamento reaberto"
+                    f"<p class='text-sm font-medium text-base-content'>{timezone.localtime(entry.criado_em).strftime('%d/%m/%Y %H:%M')} - Orçamento reaberto"
                     f"{f' por {escape(entry.user.get_full_name() or entry.user.username)}' if entry.user else ''}</p>"
                     f"<p class='mt-1 whitespace-pre-line text-sm text-base-content/80'>{escape(entry.reason)}</p>"
                     "</div>"
