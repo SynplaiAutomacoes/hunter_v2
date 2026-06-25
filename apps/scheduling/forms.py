@@ -244,6 +244,18 @@ class AppointmentForm(CoreModelForm):
             budget_field.queryset = Budget.objects.filter(workshop=self.workshop).select_related("customer", "vehicle").order_by("-criado_em")
             workorder_field.queryset = WorkOrder.objects.filter(workshop=self.workshop).select_related("budget", "budget__customer", "budget__vehicle").order_by("-criado_em")
 
+            def _budget_label_from_instance(budget):
+                return f"Orçamento #{budget.pk}"
+
+            def _workorder_label_from_instance(workorder):
+                return f"O.S. #{workorder.get_id}"
+
+            budget_field.label_from_instance = _budget_label_from_instance
+            workorder_field.label_from_instance = _workorder_label_from_instance
+
+            budget_field.widget = SearchableSelectInput(choices=list(budget_field.choices))
+            workorder_field.widget = SearchableSelectInput(choices=list(workorder_field.choices))
+
         customer_field.widget.attrs.update({":disabled": "!isCustomerRegistered"})
         vehicle_field.widget.attrs.update({":disabled": "!isCustomerRegistered || !customerId"})
         budget_field.widget.attrs.update({":disabled": "!isCustomerRegistered || !vehicleId"})

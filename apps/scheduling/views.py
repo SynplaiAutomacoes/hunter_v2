@@ -523,7 +523,7 @@ class BudgetByVehicleListView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if vehicle_id:
             budgets = Budget.objects.filter(workshop=self.workshop, vehicle_id=vehicle_id).select_related("customer", "vehicle").order_by("-criado_em")
 
-        data = [{"id": budget.pk, "label": f"#{budget.pk} - {budget.customer or '-'} - {budget.vehicle or '-'}"} for budget in budgets]
+        data = [{"id": budget.pk, "label": f"Orçamento #{budget.pk}"} for budget in budgets]
         return JsonResponse(data, safe=False)
 
 
@@ -538,5 +538,5 @@ class WorkOrderByVehicleListView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if vehicle_id:
             workorders = WorkOrder.objects.filter(workshop=self.workshop, budget__vehicle_id=vehicle_id).select_related("budget", "budget__customer", "budget__vehicle").order_by("-criado_em")
 
-        data = [{"id": workorder.pk, "label": f"#{workorder.pk} - {workorder.budget.customer if workorder.budget else '-'} - {workorder.budget.vehicle if workorder.budget else '-'}"} for workorder in workorders]
+        data = [{"id": workorder.pk, "label": f"O.S. #{workorder.get_id}"} for workorder in workorders]
         return JsonResponse(data, safe=False)
