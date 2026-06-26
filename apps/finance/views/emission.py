@@ -336,6 +336,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             "discount_services": discount_s.quantize(Decimal("0.01")),
             "net_products": (raw_products - discount_p).quantize(Decimal("0.01")),
             "net_services": (raw_services - discount_s).quantize(Decimal("0.01")),
+            "net_total": (raw_total - total_discount).quantize(Decimal("0.01")),
         }
 
     def _render_discount_type_modal(self, *, workorder: WorkOrder, note_mode: str, suggested_override: str) -> HttpResponse:
