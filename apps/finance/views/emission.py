@@ -345,7 +345,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
     def _render_discount_type_modal(self, *, workorder: WorkOrder, note_mode: str, suggested_override: str) -> HttpResponse:
         current_discount_type = workorder.discount_type
-        note_label = "Nota Fiscal de Produto" if note_mode == "nfe" else "Nota Fiscal de Serviço"
+        note_label = "Nota Fiscal" if note_mode == "nfe" else "Nota Fiscal de Serviço"
 
         if current_discount_type == WorkOrderDiscountType.BOTH:
             message = f"O desconto está configurado para <strong>{self.DISCOUNT_TYPE_LABEL['both']}</strong>, mas você está emitindo apenas <strong>{note_label}</strong>. Deseja alterar o tipo de desconto apenas para esta emissão?"
