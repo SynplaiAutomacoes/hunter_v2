@@ -457,10 +457,12 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             kwargs["workorder"] = workorder
             kwargs["tax_class_choices"] = tax_class_choices["nfe"]
             kwargs["selected_slider"] = self._selected_slider(state=state, workorder=workorder)
+            kwargs["discount_type_override"] = str(state.get("discount_type_override") or "")
         elif step_key == "nfse_config":
             kwargs["workorder"] = workorder
             kwargs["tax_class_choices"] = tax_class_choices["nfse"]
             kwargs["selected_slider"] = self._selected_slider(state=state, workorder=workorder)
+            kwargs["discount_type_override"] = str(state.get("discount_type_override") or "")
 
         return kwargs
 

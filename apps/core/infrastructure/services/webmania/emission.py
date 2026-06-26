@@ -354,7 +354,7 @@ def _quantize_money(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
-def _compute_service_discount_for_nfse(
+def compute_service_discount_for_nfse(
     *,
     workorder: WorkOrder,
     discount_type_override: str = "",
@@ -412,7 +412,7 @@ def calculate_nfse_service_total(nfse_request: NfseRequest, *, slider_override: 
     if gross_amount <= 0:
         raise NfseEmissionError("A OS selecionada nao possui saldo de servicos para emissao de Nota Fiscal de Serviço com a configuracao atual do slider.")
 
-    service_discount = _compute_service_discount_for_nfse(
+    service_discount = compute_service_discount_for_nfse(
         workorder=nfse_request.workorder,
         discount_type_override=str(getattr(nfse_request, "discount_type_override", "") or ""),
     )
