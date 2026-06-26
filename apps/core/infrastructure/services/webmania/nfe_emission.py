@@ -106,6 +106,7 @@ def _compute_product_discount_for_nfe(
     workorder: WorkOrder,
     products_target: Decimal,
     services_target: Decimal,
+    discount_type_override: str = "",
 ) -> Decimal:
     """
     Calcula o valor de desconto a ser aplicado nos produtos da NF-e,
@@ -117,12 +118,15 @@ def _compute_product_discount_for_nfe(
     - BOTH: o desconto e distribuido proporcionalmente entre produtos e
       servicos usando os valores brutos reais do pedido (independente do
       slider de alocacao da NF-e).
+
+    Se discount_type_override for informado, usa ele no lugar do discount_type
+    da WorkOrder (para sobrescrita especifica da emissao).
     """
     total_discount = _quantize_money(Decimal(str(workorder.resolved_discount_value.amount)))
     if total_discount <= Decimal("0.00"):
         return Decimal("0.00")
 
-    discount_type = workorder.discount_type
+    discount_type = str(discount_type_override or workorder.discount_type)
 
     if discount_type == WorkOrderDiscountType.PRODUCTS:
         return total_discount
@@ -448,8 +452,7 @@ def _apply_additional_information_to_nfe_payload(*, payload: dict[str, Any], nfe
     pedido_payload["informacoes_complementares"] = additional_information
 
 
-def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int | None = None) -> tuple[
-    list[dict[str, Any]], Decimal, SliderAllocation, Decimal]:
+def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int | None = None) -> tuple[list[dict[str, Any]], Decimal, SliderAllocation, Decimal]:
     workorder = nfe_request.workorder
     allocation = build_slider_allocation_for_workorder(
         workorder=workorder,
@@ -475,6 +478,7 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
         workorder=workorder,
         products_target=allocation.products_target,
         services_target=allocation.services_target,
+        discount_type_override=str(getattr(nfe_request, "discount_type_override", "") or ""),
     )
 
     products_payload: list[dict[str, Any]] = []
