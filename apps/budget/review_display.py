@@ -204,6 +204,9 @@ def build_budget_review_display(*, budget: Any) -> BudgetReviewDisplay:
         if quantity <= 0:
             continue
 
+        if getattr(item, "is_customer_supplied", False):
+            continue
+
         if _is_direct_product_item(budget=budget, item=item):
             contributions.append(_build_direct_product_contribution(item=item, sort_order=sort_order))
             continue
@@ -215,8 +218,21 @@ def build_budget_review_display(*, budget: Any) -> BudgetReviewDisplay:
         if getattr(item, "kit_id", None) is not None:
             contributions.append(_build_kit_contribution(item=item, sort_order=sort_order))
 
-    _allocate_product_totals(budget=budget, contributions=contributions)
-    _allocate_labor_totals(budget=budget, contributions=contributions)
+    normal_contributions = [c for c in contributions if getattr(c.item, "item_benefit_type", "normal") in ("normal", "")]
+    benefit_contributions = [c for c in contributions if getattr(c.item, "item_benefit_type", "normal") not in ("normal", "")]
+
+    _allocate_product_totals(budget=budget, contributions=normal_contributions)
+    _allocate_labor_totals(budget=budget, contributions=normal_contributions)
+
+    for contribution in benefit_contributions:
+        quantity = _item_quantity(contribution.item)
+        if quantity <= 0:
+            continue
+        if contribution.is_direct_product:
+            contribution.allocated_product_base = contribution.product_base
+        elif contribution.is_direct_service and contribution.labor_raw_total.amount > 0:
+            contribution.allocated_labor_cost = contribution.item.service_cost_price * quantity
+            contribution.allocated_labor_total = contribution.item.service_selling_price * quantity
 
     direct_products: list[BudgetReviewDirectProductLine] = []
     direct_services: list[BudgetReviewDirectServiceLine] = []

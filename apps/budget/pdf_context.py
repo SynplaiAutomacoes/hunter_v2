@@ -369,16 +369,17 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
     def _is_chargeable(item: dict) -> bool:
         return item.get("item_benefit_type", "normal") == "normal" and not item.get("is_customer_supplied", False)
 
-    chargeable_produtos_total = sum(
-        (p["total_price"] - p["shipping"]) for p in produtos if _is_chargeable(p)
-    )
-    chargeable_servicos_total = sum(
-        s["total_price"] for s in servicos if _is_chargeable(s)
-    )
-    total_produtos = chargeable_produtos_total
-    total_servicos = chargeable_servicos_total
-    excluded_amount = (original_total_produtos + original_total_servicos) - (total_produtos + total_servicos)
-    total_geral = original_total_geral - excluded_amount
+    if not is_warranty_or_courtesy:
+        chargeable_produtos_total = sum(
+            (p["total_price"] - p["shipping"]) for p in produtos if _is_chargeable(p)
+        )
+        chargeable_servicos_total = sum(
+            s["total_price"] for s in servicos if _is_chargeable(s)
+        )
+        total_produtos = chargeable_produtos_total
+        total_servicos = chargeable_servicos_total
+        excluded_amount = (original_total_produtos + original_total_servicos) - (total_produtos + total_servicos)
+        total_geral = original_total_geral - excluded_amount
     workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=budget.workshop)
     total_services_cost_original_value = sum((line["service_cost_price"] for line in servicos), Money(0, "BRL"))
     total_services_mechanic_cost_value = sum((line["service_mechanic_cost_price"] for line in servicos), Money(0, "BRL"))
