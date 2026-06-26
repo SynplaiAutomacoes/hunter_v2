@@ -47,6 +47,7 @@ class DashboardMetrics:
     actual_daily_revenue: Decimal | None = None
     projection_vs_target: dict[str, Any] | None = None
     actual_daily_revenue_vs_target: dict[str, Any] | None = None
+    today_sales: Decimal = Decimal("0.00")
 
     def as_context(self) -> dict[str, Any]:
         return {
@@ -86,4 +87,5 @@ class DashboardMetrics:
             "faturamento_real_diario": self.actual_daily_revenue,
             "projecao_vs_meta": self.projection_vs_target,
             "faturamento_real_diario_vs_meta": self.actual_daily_revenue_vs_target,
+            "venda_do_dia": self.today_sales,
         }

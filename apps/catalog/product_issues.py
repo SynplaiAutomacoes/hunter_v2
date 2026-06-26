@@ -143,7 +143,11 @@ def annotate_product_issues(*, workshop: Any, items: Iterable[Any]) -> ProductIs
         quantity = int(getattr(item, "quantity", 0) or 0)
 
         stock_quantity = stock_by_product_id.get(product_id, 0) if product_id is not None else None
-        excess_quantity = max(quantity - max(stock_quantity or 0, 0), 0) if stock_quantity is not None else 0
+        is_customer_supplied = bool(getattr(item, "is_customer_supplied", False))
+        excess_quantity = (
+            0 if is_customer_supplied else
+            max(quantity - max(stock_quantity or 0, 0), 0) if stock_quantity is not None else 0
+        )
         invalid_ncm = has_invalid_ncm(product)
         warning_messages: tuple[str, ...] = ()
         warning_tooltip = ""

@@ -340,6 +340,8 @@ def build_pricing_snapshot(
             continue
 
         item_id = getattr(item, "id", None)
+        item_benefit_type = getattr(item, "item_benefit_type", "normal")
+        _is_item_benefit = item_benefit_type not in ("normal", "")
         product_id = getattr(item, "product_id", None)
         service_id = getattr(item, "service_id", None)
         kit_id = getattr(item, "kit_id", None)
@@ -368,7 +370,8 @@ def build_pricing_snapshot(
                 )
                 product_aggregates[key] = aggregate
 
-            direct_total = (_coerce_money(getattr(item, "product_selling_price", None)) * item_quantity) + _coerce_money(getattr(item, "shipping", None))
+            effective_selling = zero_money() if _is_item_benefit else _coerce_money(getattr(item, "product_selling_price", None))
+            direct_total = (effective_selling * item_quantity) + _coerce_money(getattr(item, "shipping", None))
             direct_cost_total = _coerce_money(getattr(item, "product_cost_price", None)) * item_quantity
             direct_shipping = _coerce_money(getattr(item, "shipping", None))
             should_replace_direct = product_id is not None and (item_quantity > aggregate.direct_quantity or (item_quantity == aggregate.direct_quantity and direct_total.amount > aggregate.direct_total.amount))
@@ -410,7 +413,8 @@ def build_pricing_snapshot(
                 service_aggregates[key] = service_aggregate
 
             service_aggregate.direct_quantity += item_quantity
-            service_aggregate.direct_raw_total += _coerce_money(getattr(item, "service_selling_price", None)) * item_quantity
+            effective_selling = zero_money() if _is_item_benefit else _coerce_money(getattr(item, "service_selling_price", None))
+            service_aggregate.direct_raw_total += effective_selling * item_quantity
             service_aggregate.direct_cost_total += _coerce_money(getattr(item, "service_cost_price", None)) * item_quantity
             item_duration = getattr(item, "duration", None)
             if item_duration:
@@ -449,7 +453,7 @@ def build_pricing_snapshot(
                 product_aggregates[key] = aggregate
 
             shipping = override.shipping * item_quantity
-            unit_price = override.product_selling_price
+            unit_price = zero_money() if _is_item_benefit else override.product_selling_price
             unit_cost = override.product_cost_price
 
             aggregate.kit_quantity += consolidated_quantity
@@ -485,7 +489,7 @@ def build_pricing_snapshot(
                 )
                 service_aggregates[key] = service_aggregate
 
-            unit_price = override.service_selling_price
+            unit_price = zero_money() if _is_item_benefit else override.service_selling_price
             unit_cost = override.service_cost_price
             fixed_cost_total = unit_cost * consolidated_quantity
             service_duration = timedelta(0)
@@ -572,6 +576,9 @@ def build_pricing_snapshot(
             )
         )
 
+    chargeable_product_lines = [line for line in product_lines if not line.is_customer_supplied]
+    customer_supplied_product_lines = [line for line in product_lines if line.is_customer_supplied]
+
     service_lines: list[ConsolidatedPricingLine] = []
     for service_aggregate in sorted(service_aggregates.values(), key=lambda value: (value.sort_order, value.description.lower())):
         has_direct_source = service_aggregate.direct_quantity > 0
@@ -634,9 +641,9 @@ def build_pricing_snapshot(
             )
         )
 
-    total_products_shipping = sum((line.shipping for line in product_lines), zero_money())
-    total_costs_products_value = sum((line.cost_total for line in product_lines), zero_money())
-    total_products_value = sum((line.raw_total for line in product_lines), zero_money())
+    total_products_shipping = sum((line.shipping for line in chargeable_product_lines), zero_money())
+    total_costs_products_value = sum((line.cost_total for line in chargeable_product_lines), zero_money())
+    total_products_value = sum((line.raw_total for line in chargeable_product_lines), zero_money())
     total_duration = sum((line.duration for line in service_lines), timedelta())
     total_third_party_services_selling = sum((line.raw_total for line in service_lines if line.third_party), zero_money())
     total_services_value = sum((line.raw_total for line in service_lines), zero_money())
@@ -689,14 +696,17 @@ def build_pricing_snapshot(
     total_services_by_slider = total_third_party_services_selling + total_labor_by_slider
 
     for line, adjusted_subtotal in zip(
-        product_lines,
+        chargeable_product_lines,
         _distribute_totals(
-            base_values=[line.raw_total - line.shipping for line in product_lines],
+            base_values=[line.raw_total - line.shipping for line in chargeable_product_lines],
             target_total=total_products_by_slider - total_products_shipping,
         ),
         strict=False,
     ):
         line.adjusted_total = adjusted_subtotal + line.shipping
+
+    for line in customer_supplied_product_lines:
+        line.adjusted_total = line.raw_total
 
     for line in third_party_service_lines:
         line.adjusted_total = line.raw_total

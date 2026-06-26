@@ -32,6 +32,31 @@
             min-width: 0;
         }
 
+        .benefit-dimmed {
+            opacity: 0.65;
+        }
+
+        .benefit-badge {
+            display: inline-block;
+            font-size: 8px;
+            font-weight: 700;
+            padding: 1px 4px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            vertical-align: middle;
+            margin-left: 2px;
+        }
+
+        .benefit-badge-warranty {
+            background-color: #fecaca;
+            color: #991b1b;
+        }
+
+        .benefit-badge-courtesy {
+            background-color: #bfdbfe;
+            color: #1e40af;
+        }
+
         .field-label {
             color: #6b7280;
             flex-shrink: 0;
@@ -287,11 +312,18 @@
                 <tbody>
                     {% for p in page.produtos %}
                     <tr class="border-b border-gray-100">
-                        <td class="p-1"><span class="desc-truncate">{{ p.description }}</span></td>
+                        <td class="p-1">
+                            <span class="desc-truncate">{{ p.description }}</span>
+                            {% if p.item_benefit_type == "warranty" %}
+                                <span class="benefit-badge benefit-badge-warranty">Garantia</span>
+                            {% elif p.item_benefit_type == "courtesy" %}
+                                <span class="benefit-badge benefit-badge-courtesy">Cortesia</span>
+                            {% endif %}
+                        </td>
                         <td class="p-1 text-center">{{ p.quantity }}</td>
                         <td class="p-1 text-center">{% if p.is_customer_supplied %}Sim{% else %}Não{% endif %}</td>
-                        <td class="p-1 text-right">{{ p.unit_price }}</td>
-                        <td class="p-1 text-right font-medium">{{ p.total_price }}</td>
+                        <td class="p-1 text-right{% if p.item_benefit_type != "normal" or p.is_customer_supplied %} benefit-dimmed{% endif %}">{{ p.unit_price }}</td>
+                        <td class="p-1 text-right font-medium{% if p.item_benefit_type != "normal" or p.is_customer_supplied %} benefit-dimmed{% endif %}">{{ p.total_price }}</td>
                     </tr>
                     {% empty %}
                     <tr class="border-b border-gray-100">
@@ -316,7 +348,14 @@
                 <tbody>
                     {% for s in page.servicos %}
                     <tr class="border-b border-gray-100">
-                        <td class="p-1 font-medium"><span class="desc-truncate">{{ s.description }}</span></td>
+                        <td class="p-1 font-medium">
+                            <span class="desc-truncate">{{ s.description }}</span>
+                            {% if s.item_benefit_type == "warranty" %}
+                                <span class="benefit-badge benefit-badge-warranty">Garantia</span>
+                            {% elif s.item_benefit_type == "courtesy" %}
+                                <span class="benefit-badge benefit-badge-courtesy">Cortesia</span>
+                            {% endif %}
+                        </td>
                     </tr>
                     {% empty %}
                     <tr class="border-b border-gray-100">

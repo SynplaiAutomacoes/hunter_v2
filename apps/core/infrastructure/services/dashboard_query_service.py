@@ -6,12 +6,15 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from django.db.models import DecimalField, ExpressionWrapper, F, Prefetch, Sum
+from _decimal import Decimal
+from django.db.models import DecimalField, ExpressionWrapper, F, Prefetch, Q, Sum
 from django.utils import timezone
 
 from apps.budget.models import Budget, BudgetItem, BudgetStatus, BudgetType
 from apps.budget.pdf_context import calculate_markup_multiplier
+from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.core.domain.services.dashboard_service import DashboardMetrics
+from apps.finance.models import FinancialGroup, FinancialMovement
 from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
@@ -157,19 +160,108 @@ def _format_brl(amount: Decimal) -> str:
     return f"R$ {amount:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def calculate_average_markup(budgets: list[Budget]) -> Decimal:
-    markups = [
-        calculate_markup_multiplier(
-            total_budget_value=budget.total_budget_value,
-            total_costs_products_value=budget.total_costs_products_value,
-            total_costs_services_value=budget.total_costs_services_value,
-        )
-        for budget in budgets
-    ]
-    positive_markups = [m for m in markups if m > 0]
-    if not positive_markups:
+def calculate_aggregate_markup(*, workshop_id: int, month: int, year: int) -> Decimal:
+    """Calculate aggregate markup aligned with DRE methodology.
+
+    Formula: SUM(total_paid) / SUM(total_costs_products_value + total_costs_services_value + total_products_shipping)
+
+    Uses WorkOrderPaymentMethod due_date (same as DRE) instead of Budget entry_date.
+    """
+    total_revenue = _aggregate_revenue(workshop_id=workshop_id, month=month, year=year)
+    if total_revenue == Decimal("0.00"):
         return Decimal("0.00")
-    return (sum(positive_markups, Decimal("0.00")) / Decimal(len(positive_markups))).quantize(TWO_DECIMAL_PLACES)
+
+    workorder_ids = _get_workorder_ids_from_payments(workshop_id=workshop_id, month=month, year=year)
+    if not workorder_ids:
+        return Decimal("0.00")
+
+    total_product_cost, total_third_party_cost, total_mechanic_cost, total_shipping = _aggregate_costs(
+        workorder_ids=workorder_ids
+    )
+
+    total_service_cost = total_third_party_cost + total_mechanic_cost
+    total_cost = total_product_cost + total_service_cost + total_shipping
+    if total_cost <= Decimal("0.00"):
+        return Decimal("0.00")
+
+    markup = (total_revenue / total_cost).quantize(TWO_DECIMAL_PLACES)
+
+    return markup
+
+
+def _aggregate_revenue(*, workshop_id: int, month: int, year: int) -> Decimal:
+    result = (
+        WorkOrderPaymentMethod.objects.filter(
+            workorder__workshop_id=workshop_id,
+            workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+            workorder__budget_type="sale",
+            due_date__month=month,
+            due_date__year=year,
+        )
+        .annotate(
+            payment_total=ExpressionWrapper(
+                F("first_installment_amount")
+                + (F("installments_count") - 1) * F("remaining_installments_amount"),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            )
+        )
+        .aggregate(total=Sum("payment_total"))
+    )
+    return result["total"] or Decimal("0.00")
+
+
+def _get_workorder_ids_from_payments(*, workshop_id: int, month: int, year: int) -> list[int]:
+    return list(
+        WorkOrderPaymentMethod.objects.filter(
+            workorder__workshop_id=workshop_id,
+            workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+            workorder__budget_type="sale",
+            due_date__month=month,
+            due_date__year=year,
+        )
+        .values_list("workorder_id", flat=True)
+        .distinct()
+    )
+
+
+def _calculate_dre_local_cost(workorder: WorkOrder) -> Decimal:
+    budget = workorder.budget
+    if budget is None:
+        return Decimal("0.00")
+    snapshot = budget.pricing_snapshot
+    total = Decimal("0.00")
+    for line in snapshot.service_lines:
+        if line.third_party:
+            continue
+        fallback_cost = line.original_cost_total if line.original_cost_total.amount > 0 else line.cost_total
+        mechanic_cost = calculate_mechanic_service_cost(
+            budget=budget,
+            duration=line.duration,
+            quantity=1,
+            fallback_cost=fallback_cost,
+        )
+        total += resolve_decimal_amount(mechanic_cost)
+    return total
+
+
+def _aggregate_costs(*, workorder_ids: list[int]) -> tuple[int, int, int, int]:
+    workorders = list(
+        WorkOrder.objects.filter(
+            pk__in=workorder_ids,
+            delivered_at__isnull=False,
+        )
+        .select_related("budget")
+        .prefetch_related(_WORKORDER_ITEMS_PREFETCH)
+    )
+    total_pcost = sum(resolve_decimal_amount(wo.total_costs_products_value) for wo in workorders)
+    total_third_party = sum(resolve_decimal_amount(wo.total_third_party_services_cost) for wo in workorders)
+    total_mechanic = sum(_calculate_dre_local_cost(wo) for wo in workorders)
+    total_shipping = sum(resolve_decimal_amount(wo.total_products_shipping) for wo in workorders)
+    print(f"total_pcost: {total_pcost}")
+    print(f"total_third_party: {total_third_party}")
+    print(f"total_mechanic: {total_mechanic}")
+    print(f"total_shipping: {total_shipping}")
+    return total_pcost, total_third_party, total_mechanic, total_shipping
 
 
 def calculate_markup_progress(markup: Decimal) -> int:
@@ -354,6 +446,9 @@ class DashboardQueryService:
         total_sold = self._calculate_total_sold(
             workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year
         )
+        today_sales = self._calculate_today_sales(
+            workshop_id=workshop_id, today=hoje
+        )
 
         logger.info(
             "Dashboard total vendido calculado | workshop_id=%s mes=%s ano=%s total_vendido=%s",
@@ -411,6 +506,7 @@ class DashboardQueryService:
             configured_working_days=projection_data["configured_working_days"],
             business_holidays=projection_data["business_holidays"],
             total_sold_to_date=total_sold,
+            today_sales=today_sales,
             accumulated_profitability=approved_budget_metrics.accumulated_profitability,
             accumulated_markup=approved_budget_metrics.accumulated_markup,
             accumulated_markup_progress=calculate_markup_progress(approved_budget_metrics.accumulated_markup),
@@ -540,6 +636,26 @@ class DashboardQueryService:
         return result["total"] or Decimal("0.00")
 
     @staticmethod
+    def _calculate_today_sales(*, workshop_id: int, today: date) -> Decimal:
+        result = (
+            WorkOrderPaymentMethod.objects.filter(
+                workorder__workshop_id=workshop_id,
+                workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+                workorder__budget_type="sale",
+                due_date=today,
+            )
+            .annotate(
+                payment_total=ExpressionWrapper(
+                    F("first_installment_amount")
+                    + (F("installments_count") - 1) * F("remaining_installments_amount"),
+                    output_field=DecimalField(max_digits=14, decimal_places=2),
+                )
+            )
+            .aggregate(total=Sum("payment_total"))
+        )
+        return result["total"] or Decimal("0.00")
+
+    @staticmethod
     def _get_delivered_workorders(*, workshop_id: int, selected_month: int, selected_year: int) -> tuple[list[WorkOrder], list[WorkOrder]]:
         all_workorders = list(
             WorkOrder.objects.filter(
@@ -568,9 +684,12 @@ class DashboardQueryService:
         )
         profitabilities = [b.rentability for b in approved_budgets if b.rentability is not None]
         accumulated_profitability = sum(profitabilities) / len(profitabilities) if profitabilities else 0
+        accumulated_markup = calculate_aggregate_markup(
+            workshop_id=workshop_id, month=selected_month, year=selected_year
+        )
         return ApprovedBudgetMetrics(
             accumulated_profitability=accumulated_profitability,
-            accumulated_markup=calculate_average_markup(approved_budgets),
+            accumulated_markup=accumulated_markup,
             approved_count=len(approved_budgets),
         )
 

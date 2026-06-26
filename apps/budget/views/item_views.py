@@ -16,7 +16,7 @@ from apps.catalog.kit_applications import build_vehicle_context_label, evaluate_
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
-from apps.catalog.price_tracking import build_product_price_warning
+from apps.catalog.price_tracking import build_product_price_warning, build_service_price_warning, record_service_last_used_price
 from apps.catalog.product_issues import annotate_product_issues
 from apps.core.presentation.widgets import NumberInput
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -502,6 +502,14 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     form.add_error("product_selling_price", price_warning.message)
                     annotate_product_issues(workshop=self.workshop, items=[item])
                     return self._render_edit_modal(request, form=form, item=item, budget_id=budget_id, in_queue=in_queue)
+            elif action in {"save_only", "update_master"} and item.service:
+                price_warning = build_service_price_warning(
+                    service=item.service,
+                    attempted_price=form.cleaned_data.get("service_selling_price"),
+                )
+                if price_warning and request.POST.get("confirm_lower_price") != "1":
+                    form.add_error("service_selling_price", price_warning.message)
+                    return self._render_edit_modal(request, form=form, item=item, budget_id=budget_id, in_queue=in_queue)
             try:
                 item = form.save()
                 self._sync_product_ncm(item=item, form=form)
@@ -554,6 +562,7 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
             service.selling_price = item.service_selling_price
             service.duration = item.duration
             service.save()
+            record_service_last_used_price(service=service, price=item.service_selling_price)
         elif item.kit:
             kit = item.kit
             kit.name = item.description

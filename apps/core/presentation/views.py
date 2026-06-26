@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import logging
 import time
+from decimal import Decimal
 from typing import Any
 
 import requests
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import DecimalField, ExpressionWrapper, F, Sum
 from django.http import HttpResponse, JsonResponse
 from django.urls import reverse
 from django.template.response import TemplateResponse
@@ -26,6 +28,7 @@ from apps.core.infrastructure.services.dashboard_query_service import (
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.core.utils import clean_id
 from apps.workshops.util.workshops import get_active_workshop_or_404
+from apps.workorder.models import WorkOrderPaymentMethod, WorkOrderStatus
 
 external_calls_logger = logging.getLogger("performance.external")
 logger = logging.getLogger(__name__)
@@ -195,6 +198,35 @@ class DashboardFinancialReportView(View):
 
         report_querystring = f"indicador={indicador}&mes={mes}&ano={ano}"
 
+        valor_pago_esse_mes = Decimal("0.00")
+        sinal_pago_mes_anterior = Decimal("0.00")
+        warranty_count = 0
+        courtesy_count = 0
+
+        if indicador == "carros_mes":
+            result = (
+                WorkOrderPaymentMethod.objects.filter(
+                    workorder__workshop=workshop,
+                    workorder__budget_type="sale",
+                    workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+                    due_date__month=mes,
+                    due_date__year=ano,
+                )
+                .annotate(
+                    payment_total=ExpressionWrapper(
+                        F("first_installment_amount")
+                        + (F("installments_count") - 1) * F("remaining_installments_amount"),
+                        output_field=DecimalField(max_digits=14, decimal_places=2),
+                    )
+                )
+                .aggregate(total=Sum("payment_total"))
+            )
+            valor_pago_esse_mes = result["total"] or Decimal("0.00")
+            sinal_pago_mes_anterior = report_data.total_value - valor_pago_esse_mes
+        elif indicador == "garantia_cortesia_mes":
+            warranty_count = sum(1 for item in items if item.budget_type == "warranty")
+            courtesy_count = sum(1 for item in items if item.budget_type == "courtesy")
+
         return {
             "indicator": indicador,
             "report_title": report_data.report_title,
@@ -213,6 +245,10 @@ class DashboardFinancialReportView(View):
             "is_grouped_report": bool(report_data.workorder_groups),
             "download_url": f"{reverse('core:dashboard_financial_report')}?download=1&{report_querystring}",
             "report_querystring": report_querystring,
+            "valor_pago_esse_mes": valor_pago_esse_mes,
+            "sinal_pago_mes_anterior": sinal_pago_mes_anterior,
+            "warranty_count": warranty_count,
+            "courtesy_count": courtesy_count,
         }
 
     def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:

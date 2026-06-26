@@ -37,6 +37,7 @@ from apps.core.presentation.tables import TableActionDefaults
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.domain.contracts.signature import SignatureServiceError
 from apps.core.infrastructure.providers import get_signature_service
+from apps.core.text_normalization import sentence_case
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
@@ -424,7 +425,7 @@ class WorkOrderStatusReportDataMixin:
             filter_configs=WORKORDER_LIST_FILTERS,
         )
 
-        return queryset.order_by("-criado_em")
+        return queryset.order_by("-budget__pk", "-criado_em")
 
     def _get_selection_report_items(self) -> list[WorkOrder]:
         cached = getattr(self, "_selection_report_items_cache", None)
@@ -718,6 +719,24 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         workorder.set_km_final(km_final)
 
         return JsonResponse({"ok": True, "km_final": km_final})
+
+
+class UpdateWorkOrderObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkOrder
+    workshop_permission_codename = "change_workorder"
+
+    def post(self, request, pk):
+        workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
+        if _is_workorder_edit_locked(workorder):
+            return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
+
+        observations = sentence_case(str(request.POST.get("observations", "")).strip())
+        workorder.budget.observations = observations
+        workorder.budget.save(update_fields=["observations"])
+
+        return JsonResponse({"ok": True, "observations": observations})
 
 
 class WorkOrderEditItemsModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):

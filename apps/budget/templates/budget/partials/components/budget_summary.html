@@ -19,4 +19,16 @@
         <span class="font-bold">Total Geral</span>
         <span class="font-bold">{{ budget.selected_items_total_budget_value }}</span>
     </div>
+    {% if budget.warranty_items_count %}
+    <div class="flex items-center gap-2 text-sm p-3">
+        <span class="badge badge-error badge-xs">{{ budget.warranty_items_count }}</span>
+        <span>item(ns) em Garantia</span>
+    </div>
+    {% endif %}
+    {% if budget.courtesy_items_count %}
+    <div class="flex items-center gap-2 text-sm p-3">
+        <span class="badge badge-info badge-xs">{{ budget.courtesy_items_count }}</span>
+        <span>item(ns) em Cortesia</span>
+    </div>
+    {% endif %}
 </div>

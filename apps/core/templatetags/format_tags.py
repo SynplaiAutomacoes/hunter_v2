@@ -54,6 +54,15 @@ def phone_br(value: object) -> str:
 
 
 @register.filter
+def budget_type_color(value: object) -> str:
+    mapping = {
+        "warranty": "error",
+        "courtesy": "info",
+    }
+    return mapping.get(value, "success")
+
+
+@register.filter
 def money_br(value: object) -> str:
     if value in (None, ""):
         return ""

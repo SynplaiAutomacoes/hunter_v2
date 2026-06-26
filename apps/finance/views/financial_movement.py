@@ -30,6 +30,7 @@ from apps.core.utils import clean_id
 from apps.finance.forms.financial_movement import MovementStep1Form, MovementStep2Form, MovementStep3Form, MovementStep4Form
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.views.navigation import append_query_params
+from apps.accounts.models import User
 from apps.collaborators.models import WorkshopCollaborator
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
@@ -75,15 +76,18 @@ def get_financial_movement_table_columns() -> list[TableColumn]:
 
 def _apply_workorder_payment_aware_date_filter(queryset: QuerySet[FinancialMovement], *, lookup: str, value: date) -> QuerySet[FinancialMovement]:
     workorder_parent_query = Q(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False)
+    workorder_parent_aggregate_query = workorder_parent_query & Q(workorder_payment__isnull=True)
+    workorder_parent_payment_query = workorder_parent_query & Q(workorder_payment__isnull=False)
     return queryset.filter(
         (~workorder_parent_query & Q(**{lookup: value}))
         | (
-            workorder_parent_query
+            workorder_parent_aggregate_query
             & Q(
                 workorder__payments__isnull=False,
                 **{f"workorder__payments__{lookup}": value},
             )
         )
+        | (workorder_parent_payment_query & Q(**{f"workorder_payment__{lookup}": value}))
     ).distinct()
 
 
@@ -101,7 +105,7 @@ def _parse_report_filter_params(request: HttpRequest) -> dict[str, Any]:
     return {
         "start_date": _parse_financial_movement_date_param(request.GET.get("data_inicial")),
         "end_date": _parse_financial_movement_date_param(request.GET.get("data_final")),
-        "budget_plan_ids": [int(v) for v in request.GET.getlist("financial_groups") if str(v).strip()],
+        "budget_plan_ids": [int(v) for v in request.GET.getlist("financial_groups") if str(v).strip() and v.strip().isdigit()],
         "bank_account_id": _parse_int_param(request.GET.get("bank_account")),
         "direction": str(request.GET.get("direction") or "").strip(),
         "paid_status": str(request.GET.get("paid_status") or "").strip(),
@@ -258,7 +262,7 @@ def _resolve_workorder_description(workorder: object) -> str:
     return str(budget.problem_description or budget.notes or "-")
 
 
-def _filter_payments_for_pdf(payments: list[object], *, filter_params: dict[str, Any], per_payment_movements: dict[int, FinancialMovement], workshop: Any) -> list[object]:
+def _filter_payments_for_pdf(payments: list[object], *, filter_params: dict[str, Any], per_payment_movements: dict[int, FinancialMovement], workshop: Any, aggregate_movements: dict[int, FinancialMovement] | None = None) -> list[object]:
     paid_status = filter_params.get("paid_status", "")
     if paid_status == "unpaid":
         return []
@@ -281,6 +285,10 @@ def _filter_payments_for_pdf(payments: list[object], *, filter_params: dict[str,
             continue
         payment_movement = per_payment_movements.get(payment.pk)
         if payment_movement is None:
+            workorder_id = getattr(payment, "workorder_id", None)
+            if workorder_id and aggregate_movements and workorder_id in aggregate_movements:
+                payment_movement = aggregate_movements[workorder_id]
+        if payment_movement is None:
             continue
         is_reconciled = bool(getattr(payment_movement, "is_reconciled", False))
         if reconciliation_status == "reconciled" and not is_reconciled:
@@ -296,12 +304,15 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
     filter_params = filter_params or {}
 
     payment_pks: set[int] = set()
+    workorder_ids: set[int] = set()
     for movement in movements:
         workorder = getattr(movement, "workorder", None)
         if workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
             for payment in list(workorder.payments.all()):
                 if payment.pk:
                     payment_pks.add(payment.pk)
+            if movement.workorder_id:
+                workorder_ids.add(movement.workorder_id)
 
     per_payment_movements: dict[int, FinancialMovement] = {}
     if payment_pks:
@@ -312,11 +323,43 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
         ).order_by("-pk"):
             per_payment_movements[m.workorder_payment_id] = m
 
+    aggregate_movements: dict[int, FinancialMovement] = {}
+    if workorder_ids:
+        for m in FinancialMovement.objects.filter(
+            workorder_id__in=list(workorder_ids),
+            movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+            workorder_payment__isnull=True,
+            workshop=workshop,
+        ).order_by("-pk"):
+            if m.workorder_id not in aggregate_movements:
+                aggregate_movements[m.workorder_id] = m
+
     for movement in movements:
         workorder = getattr(movement, "workorder", None)
         if workorder is not None and movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT:
+            if movement.workorder_payment_id is not None:
+                payment = getattr(movement, "workorder_payment", None)
+                if payment is None:
+                    continue
+                payment_amount = getattr(payment, "total_paid", None) or Money(0, "BRL")
+                payment_movement = per_payment_movements.get(payment.pk) or movement
+                payment_method = getattr(payment, "payment_method", None)
+                rows.append({
+                    "paid_status": "Sim" if payment_movement.is_paid else "Não",
+                    "reconciliation_status": "Conciliado" if payment_movement.is_reconciled else "Aguardando Conciliação",
+                    "direction": FinancialMovement.MovementDirection.CREDIT,
+                    "direction_label": "Crédito",
+                    "due_date": payment.due_date or movement.due_date,
+                    "agent": payment_movement.report_agent_display,
+                    "description": _resolve_workorder_description(workorder),
+                    "budget_plan": payment_movement.report_budget_plan_display,
+                    "payment_type": getattr(payment_method, "description", "-") or "-",
+                    "amount": payment_amount,
+                })
+                continue
+
             payments = list(workorder.payments.all())
-            filtered_payments = _filter_payments_for_pdf(payments, filter_params=filter_params, per_payment_movements=per_payment_movements, workshop=workshop)
+            filtered_payments = _filter_payments_for_pdf(payments, filter_params=filter_params, per_payment_movements=per_payment_movements, workshop=workshop, aggregate_movements=aggregate_movements)
             for payment in filtered_payments:
                 payment_amount = getattr(payment, "total_paid", None) or Money(0, "BRL")
                 payment_movement = per_payment_movements.get(payment.pk) or movement
@@ -408,6 +451,14 @@ def _build_financial_movement_filter_labels(*, request: HttpRequest, workshop: A
             if supp:
                 labels.append(f"Fornecedor: {supp.name}")
 
+    opened_by_id = _parse_int_param(request.GET.get("opened_by"))
+    if opened_by_id is not None:
+        user = User.objects.filter(pk=opened_by_id).first()
+        if user:
+            full_name = user.get_full_name().strip()
+            label = full_name if full_name else user.username
+            labels.append(f"Aberto por: {label}")
+
     payment_method_id = _parse_int_param(request.GET.get("payment_method"))
     if payment_method_id is not None:
         pm = PaymentMethod.objects.filter(pk=payment_method_id).first()
@@ -420,7 +471,7 @@ def _build_financial_movement_filter_labels(*, request: HttpRequest, workshop: A
         if ba:
             labels.append(f"Conta: {ba}")
 
-    budget_plan_ids = [int(v) for v in request.GET.getlist("financial_groups") if str(v).strip()]
+    budget_plan_ids = [int(v) for v in request.GET.getlist("financial_groups") if str(v).strip() and v.strip().isdigit()]
     if budget_plan_ids:
         plans = FinancialGroup.objects.filter(pk__in=budget_plan_ids, workshop=workshop)
         labels.append(f"Planos: {', '.join(str(p) for p in plans)}")
@@ -490,6 +541,28 @@ def financial_movement_pdf(request: HttpRequest) -> HttpResponse:
         "workorder__budget__customer",
     ).prefetch_related("workorder__payments", "workorder__payments__payment_method")
     movements = list(queryset)
+
+    workorder_ids_with_parent = {
+        m.workorder_id for m in movements
+        if m.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT
+        and m.workorder_id is not None
+    }
+
+    fallback = FinancialMovement.objects.filter(
+        workshop=workshop,
+        movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+        workorder__isnull=False,
+        workorder_payment__isnull=False,
+    ).exclude(workorder_id__in=workorder_ids_with_parent)
+
+    fallback = _apply_report_filters_to_queryset(fallback, params=filter_params)
+    fallback = fallback.select_related(
+        "source", "collaborator", "supplier", "payment_method",
+        "budget_plan", "bank_account", "workorder",
+        "workorder__budget", "workorder__budget__customer",
+        "workorder_payment", "workorder_payment__payment_method",
+    ).order_by("-pk")
+    movements.extend(list(fallback))
 
     rows = _build_financial_movement_pdf_rows(movements=movements, workshop=workshop, filter_params=filter_params)
     totals = _build_financial_movement_pdf_totals(rows=rows)

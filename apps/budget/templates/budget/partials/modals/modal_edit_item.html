@@ -9,6 +9,12 @@
                 <span class="material-icons text-primary text-3xl flex-shrink-0">edit</span>
                 <h3 class="font-bold text-xl text-base-content {% if in_queue %}flex-1 min-w-0 truncate{% else %}truncate{% endif %}">{% if in_queue %}{{ item.description }}{% else %}{{ item.description|truncatewords:6 }}{% endif %}</h3>
 
+                {% if item.item_benefit_type == "warranty" %}
+                    <span class="badge badge-error gap-1 shrink-0">Garantia</span>
+                {% elif item.item_benefit_type == "courtesy" %}
+                    <span class="badge badge-info gap-1 shrink-0">Cortesia</span>
+                {% endif %}
+
                 <!-- Calculation Indicator -->
                 <div id="calculation-indicator" class="htmx-indicator flex items-center gap-2 px-3 py-1 bg-info/10 text-info rounded-full text-sm animate-pulse flex-shrink-0">
                     <span class="material-icons text-sm animate-spin">sync</span>
@@ -22,7 +28,7 @@
                     class="btn btn-accent btn-sm gap-2 js-update-master flex-shrink-0 whitespace-nowrap"
                     data-url="{% url 'budget:edit_item' budget_id item.pk %}"
                     data-action="update_master"
-                    data-last-used-price="{{ item.product.last_used_price.amount|default_if_none:'' }}"
+                    data-last-used-price="{% if item.product and item.product.last_used_price %}{{ item.product.last_used_price.amount }}{% elif item.service and item.service.last_used_price %}{{ item.service.last_used_price.amount }}{% endif %}"
                     data-keep-modal-open="true">
                 <span class="material-icons text-sm">cloud_upload</span>
                 <span class="hidden sm:inline">Atualizar Cadastro</span>
@@ -42,7 +48,7 @@
           hx-target="#current-item-form"
           hx-swap="none"
           id="edit-item-form"
-          data-last-used-price="{{ item.product.last_used_price.amount|default_if_none:'' }}"
+          data-last-used-price="{% if item.product and item.product.last_used_price %}{{ item.product.last_used_price.amount }}{% elif item.service and item.service.last_used_price %}{{ item.service.last_used_price.amount }}{% endif %}"
           class="space-y-4 js-save-form">
         {% csrf_token %}
         <input type="hidden" name="confirm_lower_price" id="confirm-lower-price-input" value="">
@@ -187,8 +193,8 @@
                 const originalIconContent = icon ? icon.textContent : '';
                 const form = document.getElementById('edit-item-form');
                 const confirmLowerPriceInput = document.getElementById('confirm-lower-price-input');
-                const sellingPriceAmountInput = document.getElementById('id_product_selling_price_0');
-                const sellingPriceDisplayInput = document.getElementById('id_product_selling_price_0_display');
+                const sellingPriceAmountInput = document.getElementById('id_product_selling_price_0') || document.getElementById('id_service_selling_price_0');
+                const sellingPriceDisplayInput = document.getElementById('id_product_selling_price_0_display') || document.getElementById('id_service_selling_price_0_display');
                 const helpLabel = document.getElementById('lower-price-help-label');
                 const helpText = document.getElementById('lower-price-help-text');
                 const updateButton = document.querySelector('.js-update-master');
@@ -218,15 +224,18 @@
                 };
 
                 const clearSellingPriceField = () => {
-                    if (sellingPriceAmountInput) {
-                        sellingPriceAmountInput.value = '';
-                        sellingPriceAmountInput.dispatchEvent(new Event('input', { bubbles: true }));
-                        sellingPriceAmountInput.dispatchEvent(new Event('change', { bubbles: true }));
-                    }
-                    if (sellingPriceDisplayInput) {
-                        sellingPriceDisplayInput.value = '';
-                        sellingPriceDisplayInput.dispatchEvent(new Event('input', { bubbles: true }));
-                        sellingPriceDisplayInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    const inputs = [
+                        document.getElementById('id_product_selling_price_0'),
+                        document.getElementById('id_product_selling_price_0_display'),
+                        document.getElementById('id_service_selling_price_0'),
+                        document.getElementById('id_service_selling_price_0_display'),
+                    ];
+                    for (const input of inputs) {
+                        if (input) {
+                            input.value = '';
+                            input.dispatchEvent(new Event('input', { bubbles: true }));
+                            input.dispatchEvent(new Event('change', { bubbles: true }));
+                        }
                     }
                 };
 
@@ -245,7 +254,7 @@
                     const modalElement = document.getElementById(lowerPriceModalHost.dialogId);
 
                     if (!modalContainer || typeof lowerPriceModalHost.open !== 'function') {
-                        const confirmed = window.confirm('O valor informado esta abaixo do ultimo valor utilizado para este produto. Deseja continuar mesmo assim?');
+                        const confirmed = window.confirm('O valor informado esta abaixo do ultimo valor utilizado para este item. Deseja continuar mesmo assim?');
                         if (!confirmed) {
                             if (confirmLowerPriceInput) {
                                 confirmLowerPriceInput.value = '';
@@ -272,7 +281,7 @@
                                 <span class="material-icons text-warning text-3xl">warning</span>
                                 <div>
                                     <h3 class="font-bold text-xl text-base-content">Confirmar valor abaixo do ultimo uso</h3>
-                                    <p class="text-sm text-base-content/80 mt-2">O valor informado esta abaixo do ultimo valor utilizado para este produto.</p>
+                                    <p class="text-sm text-base-content/80 mt-2">O valor informado esta abaixo do ultimo valor utilizado para este item.</p>
                                     <p class="text-sm text-base-content/80 mt-1">Deseja continuar mesmo assim?</p>
                                 </div>
                             </div>
