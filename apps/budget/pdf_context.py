@@ -248,7 +248,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         kits = []
 
         for line in review_display.direct_products:
-            produtos.append({
+            produto = {
                 "id": line.item.product_id,
                 "description": line.item.description,
                 "quantity": line.item.quantity,
@@ -264,7 +264,14 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 "profit_value": line.total_price - (line.item.product_cost_price * line.item.quantity),
                 "show_kit_duplicate_warning": False,
                 "item_benefit_type": line.item.item_benefit_type,
-            })
+            }
+
+            if produto["is_customer_supplied"]:
+                produto["profit_value"] = zero_money()
+            elif produto["item_benefit_type"] != "normal":
+                produto["profit_value"] = -produto["product_cost_price"]
+
+            produtos.append(produto)
 
         for line in review_display.direct_services:
             is_third_party = bool(getattr(line.item.service, "is_third_party", False))
@@ -275,7 +282,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 fallback_cost=line.warranty_total_price,
                 is_third_party=is_third_party,
             )
-            servicos.append({
+            servico = {
                 "id": line.item.service_id,
                 "description": line.item.description,
                 "quantity": line.item.quantity,
@@ -287,7 +294,12 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 "duration_display": line.duration_display,
                 "_duration_seconds": _duration_seconds(line.item.duration) * int(line.item.quantity or 0),
                 "item_benefit_type": line.item.item_benefit_type,
-            })
+            }
+
+            if servico["item_benefit_type"] != "normal":
+                servico["profit_value"] = -servico["service_mechanic_cost_price"]
+
+            servicos.append(servico)
 
         for line in review_display.kits:
             kit_item = line.item
@@ -300,7 +312,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 if total_quantity <= 0:
                     continue
 
-                produtos.append({
+                produto = {
                     "id": override.product_id,
                     "description": product.name,
                     "quantity": total_quantity,
@@ -316,7 +328,12 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                     "profit_value": (override.product_selling_price * total_quantity) - (override.product_cost_price * total_quantity),
                     "show_kit_duplicate_warning": False,
                     "item_benefit_type": kit_item.item_benefit_type,
-                })
+                }
+
+                if produto["item_benefit_type"] != "normal":
+                    produto["profit_value"] = -produto["product_cost_price"]
+
+                produtos.append(produto)
 
             for override in kit_item._iter_frozen_kit_service_overrides():
                 service = override.service
@@ -333,7 +350,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                     is_third_party=service.is_third_party,
                 )
 
-                servicos.append({
+                servico = {
                     "id": override.service_id,
                     "description": service.name,
                     "quantity": total_quantity,
@@ -345,7 +362,12 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                     "duration_display": format_duration_display(override.duration * total_quantity) if override.duration else "00h 00m",
                     "_duration_seconds": _duration_seconds(override.duration) * total_quantity if override.duration else 0,
                     "item_benefit_type": kit_item.item_benefit_type,
-                })
+                }
+
+                if servico["item_benefit_type"] != "normal":
+                    servico["profit_value"] = -servico["service_mechanic_cost_price"]
+
+                servicos.append(servico)
 
             kits.append({
                 "id": kit_item.kit_id,
