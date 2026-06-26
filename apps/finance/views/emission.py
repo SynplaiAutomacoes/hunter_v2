@@ -288,6 +288,9 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         Returns (has_mismatch, suggested_override) when the workorder discount_type
         does not align with the single-NF emission mode.
         """
+        if Decimal(str(workorder.resolved_discount_value.amount)) <= Decimal("0.00"):
+            return False, ""
+
         discount_type = workorder.discount_type
         if note_mode == "both":
             return False, ""
