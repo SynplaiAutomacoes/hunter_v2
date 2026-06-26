@@ -740,8 +740,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
         return render_emission_preview_modal(
             request=self.request,
-            title="Previa da emissao",
-            description="Confira os documentos antes de transmitir as notas fiscais para a Webmania.",
+            title="Prévia de Emissão",
+            description="Confira os documentos antes de transmitir para o Sefaz.",
             previews=previews,
             transmit_url=self._step_url(current_step),
             hidden_fields=build_preview_hidden_fields(cleaned_data=cleaned_data),

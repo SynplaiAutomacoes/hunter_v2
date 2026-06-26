@@ -447,7 +447,7 @@ class NfseRequestCreateView(SharedEmissionRequestCreateBaseView):
     def _build_preview_response(self, *, form) -> HttpResponse:
         return render_emission_preview_modal(
             request=self.request,
-            title="Previa da Nota Fiscal de Serviço",
+            title="Prévia da Nota Fiscal de Serviço",
             description="Confira o documento antes de transmitir a Nota Fiscal de Serviço para a Webmania.",
             previews=[{"label": "Nota Fiscal de Serviço", "embed_url": reverse("finance:nfse_preview_pdf", kwargs={"pk": self.object.pk})}],
             transmit_url=self._step_url(step=self.get_current_step()),
