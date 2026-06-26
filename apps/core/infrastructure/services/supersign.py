@@ -49,9 +49,27 @@ def extract_supersign_event(payload: dict[str, Any]) -> str:
     return _normalize_event_name(raw_event)
 
 
+def _payload_structure(payload: Any, depth: int = 0, max_depth: int = 3) -> str:
+    if depth > max_depth:
+        return "..."
+    if isinstance(payload, dict):
+        parts = []
+        for key, value in payload.items():
+            child = _payload_structure(value, depth + 1, max_depth)
+            parts.append(f"{key}: {child}")
+        return "{" + ", ".join(parts) + "}"
+    elif isinstance(payload, list):
+        if not payload:
+            return "[]"
+        return "[" + _payload_structure(payload[0], depth + 1, max_depth) + (", ...]" if len(payload) > 1 else "]")
+    else:
+        return f"{type(payload).__name__}({len(str(payload))})"
+
+
 def extract_supersign_envelope_id(payload: dict[str, Any]) -> str:
     direct = _find_first_string(payload, ("envelopeId", "envelope_id", "envelopeID"))
     if direct:
+        logger.debug("supersign_extract_envelope_id_direct", extra={"envelope_id": direct, "found_at_key": "envelopeId/envelope_id/envelopeID"})
         return direct
 
     queue: list[Any] = [payload]
@@ -62,12 +80,15 @@ def extract_supersign_envelope_id(payload: dict[str, Any]) -> str:
             if isinstance(envelope_obj, dict):
                 envelope_id = envelope_obj.get("id")
                 if isinstance(envelope_id, str) and envelope_id.strip():
+                    logger.debug("supersign_extract_envelope_id_nested", extra={"envelope_id": envelope_id.strip()})
                     return envelope_id.strip()
             for value in current.values():
                 if isinstance(value, (dict, list)):
                     queue.append(value)
         elif isinstance(current, list):
             queue.extend(current)
+
+    logger.warning("supersign_extract_envelope_id_failed", extra={"payload_structure": _payload_structure(payload)})
     return ""
 
 
@@ -95,20 +116,35 @@ def parse_supersign_webhook_body(request: HttpRequest) -> dict[str, Any]:
 
 
 def process_supersign_webhook_payload(*, payload: dict[str, Any]) -> HttpResponse:
-    from apps.budget.models import Budget
+    from apps.budget.models import Budget, SignatureStatus
+    from apps.workorder.models import WorkOrderSignatureStatus
 
     event_name = extract_supersign_event(payload)
     envelope_id = extract_supersign_envelope_id(payload)
-    logger.info("supersign_webhook_parsed", extra={"event": event_name, "envelope_id": envelope_id})
+    logger.info("supersign_webhook_parsed", extra={"event": event_name, "envelope_id": envelope_id, "payload_structure": _payload_structure(payload)})
 
     if not envelope_id:
-        logger.warning("supersign_webhook_missing_envelope_id", extra={"event": event_name})
+        logger.warning("supersign_webhook_missing_envelope_id", extra={"event": event_name, "payload_keys": list(payload.keys())})
         return HttpResponse(status=200)
 
     budget = Budget.objects.filter(signature_external_id=envelope_id).first()
     workorder = WorkOrder.objects.filter(signature_external_id=envelope_id).first()
     if budget is None and workorder is None:
-        logger.info("supersign_webhook_no_matching_document", extra={"event": event_name, "envelope_id": envelope_id})
+        budget_by_doc = Budget.objects.filter(signature_document_id=envelope_id).first()
+        workorder_by_doc = WorkOrder.objects.filter(signature_document_id=envelope_id).first()
+        recent_budget = Budget.objects.filter(signature_request_status=SignatureStatus.SENT).order_by("-signature_sent_at").values("id", "signature_external_id", "signature_document_id", "signature_sent_at")[:3]
+        recent_workorder = WorkOrder.objects.filter(signature_request_status=WorkOrderSignatureStatus.SENT).order_by("-signature_sent_at").values("id", "signature_external_id", "signature_document_id", "signature_sent_at")[:3]
+        logger.info(
+            "supersign_webhook_no_matching_document",
+            extra={
+                "event": event_name,
+                "envelope_id": envelope_id,
+                "payload_structure": _payload_structure(payload),
+                "matched_by_document_id": bool(budget_by_doc or workorder_by_doc),
+                "recent_sent_budgets": list(recent_budget),
+                "recent_sent_workorders": list(recent_workorder),
+            },
+        )
         return HttpResponse(status=200)
 
     if event_name != "ENVELOPE_COMPLETED":

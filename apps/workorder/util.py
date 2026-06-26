@@ -286,21 +286,26 @@ def _build_workorder_pdf_file_response(*, workorder: WorkOrder, download: bool, 
 
 def trigger_workorder_signature_send_if_needed(*, workorder: WorkOrder) -> tuple[str, str]:
     if workorder.has_signature_blockers:
+        logger.info("workorder_signature_blocked", extra={"workorder_id": workorder.pk, "blockers": workorder.signature_blockers_display})
         return "error", workorder.signature_blockers_display
 
     if not workorder.budget.service_expected_completion_at:
+        logger.info("workorder_signature_missing_completion_date", extra={"workorder_id": workorder.pk})
         return "error", "Não é possível enviar para assinatura antes de definir a data prevista de término do serviço."
 
     with transaction.atomic():
         locked_workorder = WorkOrder.objects.select_for_update().get(pk=workorder.pk)
 
         if locked_workorder.signature_request_status == WorkOrderSignatureStatus.SENT and locked_workorder.signature_external_id:
+            logger.info("workorder_signature_already_sent", extra={"workorder_id": workorder.pk, "external_id": locked_workorder.signature_external_id})
             return "info", "Ordem de serviço já enviada para assinatura do cliente."
 
         if locked_workorder.signature_request_status == WorkOrderSignatureStatus.SENDING:
+            logger.info("workorder_signature_already_sending", extra={"workorder_id": workorder.pk})
             return "info", "O envio da ordem de serviço ainda está em processamento."
 
         locked_workorder.mark_signature_sending()
+        logger.info("workorder_signature_sending_status_set", extra={"workorder_id": workorder.pk})
 
     try:
         result = send_workorder_for_signature(workorder=workorder)
@@ -310,6 +315,14 @@ def trigger_workorder_signature_send_if_needed(*, workorder: WorkOrder) -> tuple
         return "error", "Falha ao enviar ordem de serviço para assinatura. Tente novamente em instantes."
 
     workorder.mark_signature_sent(result.envelope_id, document_id=result.document_id)
+    logger.info(
+        "workorder_signature_sent_ok",
+        extra={
+            "workorder_id": workorder.pk,
+            "envelope_id": result.envelope_id,
+            "document_id": result.document_id,
+        },
+    )
     return "success", "Ordem de serviço enviada para assinatura do cliente."
 
 
