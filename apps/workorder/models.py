@@ -71,7 +71,6 @@ class WorkOrder(TimeStampedModel):
     signature_sent_at = models.DateTimeField(blank=True, null=True)
     delivered_at = models.DateTimeField(verbose_name="Data da Entrega", blank=True, null=True)
     unsigned_delivery_reason = models.TextField(verbose_name="Justificativa da entrega sem assinatura", blank=True)
-    observations = models.TextField(verbose_name="Observações", blank=True, default="")
     cancellation_reason = models.TextField(verbose_name="Justificativa do cancelamento", blank=True)
     rejection_reason = models.TextField(verbose_name="Justificativa da rejeicao", blank=True)
     reopen_reason = models.TextField(verbose_name="Justificativa da reabertura", blank=True)
@@ -732,13 +731,7 @@ class WorkOrder(TimeStampedModel):
             self.discount_value = self.budget.resolved_discount_value
             self.discount_percentage = self.budget.resolved_discount_percentage
             self.discount_type = self.budget.discount_type
-            update_fields = ["discount_value", "discount_percentage", "discount_type"]
-
-            if self.budget.observations:
-                self.observations = self.budget.observations
-                update_fields.append("observations")
-
-            self.save(update_fields=update_fields)
+            self.save(update_fields=["discount_value", "discount_percentage", "discount_type"])
 
             collaborator_ids = list(self.budget.collaborators.values_list("id", flat=True))
             if not collaborator_ids and self.budget.collaborator_id:

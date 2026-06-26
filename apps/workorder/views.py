@@ -37,6 +37,7 @@ from apps.core.presentation.tables import TableActionDefaults
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.domain.contracts.signature import SignatureServiceError
 from apps.core.infrastructure.providers import get_signature_service
+from apps.core.text_normalization import sentence_case
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
@@ -731,9 +732,9 @@ class UpdateWorkOrderObservationView(LoginRequiredMixin, WorkshopScopedMixin, Vi
         if _is_workorder_edit_locked(workorder):
             return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
 
-        observations = request.POST.get("observations", "")
-        workorder.observations = observations
-        workorder.save(update_fields=["observations"])
+        observations = sentence_case(str(request.POST.get("observations", "")).strip())
+        workorder.budget.observations = observations
+        workorder.budget.save(update_fields=["observations"])
 
         return JsonResponse({"ok": True, "observations": observations})
 
