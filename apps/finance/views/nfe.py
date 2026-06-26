@@ -386,7 +386,7 @@ class NfeRequestCreateView(SharedEmissionRequestCreateBaseView):
 
         return render_emission_preview_modal(
             request=self.request,
-            title="Previa da Nota Fiscal",
+            title="Prévia da Nota Fiscal",
             description="Confira o documento antes de transmitir a Nota Fiscal para a Webmania.",
             previews=[{"label": "DANFE", "embed_url": reverse("finance:nfe_preview_pdf", kwargs={"pk": self.object.pk})}],
             transmit_url=self._step_url(step=self.get_current_step()),

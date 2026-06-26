@@ -864,7 +864,7 @@ class EmissionNfeConfigForm(CoreForm):
         self.helper.layout = Layout(
             Div(
                 HTML("<h2 class='text-2xl font-bold'>Nota Fiscal</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Confira os produtos que serao enviados na Nota Fiscal e selecione a classe de imposto.</p>"),
+                HTML("<p class='text-base-content/70 mb-6'>Confira os produtos que serão enviados na Nota Fiscal e selecione a classe de imposto.</p>"),
                 Field("tax_class"),
                 Field("additional_information"),
                 HTML(warning_html),
@@ -927,7 +927,7 @@ class EmissionNfseConfigForm(CoreForm):
         self.helper.layout = Layout(
             Div(
                 HTML("<h2 class='text-2xl font-bold'>Nota Fiscal de Serviço</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Confira os servicos que compoem a Nota Fiscal de Serviço, escolha a classe fiscal e revise a descricao.</p>"),
+                HTML("<p class='text-base-content/70 mb-6'>Confira os serviços que compõem a Nota Fiscal de Serviço, escolha a classe fiscal e revise a descrição.</p>"),
                 Div(
                     Field("tax_class", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("service_description", wrapper_class="col-span-12 lg:col-span-8"),
