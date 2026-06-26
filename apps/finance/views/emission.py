@@ -286,15 +286,17 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
     def _detect_discount_type_mismatch(*, workorder: WorkOrder, note_mode: str) -> tuple[bool, str]:
         """
         Returns (has_mismatch, suggested_override) when the workorder discount_type
-        does not align with the single-NF emission mode.
+        does not align with the note_mode selected for emission.
         """
         if Decimal(str(workorder.resolved_discount_value.amount)) <= Decimal("0.00"):
             return False, ""
 
-        if note_mode == "both":
-            return False, ""
-
         discount_type = workorder.discount_type
+
+        if note_mode == "both":
+            if discount_type in (WorkOrderDiscountType.PRODUCTS, WorkOrderDiscountType.SERVICES):
+                return True, "both"
+            return False, ""
 
         if discount_type == WorkOrderDiscountType.BOTH:
             return True, "products" if note_mode == "nfe" else "services"
@@ -345,9 +347,14 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
     def _render_discount_type_modal(self, *, workorder: WorkOrder, note_mode: str, suggested_override: str) -> HttpResponse:
         current_discount_type = workorder.discount_type
-        note_label = "Nota Fiscal de Produto" if note_mode == "nfe" else "Nota Fiscal de Serviço"
+        if note_mode == "both":
+            note_label = "ambos os tipos de nota"
+        else:
+            note_label = "Nota Fiscal de Produto" if note_mode == "nfe" else "Nota Fiscal de Serviço"
 
-        if current_discount_type == WorkOrderDiscountType.BOTH:
+        if note_mode == "both":
+            message = f"O desconto está configurado para <strong>{self.DISCOUNT_TYPE_LABEL.get(current_discount_type, current_discount_type)}</strong>, mas você está emitindo <strong>{note_label}</strong>. Deseja alterar o tipo de desconto para <strong>Produtos e Serviços</strong> apenas para esta emissão?"
+        elif current_discount_type == WorkOrderDiscountType.BOTH:
             message = f"O desconto está configurado para <strong>{self.DISCOUNT_TYPE_LABEL['both']}</strong>, mas você está emitindo apenas <strong>{note_label}</strong>. Deseja alterar o tipo de desconto apenas para esta emissão?"
         else:
             message = f"O desconto está configurado para <strong>{self.DISCOUNT_TYPE_LABEL.get(current_discount_type, current_discount_type)}</strong>, mas você está emitindo apenas <strong>{note_label}</strong>. Deseja alterar o tipo de desconto apenas para esta emissão?"
