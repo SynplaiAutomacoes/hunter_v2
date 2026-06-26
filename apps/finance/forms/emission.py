@@ -28,8 +28,8 @@ from apps.finance.services.pricing import build_emission_pricing_snapshot_for_wo
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 
 
-EMISSION_NOTE_TYPE_CHOICES: list[tuple[str, str]] = [("nfe", "Nota Fiscal"), ("nfse", "Nota Fiscal de Serviço")]
-EMISSION_NOTE_MODE_CHOICES: list[tuple[str, str]] = [("nfe", "Nota Fiscal"), ("nfse", "Nota Fiscal de Serviço"), ("both", "Ambas")]
+EMISSION_NOTE_TYPE_CHOICES: list[tuple[str, str]] = [("nfe", "Nota Fiscal de Produto"), ("nfse", "Nota Fiscal de Serviço")]
+EMISSION_NOTE_MODE_CHOICES: list[tuple[str, str]] = [("nfe", "Nota Fiscal de Produto"), ("nfse", "Nota Fiscal de Serviço"), ("both", "Ambas")]
 
 
 def _build_modal_action_button(*, label: str, icon: str, url: str) -> str:
@@ -180,7 +180,7 @@ def _build_summary_warning_html(*, workorder: WorkOrder, selected_slider: int) -
     warnings: list[str] = []
 
     if allocation.products_target <= 0 or not snapshot.product_lines:
-        warnings.append("Com a configuracao atual do slider, nao ha saldo de produtos para emitir Nota Fiscal.")
+        warnings.append("Com a configuracao atual do slider, nao ha saldo de produtos para emitir Nota Fiscal de Produto.")
     if allocation.services_target <= 0 or not snapshot.service_lines:
         warnings.append("Com a configuracao atual do slider, nao ha saldo de servicos para emitir Nota Fiscal de Serviço.")
 
@@ -282,7 +282,7 @@ def _build_nfe_preview_html(*, workorder: WorkOrder, selected_slider: int) -> tu
 
     warnings.extend(build_nfe_preview_warning_messages(workorder=workorder, slider_override=selected_slider))
     if allocation.products_target <= 0:
-        warnings.append("A configuracao atual do slider nao deixa saldo de produtos para emitir Nota Fiscal.")
+        warnings.append("A configuracao atual do slider nao deixa saldo de produtos para emitir Nota Fiscal de Produto.")
 
     warning_html = "".join(f"<div class='alert alert-warning'>{escape(message)}</div>" for message in warnings)
 
@@ -310,7 +310,7 @@ def _build_nfe_preview_html(*, workorder: WorkOrder, selected_slider: int) -> tu
         <div class="space-y-4">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="rounded-xl border border-base-300 bg-base-200/50 p-4">
-                    <p class="text-xs uppercase tracking-wide text-base-content/60">Total da Nota Fiscal</p>
+                    <p class="text-xs uppercase tracking-wide text-base-content/60">Total da Nota Fiscal de Produto</p>
                     <p class="text-2xl font-black text-base-content">{total_products_formatted}</p>
                 </div>
                 <div class="rounded-xl border border-base-300 bg-base-200/50 p-4">
@@ -371,7 +371,7 @@ def _build_nfse_preview_html(*, workorder: WorkOrder, selected_slider: int) -> t
                     <p class="text-2xl font-black text-base-content">{format_money(allocation.services_target)}</p>
                 </div>
                 <div class="rounded-xl border border-base-300 bg-base-200/50 p-4">
-                    <p class="text-xs uppercase tracking-wide text-base-content/60">Saldo da Nota Fiscal</p>
+                    <p class="text-xs uppercase tracking-wide text-base-content/60">Saldo da Nota Fiscal de Produto</p>
                     <p class="text-2xl font-black text-base-content">{format_money(allocation.products_target)}</p>
                 </div>
             </div>
@@ -757,7 +757,7 @@ class EmissionStep5Form(CoreForm):
                     <div class="rounded-2xl border border-base-300 bg-base-200/60 p-5 text-base-content/80">
                         <p class="font-semibold mb-2">Como funciona:</p>
                         <ul class="list-disc ml-5 space-y-1 text-sm">
-                            <li><strong>Nota Fiscal</strong>: abre a etapa de configuracao fiscal dos produtos.</li>
+                            <li><strong>Nota Fiscal de Produto</strong>: abre a etapa de configuracao fiscal dos produtos.</li>
                             <li><strong>Nota Fiscal de Serviço</strong>: abre a etapa de configuracao fiscal dos servicos.</li>
                             <li><strong>Ambas</strong>: abre as duas etapas e faz a emissão em sequencia na ultima tela.</li>
                         </ul>
@@ -810,11 +810,11 @@ class EmissionNfeConfigForm(CoreForm):
         tax_class_field = self.fields["tax_class"]
         tax_class_field.choices = dropdown_choices
         tax_class_field.widget = SearchableSelectInput(choices=dropdown_choices)
-        tax_class_field.help_text = "Classe fiscal que sera aplicada aos produtos emitidos na Nota Fiscal."
+        tax_class_field.help_text = "Classe fiscal que sera aplicada aos produtos emitidos na Nota Fiscal de Produto."
         self._valid_tax_class_refs = {value for value, _ in tax_class_choices if value}
 
         additional_information_field = self.fields["additional_information"]
-        additional_information_field.help_text = "Enviada como informacao complementar junto com a Nota Fiscal."
+        additional_information_field.help_text = "Enviada como informacao complementar junto com a Nota Fiscal de Produto."
 
         current_tax_class = str((self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", "")) or "").strip()
         if self._valid_tax_class_refs and current_tax_class not in self._valid_tax_class_refs and not self.is_bound:
@@ -829,8 +829,8 @@ class EmissionNfeConfigForm(CoreForm):
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
-                HTML("<h2 class='text-2xl font-bold'>Nota Fiscal</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Confira os produtos que serao enviados na Nota Fiscal e selecione a classe de imposto.</p>"),
+                HTML("<h2 class='text-2xl font-bold'>Nota Fiscal de Produto</h2>"),
+                HTML("<p class='text-base-content/70 mb-6'>Confira os produtos que serao enviados na Nota Fiscal de Produto e selecione a classe de imposto.</p>"),
                 Field("tax_class"),
                 Field("additional_information"),
                 HTML(warning_html),

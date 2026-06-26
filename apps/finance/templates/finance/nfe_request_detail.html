@@ -1,7 +1,7 @@
 {% extends 'crud/detail.html' %}
 
-{% block crud_title %}Detalhes da Nota Fiscal{% endblock %}
-{% block crud_subtitle %}Acompanhe o status, identificadores e documentos da Nota Fiscal emitida.{% endblock %}
+{% block crud_title %}Detalhes da Nota Fiscal de Produto{% endblock %}
+{% block crud_subtitle %}Acompanhe o status, identificadores e documentos da Nota Fiscal de Produto emitida.{% endblock %}
 {% block crud_back_url %}{{ back_url }}{% endblock %}
 
 {% block crud_header_actions %}
@@ -27,7 +27,7 @@
     {% if can_cancel %}
         <button type="button" class="btn btn-sm btn-error gap-2" onclick="cancel_nfe_modal.showModal()">
             <span class="material-icons text-sm">cancel</span>
-            Cancelar Nota Fiscal
+            Cancelar Nota Fiscal de Produto
         </button>
     {% endif %}
 {% endblock %}
@@ -139,7 +139,7 @@
                 </div>
             {% else %}
                 <div class="alert alert-warning">
-                    <span>A Nota Fiscal ainda nao possui item sincronizado. Reenvie a consulta quando a Webmania retornar o processamento.</span>
+                    <span>A Nota Fiscal de Produto ainda nao possui item sincronizado. Reenvie a consulta quando a Webmania retornar o processamento.</span>
                 </div>
                 {% if nfe_request.invalidation_xml_url %}
                     <div class="mt-4">
@@ -177,7 +177,7 @@
             <div class="modal-box w-11/12 max-w-xl border border-base-300 bg-base-100 shadow-2xl">
                 <form method="post" action="{% url 'finance:nfe_cancel' pk=nfe_request.pk %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}">
                     {% csrf_token %}
-                    <h3 class="text-base font-semibold text-base-content">Cancelar Nota Fiscal</h3>
+                    <h3 class="text-base font-semibold text-base-content">Cancelar Nota Fiscal de Produto</h3>
                     <p class="text-sm text-base-content/70 mt-2">Informe o motivo do cancelamento (entre 15 e 255 caracteres).</p>
 
                     <div class="mt-4">
