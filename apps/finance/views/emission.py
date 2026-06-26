@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 from typing import Any
 
 from django.contrib import messages
@@ -302,6 +303,41 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
         return False, ""
 
+    @staticmethod
+    def _compute_discount_split(*, workorder: WorkOrder, discount_type_override: str = "") -> dict[str, Decimal]:
+        snapshot = workorder.pricing_snapshot
+        raw_products = Decimal(str(snapshot.total_products_value.amount))
+        raw_services = Decimal(str(snapshot.total_services_value.amount))
+        raw_total = raw_products + raw_services
+        total_discount = Decimal(str(workorder.resolved_discount_value.amount))
+
+        discount_type = str(discount_type_override or workorder.discount_type)
+
+        if discount_type == WorkOrderDiscountType.PRODUCTS:
+            discount_p = total_discount
+            discount_s = max(Decimal("0.00"), total_discount - raw_products)
+        elif discount_type == WorkOrderDiscountType.SERVICES:
+            discount_p = max(Decimal("0.00"), total_discount - raw_services)
+            discount_s = total_discount
+        else:
+            if raw_total <= Decimal("0.00"):
+                discount_p = Decimal("0.00")
+                discount_s = Decimal("0.00")
+            else:
+                discount_p = total_discount * raw_products / raw_total
+                discount_s = total_discount * raw_services / raw_total
+
+        return {
+            "products_total": raw_products,
+            "services_total": raw_services,
+            "grand_total": raw_total,
+            "discount_total": total_discount,
+            "discount_products": discount_p.quantize(Decimal("0.01")),
+            "discount_services": discount_s.quantize(Decimal("0.01")),
+            "net_products": (raw_products - discount_p).quantize(Decimal("0.01")),
+            "net_services": (raw_services - discount_s).quantize(Decimal("0.01")),
+        }
+
     def _render_discount_type_modal(self, *, workorder: WorkOrder, note_mode: str, suggested_override: str) -> HttpResponse:
         current_discount_type = workorder.discount_type
         note_label = "Nota Fiscal" if note_mode == "nfe" else "Nota Fiscal de Serviço"
@@ -311,6 +347,9 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         else:
             message = f"O desconto está configurado para <strong>{self.DISCOUNT_TYPE_LABEL.get(current_discount_type, current_discount_type)}</strong>, mas você está emitindo apenas <strong>{note_label}</strong>. Deseja alterar o tipo de desconto apenas para esta emissão?"
 
+        current_split = self._compute_discount_split(workorder=workorder)
+        suggested_split = self._compute_discount_split(workorder=workorder, discount_type_override=suggested_override)
+
         context = {
             "current_step": self._current_step(),
             "note_mode": note_mode,
@@ -318,6 +357,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             "current_label": self.DISCOUNT_TYPE_LABEL.get(current_discount_type, current_discount_type),
             "suggested_override": suggested_override,
             "suggested_label": self.DISCOUNT_TYPE_LABEL.get(suggested_override, suggested_override),
+            "split": current_split,
+            "suggested_split": suggested_split,
         }
         rendered = render(self.request, "finance/partials/emission_discount_type_modal.html", context)
         rendered["HX-Retarget"] = "#modal-container"
