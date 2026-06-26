@@ -1,10 +1,10 @@
 {% extends 'crud/list_page.html' %}
 
 {% block crud_title %}Notas Fiscais Emitidas{% endblock %}
-{% block crud_subtitle %}Acompanhe as solicitacoes de emissao de Nota Fiscal vinculadas as ordens de servico.{% endblock %}
+{% block crud_subtitle %}Acompanhe as solicitacoes de emissao de Nota Fiscal de Produto vinculadas as ordens de servico.{% endblock %}
 
 {% block crud_header_actions %}
-    <a href="{% url 'finance:emission_create' %}?tipo=nfe&reset=1" class="btn btn-primary">Emitir nova Nota Fiscal</a>
+    <a href="{% url 'finance:emission_create' %}?tipo=nfe&reset=1" class="btn btn-primary">Emitir nova Nota Fiscal de Produto</a>
 {% endblock %}
 
 {% block crud_table_wrapper_id %}nfe-request-table-wrapper{% endblock %}

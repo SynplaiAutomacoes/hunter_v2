@@ -2,98 +2,105 @@
     {% csrf_token %}
     <input type="hidden" name="note_mode" value="{{ note_mode }}">
 
-    <div class="modal-box max-w-xl">
+    <div class="modal-box max-w-2xl">
         <button type="button"
                 class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
                 onclick="this.closest('dialog').close()"
                 aria-label="Fechar">✕</button>
 
         <h3 class="font-bold text-xl text-base-content mb-1">Alterar Tipo de Desconto?</h3>
+        <p class="text-sm text-base-content/70 leading-relaxed mb-5">{{ message|safe }}</p>
 
-        <p class="text-sm text-base-content/80 leading-relaxed mb-5">{{ message|safe }}</p>
-
-        <div class="grid grid-cols-2 gap-4">
-            <div class="rounded-lg border border-base-300 p-3 bg-base-200/30">
-                <h4 class="font-semibold text-sm text-base-content/70 mb-2">Atual: {{ current_label }}</h4>
-                <table class="table table-xs w-full">
-                    <thead>
-                        <tr class="text-xs text-base-content/50">
-                            <th></th>
-                            <th class="text-right">Peças</th>
-                            <th class="text-right">Serviços</th>
-                            <th class="text-right">Total</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td class="text-xs text-base-content/60">Bruto</td>
-                            <td class="text-right font-mono text-xs">R$ {{ split.products_total|floatformat:2 }}</td>
-                            <td class="text-right font-mono text-xs">R$ {{ split.services_total|floatformat:2 }}</td>
-                            <td class="text-right font-mono text-xs">R$ {{ split.grand_total|floatformat:2 }}</td>
-                        </tr>
-                        <tr>
-                            <td class="text-xs text-base-content/60">Desconto</td>
-                            <td class="text-right font-mono text-xs text-error">- R$ {{ split.discount_products|floatformat:2 }}</td>
-                            <td class="text-right font-mono text-xs text-error">- R$ {{ split.discount_services|floatformat:2 }}</td>
-                            <td class="text-right font-mono text-xs text-error">- R$ {{ split.discount_total|floatformat:2 }}</td>
-                        </tr>
-                        <tr class="border-t border-base-300 font-semibold">
-                            <td class="text-xs text-base-content/60">Líquido</td>
-                            <td class="text-right font-mono text-xs">R$ {{ split.net_products|floatformat:2 }}</td>
-                            <td class="text-right font-mono text-xs">R$ {{ split.net_services|floatformat:2 }}</td>
-                            <td class="text-right font-mono text-xs">R$ {{ split.grand_total|add:split.discount_total|floatformat:2 }}</td>
-                        </tr>
-                    </tbody>
-                </table>
+        <div class="bg-base-200/40 rounded-xl px-5 py-3 mb-5 text-sm">
+            <div class="flex items-center justify-between">
+                <span class="text-base-content/60">Valor Bruto:</span>
+                <span class="font-semibold font-mono">
+                    Peças R$ {{ split.products_total|floatformat:2 }}
+                    &nbsp;|&nbsp;
+                    Serviços R$ {{ split.services_total|floatformat:2 }}
+                </span>
             </div>
-
-            <div class="rounded-lg border border-accent/40 p-3 bg-accent/5">
-                <h4 class="font-semibold text-sm text-accent mb-2">Se alterar para {{ suggested_label }}</h4>
-                <table class="table table-xs w-full">
-                    <thead>
-                        <tr class="text-xs text-base-content/50">
-                            <th></th>
-                            <th class="text-right">Peças</th>
-                            <th class="text-right">Serviços</th>
-                            <th class="text-right">Total</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td class="text-xs text-base-content/60">Bruto</td>
-                            <td class="text-right font-mono text-xs">R$ {{ split.products_total|floatformat:2 }}</td>
-                            <td class="text-right font-mono text-xs">R$ {{ split.services_total|floatformat:2 }}</td>
-                            <td class="text-right font-mono text-xs">R$ {{ split.grand_total|floatformat:2 }}</td>
-                        </tr>
-                        <tr>
-                            <td class="text-xs text-base-content/60">Desconto</td>
-                            <td class="text-right font-mono text-xs text-error">- R$ {{ suggested_split.discount_products|floatformat:2 }}</td>
-                            <td class="text-right font-mono text-xs text-error">- R$ {{ suggested_split.discount_services|floatformat:2 }}</td>
-                            <td class="text-right font-mono text-xs text-error">- R$ {{ suggested_split.discount_total|floatformat:2 }}</td>
-                        </tr>
-                        <tr class="border-t border-base-300 font-semibold">
-                            <td class="text-xs text-base-content/60">Líquido</td>
-                            <td class="text-right font-mono text-xs">R$ {{ suggested_split.net_products|floatformat:2 }}</td>
-                            <td class="text-right font-mono text-xs">R$ {{ suggested_split.net_services|floatformat:2 }}</td>
-                            <td class="text-right font-mono text-xs">R$ {{ split.grand_total|add:suggested_split.discount_total|floatformat:2 }}</td>
-                        </tr>
-                    </tbody>
-                </table>
+            <div class="flex items-center justify-between mt-1">
+                <span class="text-base-content/60">Desconto Total:</span>
+                <span class="font-semibold font-mono text-error">- R$ {{ split.discount_total|floatformat:2 }}</span>
             </div>
         </div>
 
-        <div class="modal-action flex-col sm:flex-row gap-3 mt-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div class="rounded-xl border border-base-300 bg-base-100 overflow-hidden">
+                <div class="bg-base-200/60 px-4 py-2.5 border-b border-base-300">
+                    <div class="text-xs text-base-content/50 uppercase tracking-wider font-semibold">Atual</div>
+                    <div class="font-semibold text-sm text-base-content">{{ current_label }}</div>
+                </div>
+                <div class="p-4 space-y-3">
+                    <div>
+                        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1.5">Peças</div>
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-base-content/60">Desconto</span>
+                            <span class="font-mono text-error font-medium">- R$ {{ split.discount_products|floatformat:2 }}</span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm font-semibold">
+                            <span class="text-base-content/60">Líquido</span>
+                            <span class="font-mono">R$ {{ split.net_products|floatformat:2 }}</span>
+                        </div>
+                    </div>
+                    <div class="border-t border-base-200 pt-3">
+                        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1.5">Serviços</div>
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-base-content/60">Desconto</span>
+                            <span class="font-mono text-error font-medium">- R$ {{ split.discount_services|floatformat:2 }}</span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm font-semibold">
+                            <span class="text-base-content/60">Líquido</span>
+                            <span class="font-mono">R$ {{ split.net_services|floatformat:2 }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="rounded-xl border border-accent/40 bg-accent/5 overflow-hidden">
+                <div class="bg-accent/10 px-4 py-2.5 border-b border-accent/20">
+                    <div class="text-xs text-accent/70 uppercase tracking-wider font-semibold">Selecionado</div>
+                    <div class="font-semibold text-sm text-accent">{{ suggested_label }}</div>
+                </div>
+                <div class="p-4 space-y-3">
+                    <div>
+                        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1.5">Peças</div>
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-base-content/60">Desconto</span>
+                            <span class="font-mono text-error font-medium">- R$ {{ suggested_split.discount_products|floatformat:2 }}</span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm font-semibold">
+                            <span class="text-base-content/60">Líquido</span>
+                            <span class="font-mono">R$ {{ suggested_split.net_products|floatformat:2 }}</span>
+                        </div>
+                    </div>
+                    <div class="border-t border-accent/15 pt-3">
+                        <div class="text-xs text-base-content/50 uppercase tracking-wider mb-1.5">Serviços</div>
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-base-content/60">Desconto</span>
+                            <span class="font-mono text-error font-medium">- R$ {{ suggested_split.discount_services|floatformat:2 }}</span>
+                        </div>
+                        <div class="flex items-center justify-between text-sm font-semibold">
+                            <span class="text-base-content/60">Líquido</span>
+                            <span class="font-mono">R$ {{ suggested_split.net_services|floatformat:2 }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-action flex-col sm:flex-row gap-3 mt-0">
             <button type="submit"
                     name="discount_type_override"
                     value="{{ suggested_override }}"
                     class="btn btn-primary flex-1">
                 Alterar para {{ suggested_label }}
             </button>
-
             <button type="submit"
                     name="discount_type_override"
                     value=""
-                    class="btn btn-outline flex-1">
+                    class="btn btn-ghost btn-outline flex-1">
                 Manter {{ current_label }}
             </button>
         </div>
