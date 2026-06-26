@@ -576,6 +576,9 @@ def build_pricing_snapshot(
             )
         )
 
+    chargeable_product_lines = [line for line in product_lines if not line.is_customer_supplied]
+    customer_supplied_product_lines = [line for line in product_lines if line.is_customer_supplied]
+
     service_lines: list[ConsolidatedPricingLine] = []
     for service_aggregate in sorted(service_aggregates.values(), key=lambda value: (value.sort_order, value.description.lower())):
         has_direct_source = service_aggregate.direct_quantity > 0
@@ -638,9 +641,9 @@ def build_pricing_snapshot(
             )
         )
 
-    total_products_shipping = sum((line.shipping for line in product_lines), zero_money())
-    total_costs_products_value = sum((line.cost_total for line in product_lines), zero_money())
-    total_products_value = sum((line.raw_total for line in product_lines), zero_money())
+    total_products_shipping = sum((line.shipping for line in chargeable_product_lines), zero_money())
+    total_costs_products_value = sum((line.cost_total for line in chargeable_product_lines), zero_money())
+    total_products_value = sum((line.raw_total for line in chargeable_product_lines), zero_money())
     total_duration = sum((line.duration for line in service_lines), timedelta())
     total_third_party_services_selling = sum((line.raw_total for line in service_lines if line.third_party), zero_money())
     total_services_value = sum((line.raw_total for line in service_lines), zero_money())
@@ -693,14 +696,17 @@ def build_pricing_snapshot(
     total_services_by_slider = total_third_party_services_selling + total_labor_by_slider
 
     for line, adjusted_subtotal in zip(
-        product_lines,
+        chargeable_product_lines,
         _distribute_totals(
-            base_values=[line.raw_total - line.shipping for line in product_lines],
+            base_values=[line.raw_total - line.shipping for line in chargeable_product_lines],
             target_total=total_products_by_slider - total_products_shipping,
         ),
         strict=False,
     ):
         line.adjusted_total = adjusted_subtotal + line.shipping
+
+    for line in customer_supplied_product_lines:
+        line.adjusted_total = line.raw_total
 
     for line in third_party_service_lines:
         line.adjusted_total = line.raw_total

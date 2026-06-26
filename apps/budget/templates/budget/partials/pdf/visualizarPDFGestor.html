@@ -38,6 +38,31 @@
         object-position: left top;
       }
 
+      .benefit-dimmed {
+        opacity: 0.65;
+      }
+
+      .benefit-badge {
+        display: inline-block;
+        font-size: 8px;
+        font-weight: 700;
+        padding: 1px 4px;
+        border-radius: 4px;
+        text-transform: uppercase;
+        vertical-align: middle;
+        margin-left: 2px;
+      }
+
+      .benefit-badge-warranty {
+        background-color: #fecaca;
+        color: #991b1b;
+      }
+
+      .benefit-badge-courtesy {
+        background-color: #bfdbfe;
+        color: #1e40af;
+      }
+
       @media print {
         body {
           background-color: white !important;
@@ -153,7 +178,7 @@
           <tbody>
             {% for p in produtos %}
             <tr class="border-b border-gray-100">
-              <td class="p-1">{{ p.description }}</td>
+              <td class="p-1">{{ p.description }}{% if p.item_benefit_type == "warranty" %}<span class="benefit-badge benefit-badge-warranty">Garantia</span>{% elif p.item_benefit_type == "courtesy" %}<span class="benefit-badge benefit-badge-courtesy">Cortesia</span>{% endif %}</td>
               <td class="p-1 text-center">{{ p.quantity }}</td>
               <td class="p-1 text-center">
                 {% if p.is_customer_supplied %}Sim{% else %}Não{% endif %}
@@ -205,7 +230,7 @@
           <tbody>
             {% for s in servicos %}
             <tr class="border-b border-gray-100">
-              <td class="p-1">{{ s.description }}</td>
+              <td class="p-1">{{ s.description }}{% if s.item_benefit_type == "warranty" %}<span class="benefit-badge benefit-badge-warranty">Garantia</span>{% elif s.item_benefit_type == "courtesy" %}<span class="benefit-badge benefit-badge-courtesy">Cortesia</span>{% endif %}</td>
               <td class="p-1 text-center">{{ s.quantity }}</td>
               <td class="p-1 px-2 text-right whitespace-nowrap">{{ s.unit_price }}</td>
               <td class="p-1 px-2 text-right whitespace-nowrap">{{ s.total_price }}</td>

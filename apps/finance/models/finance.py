@@ -5,9 +5,14 @@ from django.db import models
 
 from apps.core.infrastructure.models import TimeStampedModel
 
-
-
 logger = logging.getLogger(__name__)
+
+
+DISCOUNT_TYPE_CHOICES: list[tuple[str, str]] = [
+    ("products", "Apenas Produtos"),
+    ("services", "Apenas Serviços"),
+    ("both", "Produtos e Serviços"),
+]
 
 
 def _default_pricing_slider_from_workorder(*, workorder_id: int | None, workorder: object | None) -> int | None:
@@ -379,6 +384,14 @@ class NfseRequest(TimeStampedModel):
         validators=[MinValueValidator(-100), MaxValueValidator(100)],
         help_text="Copia o slider do orcamento na criacao e permanece independente para a emissao.",
     )
+    discount_type_override = models.CharField(
+        verbose_name="Tipo de Desconto (Emissao)",
+        max_length=10,
+        choices=DISCOUNT_TYPE_CHOICES,
+        blank=True,
+        default="",
+        help_text="Sobrescreve o tipo de desconto da OS apenas para esta emissao. Vazio usa o da OS.",
+    )
     service_description = models.TextField(verbose_name="Discriminação do Serviço", blank=True, default="")
     additional_information = models.TextField(verbose_name="Informações complementares", blank=True, default="")
     tax_class = models.CharField(verbose_name="Classe de Imposto", max_length=30, default="REF000000")
@@ -473,6 +486,14 @@ class NfeRequest(TimeStampedModel):
         blank=True,
         validators=[MinValueValidator(-100), MaxValueValidator(100)],
         help_text="Copia o slider do orcamento na criacao e permanece independente para a emissao.",
+    )
+    discount_type_override = models.CharField(
+        verbose_name="Tipo de Desconto (Emissao)",
+        max_length=10,
+        choices=DISCOUNT_TYPE_CHOICES,
+        blank=True,
+        default="",
+        help_text="Sobrescreve o tipo de desconto da OS apenas para esta emissao. Vazio usa o da OS.",
     )
     additional_information = models.TextField(verbose_name="Informações complementares", blank=True, default="")
     tax_class = models.CharField(verbose_name="Classe de Imposto", max_length=30, default="REF000000")

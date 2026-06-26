@@ -1948,10 +1948,8 @@ class BudgetStep4Form(CoreModelForm):
                         ),
                         css_class="mb-6",
                     ),
-                    css_class="col-span-12 xl:col-span-7",
+                    css_class="col-span-12 xl:col-span-8",
                 ),
-                #
-                Div(css_class="hidden xl:block xl:col-span-1"),
                 #
                 # Coluna Direita
                 Div(

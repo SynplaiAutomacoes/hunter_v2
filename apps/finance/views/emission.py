@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 from typing import Any
 
 from django.contrib import messages
@@ -38,7 +39,7 @@ from apps.finance.views.ncm_validation import (
     store_invalid_ncm_modal_context,
 )
 from apps.workorder.forms import WorkOrderItemEditForm
-from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderKitItemOverride
+from apps.workorder.models import WorkOrder, WorkOrderDiscountType, WorkOrderItem, WorkOrderKitItemOverride
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
@@ -116,12 +117,19 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
     def _session_key(self) -> str:
         return f"finance.emission_wizard:{getattr(self.workshop, 'pk', '-')}:{getattr(self.request.user, 'pk', '-')}"
 
+    DISCOUNT_TYPE_LABEL: dict[str, str] = {
+        "products": "Apenas Produtos",
+        "services": "Apenas Serviços",
+        "both": "Produtos e Serviços",
+    }
+
     def _default_state(self) -> dict[str, Any]:
         return {
             "current_step": 1,
             "max_reached_step": 1,
             "workorder_id": None,
             "pricing_slider": None,
+            "discount_type_override": "",
             "note_mode": "",
             "nfe_config": {"tax_class": "", "additional_information": ""},
             "nfse_config": {"tax_class": "", "service_description": "", "additional_information": ""},
@@ -273,6 +281,88 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         if has_services:
             return {"nfse"}, "Nao ha saldo de produtos para emitir Nota Fiscal com a configuracao atual."
         return set(), "Nao ha saldo de produtos ou servicos para emitir nota com a configuracao atual."
+
+    @staticmethod
+    def _detect_discount_type_mismatch(*, workorder: WorkOrder, note_mode: str) -> tuple[bool, str]:
+        """
+        Returns (has_mismatch, suggested_override) when the workorder discount_type
+        does not align with the single-NF emission mode.
+        """
+        discount_type = workorder.discount_type
+        if note_mode == "both":
+            return False, ""
+
+        if discount_type == WorkOrderDiscountType.BOTH:
+            return True, "products" if note_mode == "nfe" else "services"
+
+        if discount_type == WorkOrderDiscountType.PRODUCTS and note_mode == "nfse":
+            return True, "services"
+
+        if discount_type == WorkOrderDiscountType.SERVICES and note_mode == "nfe":
+            return True, "products"
+
+        return False, ""
+
+    @staticmethod
+    def _compute_discount_split(*, workorder: WorkOrder, discount_type_override: str = "") -> dict[str, Decimal]:
+        snapshot = workorder.pricing_snapshot
+        raw_products = Decimal(str(snapshot.total_products_value.amount))
+        raw_services = Decimal(str(snapshot.total_services_value.amount))
+        raw_total = raw_products + raw_services
+        total_discount = Decimal(str(workorder.resolved_discount_value.amount))
+
+        discount_type = str(discount_type_override or workorder.discount_type)
+
+        if discount_type == WorkOrderDiscountType.PRODUCTS:
+            discount_p = total_discount
+            discount_s = max(Decimal("0.00"), total_discount - raw_products)
+        elif discount_type == WorkOrderDiscountType.SERVICES:
+            discount_p = max(Decimal("0.00"), total_discount - raw_services)
+            discount_s = total_discount
+        else:
+            if raw_total <= Decimal("0.00"):
+                discount_p = Decimal("0.00")
+                discount_s = Decimal("0.00")
+            else:
+                discount_p = total_discount * raw_products / raw_total
+                discount_s = total_discount * raw_services / raw_total
+
+        return {
+            "products_total": raw_products,
+            "services_total": raw_services,
+            "grand_total": raw_total,
+            "discount_total": total_discount,
+            "discount_products": discount_p.quantize(Decimal("0.01")),
+            "discount_services": discount_s.quantize(Decimal("0.01")),
+            "net_products": (raw_products - discount_p).quantize(Decimal("0.01")),
+            "net_services": (raw_services - discount_s).quantize(Decimal("0.01")),
+        }
+
+    def _render_discount_type_modal(self, *, workorder: WorkOrder, note_mode: str, suggested_override: str) -> HttpResponse:
+        current_discount_type = workorder.discount_type
+        note_label = "Nota Fiscal" if note_mode == "nfe" else "Nota Fiscal de Serviço"
+
+        if current_discount_type == WorkOrderDiscountType.BOTH:
+            message = f"O desconto está configurado para <strong>{self.DISCOUNT_TYPE_LABEL['both']}</strong>, mas você está emitindo apenas <strong>{note_label}</strong>. Deseja alterar o tipo de desconto apenas para esta emissão?"
+        else:
+            message = f"O desconto está configurado para <strong>{self.DISCOUNT_TYPE_LABEL.get(current_discount_type, current_discount_type)}</strong>, mas você está emitindo apenas <strong>{note_label}</strong>. Deseja alterar o tipo de desconto apenas para esta emissão?"
+
+        current_split = self._compute_discount_split(workorder=workorder)
+        suggested_split = self._compute_discount_split(workorder=workorder, discount_type_override=suggested_override)
+
+        context = {
+            "current_step": self._current_step(),
+            "note_mode": note_mode,
+            "message": message,
+            "current_label": self.DISCOUNT_TYPE_LABEL.get(current_discount_type, current_discount_type),
+            "suggested_override": suggested_override,
+            "suggested_label": self.DISCOUNT_TYPE_LABEL.get(suggested_override, suggested_override),
+            "split": current_split,
+            "suggested_split": suggested_split,
+        }
+        rendered = render(self.request, "finance/partials/emission_discount_type_modal.html", context)
+        rendered["HX-Retarget"] = "#modal-container"
+        return rendered
 
     def get_initial(self) -> dict[str, Any]:
         initial = super().get_initial()
@@ -492,6 +582,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         nfe_request.tax_class = str((state.get("nfe_config") or {}).get("tax_class") or "")
         nfe_request.additional_information = str((state.get("nfe_config") or {}).get("additional_information") or "")
         nfe_request.pricing_slider = self._selected_slider(state=state, workorder=workorder)
+        nfe_request.discount_type_override = str(state.get("discount_type_override") or "")
         nfe_request.save()
 
         state["nfe_request_id"] = nfe_request.pk
@@ -514,6 +605,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         nfse_request.service_description = str((state.get("nfse_config") or {}).get("service_description") or "")
         nfse_request.additional_information = str((state.get("nfse_config") or {}).get("additional_information") or "")
         nfse_request.pricing_slider = self._selected_slider(state=state, workorder=workorder)
+        nfse_request.discount_type_override = str(state.get("discount_type_override") or "")
         nfse_request.save()
 
         state["nfse_request_id"] = nfse_request.pk
@@ -677,6 +769,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                     {
                         "workorder_id": workorder.pk,
                         "pricing_slider": None,
+                        "discount_type_override": "",
                         "note_mode": _normalize_note_mode(self.request.GET.get("tipo")),
                         "nfe_config": {"tax_class": "", "additional_information": ""},
                         "nfse_config": {"tax_class": "", "service_description": "", "additional_information": ""},
@@ -719,6 +812,16 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
         if current_step_key == "note_mode":
             selected_mode = str(form.cleaned_data["note_mode"])
+            override_from_post = self.request.POST.get("discount_type_override")
+
+            if override_from_post is None:
+                has_mismatch, suggested_override = self._detect_discount_type_mismatch(workorder=workorder, note_mode=selected_mode)
+                if has_mismatch:
+                    state["note_mode"] = selected_mode
+                    self._write_state(state)
+                    return self._render_discount_type_modal(workorder=workorder, note_mode=selected_mode, suggested_override=suggested_override)
+
+            state["discount_type_override"] = override_from_post if override_from_post is not None else ""
             previous_mode = str(state.get("note_mode") or "")
             if selected_mode != previous_mode:
                 self._clear_submission_progress(state)

@@ -357,6 +357,7 @@ def _quantize_money(value: Decimal) -> Decimal:
 def _compute_service_discount_for_nfse(
     *,
     workorder: WorkOrder,
+    discount_type_override: str = "",
 ) -> Decimal:
     """
     Calcula o valor de desconto a ser aplicado nos servicos da NFS-e,
@@ -368,12 +369,15 @@ def _compute_service_discount_for_nfse(
     - BOTH: o desconto e distribuido proporcionalmente entre produtos e
       servicos usando os valores brutos reais do pedido (independente do
       slider de alocacao da NFS-e).
+
+    Se discount_type_override for informado, usa ele no lugar do discount_type
+    da WorkOrder (para sobrescrita especifica da emissao).
     """
     total_discount = _quantize_money(Decimal(str(workorder.resolved_discount_value.amount)))
     if total_discount <= Decimal("0.00"):
         return Decimal("0.00")
 
-    discount_type = workorder.discount_type
+    discount_type = str(discount_type_override or workorder.discount_type)
 
     if discount_type == WorkOrderDiscountType.SERVICES:
         return total_discount
@@ -408,7 +412,10 @@ def calculate_nfse_service_total(nfse_request: NfseRequest, *, slider_override: 
     if gross_amount <= 0:
         raise NfseEmissionError("A OS selecionada nao possui saldo de servicos para emissao de Nota Fiscal de Serviço com a configuracao atual do slider.")
 
-    service_discount = _compute_service_discount_for_nfse(workorder=nfse_request.workorder)
+    service_discount = _compute_service_discount_for_nfse(
+        workorder=nfse_request.workorder,
+        discount_type_override=str(getattr(nfse_request, "discount_type_override", "") or ""),
+    )
     net_amount = _quantize_money(gross_amount - service_discount)
 
     if net_amount <= 0:
