@@ -28,7 +28,7 @@ from apps.workshops.mixin import WorkshopScopedMixin
 class IssuedDocumentsFilterMixin:
     NOTE_TYPE_CHOICES: tuple[tuple[str, str], ...] = (
         ("all", "Todas"),
-        ("nfe", "Nota Fiscal Produto"),
+        ("nfe", "Nota Fiscal de Produto"),
         ("nfse", "Nota Fiscal Serviço"),
     )
 
@@ -135,12 +135,8 @@ class IssuedDocumentsFilterMixin:
                 search_filters.append(Q(workorder__budget_id=search_int))
                 search_filters.append(Q(reserved_number=search_int))
             qs = qs.filter(reduce(lambda a, b: a | b, search_filters)).distinct()
-            
-        return (
-            qs.select_related("workorder", "workorder__budget", "workorder__budget__customer")
-            .prefetch_related(Prefetch("items", queryset=NfeItem.objects.order_by("-id"), to_attr="prefetched_items"))
-            .order_by("-criado_em", "-pk")
-        )
+
+        return qs.select_related("workorder", "workorder__budget", "workorder__budget__customer").prefetch_related(Prefetch("items", queryset=NfeItem.objects.order_by("-id"), to_attr="prefetched_items")).order_by("-criado_em", "-pk")
 
     def _build_nfse_queryset(self, *, start_date: date | None, end_date: date | None, search_raw: str = ""):
         qs = NfseRequest.objects.filter(workshop=self.workshop)
@@ -157,12 +153,8 @@ class IssuedDocumentsFilterMixin:
                 search_filters.append(Q(workorder_id=search_int))
                 search_filters.append(Q(reserved_rps_number=search_int))
             qs = qs.filter(reduce(lambda a, b: a | b, search_filters)).distinct()
-            
-        return (
-            qs.select_related("workorder", "workorder__budget", "workorder__budget__customer")
-            .prefetch_related(Prefetch("items", queryset=NfseItem.objects.order_by("-id"), to_attr="prefetched_items"))
-            .order_by("-criado_em", "-pk")
-        )
+
+        return qs.select_related("workorder", "workorder__budget", "workorder__budget__customer").prefetch_related(Prefetch("items", queryset=NfseItem.objects.order_by("-id"), to_attr="prefetched_items")).order_by("-criado_em", "-pk")
 
     def _get_filtered_requests(self, *, state: dict[str, Any]) -> tuple[list[NfeRequest], list[NfseRequest]]:
         if not state["is_valid"]:
@@ -213,7 +205,7 @@ class IssuedDocumentsFilterMixin:
 
         return {
             "note_type": "nfe",
-            "note_type_label": "Nota Fiscal Produto",
+            "note_type_label": "Nota Fiscal de Produto",
             "note_type_badge_class": "badge-soft badge-info",
             "request_id": request_obj.pk,
             "number": request_obj.number_display,
