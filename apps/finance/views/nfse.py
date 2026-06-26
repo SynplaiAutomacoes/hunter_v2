@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from decimal import ROUND_HALF_UP, Decimal
 
 from django import forms
 from django.contrib import messages
@@ -9,7 +10,7 @@ from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.decorators import method_decorator
 from django.utils import timezone
-from django.utils.html import escape
+
 from django.urls import reverse
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views import View
@@ -17,7 +18,8 @@ from django.views.generic import DetailView, ListView
 
 from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.core.infrastructure.providers import get_fiscal_service
-from apps.core.infrastructure.services.webmania.emission import calculate_nfse_service_total
+from apps.core.infrastructure.services.webmania.emission import compute_service_discount_for_nfse
+from apps.finance.services.pricing import build_slider_allocation_for_workorder
 from apps.core.presentation.forms import CoreForm
 from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
@@ -42,12 +44,20 @@ def _join_address(*parts: object) -> str:
     return " - ".join(str(part).strip() for part in parts if str(part or "").strip()) or "-"
 
 
-def _escape_preview_data(value: object) -> object:
-    if isinstance(value, dict):
-        return {key: _escape_preview_data(item) for key, item in value.items()}
-    if isinstance(value, str):
-        return escape(value)
-    return value
+def _fmt_money(value: Decimal) -> str:
+    value = value.quantize(Decimal("0.01"))
+    integer_part, decimal_part = f"{value:.2f}".split(".")
+    grouped_integer = f"{int(integer_part):,}".replace(",", ".")
+    return f"{grouped_integer},{decimal_part}"
+
+
+def _calc_retencao(base: Decimal, rate: Decimal | None) -> str:
+    if rate is None or rate <= 0:
+        return "-"
+    amount = (base * rate / Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if amount <= 0:
+        return "-"
+    return _fmt_money(amount)
 
 
 def _build_nfse_preview_data(nfse_request: NfseRequest) -> dict[str, object]:
@@ -56,7 +66,6 @@ def _build_nfse_preview_data(nfse_request: NfseRequest) -> dict[str, object]:
     workshop = nfse_request.workshop
     company = getattr(workshop, "webmania_company", None)
     tax_class = TaxClassNfse.objects.filter(workshop=workshop, reference=nfse_request.tax_class).first()
-    service_total = calculate_nfse_service_total(nfse_request)
     emission_time = timezone.localtime()
     rps_number = str(nfse_request.reserved_rps_number or "-")
     rps_series = str(nfse_request.reserved_rps_series or "-")
@@ -78,11 +87,36 @@ def _build_nfse_preview_data(nfse_request: NfseRequest) -> dict[str, object]:
         f"CEP: {customer.cep}" if customer.cep else "",
     )
 
+    allocation = build_slider_allocation_for_workorder(
+        workorder=nfse_request.workorder,
+        persisted_slider=getattr(nfse_request, "pricing_slider", None),
+    )
+    gross_amount = allocation.services_target.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    service_discount = compute_service_discount_for_nfse(
+        workorder=nfse_request.workorder,
+        discount_type_override=str(getattr(nfse_request, "discount_type_override", "") or ""),
+    )
+    net_amount = (gross_amount - service_discount).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    iss_rate = getattr(tax_class, "iss", None)
+    pis_rate = getattr(tax_class, "pis", None)
+    cofins_rate = getattr(tax_class, "cofins", None)
+    inss_rate = getattr(tax_class, "inss", None)
+    ir_rate = getattr(tax_class, "ir", None)
+    csll_rate = getattr(tax_class, "csll", None)
+    retencao_pis_cofins = str(getattr(tax_class, "retencao_pis_cofins", "") or "").strip().upper()
+    usar_retencao_pis_cofins = retencao_pis_cofins == "S"
+
+    def _aliquota_str(rate: Decimal | None) -> str:
+        if rate is None:
+            return "-"
+        return _fmt_money(rate)
+
     preview_data = {
         "numero": "PRÉVIA",
         "emissao": emission_time.strftime("%d/%m/%Y %H:%M:%S"),
         "codigo": "SEM VALOR FISCAL",
-        "rps": f"RPS Nº {rps_number} Série {rps_series}",
+        "rps": f"RPS Nº {rps_number} Série {rps_series}, emitido em {emission_time.strftime('%d/%m/%Y %H:%M:%S')}",
         "hash": "DOCUMENTO SEM VALOR FISCAL",
         "identificador": "PRÉVIA LOCAL — NÃO TRANSMITIDA À PREFEITURA",
         "municipio_prestacao": str(getattr(company, "cidade", "") or "-"),
@@ -104,13 +138,27 @@ def _build_nfse_preview_data(nfse_request: NfseRequest) -> dict[str, object]:
             "email": customer.email or "-",
         },
         "descricao": description or f"Prestação de serviço referente à OS #{workorder.pk}",
-        "total": format_money(service_total),
+        "total": format_money(net_amount),
         "tributos": "Consulte a tributação aplicável após a emissão",
         "codigo_servico": str(getattr(tax_class, "codigo_servico", "") or "-"),
         "descricao_servico": str(getattr(tax_class, "description", "") or "Serviços prestados"),
         "outras_informacoes": "Documento de prévia gerado localmente. Não possui valor fiscal e não foi transmitido à prefeitura.",
+        "valor_servicos": format_money(gross_amount),
+        "valor_deducoes": _fmt_money(service_discount) if service_discount > 0 else "0,00",
+        "base_calculo": _fmt_money(net_amount),
+        "aliquota_iss": _aliquota_str(iss_rate),
+        "valor_iss": _calc_retencao(net_amount, iss_rate),
+        "valor_irrf": _calc_retencao(net_amount, ir_rate),
+        "valor_cofins": _calc_retencao(net_amount, cofins_rate) if usar_retencao_pis_cofins else "-",
+        "valor_pis": _calc_retencao(net_amount, pis_rate) if usar_retencao_pis_cofins else "-",
+        "valor_ipi": "-",
+        "valor_inss": _calc_retencao(net_amount, inss_rate),
+        "valor_csll": _calc_retencao(net_amount, csll_rate),
+        "descricao_csll": "Contribuição Social sobre o Lucro Líquido" if csll_rate and csll_rate > 0 else "-",
+        "credito_nfp": "0,00",
+        "numero_inscricao_obra": "-",
     }
-    return _escape_preview_data(preview_data)  # type: ignore[return-value]
+    return preview_data
 
 
 class NfseCancelForm(CoreForm):
