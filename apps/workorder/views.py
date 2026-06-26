@@ -720,6 +720,24 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return JsonResponse({"ok": True, "km_final": km_final})
 
 
+class UpdateWorkOrderObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkOrder
+    workshop_permission_codename = "change_workorder"
+
+    def post(self, request, pk):
+        workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
+        if _is_workorder_edit_locked(workorder):
+            return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
+
+        observations = request.POST.get("observations", "")
+        workorder.observations = observations
+        workorder.save(update_fields=["observations"])
+
+        return JsonResponse({"ok": True, "observations": observations})
+
+
 class WorkOrderEditItemsModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     model = WorkOrder
     template_name = "workorder/partials/modals/modal_edit_items.html"

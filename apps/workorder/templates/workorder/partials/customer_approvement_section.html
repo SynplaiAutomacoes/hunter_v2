@@ -126,6 +126,20 @@
     </div>
 
     <div class="mt-6 pt-4 border-t border-base-300">
+        <h4 class="font-bold text-xl mb-2 border-b">Observações</h4>
+        <form id="workorder-observation-form" data-autosave-url="{% url 'workorder:update_observation' workorder.pk %}">
+            {% csrf_token %}
+            <textarea
+                id="workorder-observation"
+                class="textarea textarea-bordered w-full"
+                rows="4"
+                placeholder="Observações sobre a ordem de serviço..."
+            >{{ workorder.observations }}</textarea>
+            <p id="workorder-observation-save-status" class="text-sm text-base-content/70 min-h-5 mt-1" aria-live="polite"></p>
+        </form>
+    </div>
+
+    <div class="mt-6 pt-4 border-t border-base-300">
         <h4 class="font-bold text-xl mb-2 border-b">Atualizar Status da Ordem de Serviço</h4>
 
         <div class="flex flex-wrap gap-3">
@@ -503,6 +517,78 @@
         if (reopenCancelButton && reopenForm) {
             reopenCancelButton.addEventListener('click', () => {
                 reopenForm.classList.add('hidden');
+            });
+        }
+
+        // Observation autosave
+        const obsForm = document.getElementById('workorder-observation-form');
+        const obsInput = document.getElementById('workorder-observation');
+        const obsStatusEl = document.getElementById('workorder-observation-save-status');
+
+        if (obsForm && obsInput && obsStatusEl && !obsInput.dataset.obsAutosaveInitialized) {
+            obsInput.dataset.obsAutosaveInitialized = 'true';
+
+            const obsAutosaveUrl = obsForm.dataset.autosaveUrl;
+            const obsCsrfToken = obsForm.querySelector('input[name="csrfmiddlewaretoken"]')?.value || '';
+            let obsSaveTimeout = null;
+            let obsRequestController = null;
+            let obsLastSavedValue = obsInput.value;
+
+            const setObsStatus = (message, tone) => {
+                obsStatusEl.textContent = message;
+                obsStatusEl.classList.remove('text-base-content/70', 'text-success', 'text-error');
+                if (tone === 'success') obsStatusEl.classList.add('text-success');
+                else if (tone === 'error') obsStatusEl.classList.add('text-error');
+                else obsStatusEl.classList.add('text-base-content/70');
+            };
+
+            const persistObservation = async () => {
+                const currentValue = obsInput.value;
+
+                if (currentValue === obsLastSavedValue) {
+                    setObsStatus('');
+                    return;
+                }
+
+                if (obsRequestController) obsRequestController.abort();
+                obsRequestController = new AbortController();
+                setObsStatus('');
+
+                const formData = new FormData();
+                formData.append('csrfmiddlewaretoken', obsCsrfToken);
+                formData.append('observations', currentValue);
+
+                try {
+                    const response = await fetch(obsAutosaveUrl, {
+                        method: 'POST',
+                        body: formData,
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                        signal: obsRequestController.signal,
+                    });
+                    const payload = await response.json();
+                    if (!response.ok || !payload.ok) {
+                        const errorMessage = Array.isArray(payload.errors) && payload.errors.length
+                            ? payload.errors[0]
+                            : 'Não foi possível salvar a observação.';
+                        setObsStatus(errorMessage, 'error');
+                        return;
+                    }
+                    obsLastSavedValue = currentValue;
+                    setObsStatus('', 'success');
+                } catch (error) {
+                    if (error.name === 'AbortError') return;
+                    setObsStatus('Não foi possível salvar a observação.', 'error');
+                }
+            };
+
+            obsInput.addEventListener('blur', () => {
+                clearTimeout(obsSaveTimeout);
+                void persistObservation();
+            });
+
+            obsInput.addEventListener('input', () => {
+                clearTimeout(obsSaveTimeout);
+                setObsStatus('');
             });
         }
 
