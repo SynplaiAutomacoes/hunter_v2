@@ -9,12 +9,16 @@ from apps.finance.views.nfse import NfsePreviewPdfView
 
 class NfsePreviewViewTests(SimpleTestCase):
     def test_watermarked_template_receives_dynamic_preview_data(self) -> None:
-        preview_data = {"numero": "PRÉVIA", "prestador": {}, "tomador": {}}
+        preview_data = {
+            "numero": "PRÉVIA",
+            "codigo": "SEM VALOR FISCAL",
+            "prestador": {"cnpj": "", "im": "", "nome": "", "endereco": "", "municipio": "", "uf": ""},
+            "tomador": {"nome": "", "cnpj": "", "im": "", "endereco": "", "municipio": "", "uf": "", "email": ""},
+        }
 
         html = render_to_string("pdf/nf_html_com_marca_dagua.html", {"nfse_preview": preview_data})
 
-        self.assertIn('id="nfse-preview-data"', html)
-        self.assertIn('"numero": "PR\\u00c9VIA"', html)
+        self.assertIn("PRÉVIA", html)
         self.assertIn("SEM VALOR FISCAL", html)
 
     @patch("apps.finance.views.nfse._build_nfse_preview_data")

@@ -457,10 +457,12 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             kwargs["workorder"] = workorder
             kwargs["tax_class_choices"] = tax_class_choices["nfe"]
             kwargs["selected_slider"] = self._selected_slider(state=state, workorder=workorder)
+            kwargs["discount_type_override"] = str(state.get("discount_type_override") or "")
         elif step_key == "nfse_config":
             kwargs["workorder"] = workorder
             kwargs["tax_class_choices"] = tax_class_choices["nfse"]
             kwargs["selected_slider"] = self._selected_slider(state=state, workorder=workorder)
+            kwargs["discount_type_override"] = str(state.get("discount_type_override") or "")
 
         return kwargs
 
@@ -726,8 +728,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
         return render_emission_preview_modal(
             request=self.request,
-            title="Previa da emissao",
-            description="Confira os documentos antes de transmitir as notas fiscais para a Webmania.",
+            title="Prévia de Emissão",
+            description="Confira os documentos antes de transmitir para o Sefaz.",
             previews=previews,
             transmit_url=self._step_url(current_step),
             hidden_fields=build_preview_hidden_fields(cleaned_data=cleaned_data),

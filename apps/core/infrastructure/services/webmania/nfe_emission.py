@@ -101,7 +101,7 @@ def _distribute_discount_by_quantity(
     return discounts
 
 
-def _compute_product_discount_for_nfe(
+def compute_product_discount_for_nfe(
     *,
     workorder: WorkOrder,
     products_target: Decimal,
@@ -474,7 +474,7 @@ def _build_nfe_products_payload(*, nfe_request: NfeRequest, slider_override: int
 
     # Calcula o desconto proporcional para produtos conforme o discount_type da WorkOrder
     # (usado apenas no pedido.desconto; os valores unitários dos produtos permanecem brutos)
-    product_discount = _compute_product_discount_for_nfe(
+    product_discount = compute_product_discount_for_nfe(
         workorder=workorder,
         products_target=allocation.products_target,
         services_target=allocation.services_target,
