@@ -10,7 +10,7 @@ from djmoney.money import Money
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
-from apps.catalog.price_tracking import record_product_last_used_price
+from apps.catalog.price_tracking import record_product_last_used_price, record_service_last_used_price
 from apps.catalog.product_issues import ProductIssueSummary, annotate_product_issues
 from apps.catalog.util import calculate_catalog_service_prices
 from apps.core.infrastructure.models import TimeStampedModel
@@ -57,6 +57,12 @@ class SignatureStatus(models.TextChoices):
 
 class BudgetType(models.TextChoices):
     SALE = "sale", "Venda"
+    WARRANTY = "warranty", "Garantia"
+    COURTESY = "courtesy", "Cortesia"
+
+
+class BudgetItemBenefitType(models.TextChoices):
+    NORMAL = "normal", "Normal"
     WARRANTY = "warranty", "Garantia"
     COURTESY = "courtesy", "Cortesia"
 
@@ -202,6 +208,18 @@ class Budget(TimeStampedModel):
     @property
     def is_status_locked(self) -> bool:
         return self.status in BUDGET_REOPENABLE_STATUSES
+
+    @property
+    def is_fixed_budget(self) -> bool:
+        return self.budget_type in ("warranty", "courtesy")
+
+    @property
+    def warranty_items_count(self) -> int:
+        return self.items.filter(item_benefit_type="warranty").count()
+
+    @property
+    def courtesy_items_count(self) -> int:
+        return self.items.filter(item_benefit_type="courtesy").count()
 
     def _get_pricing_reference_date(self):
         return self.criado_em if self.criado_em else timezone.now()
@@ -928,7 +946,8 @@ class BudgetItem(TimeStampedModel):
     # Dados
     description = models.CharField(verbose_name="Descrição", max_length=100, default="")
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
-    is_local = models.BooleanField(verbose_name="Item Local", default=False, help_text="Item criado apenas neste orçamento, não cadastrado no banco de dados")
+    is_local = models.BooleanField(verbose_name="Item Local", default=False,
+                                   help_text="Item criado apenas neste orçamento, não cadastrado no banco de dados")
     is_customer_supplied = models.BooleanField(verbose_name="Peça trazida pelo cliente", default=False)
 
     ## Produto
@@ -941,6 +960,8 @@ class BudgetItem(TimeStampedModel):
     service_selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2, default=0)
     duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
     kit_snapshot_frozen = models.BooleanField(verbose_name="Snapshot do kit congelado", default=False)
+    item_benefit_type = models.CharField(verbose_name="Tipo de Benefício", max_length=20,
+                                         choices=BudgetItemBenefitType.choices, default=BudgetItemBenefitType.NORMAL)
 
     def save(self, *args, **kwargs):
         is_new = not self.pk
@@ -975,6 +996,14 @@ class BudgetItem(TimeStampedModel):
                 self.duration = total_duration
                 self.description = self.kit.name
 
+            budget_type = getattr(self.budget, "budget_type", "sale") if self.budget_id else "sale"
+            if budget_type == "warranty":
+                self.item_benefit_type = BudgetItemBenefitType.WARRANTY
+            elif budget_type == "courtesy":
+                self.item_benefit_type = BudgetItemBenefitType.COURTESY
+            else:
+                self.item_benefit_type = BudgetItemBenefitType.NORMAL
+
         super().save(*args, **kwargs)
 
         if self.kit_id and not self.kit_snapshot_frozen:
@@ -982,6 +1011,9 @@ class BudgetItem(TimeStampedModel):
 
         if self.product_id:
             record_product_last_used_price(product=self.product, price=self.product_selling_price)
+
+        if self.service_id:
+            record_service_last_used_price(service=self.service, price=self.service_selling_price)
 
     def _clear_kit_snapshot_caches(self) -> None:
         for cache_name in ("_kit_override_maps_cache", "_kit_unit_totals_cache"):
@@ -1238,7 +1270,7 @@ class BudgetItem(TimeStampedModel):
             return self.total_price
         if self.kit:
             return self.get_kit_products_cost_total() + self.get_kit_products_shipping_total() + self.get_kit_services_cost_total()
-        if self.product_id or self.is_local and ((self.product_cost_price and self.product_cost_price.amount > 0) or (self.shipping and self.shipping.amount > 0)):
+        if (self.product_id or self.is_local) and ((self.product_cost_price and self.product_cost_price.amount > 0) or (self.shipping and self.shipping.amount > 0)):
             return (self.product_cost_price * self.quantity) + self.shipping
         return self.service_cost_price * self.quantity
 
@@ -1250,7 +1282,7 @@ class BudgetItem(TimeStampedModel):
             return Money(0, "BRL")
         if self.kit:
             return self.kit_unit_cost
-        if self.product_id or self.is_local and ((self.product_cost_price and self.product_cost_price.amount > 0) or (self.shipping and self.shipping.amount > 0)):
+        if (self.product_id or self.is_local) and ((self.product_cost_price and self.product_cost_price.amount > 0) or (self.shipping and self.shipping.amount > 0)):
             return self.product_cost_price
         return self.service_cost_price
 
@@ -1509,6 +1541,9 @@ class BudgetItem(TimeStampedModel):
         """
         Métodc auxiliar para aplicar a fórmula do slider em um valor unitário isolado.
         """
+        if getattr(self, "item_benefit_type", "normal") != "normal":
+            return original_unit
+
         budget = self.budget
         slider = budget.slider
 

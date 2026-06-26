@@ -520,6 +520,8 @@ class ImportStepPaymentForm(CoreModelForm):
                         const btnAdd = document.querySelector('button[hx-post*="add_payment_session"]');
                         const warningDiv = document.getElementById('payment-warning-js');
                         const warningMessage = warningDiv ? warningDiv.querySelector('.payment-warning-message') : null;
+                        const successDiv = document.getElementById('payment-success-js');
+                        const successMessage = successDiv ? successDiv.querySelector('.payment-success-message') : null;
                         const pendingValue = parseFloat('{pending_amount_js}') || 0;
                         const todayValue = '{today_iso}';
 
@@ -535,6 +537,12 @@ class ImportStepPaymentForm(CoreModelForm):
                             if (warningMessage) warningMessage.textContent = message || '';
                         }};
 
+                        const showSuccess = (show, message) => {{
+                            if (!successDiv) return;
+                            successDiv.classList.toggle('hidden', !show);
+                            if (successMessage) successMessage.textContent = message || '';
+                        }};
+
                         const updateDueDate = (force) => {{
                             if (dueDateInput && paymentMethodInput.value && (force || !dueDateInput.value)) {{
                                 dueDateInput.value = todayValue;
@@ -547,7 +555,8 @@ class ImportStepPaymentForm(CoreModelForm):
                             if (pendingValue <= 0) {{
                                 btnAdd.disabled = true;
                                 btnAdd.classList.add('btn-disabled', 'opacity-50');
-                                toggleWarning(true, 'A importação não possui saldo pendente para um novo pagamento.');
+                                showSuccess(true, 'Importação completamente paga.');
+                                toggleWarning(false, '');
                                 return;
                             }}
 
@@ -556,10 +565,12 @@ class ImportStepPaymentForm(CoreModelForm):
                                 btnAdd.classList.add('btn-disabled', 'opacity-50');
                                 const excess = (totalProposed - pendingValue).toLocaleString('pt-BR', {{minimumFractionDigits: 2}});
                                 toggleWarning(true, `O valor a ser pago não pode exceder o saldo disponível de R$ {"{"}pendingValue.toLocaleString('pt-BR', {{minimumFractionDigits: 2}}){"}"}. Excesso de R$ ${{excess}}.`);
+                                showSuccess(false, '');
                             }} else {{
                                 btnAdd.disabled = false;
                                 btnAdd.classList.remove('btn-disabled', 'opacity-50');
                                 toggleWarning(false, '');
+                                showSuccess(false, '');
                             }}
                         }};
 
@@ -601,6 +612,17 @@ class ImportStepPaymentForm(CoreModelForm):
                                 <h3 class="font-bold text-sm">Valor Não Permitido</h3>
                                 <div class="text-xs payment-warning-message">
                                     O valor a ser pago não pode exceder o saldo disponível de <strong>R$ {valor_pendente:,.2f}</strong>.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="payment-success-js" class="hidden col-span-12 mb-4">
+                        <div class="alert alert-success shadow-lg border-2 border-success">
+                            <span class="material-icons">check_circle</span>
+                            <div>
+                                <h3 class="font-bold text-sm">Importação Paga</h3>
+                                <div class="text-xs payment-success-message">
+                                    Importação completamente paga.
                                 </div>
                             </div>
                         </div>

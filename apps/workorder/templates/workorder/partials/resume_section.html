@@ -16,7 +16,7 @@
                     <h3 class="font-bold text-xl uppercase">{{workorder.workshop.name}}</h3>
                     <p class="">CNPJ: {{ workorder.workshop.cnpj|cnpj_br|default:"-" }}</p>
                     <p class="">{{ workorder.workshop.address|default:"-" }}</p>
-                    <p class="">Telefone: {{ workorder.workshop.phone|phone_br|default:"-" }}</p>
+                    <p class="">Telefone: {{ workorder.workshop.phone|default:"-" }}</p>
                 </div>
                 <div class="text-right">
                     <h4 class="font-bold text-lg">ORDEM DE SERVIÇO</h4>

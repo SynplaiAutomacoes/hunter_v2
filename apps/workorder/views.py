@@ -424,7 +424,7 @@ class WorkOrderStatusReportDataMixin:
             filter_configs=WORKORDER_LIST_FILTERS,
         )
 
-        return queryset.order_by("-criado_em")
+        return queryset.order_by("-budget__pk", "-criado_em")
 
     def _get_selection_report_items(self) -> list[WorkOrder]:
         cached = getattr(self, "_selection_report_items_cache", None)

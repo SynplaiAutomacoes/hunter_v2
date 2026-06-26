@@ -353,7 +353,7 @@
 
     {% if meta_faturamento_bruto is not None %}
     <!-- Financial Goals Section -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mt-6">
         <div class="stat bg-base-100 shadow rounded-box">
             <div class="stat-title text-base-content/70">Meta de Faturamento Bruto</div>
             <div class="stat-value text-accent mt-2">R$ {{ meta_faturamento_bruto|floatformat:2 }}</div>
@@ -367,7 +367,7 @@
         </div>
 
         <div class="stat bg-base-100 shadow rounded-box">
-            <div class="stat-title text-base-content/70">Faturamento Real Diário</div>
+            <div class="stat-title text-base-content/70">Meta Acumulada Diária</div>
             <div class="stat-value text-primary mt-2 flex items-center gap-2">
                 {% if faturamento_real_diario is not None %}R$ {{ faturamento_real_diario|floatformat:2 }}{% else %}-{% endif %}
                 {% if faturamento_real_diario_vs_meta %}
@@ -377,6 +377,12 @@
                 {% endif %}
             </div>
             <div class="stat-desc">Média diária de faturamento realizada até o momento.</div>
+        </div>
+
+        <div class="stat bg-base-100 shadow rounded-box">
+            <div class="stat-title text-base-content/70">Venda do Dia</div>
+            <div class="stat-value text-success mt-2">R$ {{ venda_do_dia|floatformat:2 }}</div>
+            <div class="stat-desc">Total de OS entregue + entrada recebida do dia.</div>
         </div>
     </div>
     {% endif %}

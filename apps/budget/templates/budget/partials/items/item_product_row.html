@@ -14,6 +14,11 @@
     <td class="budget-step4-description">
         <div class="flex items-center gap-2 min-w-0">
             <span class="break-words whitespace-normal leading-snug">{{ item.description }}</span>
+            {% if item.item_benefit_type == "warranty" %}
+                <span class="badge badge-error badge-xs gap-1 shrink-0">Garantia</span>
+            {% elif item.item_benefit_type == "courtesy" %}
+                <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
+            {% endif %}
             {% if item.is_local %}
                 <span class="tooltip tooltip-right shrink-0" data-tip="Item disponível somente neste orçamento. Cadastre-o para prosseguir com a aprovação do orçamento.">
                     <span class="material-icons text-warning" style="font-size: 18px;">warning</span>

@@ -344,7 +344,7 @@ class BudgetStatusReportDataMixin:
 
         queryset = queryset.distinct()
 
-        return queryset.order_by("-entry_date", "-pk")
+        return queryset.order_by("-pk", "-entry_date")
 
     def _get_selection_report_items(self) -> list[Budget]:
         cached = getattr(self, "_selection_report_items_cache", None)
@@ -1135,7 +1135,7 @@ class BudgetLinkModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return render(request, "budget/partials/budget_link_modal.html", context)
 
     def _build_results_page(self, *, budget: Budget, query: str, page_number: str):
-        queryset = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle", "reference_budget").order_by("-entry_date", "-pk")
+        queryset = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle", "reference_budget").order_by("-pk", "-entry_date")
 
         if budget.vehicle_id is not None:
             queryset = queryset.filter(vehicle_id=budget.vehicle_id)
@@ -1159,7 +1159,7 @@ class BudgetLinkSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
         query = str(request.GET.get("q") or "").strip()
         page_number = request.GET.get("page", "1")
 
-        queryset = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle", "reference_budget").order_by("-entry_date", "-pk")
+        queryset = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle", "reference_budget").order_by("-pk", "-entry_date")
 
         if budget.vehicle_id is not None:
             queryset = queryset.filter(vehicle_id=budget.vehicle_id)
