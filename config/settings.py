@@ -350,7 +350,7 @@ if OTLP_AUTH_HEADER and _otel_endpoint and _otel_run:
     from apps.core.otel_logging import setup_otel  # noqa: PLC0415
 
     setup_otel(
-        service_name="hunter-v2",
+        service_name=ENVIRONMENT,
         environment=ENVIRONMENT,
         auth_header=OTLP_AUTH_HEADER,
     )
