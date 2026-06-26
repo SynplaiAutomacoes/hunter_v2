@@ -49,31 +49,47 @@ from ...core.utils import clean_id
 
 def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, str, str | None]:
     is_resend = False
+    previous_external_id: str | None = None
 
     if budget.has_signature_blockers:
+        logger.info("budget_signature_blocked", extra={"budget_id": budget.pk, "blockers": budget.signature_blockers_display})
         return "error", budget.signature_blockers_display, None
 
     if not budget.service_expected_completion_at:
+        logger.info("budget_signature_missing_completion_date", extra={"budget_id": budget.pk})
         return "error", "Não é possível enviar para assinatura antes de definir a data prevista de término do serviço.", None
 
     with transaction.atomic():
         locked_budget = Budget.objects.select_for_update().get(pk=budget.pk)
 
         if locked_budget.signature_request_status == SignatureStatus.SENDING:
+            logger.info("budget_signature_already_sending", extra={"budget_id": budget.pk})
             return "info", "O envio do orçamento ainda está em processamento.", None
 
         is_resend = locked_budget.signature_request_status == SignatureStatus.SENT and bool(locked_budget.signature_external_id)
+        previous_external_id = locked_budget.signature_external_id if is_resend else None
 
         locked_budget.mark_signature_sending()
+        logger.info("budget_signature_sending_status_set", extra={"budget_id": budget.pk, "is_resend": is_resend, "previous_external_id": previous_external_id})
 
     try:
         result = send_budget_for_signature(budget=budget, request=request)
     except SuperSignError:
         budget.mark_signature_failed()
-        logger.exception("budget_signature_send_failed", extra={"budget_id": budget.pk, "workshop_id": getattr(request, "workshop_id", None)})
+        logger.exception("budget_signature_send_failed", extra={"budget_id": budget.pk, "workshop_id": getattr(request, "workshop_id", None), "is_resend": is_resend})
         return "error", "Falha ao enviar orçamento para assinatura. Tente novamente em instantes.", None
 
     budget.mark_signature_sent(result.envelope_id, document_id=result.document_id)
+    logger.info(
+        "budget_signature_sent_ok",
+        extra={
+            "budget_id": budget.pk,
+            "envelope_id": result.envelope_id,
+            "document_id": result.document_id,
+            "is_resend": is_resend,
+            "previous_external_id": previous_external_id,
+        },
+    )
     success_message = "Documento reenviado para assinatura do cliente." if is_resend else "Orçamento enviado para assinatura do cliente."
     return "success", success_message, reverse("budget:budget_list")
 
