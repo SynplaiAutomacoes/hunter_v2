@@ -1009,7 +1009,7 @@ class BudgetItem(TimeStampedModel):
         if self.kit_id and not self.kit_snapshot_frozen:
             self.ensure_kit_snapshot()
 
-        if self.product_id:
+        if self.product_id and not self.is_customer_supplied:
             record_product_last_used_price(product=self.product, price=self.product_selling_price)
 
         if self.service_id:
