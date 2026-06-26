@@ -955,11 +955,41 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
                 budget.cancellation_reason = ""
                 budget.regenerate_signature_token()
+
+                # Build snapshot of current budget items before reopen
+                snapshot_items = budget.items.select_related("product", "service", "kit")
+                snapshot = {
+                    "discount_value": str(budget.resolved_discount_value),
+                    "discount_percentage": str(budget.resolved_discount_percentage),
+                    "discount_type": budget.discount_type,
+                    "items": [
+                        {
+                            "item_type": "product" if item.product_id else ("service" if item.service_id else "kit"),
+                            "description": item.description,
+                            "quantity": item.quantity,
+                            "product_selling_price": str(item.product_selling_price),
+                            "product_cost_price": str(item.product_cost_price),
+                            "service_selling_price": str(item.service_selling_price),
+                            "service_cost_price": str(item.service_cost_price),
+                            "shipping": str(item.shipping),
+                            "duration": str(item.duration) if item.duration else None,
+                            "product_id": item.product_id,
+                            "service_id": item.service_id,
+                            "kit_id": item.kit_id,
+                            "is_local": item.is_local,
+                            "is_customer_supplied": item.is_customer_supplied,
+                            "total": str(item.total_price),
+                        }
+                        for item in snapshot_items
+                    ],
+                }
+
                 BudgetHistory.objects.create(
                     budget=budget,
                     user=request.user,
                     action=BudgetHistory.Action.REOPENED,
                     reason=reopen_reason,
+                    snapshot=snapshot,
                 )
 
             budget.status = status_map[status]

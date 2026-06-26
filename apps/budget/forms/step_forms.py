@@ -2935,19 +2935,108 @@ class BudgetStep6Form(CoreModelForm):
             """
 
         history_entries = list(budget.history_entries.filter(action=BudgetHistory.Action.REOPENED).select_related("user")[:10])
+        history_entries.reverse()  # oldest first → Rev 1 = primeira reabertura
         reopen_history_html = ""
         if history_entries:
-            history_rows = "".join(
-                (
+            snapshot_scripts = ""
+            history_rows = ""
+            for idx, entry in enumerate(history_entries):
+                rev_number = idx + 1
+                has_snapshot = bool(entry.snapshot and entry.snapshot.get("items"))
+                rev_button = ""
+                if has_snapshot:
+                    snapshot_json = json.dumps(entry.snapshot)
+                    snapshot_scripts += f"<script type='application/json' id='rev-snapshot-{entry.pk}'>{snapshot_json}</script>"
+                    rev_button = (
+                        f"<a role='button' class='btn btn-ghost btn-xs text-info' "
+                        f"onclick='openRevisionModal({entry.pk}, {rev_number}); return false;'>"
+                        f"Rev {rev_number}</a>"
+                    )
+                else:
+                    rev_button = f"<span class='badge badge-ghost badge-sm'>Rev {rev_number}</span>"
+
+                user_display = f" por {escape(entry.user.get_full_name() or entry.user.username)}" if entry.user else ""
+                history_rows += (
                     "<div class='rounded-lg border border-base-300 bg-base-100 p-3'>"
-                    f"<p class='text-sm font-medium text-base-content'>{timezone.localtime(entry.criado_em).strftime('%d/%m/%Y %H:%M')} - Orçamento reaberto"
-                    f"{f' por {escape(entry.user.get_full_name() or entry.user.username)}' if entry.user else ''}</p>"
+                    f"<div class='flex items-center justify-between'>"
+                    f"<p class='text-sm font-medium text-base-content'>"
+                    f"{timezone.localtime(entry.criado_em).strftime('%d/%m/%Y %H:%M')} - Orçamento reaberto"
+                    f"{user_display}</p>"
+                    f"{rev_button}"
+                    f"</div>"
                     f"<p class='mt-1 whitespace-pre-line text-sm text-base-content/80'>{escape(entry.reason)}</p>"
                     "</div>"
                 )
-                for entry in history_entries
+
+            revision_modal_html = """
+            <dialog id="revisionModal" class="modal">
+                <div class="modal-box w-11/12 max-w-3xl">
+                    <a role="button" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+                       onclick="document.getElementById('revisionModal').close()">✕</a>
+                    <h3 class="font-bold text-lg" id="revisionModalTitle">Revisão</h3>
+                    <div class="overflow-x-auto mt-4" id="revisionModalBody"></div>
+                </div>
+                <div class="modal-backdrop" onclick="document.getElementById('revisionModal').close()"></div>
+            </dialog>
+            <script>
+            function openRevisionModal(entryPk, revNumber) {
+                const el = document.getElementById('rev-snapshot-' + entryPk);
+                if (!el) return;
+                const snapshot = JSON.parse(el.textContent);
+                const modal = document.getElementById('revisionModal');
+                document.getElementById('revisionModalTitle').textContent = 'Revisão ' + revNumber;
+                const body = document.getElementById('revisionModalBody');
+
+                let html = '';
+
+                // Discount info
+                if (snapshot.discount_value && snapshot.discount_value !== 'R$\\u00a00,00' && snapshot.discount_value !== 'R$ 0,00') {
+                    html += '<div class="alert alert-info mb-4 text-sm"><span>Desconto: ' +
+                        snapshot.discount_value + ' (' + snapshot.discount_percentage + '%)</span></div>';
+                }
+
+                // Items table
+                const items = snapshot.items || [];
+                if (items.length === 0) {
+                    html += '<p class="text-sm text-base-content/60">Nenhum item registrado nesta revisão.</p>';
+                } else {
+                    html += '<table class="table table-sm table-zebra w-full">';
+                    html += '<thead><tr>';
+                    html += '<th>Tipo</th><th>Descrição</th><th class="text-center">Qtd</th>';
+                    html += '<th class="text-right">Peça</th><th class="text-right">Serviço</th>';
+                    html += '<th class="text-right">Total</th>';
+                    html += '</tr></thead><tbody>';
+                    const typeLabels = {product: 'Peça', service: 'Serviço', kit: 'Kit'};
+                    const typeBadges = {product: 'badge-primary', service: 'badge-secondary', kit: 'badge-accent'};
+                    items.forEach(function(item) {
+                        const badge = typeBadges[item.item_type] || 'badge-ghost';
+                        const label = typeLabels[item.item_type] || item.item_type;
+                        html += '<tr>';
+                        html += '<td><span class="badge badge-sm ' + badge + '">' + label + '</span></td>';
+                        html += '<td>' + (item.description || '-') + '</td>';
+                        html += '<td class="text-center">' + item.quantity + '</td>';
+                        html += '<td class="text-right">' + (item.product_selling_price || '-') + '</td>';
+                        html += '<td class="text-right">' + (item.service_selling_price || '-') + '</td>';
+                        html += '<td class="text-right font-medium">' + (item.total || '-') + '</td>';
+                        html += '</tr>';
+                    });
+                    html += '</tbody></table>';
+                }
+
+                body.innerHTML = html;
+                modal.showModal();
+            }
+            </script>
+            """
+
+            reopen_history_html = (
+                f"{snapshot_scripts}"
+                f"<div class='mt-4 rounded-xl border border-base-300 bg-base-200/40 p-4'>"
+                f"<h5 class='text-lg font-semibold text-base-content'>Histórico de reaberturas</h5>"
+                f"<div class='mt-3 space-y-3'>{history_rows}</div>"
+                f"</div>"
+                f"{revision_modal_html}"
             )
-            reopen_history_html = f"<div class='mt-4 rounded-xl border border-base-300 bg-base-200/40 p-4'><h5 class='text-lg font-semibold text-base-content'>Histórico de reaberturas</h5><div class='mt-3 space-y-3'>{history_rows}</div></div>"
 
         # Render das linhas (mantido)
         rows = _render_budget_items_rows(budget, step6=True)

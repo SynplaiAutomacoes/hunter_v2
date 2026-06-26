@@ -1634,6 +1634,7 @@ class BudgetHistory(TimeStampedModel):
     user = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, related_name="budget_history_entries", null=True, blank=True)
     action = models.CharField(verbose_name="Ação", max_length=30, choices=Action.choices)
     reason = models.TextField(verbose_name="Justificativa", blank=True)
+    snapshot = models.JSONField(verbose_name="Snapshot dos itens", default=dict, blank=True)
 
     class Meta:
         verbose_name = "Histórico do orçamento"
