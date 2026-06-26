@@ -291,9 +291,10 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         if Decimal(str(workorder.resolved_discount_value.amount)) <= Decimal("0.00"):
             return False, ""
 
-        discount_type = workorder.discount_type
         if note_mode == "both":
             return False, ""
+
+        discount_type = workorder.discount_type
 
         if discount_type == WorkOrderDiscountType.BOTH:
             return True, "products" if note_mode == "nfe" else "services"
