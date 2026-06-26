@@ -307,9 +307,9 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         note_label = "Nota Fiscal" if note_mode == "nfe" else "Nota Fiscal de Serviço"
 
         if current_discount_type == WorkOrderDiscountType.BOTH:
-            message = f"O desconto esta configurado para <strong>{self.DISCOUNT_TYPE_LABEL['both']}</strong>, mas voce esta emitindo apenas <strong>{note_label}</strong>. Deseja alterar o tipo de desconto apenas para esta emissao?"
+            message = f"O desconto está configurado para <strong>{self.DISCOUNT_TYPE_LABEL['both']}</strong>, mas você está emitindo apenas <strong>{note_label}</strong>. Deseja alterar o tipo de desconto apenas para esta emissão?"
         else:
-            message = f"O desconto esta configurado para <strong>{self.DISCOUNT_TYPE_LABEL.get(current_discount_type, current_discount_type)}</strong>, mas voce esta emitindo apenas <strong>{note_label}</strong>. Deseja alterar o tipo de desconto apenas para esta emissao?"
+            message = f"O desconto está configurado para <strong>{self.DISCOUNT_TYPE_LABEL.get(current_discount_type, current_discount_type)}</strong>, mas você está emitindo apenas <strong>{note_label}</strong>. Deseja alterar o tipo de desconto apenas para esta emissão?"
 
         context = {
             "current_step": self._current_step(),
