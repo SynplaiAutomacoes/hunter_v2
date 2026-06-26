@@ -39,9 +39,6 @@ class BudgetItemEditForm(CoreModelForm):
         super().__init__(*args, **kwargs)
         item = self.instance
         budget = getattr(item, "budget", None)
-        is_warranty_budget = bool(getattr(budget, "is_warranty_budget", False))
-        item_benefit_type = getattr(item, "item_benefit_type", "normal")
-        is_benefit = item_benefit_type != "normal"
         is_fixed_budget = budget.is_fixed_budget if budget else False
 
         # Se budget for warranty/courtesy, o campo item_benefit_type é readonly
@@ -62,8 +59,6 @@ class BudgetItemEditForm(CoreModelForm):
             self.fields.pop("service_selling_price")
             self.fields.pop("service_cost_price")
             self.fields.pop("duration")
-            if (is_warranty_budget or is_benefit) and "product_selling_price" in self.fields:
-                self.fields.pop("product_selling_price")
             if item.product is None:
                 self.fields.pop("ncm")
             else:
@@ -75,8 +70,6 @@ class BudgetItemEditForm(CoreModelForm):
             self.fields.pop("shipping")
             self.fields.pop("is_customer_supplied")
             self.fields.pop("ncm")
-            if (is_warranty_budget or is_benefit) and "service_selling_price" in self.fields:
-                self.fields.pop("service_selling_price")
 
             if budget_id:
                 self.fields["duration"].widget.attrs.update(
@@ -135,8 +128,6 @@ class LocalProductForm(CoreModelForm):
         super().__init__(*args, **kwargs)
         self._is_warranty_budget = is_warranty_budget
         self._expected_benefit_type = item_benefit_type
-        is_benefit = item_benefit_type != "normal"
-        is_fixed_budget = is_warranty_budget or is_benefit
         self.fields["description"].label = "Descrição"
         self.fields["quantity"].label = "Quantidade"
         self.fields["product_cost_price"].label = "Custo"
@@ -146,10 +137,7 @@ class LocalProductForm(CoreModelForm):
         if is_warranty_budget:
             self.fields["item_benefit_type"].disabled = True
 
-        if is_fixed_budget:
-            self.fields.pop("product_selling_price")
-        else:
-            self.fields["product_selling_price"].label = "Valor de Venda"
+        self.fields["product_selling_price"].label = "Valor de Venda"
 
     def clean_item_benefit_type(self):
         value = self.cleaned_data.get("item_benefit_type")
@@ -177,8 +165,6 @@ class LocalServiceForm(CoreModelForm):
         super().__init__(*args, **kwargs)
         self._is_warranty_budget = is_warranty_budget
         self._expected_benefit_type = item_benefit_type
-        is_benefit = item_benefit_type != "normal"
-        is_fixed_budget = is_warranty_budget or is_benefit
         self.fields["description"].label = "Descrição"
         self.fields["quantity"].label = "Quantidade"
         self.fields["service_cost_price"].label = "Custo"
@@ -188,10 +174,7 @@ class LocalServiceForm(CoreModelForm):
         if is_warranty_budget:
             self.fields["item_benefit_type"].disabled = True
 
-        if is_fixed_budget:
-            self.fields.pop("service_selling_price")
-        else:
-            self.fields["service_selling_price"].label = "Valor de Venda"
+        self.fields["service_selling_price"].label = "Valor de Venda"
 
         # Adicionar cálculo automático
         if budget_id and not self.instance.pk:
