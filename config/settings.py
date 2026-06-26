@@ -44,11 +44,9 @@ PERF_LOG_MIN_MS = int(os.getenv("PERF_LOG_MIN_MS", "300"))
 # Environment (required for structured logging)
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 
-# Grafana Cloud Loki
-LOKI_ENABLED = os.getenv("LOKI_ENABLED", "false").lower() in ("1", "true", "yes")
-LOKI_ENDPOINT = os.getenv("LOKI_ENDPOINT", "")
-LOKI_USER = os.getenv("LOKI_USER", "")
-LOKI_API_KEY = os.getenv("LOKI_API_KEY", "")
+# Grafana Cloud OTLP (OpenTelemetry)
+# Endpoint lido automaticamente de OTEL_EXPORTER_OTLP_ENDPOINT (definido no ambiente)
+OTLP_AUTH_HEADER = os.getenv("OTLP_AUTH_HEADER", "")  # "Basic base64..."
 
 FIPE_SYNC_EVERY_ACCESS = os.getenv("FIPE_SYNC_EVERY_ACCESS", "0").lower() in ("1", "true", "yes")  # 0. Desligado, 1. Ligado
 FIPE_SYNC_ACCESS_INTERVAL = int(os.getenv("FIPE_SYNC_ACCESS_INTERVAL", "500"))
@@ -270,10 +268,6 @@ PHONENUMBER_DEFAULT_FORMAT = "NATIONAL"
 DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "DEBUG").upper()
 DJANGO_ROOT_LOG_LEVEL = os.getenv("DJANGO_ROOT_LOG_LEVEL", "DEBUG").upper()
 
-LOKI_HANDLERS: list[str] = []
-if LOKI_ENABLED and LOKI_ENDPOINT:
-    LOKI_HANDLERS = ["loki"]
-
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -286,6 +280,9 @@ LOGGING = {
         "context": {
             "()": "apps.core.logging_filters.ContextFilter",
         },
+        "otel_attrs": {
+            "()": "apps.core.otel_logging.OtelAttrsFilter",
+        },
     },
     "handlers": {
         "console": {
@@ -293,66 +290,67 @@ LOGGING = {
             "formatter": "json",
             "stream": sys.stdout,
         },
-        **(
-            {
-                "loki": {
-                    "()": "apps.core.loki_handler.LokiHandler",
-                    "url": LOKI_ENDPOINT,
-                    "labels": {
-                        "service": ENVIRONMENT,
-                    },
-                    "user": LOKI_USER,
-                    "api_key": LOKI_API_KEY,
-                    "batch_size": 50,
-                    "flush_interval": 5.0,
-                    "timeout": 5.0,
-                }
-            }
-            if LOKI_ENABLED and LOKI_ENDPOINT
-            else {}
-        ),
     },
     "loggers": {
         "apps.budget.views.item_views": {
-            "handlers": ["console", *LOKI_HANDLERS],
+            "handlers": ["console"],
             "level": DJANGO_LOG_LEVEL,
             "propagate": False,
-            "filters": ["context"],
+            "filters": ["context", "otel_attrs"],
         },
         "apps.budget.views.kit_views": {
-            "handlers": ["console", *LOKI_HANDLERS],
+            "handlers": ["console"],
             "level": DJANGO_LOG_LEVEL,
             "propagate": False,
-            "filters": ["context"],
+            "filters": ["context", "otel_attrs"],
         },
         "apps.catalog.views.kits": {
-            "handlers": ["console", *LOKI_HANDLERS],
+            "handlers": ["console"],
             "level": DJANGO_LOG_LEVEL,
             "propagate": False,
-            "filters": ["context"],
+            "filters": ["context", "otel_attrs"],
         },
         "apps.catalog.forms.kits": {
-            "handlers": ["console", *LOKI_HANDLERS],
+            "handlers": ["console"],
             "level": DJANGO_LOG_LEVEL,
             "propagate": False,
-            "filters": ["context"],
+            "filters": ["context", "otel_attrs"],
         },
         "apps.accounts.views": {
-            "handlers": ["console", *LOKI_HANDLERS],
+            "handlers": ["console"],
             "level": DJANGO_LOG_LEVEL,
             "propagate": False,
-            "filters": ["context"],
+            "filters": ["context", "otel_attrs"],
+        },
+        "urllib3.connectionpool": {
+            "handlers": ["console"],
+            "level": 100,
+            "propagate": False,
+            "filters": ["context", "otel_attrs"],
         },
         "django.request": {
-            "handlers": ["console", *LOKI_HANDLERS],
+            "handlers": ["console"],
             "level": "ERROR",
             "propagate": False,
-            "filters": ["context"],
+            "filters": ["context", "otel_attrs"],
         },
     },
     "root": {
-        "handlers": ["console", *LOKI_HANDLERS],
+        "handlers": ["console"],
         "level": DJANGO_ROOT_LOG_LEVEL,
-        "filters": ["context"],
+        "filters": ["context", "otel_attrs"],
     },
 }
+
+# OpenTelemetry (logs + traces)
+# Só ativa se ambas as configs estiverem presentes (endpoint + auth)
+_otel_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+_otel_run = os.getenv("RUN_MAIN") == "true" or not os.getenv("RUN_MAIN")
+if OTLP_AUTH_HEADER and _otel_endpoint and _otel_run:
+    from apps.core.otel_logging import setup_otel  # noqa: PLC0415
+
+    setup_otel(
+        service_name="hunter-v2",
+        environment=ENVIRONMENT,
+        auth_header=OTLP_AUTH_HEADER,
+    )
