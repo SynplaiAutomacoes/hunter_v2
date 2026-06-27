@@ -77,7 +77,7 @@ def get_signed_document_download_url(*, document_id: str) -> str:
         logger.error("supersign_download_url_invalid_json", extra={"document_id": document_id})
         raise SuperSignGatewayError("Resposta invalida ao buscar downloadUrl do documento assinado") from exc
 
-    download_url = data.get("downloadUrl") if isinstance(data, dict) else None
+    download_url = data.get("downloadUrl") or data.get("url") if isinstance(data, dict) else None
     if not isinstance(download_url, str) or not download_url.strip():
         logger.error("supersign_download_url_missing", extra={"document_id": document_id, "response_keys": list(data.keys()) if isinstance(data, dict) else None})
         raise SuperSignGatewayError("Resposta sem downloadUrl para documento assinado")
