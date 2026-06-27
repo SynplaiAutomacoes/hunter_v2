@@ -1,5 +1,23 @@
 # Log de implementacao fiscal
 
+## Fase 3.5.0 - reavaliacao documental apos NFS-e legada
+
+- Fase 3.4.1 reconhecida como validada no checkpoint `5865c74d59459ce1f347d8a36a217098f20cb5a9`.
+- Confirmado no codigo que existem `NfseCancellation`, `NfseSubstitutionPreview`, `NfseSubstitution`, reconciliacao GET-only e capacidade municipal com `manifestation_enabled`; nao existe service de manifestacao NFS-e nem emissao manual nova fiscal.
+- Comparados manifestacao NFS-e, emissao manual nova, NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, eventos `112120`, `112140`, `211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria.
+- Decisao recomendada: proxima fase propria para manifestacao de NFS-e Padrao Nacional, por ser o menor bloco com valor relevante e melhor reaproveitamento da infraestrutura ja validada.
+- OpenAPI validado revisado como suficiente; nenhum schema ou endpoint foi alterado.
+- Nenhum codigo funcional, migration, service, view, form, template, teste ou comando operacional foi alterado.
+- Status posterior: Fase 3.5.0 aprovada pelo usuario e encerrada como validada.
+
+## Fase 3.6.0 - planejamento tecnico da manifestacao NFS-e
+
+- Fase 3.5.0 aprovada; autorizada somente documentacao para planejar manifestacao NFS-e Padrao Nacional.
+- Revalidado contrato oficial Webmania NFS-e: `POST /2/nfse/manifestar`, `ambiente`, `chave|uuid`, `manifestador=1/2`, `evento=1/2`, rejeicao com `motivo_rejeicao` e justificativa condicional.
+- Registrada lacuna: `/2/nfse/status` nao confirma claramente `manifestar` em `funcoes`; capability/Padrao Nacional devem bloquear sem confirmacao.
+- Decisao documental: implementar futuramente de forma direta e pequena, sem preview previa, com model `NfseManifestation`, tentativa `nfse_manifestation`, payload congelado, timeout `uncertain`, webhook sem ambiguidade e reconciliacao sem POST.
+- Nenhum codigo funcional, migration, service, view, form, template ou teste foi alterado.
+
 ## Fase 3.4.1 - inicio
 
 - Fase 3.4P validada no checkpoint `747b6750a62d6ed59bed84c4616f89793c4247b4`.

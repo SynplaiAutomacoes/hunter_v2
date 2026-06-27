@@ -418,11 +418,13 @@ Subfases funcionais recomendadas:
 | 3.2 | Consulta e reconciliacao de item/lote por UUID | 3.1 | Medio | Nenhum caminho de reconciliacao transmite operacao mutavel |
 | 3.3 | Cancelamento idempotente | 3.1/3.2 | Alto | Tentativa antes do PUT, timeout `uncertain`, status apenas com confirmacao valida |
 | 3.4 | Substituicao | 3.1-3.3 | Alto | Novo documento/link auditavel, capacidade municipal e uma chamada por intencao |
-| 3.5 | Manifestacao Padrao Nacional | 3.1/3.2 | Medio/alto | Papel/evento/rejeicao validados e documento original preservado |
-| 3.6 | Rollout municipal e emissao manual | 3.1-3.5 | Alto | Flags por oficina/municipio, sem request legado paralelo |
-| 3.7 | Downloads e observabilidade | transversal | Medio | XML/PDF/RPS protegidos, logs sanitizados e metricas operacionais |
+| 3.5.0 | Reavaliacao apos NFS-e legada | 3.1-3.4.1 | Medio | Proximo bloco escolhido sem codigo funcional |
+| 3.6.0 | Planejamento da manifestacao Padrao Nacional | 3.5.0 | Medio/alto | Papel/evento/rejeicao, elegibilidade e idempotencia documentados |
+| 3.6.x | Manifestacao Padrao Nacional funcional | 3.6.0 aprovada | Medio/alto | Documento original preservado e webhook/reconciliacao sem ambiguidade |
+| 3.7 | Rollout municipal e emissao manual | 3.6.x | Alto | Flags por oficina/municipio, sem request legado paralelo |
+| 3.8 | Downloads e observabilidade | transversal | Medio | XML/PDF/RPS protegidos, logs sanitizados e metricas operacionais |
 
-Agendamento deve ser planejado como extensao posterior de 3.3/3.6. Lote RPS nao e subfase isolada: faz parte da estabilizacao e reconciliacao porque ja existe no legado.
+Agendamento deve ser planejado como extensao posterior de 3.3/rollout municipal. Lote RPS nao e subfase isolada: faz parte da estabilizacao e reconciliacao porque ja existe no legado.
 
 ## Fase 4 - CT-e e CT-e OS
 
@@ -612,7 +614,7 @@ Decisao: selecionar a Opcao D por meio de uma etapa preparatoria. A proxima fase
 - comparar o fluxo com `/2/nfse/emissao`, `/consulta/{identifier}`, `/status`, `/cancelar`, `/substituir` e `/manifestar`;
 - mapear RPS/lotes, capacidades municipais/provedor, ISS, IBS/CBS e Padrao Nacional;
 - definir compatibilidade do legado, idempotencia persistida, `uncertain`, webhook e reconciliacao sem emissao;
-- propor subfases 3.1 estabilizacao/capacidades, 3.2 consulta/reconciliacao, 3.3 cancelamento, 3.4 substituicao, 3.5 manifestacao, 3.6 rollout/emissao manual e 3.7 downloads/observabilidade;
+- propor subfases 3.1 estabilizacao/capacidades, 3.2 consulta/reconciliacao, 3.3 cancelamento, 3.4 substituicao, reavaliacao 3.5.0, planejamento 3.6.0 de manifestacao, eventual 3.6.x funcional e fases posteriores para rollout/emissao manual e downloads/observabilidade;
 - documentar rollout, rollback, gaps, ADRs e criterios de aceite, sem migrations ou codigo.
 
 ### Criterios de aceite da Fase 3.0
@@ -667,3 +669,95 @@ Status: **implementada e validada tecnicamente em 2026-06-23**. Migration `0063`
 ### Fase 3.4.1
 
 Status: **implementada e validada tecnicamente em 2026-06-24**. Migration `0064`; POST restrito ao payload aprovado; original/substituta confirmadas de forma atomica; idempotencia, webhook, reconciliacao consultiva, UI e downloads protegidos. Manifestacao e emissao manual nova seguem bloqueadas.
+
+## Fase 3.5.0 - Reavaliacao do proximo bloco apos NFS-e legada
+
+Status: **validada em 2026-06-26**. A Fase 3.4.1 foi validada no checkpoint `5865c74d59459ce1f347d8a36a217098f20cb5a9` e encerrou o ciclo seguro atual da NFS-e legada: estabilizacao, consulta/reconciliacao, cancelamento idempotente e substituicao idempotente a partir de preview aprovada.
+
+Alteracoes permitidas: somente `docs/fiscal-webmania/**` e, se necessario, `docs/fiscal-webmania/api/webmania_fiscal_openapi_validated.json`.
+
+Alteracoes proibidas: codigo funcional, migrations, services, views, forms, templates, testes e comandos operacionais.
+
+### Decisao
+
+Priorizar **manifestacao de NFS-e Padrao Nacional** como proximo bloco fiscal. A decisao nao autoriza implementacao automatica nesta fase documental; ela apenas define a proxima fase candidata.
+
+### Justificativa
+
+Manifestacao e o menor passo util depois de cancelamento/substituicao NFS-e: e um evento sobre documento existente, possui endpoint especifico, pode usar `NfseMunicipalCapability.manifestation_enabled`, reaproveita tentativa/idempotencia/webhook/payload sanitizado e nao cria nova NFS-e nem nova familia fiscal. Emissao manual nova e NFS-e expandida tem valor maior, mas exigem reconstruir RPS/ISS/IBS-CBS, rollout municipal e modelagem fiscal nova. CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos restantes e complementar tributaria dependem de dominios locais ainda insuficientes ou risco fiscal maior.
+
+### Escopo recomendado para a proxima fase funcional
+
+- Criar trilha de manifestacao NFS-e local, restrita a `NfseItem` elegivel e oficina ativa.
+- Exigir capacidade municipal, flag/permissao especifica e confirmacao explicita.
+- Enviar somente o contrato oficial de `POST /2/nfse/manifestar`: ambiente, identificador permitido, manifestador, evento e motivo/justificativa quando exigidos.
+- Persistir tentativa antes do POST, payload congelado e resposta sanitizada.
+- Timeout ou resposta inconclusiva deve gerar `uncertain` e bloquear retry automatico.
+- Webhook deve resolver sem ambiguidade e nao pode alterar cancelamento/substituicao ou NFS-e de outra oficina.
+- Reconciliacao deve ser apenas consultiva e nunca repetir manifestacao.
+
+### Testes planejados
+
+- Bloqueio por ausencia de capacidade `manifestation_enabled`.
+- Permissao e tenancy por oficina.
+- Payload permitido para cada manifestador/evento autorizado.
+- Justificativa obrigatoria quando o motivo remoto exigir texto.
+- Concorrencia/idempotencia com uma chamada remota.
+- Timeout `uncertain` bloqueante.
+- Webhook duplicado, fora de ordem e ambiguo.
+- Reconciliacao sem POST.
+- XML/evento separado, sem sobrescrever XML original.
+
+### Riscos
+
+- Manifestacao e restrita ao Padrao Nacional; municipios/provedores fora desse contexto devem permanecer bloqueados.
+- O papel do manifestador e a semantica de aceite/rejeicao precisam de copy e permissao fortes para evitar uso operacional incorreto.
+- Se a Webmania retornar evento sem identificador suficiente, reconciliacao deve manter pendencia administrativa em vez de inferir sucesso.
+
+### Fora de escopo
+
+Emissao manual nova de NFS-e, NFS-e expandida ampla, agendamento, `FiscalDocument(nfse)` generalizado, CT-e, MDF-e, NFCom, DC-e, eventos `112120`, `112140`, `211xxx`, creditos tipos 2-5, debitos tipos 1-3/5-8 e complementar tributaria.
+
+## Fase 3.6.0 - Planejamento Tecnico da Manifestacao de NFS-e Padrao Nacional
+
+Status: **em planejamento documental em 2026-06-26**. A Fase 3.5.0 foi aprovada e encerrada com a decisao de priorizar manifestacao NFS-e Padrao Nacional.
+
+Alteracoes permitidas: somente `docs/fiscal-webmania/**` e, se necessario, `docs/fiscal-webmania/api/webmania_fiscal_openapi_validated.json`.
+
+Alteracoes proibidas: codigo funcional, migrations, services, views, forms, templates e testes.
+
+### Contrato revalidado
+
+- Endpoint: `POST /2/nfse/manifestar`.
+- Payload: `ambiente`, `chave` ou `uuid`, `manifestador`, `evento`.
+- `manifestador=1`: tomador.
+- `manifestador=2`: intermediario.
+- `evento=1`: confirmacao.
+- `evento=2`: rejeicao.
+- Rejeicao: `motivo_rejeicao` com codigos `1`, `2`, `3`, `4`, `5` ou `9`; `justificativa_rejeicao` obrigatoria para `9`, de 15 a 255 caracteres.
+- Escopo oficial: Padrao Nacional.
+
+Lacuna registrada: a documentacao de `/2/nfse/status` nao confirma claramente `manifestar` em `funcoes`. A fase funcional deve bloquear quando Padrao Nacional/capability nao estiverem confirmados.
+
+### Decisao tecnica
+
+Recomendar implementacao direta em fase funcional pequena, sem preview previa. Motivo: manifestacao nao cria RPS nem nova NFS-e; o payload e pequeno e pode ser congelado na propria intencao. Rejeicao exige confirmacao explicita e validacao de motivo/justificativa.
+
+### Escopo funcional futuro
+
+- Model proprio `NfseManifestation` vinculado a `NfseItem`.
+- Operation type `nfse_manifestation`.
+- Capability/flag `nfse_manifestation_enabled` ou uso equivalente de `NfseMunicipalCapability.manifestation_enabled` combinado com flag administrativa de oficina.
+- Permissoes: `issue_nfse_manifestation`, `view_nfse_manifestation`, `download_nfse_manifestation`, `view_nfse_manifestation_payload`.
+- UI minima: acao em NFS-e elegivel, tipo/papel/motivo, confirmacao explicita, historico, payload e artefatos protegidos.
+
+### Criterios de aceite futuros
+
+1. Bloquear NFS-e municipal legada ou sem Padrao Nacional confirmado.
+2. Bloquear cancelada, substituida, incerta ou sem identificador suficiente.
+3. Criar manifestacao/tentativa antes do POST com payload congelado.
+4. Garantir uma chamada remota por intencao mesmo sob concorrencia.
+5. Timeout vira `uncertain` e bloqueia retry automatico.
+6. Webhook sem identificador suficiente fica pendente, nao infere sucesso.
+7. Reconciliacao nao repete `POST /2/nfse/manifestar`.
+8. Cancelamento e substituicao NFS-e continuam intactos.

@@ -584,6 +584,28 @@ Operacionalmente, a futura liberacao deve ser incremental por oficina/municipio,
 - cancelamento elegivel, rejeitado, concorrente e timeout `uncertain`;
 - substituicao criando novo documento e preservando o substituido;
 - manifestacao de tomador/intermediario, confirmacao/rejeicao e justificativa condicional;
+
+## Testes planejados para Fase 3.6.x - manifestacao NFS-e Padrao Nacional
+
+- manifesta NFS-e elegivel Padrao Nacional;
+- bloqueia NFS-e municipal legada;
+- bloqueia NFS-e cancelada;
+- bloqueia NFS-e substituida;
+- bloqueia NFS-e `uncertain`;
+- bloqueia NFS-e sem UUID/chave suficiente;
+- bloqueia feature flag/capability desligada;
+- bloqueia usuario sem `issue_nfse_manifestation`;
+- valida payload por tipo: confirmacao e rejeicao;
+- exige justificativa quando `motivo_rejeicao=9`;
+- idempotencia nao reenvia;
+- concorrencia gera uma unica chamada remota;
+- timeout marca `uncertain`;
+- webhook com UUID atualiza somente a manifestacao;
+- webhook ambiguo fica pendente;
+- reconciliacao nao executa POST;
+- payload e resposta sao sanitizados;
+- cross-workshop bloqueado;
+- regressao de cancelamento e substituicao NFS-e permanece intacta.
 - webhook duplicado, fora de ordem por `atualizado_em`, ambiguo e anterior a sincronizacao local;
 - reconciliacao de `uncertain` somente por GET;
 - municipio inativo, sem homologacao, sem lote, sem cancelamento, sem substituicao ou fora do Padrao Nacional;

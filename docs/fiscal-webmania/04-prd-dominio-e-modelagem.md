@@ -778,4 +778,16 @@ Uma preview aprovada pode originar no maximo uma substituicao ativa, incerta ou 
 
 ### Modelagem implementada na Fase 3.4.1
 
+## Modelagem planejada para manifestacao NFS-e Padrao Nacional
+
+Fase: 3.6.0 documental.
+
+Decisao planejada: criar model proprio `NfseManifestation` vinculado a `NfseItem`, `workshop` e tentativa futura `FiscalEmissionAttempt(operation_type="nfse_manifestation")`. Nao criar `FiscalDocument(nfse)` nesta fase nem exigir backfill. Manifestacao nao e substituicao nem cancelamento: e uma trilha/evento fiscal sobre NFS-e existente, com payload proprio e resposta remota propria.
+
+Campos candidatos: `workshop`, `nfse_item`, `manifestation_type`, `manifestation_code`, `manifestation_role`, `request_payload`, `response_payload`, `remote_uuid`, `remote_status`, `xml_manifestation`, `status`, `is_uncertain`, `created_by`, `created_at` e `updated_at`. A implementacao futura pode usar enums para papel (`taker`, `intermediary`), tipo (`confirmation`, `rejection`) e status (`started`, `sent`, `succeeded`, `failed`, `uncertain`).
+
+Constraints planejadas: no maximo uma manifestacao ativa, incerta ou concluida por `workshop`, `nfse_item`, `manifestation_code` e `manifestation_role`; falha conclusiva pode permitir nova tentativa da mesma intencao. NFS-e cancelada, substituida ou incerta deve ser bloqueada antes de criar a intencao.
+
+Capability planejada: reutilizar/confirmar `NfseMunicipalCapability.manifestation_enabled` como gate municipal e adicionar/usar flag administrativa de oficina `nfse_manifestation_enabled` se a fase funcional exigir separacao entre capacidade remota e rollout interno. Se Padrao Nacional nao estiver confirmado, a operacao deve bloquear mesmo com permissao de usuario.
+
 `NfseSubstitution` possui preview one-to-one, original, substituta opcional, UUIDs, codigo original, motivo, payload/response, snapshots XML separados, status, `is_uncertain`, solicitante e timestamps. Constraint impede duas operacoes ativas para a mesma original. `NfseItemStatus.substituido` protege anti-regressao. Nao existe `FiscalDocument(nfse)`.

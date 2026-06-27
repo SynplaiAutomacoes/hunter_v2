@@ -280,3 +280,16 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Implementado na Fase 3.4.1: `NfseSubstitution` + tentativa `nfse_substitution` e relacionamento original/substituta;
 - definir reconciliacao administrativa quando timeout ocorrer antes de o UUID substituto ser conhecido;
 - manifestacao e emissao manual nova permanecem fases independentes.
+
+## Apos a Fase 3.5.0
+
+- Proximo bloco recomendado: manifestacao de NFS-e Padrao Nacional em fase propria.
+- Emissao manual nova de NFS-e e NFS-e expandida ampla continuam pendentes ate decisao especifica posterior a manifestacao ou fase equivalente.
+- CT-e, MDF-e, NFCom, DC-e, eventos `112120`, `112140`, `211xxx`, creditos tipos 2-5, debitos tipos 1-3/5-8 e complementar tributaria continuam bloqueados.
+
+## Apos o planejamento 3.6.0
+
+- Implementar manifestacao NFS-e somente apos aprovacao funcional propria.
+- Confirmar ou manter gate manual para Padrao Nacional/capability, pois `/2/nfse/status` nao lista `manifestar` de forma clara em `funcoes`.
+- Nao implementar cancelamento/retificacao de manifestacao sem endpoint oficial.
+- Nao criar emissao manual nova, NFS-e expandida ampla ou `FiscalDocument(nfse)` generalizado junto com manifestacao.

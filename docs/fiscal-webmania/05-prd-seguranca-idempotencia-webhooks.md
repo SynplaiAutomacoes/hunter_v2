@@ -639,3 +639,13 @@ Webhook: resolver primeiro UUID da substituta; fallback por tentativa e `nfse_su
 Na Fase 3.4P nao existe idempotencia remota, webhook ou reconciliacao. A transacao bloqueia o `NfseItem` original durante a criacao, sanitiza e congela o pre-payload; a aprovacao bloqueia a preview e impede mutacao ou reversao direta do estado aprovado. Tenancy, feature flag, capability e permissoes sao verificadas antes da preparacao/aprovacao.
 
 Na Fase 3.4.1, `FiscalEmissionAttempt(operation_type="nfse_substitution")` nasce antes do POST e usa chave por oficina/preview/substituicao. Retry e concorrencia encontram a intencao existente; timeout marca operacao/tentativa `uncertain` e nunca repete POST. Webhook resolve primeiro UUID substituto e, quando necessario, usa `nfse_substituida.uuid` contra uma unica intencao sent/uncertain. Ambiguidade bloqueia. Reconciliacao executa somente GET por UUID substituto; timeout sem UUID permanece pendencia administrativa.
+
+## Fase 3.6.0 - seguranca planejada da manifestacao NFS-e
+
+Operacao futura: `FiscalEmissionAttempt(operation_type="nfse_manifestation")`.
+
+Chave idempotente planejada: oficina, NFS-e local, papel do manifestador, tipo/codigo da manifestacao e geracao da intencao. O payload deve ser congelado antes do `POST /2/nfse/manifestar`; retry nao reenvia; concorrencia deve resultar em uma unica chamada remota. Timeout ou resposta sem confirmacao suficiente marca manifestacao e tentativa como `uncertain` e bloqueia reenvio automatico.
+
+Webhook planejado: resolver por UUID remoto da manifestacao, se existir; fallback por tentativa somente quando houver uma unica tentativa `sent`/`uncertain` compativel no mesmo escopo. Webhook sem identificador suficiente deve ficar pendente, nao inferir sucesso. A atualizacao deve afetar somente `NfseManifestation`, nunca cancelar, substituir ou reabrir a `NfseItem` original.
+
+Reconciliacao planejada: somente consulta segura por GET quando houver identificador remoto suficiente. Nenhum comando de reconciliacao pode repetir `POST /2/nfse/manifestar`. Ambiguidade entre oficinas, NFS-e original/substituta ou manifestacoes do mesmo papel/tipo deve bloquear aplicacao automatica.

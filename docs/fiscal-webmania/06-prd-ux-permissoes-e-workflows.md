@@ -473,6 +473,21 @@ UI incremental:
 
 Foi adicionada listagem e edicao minima de capacidades municipais no fluxo NFS-e existente, protegida por `finance.manage_nfse_capabilities` e pelo escopo da oficina ativa. A tela nao libera cancelamento, substituicao, manifestacao ou emissao manual nova; flags dessas operacoes permanecem informativas e desabilitadas por padrao.
 
+## UX e permissoes planejadas para manifestacao NFS-e
+
+Fase: 3.6.0 documental.
+
+Permissoes planejadas:
+
+- `issue_nfse_manifestation`;
+- `view_nfse_manifestation`;
+- `download_nfse_manifestation`;
+- `view_nfse_manifestation_payload`.
+
+A permissao de cancelar ou substituir NFS-e nao deve permitir manifestar automaticamente. A acao futura deve aparecer somente em NFS-e elegivel, com Padrao Nacional confirmado, capability/flag ativa e permissao especifica. A UI minima deve permitir selecionar tipo de manifestacao, papel do manifestador, motivo/justificativa quando a rejeicao exigir, confirmacao explicita, historico de manifestacoes, payload protegido e XML/artefatos protegidos quando retornados.
+
+Nao criar tela de emissao manual nova de NFS-e nesta fase ou na fase funcional de manifestacao.
+
 ### UX e permissoes da Fase 3.2
 
 - `query_nfse`: consulta item por UUID; `change_nfserequest` permanece fallback explicito somente para compatibilidade da acao legada.

@@ -588,7 +588,7 @@ Fase: 2.4D.6.0.
 
 **Capacidades:** usar entidade `NfseMunicipalCapability` separada de `WebmaniaCompany`, porque status, versao, ambientes, autenticacao, emissao, funcoes, servicos e parametros variam por municipio/provedor e no tempo.
 
-**Ordem:** 3.1 estabiliza idempotencia/webhook/capacidades; 3.2 amplia consulta; 3.3 corrige cancelamento; 3.4 substituicao; 3.5 manifestacao; 3.6 rollout/emissao manual; 3.7 downloads/observabilidade.
+**Ordem:** 3.1 estabiliza idempotencia/webhook/capacidades; 3.2 amplia consulta; 3.3 corrige cancelamento; 3.4 substituicao; 3.5.0 reavalia o proximo bloco; 3.6.0 planeja manifestacao; 3.6.x implementa manifestacao se aprovada; rollout/emissao manual e downloads/observabilidade ficam em fases posteriores.
 
 **Consequencias:** compatibilidade legada e flags por oficina sao obrigatorias. Nenhuma nova operacao herda permissao legada automaticamente. O gateway continua sendo Webmania; documentos nacionais definem semantica, nao uma integracao paralela.
 
@@ -618,3 +618,25 @@ Fase: 2.4D.6.0.
 **Implementacao 3.4P:** entidade propria no legado NFS-e, sem `FiscalDocument(nfse)` e sem tentativa remota. O snapshot XML preserva URL, identificadores e payload remoto sanitizado disponivel; o Hunter nao baixa nem reconstrói conteudo XML durante a preparacao. Tomador, servico, valores e tributacao do novo RPS sao input administrativo explicito.
 
 **Implementacao 3.4.1:** seguir tabela/exemplo oficial e nao a frase contraditoria sobre `uuid`. A operacao remota usa `NfseSubstitution` + tentativa; retorno sincrono aprovado exige `nfse_substituida.uuid` igual a original. Webhook por UUID substituto pode concluir uma intencao previamente identificada. XML original nunca e sobrescrito; estado `substituido` possui rank terminal equivalente a cancelado.
+
+## ADR - Proximo bloco apos cancelamento e substituicao NFS-e
+
+**Status:** proposto na Fase 3.5.0.
+
+**Decisao:** priorizar manifestacao de NFS-e Padrao Nacional em fase propria, antes de emissao manual nova, NFS-e expandida ampla, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos restantes ou complementar tributaria.
+
+**Justificativa:** manifestacao trabalha sobre NFS-e existente e pode reutilizar capacidade municipal, tentativa persistida, payload sanitizado, webhook e reconciliacao consultiva. Ela nao cria RPS, nao consome numeracao, nao altera XML original e nao exige dominio novo de transporte, estoque, sucessao, ZFM/ALC, pagamento antecipado ou apuracao fiscal. O valor de produto e menor que emissao manual nova, mas o risco e o tamanho da fase sao muito menores.
+
+**Restricoes:** aplicar apenas quando `NfseMunicipalCapability.manifestation_enabled` e a configuracao administrativa da oficina permitirem. Timeout deve permanecer `uncertain`, sem retry automatico. Webhook ambiguo ou retorno sem identificador suficiente deve ficar pendente para reconciliacao/acao administrativa, sem inferir sucesso.
+
+**OpenAPI:** nenhuma alteracao nesta fase; o endpoint `/2/nfse/manifestar` ja esta representado no OpenAPI validado.
+
+## ADR - Manifestacao NFS-e sem preview previa
+
+**Status:** proposto na Fase 3.6.0.
+
+**Decisao:** implementar futuramente manifestacao NFS-e como `NfseManifestation` proprio vinculado a `NfseItem`, sem criar preview previa e sem criar `FiscalDocument(nfse)`. A intencao congelada e a tentativa `nfse_manifestation` sao suficientes para auditoria/idempotencia.
+
+**Justificativa:** diferentemente da substituicao, manifestacao nao reconstrói RPS nem cria nova NFS-e. O contrato oficial e pequeno: ambiente, identificador, papel, evento e campos condicionais de rejeicao. Uma preview adicionaria friccao sem reduzir risco material, desde que rejeicao tenha confirmacao explicita e payload congelado.
+
+**Restricoes:** somente Padrao Nacional confirmado; bloquear municipal legado, NFS-e cancelada, substituida, incerta ou sem identificador suficiente. Desfazer/cancelar manifestacao nao sera implementado sem endpoint oficial claro.

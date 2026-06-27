@@ -734,10 +734,10 @@ Documentacao oficial revalidada em 2026-06-23: Webmania NFS-e v3.1.1 e Portal Na
 | Consulta | `/2/nfse/consulta/{uuid}` | GET | Sim | Consulta por UUID e reconciliacao sem emissao | Sem trilha de consulta/lote e sem timestamp remoto canonico | 3.2 ampliar reconciliacao |
 | Cancelamento/agendamento | `/2/nfse/cancelar` com `uuid`, `motivo` 1/2/4 | PUT | Sim | UI e endpoint funcionais | Sem tentativa/idempotencia/`uncertain`; confirma cancelamento cedo demais | 3.3 reimplementar sobre evento/tentativa |
 | Substituicao | `/2/nfse/substituir` com `ambiente`, `codigo_verificacao`, `motivo`, `rps` objeto | POST | Nao | Ausente | Capacidade municipal, documento substituto, link e idempotencia | 3.4 apos 3.1-3.3 |
-| Manifestacao | `/2/nfse/manifestar`; somente Padrao Nacional | POST | Nao | Ausente | Papel tomador/intermediario, evento, rejeicao, permissao e capacidade | 3.5 apos capacidade nacional |
+| Manifestacao | `/2/nfse/manifestar`; somente Padrao Nacional | POST | Nao | Ausente | Papel tomador/intermediario, evento, rejeicao, permissao e capacidade | 3.6.x apos planejamento 3.6.0 |
 | Status municipal | `/2/nfse/status` | GET | Nao | Configuracao local estatica | Falta persistir `status`, modelo, versao, ambientes, autenticacao, emissao, funcoes, servicos e parametros | 3.1 criar snapshot de capacidade |
 | Agendamento | `data_agendamento` na emissao; cancelamento pelo endpoint padrao | POST/PUT | Nao na UI/payload | Status local possui `scheduled` | Falta capacidade, timezone, idempotencia e UX | Adiar para subfase propria apos 3.3 |
-| XML/PDF | URLs `xml`, `pdf_nfse`, `pdf_rps`; acesso autenticado/token/IP/painel | GET por URL retornada | Sim | Proxy autenticado e permissao legada | Permissoes granulares e politica de disponibilidade/senha | 3.7 consolidar |
+| XML/PDF | URLs `xml`, `pdf_nfse`, `pdf_rps`; acesso autenticado/token/IP/painel | GET por URL retornada | Sim | Proxy autenticado e permissao legada | Permissoes granulares e politica de disponibilidade/senha | fase posterior consolidar |
 | Webhook | POST em `url_notificacao`, modelos `nfse`/`lote_rps` | POST inbound | Sim | Fingerprint, UUID e anti-regressao por rank | Ordem nao garantida; falta usar `atualizado_em` canonico | 3.1 estabilizar |
 | Reconciliacao | consulta por UUID | GET | Sim | Itens pendentes e tentativas incertas, sem POST | Cobertura limitada a item; falta lote/eventos futuros | 3.2 ampliar |
 
@@ -790,3 +790,97 @@ O OpenAPI validado ja representa a tabela/exemplo oficial com `ambiente`, `codig
 Na Fase 3.4P o contrato e apenas pre-payload local: `{ambiente, codigo_verificacao, motivo, rps}`. Nao existe chamada HTTP, `uuid` enviado, `url_notificacao`, webhook ou consulta remota de substituicao.
 
 Na Fase 3.4.1 o mesmo objeto congelado e enviado por `POST /2/nfse/substituir`. Nao se envia `uuid`, `url_notificacao` ou campos livres. Resposta mapeada: `uuid`, `status`, `numero`, `codigo_verificacao`, `serie_rps`, `numero_rps`, `nfse_substituida`, `xml`, `pdf`/`pdf_nfse` e `log`. O OpenAPI validado permaneceu suficiente e nao foi alterado.
+
+## Fase 3.5.0 - Matriz comparativa do proximo bloco apos NFS-e legada
+
+Reavaliacao em 2026-06-26: a NFS-e legada ja possui estabilizacao, consulta/reconciliacao, cancelamento idempotente, preview de substituicao e substituicao remota idempotente. O codigo atual confirma `NfseCancellation`, `NfseSubstitutionPreview`, `NfseSubstitution`, `NfseMunicipalCapability.manifestation_enabled`, reconciliacao GET-only e bloqueios para operacoes incertas. Nao existe ainda service de manifestacao NFS-e nem emissao manual fiscal nova fora do fluxo legado por OS.
+
+| Bloco | Fonte local existe? | Reaproveita infraestrutura atual? | Dependencia externa | Risco fiscal | Valor de negocio | Recomendacao |
+| ----- | ------------------: | --------------------------------: | ------------------- | ------------ | ---------------- | ------------ |
+| Manifestacao de NFS-e | Parcial: UUID/chave/capacidade e selecao administrativa | Alta: capacidade municipal, webhook, tentativa, payload sanitizado e reconciliacao consultiva | Padrao Nacional, papel do manifestador e evento/motivo | Medio/alto | Alto | **Priorizar Fase 3.5.1 em subfase propria** |
+| Emissao manual nova de NFS-e | Parcial: RPS/servico/tomador existem no legado, mas acoplados a OS | Media | Municipio/provedor, ISS/IBS-CBS, serie/RPS, rollout por oficina | Alto | Muito alto | Adiar para fase posterior apos manifestacao ou nova decisao |
+| NFS-e expandida | Parcial | Media | Padrao Nacional, DPS, municipio/provedor e modelagem `FiscalDocument(nfse)` | Alto | Muito alto | Nao executar como bloco amplo; quebrar em subfases |
+| CT-e | Nao | Media tecnica | Dominio de transporte, tomador/remetente/destinatario, carga e API v2 | Alto | Baixo/medio | Adiar |
+| MDF-e | Nao | Baixa | CT-e/NF-e vinculados, veiculo, condutor, percurso e encerramento | Alto | Baixo | Adiar apos CT-e |
+| NFCom | Nao | Media tecnica | Dominio de telecomunicacoes e habilitacao administrativa | Alto | Muito baixo | Adiar; manter feature flag interna |
+| DC-e | Nao | Media tecnica | Dominio especifico sem demanda confirmada | Alto | Muito baixo | Adiar; manter feature flag interna |
+| Eventos `112120` | Nao | Alta tecnica | Importacao ALC/ZFM validada | Alto | Baixo | Adiar |
+| Eventos `112140` | Nao suficiente | Alta tecnica | Debito tipo 6, pagamento antecipado e nao fornecimento por item | Alto | Medio | Adiar ate base de debito/pagamento |
+| Eventos `211xxx` | Nao suficiente | Alta tecnica, baixa de dominio | Papel destinatario, entrada fiscal, estoque, ativo, combustivel ou apuracao | Alto | Baixo/medio | Adiar |
+| Credito tipo 2 | Nao suficiente | Alta tecnica | Credito presumido ZFM e apuracao IBS/CBS | Alto | Baixo | Adiar |
+| Credito tipo 3 | Parcial | Alta tecnica | Evidencia de recusa/nao localizacao e logistica auditavel | Alto | Medio | Fase preparatoria futura |
+| Credito tipo 4 | Parcial | Alta tecnica | Regra de reducao de valores e base aprovada | Medio/alto | Medio | Adiar |
+| Credito tipo 5 | Nao | Media | Sucessao juridica/fiscal | Alto | Baixo | Adiar |
+| Debito tipo 1 | Nao | Media | Cooperativa e transferencia fiscal | Alto | Baixo | Adiar |
+| Debito tipo 2 | Nao | Media | Saidas imunes/isentas e apuracao fiscal | Alto | Baixo | Adiar |
+| Debito tipo 3 | Parcial | Alta tecnica | Notas fora da apuracao e DF-e por item | Alto | Medio | Adiar |
+| Debito tipo 5 | Nao | Media | Sucessao juridica/fiscal | Alto | Baixo | Adiar |
+| Debito tipo 6 | Nao suficiente | Media | Pagamento antecipado, vinculo financeiro-item e nao fornecimento | Alto | Medio | Preparar antes de `112140`, nao agora |
+| Debito tipo 7 | Parcial | Media | Perda em estoque e evidencia fiscal operacional | Alto | Medio | Fase preparatoria futura |
+| Debito tipo 8 | Nao | Baixa | Desenquadramento Simples Nacional e apuracao externa | Alto | Baixo | Adiar |
+| Complementar tributaria | Parcial | Alta | Base tributaria aprovada por imposto e regra IBS/CBS aplicavel | Alto | Medio | Auditoria preparatoria posterior |
+
+### Decisao
+
+Escolher **manifestacao de NFS-e Padrao Nacional** como proximo bloco, em fase propria e pequena. Ela reaproveita as garantias ja validadas na NFS-e legada sem criar nova NFS-e, sem reconstruir RPS, sem alterar XML original e sem abrir uma familia fiscal nova. A fase funcional deve ser restrita a NFS-e local elegivel, capacidade municipal com `manifestation_enabled`, permissao propria, payload congelado, tentativa antes do POST, timeout `uncertain`, webhook sem ambiguidade e reconciliacao somente consultiva.
+
+### Escopo proposto da proxima fase
+
+- Implementar somente `POST /2/nfse/manifestar` para NFS-e local existente e elegivel.
+- Exigir capacidade municipal, feature flag/permissao especifica, papel do manifestador (`1` ou `2`), evento (`1` ou `2`) e motivo/justificativa quando aplicavel.
+- Criar trilha auditavel propria, sem `FiscalDocument(nfse)` generalizado e sem alterar a NFS-e original exceto por evento confirmado.
+- Preservar XML/PDF/RPS originais; qualquer XML/evento de manifestacao deve ficar separado.
+- Reconciliar apenas por GET quando houver identificador remoto suficiente; nunca repetir POST em `uncertain`.
+
+O OpenAPI validado ja contem o endpoint de manifestacao NFS-e e nao exigiu alteracao nesta fase.
+
+## Fase 3.6.0 - Contrato e planejamento da manifestacao NFS-e Padrao Nacional
+
+Fonte oficial revalidada em 2026-06-26: [documentacao oficial Webmania NFS-e](https://webmania.com.br/docs/rest-api-nfse/).
+
+### Contrato oficial encontrado
+
+| Aspecto | Contrato revalidado | Decisao Hunter |
+| --- | --- | --- |
+| Endpoint | `POST /2/nfse/manifestar` | planejar somente; sem codigo funcional nesta fase |
+| Autenticacao | API v2 Bearer com `Content-Type: application/json` e `Accept: application/json` | reaproveitar gateway NFS-e v2 futuramente |
+| Escopo | Manifestacao de participacao na NFS-e para documentos no Padrao Nacional | bloquear se Padrao Nacional nao estiver confirmado |
+| Identificador | `chave` ou `uuid` da NFS-e | exigir um identificador remoto nao ambiguo; preferir UUID local quando existir |
+| Ambiente | `ambiente` (`1` producao, `2` homologacao) | derivar da empresa/oficina e congelar no payload |
+| Manifestador | `manifestador=1` tomador; `manifestador=2` intermediario | exigir selecao explicita e permissao propria |
+| Evento | `evento=1` confirmacao; `evento=2` rejeicao | implementar por tipo em fase funcional; nao inferir evento automaticamente |
+| Rejeicao | `motivo_rejeicao` `1..5` ou `9`; `justificativa_rejeicao` obrigatoria para motivo `9`, 15 a 255 caracteres | validar antes do gateway |
+| Resposta | estrutura NFS-e padrao com status/log e possivel UUID/modelo de manifestacao | persistir retorno sanitizado em trilha propria |
+| Artefatos | documentacao nao garante XML proprio de manifestacao em todos os retornos | tratar XML/artefato como opcional e separado do XML da NFS-e |
+| Webhook | notificacao fiscal padrao pode usar `modelo=manifestacao_nfse`; webhooks podem chegar fora de ordem | resolver sem ambiguidade; nao alterar NFS-e original indevidamente |
+| Consulta/reconciliacao | nao ha endpoint especifico de consulta de manifestacao separado do contrato NFS-e geral | usar somente GET seguro quando houver UUID remoto suficiente; nunca repetir POST |
+| Cancelamento/retificacao | nenhum endpoint oficial claro para desfazer/cancelar manifestacao foi encontrado | nao implementar desfazer; nova manifestacao do mesmo tipo fica bloqueada ate confirmacao oficial |
+
+Divergencia/lacuna: a secao de `/2/nfse/status` documenta funcoes municipais como `consultar`, `cancelar` e `substituir`, mas nao confirma claramente `manifestar` no exemplo de `funcoes`. Portanto, a disponibilidade local deve exigir `NfseMunicipalCapability.manifestation_enabled` e confirmacao administrativa/nacional; se o sistema nao confirmar Padrao Nacional, bloquear antes do gateway.
+
+### Matriz de tipos de manifestacao
+
+| Tipo de manifestacao | Descricao oficial | Quem pode manifestar | Documento elegivel | Payload especifico | Pode desfazer? | Risco | Recomendacao |
+| -------------------- | ----------------- | -------------------- | ------------------ | ------------------ | -------------: | ----- | ------------ |
+| Confirmacao | Confirmar participacao na NFS-e | Tomador (`manifestador=1`) ou intermediario (`manifestador=2`) conforme relacao fiscal | NFS-e Padrao Nacional identificada por `uuid` ou `chave` | `ambiente`, `uuid|chave`, `manifestador`, `evento=1` | Nao confirmado | Medio | Implementavel apos fase funcional com capability/flag |
+| Rejeicao | Rejeitar participacao na NFS-e | Tomador (`manifestador=1`) ou intermediario (`manifestador=2`) conforme relacao fiscal | NFS-e Padrao Nacional identificada por `uuid` ou `chave` | `ambiente`, `uuid|chave`, `manifestador`, `evento=2`, `motivo_rejeicao`; `justificativa_rejeicao` se motivo `9` | Nao confirmado | Medio/alto | Implementavel com validacao forte e confirmacao explicita |
+
+Motivos oficiais revalidados para rejeicao: `1`, `2`, `3`, `4`, `5` e `9`. A documentacao consultada nao apresentou endpoint de cancelamento/retificacao da manifestacao; desfazer deve ficar bloqueado ate confirmacao oficial.
+
+### Matriz de documentos elegiveis
+
+| Documento | Elegivel? | Motivo | Bloqueio |
+| --------- | --------: | ------ | -------- |
+| NFS-e emitida localmente | Sim, condicionado | Existe `NfseItem`, UUID/chave/codigo e oficina; deve ser Padrao Nacional confirmado | bloquear se municipal legada, sem Padrao Nacional ou sem relacao de manifestador |
+| NFS-e substituta | Sim, condicionado | E nova NFS-e com UUID/status proprios apos substituicao confirmada | bloquear se substituicao incerta ou sem identificador remoto |
+| NFS-e cancelada | Nao | Documento terminal; manifestacao posterior pode conflitar com estado fiscal | bloquear por status cancelado |
+| NFS-e substituida | Nao por padrao | Original foi encerrada por substituicao; manifestar a substituta quando aplicavel | bloquear por status substituido |
+| NFS-e recebida/importada de terceiro | Adiar | Endpoint aceita chave/UUID, mas nao existe dominio local de entrada/importacao NFS-e | bloquear ate fase de importacao/projecao externa |
+| NFS-e sem XML | Sim, condicionado | Manifestacao depende de identificador, nao necessariamente de XML local | bloquear se tambem faltar identificador ou Padrao Nacional |
+| NFS-e sem UUID | Parcial | Contrato aceita `chave`, mas o legado local trabalha melhor por UUID | permitir somente com chave remota unica e sem ambiguidade; caso contrario bloquear |
+| NFS-e sem codigo de verificacao | Sim, condicionado | Manifestacao oficial usa `uuid` ou `chave`, nao `codigo_verificacao` | bloquear se ausencia indicar documento local incompleto/nao reconciliado |
+| NFS-e `uncertain` | Nao | Estado remoto inconclusivo nao permite evento seguro | bloquear ate reconciliacao |
+
+### Decisao final
+
+Recomendar implementacao direta em fase funcional pequena, **sem preview previa**, porque a manifestacao nao cria novo RPS nem documento substituto e o payload e pequeno. A excecao e rejeicao: a UI futura deve ter confirmacao explicita, motivo e justificativa quando aplicavel. A fase funcional continua bloqueada ate aprovacao propria.
