@@ -6,6 +6,35 @@ from datetime import datetime, timezone
 from typing import Any
 
 
+_LOG_RECORD_STANDARD_ATTRS: frozenset[str] = frozenset(
+    {
+        "args",
+        "asctime",
+        "created",
+        "exc_info",
+        "exc_text",
+        "filename",
+        "funcName",
+        "id",
+        "levelname",
+        "levelno",
+        "lineno",
+        "module",
+        "msecs",
+        "message",
+        "msg",
+        "name",
+        "pathname",
+        "process",
+        "processName",
+        "relativeCreated",
+        "stack_info",
+        "thread",
+        "threadName",
+    }
+)
+
+
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         log_entry: dict[str, Any] = {
@@ -35,5 +64,9 @@ class JsonFormatter(logging.Formatter):
             log_entry["path"] = record.path
         if hasattr(record, "status_code"):
             log_entry["status_code"] = record.status_code
+
+        extra_fields = {key: value for key, value in record.__dict__.items() if key not in _LOG_RECORD_STANDARD_ATTRS and not key.startswith("_") and key not in log_entry}
+        if extra_fields:
+            log_entry["extra"] = extra_fields
 
         return json.dumps(log_entry, ensure_ascii=False, default=str)
