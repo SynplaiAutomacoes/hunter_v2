@@ -95,3 +95,14 @@ def validate_nfse_substitution_capability(*, nfse_request: NfseRequest) -> NfseC
     if resolution.capability is None or not resolution.capability.substitution_enabled:
         raise NfseCapabilityError("A substituicao NFS-e esta desabilitada para o municipio configurado.")
     return resolution
+
+
+def validate_nfse_manifestation_capability(*, nfse_request: NfseRequest) -> NfseCapabilityResolution:
+    resolution = resolve_nfse_capability(nfse_request=nfse_request)
+    if resolution.capability is None:
+        raise NfseCapabilityError("A manifestacao NFS-e exige capacidade municipal cadastrada.")
+    if not resolution.capability.national_standard_enabled:
+        raise NfseCapabilityError("A manifestacao NFS-e e restrita ao Padrao Nacional.")
+    if not resolution.capability.manifestation_enabled:
+        raise NfseCapabilityError("A manifestacao NFS-e esta desabilitada para o municipio configurado.")
+    return resolution

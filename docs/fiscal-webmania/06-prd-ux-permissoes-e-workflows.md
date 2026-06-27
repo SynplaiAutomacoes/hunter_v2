@@ -488,6 +488,10 @@ A permissao de cancelar ou substituir NFS-e nao deve permitir manifestar automat
 
 Nao criar tela de emissao manual nova de NFS-e nesta fase ou na fase funcional de manifestacao.
 
+### Resultado 3.6.1
+
+UI minima adicionada no detalhe da NFS-e: acao de manifestar apenas quando a NFS-e e elegivel, selecao de evento, manifestador, motivo/justificativa de rejeicao, confirmacao explicita, historico de manifestacoes, payload protegido e download de XML/artefato quando retornado. Permissoes criadas: `issue_nfse_manifestation`, `view_nfse_manifestation`, `download_nfse_manifestation` e `view_nfse_manifestation_payload`.
+
 ### UX e permissoes da Fase 3.2
 
 - `query_nfse`: consulta item por UUID; `change_nfserequest` permanece fallback explicito somente para compatibilidade da acao legada.

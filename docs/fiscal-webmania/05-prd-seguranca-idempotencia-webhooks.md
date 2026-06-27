@@ -649,3 +649,7 @@ Chave idempotente planejada: oficina, NFS-e local, papel do manifestador, tipo/c
 Webhook planejado: resolver por UUID remoto da manifestacao, se existir; fallback por tentativa somente quando houver uma unica tentativa `sent`/`uncertain` compativel no mesmo escopo. Webhook sem identificador suficiente deve ficar pendente, nao inferir sucesso. A atualizacao deve afetar somente `NfseManifestation`, nunca cancelar, substituir ou reabrir a `NfseItem` original.
 
 Reconciliacao planejada: somente consulta segura por GET quando houver identificador remoto suficiente. Nenhum comando de reconciliacao pode repetir `POST /2/nfse/manifestar`. Ambiguidade entre oficinas, NFS-e original/substituta ou manifestacoes do mesmo papel/tipo deve bloquear aplicacao automatica.
+
+### Resultado 3.6.1
+
+`NfseManifestation` e `FiscalEmissionAttempt(operation_type="nfse_manifestation")` sao persistidos antes do POST. O payload contem somente `ambiente`, `uuid`, `manifestador`, `evento` e campos condicionais de rejeicao. Timeout marca manifestacao e tentativa como `uncertain` e bloqueia nova tentativa da mesma intencao. Webhook `modelo=manifestacao_nfse` resolve somente por UUID remoto unico da manifestacao; payload sem identificador suficiente fica pendente. Reconciliacao usa apenas consulta por UUID remoto da manifestacao e nunca repete POST.

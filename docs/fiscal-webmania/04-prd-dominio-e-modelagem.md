@@ -790,4 +790,10 @@ Constraints planejadas: no maximo uma manifestacao ativa, incerta ou concluida p
 
 Capability planejada: reutilizar/confirmar `NfseMunicipalCapability.manifestation_enabled` como gate municipal e adicionar/usar flag administrativa de oficina `nfse_manifestation_enabled` se a fase funcional exigir separacao entre capacidade remota e rollout interno. Se Padrao Nacional nao estiver confirmado, a operacao deve bloquear mesmo com permissao de usuario.
 
+### Modelagem implementada na Fase 3.6.1
+
+Criado `NfseManifestation` vinculado obrigatoriamente a `NfseItem` e `workshop`, sem `FiscalDocument(nfse)` e sem backfill. A entidade registra tipo, codigo de evento, papel do manifestador, motivo/justificativa de rejeicao, payload congelado, resposta remota, UUID/status remoto, XML/artefato de manifestacao, status local e usuario criador.
+
+Constraint condicional impede mais de uma manifestacao ativa, incerta ou concluida para a mesma NFS-e, evento e manifestador. A operation type e `nfse_manifestation`. A capability usada e `NfseMunicipalCapability.national_standard_enabled=True` + `manifestation_enabled=True`; nenhuma flag de emissao manual foi criada.
+
 `NfseSubstitution` possui preview one-to-one, original, substituta opcional, UUIDs, codigo original, motivo, payload/response, snapshots XML separados, status, `is_uncertain`, solicitante e timestamps. Constraint impede duas operacoes ativas para a mesma original. `NfseItemStatus.substituido` protege anti-regressao. Nao existe `FiscalDocument(nfse)`.

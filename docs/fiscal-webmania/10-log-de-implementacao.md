@@ -17,6 +17,14 @@
 - Registrada lacuna: `/2/nfse/status` nao confirma claramente `manifestar` em `funcoes`; capability/Padrao Nacional devem bloquear sem confirmacao.
 - Decisao documental: implementar futuramente de forma direta e pequena, sem preview previa, com model `NfseManifestation`, tentativa `nfse_manifestation`, payload congelado, timeout `uncertain`, webhook sem ambiguidade e reconciliacao sem POST.
 - Nenhum codigo funcional, migration, service, view, form, template ou teste foi alterado.
+- Status posterior: Fase 3.6.0 validada documentalmente e commitada no checkpoint `0a8dd0c9`.
+
+## Fase 3.6.1 - implementacao da manifestacao NFS-e Padrao Nacional
+
+- Autorizada implementacao restrita a manifestacao de NFS-e Padrao Nacional.
+- Criados `NfseManifestation`, operation type `nfse_manifestation`, service `nfse_manifestation`, views/rotas/UI minima, webhook e reconciliacao consultiva.
+- Payload transmitido restrito a `ambiente`, `uuid`, `manifestador`, `evento`, `motivo_rejeicao` e `justificativa_rejeicao` quando aplicavel.
+- Municipal legado sem Padrao Nacional, NFS-e cancelada/substituida/incerta, NFS-e recebida/importada de terceiro e desfazimento de manifestacao permanecem bloqueados.
 
 ## Fase 3.4.1 - inicio
 

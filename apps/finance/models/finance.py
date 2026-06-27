@@ -123,6 +123,7 @@ class FiscalEmissionOperationType(models.TextChoices):
     NFE_DEBIT_CANCELLATION = "nfe_debit_cancellation", "Cancelamento NF-e de debito"
     NFSE_CANCELLATION = "nfse_cancellation", "Cancelamento NFS-e"
     NFSE_SUBSTITUTION = "nfse_substitution", "Substituicao NFS-e"
+    NFSE_MANIFESTATION = "nfse_manifestation", "Manifestacao NFS-e"
 
 
 class FiscalDocumentType(models.TextChoices):
@@ -1053,6 +1054,89 @@ class NfseSubstitution(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"NfseSubstitution[{self.original_nfse_id}:{self.status}]"
+
+
+class NfseManifestation(TimeStampedModel):
+    class ManifestationType(models.TextChoices):
+        CONFIRMATION = "confirmation", "Confirmacao"
+        REJECTION = "rejection", "Rejeicao"
+
+    class ManifestationRole(models.TextChoices):
+        TAKER = "taker", "Tomador"
+        INTERMEDIARY = "intermediary", "Intermediario"
+
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="nfse_manifestations")
+    nfse_item = models.ForeignKey(NfseItem, verbose_name="NFS-e", on_delete=models.PROTECT, related_name="manifestations")
+    manifestation_type = models.CharField(verbose_name="Tipo", max_length=16, choices=ManifestationType.choices, db_index=True)
+    manifestation_code = models.PositiveSmallIntegerField(verbose_name="Evento")
+    manifestation_role = models.CharField(verbose_name="Manifestador", max_length=16, choices=ManifestationRole.choices, db_index=True)
+    manifestor = models.PositiveSmallIntegerField(verbose_name="Codigo do manifestador")
+    rejection_reason = models.PositiveSmallIntegerField(verbose_name="Motivo de rejeicao", null=True, blank=True)
+    rejection_justification = models.CharField(verbose_name="Justificativa de rejeicao", max_length=255, blank=True, default="")
+    request_payload = models.JSONField(verbose_name="Payload enviado", default=dict)
+    response_payload = models.JSONField(verbose_name="Resposta remota", default=dict, blank=True)
+    remote_uuid = models.UUIDField(verbose_name="UUID remoto da manifestacao", null=True, blank=True, db_index=True)
+    remote_status = models.CharField(verbose_name="Status remoto", max_length=40, blank=True, default="")
+    xml_manifestation = models.URLField(verbose_name="XML/artefato da manifestacao", blank=True, default="")
+    status = models.CharField(max_length=20, choices=FiscalEmissionAttemptStatus.choices, default=FiscalEmissionAttemptStatus.STARTED, db_index=True)
+    is_uncertain = models.BooleanField(default=False, db_index=True)
+    created_by = models.ForeignKey("accounts.User", verbose_name="Criada por", on_delete=models.SET_NULL, null=True, blank=True, related_name="nfse_manifestations")
+    sent_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=["nfse_item", "manifestation_code", "manifestor"],
+                condition=models.Q(status__in=[FiscalEmissionAttemptStatus.STARTED, FiscalEmissionAttemptStatus.SENT, FiscalEmissionAttemptStatus.SUCCEEDED, FiscalEmissionAttemptStatus.UNCERTAIN]),
+                name="unique_active_nfse_manifestation",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["workshop", "status"], name="nfse_manifest_scope_status_idx"),
+            models.Index(fields=["nfse_item", "manifestation_code", "manifestor"], name="nfse_manifest_item_type_idx"),
+        ]
+        permissions = [
+            ("issue_nfse_manifestation", "Pode manifestar NFS-e"),
+            ("view_nfse_manifestation", "Pode visualizar manifestacao NFS-e"),
+            ("download_nfse_manifestation", "Pode baixar documentos da manifestacao NFS-e"),
+            ("view_nfse_manifestation_payload", "Pode visualizar payload da manifestacao NFS-e"),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if self.nfse_item_id and self.nfse_item.workshop_id != self.workshop_id:
+            raise ValidationError({"nfse_item": "A NFS-e pertence a outra oficina."})
+        if self.manifestation_type == self.ManifestationType.CONFIRMATION and self.manifestation_code != 1:
+            raise ValidationError({"manifestation_code": "Confirmacao deve usar evento 1."})
+        if self.manifestation_type == self.ManifestationType.REJECTION and self.manifestation_code != 2:
+            raise ValidationError({"manifestation_code": "Rejeicao deve usar evento 2."})
+        if self.manifestation_role == self.ManifestationRole.TAKER and self.manifestor != 1:
+            raise ValidationError({"manifestor": "Tomador deve usar manifestador 1."})
+        if self.manifestation_role == self.ManifestationRole.INTERMEDIARY and self.manifestor != 2:
+            raise ValidationError({"manifestor": "Intermediario deve usar manifestador 2."})
+        if self.manifestation_code == 1 and (self.rejection_reason or self.rejection_justification):
+            raise ValidationError("Confirmacao nao deve conter motivo ou justificativa de rejeicao.")
+        if self.manifestation_code == 2 and self.rejection_reason is None:
+            raise ValidationError({"rejection_reason": "Rejeicao exige motivo."})
+        if self.rejection_reason == 9 and not (15 <= len(self.rejection_justification.strip()) <= 255):
+            raise ValidationError({"rejection_justification": "Motivo 9 exige justificativa entre 15 e 255 caracteres."})
+        if self.rejection_reason not in (None, 9) and self.rejection_justification:
+            raise ValidationError({"rejection_justification": "Justificativa deve ser enviada somente para motivo 9."})
+        if self.is_uncertain != (self.status == FiscalEmissionAttemptStatus.UNCERTAIN):
+            raise ValidationError("Status uncertain e marcador de incerteza devem permanecer consistentes.")
+
+    def save(self, *args, **kwargs) -> None:
+        if self.pk:
+            immutable_fields = ("workshop_id", "nfse_item_id", "manifestation_type", "manifestation_code", "manifestation_role", "manifestor", "rejection_reason", "rejection_justification", "request_payload")
+            persisted = type(self).objects.filter(pk=self.pk).values(*immutable_fields).first()
+            if persisted and any(persisted[field] != getattr(self, field) for field in immutable_fields):
+                raise ValidationError("A intencao e o payload da manifestacao NFS-e sao imutaveis.")
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"NfseManifestation[{self.nfse_item_id}:{self.manifestation_code}:{self.status}]"
 
 
 class NfeItem(models.Model):

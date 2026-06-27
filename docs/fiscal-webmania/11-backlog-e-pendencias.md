@@ -293,3 +293,10 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Confirmar ou manter gate manual para Padrao Nacional/capability, pois `/2/nfse/status` nao lista `manifestar` de forma clara em `funcoes`.
 - Nao implementar cancelamento/retificacao de manifestacao sem endpoint oficial.
 - Nao criar emissao manual nova, NFS-e expandida ampla ou `FiscalDocument(nfse)` generalizado junto com manifestacao.
+
+## Apos a Fase 3.6.1
+
+- Desfazimento/cancelamento de manifestacao continua bloqueado ate endpoint oficial claro.
+- NFS-e recebida/importada de terceiros continua adiada.
+- Emissao manual nova de NFS-e, NFS-e expandida ampla e `FiscalDocument(nfse)` generalizado continuam fora de escopo.
+- Manter eventos IBS/CBS pendentes, creditos 2-5, debitos restantes, CT-e, MDF-e, NFCom, DC-e e complementar tributaria bloqueados.

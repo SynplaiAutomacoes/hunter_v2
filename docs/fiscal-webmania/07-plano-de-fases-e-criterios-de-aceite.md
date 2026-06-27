@@ -720,7 +720,7 @@ Emissao manual nova de NFS-e, NFS-e expandida ampla, agendamento, `FiscalDocumen
 
 ## Fase 3.6.0 - Planejamento Tecnico da Manifestacao de NFS-e Padrao Nacional
 
-Status: **em planejamento documental em 2026-06-26**. A Fase 3.5.0 foi aprovada e encerrada com a decisao de priorizar manifestacao NFS-e Padrao Nacional.
+Status: **validada documentalmente em 2026-06-26** no checkpoint `0a8dd0c9`. A Fase 3.5.0 foi aprovada e encerrada com a decisao de priorizar manifestacao NFS-e Padrao Nacional.
 
 Alteracoes permitidas: somente `docs/fiscal-webmania/**` e, se necessario, `docs/fiscal-webmania/api/webmania_fiscal_openapi_validated.json`.
 
@@ -761,3 +761,13 @@ Recomendar implementacao direta em fase funcional pequena, sem preview previa. M
 6. Webhook sem identificador suficiente fica pendente, nao infere sucesso.
 7. Reconciliacao nao repete `POST /2/nfse/manifestar`.
 8. Cancelamento e substituicao NFS-e continuam intactos.
+
+## Fase 3.6.1 - Manifestacao de NFS-e Padrao Nacional
+
+Status: **em implementacao tecnica em 2026-06-26**.
+
+Escopo: implementar somente manifestacao de NFS-e local com Padrao Nacional confirmado por `NfseMunicipalCapability.national_standard_enabled` e `manifestation_enabled`, usando `POST /2/nfse/manifestar`.
+
+Fora de escopo: emissao manual nova de NFS-e, NFS-e recebida/importada de terceiros, municipal legada sem Padrao Nacional confirmado, desfazimento/cancelamento de manifestacao, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos restantes e complementar tributaria.
+
+Resultado esperado: model `NfseManifestation`, operation type `nfse_manifestation`, payload congelado, timeout `uncertain`, webhook sem ambiguidade, reconciliacao consultiva, permissoes proprias, UI minima e testes direcionados.

@@ -606,6 +606,8 @@ Operacionalmente, a futura liberacao deve ser incremental por oficina/municipio,
 - payload e resposta sao sanitizados;
 - cross-workshop bloqueado;
 - regressao de cancelamento e substituicao NFS-e permanece intacta.
+
+Resultado 3.6.1: adicionados testes direcionados para contrato/payload, rejeicao com motivo/justificativa, bloqueios por status/capability/Padrao Nacional, timeout `uncertain`, webhook/reconciliacao sem alterar a NFS-e original e payload protegido por view.
 - webhook duplicado, fora de ordem por `atualizado_em`, ambiguo e anterior a sincronizacao local;
 - reconciliacao de `uncertain` somente por GET;
 - municipio inativo, sem homologacao, sem lote, sem cancelamento, sem substituicao ou fora do Padrao Nacional;

@@ -19,7 +19,7 @@ from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocument
 from .commissions import CommissionReportView
 from .nfe import NfeAdjustmentDownloadView, NfeAdjustmentIssueView, NfeComplementaryDownloadView, NfeComplementaryPriceQuantityIssueView, NfeCorrectionDownloadView, NfeCorrectionIssueView, NfeDocumentDownloadView, NfeIbsCbsEvent112110CancelView, NfeIbsCbsEvent112110IssueView, NfeIbsCbsEvent112130CancelView, NfeIbsCbsEvent112130IssueView, NfeIbsCbsEvent112150CancelView, NfeIbsCbsEvent112150IssueView, NfeIbsCbsEventDownloadView, NfeIbsCbsEventPayloadView, NfePreviewPdfView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestInvalidateView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView, NfeReturnDownloadView, NfeReturnIssueView
 from .nfce import NfceCancellationDownloadView, NfceCancellationView, NfceDocumentDownloadView, NfceDocumentListView, NfceDocumentPayloadView, NfceInutilizationDownloadView, NfceInutilizationPayloadView, NfceInutilizationView, NfceManualEmissionView
-from .nfse import NfseBatchReconcileView, NfseCancellationDownloadView, NfseCancellationPayloadView, NfseDocumentDownloadView, NfsePreviewPdfView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestReconcileView, NfseRequestUpdateView
+from .nfse import NfseBatchReconcileView, NfseCancellationDownloadView, NfseCancellationPayloadView, NfseDocumentDownloadView, NfseManifestationDownloadView, NfseManifestationIssueView, NfseManifestationPayloadView, NfsePreviewPdfView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestReconcileView, NfseRequestUpdateView
 from .nfse_capabilities import NfseMunicipalCapabilityCreateView, NfseMunicipalCapabilityListView, NfseMunicipalCapabilityStatusView, NfseMunicipalCapabilityUpdateView
 from .nfse_substitution_preview import NfseSubstitutionDownloadView, NfseSubstitutionIssueView, NfseSubstitutionPayloadView, NfseSubstitutionPreviewApproveView, NfseSubstitutionPreviewCreateView, NfseSubstitutionPreviewDetailView, NfseSubstitutionPreviewListView, NfseSubstitutionPreviewPayloadView
 from .reports import FinancialReportsHomeView, ReportMovementEditView, ReportMovementDeleteView
@@ -109,6 +109,9 @@ __all__ = [
     "NfseCancellationDownloadView",
     "NfseBatchReconcileView",
     "NfseDocumentDownloadView",
+    "NfseManifestationDownloadView",
+    "NfseManifestationIssueView",
+    "NfseManifestationPayloadView",
     "NfsePreviewPdfView",
     "NfseRequestCreateView",
     "NfseRequestDetailView",

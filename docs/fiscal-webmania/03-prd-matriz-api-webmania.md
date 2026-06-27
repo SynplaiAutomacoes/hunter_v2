@@ -884,3 +884,9 @@ Motivos oficiais revalidados para rejeicao: `1`, `2`, `3`, `4`, `5` e `9`. A doc
 ### Decisao final
 
 Recomendar implementacao direta em fase funcional pequena, **sem preview previa**, porque a manifestacao nao cria novo RPS nem documento substituto e o payload e pequeno. A excecao e rejeicao: a UI futura deve ter confirmacao explicita, motivo e justificativa quando aplicavel. A fase funcional continua bloqueada ate aprovacao propria.
+
+### Contrato implementado na Fase 3.6.1
+
+`POST /2/nfse/manifestar` com `ambiente`, `uuid`, `manifestador`, `evento` e, para rejeicao, `motivo_rejeicao` e `justificativa_rejeicao` quando motivo `9`. Nao enviar RPS, servico, tomador, payload de emissao, payload de cancelamento, payload de substituicao ou campos livres.
+
+Webhook esperado: `modelo=manifestacao_nfse` com UUID remoto da manifestacao. Sem UUID suficiente, o evento fica pendente. Reconciliacao futura usa somente GET consultivo por UUID remoto, sem repetir POST.

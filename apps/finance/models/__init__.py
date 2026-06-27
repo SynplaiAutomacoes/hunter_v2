@@ -1,4 +1,4 @@
-from .finance import FiscalCreditProductPreview, FiscalDocument, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, FiscalHypothesis, FiscalNumberInutilization, FiscalNumberInutilizationStatus, FiscalProductPreviewStatus, FiscalReferencedBasis, FiscalReferencedBasisItem, FiscalReferencedBasisStatus, FiscalReferencedBasisType, NfeItem, NfeRequest, NfseBatch, NfseCancellation, NfseItem, NfseMunicipalCapability, NfseRequest, NfseSubstitution, NfseSubstitutionPreview, TaxClassNfe, TaxClassNfeCofinsScenario, TaxClassNfeIcmsScenario, TaxClassNfeIpiScenario, TaxClassNfePisScenario, TaxClassNfse, TaxClassPreset, TaxClassPresetKind, TaxClassSyncState, WebmaniaCompany
+from .finance import FiscalCreditProductPreview, FiscalDocument, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, FiscalHypothesis, FiscalNumberInutilization, FiscalNumberInutilizationStatus, FiscalProductPreviewStatus, FiscalReferencedBasis, FiscalReferencedBasisItem, FiscalReferencedBasisStatus, FiscalReferencedBasisType, NfeItem, NfeRequest, NfseBatch, NfseCancellation, NfseItem, NfseManifestation, NfseMunicipalCapability, NfseRequest, NfseSubstitution, NfseSubstitutionPreview, TaxClassNfe, TaxClassNfeCofinsScenario, TaxClassNfeIcmsScenario, TaxClassNfeIpiScenario, TaxClassNfePisScenario, TaxClassNfse, TaxClassPreset, TaxClassPresetKind, TaxClassSyncState, WebmaniaCompany
 from .financial_group import FinancialGroup
 from .payment_method import PaymentMethod
 from .movement_group import MovementGroup
@@ -32,6 +32,7 @@ __all__ = [
     "NfseBatch",
     "NfseCancellation",
     "NfseItem",
+    "NfseManifestation",
     "NfseMunicipalCapability",
     "NfseRequest",
     "NfseSubstitutionPreview",

@@ -4,7 +4,7 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
 
-from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionOperationType, NfeItem, NfseBatch, NfseCancellation, NfseItem, NfseSubstitution
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionOperationType, NfeItem, NfseBatch, NfseCancellation, NfseItem, NfseManifestation, NfseSubstitution
 from apps.finance.services.nfe_adjustment import NfeAdjustmentError, reconcile_nfe_adjustment_document
 from apps.finance.services.nfe_complementary import NfeComplementaryError, reconcile_nfe_complementary_document
 from apps.finance.services.nfe_credit import NfeCreditError, reconcile_nfe_credit_document
@@ -17,6 +17,7 @@ from apps.finance.services.nfce_cancellation import NfceCancellationError, recon
 from apps.finance.services.nfce_emission import NfceEmissionError, reconcile_nfce_document
 from apps.finance.services.nfse_consulta import NfseConsultaError, reconcile_nfse_batch, reconcile_nfse_item
 from apps.finance.services.nfse_cancellation import NfseCancellationError, reconcile_nfse_cancellation
+from apps.finance.services.nfse_manifestation import NfseManifestationError, reconcile_nfse_manifestation
 from apps.finance.services.nfse_substitution import NfseSubstitutionError, reconcile_nfse_substitution
 from apps.finance.services.webmania_webhooks import process_pending_webhook_events
 
@@ -312,6 +313,17 @@ class Command(BaseCommand):
                         try:
                             reconcile_nfse_cancellation(cancellation=cancellation)
                         except NfseCancellationError:
+                            failed += 1
+                        else:
+                            uncertain_checked += 1
+                    continue
+
+                if attempt.operation_type == FiscalEmissionOperationType.NFSE_MANIFESTATION and attempt.request_model == NfseManifestation.__name__:
+                    manifestation = NfseManifestation.objects.filter(pk=attempt.request_id, workshop=attempt.workshop).select_related("nfse_item").first()
+                    if manifestation is not None:
+                        try:
+                            reconcile_nfse_manifestation(manifestation=manifestation)
+                        except NfseManifestationError:
                             failed += 1
                         else:
                             uncertain_checked += 1

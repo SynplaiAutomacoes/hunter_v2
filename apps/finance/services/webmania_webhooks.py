@@ -24,6 +24,7 @@ from apps.finance.services.nfe_returns import apply_nfe_return_document_payload,
 from apps.finance.services.nfce_cancellation import apply_nfce_cancellation_event_payload, is_ambiguous_nfce_cancellation_webhook, resolve_nfce_cancellation_event_for_webhook
 from apps.finance.services.nfce_emission import apply_nfce_document_payload, is_ambiguous_nfce_webhook, resolve_nfce_document_for_webhook
 from apps.finance.services.nfse_cancellation import NfseCancellationError, confirm_nfse_cancellation_from_payload
+from apps.finance.services.nfse_manifestation import NfseManifestationError, confirm_nfse_manifestation_from_payload, is_ambiguous_nfse_manifestation_webhook, resolve_nfse_manifestation_for_webhook
 from apps.finance.services.nfse_substitution import NfseSubstitutionError, confirm_nfse_substitution_from_payload, is_ambiguous_nfse_substitution_webhook, resolve_nfse_substitution_for_webhook
 
 
@@ -236,6 +237,22 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
 
         _mark_event_processed(event)
         return True
+
+    if model == "manifestacao_nfse":
+        manifestation = resolve_nfse_manifestation_for_webhook(payload=payload)
+        if manifestation is not None:
+            try:
+                confirm_nfse_manifestation_from_payload(manifestation=manifestation, payload=payload, update_source="webhook")
+            except NfseManifestationError as exc:
+                _mark_event_deferred(event, error=str(exc))
+                return False
+            _mark_event_processed(event)
+            return True
+        if is_ambiguous_nfse_manifestation_webhook(payload=payload):
+            _mark_event_deferred(event, error=f"Manifestacao NFS-e {event_uuid} ambigua entre intencoes.")
+            return False
+        _mark_event_deferred(event, error="Webhook de manifestacao NFS-e sem identificador suficiente para associacao segura.")
+        return False
 
     if model == "nfce":
         if str(payload.get("status") or "").strip().lower() in {"cancelado", "cancelada", "canceled"}:

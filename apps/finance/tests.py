@@ -44,7 +44,7 @@ from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.movement_group import MovementGroup
-from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentLink, FiscalDocumentLinkRole, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, FiscalNumberInutilization, FiscalNumberInutilizationStatus, NfeItem, NfeRequest, NfeRequestStatus, NfseCancellation, NfseItem, NfseRequest, NfseRequestStatus, NfseSubstitutionPreview, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentLink, FiscalDocumentLinkRole, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, FiscalNumberInutilization, FiscalNumberInutilizationStatus, NfeItem, NfeRequest, NfeRequestStatus, NfseCancellation, NfseItem, NfseManifestation, NfseRequest, NfseRequestStatus, NfseSubstitutionPreview, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
@@ -15699,6 +15699,146 @@ class FiscalPhaseThreeNfseCancellationConcurrentTests(TransactionTestCase):
         self.assertEqual(put_mock.call_count, 1, results)
         self.assertEqual(NfseCancellation.objects.filter(item=self.item).count(), 1)
         self.assertIn("sent", results)
+
+
+class FiscalPhaseThreeNfseManifestationTests(TestCase):
+    def setUp(self) -> None:
+        from apps.finance.models.finance import NfseMunicipalCapability
+
+        self.user, self.workshop = create_director_user_with_workshop(suffix=91)
+        self.company = WebmaniaCompany.objects.create(workshop=self.workshop, webmania_company_id="NFSE-MANIFEST", bearer_access_token="encrypted-token", cidade="Sao Paulo", uf="SP")
+        self.capability = NfseMunicipalCapability.objects.create(
+            workshop=self.workshop,
+            company=self.company,
+            city_code="3550308",
+            city_name="Sao Paulo",
+            state="SP",
+            national_standard_enabled=True,
+            manifestation_enabled=True,
+        )
+        self.budget = Budget.objects.create(workshop=self.workshop, entry_date=timezone.now().date())
+        self.workorder = WorkOrder.objects.create(workshop=self.workshop, budget=self.budget, status=WorkOrderStatus.APPROVED)
+        self.nfse_request = NfseRequest.objects.create(workshop=self.workshop, workorder=self.workorder, tax_class="REFNFSEMANIFEST")
+        self.item = NfseItem.objects.create(workshop=self.workshop, workorder=self.workorder, request=self.nfse_request, uuid="44000000-0000-0000-0000-000000000001", status="aprovado", xml_url="https://example.test/original.xml")
+
+    def _manifest(self, *, event: int = 1, manifestor: int = 1, rejection_reason: int | None = None, rejection_justification: str = "", response_payload: dict[str, Any] | None = None):
+        from apps.finance.services.nfse_manifestation import manifest_nfse_item
+
+        payload = response_payload or {"modelo": "manifestacao_nfse", "uuid": "55000000-0000-0000-0000-000000000001", "status": "aprovado", "xml": "https://example.test/manifestacao.xml"}
+        with (
+            patch("apps.finance.services.nfse_manifestation._build_headers", return_value={"X-Test": "ok"}),
+            patch("apps.finance.services.nfse_manifestation._build_manifestation_url", return_value="https://api.webmania.com.br/2/nfse/manifestar"),
+            patch("apps.finance.services.nfse_manifestation.requests.post", return_value=_mock_response(payload)) as post_mock,
+        ):
+            manifestation = manifest_nfse_item(item=self.item, event=event, manifestor=manifestor, rejection_reason=rejection_reason, rejection_justification=rejection_justification, created_by=self.user)
+        return manifestation, post_mock
+
+    def test_confirmation_manifestation_persists_exact_contract_and_attempt(self) -> None:
+        manifestation, post_mock = self._manifest(event=1, manifestor=1)
+        attempt = FiscalEmissionAttempt.objects.get(operation_type=FiscalEmissionOperationType.NFSE_MANIFESTATION)
+
+        expected_payload = {"ambiente": 2, "uuid": str(self.item.uuid), "manifestador": 1, "evento": 1}
+        post_mock.assert_called_once_with("https://api.webmania.com.br/2/nfse/manifestar", json=expected_payload, headers={"X-Test": "ok"}, timeout=30)
+        self.assertEqual(manifestation.request_payload, expected_payload)
+        self.assertNotIn("rps", manifestation.request_payload)
+        self.assertNotIn("servico", manifestation.request_payload)
+        self.assertNotIn("tomador", manifestation.request_payload)
+        self.assertEqual(manifestation.status, FiscalEmissionAttemptStatus.SUCCEEDED)
+        self.assertEqual(manifestation.xml_manifestation, "https://example.test/manifestacao.xml")
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.status, "aprovado")
+        self.assertEqual(self.item.xml_url, "https://example.test/original.xml")
+        self.assertEqual(attempt.request_model, NfseManifestation.__name__)
+        self.assertEqual(attempt.request_id, manifestation.pk)
+
+    def test_rejection_requires_reason_and_conditional_justification(self) -> None:
+        from apps.finance.services.nfse_manifestation import NfseManifestationError, manifest_nfse_item
+
+        with patch("apps.finance.services.nfse_manifestation.requests.post") as post_mock, self.assertRaisesMessage(NfseManifestationError, "motivo"):
+            manifest_nfse_item(item=self.item, event=2, manifestor=2, created_by=self.user)
+        post_mock.assert_not_called()
+
+        with patch("apps.finance.services.nfse_manifestation.requests.post") as post_mock, self.assertRaisesMessage(NfseManifestationError, "justificativa"):
+            manifest_nfse_item(item=self.item, event=2, manifestor=2, rejection_reason=9, rejection_justification="curta", created_by=self.user)
+        post_mock.assert_not_called()
+
+        with patch("apps.finance.services.nfse_manifestation.requests.post") as post_mock, self.assertRaisesMessage(NfseManifestationError, "somente para motivo 9"):
+            manifest_nfse_item(item=self.item, event=2, manifestor=2, rejection_reason=1, rejection_justification="Justificativa indevida", created_by=self.user)
+        post_mock.assert_not_called()
+
+        manifestation, post_mock = self._manifest(event=2, manifestor=2, rejection_reason=9, rejection_justification="Justificativa fiscal valida")
+        self.assertEqual(manifestation.request_payload["evento"], 2)
+        self.assertEqual(manifestation.request_payload["manifestador"], 2)
+        self.assertEqual(manifestation.request_payload["motivo_rejeicao"], 9)
+        self.assertEqual(manifestation.request_payload["justificativa_rejeicao"], "Justificativa fiscal valida")
+        self.assertEqual(post_mock.call_count, 1)
+
+    def test_ineligible_nfse_and_disabled_capability_are_blocked(self) -> None:
+        from apps.finance.services.nfse_manifestation import NfseManifestationError, manifest_nfse_item
+
+        for status in ("processando", "cancelado", "substituido", "uncertain"):
+            self.item.status = status
+            self.item.save(update_fields=["status"])
+            with self.subTest(status=status), patch("apps.finance.services.nfse_manifestation.requests.post") as post_mock, self.assertRaises(NfseManifestationError):
+                manifest_nfse_item(item=self.item, event=1, manifestor=1, created_by=self.user)
+            post_mock.assert_not_called()
+        self.item.status = "aprovado"
+        self.item.save(update_fields=["status"])
+
+        self.capability.national_standard_enabled = False
+        self.capability.save(update_fields=["national_standard_enabled"])
+        with patch("apps.finance.services.nfse_manifestation.requests.post") as post_mock, self.assertRaisesMessage(NfseManifestationError, "Padrao Nacional"):
+            manifest_nfse_item(item=self.item, event=1, manifestor=1, created_by=self.user)
+        post_mock.assert_not_called()
+
+    def test_timeout_marks_uncertain_and_blocks_retry_without_resend(self) -> None:
+        from apps.finance.services.nfse_manifestation import NfseManifestationError, manifest_nfse_item
+
+        with (
+            patch("apps.finance.services.nfse_manifestation._build_headers", return_value={}),
+            patch("apps.finance.services.nfse_manifestation.requests.post", side_effect=requests.Timeout),
+            self.assertRaises(NfseManifestationError),
+        ):
+            manifest_nfse_item(item=self.item, event=1, manifestor=1, created_by=self.user)
+        manifestation = NfseManifestation.objects.get(nfse_item=self.item)
+        attempt = FiscalEmissionAttempt.objects.get(operation_type=FiscalEmissionOperationType.NFSE_MANIFESTATION)
+        self.assertEqual(manifestation.status, FiscalEmissionAttemptStatus.UNCERTAIN)
+        self.assertEqual(attempt.status, FiscalEmissionAttemptStatus.UNCERTAIN)
+
+        with patch("apps.finance.services.nfse_manifestation.requests.post") as retry_mock, self.assertRaises(NfseManifestationError):
+            manifest_nfse_item(item=self.item, event=1, manifestor=1, created_by=self.user)
+        retry_mock.assert_not_called()
+
+    def test_webhook_and_reconciliation_update_only_manifestation(self) -> None:
+        from apps.finance.services.nfse_manifestation import reconcile_nfse_manifestation
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        manifestation, _ = self._manifest(response_payload={"modelo": "manifestacao_nfse", "uuid": "55000000-0000-0000-0000-000000000002", "status": "aprovado"})
+        manifestation.refresh_from_db()
+        self.assertEqual(manifestation.status, FiscalEmissionAttemptStatus.SUCCEEDED)
+
+        payload = {"modelo": "manifestacao_nfse", "uuid": str(manifestation.remote_uuid), "status": "aprovado"}
+        event = store_webhook_event(payload=payload)
+        self.assertTrue(process_webhook_event(event))
+        manifestation.refresh_from_db()
+        self.item.refresh_from_db()
+        self.assertEqual(manifestation.status, FiscalEmissionAttemptStatus.SUCCEEDED)
+        self.assertEqual(self.item.status, "aprovado")
+
+        with patch("apps.finance.services.nfse_manifestation.consult_nfse_uuid", return_value={"modelo": "manifestacao_nfse", "uuid": str(manifestation.remote_uuid), "status": "aprovado"}) as consult_mock:
+            reconcile_nfse_manifestation(manifestation=manifestation)
+        consult_mock.assert_not_called()
+
+    def test_payload_view_requires_manifestation_payload_permission(self) -> None:
+        manifestation, _ = self._manifest()
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+        with patch("apps.workshops.mixin.has_workshop_perm", return_value=True):
+            response = self.client.get(reverse("finance:nfse_manifestation_payload", kwargs={"pk": self.nfse_request.pk, "manifestation_pk": manifestation.pk}))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["request"]["evento"], 1)
 
 
 class FiscalPhaseThreeNfseSubstitutionPreviewTests(TestCase):

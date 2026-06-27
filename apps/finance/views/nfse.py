@@ -18,9 +18,10 @@ from apps.core.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.views import HtmxTemplateResponseMixin
 from apps.finance.forms import NfseRequestStep1Form, NfseRequestStep2Form, NfseRequestStep3Form
-from apps.finance.models.finance import FiscalEmissionAttemptStatus, NfseCancellation, NfseItem, NfseRequest, NfseRequestStatus
+from apps.finance.models.finance import FiscalEmissionAttemptStatus, NfseCancellation, NfseItem, NfseManifestation, NfseRequest, NfseRequestStatus
 from apps.finance.services.nfse_cancellation import NfseCancellationError, cancel_nfse_item, is_nfse_item_eligible_for_cancellation
 from apps.finance.services.nfse_consulta import NfseConsultaError, reconcile_nfse_batch, reconcile_nfse_item
+from apps.finance.services.nfse_manifestation import NfseManifestationError, is_nfse_item_eligible_for_manifestation, manifest_nfse_item
 from apps.finance.services.nfse_substitution_preview import is_nfse_substitution_preview_enabled
 from apps.finance.services.emission import NfseEmissionError, download_nfse_preview_document, emit_nfse_request, sync_emission_response
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
@@ -54,6 +55,33 @@ class NfseCancelForm(CoreForm):
         if value not in {"1", "2", "4"}:
             raise forms.ValidationError("Selecione um motivo para cancelar a Nota Fiscal de Serviço.")
         return int(value)
+
+
+class NfseManifestationForm(CoreForm):
+    EVENT_CHOICES = [("", "Selecione"), ("1", "Confirmacao"), ("2", "Rejeicao")]
+    MANIFESTOR_CHOICES = [("", "Selecione"), ("1", "Tomador"), ("2", "Intermediario")]
+    REJECTION_REASON_CHOICES = [("", "Selecione"), ("1", "Motivo 1"), ("2", "Motivo 2"), ("3", "Motivo 3"), ("4", "Motivo 4"), ("5", "Motivo 5"), ("9", "Outros")]
+
+    event = forms.ChoiceField(choices=EVENT_CHOICES, required=True)
+    manifestor = forms.ChoiceField(choices=MANIFESTOR_CHOICES, required=True)
+    rejection_reason = forms.ChoiceField(choices=REJECTION_REASON_CHOICES, required=False)
+    rejection_justification = forms.CharField(required=False, max_length=255)
+    confirmed = forms.BooleanField(required=True)
+
+    def clean(self):
+        cleaned = super().clean()
+        event = str(cleaned.get("event") or "").strip()
+        reason = str(cleaned.get("rejection_reason") or "").strip()
+        justification = str(cleaned.get("rejection_justification") or "").strip()
+        if event == "2" and not reason:
+            self.add_error("rejection_reason", "Rejeicao exige motivo.")
+        if event == "1" and (reason or justification):
+            self.add_error("rejection_reason", "Confirmacao nao deve conter motivo de rejeicao.")
+        if reason == "9" and not (15 <= len(justification) <= 255):
+            self.add_error("rejection_justification", "Motivo 9 exige justificativa entre 15 e 255 caracteres.")
+        if reason and reason != "9" and justification:
+            self.add_error("rejection_justification", "Justificativa deve ser enviada somente para motivo 9.")
+        return cleaned
 
 
 class NfseRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -118,6 +146,18 @@ class NfseRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView)
         latest_item = self.object.items.order_by("-id").first()
         latest_batch = self.object.batches.order_by("-id").first()
         cancellation = latest_item.cancellations.order_by("-pk").first() if latest_item is not None else None
+        can_view_manifestations = bool(
+            latest_item
+            and has_workshop_perm(
+                user=self.request.user,
+                workshop=self.workshop,
+                app_label="finance",
+                model="nfsemanifestation",
+                codename="view_nfse_manifestation",
+                request=self.request,
+            )
+        )
+        manifestations = latest_item.manifestations.order_by("-pk") if can_view_manifestations else []
         can_cancel = bool(
             is_nfse_item_eligible_for_cancellation(latest_item)
             and has_workshop_perm(
@@ -137,6 +177,20 @@ class NfseRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView)
                 "latest_batch": latest_batch,
                 "can_cancel": can_cancel,
                 "nfse_cancellation": cancellation,
+                "nfse_manifestations": manifestations,
+                "can_view_nfse_manifestations": can_view_manifestations,
+                "can_manifest_nfse": bool(
+                    is_nfse_item_eligible_for_manifestation(latest_item)
+                    and has_workshop_perm(
+                        user=self.request.user,
+                        workshop=self.workshop,
+                        app_label="finance",
+                        model="nfsemanifestation",
+                        codename="issue_nfse_manifestation",
+                        request=self.request,
+                    )
+                ),
+                "nfse_manifestation_form": NfseManifestationForm(),
                 "request_fields": [
                     _build_field("ID da requisição", self.object.pk),
                     _build_field("Ordem de serviço", self.object.workorder),
@@ -260,6 +314,66 @@ class NfseCancellationDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View
             return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
         response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
         response["Content-Disposition"] = f'attachment; filename="nfse-cancelamento-{cancellation.item_id}.xml"'
+        return response
+
+
+class NfseManifestationIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfsemanifestation"
+    workshop_permission_codename = "issue_nfse_manifestation"
+
+    def post(self, request, *args, **kwargs):
+        nfse_request = get_object_or_404(NfseRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+        latest_item = nfse_request.items.order_by("-id").first()
+        if latest_item is None:
+            messages.error(request, "A Nota Fiscal de Serviço ainda nao possui item sincronizado para manifestacao.")
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
+        form = NfseManifestationForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Revise os dados da manifestacao NFS-e e confirme explicitamente a operacao.")
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
+        try:
+            manifestation = manifest_nfse_item(
+                item=latest_item,
+                event=form.cleaned_data["event"],
+                manifestor=form.cleaned_data["manifestor"],
+                rejection_reason=form.cleaned_data.get("rejection_reason") or None,
+                rejection_justification=form.cleaned_data.get("rejection_justification") or "",
+                created_by=request.user,
+            )
+        except NfseManifestationError as exc:
+            messages.error(request, str(exc))
+            return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
+        if manifestation.status == FiscalEmissionAttemptStatus.SUCCEEDED:
+            messages.success(request, "Manifestacao NFS-e registrada com sucesso.")
+        return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfse_detail", pk=nfse_request.pk, query_params=request.GET))
+
+
+class NfseManifestationPayloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfsemanifestation"
+    workshop_permission_codename = "view_nfse_manifestation_payload"
+
+    def get(self, request, *args, **kwargs):
+        manifestation = get_object_or_404(NfseManifestation, pk=kwargs.get("manifestation_pk"), nfse_item__request_id=kwargs.get("pk"), workshop=self.workshop)
+        return JsonResponse({"request": manifestation.request_payload, "response": manifestation.response_payload, "status": manifestation.status})
+
+
+class NfseManifestationDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfsemanifestation"
+    workshop_permission_codename = "download_nfse_manifestation"
+
+    def get(self, request, *args, **kwargs):
+        manifestation = get_object_or_404(NfseManifestation, pk=kwargs.get("manifestation_pk"), nfse_item__request_id=kwargs.get("pk"), workshop=self.workshop)
+        if not manifestation.xml_manifestation:
+            raise Http404("XML da manifestacao indisponivel")
+        try:
+            downloaded = download_webmania_document(workshop=self.workshop, url=manifestation.xml_manifestation)
+        except WebmaniaDocumentDownloadError as exc:
+            return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
+        response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
+        response["Content-Disposition"] = f'attachment; filename="nfse-manifestacao-{manifestation.pk}.xml"'
         return response
 
 

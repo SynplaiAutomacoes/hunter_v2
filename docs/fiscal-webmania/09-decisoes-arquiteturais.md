@@ -640,3 +640,5 @@ Fase: 2.4D.6.0.
 **Justificativa:** diferentemente da substituicao, manifestacao nao reconstrói RPS nem cria nova NFS-e. O contrato oficial e pequeno: ambiente, identificador, papel, evento e campos condicionais de rejeicao. Uma preview adicionaria friccao sem reduzir risco material, desde que rejeicao tenha confirmacao explicita e payload congelado.
 
 **Restricoes:** somente Padrao Nacional confirmado; bloquear municipal legado, NFS-e cancelada, substituida, incerta ou sem identificador suficiente. Desfazer/cancelar manifestacao nao sera implementado sem endpoint oficial claro.
+
+**Implementacao 3.6.1:** `NfseManifestation` proprio, sem preview e sem `FiscalDocument(nfse)`. O gateway transmite apenas o contrato oficial de manifestacao; cancelamento, substituicao e XML original da NFS-e permanecem preservados.
