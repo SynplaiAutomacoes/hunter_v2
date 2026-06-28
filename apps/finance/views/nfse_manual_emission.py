@@ -2,19 +2,42 @@ from __future__ import annotations
 
 from typing import Any
 
+from django import forms
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
-from django.http import Http404, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.views import View
 from django.views.generic import DetailView, ListView
 
-from apps.finance.models.finance import NfseManualEmission, NfseManualEmissionPreview
+from apps.core.forms import CoreForm
+from apps.finance.models.finance import FiscalEmissionAttemptStatus, NfseCancellation, NfseManualEmission, NfseManualEmissionPreview
 from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
+from apps.finance.services.nfse_cancellation import NfseCancellationError, cancel_nfse_item, is_nfse_item_eligible_for_cancellation
 from apps.finance.services.nfse_manual_emission import NfseManualEmissionError, emit_nfse_manual_from_preview, is_nfse_manual_emission_eligible, reconcile_nfse_manual_emission
+from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import has_workshop_perm
+
+
+class NfseManualCancellationForm(CoreForm):
+    reason_code = forms.ChoiceField(
+        choices=[
+            ("", "Selecione o motivo"),
+            ("1", "Erro na emissao"),
+            ("2", "Servico nao prestado"),
+            ("4", "Duplicidade da nota"),
+        ],
+        required=True,
+    )
+    confirmed = forms.BooleanField(required=True)
+
+    def clean_reason_code(self) -> int:
+        value = str(self.cleaned_data.get("reason_code") or "").strip()
+        if value not in {"1", "2", "4"}:
+            raise forms.ValidationError("Selecione um motivo para cancelar a NFS-e manual.")
+        return int(value)
 
 
 class NfseManualEmissionPermissionMixin(LoginRequiredMixin, WorkshopScopedMixin):
@@ -69,6 +92,13 @@ class NfseManualEmissionDetailView(NfseManualEmissionPermissionMixin, DetailView
         context = super().get_context_data(**kwargs)
         context["can_view_payload"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfsemanualemission", codename="view_nfse_manual_emission_payload", request=self.request)
         context["can_download"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfsemanualemission", codename="download_nfse_manual_emission", request=self.request)
+        cancellation = self.object.nfse_item.cancellations.order_by("-pk").first() if self.object.nfse_item_id else None
+        context["nfse_cancellation"] = cancellation
+        context["can_cancel"] = bool(
+            self.object.nfse_item
+            and is_nfse_item_eligible_for_cancellation(self.object.nfse_item)
+            and has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfserequest", codename="cancel_nfse", request=self.request)
+        )
         return context
 
 
@@ -99,6 +129,60 @@ class NfseManualEmissionReconcileView(NfseManualEmissionPermissionMixin, View):
         else:
             messages.success(request, "Consulta da emissao manual NFS-e concluida sem reenvio.")
         return redirect("finance:nfse_manual_emission_detail", pk=emission.pk)
+
+
+class NfseManualEmissionCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "cancel_nfse"
+
+    def post(self, request, *args, **kwargs):
+        emission = get_object_or_404(NfseManualEmission.objects.filter(workshop=self.workshop).select_related("nfse_item"), pk=kwargs["pk"])
+        if emission.nfse_item is None:
+            messages.error(request, "A emissao manual ainda nao possui NFS-e autorizada para cancelamento.")
+            return redirect("finance:nfse_manual_emission_detail", pk=emission.pk)
+        form = NfseManualCancellationForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Selecione o motivo e confirme explicitamente o cancelamento da NFS-e manual.")
+            return redirect("finance:nfse_manual_emission_detail", pk=emission.pk)
+        try:
+            cancellation = cancel_nfse_item(item=emission.nfse_item, reason_code=form.cleaned_data["reason_code"], requested_by=request.user)
+        except NfseCancellationError as exc:
+            messages.error(request, str(exc))
+            return redirect("finance:nfse_manual_emission_detail", pk=emission.pk)
+        if cancellation.status == FiscalEmissionAttemptStatus.SUCCEEDED:
+            messages.success(request, "NFS-e manual cancelada com sucesso.")
+        return redirect("finance:nfse_manual_emission_detail", pk=emission.pk)
+
+
+class NfseManualEmissionCancellationPayloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "cancel_nfse"
+
+    def get(self, request, *args, **kwargs):
+        emission = get_object_or_404(NfseManualEmission.objects.filter(workshop=self.workshop), pk=kwargs["pk"])
+        cancellation = get_object_or_404(NfseCancellation, pk=kwargs["cancellation_pk"], item=emission.nfse_item, workshop=self.workshop)
+        return JsonResponse({"request": cancellation.request_payload, "response": cancellation.response_payload, "status": cancellation.status})
+
+
+class NfseManualEmissionCancellationDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "cancel_nfse"
+
+    def get(self, request, *args, **kwargs):
+        emission = get_object_or_404(NfseManualEmission.objects.filter(workshop=self.workshop), pk=kwargs["pk"])
+        cancellation = get_object_or_404(NfseCancellation, pk=kwargs["cancellation_pk"], item=emission.nfse_item, workshop=self.workshop)
+        if not cancellation.xml_url:
+            raise Http404("XML de cancelamento indisponivel")
+        try:
+            downloaded = download_webmania_document(workshop=self.workshop, url=cancellation.xml_url)
+        except WebmaniaDocumentDownloadError as exc:
+            return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
+        response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
+        response["Content-Disposition"] = f'attachment; filename="nfse-manual-cancelamento-{cancellation.item_id}.xml"'
+        return response
 
 
 class NfseManualEmissionDownloadView(NfseManualEmissionPermissionMixin, View):

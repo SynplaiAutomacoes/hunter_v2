@@ -930,3 +930,13 @@ Decisao de contrato: a NFS-e manual nova, apos retorno aprovado, e uma `NfseItem
 | Consulta/reconciliacao | `GET /2/nfse/consulta/{identifier}` | identificador remoto | `NfseItem`/emissao manual, sem POST | Usar apenas de forma consultiva |
 
 OpenAPI: nenhuma alteracao aplicada; o schema atual ja representa os endpoints e request bodies necessarios.
+
+### Contrato implementado na Fase 3.8.1
+
+O cancelamento da NFS-e manual nova usa o mesmo contrato remoto ja validado para NFS-e:
+
+```json
+{"uuid": "UUID-DA-NFSE", "motivo": 2}
+```
+
+Endpoint efetivo: `PUT /2/nfse/cancelar`. Nao sao enviados RPS, tomador, servico, valores, tributacao, payload da preview, payload de emissao, dados de substituicao ou dados de manifestacao. O OpenAPI validado permaneceu suficiente e nao foi alterado.

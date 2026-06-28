@@ -686,3 +686,12 @@ Para o ciclo seguinte, o menor risco e cancelar a NFS-e manual usando a mesma tr
 - preview e emissao manual imutaveis.
 
 Risco principal: resolver por UUID um `NfseItem` manual que tambem possa ser visto por fluxos legados. A fase funcional deve exigir unicidade local, oficina ativa, permissao `cancel_nfse` e bloqueio de ambiguidade. Permissao de emitir NFS-e manual, aprovar preview, substituir ou manifestar nao autoriza cancelamento.
+
+Resultado da Fase 3.8.1:
+
+- `FiscalEmissionAttempt(operation_type="nfse_cancellation")` foi reutilizado.
+- O payload do cancelamento manual fica congelado como `{uuid, motivo}`.
+- Timeout permanece `uncertain` e bloqueia retry automatico.
+- Webhook `modelo=nfse/status=cancelado` confirma o cancelamento manual quando ha intencao de cancelamento segura; caso contrario nao reinterpreta como nova emissao.
+- Reconciliacao usa somente `GET /2/nfse/consulta/{identifier}` e nao repete `PUT`.
+- XML original da NFS-e manual e preservado; XML de cancelamento fica em `NfseCancellation.xml_url`.

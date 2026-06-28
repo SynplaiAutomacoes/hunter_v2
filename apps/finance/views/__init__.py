@@ -22,7 +22,7 @@ from .nfce import NfceCancellationDownloadView, NfceCancellationView, NfceDocume
 from .nfse import NfseBatchReconcileView, NfseCancellationDownloadView, NfseCancellationPayloadView, NfseDocumentDownloadView, NfseManifestationDownloadView, NfseManifestationIssueView, NfseManifestationPayloadView, NfsePreviewPdfView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestReconcileView, NfseRequestUpdateView
 from .nfse_capabilities import NfseMunicipalCapabilityCreateView, NfseMunicipalCapabilityListView, NfseMunicipalCapabilityStatusView, NfseMunicipalCapabilityUpdateView
 from .nfse_manual_emission_preview import NfseManualEmissionPreviewApproveView, NfseManualEmissionPreviewCreateView, NfseManualEmissionPreviewDetailView, NfseManualEmissionPreviewListView, NfseManualEmissionPreviewPayloadView
-from .nfse_manual_emission import NfseManualEmissionDetailView, NfseManualEmissionDownloadView, NfseManualEmissionIssueView, NfseManualEmissionListView, NfseManualEmissionPayloadView, NfseManualEmissionReconcileView
+from .nfse_manual_emission import NfseManualEmissionCancelView, NfseManualEmissionCancellationDownloadView, NfseManualEmissionCancellationPayloadView, NfseManualEmissionDetailView, NfseManualEmissionDownloadView, NfseManualEmissionIssueView, NfseManualEmissionListView, NfseManualEmissionPayloadView, NfseManualEmissionReconcileView
 from .nfse_substitution_preview import NfseSubstitutionDownloadView, NfseSubstitutionIssueView, NfseSubstitutionPayloadView, NfseSubstitutionPreviewApproveView, NfseSubstitutionPreviewCreateView, NfseSubstitutionPreviewDetailView, NfseSubstitutionPreviewListView, NfseSubstitutionPreviewPayloadView
 from .reports import FinancialReportsHomeView, ReportMovementEditView, ReportMovementDeleteView
 from .tax_class import TaxClassCreateView, TaxClassListView, TaxClassManagerView, TaxClassPresetCreateView, TaxClassPresetListView, TaxClassPresetUpdateView, TaxClassUpdateView
@@ -131,6 +131,9 @@ __all__ = [
     "NfseManualEmissionPreviewPayloadView",
     "NfseManualEmissionDetailView",
     "NfseManualEmissionDownloadView",
+    "NfseManualEmissionCancelView",
+    "NfseManualEmissionCancellationDownloadView",
+    "NfseManualEmissionCancellationPayloadView",
     "NfseManualEmissionIssueView",
     "NfseManualEmissionListView",
     "NfseManualEmissionPayloadView",

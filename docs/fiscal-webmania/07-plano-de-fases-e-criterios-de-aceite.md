@@ -931,7 +931,7 @@ Resultado local: migration `0067`; model `NfseManualEmission`; flag separada de 
 
 ## Fase 3.8.0 - Reavaliacao do Ciclo Pos-Emissao Manual de NFS-e
 
-Status: **em planejamento documental em 2026-06-28**. A Fase 3.7.1 foi validada e encerrada no checkpoint `2cb35206`.
+Status: **validada documentalmente em 2026-06-28** no checkpoint `1faf0a9`. A Fase 3.7.1 foi validada e encerrada no checkpoint `2cb35206`.
 
 Alteracoes permitidas: somente `docs/fiscal-webmania/**` e, se houver correcao oficialmente confirmada, `docs/fiscal-webmania/api/webmania_fiscal_openapi_validated.json`.
 
@@ -1000,3 +1000,17 @@ Tipo de implementacao recomendado: **A) extensao segura do cancelamento NFS-e ex
 - Criterios de aceite: nenhuma alteracao na preview aprovada ou no payload de emissao; nenhuma substituicao/manifestacao automatica; cancelamento manual e legado compartilham contrato seguro; working tree validada com testes focados e Ruff.
 
 OpenAPI: o schema atual permanece suficiente; nenhuma correcao oficial nova foi confirmada nesta reavaliacao.
+
+## Fase 3.8.1 - Cancelamento da NFS-e Manual Nova
+
+Status: **validada tecnicamente em 2026-06-28**, com checkpoint desta entrega pendente. A Fase 3.8.0 foi aprovada e encerrada no checkpoint `1faf0a9`.
+
+Escopo: cancelar somente NFS-e manual nova gerada por `NfseManualEmission` e materializada em `NfseItem` autorizado, usando `PUT /2/nfse/cancelar` com payload congelado `{uuid, motivo}`.
+
+Estrategia aprovada: extensao segura do cancelamento NFS-e existente, reutilizando `NfseCancellation`, `FiscalEmissionAttempt(operation_type="nfse_cancellation")`, webhook e reconciliacao consultiva quando a associacao por UUID/oficina for segura.
+
+Fora de escopo nesta fase: substituicao da NFS-e manual nova, manifestacao automatica da NFS-e manual nova, NFS-e recebida/importada, emissao manual adicional, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria.
+
+Resultado local: migration `0068`; `NfseCancellation.request` passou a ser opcional para permitir cancelamento de `NfseItem` manual sem `NfseRequest`; `cancel_nfse_item` aceita NFS-e manual somente quando ha `NfseManualEmission` vinculada, `NfseItem` autorizado, UUID seguro, capability de cancelamento ativa e nenhuma intencao ativa/incerta. O payload remoto continua estrito em `{uuid, motivo}`. Webhook e reconciliacao confirmam cancelamento manual sem repetir `PUT` e preservam XML original. A UI minima foi adicionada no detalhe da emissao manual com permissao `cancel_nfse`.
+
+Criterios atendidos: contrato remoto preservado; `NfseCancellation` reutilizado; tentativa `nfse_cancellation` reutilizada; XML de cancelamento separado; preview/emissao manual imutaveis; substituicao e manifestacao da NFS-e manual nao iniciadas.

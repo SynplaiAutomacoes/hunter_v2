@@ -677,3 +677,5 @@ Justificativa:
 - reduz risco frente a substituicao e manifestacao, que exigem respectivamente novo RPS/substituta ou Padrao Nacional/papel fiscal.
 
 Consequencia: substituicao e manifestacao da NFS-e manual permanecem fases separadas; preview e emissao manual sao imutaveis e nao devem ser alteradas pelo cancelamento.
+
+Implementacao 3.8.1: a decisao foi mantida. Nao foi criado novo modelo; `NfseCancellation` passou a aceitar `request` opcional para origem manual, mantendo `item` obrigatorio e a constraint de uma intencao ativa por NFS-e. A operacao de idempotencia continuou `nfse_cancellation`, porque a separacao por `NfseItem` e oficina e suficiente e evita bifurcar o contrato remoto por origem.

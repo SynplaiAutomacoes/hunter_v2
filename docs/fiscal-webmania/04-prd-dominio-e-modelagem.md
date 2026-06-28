@@ -828,3 +828,7 @@ Para o proximo ciclo, a fonte local mais segura e `NfseManualEmission.nfse_item`
 Decisao de modelagem para a proxima fase: **estender com seguranca o cancelamento NFS-e existente**. `NfseCancellation` deve continuar sendo a trilha de cancelamento vinculada ao `NfseItem`; se houver dependencia legada em `NfseRequest`/OS, ela deve ser relaxada de modo compatível para aceitar `NfseItem` manual, sem alterar `NfseManualEmissionPreview`, sem alterar `NfseManualEmission.request_payload` e sem criar `FiscalDocument(nfse)`.
 
 Substituicao da NFS-e manual pode reutilizar `NfseSubstitutionPreview` e `NfseSubstitution`, mas exige fase propria porque cria nova NFS-e substituta e precisa adaptar a elegibilidade para origem manual. Manifestacao da NFS-e manual tambem exige fase separada condicionada a Padrao Nacional/capability.
+
+Resultado da Fase 3.8.1: `NfseCancellation` foi reutilizado. A unica alteracao de modelagem foi permitir `request=null` para cancelamentos vinculados a `NfseItem` manual, sem criar modelo novo e sem introduzir `FiscalDocument(nfse)`. Quando existe `NfseRequest`, o fluxo legado permanece com a mesma relacao e validacao. Quando a origem e manual, a relacao segura e `NfseCancellation.item -> NfseItem -> NfseManualEmission`.
+
+`NfseManualEmissionPreview` e `NfseManualEmission.request_payload` permanecem imutaveis; o cancelamento nao altera o payload aprovado nem cria nova NFS-e.

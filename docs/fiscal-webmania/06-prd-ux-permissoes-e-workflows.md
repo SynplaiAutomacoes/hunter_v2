@@ -548,3 +548,5 @@ UX recomendada para a Fase 3.8.1:
 - payload, resposta e download protegidos por permissao e oficina.
 
 Permissoes: usar `cancel_nfse` para cancelar; `issue_nfse_manual_emission`, permissoes de preview, substituicao ou manifestacao nao devem liberar cancelamento. Cross-workshop deve retornar bloqueio/404 conforme padrao atual.
+
+Resultado da Fase 3.8.1: a tela de detalhe da emissao manual mostra acao de cancelamento somente quando a NFS-e manual esta autorizada, vinculada a `NfseItem`, possui UUID seguro, esta elegivel e o usuario possui `cancel_nfse`. A UI exige motivo e confirmacao explicita, mostra payload/XML de cancelamento protegidos e nao oferece substituicao ou manifestacao da NFS-e manual nesta fase.

@@ -90,6 +90,29 @@
 - Matriz comparou cancelamento, substituicao, manifestacao, NFS-e recebida/importada, NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
 - Decisao recomendada: **Opcao A**, implementar `Fase 3.8.1 - Cancelamento da NFS-e Manual Nova` como extensao segura do cancelamento NFS-e existente.
 - OpenAPI validado permaneceu suficiente; nenhuma alteracao aplicada.
+- Status posterior: Fase 3.8.0 validada documentalmente e commitada no checkpoint `1faf0a9`.
+
+## Fase 3.8.1 - inicio do cancelamento da NFS-e manual nova
+
+- Fase 3.8.0 aprovada no checkpoint `1faf0a9`.
+- Autorizado somente cancelamento da NFS-e manual nova, via extensao segura do cancelamento NFS-e existente.
+- Contrato remoto: `PUT /2/nfse/cancelar` com payload estrito `{uuid, motivo}`.
+- Devem ser preservados `NfseManualEmissionPreview`, `NfseManualEmission.request_payload` e XML original da NFS-e; XML de cancelamento fica separado.
+- Substituicao/manifestacao da nova NFS-e e demais blocos fiscais permanecem fora de escopo.
+
+## Fase 3.8.1 - implementacao e validacao tecnica
+
+- Implementada extensao segura de `NfseCancellation` para NFS-e manual nova.
+- Migration `0068` torna `NfseCancellation.request` opcional; `item` continua obrigatorio e a constraint ativa por NFS-e permanece.
+- `cancel_nfse_item` agora aceita `NfseItem` manual somente com `NfseManualEmission` vinculada, status autorizado, UUID seguro, capability de cancelamento ativa e sem cancelamento ativo/incerto.
+- Payload remoto comprovado por testes: somente `{uuid, motivo}` em `PUT /2/nfse/cancelar`.
+- Webhook de `status=cancelado` confirma cancelamento manual antes de tratar payload como atualizacao da emissao manual; reconciliacao consulta sem reenviar `PUT`.
+- UI minima adicionada ao detalhe da emissao manual; payload/XML de cancelamento protegidos por `cancel_nfse`.
+- Validacoes executadas:
+  - `uv run python manage.py test apps.finance.tests.FiscalPhaseThreeNfseCancellationTests apps.finance.tests.FiscalPhaseThreeNfseManualEmissionPreviewTests apps.finance.tests.FiscalPhaseThreeNfseManualEmissionTests --keepdb`
+  - `uv run python manage.py makemigrations finance --check --dry-run`
+  - `uv run ruff check ...` nos arquivos Python tocados
+- Permanecem fora do escopo: substituicao/manifestacao da NFS-e manual, NFS-e recebida/importada, emissao manual adicional, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
 
 ## Fase 3.4.1 - inicio
 

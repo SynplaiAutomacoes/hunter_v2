@@ -866,7 +866,7 @@ class NfseItem(models.Model):
 
 class NfseCancellation(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="nfse_cancellations")
-    request = models.ForeignKey(NfseRequest, verbose_name="Requisicao NFS-e", on_delete=models.CASCADE, related_name="cancellations")
+    request = models.ForeignKey(NfseRequest, verbose_name="Requisicao NFS-e", on_delete=models.CASCADE, null=True, blank=True, related_name="cancellations")
     item = models.ForeignKey(NfseItem, verbose_name="NFS-e", on_delete=models.PROTECT, related_name="cancellations")
     status = models.CharField(max_length=20, choices=FiscalEmissionAttemptStatus.choices, default=FiscalEmissionAttemptStatus.STARTED, db_index=True)
     reason_code = models.PositiveSmallIntegerField(verbose_name="Motivo")

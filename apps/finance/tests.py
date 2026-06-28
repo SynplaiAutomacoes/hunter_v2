@@ -15863,6 +15863,7 @@ class FiscalPhaseThreeNfseManualEmissionPreviewTests(TestCase):
             state="SP",
             is_active=True,
             emission_enabled=True,
+            cancellation_enabled=True,
             manual_emission_enabled=True,
             requires_service_code=True,
             requires_iss_rate=True,
@@ -16091,6 +16092,7 @@ class FiscalPhaseThreeNfseManualEmissionTests(TestCase):
             state="SP",
             is_active=True,
             emission_enabled=True,
+            cancellation_enabled=True,
             manual_emission_enabled=True,
             requires_service_code=True,
             requires_iss_rate=True,
@@ -16289,6 +16291,186 @@ class FiscalPhaseThreeNfseManualEmissionTests(TestCase):
         self.assertEqual(response.status_code, 200)
         assert isinstance(response, JsonResponse)
         self.assertEqual(json.loads(response.content)["request_payload"], emission.request_payload)
+
+    def test_manual_nfse_cancellation_reuses_nfse_cancellation_contract_and_preserves_origin(self) -> None:
+        from apps.finance.services.nfse_cancellation import cancel_nfse_item
+
+        preview = self._preview(rps_number=4008)
+        approved_payload = dict(preview.request_payload)
+        emission, _ = self._emit(preview)
+        item = emission.nfse_item
+        self.assertIsNotNone(item)
+        assert item is not None
+        original_xml = item.xml_url
+
+        response_payload = {"modelo": "nfse", "uuid": str(item.uuid), "status": "cancelado", "xml": "https://example.test/manual-cancelamento.xml"}
+        with (
+            patch("apps.finance.services.nfse_cancellation._build_headers", return_value={"X-Test": "ok"}),
+            patch("apps.finance.services.nfse_cancellation._build_cancel_url", return_value="https://api.webmania.com.br/2/nfse/cancelar"),
+            patch("apps.finance.services.nfse_cancellation.requests.put", return_value=_mock_response(response_payload)) as put_mock,
+        ):
+            cancellation = cancel_nfse_item(item=item, reason_code=2, requested_by=self.user)
+
+        put_mock.assert_called_once_with("https://api.webmania.com.br/2/nfse/cancelar", json={"uuid": str(item.uuid), "motivo": 2}, headers={"X-Test": "ok"}, timeout=30)
+        self.assertEqual(cancellation.request_id, None)
+        self.assertEqual(cancellation.item_id, item.pk)
+        self.assertEqual(cancellation.request_payload, {"uuid": str(item.uuid), "motivo": 2})
+        for forbidden_key in ("rps", "tomador", "servico", "valores", "tributacao", "request_payload", "preview", "emissao", "manifestacao", "substituicao"):
+            self.assertNotIn(forbidden_key, cancellation.request_payload)
+        self.assertEqual(cancellation.status, FiscalEmissionAttemptStatus.SUCCEEDED)
+        self.assertEqual(cancellation.xml_url, "https://example.test/manual-cancelamento.xml")
+        item.refresh_from_db()
+        emission.refresh_from_db()
+        preview.refresh_from_db()
+        self.assertEqual(item.status, "cancelado")
+        self.assertEqual(item.xml_url, original_xml)
+        self.assertEqual(emission.request_payload, approved_payload)
+        self.assertEqual(preview.request_payload, approved_payload)
+        self.assertFalse(FiscalDocument.objects.filter(document_type="nfse").exists())
+        self.assertFalse(NfseManifestation.objects.filter(nfse_item=item).exists())
+        attempt = FiscalEmissionAttempt.objects.get(operation_type=FiscalEmissionOperationType.NFSE_CANCELLATION)
+        self.assertEqual(attempt.request_model, NfseCancellation.__name__)
+        self.assertEqual(attempt.request_id, cancellation.pk)
+
+    def test_manual_nfse_cancellation_blocks_ineligible_duplicate_uncertain_and_capability(self) -> None:
+        from apps.finance.services.nfse_cancellation import NfseCancellationError, cancel_nfse_item, is_nfse_item_eligible_for_cancellation
+
+        preview = self._preview(rps_number=4009)
+        emission, _ = self._emit(preview)
+        item = emission.nfse_item
+        self.assertIsNotNone(item)
+        assert item is not None
+
+        item.uuid = None
+        self.assertFalse(is_nfse_item_eligible_for_cancellation(item))
+        item.refresh_from_db()
+
+        for status in ("cancelado", "substituido", "uncertain"):
+            item.status = status
+            item.save(update_fields=["status"])
+            with self.subTest(status=status), patch("apps.finance.services.nfse_cancellation.requests.put") as put_mock, self.assertRaises(NfseCancellationError):
+                cancel_nfse_item(item=item, reason_code=1, requested_by=self.user)
+            put_mock.assert_not_called()
+        item.status = "aprovado"
+        item.save(update_fields=["status"])
+
+        self.capability.cancellation_enabled = False
+        self.capability.save(update_fields=["cancellation_enabled"])
+        with patch("apps.finance.services.nfse_cancellation.requests.put") as put_mock, self.assertRaisesMessage(NfseCancellationError, "desabilitado"):
+            cancel_nfse_item(item=item, reason_code=1, requested_by=self.user)
+        put_mock.assert_not_called()
+        self.capability.cancellation_enabled = True
+        self.capability.save(update_fields=["cancellation_enabled"])
+
+        emission.status = FiscalEmissionAttemptStatus.UNCERTAIN
+        emission.is_uncertain = True
+        emission.save(update_fields=["status", "is_uncertain"])
+        with patch("apps.finance.services.nfse_cancellation.requests.put") as put_mock, self.assertRaisesMessage(NfseCancellationError, "incerta"):
+            cancel_nfse_item(item=item, reason_code=1, requested_by=self.user)
+        put_mock.assert_not_called()
+        emission.status = FiscalEmissionAttemptStatus.SUCCEEDED
+        emission.is_uncertain = False
+        emission.save(update_fields=["status", "is_uncertain"])
+
+        NfseCancellation.objects.create(workshop=self.workshop, item=item, status=FiscalEmissionAttemptStatus.UNCERTAIN, reason_code=1, reason_label="Erro na emissao", request_payload={"uuid": str(item.uuid), "motivo": 1})
+        with patch("apps.finance.services.nfse_cancellation.requests.put") as put_mock, self.assertRaisesMessage(NfseCancellationError, "incerto"):
+            cancel_nfse_item(item=item, reason_code=1, requested_by=self.user)
+        put_mock.assert_not_called()
+
+    def test_manual_nfse_cancellation_webhook_and_reconciliation_do_not_overwrite_original_xml_or_reput(self) -> None:
+        from apps.finance.services.nfse_cancellation import reconcile_nfse_cancellation
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        preview = self._preview(rps_number=4010)
+        emission, _ = self._emit(preview)
+        item = emission.nfse_item
+        self.assertIsNotNone(item)
+        assert item is not None
+        original_xml = item.xml_url
+        cancellation = NfseCancellation.objects.create(
+            workshop=self.workshop,
+            item=item,
+            status=FiscalEmissionAttemptStatus.UNCERTAIN,
+            reason_code=2,
+            reason_label="Servico nao prestado",
+            request_payload={"uuid": str(item.uuid), "motivo": 2},
+        )
+        FiscalEmissionAttempt.objects.create(
+            workshop=self.workshop,
+            document_kind=FiscalEmissionDocumentKind.NFSE,
+            operation_type=FiscalEmissionOperationType.NFSE_CANCELLATION,
+            request_model=NfseCancellation.__name__,
+            request_id=cancellation.pk,
+            idempotency_key="manual-nfse-cancel-webhook",
+            status=FiscalEmissionAttemptStatus.UNCERTAIN,
+        )
+        event = store_webhook_event(payload={"modelo": "nfse", "uuid": str(item.uuid), "status": "cancelado", "xml": "https://example.test/manual-webhook-cancel.xml", "atualizado_em": "2026-06-28T12:00:00-03:00"})
+        with patch("apps.finance.services.nfse_cancellation.requests.put") as put_mock:
+            self.assertTrue(process_webhook_event(event))
+        put_mock.assert_not_called()
+        cancellation.refresh_from_db()
+        item.refresh_from_db()
+        self.assertEqual(cancellation.status, FiscalEmissionAttemptStatus.SUCCEEDED)
+        self.assertEqual(cancellation.xml_url, "https://example.test/manual-webhook-cancel.xml")
+        self.assertEqual(item.status, "cancelado")
+        self.assertEqual(item.xml_url, original_xml)
+
+        second_preview = self._preview(rps_number=4011)
+        second_emission, _ = self._emit(second_preview, payload=self._success_payload(uuid="46000000-0000-0000-0000-000000004011", rps_number=4011))
+        second_item = second_emission.nfse_item
+        self.assertIsNotNone(second_item)
+        assert second_item is not None
+        second_original_xml = second_item.xml_url
+        second_cancellation = NfseCancellation.objects.create(
+            workshop=self.workshop,
+            item=second_item,
+            status=FiscalEmissionAttemptStatus.UNCERTAIN,
+            reason_code=4,
+            reason_label="Duplicidade da nota",
+            request_payload={"uuid": str(second_item.uuid), "motivo": 4},
+        )
+        query_payload = {"modelo": "nfse", "uuid": str(second_item.uuid), "status": "cancelado", "xml": "https://example.test/manual-query-cancel.xml"}
+        with (
+            patch("apps.finance.services.nfse_consulta._build_headers", return_value={}),
+            patch("apps.finance.services.nfse_consulta.requests.get", return_value=_mock_response(query_payload)) as get_mock,
+            patch("apps.finance.services.nfse_cancellation.requests.put") as put_mock,
+        ):
+            reconcile_nfse_cancellation(cancellation=second_cancellation)
+        get_mock.assert_called_once()
+        put_mock.assert_not_called()
+        second_cancellation.refresh_from_db()
+        second_item.refresh_from_db()
+        self.assertEqual(second_cancellation.status, FiscalEmissionAttemptStatus.SUCCEEDED)
+        self.assertEqual(second_cancellation.xml_url, "https://example.test/manual-query-cancel.xml")
+        self.assertEqual(second_item.xml_url, second_original_xml)
+
+    def test_manual_nfse_cancellation_views_require_cancel_permission_and_scope(self) -> None:
+        from apps.finance.views.nfse_manual_emission import NfseManualEmissionCancelView, NfseManualEmissionCancellationPayloadView
+
+        preview = self._preview(rps_number=4012)
+        emission, _ = self._emit(preview)
+        item = emission.nfse_item
+        self.assertIsNotNone(item)
+        assert item is not None
+        cancellation = NfseCancellation.objects.create(workshop=self.workshop, item=item, status=FiscalEmissionAttemptStatus.SENT, reason_code=2, reason_label="Servico nao prestado", request_payload={"uuid": str(item.uuid), "motivo": 2})
+
+        request = RequestFactory().post("/", {"reason_code": "2", "confirmed": "1"})
+        request.user = self.user
+        request._messages = Mock()
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=False), self.assertRaises(PermissionDenied):
+            NfseManualEmissionCancelView.as_view()(request, pk=emission.pk)
+
+        payload_request = RequestFactory().get("/")
+        payload_request.user = self.user
+        _other_user, other_workshop = create_director_user_with_workshop(suffix=10)
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=other_workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=True), self.assertRaises(Http404):
+            NfseManualEmissionCancellationPayloadView.as_view()(payload_request, pk=emission.pk, cancellation_pk=cancellation.pk)
+
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=True):
+            response = NfseManualEmissionCancellationPayloadView.as_view()(payload_request, pk=emission.pk, cancellation_pk=cancellation.pk)
+        self.assertEqual(response.status_code, 200)
+        assert isinstance(response, JsonResponse)
+        self.assertEqual(json.loads(response.content)["request"], {"uuid": str(item.uuid), "motivo": 2})
 
 
 class FiscalPhaseThreeNfseSubstitutionPreviewTests(TestCase):

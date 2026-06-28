@@ -708,3 +708,13 @@ Para a fase recomendada (`3.8.1 - Cancelamento da NFS-e Manual Nova`):
 - XML de cancelamento fica separado do XML original;
 - payload/downloads sanitizados e protegidos;
 - regressao: cancelamento NFS-e legado, substituicao NFS-e, manifestacao NFS-e e emissao manual 3.7.1 continuam funcionando.
+
+Cobertura adicionada na Fase 3.8.1 em `FiscalPhaseThreeNfseManualEmissionTests`:
+
+- contrato remoto estrito para cancelamento manual;
+- bloqueios de status, UUID inelegivel, capability desligada, emissao manual incerta e duplicidade incerta;
+- preservacao de `NfseManualEmissionPreview`, `NfseManualEmission.request_payload` e XML original;
+- webhook e reconciliacao sem novo `PUT`;
+- payload protegido e cross-workshop nas views manuais.
+
+Regressao executada junto com `FiscalPhaseThreeNfseCancellationTests` e previews/emissao manual.

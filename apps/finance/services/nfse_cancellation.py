@@ -9,7 +9,7 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from apps.finance.models.finance import FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, NfseCancellation, NfseItem, NfseItemStatus, NfseRequestStatus
+from apps.finance.models.finance import FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, NfseCancellation, NfseItem, NfseItemStatus, NfseManualEmission, NfseRequestStatus
 from apps.finance.services.fiscal_attempts import FiscalEmissionAttemptBlocked, begin_emission_attempt, build_payload_hash, mark_attempt_failed, mark_attempt_sent, mark_attempt_succeeded, mark_attempt_uncertain, sanitize_fiscal_payload
 from apps.finance.services.nfse_capabilities import NfseCapabilityError, validate_nfse_cancellation_capability
 from apps.finance.services.nfse_consulta import NfseConsultaError, reconcile_nfse_item
@@ -60,24 +60,49 @@ def _existing_cancellation(item: NfseItem) -> NfseCancellation | None:
     return item.cancellations.exclude(status=FiscalEmissionAttemptStatus.FAILED).order_by("-pk").first()
 
 
+def _manual_emission_for_item(item: NfseItem) -> NfseManualEmission | None:
+    try:
+        return item.manual_emission
+    except NfseManualEmission.DoesNotExist:
+        return None
+
+
+def _validate_manual_cancellation_capability(*, emission: NfseManualEmission) -> None:
+    capability = emission.preview.municipal_capability
+    if capability.workshop_id != emission.workshop_id or capability.company_id != emission.company_id:
+        raise NfseCancellationError("A capacidade municipal nao pertence a empresa/oficina da emissao manual.")
+    if not capability.is_active or not capability.cancellation_enabled:
+        raise NfseCancellationError("O cancelamento NFS-e esta desabilitado para o municipio configurado.")
+
+
 def is_nfse_item_eligible_for_cancellation(item: NfseItem | None) -> bool:
-    if item is None or item.status != NfseItemStatus.aprovado or not item.uuid or item.request_id is None:
+    if item is None or item.status != NfseItemStatus.aprovado or not item.uuid:
         return False
     cancellation = _existing_cancellation(item)
     if cancellation is not None:
         return False
-    try:
-        validate_nfse_cancellation_capability(nfse_request=item.request)
-    except NfseCapabilityError:
+    manual_emission = _manual_emission_for_item(item)
+    if item.request_id is None and manual_emission is None:
         return False
+    if manual_emission is not None:
+        try:
+            _validate_manual_cancellation_capability(emission=manual_emission)
+        except NfseCancellationError:
+            return False
+    else:
+        try:
+            validate_nfse_cancellation_capability(nfse_request=item.request)
+        except NfseCapabilityError:
+            return False
     return True
 
 
 def _assert_eligible(*, item: NfseItem) -> None:
     if not item.uuid:
         raise NfseCancellationError("Nao foi possivel cancelar NFS-e sem UUID remoto.")
-    if item.request_id is None:
-        raise NfseCancellationError("A NFS-e nao esta vinculada a uma requisicao legada valida.")
+    manual_emission = _manual_emission_for_item(item)
+    if item.request_id is None and manual_emission is None:
+        raise NfseCancellationError("A NFS-e nao esta vinculada a uma requisicao legada ou emissao manual valida.")
     if str(item.status).strip().lower() == "cancelado":
         raise NfseCancellationError("Esta NFS-e ja esta cancelada.")
     if str(item.status).strip().lower() == "substituido":
@@ -86,18 +111,23 @@ def _assert_eligible(*, item: NfseItem) -> None:
         raise NfseCancellationError("NFS-e em estado incerto deve ser reconciliada antes do cancelamento.")
     if item.status != NfseItemStatus.aprovado:
         raise NfseCancellationError("Cancelamento permitido somente para NFS-e autorizada.")
-    if FiscalEmissionAttempt.objects.filter(
-        workshop=item.workshop,
-        document_kind=FiscalEmissionDocumentKind.NFSE,
-        operation_type=FiscalEmissionOperationType.EMISSION,
-        request_id=item.request_id,
-        status=FiscalEmissionAttemptStatus.UNCERTAIN,
-    ).exists():
-        raise NfseCancellationError("A emissao NFS-e esta incerta e deve ser reconciliada antes do cancelamento.")
-    try:
-        validate_nfse_cancellation_capability(nfse_request=item.request)
-    except NfseCapabilityError as exc:
-        raise NfseCancellationError(str(exc)) from exc
+    if manual_emission is not None:
+        if manual_emission.status == FiscalEmissionAttemptStatus.UNCERTAIN or manual_emission.is_uncertain:
+            raise NfseCancellationError("A emissao manual NFS-e esta incerta e deve ser reconciliada antes do cancelamento.")
+        _validate_manual_cancellation_capability(emission=manual_emission)
+    else:
+        if FiscalEmissionAttempt.objects.filter(
+            workshop=item.workshop,
+            document_kind=FiscalEmissionDocumentKind.NFSE,
+            operation_type=FiscalEmissionOperationType.EMISSION,
+            request_id=item.request_id,
+            status=FiscalEmissionAttemptStatus.UNCERTAIN,
+        ).exists():
+            raise NfseCancellationError("A emissao NFS-e esta incerta e deve ser reconciliada antes do cancelamento.")
+        try:
+            validate_nfse_cancellation_capability(nfse_request=item.request)
+        except NfseCapabilityError as exc:
+            raise NfseCancellationError(str(exc)) from exc
 
 
 def _idempotency_key(*, cancellation: NfseCancellation) -> str:
@@ -192,7 +222,8 @@ def apply_nfse_cancellation_payload(*, cancellation: NfseCancellation, payload: 
             item.remote_updated_at = incoming_updated_at
             update_fields.append("remote_updated_at")
         item.save(update_fields=update_fields)
-        cancellation.request.set_status(NfseRequestStatus.CANCELED)
+        if cancellation.request_id:
+            cancellation.request.set_status(NfseRequestStatus.CANCELED)
         cancellation.status = FiscalEmissionAttemptStatus.SUCCEEDED
         cancellation.completed_at = timezone.now()
     elif _is_failure(sanitized):
@@ -275,6 +306,7 @@ def confirm_nfse_cancellation_from_payload(*, item: NfseItem, payload: dict[str,
 def reconcile_nfse_cancellation(*, cancellation: NfseCancellation) -> NfseCancellation:
     if cancellation.status == FiscalEmissionAttemptStatus.SUCCEEDED:
         return cancellation
+    original_xml_url = cancellation.item.xml_url
     try:
         item = reconcile_nfse_item(item=cancellation.item)
     except NfseConsultaError as exc:
@@ -284,5 +316,9 @@ def reconcile_nfse_cancellation(*, cancellation: NfseCancellation) -> NfseCancel
         payload = dict(item.raw_payload or {})
         payload.setdefault("uuid", str(item.uuid))
         payload.setdefault("status", "cancelado")
-        return confirm_nfse_cancellation_from_payload(item=item, payload=payload, update_source="query") or cancellation
+        cancellation = confirm_nfse_cancellation_from_payload(item=item, payload=payload, update_source="query") or cancellation
+        if original_xml_url and item.xml_url != original_xml_url:
+            item.xml_url = original_xml_url
+            item.save(update_fields=["xml_url"])
+        return cancellation
     return cancellation

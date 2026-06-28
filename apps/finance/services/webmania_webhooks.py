@@ -215,6 +215,15 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
 
         manual_emission = resolve_nfse_manual_emission_for_webhook(payload=payload)
         if manual_emission is not None:
+            is_cancellation = str(payload.get("status") or "").strip().lower() in {"cancelado", "cancelada", "canceled"}
+            if is_cancellation and manual_emission.nfse_item_id and manual_emission.nfse_item.cancellations.exclude(status="failed").exists():
+                try:
+                    confirm_nfse_cancellation_from_payload(item=manual_emission.nfse_item, payload=payload, update_source="webhook")
+                except NfseCancellationError as exc:
+                    _mark_event_deferred(event, error=str(exc))
+                    return False
+                _mark_event_processed(event)
+                return True
             try:
                 confirm_nfse_manual_emission_from_payload(emission=manual_emission, payload=payload, update_source="webhook")
             except NfseManualEmissionError as exc:
