@@ -17,6 +17,8 @@ class RabbitMQPublisherError(Exception):
 
 
 class RabbitMQPublisher:
+    _CONTROL_QUEUE = "hunter.workshops.control"
+
     def __init__(self, host: str, port: int, username: str, password: str) -> None:
         self._connection: pika.BlockingConnection | None = None
         self._channel: Any = None
@@ -40,7 +42,7 @@ class RabbitMQPublisher:
 
     @staticmethod
     def _queue_name_for(workshop_id: int) -> str:
-        return f"message_dispatch.workshop_{workshop_id}"
+        return f"hunter.message.dispatch.workshop.{workshop_id}"
 
     def publish_dispatch_item(self, item: DispatchItem, workshop_id: int) -> None:
         if self._channel is None or self._connection is None or self._connection.is_closed:
@@ -62,6 +64,25 @@ class RabbitMQPublisher:
             )
         except Exception as e:
             raise RabbitMQPublisherError(f"Failed to publish message: {e}") from e
+
+    def publish_workshop_control(self, workshop_id: int) -> None:
+        if self._channel is None or self._connection is None or self._connection.is_closed:
+            raise RabbitMQPublisherError("RabbitMQ connection is closed")
+
+        try:
+            self._channel.queue_declare(queue=self._CONTROL_QUEUE, durable=True)
+            payload = json.dumps({"workshop_id": workshop_id}).encode("utf-8")
+            self._channel.basic_publish(
+                exchange="",
+                routing_key=self._CONTROL_QUEUE,
+                body=payload,
+                properties=pika.BasicProperties(
+                    delivery_mode=2,
+                    content_type="application/json",
+                ),
+            )
+        except Exception as e:
+            raise RabbitMQPublisherError(f"Failed to publish control message: {e}") from e
 
     def close(self) -> None:
         try:

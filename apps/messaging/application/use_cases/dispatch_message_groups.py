@@ -48,6 +48,8 @@ class SegmentQueryBuilder(Protocol):
 class MessageQueuePublisher(Protocol):
     def publish_dispatch_item(self, item: DispatchItem, workshop_id: int) -> None: ...
 
+    def publish_workshop_control(self, workshop_id: int) -> None: ...
+
     def close(self) -> None: ...
 
 
@@ -65,21 +67,30 @@ class DispatchMessageGroupsUseCase:
     def execute(self, request: DispatchGroupsRequest) -> DispatchGroupsResult:
         groups = self._group_repo.find_active_groups(request.workshop_id)
         result = DispatchGroupsResult(total_groups=len(groups), total_customers=0)
+        notified_workshops: set[int] = set()
 
-        for group in groups:
-            group_result = self._process_group(group)
-            result.groups.append(group_result)
-            result.total_customers += group_result.total_customers
-            if group_result.error:
-                result.errors.append(group_result.error)
+        try:
+            for group in groups:
+                group_result = self._process_group(group)
+                result.groups.append(group_result)
+                result.total_customers += group_result.total_customers
+                if group_result.error:
+                    result.errors.append(group_result.error)
+                if group_result.total_customers > 0:
+                    notified_workshops.add(group.workshop_id)
 
-        self._queue_publisher.close()
-        return result
+            for workshop_id in notified_workshops:
+                self._queue_publisher.publish_workshop_control(workshop_id)
+
+            return result
+        finally:
+            self._queue_publisher.close()
 
     def _process_group(self, group: CustomerMessageGroup) -> GroupResult:
+        customer_count = 0
+
         try:
             customers = self._resolve_group_customers(group)
-            customer_count = 0
 
             for customer in customers.iterator(chunk_size=200):
                 rendered = self._render_message(group, customer)
@@ -109,7 +120,7 @@ class DispatchMessageGroupsUseCase:
 
         except Exception as e:
             logger.exception("group_dispatch_failed", extra={"group_id": group.pk, "group_name": group.name})
-            return GroupResult(group_id=group.pk, group_name=group.name, total_customers=0, error=str(e))
+            return GroupResult(group_id=group.pk, group_name=group.name, total_customers=customer_count, error=str(e))
 
     def _resolve_group_customers(self, group: CustomerMessageGroup) -> QuerySet[Customer]:
         manual = self._group_repo.get_group_members(group)
