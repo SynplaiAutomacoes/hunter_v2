@@ -679,3 +679,23 @@ Justificativa:
 Consequencia: substituicao e manifestacao da NFS-e manual permanecem fases separadas; preview e emissao manual sao imutaveis e nao devem ser alteradas pelo cancelamento.
 
 Implementacao 3.8.1: a decisao foi mantida. Nao foi criado novo modelo; `NfseCancellation` passou a aceitar `request` opcional para origem manual, mantendo `item` obrigatorio e a constraint de uma intencao ativa por NFS-e. A operacao de idempotencia continuou `nfse_cancellation`, porque a separacao por `NfseItem` e oficina e suficiente e evita bifurcar o contrato remoto por origem.
+
+## ADR - Fase 3.9.0: proximo bloco apos ciclo minimo da NFS-e manual
+
+Data: 2026-06-28.
+
+Contexto: a Fase 3.8.1 foi validada no checkpoint `29f3f3a9`, completando o ciclo minimo `preview -> emissao -> cancelamento` da NFS-e manual. A origem manual usa `NfseManualEmissionPreview`, `NfseManualEmission`, `NfseItem` autorizado e `NfseCancellation` com `request` opcional. O contrato de cancelamento permanece `{uuid, motivo}`, XML original preservado e XML de cancelamento separado.
+
+Decisao: priorizar **substituicao da NFS-e manual** como extensao segura do fluxo atual de substituicao NFS-e.
+
+Justificativa:
+
+- `NfseSubstitutionPreview` e `NfseSubstitution` ja existem e ja foram validados para NFS-e local;
+- `POST /2/nfse/substituir` ja esta representado no OpenAPI validado;
+- a NFS-e manual autorizada possui `NfseItem`, UUID e, quando elegivel, `codigo_verificacao` para identificar a original;
+- a preview imutavel ja mitiga o maior risco da substituicao: novo RPS construido a partir de dados mutaveis;
+- o ajuste esperado e de elegibilidade/origem, sem criar gateway paralelo, sem `FiscalDocument(nfse)` e sem abrir NFS-e recebida/importada.
+
+Alternativas adiadas: manifestacao da NFS-e manual, porque depende de Padrao Nacional e papel fiscal; NFS-e recebida/importada, porque falta dominio de XML/identidade/tenancy; NFS-e expandida ampla, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos restantes e complementar tributaria, por maior dependencia externa e risco fiscal.
+
+Consequencia: a proxima fase funcional deve ser pequena e escolher explicitamente extensao do fluxo atual, nao fluxo paralelo especifico de `NfseManualEmission`.

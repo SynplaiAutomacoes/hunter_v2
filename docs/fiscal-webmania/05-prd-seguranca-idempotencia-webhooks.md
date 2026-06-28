@@ -695,3 +695,18 @@ Resultado da Fase 3.8.1:
 - Webhook `modelo=nfse/status=cancelado` confirma o cancelamento manual quando ha intencao de cancelamento segura; caso contrario nao reinterpreta como nova emissao.
 - Reconciliacao usa somente `GET /2/nfse/consulta/{identifier}` e nao repete `PUT`.
 - XML original da NFS-e manual e preservado; XML de cancelamento fica em `NfseCancellation.xml_url`.
+
+## Fase 3.9.0 - seguranca recomendada apos ciclo minimo manual
+
+A Fase 3.8.1 foi validada no checkpoint `29f3f3a9`. O proximo bloco recomendado e substituicao da NFS-e manual por extensao segura do fluxo atual.
+
+Garantias a preservar:
+
+- `NfseManualEmissionPreview`, `NfseManualEmission.request_payload` e XML original da NFS-e manual permanecem imutaveis.
+- A tentativa deve continuar sendo criada antes do `POST /2/nfse/substituir`, com `FiscalEmissionAttempt(operation_type="nfse_substitution")`.
+- A chave idempotente deve ser por oficina, preview/substituicao e geracao da intencao; retry de preview aprovada nao reenvia se ja houver `sent`, `succeeded` ou `uncertain`.
+- Webhook deve resolver primeiro a substituta por UUID; fallback por `nfse_substituida` so e aceitavel quando a original manual e a intencao forem inequivocas.
+- Reconciliacao continua somente GET e nunca repete `POST /2/nfse/substituir`.
+- Ambiguidade entre original manual, original legada, substituta ou outra oficina deve deixar o evento pendente.
+
+Risco principal: adaptar elegibilidade sem abrir substituicao para NFS-e manual incompleta. Bloqueios obrigatorios: sem UUID, sem `codigo_verificacao`, status nao autorizado, cancelada, substituida, incerta, cancelamento ativo/incerto, substituicao ativa/incerta, capability/flag desligada, permissao ausente ou cross-workshop.

@@ -718,3 +718,23 @@ Cobertura adicionada na Fase 3.8.1 em `FiscalPhaseThreeNfseManualEmissionTests`:
 - payload protegido e cross-workshop nas views manuais.
 
 Regressao executada junto com `FiscalPhaseThreeNfseCancellationTests` e previews/emissao manual.
+
+## Testes planejados pela Fase 3.9.0
+
+Para a fase recomendada (`Substituicao da NFS-e Manual`):
+
+- prepara preview de substituicao a partir de NFS-e manual autorizada;
+- bloqueia NFS-e manual sem `NfseItem`, sem UUID, sem `codigo_verificacao`, cancelada, substituida, incerta ou com cancelamento/substituicao ativa;
+- exige `substitution_enabled`, flag administrativa, permissao e oficina ativa;
+- preview congela novo RPS e snapshot da original manual sem recalcular dados de emissao manual;
+- aprovacao torna preview imutavel;
+- transmissao envia exatamente `POST /2/nfse/substituir` com `ambiente`, `codigo_verificacao`, `motivo` e `rps`, sem `uuid`, payload de emissao manual ou payload de cancelamento;
+- cria `NfseSubstitution`, tentativa `nfse_substitution` e nova `NfseItem` substituta somente com confirmacao remota valida;
+- preserva XML original manual e armazena XML/PDF da substituta separadamente;
+- timeout ou resposta inconclusiva marca `uncertain` e bloqueia retry automatico;
+- webhook resolve substituta por UUID e confirma `nfse_substituida` contra a original manual;
+- reconciliacao usa GET e nunca repete POST;
+- payload/downloads protegidos por permissao e cross-workshop;
+- regressoes: substituicao legada, cancelamento manual, manifestacao NFS-e, emissao manual e cancelamento legado continuam funcionando.
+
+Nenhum teste funcional foi criado na Fase 3.9.0 porque ela e documental.

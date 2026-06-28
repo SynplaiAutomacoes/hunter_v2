@@ -113,6 +113,17 @@
   - `uv run python manage.py makemigrations finance --check --dry-run`
   - `uv run ruff check ...` nos arquivos Python tocados
 - Permanecem fora do escopo: substituicao/manifestacao da NFS-e manual, NFS-e recebida/importada, emissao manual adicional, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
+- Status posterior: Fase 3.8.1 validada e encerrada no checkpoint `29f3f3a9`.
+
+## Fase 3.9.0 - reavaliacao apos ciclo minimo da NFS-e manual
+
+- Fase 3.8.1 reconhecida como validada no checkpoint `29f3f3a9`.
+- Registrado ciclo minimo completo da NFS-e manual: preview imutavel, emissao a partir de preview aprovada e cancelamento por `NfseCancellation`.
+- Confirmado que `NfseCancellation.request` agora e opcional para origem manual, o contrato remoto do cancelamento segue `PUT /2/nfse/cancelar` com `{uuid, motivo}`, o XML original e preservado e o XML de cancelamento fica separado.
+- Comparados substituicao da NFS-e manual, manifestacao da NFS-e manual, NFS-e recebida/importada, NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120`, `112140`, `211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria.
+- Decisao recomendada: **Opcao A**, implementar substituicao da NFS-e manual como extensao segura do fluxo atual de substituicao NFS-e, reutilizando `NfseSubstitutionPreview`, `NfseSubstitution`, `POST /2/nfse/substituir`, idempotencia, webhook e reconciliacao ja validados.
+- OpenAPI validado revisado como suficiente; nenhuma alteracao aplicada.
+- Nenhum codigo funcional, migration, service, view, template ou teste foi alterado.
 
 ## Fase 3.4.1 - inicio
 

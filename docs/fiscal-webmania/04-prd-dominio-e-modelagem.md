@@ -832,3 +832,11 @@ Substituicao da NFS-e manual pode reutilizar `NfseSubstitutionPreview` e `NfseSu
 Resultado da Fase 3.8.1: `NfseCancellation` foi reutilizado. A unica alteracao de modelagem foi permitir `request=null` para cancelamentos vinculados a `NfseItem` manual, sem criar modelo novo e sem introduzir `FiscalDocument(nfse)`. Quando existe `NfseRequest`, o fluxo legado permanece com a mesma relacao e validacao. Quando a origem e manual, a relacao segura e `NfseCancellation.item -> NfseItem -> NfseManualEmission`.
 
 `NfseManualEmissionPreview` e `NfseManualEmission.request_payload` permanecem imutaveis; o cancelamento nao altera o payload aprovado nem cria nova NFS-e.
+
+## Fase 3.9.0 - decisao de dominio apos ciclo minimo manual
+
+O ciclo manual minimo validado (`preview -> emissao -> cancelamento`) confirma que a origem manual pode conviver com as entidades NFS-e existentes sem criar `FiscalDocument(nfse)` generalizado. A alteracao `NfseCancellation.request` opcional mostrou que operacoes sobre `NfseItem` manual devem depender da relacao segura `NfseManualEmission.nfse_item`, nao de `NfseRequest`/OS.
+
+Para a proxima fase recomendada, a modelagem deve reutilizar `NfseSubstitutionPreview` e `NfseSubstitution` com elegibilidade ampliada para `NfseItem` manual. A original manual continua sendo a `NfseItem` vinculada a `NfseManualEmission`; a substituta deve ser uma nova `NfseItem`, com UUID, numero, codigo de verificacao, XML/PDF e status proprios. A preview aprovada deve congelar o novo RPS e o snapshot da original, sem recalcular a partir da emissao manual, de OS, de cliente ou de classe fiscal atual.
+
+Nao criar fluxo paralelo especifico para `NfseManualEmission` se a extensao segura do fluxo atual bastar. Nao criar `FiscalDocument(nfse)`, backfill ou dominio de NFS-e recebida/importada nesta fase.

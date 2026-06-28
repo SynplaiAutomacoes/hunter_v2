@@ -940,3 +940,22 @@ O cancelamento da NFS-e manual nova usa o mesmo contrato remoto ja validado para
 ```
 
 Endpoint efetivo: `PUT /2/nfse/cancelar`. Nao sao enviados RPS, tomador, servico, valores, tributacao, payload da preview, payload de emissao, dados de substituicao ou dados de manifestacao. O OpenAPI validado permaneceu suficiente e nao foi alterado.
+
+## Fase 3.9.0 - Reavaliacao API apos ciclo minimo da NFS-e manual
+
+A Fase 3.8.1 foi validada no checkpoint `29f3f3a9`. A NFS-e manual nova agora possui ciclo minimo completo: preview imutavel, emissao por `POST /2/nfse/emissao` a partir do payload aprovado e cancelamento por `PUT /2/nfse/cancelar` com `{uuid, motivo}`. O cancelamento preserva o XML original e armazena XML de cancelamento separado em `NfseCancellation`.
+
+Fonte oficial reconsultada em 2026-06-28: a documentacao Webmania NFS-e v3.1.1 continua listando `/2/nfse/emissao`, `/2/nfse/substituir`, `/2/nfse/manifestar`, `/2/nfse/consulta`, `/2/nfse/status` e `/2/nfse/cancelar`, com API v2 e Bearer Token.
+
+Matriz API para o proximo bloco:
+
+| Bloco | Endpoint/API | Contrato local disponivel | Risco API | Decisao |
+| --- | --- | --- | --- | --- |
+| Substituicao da NFS-e manual | `POST /2/nfse/substituir` | `NfseSubstitutionPreview` + `NfseSubstitution`; original manual possui `NfseItem`, UUID e codigo de verificacao quando autorizada | Medio: novo RPS e resposta da substituta | Priorizar extensao segura |
+| Manifestacao da NFS-e manual | `POST /2/nfse/manifestar` | `NfseManifestation`; requer Padrao Nacional e papel fiscal | Medio/alto: papel tomador/intermediario | Adiar |
+| NFS-e recebida/importada | `GET /2/nfse/consulta/{identifier}` e XML recebido | Sem dominio de importacao/identidade local | Alto | Planejar depois |
+| NFS-e expandida | multiplos endpoints NFS-e | Legado/manual coexistem, sem generalizacao `FiscalDocument(nfse)` | Alto | Quebrar em subfases |
+| CT-e/MDF-e/NFCom/DC-e | APIs v2 correspondentes | Sem dominio operacional local | Alto | Adiar |
+| IBS/CBS, creditos/debitos, complementar tributaria | APIs v1 NF-e/NFC-e ja mapeadas | Fontes fiscais insuficientes para tipos restantes | Alto | Adiar |
+
+Decisao API: a proxima fase funcional recomendada e substituicao da NFS-e manual, porque o endpoint e o schema ja estao representados no OpenAPI validado e a infraestrutura local de substituicao ja existe. Nenhuma correcao oficial nova foi confirmada; `api/webmania_fiscal_openapi_validated.json` permanece suficiente.

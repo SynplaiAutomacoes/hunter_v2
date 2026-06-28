@@ -1003,7 +1003,7 @@ OpenAPI: o schema atual permanece suficiente; nenhuma correcao oficial nova foi 
 
 ## Fase 3.8.1 - Cancelamento da NFS-e Manual Nova
 
-Status: **validada tecnicamente em 2026-06-28**, com checkpoint desta entrega pendente. A Fase 3.8.0 foi aprovada e encerrada no checkpoint `1faf0a9`.
+Status: **validada e encerrada em 2026-06-28** no checkpoint `29f3f3a9`. A Fase 3.8.0 foi aprovada e encerrada no checkpoint `1faf0a9`.
 
 Escopo: cancelar somente NFS-e manual nova gerada por `NfseManualEmission` e materializada em `NfseItem` autorizado, usando `PUT /2/nfse/cancelar` com payload congelado `{uuid, motivo}`.
 
@@ -1014,3 +1014,122 @@ Fora de escopo nesta fase: substituicao da NFS-e manual nova, manifestacao autom
 Resultado local: migration `0068`; `NfseCancellation.request` passou a ser opcional para permitir cancelamento de `NfseItem` manual sem `NfseRequest`; `cancel_nfse_item` aceita NFS-e manual somente quando ha `NfseManualEmission` vinculada, `NfseItem` autorizado, UUID seguro, capability de cancelamento ativa e nenhuma intencao ativa/incerta. O payload remoto continua estrito em `{uuid, motivo}`. Webhook e reconciliacao confirmam cancelamento manual sem repetir `PUT` e preservam XML original. A UI minima foi adicionada no detalhe da emissao manual com permissao `cancel_nfse`.
 
 Criterios atendidos: contrato remoto preservado; `NfseCancellation` reutilizado; tentativa `nfse_cancellation` reutilizada; XML de cancelamento separado; preview/emissao manual imutaveis; substituicao e manifestacao da NFS-e manual nao iniciadas.
+
+## Fase 3.9.0 - Reavaliacao apos Ciclo Minimo da NFS-e Manual
+
+Status: **em planejamento documental em 2026-06-28**. A Fase 3.8.1 foi validada e encerrada no checkpoint `29f3f3a9`.
+
+Alteracoes permitidas: somente `docs/fiscal-webmania/**` e, se houver correcao oficialmente confirmada, `docs/fiscal-webmania/api/webmania_fiscal_openapi_validated.json`.
+
+Alteracoes proibidas: codigo funcional, migrations, services, views, forms, templates e testes.
+
+### Contexto
+
+A NFS-e manual nova atingiu o ciclo minimo operacional:
+
+```text
+preview -> emissao -> cancelamento
+```
+
+O ciclo validado preserva os invariantes fiscais principais: `NfseManualEmissionPreview` aprovada imutavel, `NfseManualEmission.request_payload` imutavel, `NfseItem` criado somente apos confirmacao remota valida, cancelamento por `NfseCancellation`, `NfseCancellation.request` opcional para origem manual, contrato remoto de cancelamento `PUT /2/nfse/cancelar` com `{uuid, motivo}`, XML original preservado e XML de cancelamento separado.
+
+Fonte oficial reconsultada em 2026-06-28: a documentacao Webmania NFS-e v3.1.1 continua compatível com o OpenAPI local para emissao, cancelamento, substituicao, manifestacao, consulta e status. Nenhum ajuste de schema foi identificado.
+
+### Matriz comparativa obrigatoria
+
+| Bloco | Fonte local existe? | Reaproveita infraestrutura atual? | Dependencia externa | Risco fiscal | Valor de negocio | Recomendacao |
+| ----- | ------------------: | --------------------------------: | ------------------- | ------------ | ---------------- | ------------ |
+| Substituicao da NFS-e manual | Sim: `NfseManualEmission` vincula `NfseItem` autorizado com UUID/codigo verificacao | Alta: `NfseSubstitutionPreview`, `NfseSubstitution`, tentativa `nfse_substitution`, webhook e reconciliacao ja existem | Media: capability `substitution_enabled`, novo RPS completo e resposta com substituta | Medio/alto, controlavel por preview imutavel | Alto | **Opcao A: proxima fase funcional recomendada** |
+| Manifestacao da NFS-e manual | Parcial: UUID existe; Padrao Nacional/papel fiscal precisam ser confirmados | Alta: `NfseManifestation`, tentativa `nfse_manifestation`, webhook e reconciliacao ja existem | Media: Padrao Nacional, `national_standard_enabled`, `manifestation_enabled`, papel tomador/intermediario | Medio/alto por papel fiscal | Medio/alto | Adiar; avaliar apos substituicao ou NFS-e recebida |
+| NFS-e recebida/importada | Nao suficiente: nao ha dominio local de XML recebido/importado | Media: consulta, manifestacao e payload sanitizado poderiam ser reaproveitados | Alta: XML/chave/UUID/codigo verificacao, papel tomador/prestador e associacao segura | Alto | Alto | Preparar somente em fase documental propria |
+| NFS-e expandida | Parcial: legado e manual existem, mas sem `FiscalDocument(nfse)` generalizado | Media/alta | Alta: Padrao Nacional, municipio/provedor, backfill e convivencia | Alto | Muito alto | Quebrar em subfases; nao executar como bloco amplo |
+| CT-e | Nao | Media tecnica: idempotencia/webhook/downloads fiscais podem ser padronizados | Alta: dominio de transporte, carga, tomador/remetente/destinatario e API v2 | Alto | Baixo/medio | Adiar |
+| MDF-e | Nao | Baixa/media: depende de documentos vinculados e dominio logistico | Alta: CT-e/NF-e, veiculo, condutor, percurso e encerramento | Alto | Baixo | Adiar apos CT-e ou demanda logistica clara |
+| NFCom | Nao | Media tecnica | Alta: dominio telecom, credenciamento e baixa aderencia ao produto oficina | Alto | Muito baixo | Adiar; manter flag interna |
+| DC-e | Nao | Media tecnica | Alta: dominio especifico, demanda nao comprovada e API v2 | Alto | Muito baixo | Adiar; manter flag interna |
+| Eventos IBS/CBS `112120` | Nao suficiente | Alta tecnica: `FiscalDocumentEvent` e eventos IBS/CBS ja existem | Alta: ALC/ZFM, estoque e campos por item | Alto | Baixo | Adiar |
+| Eventos IBS/CBS `112140` | Nao suficiente | Alta tecnica: trilha de eventos ja existe | Alta: debito tipo 6, pagamento antecipado e nao fornecimento por item | Alto | Medio | Adiar ate base do debito tipo 6 |
+| Eventos IBS/CBS `211xxx` | Nao suficiente | Media/alta tecnica | Alta: papel destinatario, entrada fiscal, ativo, combustivel ou apuracao | Alto | Baixo/medio | Adiar |
+| Creditos 2-5 | Nao suficiente | Alta tecnica: base de credito/debito existe para tipo 1/4 | Alta: ZFM, recusa, reducao, sucessao e apuracao IBS/CBS | Alto | Baixo/medio | Adiar |
+| Debitos 1-3 e 5-8 | Nao suficiente | Alta tecnica para alguns tipos | Alta: cooperativa, imunes/isentas, apuracao, sucessao, pagamento antecipado, estoque e SN | Alto | Baixo/medio | Adiar |
+| Complementar tributaria | Parcial: complementar preco/quantidade existe | Alta tecnica | Alta: regra por imposto, IBS/CBS, snapshots tributarios e validacao fiscal | Alto | Medio | Adiar para auditoria propria |
+
+### Avaliacao especifica da substituicao da NFS-e manual
+
+Reaproveitamento possivel:
+
+- `NfseSubstitutionPreview`: pode continuar congelando o novo RPS, motivo, ambiente, codigo de verificacao original e snapshots auditaveis.
+- `NfseSubstitution`: pode continuar representando a operacao remota e a ligacao entre original e substituta.
+- Endpoint: `POST /2/nfse/substituir` permanece o contrato adequado.
+- XML original: deve permanecer preservado como na substituicao legada e na emissao manual.
+- Nova `NfseItem` substituta: ja e o padrao da Fase 3.4.1 e deve ser mantido.
+- Webhook/reconciliacao: ja existem com associacao por UUID substituto e `nfse_substituida`.
+- Idempotencia: `nfse_substitution` ja foi validada com tentativa antes do POST, `uncertain` bloqueante e sem retry automatico.
+
+Riscos e ajustes:
+
+- `NfseSubstitutionPreview` atual foi criada para original ligada ao fluxo legado e pode depender de `NfseRequest`/OS em consultas, forms ou templates; a proxima fase deve adaptar elegibilidade para `NfseManualEmission.nfse_item` sem acoplar a OS.
+- A NFS-e manual precisa ter `codigo_verificacao` confiavel; sem ele, a substituicao deve ser bloqueada porque o contrato efetivo usa `codigo_verificacao`.
+- O novo RPS pode ser congelado com seguranca se seguir o mesmo padrao de preview imutavel, sem recompor dados a partir de cadastros mutaveis.
+- O XML da emissao manual nao pode ser sobrescrito pela consulta/substituicao; XML original, XML substituto e eventual payload de substituicao devem ficar separados.
+- A substituicao cria nova NFS-e; portanto o risco e maior que manifestacao/cancelamento, mas a infraestrutura ja reduz bastante a superficie nova.
+
+Decisao tecnica: a substituicao da NFS-e manual deve ser **A) extensao segura do fluxo atual de substituicao NFS-e**, nao um fluxo paralelo especifico vinculado diretamente a `NfseManualEmission`.
+
+### Avaliacao especifica da manifestacao da NFS-e manual
+
+A manifestacao da NFS-e manual e tecnicamente possivel somente quando:
+
+- a NFS-e manual for Padrao Nacional confirmado;
+- `NfseMunicipalCapability.national_standard_enabled=True`;
+- `NfseMunicipalCapability.manifestation_enabled=True`;
+- houver UUID ou chave/identificador seguro;
+- o papel fiscal da oficina como tomador ou intermediario estiver claro.
+
+O reaproveitamento direto de `NfseManifestation` e provavel, mas a fase deve ser adiada porque a manifestacao tem maior risco de papel fiscal: uma NFS-e emitida manualmente pela propria oficina normalmente representa prestador/emissor, enquanto a manifestacao do Padrao Nacional depende de participacao como tomador ou intermediario. Sem NFS-e recebida/importada, a utilidade da manifestacao sobre uma NFS-e manual propria pode ser menor e mais sensivel.
+
+Decisao: tratar como extensao pequena de elegibilidade somente apos confirmar Padrao Nacional e papel fiscal. Se o objetivo for manifestar documentos recebidos, priorizar antes NFS-e recebida/importada.
+
+### Avaliacao especifica de NFS-e recebida/importada
+
+A base local ainda nao e suficiente para importar NFS-e recebida com seguranca. Lacunas:
+
+- nao ha fluxo de upload/importacao de XML NFS-e recebido;
+- nao ha validacao local completa de UUID/chave/codigo de verificacao para terceiro;
+- nao ha identificacao segura de tomador/prestador contra oficina ativa;
+- nao ha associacao auditavel a cliente/oficina sem risco cross-workshop;
+- nao ha reconciliacao de documento recebido sem emissao propria;
+- manifestacao posterior dependeria de papel fiscal e Padrao Nacional confirmados.
+
+Decisao: preparar NFS-e recebida/importada apenas em fase documental propria, com matriz de XML, identidade, papel fiscal, tenancy e manifestacao posterior. Nao e o menor risco imediato.
+
+### Decisao
+
+Escolher **Opcao A - Implementar substituicao da NFS-e manual** como proximo bloco funcional, em subfase propria, porque:
+
+- e a continuidade natural do ciclo da NFS-e manual apos preview, emissao e cancelamento;
+- reaproveita `NfseSubstitutionPreview`, `NfseSubstitution`, `POST /2/nfse/substituir`, idempotencia, webhook, reconciliacao, XML separado e testes existentes;
+- exige ajuste pequeno de elegibilidade para aceitar `NfseItem` originado por `NfseManualEmission`;
+- gera alto valor de negocio sem abrir nova familia fiscal nem introduzir NFS-e recebida/importada;
+- mantem riscos fiscais sob controle por preview imutavel e bloqueios ja conhecidos.
+
+Manifestacao da NFS-e manual fica adiada por depender de Padrao Nacional e papel fiscal mais claro. NFS-e recebida/importada deve ser planejada separadamente antes de manifestacao de documentos de terceiros. CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos restantes e complementar tributaria continuam adiados.
+
+### Escopo proposto da proxima fase - Substituicao da NFS-e Manual
+
+Tipo de implementacao: **A) extensao segura do fluxo atual de substituicao NFS-e**.
+
+- Objetivo: permitir substituicao de NFS-e manual autorizada, vinculada a `NfseManualEmission.nfse_item`, consumindo uma preview imutavel de substituicao e criando uma nova `NfseItem` substituta.
+- Endpoint: `POST /2/nfse/substituir` com `ambiente`, `codigo_verificacao`, `motivo` e `rps` congelado; nao enviar payload de emissao manual, payload de cancelamento ou campos livres.
+- Modelagem: reutilizar `NfseSubstitutionPreview` e `NfseSubstitution`; adaptar vinculos/elegibilidade para original manual sem exigir `NfseRequest` quando houver `NfseManualEmission`; nao criar `FiscalDocument(nfse)`.
+- Operacao/idempotencia: reutilizar `FiscalEmissionAttempt(operation_type="nfse_substitution")`; uma chamada por preview aprovada; `sent/succeeded/uncertain` bloqueiam reenvio.
+- Permissoes: manter separacao entre preparar/aprovar preview e executar substituicao; `substitute_nfse` continua necessaria; `issue_nfse_manual_emission` e `cancel_nfse` nao substituem.
+- Feature flag/capability: exigir `NfseMunicipalCapability.substitution_enabled=True`, capability ativa/coerente com empresa/oficina e flag administrativa de substituicao.
+- UI minima: permitir preparar substituicao a partir do detalhe da emissao manual autorizada; exibir original manual, novo RPS, motivo, confirmacao, status, original/substituta, payload e downloads protegidos.
+- Webhook/reconciliacao: resolver por UUID da substituta ou por `nfse_substituida` coerente com original manual; ambiguidade fica pendente; reconciliacao usa somente GET e nunca repete POST.
+- Downloads/payload: preservar XML original manual; armazenar XML/PDF substituto separadamente; payload e resposta sanitizados e escopados por oficina.
+- Bloqueios obrigatorios: NFS-e sem UUID/codigo verificacao, nao autorizada, cancelada, ja substituida, incerta, com cancelamento/substituicao ativa ou incerta, outra oficina, sem permissao, capability/flag desligada, preview nao aprovada ou payload mutavel.
+- Testes planejados: elegibilidade manual; bloqueio de original inelegivel; preview imutavel com origem manual; POST exato sem `uuid` e sem payload da emissao manual; criacao de substituta; XML original preservado; webhook/reconciliacao sem re-POST; `uncertain`; duplicidade; permissao; cross-workshop; regressao de substituicao legada, cancelamento manual, manifestacao e emissao manual.
+- Criterios de aceite: substituicao manual reutiliza o fluxo NFS-e existente; preview/emissao manual permanecem imutaveis; original manual so vira substituida com confirmacao remota; substituta possui `NfseItem` proprio; nenhuma NFS-e recebida/importada, manifestacao manual, CT-e/MDF-e/NFCom/DC-e, evento IBS/CBS, credito/debito ou complementar tributaria e iniciada.
+
+OpenAPI: o schema atual permanece suficiente; nenhuma correcao oficial nova foi confirmada nesta reavaliacao.

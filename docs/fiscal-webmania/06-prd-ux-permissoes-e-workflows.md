@@ -550,3 +550,26 @@ UX recomendada para a Fase 3.8.1:
 Permissoes: usar `cancel_nfse` para cancelar; `issue_nfse_manual_emission`, permissoes de preview, substituicao ou manifestacao nao devem liberar cancelamento. Cross-workshop deve retornar bloqueio/404 conforme padrao atual.
 
 Resultado da Fase 3.8.1: a tela de detalhe da emissao manual mostra acao de cancelamento somente quando a NFS-e manual esta autorizada, vinculada a `NfseItem`, possui UUID seguro, esta elegivel e o usuario possui `cancel_nfse`. A UI exige motivo e confirmacao explicita, mostra payload/XML de cancelamento protegidos e nao oferece substituicao ou manifestacao da NFS-e manual nesta fase.
+
+## Fase 3.9.0 - UX recomendada apos ciclo minimo manual
+
+A Fase 3.8.1 foi validada no checkpoint `29f3f3a9`. A proxima UX recomendada e expor substituicao da NFS-e manual como extensao do fluxo atual de substituicao NFS-e.
+
+Permissoes:
+
+- reutilizar `prepare_nfse_substitution`, `approve_nfse_substitution`, `substitute_nfse`, `view_nfse_substitution_payload` e `download_nfse_substitution`;
+- `issue_nfse_manual_emission` nao concede substituicao;
+- `cancel_nfse` nao concede substituicao;
+- `issue_nfse_manifestation` nao concede substituicao.
+
+UI minima da proxima fase:
+
+- acao para preparar substituicao no detalhe da emissao manual autorizada, somente quando elegivel;
+- detalhe da preview mostrando NFS-e manual original, motivo e novo RPS completo;
+- aprovacao fiscal da preview sem transmissao;
+- acao de substituir somente em preview aprovada, com confirmacao explicita;
+- historico mostrando original manual e substituta;
+- payload/retorno/downloads protegidos por oficina e permissao;
+- aviso de que XML original e payload da emissao manual permanecem preservados.
+
+Nao exibir manifestacao da NFS-e manual ou importacao de NFS-e recebida nesta proxima fase.

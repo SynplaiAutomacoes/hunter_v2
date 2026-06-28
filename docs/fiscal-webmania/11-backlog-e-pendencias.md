@@ -325,5 +325,15 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 ## Apos a Fase 3.8.1
 
 - Cancelamento da NFS-e manual nova implementado por extensao de `NfseCancellation`.
+- Checkpoint validado: `29f3f3a9`.
 - Pendencias remanescentes: substituicao da NFS-e manual nova, manifestacao da NFS-e manual nova, NFS-e recebida/importada, consolidacao/`FiscalDocument(nfse)`, backfill de NFS-e legada e expansao multi-RPS/manual ampla.
 - CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria seguem nao iniciados.
+
+## Apos a Fase 3.9.0
+
+- Proxima fase recomendada: substituicao da NFS-e manual nova por extensao segura de `NfseSubstitutionPreview`/`NfseSubstitution`.
+- Adaptar elegibilidade para origem manual somente quando houver `NfseManualEmission.nfse_item`, UUID, `codigo_verificacao`, status autorizado, capability/flag de substituicao e permissao propria.
+- Nao criar fluxo paralelo especifico para `NfseManualEmission` se o fluxo atual de substituicao puder ser estendido com seguranca.
+- Manifestacao da NFS-e manual fica adiada ate Padrao Nacional/papel fiscal estarem claros.
+- NFS-e recebida/importada exige fase propria para XML, identificadores, tomador/prestador, oficina correta, cross-workshop e manifestacao posterior.
+- NFS-e expandida ampla, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria continuam adiados.
