@@ -46,7 +46,7 @@ class SegmentQueryBuilder(Protocol):
 
 
 class MessageQueuePublisher(Protocol):
-    def publish_dispatch_item(self, item: DispatchItem) -> None: ...
+    def publish_dispatch_item(self, item: DispatchItem, workshop_id: int) -> None: ...
 
     def close(self) -> None: ...
 
@@ -90,10 +90,10 @@ class DispatchMessageGroupsUseCase:
                     group_id=group.pk,
                     workshop_id=group.workshop_id,
                     customer_id=customer.pk,
-                    phone=str(customer.phone) if customer.phone else "",
+                    phone=customer.phone.as_e164.lstrip("+") if customer.phone else "",
                     message=rendered,
                 )
-                self._queue_publisher.publish_dispatch_item(item)
+                self._queue_publisher.publish_dispatch_item(item, workshop_id=group.workshop_id)
                 customer_count += 1
 
             logger.info(
@@ -130,4 +130,12 @@ class DispatchMessageGroupsUseCase:
     def _render_message(self, group: CustomerMessageGroup, customer: Customer) -> str | None:
         if not group.message:
             return None
-        return render_message_template(group.message, customer=customer, workshop=group.workshop)
+        vehicle = customer.vehicles.order_by("-criado_em").first()
+        budget = customer.budgets.order_by("-criado_em").first()
+        return render_message_template(
+            group.message,
+            customer=customer,
+            vehicle=vehicle,
+            budget=budget,
+            workshop=group.workshop,
+        )

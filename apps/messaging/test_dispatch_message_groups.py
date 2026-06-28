@@ -87,7 +87,7 @@ class FakeQueuePublisher:
         self.published: list[DispatchItem] = []
         self.closed = False
 
-    def publish_dispatch_item(self, item: DispatchItem) -> None:
+    def publish_dispatch_item(self, item: DispatchItem, workshop_id: int = 0) -> None:
         self.published.append(item)
 
     def close(self) -> None:

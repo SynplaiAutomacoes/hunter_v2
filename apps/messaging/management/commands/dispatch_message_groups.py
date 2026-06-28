@@ -25,7 +25,6 @@ def _build_dispatch_use_case() -> DispatchMessageGroupsUseCase:
         port=settings.RABBITMQ_PORT,
         username=settings.RABBITMQ_USER,
         password=settings.RABBITMQ_PASSWORD,
-        queue_name=settings.RABBITMQ_QUEUE,
     )
 
     return DispatchMessageGroupsUseCase(

@@ -17,8 +17,7 @@ class RabbitMQPublisherError(Exception):
 
 
 class RabbitMQPublisher:
-    def __init__(self, host: str, port: int, username: str, password: str, queue_name: str) -> None:
-        self._queue_name = queue_name
+    def __init__(self, host: str, port: int, username: str, password: str) -> None:
         self._connection: pika.BlockingConnection | None = None
         self._channel: Any = None
         self._connect(host, port, username, password)
@@ -35,20 +34,26 @@ class RabbitMQPublisher:
             )
             self._connection = pika.BlockingConnection(parameters)
             self._channel = self._connection.channel()
-            self._channel.queue_declare(queue=self._queue_name, durable=True)
-            logger.info("rabbitmq_connected", extra={"queue": self._queue_name, "host": host})
+            logger.info("rabbitmq_connected", extra={"host": host, "port": port})
         except Exception as e:
             raise RabbitMQPublisherError(f"Failed to connect to RabbitMQ at {host}:{port}: {e}") from e
 
-    def publish_dispatch_item(self, item: DispatchItem) -> None:
+    @staticmethod
+    def _queue_name_for(workshop_id: int) -> str:
+        return f"message_dispatch.workshop_{workshop_id}"
+
+    def publish_dispatch_item(self, item: DispatchItem, workshop_id: int) -> None:
         if self._channel is None or self._connection is None or self._connection.is_closed:
             raise RabbitMQPublisherError("RabbitMQ connection is closed")
 
+        queue = self._queue_name_for(workshop_id)
+
         try:
+            self._channel.queue_declare(queue=queue, durable=True)
             payload = json.dumps(asdict(item)).encode("utf-8")
             self._channel.basic_publish(
                 exchange="",
-                routing_key=self._queue_name,
+                routing_key=queue,
                 body=payload,
                 properties=pika.BasicProperties(
                     delivery_mode=2,
