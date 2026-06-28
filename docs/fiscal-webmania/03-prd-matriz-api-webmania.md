@@ -897,11 +897,21 @@ A Fase 3.6.1 validou `POST /2/nfse/manifestar` no checkpoint `da3b2b48`. A proxi
 
 | Candidato | Endpoint Webmania | Clareza do contrato | Fonte local | Reaproveitamento | Decisao |
 | --- | --- | --- | --- | --- | --- |
-| Emissao manual nova de NFS-e | `POST /2/nfse/emissao` | Clara em alto nivel, variavel por municipio/provedor | Parcial e mutavel no legado por OS | Alto | Preparar preview/snapshot antes de transmitir |
+| Emissao manual nova de NFS-e | `POST /2/nfse/emissao` | Clara em alto nivel, variavel por municipio/provedor | Preview imutavel aprovada na 3.7P | Medio/alto | 3.7.1 transmite somente payload congelado |
 | NFS-e recebida/importada | `GET /2/nfse/consulta/{identifier}` e futura manifestacao | Parcial para documento de terceiro | Insuficiente | Medio | Adiar ate XML/identidade/papel fiscal seguro |
 | CT-e/MDF-e/NFCom/DC-e | APIs v2 correspondentes | Clara em alto nivel | Ausente | Baixo/medio | Adiar por falta de dominio local |
 | Eventos IBS/CBS pendentes | `/1/nfe/evento-ibs-cbs/` | Clara por codigo, dependente de campos especificos | Insuficiente | Alto tecnico | Adiar ate fonte fiscal por evento |
 | Creditos/debitos restantes | `/1/nfe/emissao/` | Clara em alto nivel, condicional por tipo | Insuficiente | Alto tecnico | Adiar |
+
+### Fase 3.7.1 - contrato usado para emissao manual NFS-e
+
+Endpoint: `POST /2/nfse/emissao`, Bearer v2. O OpenAPI local validado descreve emissao por RPS/lote e suporte a varios RPS. Por isso, a 3.7.1 envia exatamente o `request_payload` congelado na preview aprovada, atualmente no formato:
+
+```json
+{"ambiente": 2, "rps": [{"numero": 4001, "serie": "MAN", "servico": {}, "tomador": {}}]}
+```
+
+Nao ha transformacao para `rps` objeto, nem recalculo de tomador, servico, valores, tributacao, retencoes ou IBS/CBS. A resposta NFS-e aprovada cria `NfseItem` manual; respostas em processamento permanecem como intencao `sent`; timeout ou identidade insegura fica `uncertain`.
 | Complementar tributaria | `/1/nfe/complementar/` | Parcial para imposto/IBS-CBS | Parcial | Alto tecnico | Adiar para auditoria propria |
 
 OpenAPI: o schema validado permanece suficiente; nao houve correcao oficial nova que justifique alterar `api/webmania_fiscal_openapi_validated.json`.

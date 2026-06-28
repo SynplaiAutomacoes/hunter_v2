@@ -577,6 +577,12 @@ Consulta manual e operacional agora cobre NFS-e e lote RPS por UUID, incluindo i
 
 Cancelamento padrao somente de NFS-e legada autorizada, identificada por UUID remoto. Substituicao, manifestacao e nova emissao manual permanecem indisponiveis. O cancelamento altera apenas o `NfseItem` correspondente e sua requisicao; lote e demais itens nao sao alterados.
 
+### Fase 3.7.1 - emissao manual nova de NFS-e
+
+Produto habilitado: emissao manual nova de NFS-e somente quando houver preview aprovada e imutavel. O usuario nao edita tomador, servico, valores, tributacao, retencoes ou IBS/CBS no momento de transmitir; a tela apenas confirma o envio do payload aprovado para `POST /2/nfse/emissao`.
+
+Continuam fora do produto inicial: cancelamento da NFS-e manual, substituicao da NFS-e manual, manifestacao automatica, importacao de NFS-e recebida, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
+
 ## Fase 3.4.0 - decisao de produto
 
 Selecionada a **Opcao B - criar preview de substituicao**. A substituicao funcional permanece bloqueada porque o endpoint cria uma nova NFS-e a partir de um novo RPS e o legado nao possui snapshot aprovado desse payload. A Fase 3.4P deve permitir preparar, validar, revisar e congelar o novo RPS sem chamar a Webmania. Somente fase posterior podera transmitir a preview aprovada.

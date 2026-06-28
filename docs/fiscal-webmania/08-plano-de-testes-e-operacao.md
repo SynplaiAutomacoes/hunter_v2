@@ -668,6 +668,19 @@ Cobertura 3.4.1: body exato sem `uuid`; preview/original/flag/capability; confir
 
 Para a fase preparatoria recomendada (`3.7P - Preview de emissao manual nova de NFS-e`):
 
+### Fase 3.7.1 - testes de emissao manual NFS-e
+
+Cobertura adicionada em `FiscalPhaseThreeNfseManualEmissionTests`:
+
+- envio de `POST /2/nfse/emissao` usando exatamente `request_payload` da preview aprovada;
+- criacao de `NfseManualEmission`, tentativa `nfse_manual_emission` e `NfseItem` somente apos resposta aprovada;
+- bloqueios para preview em rascunho, feature flag desligada, capability desligada, RPS reservado/duplicado e retry;
+- timeout para `uncertain` sem reenvio;
+- webhook e reconciliacao consultiva sem repetir POST;
+- permissoes especificas e cross-workshop para payload.
+
+Regressoes obrigatorias continuam cobrindo cancelamento, preview/substituicao, manifestacao e preview manual.
+
 - cria preview sem chamada HTTP;
 - congela tomador, endereco, servico, codigo municipal, discriminacao, valores, retencoes, ISS, IBS/CBS, ambiente e municipio;
 - bloqueia capability ausente/inativa, feature flag desligada, usuario sem permissao e cross-workshop;

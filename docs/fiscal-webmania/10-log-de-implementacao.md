@@ -56,6 +56,30 @@
   - `uv run python manage.py makemigrations finance --check --dry-run`
   - `uv run ruff check ...` nos arquivos Python tocados
   - `uv run mypy .` executado; falhou por baseline preexistente amplo, incluindo stubs ausentes e erros historicos fora do escopo.
+- Status posterior: Fase 3.7P validada e encerrada no checkpoint `1fdded4e`.
+
+## Fase 3.7.1 - inicio da emissao manual nova a partir de preview aprovada
+
+- Fase 3.7P aprovada no checkpoint `1fdded4e`.
+- Autorizada somente emissao manual nova de NFS-e consumindo `NfseManualEmissionPreview` aprovada.
+- Contrato remoto revalidado localmente no OpenAPI validado: `POST /2/nfse/emissao`, Bearer v2, request body `NfseEmission`, resposta NFS-e com status e campos de download (`xml`, `pdf_nfse`, `pdf_rps`).
+- A emissao deve enviar somente o `request_payload` congelado; nao pode recalcular tomador, servico, valores, tributacao, retencoes, IBS/CBS ou RPS.
+- Cancelamento, substituicao e manifestacao da nova NFS-e, NFS-e recebida/importada, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria continuam bloqueados.
+
+## Fase 3.7.1 - implementacao e validacao tecnica
+
+- Criados `NfseManualEmission`, operation type `nfse_manual_emission`, flag administrativa separada, service remoto idempotente, views/rotas/UI minima, webhook e reconciliacao consultiva.
+- A emissao envia exatamente o `request_payload` aprovado da preview para `POST /2/nfse/emissao`; nao ha conversao do contrato da preview nem recomposicao a partir de cadastros mutaveis.
+- `NfseItem` passa a admitir `workorder` nula para representar NFS-e manual nova confirmada sem OS mutavel; nenhum `FiscalDocument(nfse)` foi introduzido.
+- Auto-revisao reforcou validacao de RPS/serie da resposta, bloqueio de tipos invalidos em download e reconciliacao sem reenvio.
+- Validacoes executadas:
+  - `uv run python manage.py test apps.finance.tests.FiscalPhaseThreeNfseManualEmissionTests --keepdb`
+  - `uv run python manage.py test apps.finance.tests.FiscalPhaseThreeNfseCancellationTests apps.finance.tests.FiscalPhaseThreeNfseSubstitutionPreviewTests apps.finance.tests.FiscalPhaseThreeNfseSubstitutionTests apps.finance.tests.FiscalPhaseThreeNfseManifestationTests apps.finance.tests.FiscalPhaseThreeNfseManualEmissionPreviewTests apps.finance.tests.FiscalPhaseThreeNfseManualEmissionTests --keepdb`
+  - `uv run python manage.py makemigrations finance --check --dry-run`
+  - `uv run ruff check ...` nos arquivos Python tocados
+  - `uv run mypy .` executado; falhou por baseline amplo preexistente, com 3197 erros em 261 arquivos.
+- Regressao adicional fora da bateria obrigatoria (`NfseEmissionServiceTests`, NFC-e manual simples, credito tipo 1 e debito tipo 4) nao foi usada como bloqueante: falhou em fixtures legadas de `NfseEmissionServiceTests` com `SimpleNamespace` e em uma constraint preexistente de documento de credito dentro de teste de debito.
+- Permanecem fora do escopo: cancelamento, substituicao e manifestacao da nova NFS-e; NFS-e recebida/importada; CT-e, MDF-e, NFCom, DC-e; eventos IBS/CBS `112120/112140/211xxx`; creditos 2-5; debitos 1-3/5-8; complementar tributaria.
 
 ## Fase 3.4.1 - inicio
 

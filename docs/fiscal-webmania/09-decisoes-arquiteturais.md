@@ -651,6 +651,12 @@ Fase: 2.4D.6.0.
 
 **Justificativa:** emissao manual nova e o proximo bloco com maior valor de produto e maior reaproveitamento da infraestrutura NFS-e validada. Porem, diferentemente da manifestacao, ela cria documento fiscal novo e pode consumir RPS/numeracao. A base local existe apenas parcialmente e permanece acoplada a OS/cadastros mutaveis. A preview imutavel reduz risco fiscal ao congelar tomador, servico, valores, ISS, IBS/CBS, ambiente, municipio/capability e payload planejado antes da fase funcional.
 
+## ADR - Fase 3.7.1: emissao manual somente a partir de preview aprovada
+
+**Decisao:** implementar `NfseManualEmission` como intencao remota propria e transmitir somente o `request_payload` aprovado da `NfseManualEmissionPreview`.
+
+**Consequencias:** `NfseItem` pode existir sem OS legada quando originado por emissao manual. Nao sera criado `FiscalDocument(nfse)` nesta fase. Cancelamento, substituicao e manifestacao da NFS-e manual exigem fases futuras proprias. A diferenca entre exemplo com `rps` objeto e contrato local com `rps` lista foi resolvida preservando o payload aprovado, sem conversao.
+
 **Alternativas rejeitadas agora:** importacao de NFS-e recebida sem XML/papel fiscal seguro; CT-e/MDF-e/NFCom/DC-e sem dominio local; eventos IBS/CBS `112120`, `112140` e `211xxx` sem fontes especificas; creditos/debitos restantes sem evidencias fiscais; complementar tributaria sem auditoria propria.
 
 **Consequencia:** a proxima fase recomendada nao cria `FiscalEmissionAttempt`, nao chama Webmania e nao cria NFS-e emitida. Uma fase funcional posterior devera consumir somente preview aprovada, com tentativa persistida antes do POST, `uncertain` bloqueante, webhook seguro e reconciliacao consultiva.

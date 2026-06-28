@@ -503,6 +503,12 @@ Permissoes candidatas:
 - `view_nfse_manual_emission_preview`;
 - `view_nfse_manual_emission_payload`.
 
+## Fase 3.7.1 - UX e permissoes da emissao manual
+
+Permissoes implementadas para a transmissao: `issue_nfse_manual_emission`, `view_nfse_manual_emission`, `download_nfse_manual_emission` e `view_nfse_manual_emission_payload`. Permissoes de preparar/aprovar preview, `cancel_nfse`, `substitute_nfse` e `issue_nfse_manifestation` nao autorizam emissao manual.
+
+A UI minima lista emissoes manuais, mostra previews aprovadas elegiveis, exige confirmacao explicita antes do envio e apresenta payload/retorno/downloads protegidos. A tela nao permite editar payload aprovado e nao oferece cancelamento, substituicao ou manifestacao da NFS-e manual nesta fase.
+
 Nenhuma permissao preparatoria concede emissao. A futura permissao de transmissao deve ser criada em fase funcional propria.
 
 UI minima: lista de previews por oficina, formulario de tomador/servico/valores/impostos, validacao de capability municipal, detalhe com payload sanitizado, aprovacao fiscal e aviso explicito de que nenhuma NFS-e sera emitida na fase preparatoria. A UI nao deve abrir CT-e, MDF-e, NFCom, DC-e, importacao de NFS-e recebida, eventos IBS/CBS pendentes ou credito/debito restante.

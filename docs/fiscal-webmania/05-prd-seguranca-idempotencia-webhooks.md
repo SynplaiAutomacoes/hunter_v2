@@ -665,3 +665,9 @@ A proxima fase recomendada e preparatoria, portanto nao deve criar idempotencia 
 - nenhum `FiscalEmissionAttempt`, `NfseItem` remoto, POST, webhook ou download fiscal.
 
 A fase funcional posterior de emissao manual nova devera criar tentativa antes de `POST /2/nfse/emissao`, com chave por oficina, preview aprovada e geracao da intencao. Timeout ou resposta inconclusiva deve marcar tentativa/documento como `uncertain` e bloquear retry automatico. Webhook NFS-e deve resolver por UUID unico do item emitido ou tentativa inequivoca; reconciliacao deve usar somente GET.
+
+## Fase 3.7.1 - emissao manual NFS-e
+
+A emissao manual cria `NfseManualEmission` e `FiscalEmissionAttempt(operation_type="nfse_manual_emission")` antes do HTTP. A chave de idempotencia inclui oficina, preview, operacao, intencao e geracao fixa; retries da mesma preview nao reenviam e estados `sent`, `succeeded` ou `uncertain` bloqueiam nova transmissao.
+
+Timeout marca tentativa e emissao como `uncertain`. Reconciliacao usa somente `GET /2/nfse/consulta/{uuid}` quando ha UUID remoto seguro; se a intencao incerta nao possui UUID, nenhum POST e repetido. Webhook `modelo=nfse` resolve primeiro substituicao, depois emissao manual por `remote_uuid` unico, e so entao cai no fluxo generico de `NfseItem`. Webhook ambiguo fica pendente.

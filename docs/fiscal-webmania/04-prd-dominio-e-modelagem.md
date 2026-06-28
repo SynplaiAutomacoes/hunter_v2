@@ -813,3 +813,9 @@ Entidade candidata: preview/snapshot de NFS-e manual nova, escopada por oficina,
 Status candidatos: `draft`, `ready`, `approved`, `rejected`, `archived`. Aprovacao torna payload, tomador, servico, valores, impostos, ambiente e municipio imutaveis.
 
 Uma fase funcional posterior podera consumir somente preview aprovada para criar a intencao remota. Essa decisao futura deve escolher explicitamente se reutiliza `NfseRequest`/`NfseItem` ou se cria uma projecao fiscal nova para emissao manual; a fase preparatoria nao decide ownership definitivo nem executa backfill.
+
+## Fase 3.7.1 - NfseManualEmission
+
+Foi criada a entidade `NfseManualEmission` como intencao remota da emissao manual nova. Ela referencia obrigatoriamente `NfseManualEmissionPreview` aprovada, preserva `company`, `environment`, `rps_number`, `rps_series`, `request_payload`, `response_payload`, `remote_uuid`, `codigo_verificacao`, XML/PDF e status. O payload e imutavel apos persistido.
+
+`NfseItem.workorder` passa a aceitar nulo para permitir NFS-e manual sem OS legada. O `NfseItem` so e criado quando o retorno remoto aprovado confirma `modelo=nfse` e `uuid`; nao ha `FiscalDocument(nfse)` nesta fase. A tentativa remota usa `FiscalEmissionAttempt(operation_type="nfse_manual_emission")`.

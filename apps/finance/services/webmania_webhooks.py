@@ -24,6 +24,7 @@ from apps.finance.services.nfe_returns import apply_nfe_return_document_payload,
 from apps.finance.services.nfce_cancellation import apply_nfce_cancellation_event_payload, is_ambiguous_nfce_cancellation_webhook, resolve_nfce_cancellation_event_for_webhook
 from apps.finance.services.nfce_emission import apply_nfce_document_payload, is_ambiguous_nfce_webhook, resolve_nfce_document_for_webhook
 from apps.finance.services.nfse_cancellation import NfseCancellationError, confirm_nfse_cancellation_from_payload
+from apps.finance.services.nfse_manual_emission import NfseManualEmissionError, confirm_nfse_manual_emission_from_payload, is_ambiguous_nfse_manual_emission_webhook, resolve_nfse_manual_emission_for_webhook
 from apps.finance.services.nfse_manifestation import NfseManifestationError, confirm_nfse_manifestation_from_payload, is_ambiguous_nfse_manifestation_webhook, resolve_nfse_manifestation_for_webhook
 from apps.finance.services.nfse_substitution import NfseSubstitutionError, confirm_nfse_substitution_from_payload, is_ambiguous_nfse_substitution_webhook, resolve_nfse_substitution_for_webhook
 
@@ -210,6 +211,19 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
             return True
         if is_ambiguous_nfse_substitution_webhook(payload=payload):
             _mark_event_deferred(event, error=f"Substituicao NFS-e {event_uuid} ambigua entre intencoes.")
+            return False
+
+        manual_emission = resolve_nfse_manual_emission_for_webhook(payload=payload)
+        if manual_emission is not None:
+            try:
+                confirm_nfse_manual_emission_from_payload(emission=manual_emission, payload=payload, update_source="webhook")
+            except NfseManualEmissionError as exc:
+                _mark_event_deferred(event, error=str(exc))
+                return False
+            _mark_event_processed(event)
+            return True
+        if is_ambiguous_nfse_manual_emission_webhook(payload=payload):
+            _mark_event_deferred(event, error=f"Emissao manual NFS-e {event_uuid} ambigua entre intencoes.")
             return False
 
         nfse_item = _unique_or_none(NfseItem.objects.filter(uuid=event_uuid).select_related("request"))

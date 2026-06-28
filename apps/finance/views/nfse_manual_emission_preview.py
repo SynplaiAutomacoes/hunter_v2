@@ -13,6 +13,7 @@ from django.views.generic import DetailView, FormView, ListView
 from apps.finance.forms.nfse_manual_emission_preview import NfseManualEmissionPreviewCreateForm
 from apps.finance.models.finance import NfseManualEmissionPreview
 from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
+from apps.finance.services.nfse_manual_emission import is_nfse_manual_emission_eligible
 from apps.finance.services.nfse_manual_emission_preview import approve_nfse_manual_emission_preview, create_nfse_manual_emission_preview, is_nfse_manual_emission_preview_enabled
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import has_workshop_perm
@@ -87,6 +88,8 @@ class NfseManualEmissionPreviewDetailView(NfseManualEmissionPreviewPermissionMix
         context = super().get_context_data(**kwargs)
         context["can_approve"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfsemanualemissionpreview", codename="approve_nfse_manual_emission_preview", request=self.request)
         context["can_view_payload"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfsemanualemissionpreview", codename="view_nfse_manual_emission_preview_payload", request=self.request)
+        context["can_issue_manual_emission"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfsemanualemission", codename="issue_nfse_manual_emission", request=self.request)
+        context["manual_emission_eligible"] = is_nfse_manual_emission_eligible(self.object)
         return context
 
 

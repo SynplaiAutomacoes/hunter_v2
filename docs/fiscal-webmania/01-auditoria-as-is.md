@@ -363,6 +363,12 @@ Estado comprovado em 2026-06-22, sem alteracao funcional:
 | Webhook | `services/webmania_webhooks.py`, `views/webhook.py` | fingerprint, UUID, bloqueio de ambiguidade, rank anti-regressao | Boa base; nao persiste/ordena pelo `atualizado_em` canonico documentado pela Webmania |
 | Reconciliacao | `services/nfse_consulta.py`, comando `reconcile_webmania_documents` | consulta itens pendentes e tentativas incertas | Nao reemite; precisa cobrir lote, cancelamento, substituicao e manifestacao futuras |
 | UI/rotas | `views/nfse.py`, `forms/nfse.py`, `templates/finance/nfse_*`, `urls.py` | wizard por OS, lista/detalhe, cancelamento, consulta, previa e downloads | Preservar; nao existe emissao manual, substituicao, manifestacao ou capacidade municipal |
+
+## Atualizacao Fase 3.7.1 - emissao manual nova NFS-e
+
+Em 2026-06-28, a emissao manual nova passou a ter trilha fiscal propria a partir de `NfseManualEmissionPreview` aprovada. A auditoria confirmou que o fluxo legado por OS continua em `NfseRequest`/`NfseItem`, enquanto a emissao manual usa `NfseManualEmission` como intencao remota, `FiscalEmissionAttempt(operation_type="nfse_manual_emission")` e cria `NfseItem` sem OS somente apos retorno remoto NFS-e aprovado.
+
+O payload transmitido e exclusivamente o `request_payload` congelado pela preview. A 3.7P congelou `rps` como lista com um unico RPS, coerente com o OpenAPI local validado e com o legado de lote/RPS; a 3.7.1 nao converte esse contrato para objeto para evitar payload hibrido. Cancelamento, substituicao e manifestacao da nova NFS-e permanecem sem implementacao propria.
 | Downloads | `NfseDocumentDownloadView`, `services/webmania_documents.py` | proxy autenticado de XML, PDF NFS-e e PDF RPS | Escopo por oficina/permissao existe; separar permissoes futuras por operacao |
 | Integracao operacional | wizard unificado, `WorkOrder`/`Budget` e pricing | NFS-e isolada ou junto com NF-e; valor de servicos por slider | Fluxo critico que nao pode regredir |
 | Testes | `apps/finance/tests.py` | payload, RPS, auth, emissao, duplicidade, cancelamento, consulta, downloads, wizard e reconciliacao | Cobertura relevante; faltam concorrencia/timeout do cancelamento, capacidades, substituicao e manifestacao |

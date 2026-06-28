@@ -309,3 +309,9 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - NFS-e recebida/importada permanece bloqueada ate existir XML/UUID/chave/codigo de verificacao, papel fiscal da oficina e associacao segura a cliente/oficina.
 - CT-e, MDF-e, NFCom e DC-e continuam adiados por ausencia de dominio operacional local suficiente.
 - `112120`, `112140`, eventos `211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria continuam bloqueados ate fontes fiscais especificas existirem.
+
+## Apos a Fase 3.7.1
+
+- Emissao manual nova de NFS-e passa a existir somente a partir de `NfseManualEmissionPreview` aprovada.
+- Pendencias remanescentes: cancelamento da NFS-e manual, substituicao da NFS-e manual, manifestacao da NFS-e manual, importacao de NFS-e recebida, projecao `FiscalDocument(nfse)`, backfill de NFS-e legada e expansao multi-RPS/manual ampla.
+- CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria seguem nao iniciados.

@@ -860,7 +860,7 @@ OpenAPI: schema atual permanece suficiente; nenhuma correcao oficial nova foi co
 
 ## Fase 3.7P - Preview Imutavel de Emissao Manual Nova de NFS-e
 
-Status: **validada localmente em 2026-06-27**. A Fase 3.7.0 aprovou criar preview/snapshot antes de qualquer emissao manual nova.
+Status: **validada e encerrada em 2026-06-27** no checkpoint `1fdded4e`. A Fase 3.7.0 aprovou criar preview/snapshot antes de qualquer emissao manual nova.
 
 Escopo: criar camada preparatoria para montar, validar, congelar e aprovar payload futuro de `POST /2/nfse/emissao`, sem chamada remota.
 
@@ -896,3 +896,35 @@ Resultado local:
 - Payload planejado fica restrito a `{"ambiente": int, "rps": [rps_snapshot]}` e campos remotos/autorizados como `uuid`, `codigo_verificacao`, cancelamento, substituicao e manifestacao sao bloqueados na preview.
 - Aprovacao congela oficina, empresa, capability, ambiente, RPS, tomador, servico, valores, tributacao, retencoes e IBS/CBS.
 - Testes focados cobriram preview nova, cancelamento, manifestacao, preview de substituicao e substituicao NFS-e.
+
+## Fase 3.7.1 - Emissao Manual Nova de NFS-e a partir de Preview Aprovada
+
+Status: **validada tecnicamente em 2026-06-28**, com checkpoint desta entrega pendente. A Fase 3.7P foi aprovada no checkpoint `1fdded4e`.
+
+Escopo: transmitir `POST /2/nfse/emissao` exclusivamente a partir de `NfseManualEmissionPreview` aprovada, persistindo uma intencao remota idempotente e criando `NfseItem` somente apos confirmacao remota valida.
+
+Contrato efetivo: o payload enviado deve ser o `request_payload` congelado na preview aprovada. Nao recalcular tomador, servico, valores, tributacao, retencoes, IBS/CBS ou RPS a partir de formulario, cadastro atual, OS, cliente, servico ou input livre.
+
+Pre-condicoes obrigatorias:
+
+- `NfseManualEmissionPreview` aprovada e pertencente a oficina ativa.
+- Feature flag de emissao manual separada da flag de preview.
+- `NfseMunicipalCapability.manual_emission_enabled=True`, ativa e coerente com a empresa.
+- Permissao especifica de emissao manual, distinta de preparar/aprovar preview, cancelamento, substituicao e manifestacao.
+- Empresa emissora configurada.
+- RPS numero/serie e payload aprovado completos.
+- Ausencia de emissao ativa, autorizada ou incerta para a mesma preview e ausencia de RPS local ja autorizado para a mesma empresa/oficina/ambiente.
+
+Fora de escopo nesta fase: cancelamento da nova NFS-e, substituicao da nova NFS-e, manifestacao automatica da nova NFS-e, NFS-e recebida/importada, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
+
+Criterios de aceite:
+
+1. Uma preview aprovada gera no maximo uma emissao ativa/autorizada/incerta.
+2. `FiscalEmissionAttempt(operation_type="nfse_manual_emission")` e criado antes do HTTP e bloqueia retry da mesma intencao.
+3. Timeout ou resposta inconclusiva marca a emissao como `uncertain` e nao reenvia automaticamente.
+4. `NfseItem` e criado apenas com retorno remoto inequivoco.
+5. Webhook e reconciliacao atualizam somente a emissao manual/NFS-e correspondente quando a identificacao for segura e nunca repetem `POST`.
+6. Payload, resposta, XML e DANFSE sao protegidos por permissao e oficina.
+7. Preview aprovada permanece imutavel.
+
+Resultado local: migration `0067`; model `NfseManualEmission`; flag separada de emissao manual; tentativa `nfse_manual_emission`; envio idempotente do `request_payload` aprovado; criacao de `NfseItem` somente apos retorno remoto aprovado; webhook e reconciliacao sem novo `POST`; UI minima e permissoes proprias. A validacao obrigatoria de 49 testes NFS-e passou, migration-check e Ruff focado passaram. `mypy .` foi executado e segue bloqueado por baseline amplo preexistente; uma regressao adicional fora da bateria obrigatoria tambem expôs fragilidades legadas ja fora do escopo desta fase.

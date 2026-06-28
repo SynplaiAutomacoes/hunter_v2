@@ -124,6 +124,7 @@ class FiscalEmissionOperationType(models.TextChoices):
     NFSE_CANCELLATION = "nfse_cancellation", "Cancelamento NFS-e"
     NFSE_SUBSTITUTION = "nfse_substitution", "Substituicao NFS-e"
     NFSE_MANIFESTATION = "nfse_manifestation", "Manifestacao NFS-e"
+    NFSE_MANUAL_EMISSION = "nfse_manual_emission", "Emissao manual NFS-e"
 
 
 class FiscalDocumentType(models.TextChoices):
@@ -519,6 +520,7 @@ class WebmaniaCompany(TimeStampedModel):
     nfse_legacy_compatibility_enabled = models.BooleanField(verbose_name="Compatibilidade legada NFS-e habilitada", default=True)
     nfse_substitution_preview_enabled = models.BooleanField(verbose_name="Preview de substituicao NFS-e habilitada", default=False)
     nfse_manual_emission_preview_enabled = models.BooleanField(verbose_name="Preview de emissao manual NFS-e habilitada", default=False)
+    nfse_manual_emission_enabled = models.BooleanField(verbose_name="Emissao manual NFS-e habilitada", default=False)
     desativar_epec = models.CharField(verbose_name="Desativar EPEC", max_length=4, blank=True, default="")
     ocultar_total_etiqueta = models.CharField(verbose_name="Ocultar total etiqueta", max_length=4, blank=True, default="")
 
@@ -829,7 +831,7 @@ class NfseBatch(models.Model):
 
 class NfseItem(models.Model):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE)
-    workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE)
+    workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE, null=True, blank=True)
     request = models.ForeignKey(NfseRequest, verbose_name="Requisição de NFS-e", related_name="items", on_delete=models.SET_NULL, null=True)
     batch = models.ForeignKey(NfseBatch, verbose_name="Lote", related_name="items", on_delete=models.SET_NULL, null=True)
     uuid = models.UUIDField(db_index=True)  # UUID da NFS-e
@@ -1101,6 +1103,80 @@ class NfseManualEmissionPreview(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"NfseManualEmissionPreview[{self.rps_number}/{self.rps_series}:{self.validation_status}]"
+
+
+class NfseManualEmission(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="nfse_manual_emissions")
+    company = models.ForeignKey(WebmaniaCompany, verbose_name="Empresa Webmania", on_delete=models.PROTECT, related_name="nfse_manual_emissions")
+    preview = models.OneToOneField(NfseManualEmissionPreview, verbose_name="Preview aprovada", on_delete=models.PROTECT, related_name="manual_emission")
+    nfse_item = models.OneToOneField(NfseItem, verbose_name="NFS-e emitida", on_delete=models.PROTECT, null=True, blank=True, related_name="manual_emission")
+    environment = models.CharField(verbose_name="Ambiente", max_length=1, choices=(("1", "Producao"), ("2", "Homologacao")))
+    rps_number = models.PositiveIntegerField(verbose_name="Numero RPS")
+    rps_series = models.CharField(verbose_name="Serie RPS", max_length=20)
+    request_payload = models.JSONField(verbose_name="Payload enviado", default=dict)
+    response_payload = models.JSONField(verbose_name="Resposta remota", default=dict, blank=True)
+    remote_uuid = models.UUIDField(verbose_name="UUID remoto", null=True, blank=True, db_index=True)
+    verification_code = models.CharField(verbose_name="Codigo de verificacao", max_length=60, blank=True, default="")
+    xml_nfse = models.URLField(verbose_name="XML NFS-e", blank=True, default="")
+    danfse_pdf = models.URLField(verbose_name="DANFSE/PDF", blank=True, default="")
+    status = models.CharField(max_length=20, choices=FiscalEmissionAttemptStatus.choices, default=FiscalEmissionAttemptStatus.STARTED, db_index=True)
+    is_uncertain = models.BooleanField(default=False, db_index=True)
+    created_by = models.ForeignKey("accounts.User", verbose_name="Criada por", on_delete=models.SET_NULL, null=True, blank=True, related_name="nfse_manual_emissions")
+    sent_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "environment", "rps_number", "rps_series"],
+                condition=models.Q(status__in=[FiscalEmissionAttemptStatus.STARTED, FiscalEmissionAttemptStatus.SENT, FiscalEmissionAttemptStatus.SUCCEEDED, FiscalEmissionAttemptStatus.UNCERTAIN]),
+                name="unique_active_nfse_manual_rps",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["workshop", "status"], name="nfse_manual_emit_scope_idx"),
+            models.Index(fields=["company", "environment", "rps_number", "rps_series"], name="nfse_manual_emit_rps_idx"),
+        ]
+        permissions = [
+            ("issue_nfse_manual_emission", "Pode emitir NFS-e manual"),
+            ("view_nfse_manual_emission", "Pode visualizar emissao manual NFS-e"),
+            ("download_nfse_manual_emission", "Pode baixar documentos da emissao manual NFS-e"),
+            ("view_nfse_manual_emission_payload", "Pode visualizar payload da emissao manual NFS-e"),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if self.company_id and self.workshop_id and self.company.workshop_id != self.workshop_id:
+            raise ValidationError({"company": "A empresa Webmania deve pertencer a oficina."})
+        if self.preview_id:
+            if self.preview.workshop_id != self.workshop_id:
+                raise ValidationError({"preview": "A preview pertence a outra oficina."})
+            if self.preview.company_id != self.company_id:
+                raise ValidationError({"preview": "A preview pertence a outra empresa emissora."})
+            if not self.preview.is_approved or self.preview.validation_status != FiscalProductPreviewStatus.APPROVED:
+                raise ValidationError({"preview": "A emissao manual exige preview aprovada."})
+            if self.request_payload != self.preview.request_payload:
+                raise ValidationError({"request_payload": "A emissao deve usar exatamente o payload aprovado da preview."})
+        if self.nfse_item_id and self.nfse_item.workshop_id != self.workshop_id:
+            raise ValidationError({"nfse_item": "A NFS-e emitida pertence a outra oficina."})
+        if self.environment not in {"1", "2"}:
+            raise ValidationError({"environment": "Ambiente invalido."})
+        if self.rps_number <= 0 or not self.rps_series.strip():
+            raise ValidationError("Numero e serie do RPS sao obrigatorios.")
+        if self.is_uncertain != (self.status == FiscalEmissionAttemptStatus.UNCERTAIN):
+            raise ValidationError("Status uncertain e marcador de incerteza devem permanecer consistentes.")
+
+    def save(self, *args, **kwargs) -> None:
+        if self.pk:
+            immutable_fields = ("workshop_id", "company_id", "preview_id", "environment", "rps_number", "rps_series", "request_payload")
+            persisted = type(self).objects.filter(pk=self.pk).values(*immutable_fields).first()
+            if persisted and any(persisted[field] != getattr(self, field) for field in immutable_fields):
+                raise ValidationError("A intencao e o payload da emissao manual NFS-e sao imutaveis.")
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"NfseManualEmission[{self.preview_id}:{self.status}]"
 
 
 class NfseSubstitution(TimeStampedModel):

@@ -1,0 +1,21 @@
+{% extends 'crud/detail.html' %}
+{% block crud_title %}Emissão manual NFS-e{% endblock %}
+{% block crud_subtitle %}Payload congelado a partir de preview aprovada.{% endblock %}
+{% block crud_back_url %}{% url 'finance:nfse_manual_emission_list' %}{% endblock %}
+{% block crud_detail_content %}
+<div class="card bg-base-100 shadow"><div class="card-body"><div class="grid md:grid-cols-2 gap-4">
+<div><span class="text-sm opacity-70">Empresa</span><p>{{ emission.company }}</p></div>
+<div><span class="text-sm opacity-70">Preview</span><p><a class="link" href="{% url 'finance:nfse_manual_emission_preview_detail' emission.preview.pk %}">#{{ emission.preview.pk }}</a></p></div>
+<div><span class="text-sm opacity-70">Ambiente</span><p>{{ emission.get_environment_display }}</p></div>
+<div><span class="text-sm opacity-70">RPS</span><p>{{ emission.rps_number }}/{{ emission.rps_series }}</p></div>
+<div><span class="text-sm opacity-70">Status</span><p>{{ emission.get_status_display }}</p></div>
+<div><span class="text-sm opacity-70">UUID remoto</span><p>{{ emission.remote_uuid|default:"-" }}</p></div>
+<div><span class="text-sm opacity-70">Código de verificação</span><p>{{ emission.verification_code|default:"-" }}</p></div>
+<div><span class="text-sm opacity-70">NFS-e local</span><p>{% if emission.nfse_item %}#{{ emission.nfse_item.pk }}{% else %}-{% endif %}</p></div>
+</div><div class="mt-4 flex flex-wrap gap-2">
+{% if can_view_payload %}<a class="btn btn-outline btn-sm" href="{% url 'finance:nfse_manual_emission_payload' emission.pk %}">Payload</a>{% endif %}
+{% if can_download and emission.xml_nfse %}<a class="btn btn-outline btn-sm" href="{% url 'finance:nfse_manual_emission_download' emission.pk 'xml' %}">XML</a>{% endif %}
+{% if can_download and emission.danfse_pdf %}<a class="btn btn-outline btn-sm" href="{% url 'finance:nfse_manual_emission_download' emission.pk 'danfse' %}">DANFSE</a>{% endif %}
+<form method="post" action="{% url 'finance:nfse_manual_emission_reconcile' emission.pk %}">{% csrf_token %}<button class="btn btn-outline btn-sm">Consultar</button></form>
+</div></div></div>
+{% endblock %}
