@@ -518,6 +518,7 @@ class WebmaniaCompany(TimeStampedModel):
     email_automatico_nfse = models.BooleanField(verbose_name="E-mail automático NFS-e", null=True, blank=True)
     nfse_legacy_compatibility_enabled = models.BooleanField(verbose_name="Compatibilidade legada NFS-e habilitada", default=True)
     nfse_substitution_preview_enabled = models.BooleanField(verbose_name="Preview de substituicao NFS-e habilitada", default=False)
+    nfse_manual_emission_preview_enabled = models.BooleanField(verbose_name="Preview de emissao manual NFS-e habilitada", default=False)
     desativar_epec = models.CharField(verbose_name="Desativar EPEC", max_length=4, blank=True, default="")
     ocultar_total_etiqueta = models.CharField(verbose_name="Ocultar total etiqueta", max_length=4, blank=True, default="")
 
@@ -746,6 +747,7 @@ class NfseMunicipalCapability(TimeStampedModel):
     national_standard_enabled = models.BooleanField(verbose_name="Padrao Nacional", default=False)
     legacy_municipal_enabled = models.BooleanField(verbose_name="Padrao municipal legado", default=True)
     emission_enabled = models.BooleanField(verbose_name="Emissao habilitada", default=False)
+    manual_emission_enabled = models.BooleanField(verbose_name="Emissao manual habilitada", default=False)
     query_enabled = models.BooleanField(verbose_name="Consulta habilitada", default=True)
     cancellation_enabled = models.BooleanField(verbose_name="Cancelamento habilitado", default=False)
     substitution_enabled = models.BooleanField(verbose_name="Substituicao habilitada", default=False)
@@ -995,6 +997,110 @@ class NfseSubstitutionPreview(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"NfseSubstitutionPreview[{self.original_nfse_id}:{self.validation_status}]"
+
+
+class NfseManualEmissionPreview(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="nfse_manual_emission_previews")
+    company = models.ForeignKey(WebmaniaCompany, verbose_name="Empresa Webmania", on_delete=models.PROTECT, related_name="nfse_manual_emission_previews")
+    municipal_capability = models.ForeignKey(NfseMunicipalCapability, verbose_name="Capacidade municipal", on_delete=models.PROTECT, related_name="manual_emission_previews")
+    environment = models.CharField(verbose_name="Ambiente", max_length=1, choices=(("1", "Producao"), ("2", "Homologacao")))
+    rps_number = models.PositiveIntegerField(verbose_name="Numero RPS")
+    rps_series = models.CharField(verbose_name="Serie RPS", max_length=20)
+    rps_payload = models.JSONField(verbose_name="RPS congelado", default=dict)
+    request_payload = models.JSONField(verbose_name="Payload planejado", default=dict)
+    taker_snapshot = models.JSONField(verbose_name="Snapshot do tomador", default=dict)
+    service_snapshot = models.JSONField(verbose_name="Snapshot do servico", default=dict)
+    values_snapshot = models.JSONField(verbose_name="Snapshot de valores", default=dict)
+    taxation_snapshot = models.JSONField(verbose_name="Snapshot de tributacao", default=dict)
+    retention_snapshot = models.JSONField(verbose_name="Snapshot de retencoes", default=dict, blank=True)
+    ibs_cbs_snapshot = models.JSONField(verbose_name="Snapshot IBS/CBS", default=dict, blank=True)
+    validation_status = models.CharField(verbose_name="Status", max_length=16, choices=FiscalProductPreviewStatus.choices, default=FiscalProductPreviewStatus.DRAFT, db_index=True)
+    validation_errors = models.JSONField(verbose_name="Erros de validacao", default=list, blank=True)
+    forbidden_fields_detected = models.JSONField(verbose_name="Campos proibidos detectados", default=list, blank=True)
+    is_approved = models.BooleanField(verbose_name="Aprovada", default=False, db_index=True)
+    created_by = models.ForeignKey("accounts.User", verbose_name="Criada por", on_delete=models.SET_NULL, null=True, blank=True, related_name="created_nfse_manual_emission_previews")
+    approved_by = models.ForeignKey("accounts.User", verbose_name="Aprovada por", on_delete=models.SET_NULL, null=True, blank=True, related_name="approved_nfse_manual_emission_previews")
+    approved_at = models.DateTimeField(verbose_name="Aprovada em", null=True, blank=True)
+
+    class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "environment", "rps_number", "rps_series"],
+                condition=models.Q(is_approved=True),
+                name="unique_approved_nfse_manual_rps",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["workshop", "validation_status"], name="nfse_manual_prev_scope_idx"),
+            models.Index(fields=["company", "environment", "rps_number", "rps_series"], name="nfse_manual_prev_rps_idx"),
+        ]
+        permissions = [
+            ("prepare_nfse_manual_emission_preview", "Pode preparar preview de emissao manual NFS-e"),
+            ("approve_nfse_manual_emission_preview", "Pode aprovar preview de emissao manual NFS-e"),
+            ("view_nfse_manual_emission_preview", "Pode visualizar preview de emissao manual NFS-e"),
+            ("view_nfse_manual_emission_preview_payload", "Pode visualizar payload da preview de emissao manual NFS-e"),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if self.company_id and self.workshop_id and self.company.workshop_id != self.workshop_id:
+            raise ValidationError({"company": "A empresa Webmania deve pertencer a oficina."})
+        if self.municipal_capability_id and self.workshop_id and self.municipal_capability.workshop_id != self.workshop_id:
+            raise ValidationError({"municipal_capability": "A capacidade municipal deve pertencer a oficina."})
+        if self.municipal_capability_id and self.company_id and self.municipal_capability.company_id != self.company_id:
+            raise ValidationError({"municipal_capability": "A capacidade municipal deve pertencer a empresa emissora."})
+        if self.environment not in {"1", "2"}:
+            raise ValidationError({"environment": "Ambiente invalido."})
+        if self.rps_number <= 0:
+            raise ValidationError({"rps_number": "Numero RPS deve ser positivo."})
+        if not self.rps_series.strip():
+            raise ValidationError({"rps_series": "Serie RPS obrigatoria."})
+        if self.rps_payload.get("numero") != self.rps_number or self.rps_payload.get("serie") != self.rps_series:
+            raise ValidationError({"rps_payload": "RPS congelado diverge do numero/serie."})
+        required_rps = ("numero", "serie", "servico", "tomador")
+        missing_rps = [field for field in required_rps if self.rps_payload.get(field) in (None, "", {})]
+        if missing_rps:
+            raise ValidationError({"rps_payload": f"RPS incompleto: {', '.join(missing_rps)}."})
+        expected_request = {"ambiente": int(self.environment), "rps": [self.rps_payload]}
+        if self.request_payload != expected_request:
+            raise ValidationError({"request_payload": "O payload planejado nao corresponde ao RPS congelado."})
+        if self.forbidden_fields_detected:
+            raise ValidationError({"forbidden_fields_detected": "A preview contem campos fora do contrato preparatorio."})
+        if self.is_approved != (self.validation_status == FiscalProductPreviewStatus.APPROVED):
+            raise ValidationError("Status e marcador de aprovacao devem permanecer consistentes.")
+        if self.is_approved and (self.approved_by_id is None or self.approved_at is None):
+            raise ValidationError("A aprovacao exige usuario e timestamp.")
+
+    def save(self, *args, **kwargs) -> None:
+        if self.pk:
+            immutable_fields = (
+                "workshop_id",
+                "company_id",
+                "municipal_capability_id",
+                "environment",
+                "rps_number",
+                "rps_series",
+                "rps_payload",
+                "request_payload",
+                "taker_snapshot",
+                "service_snapshot",
+                "values_snapshot",
+                "taxation_snapshot",
+                "retention_snapshot",
+                "ibs_cbs_snapshot",
+                "forbidden_fields_detected",
+            )
+            persisted = type(self).objects.filter(pk=self.pk).values("is_approved", "validation_status", *immutable_fields).first()
+            if persisted and persisted["is_approved"]:
+                changed_payload = any(persisted[field] != getattr(self, field) for field in immutable_fields)
+                changed_approval = not self.is_approved or self.validation_status != FiscalProductPreviewStatus.APPROVED
+                if changed_payload or changed_approval:
+                    raise ValidationError("Os dados e o estado de uma preview manual NFS-e aprovada sao imutaveis.")
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"NfseManualEmissionPreview[{self.rps_number}/{self.rps_series}:{self.validation_status}]"
 
 
 class NfseSubstitution(TimeStampedModel):

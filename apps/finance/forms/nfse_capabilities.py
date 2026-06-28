@@ -21,6 +21,7 @@ class NfseMunicipalCapabilityForm(CoreModelForm):
             "national_standard_enabled",
             "legacy_municipal_enabled",
             "emission_enabled",
+            "manual_emission_enabled",
             "query_enabled",
             "cancellation_enabled",
             "substitution_enabled",

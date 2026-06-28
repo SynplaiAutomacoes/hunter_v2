@@ -21,6 +21,7 @@ from .nfe import NfeAdjustmentDownloadView, NfeAdjustmentIssueView, NfeComplemen
 from .nfce import NfceCancellationDownloadView, NfceCancellationView, NfceDocumentDownloadView, NfceDocumentListView, NfceDocumentPayloadView, NfceInutilizationDownloadView, NfceInutilizationPayloadView, NfceInutilizationView, NfceManualEmissionView
 from .nfse import NfseBatchReconcileView, NfseCancellationDownloadView, NfseCancellationPayloadView, NfseDocumentDownloadView, NfseManifestationDownloadView, NfseManifestationIssueView, NfseManifestationPayloadView, NfsePreviewPdfView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestReconcileView, NfseRequestUpdateView
 from .nfse_capabilities import NfseMunicipalCapabilityCreateView, NfseMunicipalCapabilityListView, NfseMunicipalCapabilityStatusView, NfseMunicipalCapabilityUpdateView
+from .nfse_manual_emission_preview import NfseManualEmissionPreviewApproveView, NfseManualEmissionPreviewCreateView, NfseManualEmissionPreviewDetailView, NfseManualEmissionPreviewListView, NfseManualEmissionPreviewPayloadView
 from .nfse_substitution_preview import NfseSubstitutionDownloadView, NfseSubstitutionIssueView, NfseSubstitutionPayloadView, NfseSubstitutionPreviewApproveView, NfseSubstitutionPreviewCreateView, NfseSubstitutionPreviewDetailView, NfseSubstitutionPreviewListView, NfseSubstitutionPreviewPayloadView
 from .reports import FinancialReportsHomeView, ReportMovementEditView, ReportMovementDeleteView
 from .tax_class import TaxClassCreateView, TaxClassListView, TaxClassManagerView, TaxClassPresetCreateView, TaxClassPresetListView, TaxClassPresetUpdateView, TaxClassUpdateView
@@ -122,6 +123,11 @@ __all__ = [
     "NfseMunicipalCapabilityListView",
     "NfseMunicipalCapabilityStatusView",
     "NfseMunicipalCapabilityUpdateView",
+    "NfseManualEmissionPreviewApproveView",
+    "NfseManualEmissionPreviewCreateView",
+    "NfseManualEmissionPreviewDetailView",
+    "NfseManualEmissionPreviewListView",
+    "NfseManualEmissionPreviewPayloadView",
     "NfseSubstitutionPreviewApproveView",
     "NfseSubstitutionPreviewCreateView",
     "NfseSubstitutionPreviewDetailView",

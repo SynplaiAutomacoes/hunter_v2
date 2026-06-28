@@ -1,0 +1,17 @@
+{% extends 'crud/detail.html' %}
+{% block crud_title %}Preview de emissão manual NFS-e{% endblock %}
+{% block crud_subtitle %}Snapshot imutável do RPS, sem chamada remota.{% endblock %}
+{% block crud_back_url %}{% url 'finance:nfse_manual_emission_preview_list' %}{% endblock %}
+{% block crud_header_actions %}{% if can_approve and not preview.is_approved %}<form method="post" action="{% url 'finance:nfse_manual_emission_preview_approve' preview.pk %}">{% csrf_token %}<button class="btn btn-primary btn-sm">Aprovar e congelar</button></form>{% endif %}{% endblock %}
+{% block crud_detail_content %}
+<div class="alert alert-info mb-4">A emissão remota continua bloqueada. Esta preview não cria NFS-e, tentativa fiscal, XML ou DANFSE.</div>
+<div class="card bg-base-100 shadow"><div class="card-body"><div class="grid md:grid-cols-2 gap-4">
+<div><span class="text-sm opacity-70">Empresa</span><p>{{ preview.company }}</p></div>
+<div><span class="text-sm opacity-70">Município</span><p>{{ preview.municipal_capability.city_name }}/{{ preview.municipal_capability.state }}</p></div>
+<div><span class="text-sm opacity-70">Ambiente</span><p>{{ preview.get_environment_display }}</p></div>
+<div><span class="text-sm opacity-70">RPS</span><p>{{ preview.rps_number }}/{{ preview.rps_series }}</p></div>
+<div><span class="text-sm opacity-70">Status</span><p>{{ preview.get_validation_status_display }}</p></div>
+<div><span class="text-sm opacity-70">Aprovada</span><p>{% if preview.is_approved %}Sim{% else %}Não{% endif %}</p></div>
+</div><div class="mt-4 flex flex-wrap gap-2">{% if can_view_payload %}<a class="btn btn-outline btn-sm" href="{% url 'finance:nfse_manual_emission_preview_payload' preview.pk %}">Ver payload sanitizado</a>{% endif %}</div></div></div>
+{% if preview.validation_errors %}<div class="alert alert-error mt-4">{{ preview.validation_errors }}</div>{% endif %}
+{% endblock %}

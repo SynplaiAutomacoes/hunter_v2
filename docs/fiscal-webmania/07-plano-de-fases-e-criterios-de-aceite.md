@@ -774,7 +774,7 @@ Resultado: model `NfseManifestation`, operation type `nfse_manifestation`, paylo
 
 ## Fase 3.7.0 - Reavaliacao do roadmap apos manifestacao NFS-e
 
-Status: **em planejamento documental em 2026-06-27**. A Fase 3.6.1 foi aprovada e encerrada no checkpoint `da3b2b48`.
+Status: **validada documentalmente em 2026-06-27** no checkpoint `1b60125c`. A Fase 3.6.1 foi aprovada e encerrada no checkpoint `da3b2b48`.
 
 Alteracoes permitidas: somente `docs/fiscal-webmania/**` e, se houver correcao oficialmente confirmada, `docs/fiscal-webmania/api/webmania_fiscal_openapi_validated.json`.
 
@@ -857,3 +857,42 @@ Criterios de aceite:
 5. Fase funcional posterior fica explicitamente dependente de preview aprovada.
 
 OpenAPI: schema atual permanece suficiente; nenhuma correcao oficial nova foi confirmada nesta reavaliacao.
+
+## Fase 3.7P - Preview Imutavel de Emissao Manual Nova de NFS-e
+
+Status: **validada localmente em 2026-06-27**. A Fase 3.7.0 aprovou criar preview/snapshot antes de qualquer emissao manual nova.
+
+Escopo: criar camada preparatoria para montar, validar, congelar e aprovar payload futuro de `POST /2/nfse/emissao`, sem chamada remota.
+
+Fora de escopo: `POST /2/nfse/emissao`, NFS-e autorizada, `NfseItem` remoto, XML/DANFSE, `FiscalEmissionAttempt`, cancelamento/substituicao/manifestacao da nova NFS-e, NFS-e recebida/importada, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
+
+### Auditoria tecnica inicial
+
+- Emissao legada: `build_nfse_payload` monta `ambiente`, `url_notificacao` e lista `rps`; `emit_nfse_request` reserva RPS e cria `FiscalEmissionAttempt` apenas no momento da transmissao.
+- Cancelamento NFS-e: `NfseCancellation` usa payload congelado `{uuid, motivo}`, tentativa `nfse_cancellation`, timeout `uncertain`, webhook e reconciliacao consultiva.
+- Substituicao NFS-e: `NfseSubstitutionPreview` ja demonstra padrao local de preview imutavel sem HTTP; `NfseSubstitution` transmite somente preview aprovada.
+- Manifestacao NFS-e: `NfseManifestation` transmite contrato pequeno para Padrao Nacional e preserva XML/status original.
+- `NfseItem`: representa retorno remoto autorizado/processado, XML/PDF/RPS e status; nao deve ser criado na preview manual.
+- `WebmaniaCompany`: possui credenciais, ambiente operacional via settings, RPS serie/numero/producao/homologacao e flags NFS-e legadas/substituicao; precisa de flag preparatoria propria.
+- Capabilities municipais: `NfseMunicipalCapability` controla emissao, consulta, cancelamento, substituicao, manifestacao, RPS, codigo de servico, CNAE e aliquota ISS; a preview deve exigir capability ativa e emissao habilitada.
+- Numeracao/RPS: `reserve_nfse_request_rps_number` consome contador somente na transmissao legada; a preview deve validar numero/serie informados sem consumir contador oficial.
+- Tomador: legada deriva de cliente da OS via CPF/CNPJ e nome/razao social; preview manual deve congelar o snapshot.
+- Servico/valores: legada deriva descricao, slider e classe fiscal; preview manual deve congelar discriminacao, valor e tributacao.
+- ISS/IBS-CBS/retenções: podem vir de `classe_imposto` ou payload de impostos/retenções; preview deve validar existencia e preservar snapshot sem recalculo.
+- Webhook/reconciliacao/downloads: pertencem a documentos transmitidos; inexistem na preview.
+- Testes existentes: ha cobertura de emissao legada, cancelamento, substituicao, manifestacao e regressoes NFS-e em `apps.finance.tests`.
+
+### Criterios de aceite
+
+1. Preview completa pode ser criada, validada e aprovada sem chamada Webmania.
+2. Preview aprovada e imutavel em oficina, empresa, capability, ambiente, RPS, tomador, servico, valores e tributacao.
+3. Feature flag, capability, permissao e cross-workshop bloqueiam corretamente.
+4. Payload protegido exige permissao propria.
+5. Nenhum `NfseItem`, `FiscalEmissionAttempt`, XML/DANFSE, webhook ou reconciliacao remota e criado.
+
+Resultado local:
+
+- Model `NfseManualEmissionPreview`, flags `nfse_manual_emission_preview_enabled` e `manual_emission_enabled`, services, views, forms e templates adicionados sem endpoint remoto de emissao.
+- Payload planejado fica restrito a `{"ambiente": int, "rps": [rps_snapshot]}` e campos remotos/autorizados como `uuid`, `codigo_verificacao`, cancelamento, substituicao e manifestacao sao bloqueados na preview.
+- Aprovacao congela oficina, empresa, capability, ambiente, RPS, tomador, servico, valores, tributacao, retencoes e IBS/CBS.
+- Testes focados cobriram preview nova, cancelamento, manifestacao, preview de substituicao e substituicao NFS-e.

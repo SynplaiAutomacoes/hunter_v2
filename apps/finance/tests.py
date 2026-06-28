@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from io import BytesIO
+import json
 import re
 import threading
 import zipfile
@@ -44,7 +45,7 @@ from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.movement_group import MovementGroup
-from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentLink, FiscalDocumentLinkRole, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, FiscalNumberInutilization, FiscalNumberInutilizationStatus, NfeItem, NfeRequest, NfeRequestStatus, NfseCancellation, NfseItem, NfseManifestation, NfseRequest, NfseRequestStatus, NfseSubstitutionPreview, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentLink, FiscalDocumentLinkRole, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, FiscalNumberInutilization, FiscalNumberInutilizationStatus, NfeItem, NfeRequest, NfeRequestStatus, NfseCancellation, NfseItem, NfseManifestation, NfseManualEmissionPreview, NfseRequest, NfseRequestStatus, NfseSubstitutionPreview, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
@@ -15839,6 +15840,232 @@ class FiscalPhaseThreeNfseManifestationTests(TestCase):
             response = self.client.get(reverse("finance:nfse_manifestation_payload", kwargs={"pk": self.nfse_request.pk, "manifestation_pk": manifestation.pk}))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["request"]["evento"], 1)
+
+
+class FiscalPhaseThreeNfseManualEmissionPreviewTests(TestCase):
+    def setUp(self) -> None:
+        from apps.finance.models.finance import NfseMunicipalCapability
+
+        self.user, self.workshop = create_director_user_with_workshop(suffix=95)
+        self.company = WebmaniaCompany.objects.create(
+            workshop=self.workshop,
+            webmania_company_id="NFSE-MANUAL-PREVIEW",
+            bearer_access_token="encrypted-token",
+            cidade="Sao Paulo",
+            uf="SP",
+            nfse_manual_emission_preview_enabled=True,
+        )
+        self.capability = NfseMunicipalCapability.objects.create(
+            workshop=self.workshop,
+            company=self.company,
+            city_code="3550308",
+            city_name="Sao Paulo",
+            state="SP",
+            is_active=True,
+            emission_enabled=True,
+            manual_emission_enabled=True,
+            requires_service_code=True,
+            requires_iss_rate=True,
+        )
+
+    def _service_payload(self) -> dict[str, Any]:
+        return {
+            "valor_servicos": "150.00",
+            "discriminacao": "Servico manual validado",
+            "codigo_servico": "14.01",
+            "classe_imposto": "REFNFSEMANUAL",
+        }
+
+    def _taker_payload(self) -> dict[str, Any]:
+        return {"cnpj": "11.222.333/0001-44", "razao_social": "Cliente Manual Ltda"}
+
+    def _values_payload(self) -> dict[str, Any]:
+        return {"valor_servicos": "150.00"}
+
+    def _taxation_payload(self) -> dict[str, Any]:
+        return {"aliquota_iss": "2.00"}
+
+    def _create(self, **overrides) -> NfseManualEmissionPreview:
+        from apps.finance.services.nfse_manual_emission_preview import create_nfse_manual_emission_preview
+
+        values = {
+            "workshop": self.workshop,
+            "company": self.company,
+            "municipal_capability": self.capability,
+            "environment": "2",
+            "rps_number": 3001,
+            "rps_series": "MAN",
+            "service_payload": self._service_payload(),
+            "taker_payload": self._taker_payload(),
+            "values_payload": self._values_payload(),
+            "taxation_payload": self._taxation_payload(),
+            "retention_payload": {"iss_retido": "0"},
+            "ibs_cbs_payload": {},
+            "created_by": self.user,
+        }
+        values.update(overrides)
+        return create_nfse_manual_emission_preview(**values)
+
+    def test_creates_exact_immutable_contract_without_remote_side_effects(self) -> None:
+        item_count = NfseItem.objects.count()
+        attempt_count = FiscalEmissionAttempt.objects.count()
+        with patch("requests.post") as post_mock, patch("requests.put") as put_mock:
+            preview = self._create()
+
+        expected_rps = {
+            "numero": 3001,
+            "serie": "MAN",
+            "servico": self._service_payload(),
+            "tomador": self._taker_payload(),
+        }
+        self.assertEqual(preview.rps_payload, expected_rps)
+        self.assertEqual(preview.request_payload, {"ambiente": 2, "rps": [expected_rps]})
+        self.assertEqual(preview.validation_status, "validated")
+        self.assertFalse(preview.is_approved)
+        self.assertEqual(preview.service_snapshot, self._service_payload())
+        self.assertEqual(preview.taker_snapshot, self._taker_payload())
+        self.assertEqual(NfseManualEmissionPreview.objects.count(), 1)
+        self.assertEqual(NfseItem.objects.count(), item_count)
+        self.assertEqual(FiscalEmissionAttempt.objects.count(), attempt_count)
+        self.assertFalse(FiscalDocument.objects.filter(document_type="nfse").exists())
+        post_mock.assert_not_called()
+        put_mock.assert_not_called()
+
+    def test_blocks_feature_company_capability_and_incomplete_contract(self) -> None:
+        self.company.nfse_manual_emission_preview_enabled = False
+        self.company.save(update_fields=["nfse_manual_emission_preview_enabled"])
+        with self.assertRaisesMessage(ValidationError, "desabilitada"):
+            self._create()
+        self.company.nfse_manual_emission_preview_enabled = True
+        self.company.save(update_fields=["nfse_manual_emission_preview_enabled"])
+
+        self.company.webmania_company_id = ""
+        self.company.bearer_access_token = ""
+        self.company.consumer_key = ""
+        self.company.save(update_fields=["webmania_company_id", "bearer_access_token", "consumer_key"])
+        with self.assertRaisesMessage(ValidationError, "nao esta configurada"):
+            self._create()
+        self.company.webmania_company_id = "NFSE-MANUAL-PREVIEW"
+        self.company.bearer_access_token = "encrypted-token"
+        self.company.save(update_fields=["webmania_company_id", "bearer_access_token"])
+
+        self.capability.manual_emission_enabled = False
+        self.capability.save(update_fields=["manual_emission_enabled"])
+        with self.assertRaisesMessage(ValidationError, "capacidade municipal"):
+            self._create()
+        self.capability.manual_emission_enabled = True
+        self.capability.save(update_fields=["manual_emission_enabled"])
+
+        cases = (
+            {"environment": "3"},
+            {"rps_number": 0},
+            {"rps_series": ""},
+            {"service_payload": {}},
+            {"service_payload": {"valor_servicos": "150.00", "classe_imposto": "REF"}},
+            {"service_payload": {"valor_servicos": "0", "discriminacao": "Servico", "classe_imposto": "REF"}},
+            {"taker_payload": {}},
+            {"taker_payload": {"cnpj": "11222333000144"}},
+            {"values_payload": {}},
+            {"values_payload": {"valor_servicos": "149.99"}},
+            {"taxation_payload": {}},
+            {"taxation_payload": {"aliquota_iss": ""}},
+            {"retention_payload": {"iss_retido": "-1"}},
+            {"service_payload": {**self._service_payload(), "uuid": "remote-uuid"}},
+            {"taxation_payload": {"aliquota_iss": "2.00", "ibs_cbs_required": True}, "ibs_cbs_payload": {}},
+        )
+        for overrides in cases:
+            with self.subTest(overrides=overrides), self.assertRaises(ValidationError):
+                self._create(**overrides)
+
+    def test_blocks_duplicate_rps_against_requests_items_and_approved_previews(self) -> None:
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=timezone.now().date())
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        NfseRequest.objects.create(workshop=self.workshop, workorder=workorder, reserved_rps_number=3001, reserved_rps_series="MAN")
+        with self.assertRaisesMessage(ValidationError, "RPS local conhecido"):
+            self._create()
+        NfseRequest.objects.all().delete()
+
+        nfse_request = NfseRequest.objects.create(workshop=self.workshop, workorder=workorder)
+        NfseItem.objects.create(workshop=self.workshop, workorder=workorder, request=nfse_request, uuid="45000000-0000-0000-0000-000000000001", status="aprovado", rps_number="3001", rps_series="MAN")
+        with self.assertRaisesMessage(ValidationError, "RPS local conhecido"):
+            self._create()
+        NfseItem.objects.all().delete()
+        NfseRequest.objects.all().delete()
+
+        from apps.finance.services.nfse_manual_emission_preview import approve_nfse_manual_emission_preview
+
+        first = self._create()
+        approve_nfse_manual_emission_preview(preview=first, approved_by=self.user)
+        with self.assertRaisesMessage(ValidationError, "RPS local conhecido"):
+            self._create()
+
+    def test_approval_freezes_payload_snapshots_and_rps_without_emitting_nfse(self) -> None:
+        from apps.finance.services.nfse_manual_emission_preview import approve_nfse_manual_emission_preview
+
+        preview = self._create()
+        attempt_count = FiscalEmissionAttempt.objects.count()
+        with patch("requests.post") as post_mock:
+            approve_nfse_manual_emission_preview(preview=preview, approved_by=self.user)
+        post_mock.assert_not_called()
+        preview.refresh_from_db()
+        self.assertTrue(preview.is_approved)
+        self.assertEqual(preview.validation_status, "approved")
+        self.assertEqual(FiscalEmissionAttempt.objects.count(), attempt_count)
+        self.assertFalse(NfseItem.objects.exists())
+
+        for field, value in (
+            ("request_payload", {"ambiente": 1}),
+            ("rps_payload", {"numero": 999}),
+            ("rps_number", 999),
+            ("rps_series", "ALT"),
+            ("service_snapshot", {"valor_servicos": "10"}),
+            ("taker_snapshot", {"cpf": "12345678901"}),
+            ("values_snapshot", {"valor_servicos": "10"}),
+            ("taxation_snapshot", {"aliquota_iss": "1"}),
+            ("is_approved", False),
+        ):
+            setattr(preview, field, value)
+            with self.subTest(field=field), self.assertRaises(ValidationError):
+                preview.save()
+            preview.refresh_from_db()
+
+    def test_service_blocks_cross_workshop_company_and_capability(self) -> None:
+        from apps.finance.models.finance import NfseMunicipalCapability
+
+        _other_user, other_workshop = create_director_user_with_workshop(suffix=96)
+        other_company = WebmaniaCompany.objects.create(workshop=other_workshop, webmania_company_id="NFSE-MANUAL-OTHER", bearer_access_token="encrypted-token", nfse_manual_emission_preview_enabled=True)
+        NfseMunicipalCapability.objects.create(workshop=other_workshop, company=other_company, city_code="3550308", city_name="Sao Paulo", state="SP", is_active=True, emission_enabled=True, manual_emission_enabled=True)
+        with self.assertRaisesMessage(ValidationError, "oficina ativa"):
+            self._create(workshop=other_workshop)
+
+    def test_views_require_manual_preview_permissions_and_scope_payload(self) -> None:
+        from apps.finance.views.nfse_manual_emission_preview import NfseManualEmissionPreviewApproveView, NfseManualEmissionPreviewCreateView, NfseManualEmissionPreviewPayloadView
+
+        preview = self._create()
+        request = RequestFactory().get("/")
+        request.user = self.user
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=False), self.assertRaises(PermissionDenied):
+            NfseManualEmissionPreviewCreateView.as_view()(request)
+
+        approve_request = RequestFactory().post("/")
+        approve_request.user = self.user
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=False), self.assertRaises(PermissionDenied):
+            NfseManualEmissionPreviewApproveView.as_view()(approve_request, pk=preview.pk)
+
+        _other_user, other_workshop = create_director_user_with_workshop(suffix=97)
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=other_workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=True), self.assertRaises(Http404):
+            NfseManualEmissionPreviewApproveView.as_view()(approve_request, pk=preview.pk)
+
+        payload_request = RequestFactory().get("/")
+        payload_request.user = self.user
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=False), self.assertRaises(PermissionDenied):
+            NfseManualEmissionPreviewPayloadView.as_view()(payload_request, pk=preview.pk)
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=other_workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=True), self.assertRaises(Http404):
+            NfseManualEmissionPreviewPayloadView.as_view()(payload_request, pk=preview.pk)
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=True):
+            response = NfseManualEmissionPreviewPayloadView.as_view()(payload_request, pk=preview.pk)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(response.content)["request_payload"]["rps"][0]["numero"], 3001)
 
 
 class FiscalPhaseThreeNfseSubstitutionPreviewTests(TestCase):

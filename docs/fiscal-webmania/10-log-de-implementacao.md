@@ -35,6 +35,27 @@
 - Justificativa: emissao manual nova tem maior valor de produto e reaproveita infraestrutura NFS-e, mas os dados locais ainda precisam ser congelados para evitar RPS/NFS-e com tomador, servico, valores, ISS/IBS-CBS ou capability mutaveis.
 - OpenAPI validado revisado como suficiente; nenhum schema alterado.
 - Nenhum codigo funcional, migration, service, view, template ou teste foi alterado.
+- Status posterior: Fase 3.7.0 validada documentalmente e commitada no checkpoint `1b60125c`.
+
+## Fase 3.7P - inicio da preview imutavel de emissao manual nova
+
+- Fase 3.7.0 validada no checkpoint `1b60125c`.
+- Autorizada somente preview/snapshot imutavel de emissao manual nova de NFS-e.
+- Auditoria confirmou que a emissao legada reserva RPS e cria tentativa apenas na transmissao; a 3.7P deve validar RPS informado sem consumir contador oficial.
+- Cancelamento, substituicao e manifestacao NFS-e ja possuem trilhas proprias e nao devem ser alterados para transmitir a preview manual.
+- `POST /2/nfse/emissao`, `FiscalEmissionAttempt`, `NfseItem`, XML/DANFSE, webhook e reconciliacao remota permanecem bloqueados nesta fase.
+
+## Fase 3.7P - validacao local
+
+- Implementado `NfseManualEmissionPreview` com snapshots de RPS, tomador, servico, valores, tributacao, retencoes e IBS/CBS.
+- Adicionadas flags conservadoras em empresa Webmania e capability municipal; ambas precisam estar habilitadas para criar/aprovar preview.
+- Criacao e aprovacao permanecem locais: nenhum `POST /2/nfse/emissao`, `FiscalEmissionAttempt`, `NfseItem`, XML, DANFSE, webhook ou reconciliacao remota foi introduzido.
+- Validacoes executadas:
+  - `uv run python manage.py test apps.finance.tests.FiscalPhaseThreeNfseManualEmissionPreviewTests --keepdb`
+  - `uv run python manage.py test apps.finance.tests.FiscalPhaseThreeNfseCancellationTests apps.finance.tests.FiscalPhaseThreeNfseManifestationTests apps.finance.tests.FiscalPhaseThreeNfseManualEmissionPreviewTests apps.finance.tests.FiscalPhaseThreeNfseSubstitutionPreviewTests apps.finance.tests.FiscalPhaseThreeNfseSubstitutionTests --keepdb`
+  - `uv run python manage.py makemigrations finance --check --dry-run`
+  - `uv run ruff check ...` nos arquivos Python tocados
+  - `uv run mypy .` executado; falhou por baseline preexistente amplo, incluindo stubs ausentes e erros historicos fora do escopo.
 
 ## Fase 3.4.1 - inicio
 
