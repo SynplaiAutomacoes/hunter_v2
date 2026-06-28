@@ -691,3 +691,20 @@ Regressoes obrigatorias continuam cobrindo cancelamento, preview/substituicao, m
 - regressoes: emissao legada por OS, consulta, cancelamento, substituicao e manifestacao NFS-e continuam intactas.
 
 Testes da fase funcional posterior, ainda nao autorizada: uma chamada por preview aprovada, concorrencia, timeout `uncertain`, webhook NFS-e por UUID, reconciliacao sem POST, downloads protegidos e bloqueio de duplicidade RPS/numeracao.
+
+## Testes planejados pela Fase 3.8.0
+
+Para a fase recomendada (`3.8.1 - Cancelamento da NFS-e Manual Nova`):
+
+- cancela NFS-e manual autorizada vinculada a `NfseManualEmission.nfse_item`;
+- envia somente `{uuid, motivo}` para `PUT /2/nfse/cancelar`;
+- exige UUID seguro, oficina ativa, capability de cancelamento e permissao `cancel_nfse`;
+- bloqueia preview aprovada sem emissao, emissao `sent/uncertain/failed`, NFS-e sem UUID, NFS-e ja cancelada, substituida ou com cancelamento ativo/incerto;
+- cria/reutiliza `NfseCancellation` e `FiscalEmissionAttempt(operation_type="nfse_cancellation")`;
+- timeout vira `uncertain` e bloqueia retry automatico;
+- webhook por UUID atualiza apenas cancelamento/NFS-e manual correspondente;
+- webhook ambiguo fica pendente;
+- reconciliacao usa GET/consulta e nunca repete PUT;
+- XML de cancelamento fica separado do XML original;
+- payload/downloads sanitizados e protegidos;
+- regressao: cancelamento NFS-e legado, substituicao NFS-e, manifestacao NFS-e e emissao manual 3.7.1 continuam funcionando.

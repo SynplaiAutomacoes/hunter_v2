@@ -915,3 +915,18 @@ Nao ha transformacao para `rps` objeto, nem recalculo de tomador, servico, valor
 | Complementar tributaria | `/1/nfe/complementar/` | Parcial para imposto/IBS-CBS | Parcial | Alto tecnico | Adiar para auditoria propria |
 
 OpenAPI: o schema validado permanece suficiente; nao houve correcao oficial nova que justifique alterar `api/webmania_fiscal_openapi_validated.json`.
+
+## Fase 3.8.0 - Reavaliacao do ciclo pos-emissao manual NFS-e
+
+Fonte oficial revalidada em 2026-06-28: [documentacao oficial Webmania NFS-e](https://webmania.com.br/docs/rest-api-nfse/). Os endpoints `POST /2/nfse/emissao`, `PUT /2/nfse/cancelar`, `POST /2/nfse/substituir`, `POST /2/nfse/manifestar`, `GET /2/nfse/consulta/{identifier}` e `GET /2/nfse/status` permanecem compatíveis com o OpenAPI local validado.
+
+Decisao de contrato: a NFS-e manual nova, apos retorno aprovado, e uma `NfseItem` com UUID/codigo/artefatos. Cancelamento, substituicao e manifestacao usam os mesmos contratos externos ja planejados/implementados para NFS-e local; a restricao local e preservar `NfseManualEmissionPreview` e `NfseManualEmission` como trilhas imutaveis de origem.
+
+| Operacao futura sobre NFS-e manual | Endpoint | Contrato | Reaproveitamento | Decisao |
+| --- | --- | --- | --- | --- |
+| Cancelamento | `PUT /2/nfse/cancelar` | `{uuid, motivo}` | `NfseCancellation`, tentativa `nfse_cancellation`, webhook/reconciliacao por UUID | Priorizar Fase 3.8.1 |
+| Substituicao | `POST /2/nfse/substituir` | `{ambiente, codigo_verificacao, motivo, rps}` | `NfseSubstitutionPreview` e `NfseSubstitution` | Adiar apos cancelamento; adaptar elegibilidade da origem manual |
+| Manifestacao | `POST /2/nfse/manifestar` | `{ambiente, uuid|chave, manifestador, evento}` | `NfseManifestation` | Fase separada; exigir Padrao Nacional/capability |
+| Consulta/reconciliacao | `GET /2/nfse/consulta/{identifier}` | identificador remoto | `NfseItem`/emissao manual, sem POST | Usar apenas de forma consultiva |
+
+OpenAPI: nenhuma alteracao aplicada; o schema atual ja representa os endpoints e request bodies necessarios.

@@ -534,3 +534,17 @@ UI minima: lista de previews por oficina, formulario de tomador/servico/valores/
 Implementado na 3.4P: lista, formulario, detalhe, aprovacao local e JSON sanitizado. Permissoes efetivas: `prepare_nfse_substitution`, `approve_nfse_substitution`, `view_nfse_substitution_preview` e `view_nfse_substitution_preview_payload`. O detalhe da NFS-e original oferece apenas **Preparar substituicao** quando elegivel; nao existe botao de transmissao.
 
 Implementado na 3.4.1: **Substituir NFS-e** aparece apenas em preview aprovada elegivel e abre confirmacao explicita. `substitute_nfse` nao possui fallback para preparar, aprovar ou cancelar. `view_nfse_substitution_payload` e `download_nfse_substitution` protegem request/response, XML original, XML/PDF substitutos e tenancy.
+## Fase 3.8.0 - UX e permissoes pos-emissao manual NFS-e
+
+A Fase 3.7.1 validada no checkpoint `2cb35206` entregou UI minima de emissao manual e visualizacao de payload/artefatos. A proxima acao recomendada e expor cancelamento da NFS-e manual nova somente quando a emissao estiver autorizada e vinculada a `NfseItem` com UUID seguro.
+
+UX recomendada para a Fase 3.8.1:
+
+- botao de cancelamento no detalhe da emissao manual e/ou detalhe da NFS-e manual autorizada;
+- confirmacao explicita;
+- selecao de motivo permitido (`1`, `2`, `4`);
+- aviso de que o XML de cancelamento fica separado e que a preview/emissao original permanecem imutaveis;
+- historico/estado do cancelamento no detalhe;
+- payload, resposta e download protegidos por permissao e oficina.
+
+Permissoes: usar `cancel_nfse` para cancelar; `issue_nfse_manual_emission`, permissoes de preview, substituicao ou manifestacao nao devem liberar cancelamento. Cross-workshop deve retornar bloqueio/404 conforme padrao atual.

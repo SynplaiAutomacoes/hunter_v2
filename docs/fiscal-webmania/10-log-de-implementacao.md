@@ -80,6 +80,16 @@
   - `uv run mypy .` executado; falhou por baseline amplo preexistente, com 3197 erros em 261 arquivos.
 - Regressao adicional fora da bateria obrigatoria (`NfseEmissionServiceTests`, NFC-e manual simples, credito tipo 1 e debito tipo 4) nao foi usada como bloqueante: falhou em fixtures legadas de `NfseEmissionServiceTests` com `SimpleNamespace` e em uma constraint preexistente de documento de credito dentro de teste de debito.
 - Permanecem fora do escopo: cancelamento, substituicao e manifestacao da nova NFS-e; NFS-e recebida/importada; CT-e, MDF-e, NFCom, DC-e; eventos IBS/CBS `112120/112140/211xxx`; creditos 2-5; debitos 1-3/5-8; complementar tributaria.
+- Status posterior: Fase 3.7.1 validada e encerrada no checkpoint `2cb35206`.
+
+## Fase 3.8.0 - reavaliacao do ciclo pos-emissao manual NFS-e
+
+- Fase 3.7.1 aprovada no checkpoint `2cb35206`.
+- Registrado que a emissao manual nova de NFS-e usa exclusivamente preview aprovada, `NfseManualEmission`, tentativa `nfse_manual_emission`, `NfseItem` somente apos confirmacao valida e webhook/reconciliacao consultivos sem repetir `POST`.
+- Revalidada documentacao Webmania NFS-e para `/2/nfse/emissao`, `/2/nfse/cancelar`, `/2/nfse/substituir`, `/2/nfse/manifestar`, `/2/nfse/consulta/{identifier}` e `/2/nfse/status`.
+- Matriz comparou cancelamento, substituicao, manifestacao, NFS-e recebida/importada, NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
+- Decisao recomendada: **Opcao A**, implementar `Fase 3.8.1 - Cancelamento da NFS-e Manual Nova` como extensao segura do cancelamento NFS-e existente.
+- OpenAPI validado permaneceu suficiente; nenhuma alteracao aplicada.
 
 ## Fase 3.4.1 - inicio
 

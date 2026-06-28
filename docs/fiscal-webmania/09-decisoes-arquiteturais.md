@@ -660,3 +660,20 @@ Fase: 2.4D.6.0.
 **Alternativas rejeitadas agora:** importacao de NFS-e recebida sem XML/papel fiscal seguro; CT-e/MDF-e/NFCom/DC-e sem dominio local; eventos IBS/CBS `112120`, `112140` e `211xxx` sem fontes especificas; creditos/debitos restantes sem evidencias fiscais; complementar tributaria sem auditoria propria.
 
 **Consequencia:** a proxima fase recomendada nao cria `FiscalEmissionAttempt`, nao chama Webmania e nao cria NFS-e emitida. Uma fase funcional posterior devera consumir somente preview aprovada, com tentativa persistida antes do POST, `uncertain` bloqueante, webhook seguro e reconciliacao consultiva.
+## ADR - Fase 3.8.0: proximo ciclo apos emissao manual NFS-e
+
+Data: 2026-06-28.
+
+Contexto: a Fase 3.7.1 foi validada no checkpoint `2cb35206`, criando `NfseManualEmission`, tentativa `nfse_manual_emission`, emissao exclusiva por preview aprovada e `NfseItem` somente apos confirmacao remota valida.
+
+Decisao: priorizar **Fase 3.8.1 - Cancelamento da NFS-e Manual Nova** como extensao segura do cancelamento NFS-e existente.
+
+Justificativa:
+
+- contrato oficial do cancelamento (`PUT /2/nfse/cancelar` com `uuid` e `motivo`) e o mesmo ja usado pelo fluxo validado;
+- a fonte local e confiavel quando `NfseManualEmission.nfse_item` aponta para `NfseItem` autorizado com UUID;
+- reaproveita `NfseCancellation`, `FiscalEmissionAttempt(operation_type="nfse_cancellation")`, webhook e reconciliacao consultiva;
+- fecha o primeiro ciclo operacional da NFS-e manual sem criar nova NFS-e, sem novo RPS e sem depender de importacao ou `FiscalDocument(nfse)`;
+- reduz risco frente a substituicao e manifestacao, que exigem respectivamente novo RPS/substituta ou Padrao Nacional/papel fiscal.
+
+Consequencia: substituicao e manifestacao da NFS-e manual permanecem fases separadas; preview e emissao manual sao imutaveis e nao devem ser alteradas pelo cancelamento.

@@ -315,3 +315,9 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Emissao manual nova de NFS-e passa a existir somente a partir de `NfseManualEmissionPreview` aprovada.
 - Pendencias remanescentes: cancelamento da NFS-e manual, substituicao da NFS-e manual, manifestacao da NFS-e manual, importacao de NFS-e recebida, projecao `FiscalDocument(nfse)`, backfill de NFS-e legada e expansao multi-RPS/manual ampla.
 - CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria seguem nao iniciados.
+
+## Apos a Fase 3.8.0
+
+- Proxima pendencia prioritaria recomendada: cancelamento da NFS-e manual nova por extensao segura do fluxo `NfseCancellation`.
+- Substituicao e manifestacao da NFS-e manual continuam pendentes e devem ser fases separadas.
+- NFS-e recebida/importada, NFS-e expandida ampla, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria continuam adiados.

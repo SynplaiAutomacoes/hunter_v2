@@ -671,3 +671,18 @@ A fase funcional posterior de emissao manual nova devera criar tentativa antes d
 A emissao manual cria `NfseManualEmission` e `FiscalEmissionAttempt(operation_type="nfse_manual_emission")` antes do HTTP. A chave de idempotencia inclui oficina, preview, operacao, intencao e geracao fixa; retries da mesma preview nao reenviam e estados `sent`, `succeeded` ou `uncertain` bloqueiam nova transmissao.
 
 Timeout marca tentativa e emissao como `uncertain`. Reconciliacao usa somente `GET /2/nfse/consulta/{uuid}` quando ha UUID remoto seguro; se a intencao incerta nao possui UUID, nenhum POST e repetido. Webhook `modelo=nfse` resolve primeiro substituicao, depois emissao manual por `remote_uuid` unico, e so entao cai no fluxo generico de `NfseItem`. Webhook ambiguo fica pendente.
+## Fase 3.8.0 - seguranca, idempotencia e webhooks da NFS-e manual
+
+A Fase 3.7.1 validada no checkpoint `2cb35206` ja garante emissao manual por preview aprovada, tentativa `nfse_manual_emission`, `NfseItem` somente apos confirmacao valida e reconciliacao sem repetir `POST /2/nfse/emissao`.
+
+Para o ciclo seguinte, o menor risco e cancelar a NFS-e manual usando a mesma trilha de cancelamento NFS-e ja validada:
+
+- idempotencia por `FiscalEmissionAttempt(operation_type="nfse_cancellation")`;
+- payload congelado `{uuid, motivo}`;
+- timeout em `uncertain` bloqueando reenvio automatico;
+- webhook por UUID atualizando somente o cancelamento/NFS-e correspondente;
+- reconciliacao exclusivamente consultiva por `GET /2/nfse/consulta/{identifier}`;
+- XML de cancelamento separado do XML original;
+- preview e emissao manual imutaveis.
+
+Risco principal: resolver por UUID um `NfseItem` manual que tambem possa ser visto por fluxos legados. A fase funcional deve exigir unicidade local, oficina ativa, permissao `cancel_nfse` e bloqueio de ambiguidade. Permissao de emitir NFS-e manual, aprovar preview, substituir ou manifestar nao autoriza cancelamento.

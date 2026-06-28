@@ -819,3 +819,12 @@ Uma fase funcional posterior podera consumir somente preview aprovada para criar
 Foi criada a entidade `NfseManualEmission` como intencao remota da emissao manual nova. Ela referencia obrigatoriamente `NfseManualEmissionPreview` aprovada, preserva `company`, `environment`, `rps_number`, `rps_series`, `request_payload`, `response_payload`, `remote_uuid`, `codigo_verificacao`, XML/PDF e status. O payload e imutavel apos persistido.
 
 `NfseItem.workorder` passa a aceitar nulo para permitir NFS-e manual sem OS legada. O `NfseItem` so e criado quando o retorno remoto aprovado confirma `modelo=nfse` e `uuid`; nao ha `FiscalDocument(nfse)` nesta fase. A tentativa remota usa `FiscalEmissionAttempt(operation_type="nfse_manual_emission")`.
+## Fase 3.8.0 - impacto de dominio pos-emissao manual NFS-e
+
+A Fase 3.7.1 foi validada no checkpoint `2cb35206` e introduziu `NfseManualEmission` como origem imutavel de uma `NfseItem` manual autorizada. A emissao manual nao cria `FiscalDocument(nfse)` e nao deve passar a criar apenas para cancelar, substituir ou manifestar.
+
+Para o proximo ciclo, a fonte local mais segura e `NfseManualEmission.nfse_item`: quando presente e autorizado, o `NfseItem` possui UUID/codigo/artefatos suficientes para reutilizar operacoes NFS-e ja existentes.
+
+Decisao de modelagem para a proxima fase: **estender com seguranca o cancelamento NFS-e existente**. `NfseCancellation` deve continuar sendo a trilha de cancelamento vinculada ao `NfseItem`; se houver dependencia legada em `NfseRequest`/OS, ela deve ser relaxada de modo compatível para aceitar `NfseItem` manual, sem alterar `NfseManualEmissionPreview`, sem alterar `NfseManualEmission.request_payload` e sem criar `FiscalDocument(nfse)`.
+
+Substituicao da NFS-e manual pode reutilizar `NfseSubstitutionPreview` e `NfseSubstitution`, mas exige fase propria porque cria nova NFS-e substituta e precisa adaptar a elegibilidade para origem manual. Manifestacao da NFS-e manual tambem exige fase separada condicionada a Padrao Nacional/capability.
