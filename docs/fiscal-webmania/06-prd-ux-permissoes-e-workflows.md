@@ -492,6 +492,21 @@ Nao criar tela de emissao manual nova de NFS-e nesta fase ou na fase funcional d
 
 UI minima adicionada no detalhe da NFS-e: acao de manifestar apenas quando a NFS-e e elegivel, selecao de evento, manifestador, motivo/justificativa de rejeicao, confirmacao explicita, historico de manifestacoes, payload protegido e download de XML/artefato quando retornado. Permissoes criadas: `issue_nfse_manifestation`, `view_nfse_manifestation`, `download_nfse_manifestation` e `view_nfse_manifestation_payload`.
 
+## UX e permissoes recomendadas pela Fase 3.7.0
+
+Proxima fase recomendada: preview de emissao manual nova de NFS-e, sem transmissao.
+
+Permissoes candidatas:
+
+- `prepare_nfse_manual_emission`;
+- `approve_nfse_manual_emission`;
+- `view_nfse_manual_emission_preview`;
+- `view_nfse_manual_emission_payload`.
+
+Nenhuma permissao preparatoria concede emissao. A futura permissao de transmissao deve ser criada em fase funcional propria.
+
+UI minima: lista de previews por oficina, formulario de tomador/servico/valores/impostos, validacao de capability municipal, detalhe com payload sanitizado, aprovacao fiscal e aviso explicito de que nenhuma NFS-e sera emitida na fase preparatoria. A UI nao deve abrir CT-e, MDF-e, NFCom, DC-e, importacao de NFS-e recebida, eventos IBS/CBS pendentes ou credito/debito restante.
+
 ### UX e permissoes da Fase 3.2
 
 - `query_nfse`: consulta item por UUID; `change_nfserequest` permanece fallback explicito somente para compatibilidade da acao legada.

@@ -653,3 +653,15 @@ Reconciliacao planejada: somente consulta segura por GET quando houver identific
 ### Resultado 3.6.1
 
 `NfseManifestation` e `FiscalEmissionAttempt(operation_type="nfse_manifestation")` sao persistidos antes do POST. O payload contem somente `ambiente`, `uuid`, `manifestador`, `evento` e campos condicionais de rejeicao. Timeout marca manifestacao e tentativa como `uncertain` e bloqueia nova tentativa da mesma intencao. Webhook `modelo=manifestacao_nfse` resolve somente por UUID remoto unico da manifestacao; payload sem identificador suficiente fica pendente. Reconciliacao usa apenas consulta por UUID remoto da manifestacao e nunca repete POST.
+
+## Seguranca recomendada pela Fase 3.7.0
+
+A proxima fase recomendada e preparatoria, portanto nao deve criar idempotencia remota, webhook ou reconciliacao. A seguranca deve ser local:
+
+- transacao e lock ao criar/aprovar preview;
+- payload planejado sanitizado e hash persistido;
+- imutabilidade apos aprovacao;
+- capability municipal, feature flag, permissao e oficina ativa antes de preparar/aprovar;
+- nenhum `FiscalEmissionAttempt`, `NfseItem` remoto, POST, webhook ou download fiscal.
+
+A fase funcional posterior de emissao manual nova devera criar tentativa antes de `POST /2/nfse/emissao`, com chave por oficina, preview aprovada e geracao da intencao. Timeout ou resposta inconclusiva deve marcar tentativa/documento como `uncertain` e bloquear retry automatico. Webhook NFS-e deve resolver por UUID unico do item emitido ou tentativa inequivoca; reconciliacao deve usar somente GET.

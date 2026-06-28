@@ -890,3 +890,18 @@ Recomendar implementacao direta em fase funcional pequena, **sem preview previa*
 `POST /2/nfse/manifestar` com `ambiente`, `uuid`, `manifestador`, `evento` e, para rejeicao, `motivo_rejeicao` e `justificativa_rejeicao` quando motivo `9`. Nao enviar RPS, servico, tomador, payload de emissao, payload de cancelamento, payload de substituicao ou campos livres.
 
 Webhook esperado: `modelo=manifestacao_nfse` com UUID remoto da manifestacao. Sem UUID suficiente, o evento fica pendente. Reconciliacao futura usa somente GET consultivo por UUID remoto, sem repetir POST.
+
+## Fase 3.7.0 - Reavaliacao de matriz API apos manifestacao NFS-e
+
+A Fase 3.6.1 validou `POST /2/nfse/manifestar` no checkpoint `da3b2b48`. A proxima API de maior valor para produto e `POST /2/nfse/emissao`, mas a matriz atual recomenda **fase preparatoria sem HTTP** antes de abrir emissao manual nova.
+
+| Candidato | Endpoint Webmania | Clareza do contrato | Fonte local | Reaproveitamento | Decisao |
+| --- | --- | --- | --- | --- | --- |
+| Emissao manual nova de NFS-e | `POST /2/nfse/emissao` | Clara em alto nivel, variavel por municipio/provedor | Parcial e mutavel no legado por OS | Alto | Preparar preview/snapshot antes de transmitir |
+| NFS-e recebida/importada | `GET /2/nfse/consulta/{identifier}` e futura manifestacao | Parcial para documento de terceiro | Insuficiente | Medio | Adiar ate XML/identidade/papel fiscal seguro |
+| CT-e/MDF-e/NFCom/DC-e | APIs v2 correspondentes | Clara em alto nivel | Ausente | Baixo/medio | Adiar por falta de dominio local |
+| Eventos IBS/CBS pendentes | `/1/nfe/evento-ibs-cbs/` | Clara por codigo, dependente de campos especificos | Insuficiente | Alto tecnico | Adiar ate fonte fiscal por evento |
+| Creditos/debitos restantes | `/1/nfe/emissao/` | Clara em alto nivel, condicional por tipo | Insuficiente | Alto tecnico | Adiar |
+| Complementar tributaria | `/1/nfe/complementar/` | Parcial para imposto/IBS-CBS | Parcial | Alto tecnico | Adiar para auditoria propria |
+
+OpenAPI: o schema validado permanece suficiente; nao houve correcao oficial nova que justifique alterar `api/webmania_fiscal_openapi_validated.json`.

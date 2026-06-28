@@ -797,3 +797,19 @@ Criado `NfseManifestation` vinculado obrigatoriamente a `NfseItem` e `workshop`,
 Constraint condicional impede mais de uma manifestacao ativa, incerta ou concluida para a mesma NFS-e, evento e manifestador. A operation type e `nfse_manifestation`. A capability usada e `NfseMunicipalCapability.national_standard_enabled=True` + `manifestation_enabled=True`; nenhuma flag de emissao manual foi criada.
 
 `NfseSubstitution` possui preview one-to-one, original, substituta opcional, UUIDs, codigo original, motivo, payload/response, snapshots XML separados, status, `is_uncertain`, solicitante e timestamps. Constraint impede duas operacoes ativas para a mesma original. `NfseItemStatus.substituido` protege anti-regressao. Nao existe `FiscalDocument(nfse)`.
+
+## Modelagem recomendada pela Fase 3.7.0
+
+Proxima fase recomendada: `3.7P - Preview de emissao manual nova de NFS-e`, sem `FiscalEmissionAttempt`, sem `NfseItem` emitido e sem chamada Webmania.
+
+Entidade candidata: preview/snapshot de NFS-e manual nova, escopada por oficina, empresa/capability municipal e usuario. A preview deve congelar:
+
+- tomador e endereco;
+- servico, codigo municipal, discriminacao, CNAE/atividade quando aplicavel;
+- valores, descontos, retencoes, ISS e IBS/CBS;
+- ambiente, municipio, provedor/capability, serie/numero/RPS ou regra de numeracao;
+- payload planejado sanitizado, hash, status, criador/aprovador e timestamps.
+
+Status candidatos: `draft`, `ready`, `approved`, `rejected`, `archived`. Aprovacao torna payload, tomador, servico, valores, impostos, ambiente e municipio imutaveis.
+
+Uma fase funcional posterior podera consumir somente preview aprovada para criar a intencao remota. Essa decisao futura deve escolher explicitamente se reutiliza `NfseRequest`/`NfseItem` ou se cria uma projecao fiscal nova para emissao manual; a fase preparatoria nao decide ownership definitivo nem executa backfill.

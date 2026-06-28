@@ -300,3 +300,12 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - NFS-e recebida/importada de terceiros continua adiada.
 - Emissao manual nova de NFS-e, NFS-e expandida ampla e `FiscalDocument(nfse)` generalizado continuam fora de escopo.
 - Manter eventos IBS/CBS pendentes, creditos 2-5, debitos restantes, CT-e, MDF-e, NFCom, DC-e e complementar tributaria bloqueados.
+
+## Apos a Fase 3.7.0
+
+- Proxima fase recomendada: `3.7P - Preview de emissao manual nova de NFS-e`, sem transmissao Webmania.
+- Antes de emitir NFS-e manual nova, congelar tomador, servico, valores, ISS, IBS/CBS, retencoes, municipio/capability, ambiente, RPS/numeracao e payload planejado.
+- Nao promover automaticamente o wizard legado por OS para emissao manual ampla; dados atuais sao mutaveis e devem virar snapshot aprovado.
+- NFS-e recebida/importada permanece bloqueada ate existir XML/UUID/chave/codigo de verificacao, papel fiscal da oficina e associacao segura a cliente/oficina.
+- CT-e, MDF-e, NFCom e DC-e continuam adiados por ausencia de dominio operacional local suficiente.
+- `112120`, `112140`, eventos `211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria continuam bloqueados ate fontes fiscais especificas existirem.

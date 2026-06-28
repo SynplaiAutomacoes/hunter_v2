@@ -25,6 +25,16 @@
 - Criados `NfseManifestation`, operation type `nfse_manifestation`, service `nfse_manifestation`, views/rotas/UI minima, webhook e reconciliacao consultiva.
 - Payload transmitido restrito a `ambiente`, `uuid`, `manifestador`, `evento`, `motivo_rejeicao` e `justificativa_rejeicao` quando aplicavel.
 - Municipal legado sem Padrao Nacional, NFS-e cancelada/substituida/incerta, NFS-e recebida/importada de terceiro e desfazimento de manifestacao permanecem bloqueados.
+- Fase validada e encerrada no checkpoint `da3b2b48`: PostgreSQL normalizado para validacao, teste focado da manifestacao aprovado, regressoes diretas de NFS-e aprovadas, `manage.py check`, migration-check, Ruff focado e diff-check aprovados.
+
+## Fase 3.7.0 - reavaliacao documental apos manifestacao NFS-e
+
+- Fase 3.6.1 reconhecida como validada no checkpoint `da3b2b48`.
+- Comparados emissao manual nova de NFS-e, NFS-e recebida/importada, NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120`, `112140`, `211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria.
+- Decisao recomendada: **Opcao F**, criar fase preparatoria `3.7P - Preview de emissao manual nova de NFS-e`, sem transmissao, antes de qualquer `POST /2/nfse/emissao`.
+- Justificativa: emissao manual nova tem maior valor de produto e reaproveita infraestrutura NFS-e, mas os dados locais ainda precisam ser congelados para evitar RPS/NFS-e com tomador, servico, valores, ISS/IBS-CBS ou capability mutaveis.
+- OpenAPI validado revisado como suficiente; nenhum schema alterado.
+- Nenhum codigo funcional, migration, service, view, template ou teste foi alterado.
 
 ## Fase 3.4.1 - inicio
 

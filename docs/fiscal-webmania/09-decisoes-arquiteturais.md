@@ -642,3 +642,15 @@ Fase: 2.4D.6.0.
 **Restricoes:** somente Padrao Nacional confirmado; bloquear municipal legado, NFS-e cancelada, substituida, incerta ou sem identificador suficiente. Desfazer/cancelar manifestacao nao sera implementado sem endpoint oficial claro.
 
 **Implementacao 3.6.1:** `NfseManifestation` proprio, sem preview e sem `FiscalDocument(nfse)`. O gateway transmite apenas o contrato oficial de manifestacao; cancelamento, substituicao e XML original da NFS-e permanecem preservados.
+
+## ADR - Proximo bloco apos manifestacao NFS-e
+
+**Status:** proposto na Fase 3.7.0.
+
+**Decisao:** escolher a Opcao F: fase preparatoria para emissao manual nova de NFS-e, antes de qualquer transmissao por `POST /2/nfse/emissao`.
+
+**Justificativa:** emissao manual nova e o proximo bloco com maior valor de produto e maior reaproveitamento da infraestrutura NFS-e validada. Porem, diferentemente da manifestacao, ela cria documento fiscal novo e pode consumir RPS/numeracao. A base local existe apenas parcialmente e permanece acoplada a OS/cadastros mutaveis. A preview imutavel reduz risco fiscal ao congelar tomador, servico, valores, ISS, IBS/CBS, ambiente, municipio/capability e payload planejado antes da fase funcional.
+
+**Alternativas rejeitadas agora:** importacao de NFS-e recebida sem XML/papel fiscal seguro; CT-e/MDF-e/NFCom/DC-e sem dominio local; eventos IBS/CBS `112120`, `112140` e `211xxx` sem fontes especificas; creditos/debitos restantes sem evidencias fiscais; complementar tributaria sem auditoria propria.
+
+**Consequencia:** a proxima fase recomendada nao cria `FiscalEmissionAttempt`, nao chama Webmania e nao cria NFS-e emitida. Uma fase funcional posterior devera consumir somente preview aprovada, com tentativa persistida antes do POST, `uncertain` bloqueante, webhook seguro e reconciliacao consultiva.

@@ -663,3 +663,18 @@ Contrato restrito a `uuid`/`motivo`; elegibilidade; capacidade municipal; permis
 Cobertura implementada na 3.4P: payload exato; original inelegivel; UUID/codigo/XML; RPS/tomador/servico/valor; flag/capability; oficina/permissoes; uma preview aprovada por original; imutabilidade de payload/XML/estado; ausencia de POST/PUT, `FiscalEmissionAttempt`, item substituto e alteracao da original; regressao do cancelamento NFS-e.
 
 Cobertura 3.4.1: body exato sem `uuid`; preview/original/flag/capability; confirmacao cruzada da original; criacao tardia da substituta; XMLs separados; rejeicao; timeout/uncertain; retry; concorrencia; webhook direto e fallback; duplicidade; anti-regressao; GET sem POST; permissao/tenancy e regressao 3.1-3.4P.
+
+## Testes planejados pela Fase 3.7.0
+
+Para a fase preparatoria recomendada (`3.7P - Preview de emissao manual nova de NFS-e`):
+
+- cria preview sem chamada HTTP;
+- congela tomador, endereco, servico, codigo municipal, discriminacao, valores, retencoes, ISS, IBS/CBS, ambiente e municipio;
+- bloqueia capability ausente/inativa, feature flag desligada, usuario sem permissao e cross-workshop;
+- valida payload planejado sem depender de dados mutaveis de OS, cliente, servico ou classe fiscal apos aprovacao;
+- aprovacao torna payload e snapshot imutaveis;
+- preparar/aprovar nao cria `FiscalEmissionAttempt`, `NfseItem` emitido, webhook, reconciliacao ou download remoto;
+- payload protegido exige permissao propria;
+- regressoes: emissao legada por OS, consulta, cancelamento, substituicao e manifestacao NFS-e continuam intactas.
+
+Testes da fase funcional posterior, ainda nao autorizada: uma chamada por preview aprovada, concorrencia, timeout `uncertain`, webhook NFS-e por UUID, reconciliacao sem POST, downloads protegidos e bloqueio de duplicidade RPS/numeracao.

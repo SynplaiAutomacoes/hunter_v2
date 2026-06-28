@@ -764,10 +764,96 @@ Recomendar implementacao direta em fase funcional pequena, sem preview previa. M
 
 ## Fase 3.6.1 - Manifestacao de NFS-e Padrao Nacional
 
-Status: **em implementacao tecnica em 2026-06-26**.
+Status: **validada em 2026-06-27** no checkpoint `da3b2b48`.
 
 Escopo: implementar somente manifestacao de NFS-e local com Padrao Nacional confirmado por `NfseMunicipalCapability.national_standard_enabled` e `manifestation_enabled`, usando `POST /2/nfse/manifestar`.
 
 Fora de escopo: emissao manual nova de NFS-e, NFS-e recebida/importada de terceiros, municipal legada sem Padrao Nacional confirmado, desfazimento/cancelamento de manifestacao, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos restantes e complementar tributaria.
 
-Resultado esperado: model `NfseManifestation`, operation type `nfse_manifestation`, payload congelado, timeout `uncertain`, webhook sem ambiguidade, reconciliacao consultiva, permissoes proprias, UI minima e testes direcionados.
+Resultado: model `NfseManifestation`, operation type `nfse_manifestation`, payload congelado, timeout `uncertain`, bloqueio de retry automatico, webhook seguro, reconciliacao consultiva, permissoes proprias, capability `national_standard_enabled` + `manifestation_enabled`, UI minima e testes direcionados. O PostgreSQL local foi normalizado para a validacao; os testes focados e as regressoes diretas de NFS-e passaram. Emissao manual nova, NFS-e recebida/importada, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos restantes e complementar tributaria nao foram iniciados.
+
+## Fase 3.7.0 - Reavaliacao do roadmap apos manifestacao NFS-e
+
+Status: **em planejamento documental em 2026-06-27**. A Fase 3.6.1 foi aprovada e encerrada no checkpoint `da3b2b48`.
+
+Alteracoes permitidas: somente `docs/fiscal-webmania/**` e, se houver correcao oficialmente confirmada, `docs/fiscal-webmania/api/webmania_fiscal_openapi_validated.json`.
+
+Alteracoes proibidas: codigo funcional, migrations, services, views, forms, templates, testes e comandos operacionais.
+
+### Matriz comparativa obrigatoria
+
+| Bloco | Fonte local existe? | Contrato Webmania claro? | Reaproveita infraestrutura atual? | Dependencia externa | Risco fiscal | Valor de negocio | Recomendacao |
+| ----- | ------------------: | -----------------------: | --------------------------------: | ------------------- | ------------ | ---------------- | ------------ |
+| Emissao manual nova de NFS-e | Parcial: legado por OS possui tomador, servico, valores, RPS e classe fiscal, mas dados sao mutaveis e acoplados a OS | Sim para `/2/nfse/emissao`, com variacao municipal e Padrao Nacional | Alta: NfseRequest/NfseItem, capacidade municipal, tentativa, webhook, reconciliacao e downloads | Municipio/provedor, ISS, IBS/CBS, numeracao/RPS, ambiente e rollout por oficina | Alto | Muito alto | **Opcao F: fase preparatoria de preview/snapshot antes de transmissao** |
+| NFS-e recebida/importada de terceiros | Nao suficiente: nao ha dominio de entrada/importacao, XML validado ou papel fiscal da oficina | Parcial: consulta/manifestacao existem, mas fonte do documento nao | Media: consulta, webhook e manifestacao poderiam ser reaproveitados depois | XML/UUID/chave/codigo, papel tomador/intermediario, associacao cliente/oficina | Alto | Alto | Adiar ate existir importacao/registro seguro |
+| NFS-e expandida | Parcial: base legado existe, mas `FiscalDocument(nfse)` generalizado nao | Parcial: varios endpoints claros, mas municipalidade/Padrao Nacional variam | Media/alta | Provedores, DPS/RPS, ISS/IBS-CBS e eventual backfill | Alto | Muito alto | Quebrar em subfases; nao executar como bloco amplo |
+| CT-e | Nao | Sim em alto nivel, mas exige modelagem propria | Media tecnica, baixa de dominio | Transporte, remetente/destinatario/tomador, carga, veiculos e documentos relacionados | Alto | Baixo/medio | Adiar |
+| MDF-e | Nao | Sim em alto nivel | Baixa | CT-e/NF-e vinculados, veiculo, condutor, percurso, encerramento | Alto | Baixo | Adiar ate haver dominio logistico/CT-e |
+| NFCom | Nao | Sim; API v2.0.0 documentada | Media tecnica | Dominio de telecomunicacoes, habilitacao administrativa e baixa aderencia ao produto | Alto | Muito baixo | Adiar; manter feature flag interna |
+| DC-e | Nao | Sim; API v2.0.0 documentada | Media tecnica | Dominio especifico e demanda nao confirmada | Alto | Muito baixo | Adiar; manter feature flag interna |
+| Eventos IBS/CBS 112120 | Nao suficiente | Sim, com campos de item/controle | Alta tecnica | Importacao ALC/ZFM, XML/projecao fiscal e contexto de isencao | Alto | Baixo | Adiar |
+| Eventos IBS/CBS 112140 | Nao suficiente | Sim, com item de debito/pagamento antecipado | Alta tecnica | Debito tipo 6, pagamento antecipado, item fiscal e quantidade nao fornecida | Alto | Medio | Adiar ate fonte fiscal/financeira existir |
+| Eventos IBS/CBS 211xxx | Nao suficiente | Parcial por codigo | Media tecnica | Papel destinatario, entrada/importacao, estoque, ativo, combustivel ou apuracao externa | Alto | Baixo/medio | Adiar |
+| Creditos 2-5 | Nao suficiente | Sim em alto nivel, mas condicoes variam por tipo | Alta tecnica | ZFM/ALC, cooperativa, sucessao, apuracao ou outras evidencias fiscais | Alto | Baixo/medio | Adiar |
+| Debitos 1-3 e 5-8 | Nao suficiente | Sim em alto nivel, mas condicoes variam por tipo | Alta tecnica para alguns tipos | Cooperativa, imunes/isentas, fora da apuracao, sucessao, pagamento antecipado, estoque fiscal ou desenquadramento SN | Alto | Baixo/medio | Adiar |
+| Complementar tributaria | Parcial | Parcial: complementar existe, mas imposto/IBS-CBS exigem revalidacao especifica | Alta | Base tributaria por imposto, XML/snapshot e regra fiscal aprovada | Alto | Medio | Fase preparatoria futura, nao agora |
+
+### Decisao
+
+Escolher **Opcao F - Fase preparatoria**, direcionada ao proximo bloco de maior valor: **emissao manual nova de NFS-e**.
+
+A emissao manual nova tem maior valor de produto do que importacao recebida, CT-e/MDF-e/NFCom/DC-e ou novos tipos NF-e, e reaproveita a infraestrutura NFS-e ja validada. Ainda assim, ela nao deve ser funcional de imediato: criar uma NFS-e nova consome RPS/numeracao e depende de tomador, servico, valores, ISS, IBS/CBS, municipio/capability, ambiente e regras de duplicidade. Esses dados existem parcialmente no legado, mas hoje sao derivados de OS e cadastros mutaveis. A decisao segura e planejar primeiro uma preview/snapshot imutavel.
+
+### Proxima fase recomendada
+
+`Fase 3.7P - Preview de emissao manual nova de NFS-e`, sem transmissao Webmania.
+
+Objetivo: congelar uma intencao completa de RPS/NFS-e manual nova, auditavel e aprovada, antes de qualquer `POST /2/nfse/emissao`.
+
+Escopo:
+
+- criar planejamento para preview local de NFS-e manual nova, preferencialmente fora do fluxo obrigatorio por OS, mas compatível com ele quando houver origem operacional;
+- congelar tomador, endereco, servico, codigo municipal, discriminacao, CNAE/atividade quando aplicavel, valores, descontos, retencoes, ISS, IBS/CBS, ambiente, serie/numero/RPS ou politica de numeracao Webmania, municipio/capability e payload planejado;
+- exigir `NfseMunicipalCapability` ativa e compatibilidade com Padrao Nacional/municipal conforme o municipio;
+- nao criar `NfseItem`, `FiscalEmissionAttempt`, documento emitido, webhook, reconciliacao remota ou download fiscal;
+- preparar criterios para uma fase funcional posterior que consumira somente preview aprovada.
+
+Endpoint Webmania futuro: `POST /2/nfse/emissao`. Na fase preparatoria nao ha chamada HTTP.
+
+Modelagem futura: entidade de preview/snapshot propria para NFS-e manual nova, com status `draft`, `ready`, `approved`, `rejected` e `archived`, payload planejado sanitizado, hash, criador/aprovador e imutabilidade apos aprovacao. A fase funcional posterior podera criar `NfseRequest`/`NfseItem` ou uma projecao fiscal nova conforme decisao aprovada, mas isso nao pertence a 3.7P.
+
+Idempotencia: sem idempotencia remota na fase preparatoria. A fase funcional posterior deve criar tentativa antes do POST, com chave por oficina, preview aprovada e geracao da intencao; `uncertain` bloqueia retry automatico.
+
+Permissoes: criar na fase futura permissoes separadas de preparacao/aprovacao/visualizacao/payload. Preparar preview nao concede emissao.
+
+Feature flag/capability: exigir flag administrativa de preparacao/emissao manual NFS-e e `NfseMunicipalCapability` coerente. Capability remota nao substitui aprovacao administrativa.
+
+UI minima: lista de previews, criacao/edicao enquanto rascunho, validacao, aprovacao fiscal, payload sanitizado e aviso explicito de que nao ha transmissao.
+
+Webhook/reconciliacao: inexistentes na 3.7P. A fase funcional posterior deve usar webhook NFS-e padrao e reconciliacao somente consultiva.
+
+Testes planejados:
+
+- preview congela tomador, servico, valores, impostos e ambiente;
+- bloqueia municipio sem capability, feature flag desligada, oficina divergente e usuario sem permissao;
+- valida ISS/IBS-CBS e campos obrigatorios sem fallback mutavel;
+- payload aprovado e imutavel;
+- nenhuma chamada HTTP, `FiscalEmissionAttempt`, NfseItem emitido, webhook ou reconciliacao e criada;
+- regressao de emissao legada por OS, cancelamento, substituicao e manifestacao permanece intacta.
+
+Riscos:
+
+- variacao municipal pode exigir campos nao cobertos por um formulario manual generico;
+- duplicidade de RPS/numeracao se a fase funcional nao reservar a intencao corretamente;
+- ISS/IBS-CBS e retencoes podem divergir por municipio/provedor;
+- UI manual pode contornar origem operacional se nao houver permissao e aprovacao fortes.
+
+Criterios de aceite:
+
+1. A preview aprovada representa um RPS/NFS-e completo e auditavel.
+2. Dados mutaveis de OS, cliente, servico ou classe fiscal nao alteram preview aprovada.
+3. Nenhuma transmissao, tentativa remota, webhook ou reconciliacao e criada.
+4. Capability, feature flag, permissao e tenancy bloqueiam corretamente.
+5. Fase funcional posterior fica explicitamente dependente de preview aprovada.
+
+OpenAPI: schema atual permanece suficiente; nenhuma correcao oficial nova foi confirmada nesta reavaliacao.
