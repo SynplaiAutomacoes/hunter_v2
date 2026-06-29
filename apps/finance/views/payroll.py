@@ -287,6 +287,8 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
 
 class PayrollBulkPayView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "financialmovement"
     workshop_permission_codename = "change_financialmovement"
 
     def post(self, request, *args, **kwargs):
