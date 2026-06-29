@@ -221,6 +221,18 @@
   - `uv run python manage.py test apps.finance.tests.FiscalPhaseThreeNfseReceivedDocumentTests apps.finance.tests.FiscalPhaseThreeNfseManifestationTests apps.finance.tests.FiscalPhaseThreeNfseReceivedManifestationTests apps.finance.tests.FiscalPhaseThreeNfseManualEmissionPreviewTests apps.finance.tests.FiscalPhaseThreeNfseManualEmissionTests apps.finance.tests.FiscalPhaseThreeNfseCancellationTests apps.finance.tests.FiscalPhaseThreeNfseSubstitutionPreviewTests apps.finance.tests.FiscalPhaseThreeNfseSubstitutionTests --keepdb`
   - `uv run ruff check` nos Python tocados
 - Permanecem fora do escopo: manifestacao da NFS-e manual, emissao/cancelamento/substituicao de NFS-e recebida, `NfseItem`, `FiscalDocument(nfse)`, importacao por consulta Webmania/lote/e-mail/ERP e demais familias fiscais.
+- Status posterior: Fase 3.12.1 validada e encerrada no checkpoint `6cc3a788`.
+
+## Fase 3.13.0 - reavaliacao documental apos fechamento do bloco NFS-e
+
+- Fase 3.12.1 aprovada, validada e encerrada no checkpoint `6cc3a788`.
+- Registrado fechamento dos principais fluxos NFS-e: cancelamento legado, substituicao, manifestacao Padrao Nacional, preview manual, emissao manual, cancelamento manual, substituicao manual, registro local de NFS-e recebida por XML e manifestacao de NFS-e recebida.
+- Confirmado que `NfseManifestation` agora aceita origem por `NfseReceivedDocument`, com migration `0070`, payload restrito de `POST /2/nfse/manifestar`, bloqueios por papel fiscal, UUID, XML/hash, status, Padrao Nacional, capability e duplicidade, sem `NfseItem` e sem `FiscalDocument(nfse)` para recebidas.
+- A manifestacao da NFS-e manual permanece adiada porque o papel fiscal da oficina como tomadora/intermediaria em documento emitido por ela propria continua sem confirmacao segura.
+- Reavaliados consulta Webmania para NFS-e recebida, importacao em lote, integracao e-mail/ERP, NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria.
+- Decisao recomendada: **Opcao A**, planejar consulta/reconciliacao auxiliar para `NfseReceivedDocument`, estritamente consultiva, sem criar documento recebido sem XML, sem substituir XML validado, sem manifestar automaticamente, sem `NfseItem` e sem `FiscalDocument(nfse)`.
+- OpenAPI validado permanece suficiente; nenhuma correcao oficial nova foi aplicada.
+- Nenhum codigo funcional, migration, service, view, template ou teste foi alterado nesta fase documental.
 
 ## Fase 3.4.1 - inicio
 

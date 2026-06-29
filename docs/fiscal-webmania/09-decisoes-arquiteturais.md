@@ -745,3 +745,17 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 **Consequencias:** a fase funcional futura deve adaptar a modelagem para vincular uma manifestacao a exatamente uma origem: `nfse_item` ou `received_document`. Deve bloquear provider, unknown, multiple, sem UUID, sem Padrao Nacional, status terminal/incerto e cross-workshop. Nao criar `NfseItem`, nao criar `FiscalDocument(nfse)`, nao alterar XML recebido e nao reusar permissoes de importacao como permissao de manifestacao.
 
 **OpenAPI:** nenhuma alteracao. O contrato oficial ja esta representado para manifestacao, webhook, consulta e status.
+
+## ADR - Fase 3.13.0: proximo bloco apos fechamento NFS-e
+
+**Status:** em planejamento documental em 2026-06-29.
+
+**Contexto:** a Fase 3.12.1 foi validada no checkpoint `6cc3a788`, fechando os principais fluxos NFS-e atuais: cancelamento legado, substituicao, manifestacao Padrao Nacional, preview/emissao/cancelamento/substituicao manual, registro de NFS-e recebida por XML e manifestacao de NFS-e recebida. A manifestacao recebida estendeu `NfseManifestation` para `NfseReceivedDocument` sem criar `NfseItem` ou `FiscalDocument(nfse)`.
+
+**Decisao:** escolher consulta/reconciliacao auxiliar de `NfseReceivedDocument` como proxima recomendacao, desde que seja estritamente consultiva.
+
+**Justificativa:** o documento recebido validado por XML agora fornece fonte local suficiente para consulta segura: oficina, empresa, UUID/identificador, XML/hash, CNPJs e papel fiscal. `GET /2/nfse/consulta/{identifier}` e `/2/nfse/status` podem reduzir incerteza operacional e apoiar manifestacao/reconciliacao, reaproveitando infraestrutura NFS-e existente. Importacao em lote tem valor, mas exige UX e processamento parcial; e-mail/ERP e novas familias abrem dependencias externas maiores; eventos IBS/CBS, creditos/debitos e complementar tributaria continuam dependentes de fontes fiscais especificas.
+
+**Consequencias:** a futura consulta nao pode criar NFS-e recebida sem XML, substituir XML validado, recalcular papel fiscal, criar manifestacao automaticamente, criar `NfseItem` ou criar `FiscalDocument(nfse)`. Manifestacao manual permanece adiada. NFS-e expandida ampla, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos restantes e complementar tributaria permanecem fora do escopo imediato.
+
+**OpenAPI:** nenhuma alteracao. O schema validado atual permanece suficiente para consulta, status, manifestacao e webhooks.
