@@ -142,9 +142,10 @@
 
                     <div class="col-span-12 lg:col-span-4">{{ company_form.unidade_empresa|as_crispy_field }}</div>
                     <div class="col-span-12 lg:col-span-4">{{ company_form.regime_tributario|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ company_form.telefone|as_crispy_field }}</div>
                     <div class="col-span-12 lg:col-span-4">
                         <div class="flex items-end gap-2">
-                            <div class="flex-1">{{ company_form.telefone|as_crispy_field }}</div>
+                            <div class="flex-1">{{ company_form.whatsapp_phone|as_crispy_field }}</div>
                             <div class="flex items-center gap-1 pb-3">
                                 <template x-if="whatsappChecking">
                                     <span class="loading loading-spinner loading-sm"></span>
