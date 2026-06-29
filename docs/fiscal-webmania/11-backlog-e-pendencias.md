@@ -388,3 +388,12 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Importacao em lote de XML, integracao e-mail/ERP e NFS-e expandida ampla permanecem adiadas ate subfase propria.
 - Manifestacao da NFS-e manual permanece adiada por papel fiscal inseguro.
 - CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria seguem nao iniciados.
+
+## Apos a Fase 3.13.1
+
+- Consulta/reconciliacao auxiliar de NFS-e recebida implementada e validada tecnicamente.
+- `NfseReceivedDocumentConsultation` registra snapshot remoto e divergencias sem alterar `NfseReceivedDocument`.
+- Pendencias remanescentes: importacao em lote de XML, integracao e-mail/ERP, eventual consulta como fonte de descoberta apenas apos fase propria, relatorios/reconciliacao operacional ampliada e consolidacao `FiscalDocument(nfse)` sob demanda.
+- Manifestacao da NFS-e manual permanece adiada por papel fiscal inseguro.
+- Emissao, cancelamento e substituicao de NFS-e recebida continuam fora de escopo.
+- CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria seguem nao iniciados.

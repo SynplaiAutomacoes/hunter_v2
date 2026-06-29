@@ -1228,7 +1228,7 @@ OpenAPI: nenhuma alteracao aplicada.
 
 ## Fase 3.13.0 - Reavaliacao do Roadmap apos Fechamento do Bloco NFS-e
 
-Status: **em planejamento documental em 2026-06-29**. A Fase 3.12.1 foi validada e encerrada no checkpoint `6cc3a788`.
+Status: **validada documentalmente em 2026-06-29** no checkpoint `d83b37dc`. A Fase 3.12.1 foi validada e encerrada no checkpoint `6cc3a788`.
 
 Escopo autorizado: somente `docs/fiscal-webmania/**` e, se houver correcao oficialmente confirmada, `docs/fiscal-webmania/api/webmania_fiscal_openapi_validated.json`. Nenhum codigo funcional, migration, service, view, template ou teste deve ser alterado nesta fase.
 
@@ -1294,6 +1294,18 @@ Justificativa: o bloco recebido agora possui fonte local suficiente (`NfseReceiv
 - Criterios de aceite: consulta auxiliar implementada sem fonte primaria nova; nenhum documento recebido e criado sem XML; XML validado permanece fonte de verdade; nenhuma manifestacao automatica; nenhuma emissao/cancelamento/substituicao; nenhum `NfseItem`; nenhum `FiscalDocument(nfse)`; testes determinísticos com gateway mockado.
 
 OpenAPI: o schema atual permanece suficiente; nenhuma correcao oficial nova foi confirmada nesta reavaliacao.
+
+## Fase 3.13.1 - Consulta/Reconciliacao Auxiliar para NFS-e Recebida
+
+Status: **validada tecnicamente em 2026-06-29**. A Fase 3.13.0 foi validada documentalmente no checkpoint `d83b37dc`.
+
+Escopo autorizado: implementar consulta GET-only para `NfseReceivedDocument` ja registrado por XML validado. A consulta deve ser apoio consultivo e nao pode criar documento recebido sem XML, substituir XML/hash/dados fiscais extraidos, manifestar automaticamente, criar `NfseItem`, criar `FiscalDocument(nfse)` ou executar emissao, cancelamento ou substituicao.
+
+Modelagem planejada: preferir entidade propria de snapshot consultivo (`NfseReceivedDocumentConsultation` ou equivalente), preservando `NfseReceivedDocument` como fonte primaria imutavel.
+
+Criterios de aceite cumpridos: consulta por identificador seguro; resposta sanitizada; divergencias registradas sem sobrescrita; permissoes especificas; feature flag propria; UI minima no detalhe da recebida; nenhuma regressao da importacao XML ou da manifestacao de recebida.
+
+Validacao tecnica: migration `0071`; testes focados `FiscalPhaseThreeNfseReceivedConsultationTests`; bateria fiscal direcionada com importacao XML, manifestacao recebida, consulta recebida e fluxos NFS-e manuais/legados; `makemigrations finance --check --dry-run`; Ruff nos Python tocados; `git diff --check`.
 
 ## Fase 3.11.0 - Planejamento Tecnico da NFS-e Recebida/Importada de Terceiros
 

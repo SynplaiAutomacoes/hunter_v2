@@ -1079,3 +1079,18 @@ Fonte oficial revalidada em 2026-06-29: [documentacao oficial Webmania NFS-e](ht
 Decisao API: **Opcao A**, implementar em fase futura a manifestacao de NFS-e recebida, porque o contrato remoto e o mesmo ja validado para `NfseManifestation` e o novo `NfseReceivedDocument` fornece identidade/papel fiscal que faltavam. O ajuste necessario e local: vincular `NfseManifestation` a documento recebido validado sem criar `NfseItem` ou `FiscalDocument(nfse)`.
 
 OpenAPI: nenhuma alteracao aplicada; nao houve correcao oficial nova. O schema atual permanece suficiente para `POST /2/nfse/manifestar`, webhook `manifestacao_nfse`, consulta e status.
+
+## Fase 3.13.1 - matriz API da consulta auxiliar de NFS-e recebida
+
+A Fase 3.13.0 foi validada documentalmente no checkpoint `d83b37dc`. A decisao aprovada permite consulta/reconciliacao auxiliar de `NfseReceivedDocument` ja registrado por XML, sem transformar consulta em fonte primaria.
+
+| Endpoint | Uso nesta fase | Restricao Hunter |
+| --- | --- | --- |
+| `GET /2/nfse/consulta/{identifier}` | consultar documento recebido existente por UUID ou identificador extraido do XML | GET-only; grava snapshot consultivo; nao cria documento, nao altera XML/hash/dados extraidos e nao manifesta |
+| `GET /2/nfse/status` | apoio informativo de capacidade/status municipal quando aplicavel | nao substitui capability local nem libera manifestacao automaticamente |
+| `POST /2/nfse/manifestar` | fora do escopo da consulta | nao chamar nesta fase |
+| `POST /2/nfse/emissao`, `PUT /2/nfse/cancelar`, `POST /2/nfse/substituir` | fora do escopo | nao chamar nesta fase |
+
+Identificador seguro: preferir `uuid`; usar `access_key_or_identifier` apenas quando UUID estiver ausente e o campo tiver vindo do XML validado. `verification_code + municipio + ambiente` permanece fora desta implementacao por nao haver contrato local seguro suficiente.
+
+OpenAPI: nenhuma alteracao aplicada; o schema atual ja cobre consulta, status, manifestacao e webhooks.

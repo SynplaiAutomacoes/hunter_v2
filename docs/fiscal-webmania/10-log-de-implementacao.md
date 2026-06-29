@@ -233,6 +233,24 @@
 - Decisao recomendada: **Opcao A**, planejar consulta/reconciliacao auxiliar para `NfseReceivedDocument`, estritamente consultiva, sem criar documento recebido sem XML, sem substituir XML validado, sem manifestar automaticamente, sem `NfseItem` e sem `FiscalDocument(nfse)`.
 - OpenAPI validado permanece suficiente; nenhuma correcao oficial nova foi aplicada.
 - Nenhum codigo funcional, migration, service, view, template ou teste foi alterado nesta fase documental.
+- Status posterior: Fase 3.13.0 validada documentalmente e commitada no checkpoint `d83b37dc`.
+
+## Fase 3.13.1 - inicio da consulta auxiliar de NFS-e recebida
+
+- Fase 3.13.0 aprovada no checkpoint `d83b37dc`.
+- Autorizada implementacao somente de consulta/reconciliacao auxiliar para `NfseReceivedDocument` ja validado por XML.
+- Escopo: GET-only por `GET /2/nfse/consulta/{identifier}` e, se aplicavel, apoio de `/2/nfse/status`, com resultado consultivo e nao destrutivo.
+- Devem permanecer imutaveis: `xml_snapshot`, `xml_hash`, UUID, CNPJs, municipio, ambiente, valor, papel fiscal e demais dados extraidos do XML.
+- Permanecem fora de escopo: criacao de documento recebido sem XML, manifestacao automatica, `NfseItem`, `FiscalDocument(nfse)`, emissao/cancelamento/substituicao de recebida, lote, e-mail/ERP e fases fiscais posteriores.
+
+## Fase 3.13.1 - implementacao e validacao tecnica
+
+- Criados `WebmaniaCompany.nfse_received_consultation_enabled` e `NfseReceivedDocumentConsultation` pela migration `0071`.
+- Implementado service consultivo para `NfseReceivedDocument` validado por XML, usando somente `GET /2/nfse/consulta/{identifier}` e registrando snapshot remoto separado.
+- Divergencias de UUID, status remoto, CNPJs, municipio, ambiente, valor e Padrao Nacional sao registradas sem alterar XML/hash/dados extraidos do documento recebido.
+- UI minima no detalhe de NFS-e recebida, historico de consultas, payload protegido e permissoes especificas de consulta/payload.
+- Validacoes: `makemigrations finance --check --dry-run` OK; 4 testes focados OK; 73 testes fiscais direcionados OK; Ruff nos Python tocados OK; `git diff --check` OK.
+- Nao foram iniciados manifestacao manual, emissao, cancelamento/substituicao de recebida, importacao por consulta, lote, e-mail/ERP, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes ou complementar tributaria.
 
 ## Fase 3.4.1 - inicio
 

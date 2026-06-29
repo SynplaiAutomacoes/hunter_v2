@@ -14,9 +14,10 @@ from django.views.generic import DetailView, FormView, ListView
 
 from apps.finance.forms.nfse_received import NfseReceivedDocumentUploadForm
 from apps.core.forms import CoreForm
-from apps.finance.models.finance import FiscalEmissionAttemptStatus, NfseManifestation, NfseReceivedDocument
+from apps.finance.models.finance import FiscalEmissionAttemptStatus, NfseManifestation, NfseReceivedDocument, NfseReceivedDocumentConsultation
 from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
 from apps.finance.services.nfse_manifestation import NfseManifestationError, is_nfse_received_document_eligible_for_manifestation, manifest_nfse_received_document, nfse_received_document_manifestation_block_reason
+from apps.finance.services.nfse_received_consultation import NfseReceivedConsultationError, consult_nfse_received_document, is_nfse_received_document_eligible_for_consultation, nfse_received_document_consultation_block_reason
 from apps.finance.services.nfse_received import NfseReceivedImportError, import_nfse_received_xml
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -46,6 +47,10 @@ class NfseReceivedManifestationForm(CoreForm):
         if reason and reason != "9" and justification:
             self.add_error("rejection_justification", "Justificativa deve ser enviada somente para motivo 9.")
         return cleaned
+
+
+class NfseReceivedConsultationForm(CoreForm):
+    confirmed = forms.BooleanField(label="Confirmo que a consulta Webmania e apenas auxiliar e nao substitui o XML validado.", required=True)
 
 
 class NfseReceivedDocumentPermissionMixin(LoginRequiredMixin, WorkshopScopedMixin):
@@ -106,6 +111,13 @@ class NfseReceivedDocumentDetailView(NfseReceivedDocumentPermissionMixin, Detail
         context["can_issue_manifestation"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfsemanifestation", codename="issue_nfse_manifestation", request=self.request)
         context["can_view_manifestation_payload"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfsemanifestation", codename="view_nfse_manifestation_payload", request=self.request)
         context["can_download_manifestation"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfsemanifestation", codename="download_nfse_manifestation", request=self.request)
+        context["can_consult_received"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfsereceiveddocumentconsultation", codename="consult_nfse_received", request=self.request)
+        context["can_view_consultation_payload"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfsereceiveddocumentconsultation", codename="view_nfse_received_consultation_payload", request=self.request)
+        context["consultation_form"] = NfseReceivedConsultationForm()
+        context["consultation_eligible"] = is_nfse_received_document_eligible_for_consultation(self.object)
+        context["consultation_block_reason"] = nfse_received_document_consultation_block_reason(self.object)
+        context["consultations"] = self.object.consultations.order_by("-criado_em")
+        context["latest_consultation"] = context["consultations"].first()
         context["manifestation_form"] = NfseReceivedManifestationForm()
         context["manifestation_eligible"] = is_nfse_received_document_eligible_for_manifestation(self.object)
         context["manifestation_block_reason"] = nfse_received_document_manifestation_block_reason(self.object)
@@ -138,6 +150,49 @@ class NfseReceivedDocumentXmlDownloadView(NfseReceivedDocumentPermissionMixin, V
         response = HttpResponse(document.xml_snapshot, content_type="application/xml; charset=utf-8")
         response["Content-Disposition"] = f'attachment; filename="nfse-recebida-{document.pk}.xml"'
         return response
+
+
+class NfseReceivedDocumentConsultationIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfsereceiveddocumentconsultation"
+    workshop_permission_codename = "consult_nfse_received"
+
+    def post(self, request, *args, **kwargs):
+        document = get_object_or_404(NfseReceivedDocument.objects.filter(workshop=self.workshop).select_related("company"), pk=kwargs["pk"])
+        form = NfseReceivedConsultationForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Confirme explicitamente que a consulta e apenas auxiliar.")
+            return redirect("finance:nfse_received_document_detail", pk=document.pk)
+        try:
+            consultation = consult_nfse_received_document(document=document, consulted_by=request.user)
+        except NfseReceivedConsultationError as exc:
+            messages.error(request, "; ".join(getattr(exc, "messages", [str(exc)])))
+            return redirect("finance:nfse_received_document_detail", pk=document.pk)
+        if consultation.divergences:
+            messages.warning(request, "Consulta Webmania concluida com divergencias consultivas. O XML validado nao foi alterado.")
+        else:
+            messages.success(request, "Consulta Webmania concluida sem substituir o XML validado.")
+        return redirect("finance:nfse_received_document_detail", pk=document.pk)
+
+
+class NfseReceivedDocumentConsultationPayloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfsereceiveddocumentconsultation"
+    workshop_permission_codename = "view_nfse_received_consultation_payload"
+
+    def get(self, request, *args, **kwargs):
+        consultation = get_object_or_404(NfseReceivedDocumentConsultation, pk=kwargs["consultation_pk"], received_document_id=kwargs["pk"], workshop=self.workshop)
+        return JsonResponse(
+            {
+                "request": consultation.request_metadata,
+                "response": consultation.response_payload,
+                "remote_status": consultation.remote_status,
+                "remote_uuid": consultation.remote_uuid,
+                "national_standard_confirmed": consultation.national_standard_confirmed,
+                "divergences": consultation.divergences,
+                "validation_errors": consultation.validation_errors,
+            }
+        )
 
 
 class NfseReceivedDocumentManifestationIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):

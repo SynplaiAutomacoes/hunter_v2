@@ -887,3 +887,19 @@ Para `3.12.1 - Manifestacao de NFS-e Recebida`, planejar:
 - substituicao manual continua funcionando;
 - NFS-e legada nao regride;
 - NF-e/NFC-e nao regridem.
+
+## Cobertura adicionada na Fase 3.13.1
+
+Novos testes em `FiscalPhaseThreeNfseReceivedConsultationTests` cobrem:
+
+- consulta de `NfseReceivedDocument` por UUID seguro;
+- uso de `GET /2/nfse/consulta/{identifier}`;
+- registro de snapshot consultivo com payload sanitizado, status remoto e Padrao Nacional quando retornado;
+- preservacao de XML, hash, UUID, CNPJs, municipio, ambiente, valor e role fiscal;
+- ausencia de `NfseItem`, `FiscalDocument(nfse)`, `NfseManifestation` e `FiscalEmissionAttempt`;
+- ausencia de POST de manifestacao, emissao, cancelamento ou substituicao;
+- divergencias de UUID, status, CNPJ, municipio, ambiente, valor e Padrao Nacional registradas sem sobrescrita;
+- bloqueio por feature flag desligada, XML ausente, hash ausente e identificador inseguro;
+- permissao especifica para consultar e payload protegido.
+
+Regressoes obrigatorias da fase: importacao recebida, manifestacao recebida, manifestacao NFS-e existente, emissao manual, cancelamento manual e substituicao manual.

@@ -798,3 +798,28 @@ Bloqueios obrigatorios antes de criar a intencao:
 - tentativa ativa/concluida/incerta para o mesmo documento, evento e manifestador.
 
 Webhook `modelo=manifestacao_nfse` deve continuar resolvendo por UUID remoto unico da manifestacao. Se houver colisao entre manifestacao local e recebida, o evento fica pendente; nao deve cair para UUID da NFS-e original. Reconciliacao de manifestacao recebida deve exigir UUID remoto da manifestacao e nunca repetir `POST /2/nfse/manifestar`.
+
+## Fase 3.13.1 - seguranca da consulta auxiliar de recebida
+
+A consulta auxiliar e GET-only e nao usa `FiscalEmissionAttempt`, porque timeout/falha de leitura nao prova alteracao fiscal remota nem deve reservar intencao.
+
+Bloqueios antes da consulta:
+
+- documento nao pertence a oficina ativa;
+- origem diferente de XML;
+- `validation_status` diferente de `validated`;
+- `xml_snapshot` ausente;
+- `xml_hash` ausente;
+- UUID e identificador seguro ausentes;
+- flag `nfse_received_consultation_enabled=False`;
+- usuario sem `consult_nfse_received`.
+
+Garantias apos a consulta:
+
+- resposta remota e sanitizada;
+- divergencias sao registradas em `NfseReceivedDocumentConsultation.divergences`;
+- XML, hash, CNPJs, municipio, ambiente, valor, role fiscal e payload parseado nao sao sobrescritos;
+- retorno cancelado/substituido/anulado e consultivo, nao cria cancelamento/substituicao local;
+- consulta nao cria `NfseManifestation`, nao chama `POST /2/nfse/manifestar`, nao cria `NfseItem`, nao cria `FiscalDocument(nfse)` e nao cria documento recebido sem XML.
+
+Webhook sem documento recebido previamente validado continua pendente/fora do escopo desta fase.

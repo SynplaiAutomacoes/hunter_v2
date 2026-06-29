@@ -15847,6 +15847,185 @@ class FiscalPhaseThreeNfseReceivedDocumentTests(TestCase):
         self.assertIn(document.xml_snapshot, xml_response.content.decode())
 
 
+class FiscalPhaseThreeNfseReceivedConsultationTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=94)
+        self.company = WebmaniaCompany.objects.create(
+            workshop=self.workshop,
+            webmania_company_id="NFSE-RECEIVED-CONSULT",
+            cnpj="11.222.333/0001-81",
+            bearer_access_token="encrypted-token",
+            cidade="Sao Paulo",
+            uf="SP",
+            nfse_received_import_enabled=True,
+            nfse_received_consultation_enabled=True,
+        )
+
+    def _xml(
+        self,
+        *,
+        uuid: str = "66000000-0000-0000-0000-000000002001",
+        identifier: str = "NFSE-REC-CONS-0001",
+        provider_tax_id: str = "22.333.444/0001-55",
+        taker_tax_id: str = "11.222.333/0001-81",
+        status: str = "Autorizada",
+        amount: str = "1234.56",
+    ) -> bytes:
+        return f"""
+        <CompNfse>
+            <Nfse>
+                <InfNfse Id="{identifier}">
+                    <Uuid>{uuid}</Uuid>
+                    <Numero>{identifier}</Numero>
+                    <CodigoVerificacao>COD-{identifier}</CodigoVerificacao>
+                    <DataEmissao>2026-06-20T10:30:00-03:00</DataEmissao>
+                    <Ambiente>2</Ambiente>
+                    <Situacao>{status}</Situacao>
+                    <Prestador><CpfCnpj>{provider_tax_id}</CpfCnpj></Prestador>
+                    <Tomador><CpfCnpj>{taker_tax_id}</CpfCnpj></Tomador>
+                    <Servico><Valores><ValorServicos>{amount}</ValorServicos></Valores><CodigoMunicipio>3550308</CodigoMunicipio></Servico>
+                </InfNfse>
+            </Nfse>
+        </CompNfse>
+        """.encode()
+
+    def _import(self, xml: bytes | None = None) -> NfseReceivedDocument:
+        from apps.finance.services.nfse_received import import_nfse_received_xml
+
+        return import_nfse_received_xml(workshop=self.workshop, company=self.company, xml_bytes=xml or self._xml(), created_by=self.user)
+
+    def _consult(self, document: NfseReceivedDocument, payload: dict[str, Any] | None = None):
+        from apps.finance.services.nfse_received_consultation import consult_nfse_received_document
+
+        response_payload = payload or {"modelo": "nfse", "uuid": document.uuid, "status": "Autorizada", "padrao_nacional": True, "valor_servicos": "1234.56", "cnpj_prestador": document.provider_tax_id, "cnpj_tomador": document.taker_tax_id, "codigo_municipio": document.municipality_code, "ambiente": document.environment}
+        with (
+            patch("apps.finance.services.nfse_consulta._build_headers", return_value={"X-Test": "ok"}),
+            patch("apps.finance.services.nfse_consulta.requests.get", return_value=_mock_response(response_payload)) as get_mock,
+            patch("apps.finance.services.nfse_manifestation.requests.post") as manifest_post_mock,
+            patch("requests.post") as generic_post_mock,
+            patch("requests.put") as generic_put_mock,
+        ):
+            consultation = consult_nfse_received_document(document=document, consulted_by=self.user)
+        return consultation, get_mock, manifest_post_mock, generic_post_mock, generic_put_mock
+
+    def test_consults_received_nfse_by_uuid_and_records_only_consultive_snapshot(self) -> None:
+        document = self._import()
+        original_values = {
+            "xml_snapshot": document.xml_snapshot,
+            "xml_hash": document.xml_hash,
+            "uuid": document.uuid,
+            "provider_tax_id": document.provider_tax_id,
+            "taker_tax_id": document.taker_tax_id,
+            "municipality_code": document.municipality_code,
+            "environment": document.environment,
+            "service_amount": document.service_amount,
+            "role": document.role,
+        }
+
+        consultation, get_mock, manifest_post_mock, generic_post_mock, generic_put_mock = self._consult(document)
+
+        self.assertIn(f"/2/nfse/consulta/{document.uuid}", get_mock.call_args.args[0])
+        self.assertEqual(consultation.received_document, document)
+        self.assertEqual(consultation.identifier, document.uuid)
+        self.assertEqual(consultation.identifier_source, "uuid")
+        self.assertEqual(consultation.remote_status, "Autorizada")
+        self.assertEqual(consultation.remote_uuid, document.uuid)
+        self.assertIs(consultation.national_standard_confirmed, True)
+        self.assertEqual(consultation.divergences, [])
+        document.refresh_from_db()
+        for field, value in original_values.items():
+            self.assertEqual(getattr(document, field), value, field)
+        self.assertEqual(NfseReceivedDocument.objects.count(), 1)
+        self.assertEqual(NfseItem.objects.count(), 0)
+        self.assertEqual(FiscalDocument.objects.count(), 0)
+        self.assertEqual(NfseManifestation.objects.count(), 0)
+        self.assertEqual(FiscalEmissionAttempt.objects.count(), 0)
+        manifest_post_mock.assert_not_called()
+        generic_post_mock.assert_not_called()
+        generic_put_mock.assert_not_called()
+
+    def test_consultation_records_divergences_without_overwriting_validated_xml_data(self) -> None:
+        document = self._import()
+        original_xml = document.xml_snapshot
+        original_hash = document.xml_hash
+
+        consultation, *_ = self._consult(
+            document,
+            payload={
+                "modelo": "nfse",
+                "uuid": "77000000-0000-0000-0000-000000002001",
+                "status": "Cancelada",
+                "padrao_nacional": False,
+                "valor_servicos": "999.99",
+                "cnpj_prestador": "99.888.777/0001-66",
+                "cnpj_tomador": document.taker_tax_id,
+                "codigo_municipio": "3304557",
+                "ambiente": "1",
+            },
+        )
+
+        fields = {item["field"] for item in consultation.divergences}
+        self.assertIn("uuid", fields)
+        self.assertIn("remote_status", fields)
+        self.assertIn("provider_tax_id", fields)
+        self.assertIn("municipality_code", fields)
+        self.assertIn("environment", fields)
+        self.assertIn("service_amount", fields)
+        self.assertIn("national_standard", fields)
+        document.refresh_from_db()
+        self.assertEqual(document.xml_snapshot, original_xml)
+        self.assertEqual(document.xml_hash, original_hash)
+        self.assertEqual(document.uuid, "66000000-0000-0000-0000-000000002001")
+        self.assertEqual(document.provider_tax_id, "22333444000155")
+        self.assertEqual(document.municipality_code, "3550308")
+        self.assertEqual(document.environment, "2")
+        self.assertEqual(document.role, NfseReceivedDocument.Role.TAKER)
+
+    def test_blocks_ineligible_documents_and_feature_flag_without_remote_call(self) -> None:
+        from apps.finance.services.nfse_received_consultation import NfseReceivedConsultationError, consult_nfse_received_document
+
+        document = self._import()
+        self.company.nfse_received_consultation_enabled = False
+        self.company.save(update_fields=["nfse_received_consultation_enabled"])
+        with patch("apps.finance.services.nfse_consulta.requests.get") as get_mock, self.assertRaisesMessage(NfseReceivedConsultationError, "nao esta habilitada"):
+            consult_nfse_received_document(document=document, consulted_by=self.user)
+        get_mock.assert_not_called()
+
+        self.company.nfse_received_consultation_enabled = True
+        self.company.save(update_fields=["nfse_received_consultation_enabled"])
+        NfseReceivedDocument.objects.filter(pk=document.pk).update(xml_snapshot="")
+        document.refresh_from_db()
+        with patch("apps.finance.services.nfse_consulta.requests.get") as get_mock, self.assertRaisesMessage(NfseReceivedConsultationError, "XML recebido"):
+            consult_nfse_received_document(document=document, consulted_by=self.user)
+        get_mock.assert_not_called()
+
+        NfseReceivedDocument.objects.filter(pk=document.pk).update(xml_snapshot="<CompNfse />", xml_hash="", uuid="", access_key_or_identifier="", verification_code="")
+        document.refresh_from_db()
+        with patch("apps.finance.services.nfse_consulta.requests.get") as get_mock, self.assertRaises(NfseReceivedConsultationError):
+            consult_nfse_received_document(document=document, consulted_by=self.user)
+        get_mock.assert_not_called()
+
+    def test_consultation_views_require_specific_permissions_and_protect_payload(self) -> None:
+        from apps.finance.views.nfse_received import NfseReceivedDocumentConsultationIssueView
+
+        document = self._import()
+        request = RequestFactory().post("/", data={"confirmed": "on"})
+        request.user = self.user
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=False), self.assertRaises(PermissionDenied):
+            NfseReceivedDocumentConsultationIssueView.as_view()(request, pk=document.pk)
+
+        consultation, *_ = self._consult(document)
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+        with patch("apps.workshops.mixin.has_workshop_perm", return_value=True):
+            response = self.client.get(reverse("finance:nfse_received_document_consultation_payload", kwargs={"pk": document.pk, "consultation_pk": consultation.pk}))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["request"]["method"], "GET")
+        self.assertEqual(response.json()["response"]["uuid"], document.uuid)
+
+
 class FiscalPhaseThreeNfseReceivedManifestationTests(TestCase):
     def setUp(self) -> None:
         from apps.finance.models.finance import NfseMunicipalCapability

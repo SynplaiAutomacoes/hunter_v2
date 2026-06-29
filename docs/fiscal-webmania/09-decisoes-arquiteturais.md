@@ -759,3 +759,13 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 **Consequencias:** a futura consulta nao pode criar NFS-e recebida sem XML, substituir XML validado, recalcular papel fiscal, criar manifestacao automaticamente, criar `NfseItem` ou criar `FiscalDocument(nfse)`. Manifestacao manual permanece adiada. NFS-e expandida ampla, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos restantes e complementar tributaria permanecem fora do escopo imediato.
 
 **OpenAPI:** nenhuma alteracao. O schema validado atual permanece suficiente para consulta, status, manifestacao e webhooks.
+
+## ADR - Fase 3.13.1: consulta recebida como snapshot auxiliar
+
+**Status:** implementado e validado tecnicamente em 2026-06-29.
+
+**Decisao:** representar a consulta remota de NFS-e recebida em entidade propria (`NfseReceivedDocumentConsultation`), vinculada ao `NfseReceivedDocument`, sem promover a resposta Webmania a fonte primaria.
+
+**Justificativa:** o XML validado continua sendo a evidencia local principal de identidade, papel fiscal e dados tributarios. A consulta remota e util para reconciliacao operacional, mas pode divergir do XML e nao deve sobrescrever hash, snapshot, UUID, CNPJs, municipio, ambiente ou valor extraidos.
+
+**Consequencias:** a consulta usa somente GET, depende de feature flag e permissao propria, registra divergencias auditaveis e nao cria `NfseItem`, `FiscalDocument(nfse)`, `FiscalEmissionAttempt` ou manifestacao automatica. Importacao por consulta, lote e integracoes externas continuam fases futuras.

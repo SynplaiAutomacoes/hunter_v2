@@ -522,6 +522,7 @@ class WebmaniaCompany(TimeStampedModel):
     nfse_manual_emission_preview_enabled = models.BooleanField(verbose_name="Preview de emissao manual NFS-e habilitada", default=False)
     nfse_manual_emission_enabled = models.BooleanField(verbose_name="Emissao manual NFS-e habilitada", default=False)
     nfse_received_import_enabled = models.BooleanField(verbose_name="Importacao de NFS-e recebida habilitada", default=False)
+    nfse_received_consultation_enabled = models.BooleanField(verbose_name="Consulta de NFS-e recebida habilitada", default=False)
     desativar_epec = models.CharField(verbose_name="Desativar EPEC", max_length=4, blank=True, default="")
     ocultar_total_etiqueta = models.CharField(verbose_name="Ocultar total etiqueta", max_length=4, blank=True, default="")
 
@@ -1459,6 +1460,47 @@ class NfseReceivedDocument(TimeStampedModel):
     def __str__(self) -> str:
         identifier = self.uuid or self.access_key_or_identifier or self.xml_hash[:12]
         return f"NfseReceivedDocument[{self.workshop_id}:{identifier}]"
+
+
+class NfseReceivedDocumentConsultation(TimeStampedModel):
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="nfse_received_consultations")
+    received_document = models.ForeignKey(NfseReceivedDocument, verbose_name="NFS-e recebida", on_delete=models.CASCADE, related_name="consultations")
+    identifier = models.CharField(verbose_name="Identificador consultado", max_length=120, db_index=True)
+    identifier_source = models.CharField(verbose_name="Origem do identificador", max_length=32)
+    request_metadata = models.JSONField(verbose_name="Metadados da consulta", default=dict, blank=True)
+    response_payload = models.JSONField(verbose_name="Resposta sanitizada", default=dict, blank=True)
+    remote_status = models.CharField(verbose_name="Status remoto consultado", max_length=60, blank=True, default="")
+    remote_uuid = models.CharField(verbose_name="UUID remoto consultado", max_length=64, blank=True, default="", db_index=True)
+    remote_updated_at = models.DateTimeField(verbose_name="Atualizacao remota consultada", null=True, blank=True)
+    national_standard_confirmed = models.BooleanField(verbose_name="Padrao Nacional confirmado pela consulta", null=True, blank=True)
+    divergences = models.JSONField(verbose_name="Divergencias consultivas", default=list, blank=True)
+    validation_errors = models.JSONField(verbose_name="Erros da consulta", default=list, blank=True)
+    consulted_by = models.ForeignKey("accounts.User", verbose_name="Consultado por", on_delete=models.SET_NULL, null=True, blank=True, related_name="nfse_received_consultations")
+
+    class Meta(TimeStampedModel.Meta):
+        indexes = [
+            models.Index(fields=["workshop", "received_document", "-criado_em"], name="nfse_recv_cons_doc_time_idx"),
+            models.Index(fields=["workshop", "remote_uuid"], name="nfse_recv_cons_uuid_idx"),
+        ]
+        permissions = [
+            ("consult_nfse_received", "Pode consultar NFS-e recebida na Webmania"),
+            ("view_nfse_received_consultation", "Pode visualizar consultas de NFS-e recebida"),
+            ("view_nfse_received_consultation_payload", "Pode visualizar payload de consulta de NFS-e recebida"),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if self.received_document_id and self.workshop_id and self.received_document.workshop_id != self.workshop_id:
+            raise ValidationError({"received_document": "A NFS-e recebida pertence a outra oficina."})
+        if not str(self.identifier or "").strip():
+            raise ValidationError({"identifier": "Informe o identificador consultado."})
+
+    def save(self, *args, **kwargs) -> None:
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"NfseReceivedDocumentConsultation[{self.received_document_id}:{self.identifier}]"
 
 
 class NfeItem(models.Model):

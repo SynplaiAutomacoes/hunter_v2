@@ -650,3 +650,24 @@ UI minima:
 - aviso de que XML recebido e dados fiscais extraidos permanecem imutaveis.
 
 Nao exibir manifestacao para `provider`, `unknown`, `multiple`, documento cancelado/substituido/uncertain, sem UUID, sem Padrao Nacional, duplicado ou cross-workshop.
+
+## Fase 3.13.1 - UX e permissoes da consulta auxiliar recebida
+
+Permissoes implementadas em `NfseReceivedDocumentConsultation`:
+
+- `consult_nfse_received`;
+- `view_nfse_received_consultation`;
+- `view_nfse_received_consultation_payload`.
+
+Permissoes de importar recebida, manifestar, emitir, cancelar ou substituir nao autorizam consulta por si so.
+
+UI minima:
+
+- detalhe de `NfseReceivedDocument` mostra ultimo status consultivo;
+- botao "Consultar Webmania" aparece somente quando o documento e elegivel e o usuario possui `consult_nfse_received`;
+- formulario exige confirmacao explicita de que a consulta e auxiliar e nao substitui XML;
+- historico de consultas mostra identificador, status, UUID remoto e quantidade de divergencias;
+- payload consultivo fica protegido por `view_nfse_received_consultation_payload`;
+- alertas informam divergencias sem sugerir sobrescrita de dados fiscais.
+
+Nao ha botao de importacao por identificador nesta fase e a consulta nao manifesta automaticamente.

@@ -917,3 +917,31 @@ Regra estrutural planejada: exatamente uma origem por manifestacao. Uma instanci
 Elegibilidade de recebido: `validation_status=validated`, role `taker` ou `intermediary`, UUID seguro, XML snapshot/hash preservados, mesma oficina/empresa, status nao cancelado/substituido/uncertain, Padrao Nacional e `manifestation_enabled` confirmados por capability segura. `provider`, `unknown`, `multiple`, divergente, duplicado ou cross-workshop bloqueiam.
 
 Dados preservados: a manifestacao nao altera `xml_snapshot`, `xml_hash`, CNPJs, municipio, ambiente, valor, status remoto extraido ou payload parseado do recebido. XML/artefato de manifestacao, se retornado, permanece separado em `NfseManifestation`.
+
+## Fase 3.13.1 - modelagem da consulta auxiliar de NFS-e recebida
+
+Decisao de dominio: criar `NfseReceivedDocumentConsultation` como snapshot consultivo separado de `NfseReceivedDocument`.
+
+Responsabilidade: guardar cada retorno de consulta Webmania para uma NFS-e recebida ja validada por XML. A entidade nao e fonte primaria fiscal; apenas registra metadados de consulta, resposta sanitizada, status remoto consultivo, UUID remoto consultivo, confirmacao consultiva de Padrao Nacional, divergencias e erros.
+
+Campos implementados:
+
+- `workshop`;
+- `received_document`;
+- `identifier`;
+- `identifier_source`;
+- `request_metadata`;
+- `response_payload`;
+- `remote_status`;
+- `remote_uuid`;
+- `remote_updated_at`;
+- `national_standard_confirmed`;
+- `divergences`;
+- `validation_errors`;
+- `consulted_by`.
+
+Tambem foi criada a flag `WebmaniaCompany.nfse_received_consultation_enabled`, separada de `nfse_received_import_enabled`, para permitir desligar a consulta remota sem impedir o registro local por XML.
+
+Dados preservados em `NfseReceivedDocument`: `xml_snapshot`, `xml_hash`, UUID, identificador, codigo de verificacao, CNPJs, municipio, ambiente, data, valor, status remoto extraido do XML, role fiscal e payload parseado. Divergencias da consulta nunca sobrescrevem esses campos.
+
+Nao foram criados `NfseItem`, `FiscalDocument(nfse)`, `NfseManifestation` ou `FiscalEmissionAttempt` para consulta.
