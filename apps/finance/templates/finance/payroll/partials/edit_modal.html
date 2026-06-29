@@ -1,9 +1,9 @@
-{% load crispy_forms_tags %}
+{% load crispy_forms_tags l10n %}
 
 <dialog
     id="payroll-edit-modal"
     class="modal"
-    x-data="{ activeTab: 'collaborator' }"
+    x-data="{ activeTab: 'payment' }"
     x-ref="payrollEditModal"
     x-init="$nextTick(() => $el.showModal())"
     @click="if ($event.target === $el) $el.close()"
@@ -16,7 +16,7 @@
                     <span class="material-icons text-primary">payments</span>
                     Editar Folha de Pagamento
                 </h3>
-                <p class="mt-1 text-sm text-base-content/65">{{ payroll.collaborator.name }} · {{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year }}</p>
+                <p class="mt-1 text-sm text-base-content/65">{{ payroll.collaborator.name }} · {{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year|unlocalize }}</p>
             </div>
             <button type="button" class="btn btn-ghost btn-sm btn-circle" @click="$refs.payrollEditModal.close()" aria-label="Fechar">
                 <span class="material-icons text-xl">close</span>
@@ -75,7 +75,7 @@
                                 {% for commission in payroll.commission_entries.all %}
                                     <tr>
                                         <td>#{{ commission.workorder.get_id }}</td>
-                                        <td>{{ commission.reference_month|stringformat:'02d' }}/{{ commission.reference_year }}</td>
+                                        <td>{{ commission.reference_month|stringformat:'02d' }}/{{ commission.reference_year|unlocalize }}</td>
                                         <td>{{ commission.base_amount }}</td>
                                         <td>{{ commission.percentage|floatformat:4 }}</td>
                                         <td class="font-semibold">{{ commission.commission_amount }}</td>

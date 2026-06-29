@@ -1,10 +1,10 @@
-{% load format_tags %}
+{% load format_tags l10n %}
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="utf-8" />
     <script src="https://cdn.tailwindcss.com"></script>
-    <title>Resumo - {{ collaborator.name }} - {{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year }}</title>
+    <title>Resumo - {{ collaborator.name }} - {{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year|unlocalize }}</title>
     <style>
         @page { size: A4; margin: 6mm; }
 
@@ -59,7 +59,7 @@
 
                 <div class="w-[260px] rounded-md bg-gray-50 p-4 text-right text-[11px]">
                     <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">Competência</p>
-                    <p class="mt-1 text-[18px] font-bold leading-none">{{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year }}</p>
+                    <p class="mt-1 text-[18px] font-bold leading-none">{{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year|unlocalize }}</p>
                     <p class="mt-4 text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">Valor previsto</p>
                     <p class="mt-1 text-[18px] font-bold leading-none text-green-700">{{ payroll.total_amount }}</p>
                     <p class="mt-4 text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">Valor pago</p>
@@ -83,7 +83,7 @@
                 <div class="rounded-md border border-gray-200 bg-white p-3">
                     <p class="text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-500">Pagamento</p>
                     <p class="mt-2 text-[13px] font-semibold">{{ payroll.due_date|date:"d/m/Y" }}</p>
-                    <p class="mt-1 text-[11px] text-gray-600">Status: {{ payroll.status_label }}</p>
+                    <p class="mt-1 text-[11px] text-gray-600">Status: {% if payroll.status == "PAID" %}Pago{% else %}Não pago{% endif %}</p>
                 </div>
                 <div class="rounded-md border border-gray-200 bg-white p-3">
                     <p class="text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-500">VT e benefícios</p>

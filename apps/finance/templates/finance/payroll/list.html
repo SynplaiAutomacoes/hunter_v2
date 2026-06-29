@@ -69,13 +69,13 @@
                                 <select id="payroll-collaborator" name="collaborator" class="select select-bordered w-full">
                                     <option value="">Todos</option>
                                     {% for collaborator in collaborator_filters %}
-                                        <option value="{{ collaborator.pk }}" {% if selected_collaborator_id == collaborator.pk %}selected{% endif %}>{{ collaborator.name }}</option>
+                                        <option value="{{ collaborator.pk|unlocalize }}" {% if selected_collaborator_id == collaborator.pk %}selected{% endif %}>{{ collaborator.name }}</option>
                                     {% endfor %}
                                 </select>
                             </div>
                             <div>
-                                <label for="payroll-status">Status</label>
-                                <select id="payroll-status" name="status" class="select select-bordered w-full">
+                                <label for="payroll-paid">Pago</label>
+                                <select id="payroll-paid" name="status" class="select select-bordered w-full">
                                     {% for value, label in status_choices %}
                                         <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
                                     {% endfor %}
@@ -112,7 +112,7 @@
                                 <tr>
                                     <th>Colaborador</th>
                                     <th>Vencimento</th>
-                                    <th>Status</th>
+                                    <th>Pago</th>
                                     <th>Salário</th>
                                     <th>VT</th>
                                     <th>Benefícios</th>
@@ -142,7 +142,9 @@
                                                 <button type="button" class="btn btn-ghost btn-xs" title="Editar folha" hx-get="{{ row.edit_url }}" hx-target="#payroll-edit-modal-container" hx-swap="innerHTML">
                                                     <span class="material-icons text-sm">edit</span>
                                                 </button>
-                                                <button type="button" class="btn btn-primary btn-xs" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{{ row.receipt_url }}', downloadUrl: '{{ row.receipt_url }}?download=1' } }))">Resumo</button>
+                                                <button type="button" class="btn btn-primary btn-xs" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{{ row.receipt_url }}', downloadUrl: '{{ row.receipt_url }}?download=1' } }))">
+                                                    Resumo
+                                                </button>
                                             </div>
                                         </td>
                                     </tr>
