@@ -12,6 +12,7 @@ from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.services.evolution_api import (
     EvolutionAPIServiceFactory,
+    WhatsAppConfigurationError,
     WhatsAppServiceError,
 )
 
@@ -39,6 +40,13 @@ class WhatsAppConnectView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 instance_name=instance_name,
                 phone=phone,
             )
+        except WhatsAppConfigurationError as exc:
+            logger.warning(
+                "whatsapp_connect_not_configured workshop_id=%s error=%s",
+                workshop.pk,
+                str(exc),
+            )
+            return JsonResponse({"ok": False, "message": str(exc)}, status=503)
         except WhatsAppServiceError as exc:
             logger.warning(
                 "whatsapp_connect_failed workshop_id=%s error=%s",
@@ -76,6 +84,13 @@ class WhatsAppStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
         try:
             service = EvolutionAPIServiceFactory.get_service()
             status_data: dict[str, Any] = service.get_status(instance_name=instance_name)
+        except WhatsAppConfigurationError as exc:
+            logger.warning(
+                "whatsapp_status_not_configured workshop_id=%s error=%s",
+                workshop.pk,
+                str(exc),
+            )
+            return JsonResponse({"ok": False, "connected": False, "message": str(exc)}, status=503)
         except WhatsAppServiceError as exc:
             logger.warning(
                 "whatsapp_status_failed workshop_id=%s error=%s",
@@ -111,6 +126,13 @@ class WhatsAppDisconnectView(LoginRequiredMixin, WorkshopScopedMixin, View):
         try:
             service = EvolutionAPIServiceFactory.get_service()
             service.delete_instance(instance_name=instance_name)
+        except WhatsAppConfigurationError as exc:
+            logger.warning(
+                "whatsapp_disconnect_not_configured workshop_id=%s error=%s",
+                workshop.pk,
+                str(exc),
+            )
+            return JsonResponse({"ok": False, "message": str(exc)}, status=503)
         except WhatsAppServiceError as exc:
             logger.warning(
                 "whatsapp_disconnect_failed workshop_id=%s error=%s",
