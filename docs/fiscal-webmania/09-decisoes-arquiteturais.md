@@ -699,3 +699,13 @@ Justificativa:
 Alternativas adiadas: manifestacao da NFS-e manual, porque depende de Padrao Nacional e papel fiscal; NFS-e recebida/importada, porque falta dominio de XML/identidade/tenancy; NFS-e expandida ampla, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos restantes e complementar tributaria, por maior dependencia externa e risco fiscal.
 
 Consequencia: a proxima fase funcional deve ser pequena e escolher explicitamente extensao do fluxo atual, nao fluxo paralelo especifico de `NfseManualEmission`.
+
+## ADR - Fase 3.9.1: substituicao manual como extensao do fluxo existente
+
+**Status:** implementado e validado tecnicamente em 2026-06-29.
+
+**Decisao:** nao criar modelo ou fluxo paralelo para substituicao da NFS-e manual. A origem manual passa a ser apenas mais uma origem elegivel de `NfseItem` original para `NfseSubstitutionPreview` e `NfseSubstitution`.
+
+**Justificativa:** o contrato remoto e identico ao fluxo ja validado de substituicao NFS-e. A diferenca relevante e local: a original pode ter `request_id=None`, desde que exista `NfseManualEmission` vinculada e confirmada. A capability vem da preview de emissao manual, e nao de `NfseRequest`.
+
+**Consequencias:** a substituta manual tambem pode nascer sem `NfseRequest`/OS; isso e intencional quando a original manual nao possui esses vinculos. `FiscalDocument(nfse)` permanece adiado. Manifestacao manual e NFS-e recebida/importada permanecem fases futuras separadas.

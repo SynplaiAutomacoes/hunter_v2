@@ -17,6 +17,7 @@
 {% if can_download and emission.xml_nfse %}<a class="btn btn-outline btn-sm" href="{% url 'finance:nfse_manual_emission_download' emission.pk 'xml' %}">XML</a>{% endif %}
 {% if can_download and emission.danfse_pdf %}<a class="btn btn-outline btn-sm" href="{% url 'finance:nfse_manual_emission_download' emission.pk 'danfse' %}">DANFSE</a>{% endif %}
 <form method="post" action="{% url 'finance:nfse_manual_emission_reconcile' emission.pk %}">{% csrf_token %}<button class="btn btn-outline btn-sm">Consultar</button></form>
+{% if can_prepare_substitution and emission.nfse_item %}<a class="btn btn-outline btn-sm" href="{% url 'finance:nfse_substitution_preview_create' %}?original_nfse={{ emission.nfse_item.pk }}">Preparar substituição</a>{% endif %}
 {% if can_cancel %}<button type="button" class="btn btn-error btn-sm" onclick="cancel_nfse_manual_modal.showModal()">Cancelar NFS-e</button>{% endif %}
 </div></div></div>
 {% if nfse_cancellation %}<div class="card bg-base-100 shadow mt-4"><div class="card-body"><h2 class="card-title">Cancelamento</h2><p>Status: {{ nfse_cancellation.get_status_display }}</p><div class="mt-2 flex flex-wrap gap-2"><a class="btn btn-outline btn-sm" href="{% url 'finance:nfse_manual_emission_cancellation_payload' emission.pk nfse_cancellation.pk %}">Payload do cancelamento</a>{% if nfse_cancellation.xml_url %}<a class="btn btn-outline btn-sm" href="{% url 'finance:nfse_manual_emission_cancellation_download' emission.pk nfse_cancellation.pk %}">XML do cancelamento</a>{% endif %}</div></div></div>{% endif %}

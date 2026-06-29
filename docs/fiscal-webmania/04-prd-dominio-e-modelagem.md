@@ -840,3 +840,18 @@ O ciclo manual minimo validado (`preview -> emissao -> cancelamento`) confirma q
 Para a proxima fase recomendada, a modelagem deve reutilizar `NfseSubstitutionPreview` e `NfseSubstitution` com elegibilidade ampliada para `NfseItem` manual. A original manual continua sendo a `NfseItem` vinculada a `NfseManualEmission`; a substituta deve ser uma nova `NfseItem`, com UUID, numero, codigo de verificacao, XML/PDF e status proprios. A preview aprovada deve congelar o novo RPS e o snapshot da original, sem recalcular a partir da emissao manual, de OS, de cliente ou de classe fiscal atual.
 
 Nao criar fluxo paralelo especifico para `NfseManualEmission` se a extensao segura do fluxo atual bastar. Nao criar `FiscalDocument(nfse)`, backfill ou dominio de NFS-e recebida/importada nesta fase.
+
+## Fase 3.9.1 - modelagem implementada para substituicao manual
+
+A Fase 3.9.1 nao criou novo modelo. `NfseSubstitutionPreview` e `NfseSubstitution` foram mantidos como trilhas unicas de substituicao NFS-e.
+
+Extensao implementada:
+
+- a elegibilidade de `NfseSubstitutionPreview` passa a aceitar `NfseItem` originado por `NfseManualEmission`;
+- quando a original tem `request_id=None`, a relacao segura exigida e `NfseItem -> NfseManualEmission`;
+- a capability de substituicao para origem manual vem de `NfseManualEmission.preview.municipal_capability`;
+- a substituta e criada como nova `NfseItem` somente apos confirmacao remota valida;
+- se a original manual nao tem `NfseRequest`/OS, a substituta tambem permanece sem `request`/`workorder`;
+- `FiscalDocument(nfse)` nao foi criado.
+
+Dados preservados: `NfseManualEmissionPreview`, `NfseManualEmission.request_payload`, XML original da NFS-e manual e snapshot do XML original. XML/PDF da substituta ficam em `NfseSubstitution`.

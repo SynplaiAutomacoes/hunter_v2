@@ -8,7 +8,7 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from apps.finance.models.finance import FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, FiscalProductPreviewStatus, NfseItem, NfseItemStatus, NfseSubstitution, NfseSubstitutionPreview, WebmaniaCompany
+from apps.finance.models.finance import FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, FiscalProductPreviewStatus, NfseItem, NfseItemStatus, NfseManualEmission, NfseSubstitution, NfseSubstitutionPreview, WebmaniaCompany
 from apps.finance.services.fiscal_attempts import FiscalEmissionAttemptBlocked, begin_emission_attempt, build_payload_hash, mark_attempt_failed, mark_attempt_sent, mark_attempt_succeeded, mark_attempt_uncertain, sanitize_fiscal_payload
 from apps.finance.services.nfse_capabilities import NfseCapabilityError, validate_nfse_substitution_capability
 from apps.finance.services.nfse_consulta import NfseConsultaError, consult_nfse_uuid
@@ -44,6 +44,21 @@ def _attempt_for(substitution: NfseSubstitution) -> FiscalEmissionAttempt | None
     return FiscalEmissionAttempt.objects.filter(workshop=substitution.workshop, document_kind=FiscalEmissionDocumentKind.NFSE, operation_type=FiscalEmissionOperationType.NFSE_SUBSTITUTION, request_model=NfseSubstitution.__name__, request_id=substitution.pk).order_by("-pk").first()
 
 
+def _manual_emission_for_item(item: NfseItem) -> NfseManualEmission | None:
+    try:
+        return item.manual_emission
+    except NfseManualEmission.DoesNotExist:
+        return None
+
+
+def _validate_manual_substitution_capability(*, emission: NfseManualEmission) -> None:
+    capability = emission.preview.municipal_capability
+    if capability.workshop_id != emission.workshop_id or capability.company_id != emission.company_id:
+        raise NfseSubstitutionError("A capacidade municipal nao pertence a empresa/oficina da emissao manual.")
+    if not capability.is_active or not capability.substitution_enabled:
+        raise NfseSubstitutionError("A substituicao NFS-e esta desabilitada para o municipio configurado.")
+
+
 def _validate_eligibility(*, preview: NfseSubstitutionPreview) -> None:
     if not preview.is_approved or preview.validation_status != FiscalProductPreviewStatus.APPROVED:
         raise NfseSubstitutionError("A substituicao exige preview aprovada.")
@@ -58,16 +73,24 @@ def _validate_eligibility(*, preview: NfseSubstitutionPreview) -> None:
         raise NfseSubstitutionError("Substituicao permitida somente para NFS-e autorizada.")
     if not original.uuid or not original.verification_code or not original.xml_url:
         raise NfseSubstitutionError("A NFS-e original exige UUID, codigo de verificacao e XML preservado.")
-    if original.request_id is None:
-        raise NfseSubstitutionError("A NFS-e original nao esta vinculada a requisicao legada.")
+    if original.cancellations.exclude(status=FiscalEmissionAttemptStatus.FAILED).exists():
+        raise NfseSubstitutionError("NFS-e com cancelamento ativo, autorizado ou incerto nao pode ser substituida.")
     if preview.request_payload != {"ambiente": int(preview.environment), "codigo_verificacao": preview.original_verification_code, "motivo": preview.reason_code, "rps": preview.rps_payload}:
         raise NfseSubstitutionError("O payload aprovado da preview esta inconsistente.")
     if "uuid" in preview.request_payload:
         raise NfseSubstitutionError("O contrato validado nao permite payload hibrido com UUID.")
-    try:
-        validate_nfse_substitution_capability(nfse_request=original.request)
-    except NfseCapabilityError as exc:
-        raise NfseSubstitutionError(str(exc)) from exc
+    manual_emission = _manual_emission_for_item(original)
+    if original.request_id is None and manual_emission is None:
+        raise NfseSubstitutionError("A NFS-e original nao esta vinculada a requisicao legada ou emissao manual valida.")
+    if manual_emission is not None:
+        if manual_emission.status == FiscalEmissionAttemptStatus.UNCERTAIN or manual_emission.is_uncertain:
+            raise NfseSubstitutionError("A emissao manual NFS-e esta incerta e deve ser reconciliada antes da substituicao.")
+        _validate_manual_substitution_capability(emission=manual_emission)
+    else:
+        try:
+            validate_nfse_substitution_capability(nfse_request=original.request)
+        except NfseCapabilityError as exc:
+            raise NfseSubstitutionError(str(exc)) from exc
 
 
 def is_nfse_substitution_eligible(preview: NfseSubstitutionPreview | None) -> bool:
@@ -82,7 +105,11 @@ def is_nfse_substitution_eligible(preview: NfseSubstitutionPreview | None) -> bo
 
 def _create_intention(*, preview: NfseSubstitutionPreview, requested_by: Any | None) -> tuple[NfseSubstitution, FiscalEmissionAttempt, dict[str, Any]]:
     with transaction.atomic():
-        locked_preview = NfseSubstitutionPreview.objects.select_for_update(of=("self",)).select_related("original_nfse", "original_nfse__request").get(pk=preview.pk, workshop=preview.workshop)
+        locked_preview = (
+            NfseSubstitutionPreview.objects.select_for_update(of=("self",))
+            .select_related("original_nfse", "original_nfse__request")
+            .get(pk=preview.pk, workshop=preview.workshop)
+        )
         locked_original = NfseItem.objects.select_for_update().get(pk=locked_preview.original_nfse_id, workshop=preview.workshop)
         locked_preview.original_nfse = locked_original
         _validate_eligibility(preview=locked_preview)

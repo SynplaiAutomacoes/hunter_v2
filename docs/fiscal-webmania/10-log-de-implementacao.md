@@ -124,6 +124,26 @@
 - Decisao recomendada: **Opcao A**, implementar substituicao da NFS-e manual como extensao segura do fluxo atual de substituicao NFS-e, reutilizando `NfseSubstitutionPreview`, `NfseSubstitution`, `POST /2/nfse/substituir`, idempotencia, webhook e reconciliacao ja validados.
 - OpenAPI validado revisado como suficiente; nenhuma alteracao aplicada.
 - Nenhum codigo funcional, migration, service, view, template ou teste foi alterado.
+- Status posterior: Fase 3.9.0 validada documentalmente e commitada no checkpoint `21d684e7`.
+
+## Fase 3.9.1 - implementacao da substituicao da NFS-e manual
+
+- Fase 3.9.0 aprovada no checkpoint `21d684e7`.
+- Implementada extensao segura de `NfseSubstitutionPreview`/`NfseSubstitution` para aceitar `NfseItem` originado por `NfseManualEmission`.
+- Removida exigencia de `NfseRequest` para original manual; quando nao ha request, exige `NfseManualEmission` vinculada e capability de substituicao ativa na preview manual.
+- Payload remoto preservado: `POST /2/nfse/substituir` recebe somente `ambiente`, `codigo_verificacao`, `motivo` e `rps` aprovados na preview.
+- Substituta manual e criada como nova `NfseItem` somente apos confirmacao remota valida; original manual so e marcada `substituido` apos confirmacao.
+- XML original da NFS-e manual, preview manual e payload da emissao manual permanecem imutaveis; XML/PDF da substituta ficam separados.
+- UI minima adicionada ao detalhe da emissao manual para preparar substituicao elegivel.
+- Validacoes executadas:
+  - `uv run python manage.py test apps.finance.tests.FiscalPhaseThreeNfseManualEmissionTests --keepdb`
+  - `uv run python manage.py test apps.finance.tests.FiscalPhaseThreeNfseSubstitutionPreviewTests apps.finance.tests.FiscalPhaseThreeNfseSubstitutionTests apps.finance.tests.FiscalPhaseThreeNfseSubstitutionConcurrentTests apps.finance.tests.FiscalPhaseThreeNfseManualEmissionPreviewTests apps.finance.tests.FiscalPhaseThreeNfseManualEmissionTests apps.finance.tests.FiscalPhaseThreeNfseCancellationTests --keepdb`
+  - `uv run python manage.py test apps.finance.tests.FiscalPhaseThreeNfseManifestationTests --keepdb`
+  - `uv run python manage.py makemigrations finance --check --dry-run`
+  - `uv run ruff check apps/finance/forms/nfse_substitution_preview.py apps/finance/services/nfse_substitution.py apps/finance/services/nfse_substitution_preview.py apps/finance/views/nfse_manual_emission.py apps/finance/views/nfse_substitution_preview.py apps/finance/tests.py`
+  - `git diff --check`
+  - `uv run mypy .` executado como nao bloqueante; falhou no baseline preexistente com 3205 erros em 261 arquivos.
+- Permanecem fora do escopo: manifestacao da NFS-e manual, NFS-e recebida/importada, emissao manual adicional, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
 
 ## Fase 3.4.1 - inicio
 

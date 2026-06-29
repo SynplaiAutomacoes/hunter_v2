@@ -16083,6 +16083,7 @@ class FiscalPhaseThreeNfseManualEmissionTests(TestCase):
             uf="SP",
             nfse_manual_emission_preview_enabled=True,
             nfse_manual_emission_enabled=True,
+            nfse_substitution_preview_enabled=True,
         )
         self.capability = NfseMunicipalCapability.objects.create(
             workshop=self.workshop,
@@ -16093,6 +16094,8 @@ class FiscalPhaseThreeNfseManualEmissionTests(TestCase):
             is_active=True,
             emission_enabled=True,
             cancellation_enabled=True,
+            substitution_enabled=True,
+            query_enabled=True,
             manual_emission_enabled=True,
             requires_service_code=True,
             requires_iss_rate=True,
@@ -16144,6 +16147,39 @@ class FiscalPhaseThreeNfseManualEmissionTests(TestCase):
         ):
             emission = emit_nfse_manual_from_preview(preview=preview, requested_by=self.user)
         return emission, post_mock
+
+    def _substitution_preview(self, item: NfseItem, *, rps_number: int, approved: bool = True) -> NfseSubstitutionPreview:
+        from apps.finance.services.nfse_substitution_preview import approve_nfse_substitution_preview, create_nfse_substitution_preview
+
+        preview = create_nfse_substitution_preview(
+            workshop=self.workshop,
+            original_nfse=item,
+            environment="2",
+            reason_code=1,
+            rps_number=rps_number,
+            rps_series="MSUB",
+            service_payload={"valor_servicos": "175.00", "discriminacao": "Servico manual substituto", "classe_imposto": "REFNFSEMANUALSUB"},
+            taker_payload={"cnpj": "11.222.333/0001-44", "razao_social": "Cliente Manual Substituto Ltda"},
+            created_by=self.user,
+        )
+        if approved:
+            approve_nfse_substitution_preview(preview=preview, approved_by=self.user)
+            preview.refresh_from_db()
+        return preview
+
+    def _substitution_success_payload(self, *, original: NfseItem, uuid: str = "48000000-0000-0000-0000-000000000001", rps_number: int = 5013) -> dict[str, Any]:
+        return {
+            "modelo": "nfse",
+            "uuid": uuid,
+            "status": "aprovado",
+            "numero": "9101",
+            "codigo_verificacao": "VERIFY-MANUAL-SUB",
+            "serie_rps": "MSUB",
+            "numero_rps": str(rps_number),
+            "nfse_substituida": {"uuid": str(original.uuid), "numero": original.number, "codigo_verificacao": original.verification_code},
+            "xml": "https://example.test/manual-substituta.xml",
+            "pdf_nfse": "https://example.test/manual-substituta.pdf",
+        }
 
     def test_emits_only_approved_preview_payload_and_creates_nfse_item_after_confirmation(self) -> None:
         preview = self._preview()
@@ -16471,6 +16507,212 @@ class FiscalPhaseThreeNfseManualEmissionTests(TestCase):
         self.assertEqual(response.status_code, 200)
         assert isinstance(response, JsonResponse)
         self.assertEqual(json.loads(response.content)["request"], {"uuid": str(item.uuid), "motivo": 2})
+
+    def test_manual_nfse_substitution_reuses_existing_contract_and_preserves_origin(self) -> None:
+        from apps.finance.models.finance import NfseSubstitution
+        from apps.finance.services.nfse_substitution import substitute_nfse_from_preview
+
+        preview = self._preview(rps_number=4013)
+        approved_payload = dict(preview.request_payload)
+        emission, _ = self._emit(preview, payload=self._success_payload(uuid="46000000-0000-0000-0000-000000004013", rps_number=4013))
+        item = emission.nfse_item
+        self.assertIsNotNone(item)
+        assert item is not None
+        original_xml = item.xml_url
+        substitution_preview = self._substitution_preview(item, rps_number=5013)
+        substitution_payload = dict(substitution_preview.request_payload)
+
+        with (
+            patch("apps.finance.services.nfse_substitution._build_headers", return_value={"X-Test": "ok"}),
+            patch("apps.finance.services.nfse_substitution._build_substitution_url", return_value="https://api.webmania.com.br/2/nfse/substituir"),
+            patch("apps.finance.services.nfse_substitution.requests.post", return_value=_mock_response(self._substitution_success_payload(original=item, rps_number=5013))) as post_mock,
+        ):
+            substitution = substitute_nfse_from_preview(preview=substitution_preview, requested_by=self.user)
+
+        post_mock.assert_called_once_with("https://api.webmania.com.br/2/nfse/substituir", json=substitution_payload, headers={"X-Test": "ok"}, timeout=30)
+        sent = post_mock.call_args.kwargs["json"]
+        self.assertEqual(set(sent), {"ambiente", "codigo_verificacao", "motivo", "rps"})
+        for forbidden_key in ("uuid", "request_payload", "preview", "emissao", "cancelamento", "manifestacao", "xml"):
+            self.assertNotIn(forbidden_key, sent)
+        self.assertIsInstance(substitution, NfseSubstitution)
+        self.assertEqual(substitution.status, FiscalEmissionAttemptStatus.SUCCEEDED)
+        self.assertEqual(substitution.original_nfse_id, item.pk)
+        self.assertEqual(substitution.request_payload, substitution_payload)
+        replacement = substitution.replacement_nfse
+        self.assertIsNotNone(replacement)
+        assert replacement is not None
+        self.assertIsNone(replacement.request_id)
+        self.assertIsNone(replacement.workorder_id)
+        self.assertEqual(replacement.xml_url, "https://example.test/manual-substituta.xml")
+        item.refresh_from_db()
+        emission.refresh_from_db()
+        preview.refresh_from_db()
+        self.assertEqual(item.status, "substituido")
+        self.assertEqual(item.xml_url, original_xml)
+        self.assertEqual(emission.request_payload, approved_payload)
+        self.assertEqual(preview.request_payload, approved_payload)
+        self.assertFalse(FiscalDocument.objects.filter(document_type="nfse").exists())
+        self.assertFalse(NfseManifestation.objects.filter(nfse_item=item).exists())
+        self.assertFalse(NfseCancellation.objects.filter(item=item).exists())
+        attempt = FiscalEmissionAttempt.objects.get(operation_type=FiscalEmissionOperationType.NFSE_SUBSTITUTION)
+        self.assertEqual(attempt.request_model, NfseSubstitution.__name__)
+        self.assertEqual(attempt.request_id, substitution.pk)
+
+    def test_manual_nfse_substitution_blocks_ineligible_duplicate_uncertain_and_capability(self) -> None:
+        from apps.finance.models.finance import NfseSubstitution
+        from apps.finance.services.nfse_substitution import NfseSubstitutionError, substitute_nfse_from_preview
+        from apps.finance.services.nfse_substitution_preview import create_nfse_substitution_preview
+
+        preview = self._preview(rps_number=4014)
+        emission, _ = self._emit(preview, payload=self._success_payload(uuid="46000000-0000-0000-0000-000000004014", rps_number=4014))
+        item = emission.nfse_item
+        self.assertIsNotNone(item)
+        assert item is not None
+
+        for status in ("cancelado", "substituido", "uncertain"):
+            item.status = status
+            item.save(update_fields=["status"])
+            with self.subTest(status=status), self.assertRaises(ValidationError):
+                self._substitution_preview(item, rps_number=5014, approved=False)
+        item.status = "aprovado"
+        item.save(update_fields=["status"])
+
+        original_verification = item.verification_code
+        item.verification_code = ""
+        item.save(update_fields=["verification_code"])
+        with self.assertRaisesMessage(ValidationError, "codigo de verificacao"):
+            self._substitution_preview(item, rps_number=5015, approved=False)
+        item.verification_code = original_verification
+        original_xml = item.xml_url
+        item.xml_url = ""
+        item.save(update_fields=["verification_code", "xml_url"])
+        with self.assertRaisesMessage(ValidationError, "XML"):
+            self._substitution_preview(item, rps_number=5016, approved=False)
+        item.xml_url = original_xml
+        item.save(update_fields=["xml_url"])
+
+        self.capability.substitution_enabled = False
+        self.capability.save(update_fields=["substitution_enabled"])
+        with self.assertRaisesMessage(ValidationError, "capacidade municipal"):
+            self._substitution_preview(item, rps_number=5017, approved=False)
+        self.capability.substitution_enabled = True
+        self.capability.save(update_fields=["substitution_enabled"])
+
+        emission.status = FiscalEmissionAttemptStatus.UNCERTAIN
+        emission.is_uncertain = True
+        emission.save(update_fields=["status", "is_uncertain"])
+        with self.assertRaisesMessage(ValidationError, "incerta"):
+            self._substitution_preview(item, rps_number=5018, approved=False)
+        emission.status = FiscalEmissionAttemptStatus.SUCCEEDED
+        emission.is_uncertain = False
+        emission.save(update_fields=["status", "is_uncertain"])
+
+        cancellation = NfseCancellation.objects.create(workshop=self.workshop, item=item, status=FiscalEmissionAttemptStatus.UNCERTAIN, reason_code=1, reason_label="Erro na emissao", request_payload={"uuid": str(item.uuid), "motivo": 1})
+        with self.assertRaisesMessage(ValidationError, "cancelamento"):
+            self._substitution_preview(item, rps_number=5019, approved=False)
+        cancellation.status = FiscalEmissionAttemptStatus.FAILED
+        cancellation.save(update_fields=["status"])
+
+        substitution_preview = self._substitution_preview(item, rps_number=5020)
+        NfseSubstitution.objects.create(workshop=self.workshop, preview=substitution_preview, original_nfse=item, uuid_original=item.uuid, original_verification_code=item.verification_code, reason_code=1, request_payload=substitution_preview.request_payload, original_xml_snapshot=substitution_preview.original_xml_snapshot, status=FiscalEmissionAttemptStatus.UNCERTAIN, is_uncertain=True)
+        with patch("apps.finance.services.nfse_substitution.requests.post") as post_mock, self.assertRaisesMessage(NfseSubstitutionError, "incerta"):
+            substitute_nfse_from_preview(preview=substitution_preview, requested_by=self.user)
+        post_mock.assert_not_called()
+
+        second_preview = self._preview(rps_number=4015)
+        second_emission, _ = self._emit(second_preview, payload=self._success_payload(uuid="46000000-0000-0000-0000-000000004015", rps_number=4015))
+        second_item = second_emission.nfse_item
+        self.assertIsNotNone(second_item)
+        assert second_item is not None
+        self.company.nfse_substitution_preview_enabled = False
+        self.company.save(update_fields=["nfse_substitution_preview_enabled"])
+        with self.assertRaisesMessage(ValidationError, "desabilitada"):
+            create_nfse_substitution_preview(
+                workshop=self.workshop,
+                original_nfse=second_item,
+                environment="2",
+                reason_code=1,
+                rps_number=5021,
+                rps_series="MSUB",
+                service_payload={"valor_servicos": "175.00", "discriminacao": "Servico manual substituto", "classe_imposto": "REFNFSEMANUALSUB"},
+                taker_payload={"cnpj": "11.222.333/0001-44", "razao_social": "Cliente Manual Substituto Ltda"},
+                created_by=self.user,
+            )
+
+    def test_manual_nfse_substitution_webhook_and_reconciliation_do_not_repost_or_overwrite_original_xml(self) -> None:
+        from apps.finance.services.nfse_substitution import reconcile_nfse_substitution, substitute_nfse_from_preview
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        preview = self._preview(rps_number=4016)
+        emission, _ = self._emit(preview, payload=self._success_payload(uuid="46000000-0000-0000-0000-000000004016", rps_number=4016))
+        item = emission.nfse_item
+        self.assertIsNotNone(item)
+        assert item is not None
+        original_xml = item.xml_url
+        substitution_preview = self._substitution_preview(item, rps_number=5022)
+        processing = {"modelo": "nfse", "uuid": "48000000-0000-0000-0000-000000005022", "status": "processando"}
+        with (
+            patch("apps.finance.services.nfse_substitution._build_headers", return_value={}),
+            patch("apps.finance.services.nfse_substitution.requests.post", return_value=_mock_response(processing)),
+        ):
+            substitution = substitute_nfse_from_preview(preview=substitution_preview, requested_by=self.user)
+        self.assertEqual(substitution.status, FiscalEmissionAttemptStatus.SENT)
+
+        webhook_payload = self._substitution_success_payload(original=item, uuid="48000000-0000-0000-0000-000000005022", rps_number=5022)
+        with patch("apps.finance.services.nfse_substitution.requests.post") as post_mock:
+            self.assertTrue(process_webhook_event(store_webhook_event(payload=webhook_payload)))
+        post_mock.assert_not_called()
+        substitution.refresh_from_db()
+        item.refresh_from_db()
+        self.assertEqual(substitution.status, FiscalEmissionAttemptStatus.SUCCEEDED)
+        self.assertEqual(item.status, "substituido")
+        self.assertEqual(item.xml_url, original_xml)
+
+        second_preview = self._preview(rps_number=4017)
+        second_emission, _ = self._emit(second_preview, payload=self._success_payload(uuid="46000000-0000-0000-0000-000000004017", rps_number=4017))
+        second_item = second_emission.nfse_item
+        self.assertIsNotNone(second_item)
+        assert second_item is not None
+        second_original_xml = second_item.xml_url
+        second_substitution_preview = self._substitution_preview(second_item, rps_number=5023)
+        second_processing = {"modelo": "nfse", "uuid": "48000000-0000-0000-0000-000000005023", "status": "processando"}
+        with (
+            patch("apps.finance.services.nfse_substitution._build_headers", return_value={}),
+            patch("apps.finance.services.nfse_substitution.requests.post", return_value=_mock_response(second_processing)),
+        ):
+            second_substitution = substitute_nfse_from_preview(preview=second_substitution_preview, requested_by=self.user)
+        with (
+            patch("apps.finance.services.nfse_consulta._build_headers", return_value={}),
+            patch("apps.finance.services.nfse_consulta.requests.get", return_value=_mock_response(self._substitution_success_payload(original=second_item, uuid="48000000-0000-0000-0000-000000005023", rps_number=5023))) as get_mock,
+            patch("apps.finance.services.nfse_substitution.requests.post") as post_mock,
+        ):
+            reconcile_nfse_substitution(substitution=second_substitution)
+        get_mock.assert_called_once()
+        post_mock.assert_not_called()
+        second_substitution.refresh_from_db()
+        second_item.refresh_from_db()
+        self.assertEqual(second_substitution.status, FiscalEmissionAttemptStatus.SUCCEEDED)
+        self.assertEqual(second_item.xml_url, second_original_xml)
+
+    def test_manual_nfse_substitution_action_requires_prepare_permission_and_scope(self) -> None:
+        from apps.finance.views.nfse_manual_emission import NfseManualEmissionDetailView
+
+        preview = self._preview(rps_number=4018)
+        emission, _ = self._emit(preview, payload=self._success_payload(uuid="46000000-0000-0000-0000-000000004018", rps_number=4018))
+
+        request = RequestFactory().get("/")
+        request.user = self.user
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=True), patch("apps.finance.views.nfse_manual_emission.has_workshop_perm", return_value=True):
+            response = NfseManualEmissionDetailView.as_view()(request, pk=emission.pk)
+        self.assertTrue(getattr(response, "context_data")["can_prepare_substitution"])
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfse_manual_emission.has_workshop_perm", side_effect=lambda **kwargs: kwargs.get("codename") != "prepare_nfse_substitution"),
+        ):
+            response = NfseManualEmissionDetailView.as_view()(request, pk=emission.pk)
+        self.assertFalse(getattr(response, "context_data")["can_prepare_substitution"])
 
 
 class FiscalPhaseThreeNfseSubstitutionPreviewTests(TestCase):

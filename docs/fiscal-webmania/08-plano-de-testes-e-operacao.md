@@ -738,3 +738,26 @@ Para a fase recomendada (`Substituicao da NFS-e Manual`):
 - regressoes: substituicao legada, cancelamento manual, manifestacao NFS-e, emissao manual e cancelamento legado continuam funcionando.
 
 Nenhum teste funcional foi criado na Fase 3.9.0 porque ela e documental.
+
+## Cobertura adicionada na Fase 3.9.1
+
+Novos testes em `FiscalPhaseThreeNfseManualEmissionTests` cobrem:
+
+- preview de substituicao para NFS-e manual autorizada;
+- bloqueios de status cancelado/substituido/uncertain, codigo de verificacao ausente, XML ausente, capability desligada, emissao manual incerta, cancelamento ativo e substituicao incerta;
+- contrato remoto exato de `POST /2/nfse/substituir` usando somente `ambiente`, `codigo_verificacao`, `motivo` e `rps`;
+- preservacao de `NfseManualEmissionPreview`, `NfseManualEmission.request_payload` e XML original;
+- criacao de nova `NfseItem` substituta somente apos confirmacao remota valida;
+- ausencia de `FiscalDocument(nfse)`, cancelamento e manifestacao;
+- webhook e reconciliacao sem novo POST;
+- acao de preparar substituicao no detalhe da emissao manual condicionada a permissao.
+
+Validacoes executadas na fase:
+
+- `FiscalPhaseThreeNfseManualEmissionTests`: 13 testes OK.
+- `FiscalPhaseThreeNfseSubstitutionPreviewTests`, `FiscalPhaseThreeNfseSubstitutionTests`, `FiscalPhaseThreeNfseSubstitutionConcurrentTests`, `FiscalPhaseThreeNfseManualEmissionPreviewTests`, `FiscalPhaseThreeNfseManualEmissionTests` e `FiscalPhaseThreeNfseCancellationTests`: 52 testes OK.
+- `FiscalPhaseThreeNfseManifestationTests`: 6 testes OK.
+- `makemigrations finance --check --dry-run`: OK, sem migration.
+- `ruff check` nos arquivos Python tocados: OK.
+- `git diff --check`: OK.
+- `mypy .`: nao bloqueante; falhou no baseline preexistente com 3205 erros em 261 arquivos, incluindo stubs ausentes e managers Django nao resolvidos.

@@ -16,6 +16,7 @@ from apps.finance.models.finance import FiscalEmissionAttemptStatus, NfseCancell
 from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
 from apps.finance.services.nfse_cancellation import NfseCancellationError, cancel_nfse_item, is_nfse_item_eligible_for_cancellation
 from apps.finance.services.nfse_manual_emission import NfseManualEmissionError, emit_nfse_manual_from_preview, is_nfse_manual_emission_eligible, reconcile_nfse_manual_emission
+from apps.finance.services.nfse_substitution_preview import is_nfse_item_eligible_for_substitution_preview
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import has_workshop_perm
@@ -98,6 +99,11 @@ class NfseManualEmissionDetailView(NfseManualEmissionPermissionMixin, DetailView
             self.object.nfse_item
             and is_nfse_item_eligible_for_cancellation(self.object.nfse_item)
             and has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfserequest", codename="cancel_nfse", request=self.request)
+        )
+        context["can_prepare_substitution"] = bool(
+            self.object.nfse_item
+            and is_nfse_item_eligible_for_substitution_preview(self.object.nfse_item, workshop=self.workshop)
+            and has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfsesubstitutionpreview", codename="prepare_nfse_substitution", request=self.request)
         )
         return context
 

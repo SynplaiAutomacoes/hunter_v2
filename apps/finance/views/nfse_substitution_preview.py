@@ -25,7 +25,7 @@ class NfseSubstitutionPreviewPermissionMixin(LoginRequiredMixin, WorkshopScopedM
     workshop_permission_model = "nfsesubstitutionpreview"
 
     def get_preview_queryset(self):
-        return NfseSubstitutionPreview.objects.filter(workshop=self.workshop).select_related("original_nfse", "original_nfse__request", "created_by", "approved_by")
+        return NfseSubstitutionPreview.objects.filter(workshop=self.workshop).select_related("original_nfse", "original_nfse__request", "original_nfse__manual_emission", "created_by", "approved_by")
 
 
 class NfseSubstitutionPreviewListView(NfseSubstitutionPreviewPermissionMixin, ListView):
@@ -139,7 +139,7 @@ class NfseSubstitutionIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "substitute_nfse"
 
     def post(self, request, *args, **kwargs):
-        preview = get_object_or_404(NfseSubstitutionPreview.objects.select_related("original_nfse", "original_nfse__request"), pk=kwargs["pk"], workshop=self.workshop)
+        preview = get_object_or_404(NfseSubstitutionPreview.objects.select_related("original_nfse", "original_nfse__request", "original_nfse__manual_emission"), pk=kwargs["pk"], workshop=self.workshop)
         if request.POST.get("confirmed") != "1":
             messages.error(request, "Confirme explicitamente a substituicao remota da NFS-e.")
             return redirect("finance:nfse_substitution_preview_detail", pk=preview.pk)

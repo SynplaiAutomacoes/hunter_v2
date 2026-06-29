@@ -573,3 +573,17 @@ UI minima da proxima fase:
 - aviso de que XML original e payload da emissao manual permanecem preservados.
 
 Nao exibir manifestacao da NFS-e manual ou importacao de NFS-e recebida nesta proxima fase.
+
+## Fase 3.9.1 - UX e permissoes implementadas
+
+O detalhe da emissao manual passou a exibir **Preparar substituicao** somente quando a NFS-e manual possui `NfseItem` autorizado/elegivel e o usuario tem `prepare_nfse_substitution`.
+
+O fluxo reutilizado permanece:
+
+- criar preview em `NfseSubstitutionPreviewCreateView`;
+- aprovar preview com `approve_nfse_substitution`;
+- executar POST remoto somente com `substitute_nfse`;
+- visualizar payload com `view_nfse_substitution_preview_payload`/`view_nfse_substitution_payload`;
+- baixar XML/PDF com `download_nfse_substitution`.
+
+Permissoes de emissao manual, cancelamento e manifestacao nao autorizam substituicao. A UI nao oferece manifestacao da NFS-e manual nesta fase.

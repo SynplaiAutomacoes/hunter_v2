@@ -20,7 +20,7 @@ class NfseSubstitutionPreviewCreateForm(CoreForm):
     def __init__(self, *args, workshop, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.workshop = workshop
-        self.fields["original_nfse"].queryset = NfseItem.objects.filter(workshop=workshop, status=NfseItemStatus.aprovado).exclude(verification_code="").exclude(xml_url="").select_related("request").order_by("-id")
+        self.fields["original_nfse"].queryset = NfseItem.objects.filter(workshop=workshop, status=NfseItemStatus.aprovado).exclude(verification_code="").exclude(xml_url="").select_related("request", "manual_emission").order_by("-id")
 
     def clean_original_nfse(self) -> NfseItem:
         item = self.cleaned_data["original_nfse"]

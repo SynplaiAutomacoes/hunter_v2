@@ -959,3 +959,29 @@ Matriz API para o proximo bloco:
 | IBS/CBS, creditos/debitos, complementar tributaria | APIs v1 NF-e/NFC-e ja mapeadas | Fontes fiscais insuficientes para tipos restantes | Alto | Adiar |
 
 Decisao API: a proxima fase funcional recomendada e substituicao da NFS-e manual, porque o endpoint e o schema ja estao representados no OpenAPI validado e a infraestrutura local de substituicao ja existe. Nenhuma correcao oficial nova foi confirmada; `api/webmania_fiscal_openapi_validated.json` permanece suficiente.
+
+## Fase 3.9.1 - contrato implementado para substituicao da NFS-e manual
+
+A Fase 3.9.0 foi validada no checkpoint `21d684e7`. A Fase 3.9.1 implementa a decisao aprovada como extensao segura do fluxo atual de substituicao NFS-e.
+
+Contrato remoto efetivo:
+
+```json
+{
+  "ambiente": 2,
+  "codigo_verificacao": "CODIGO-ORIGINAL",
+  "motivo": 1,
+  "rps": {
+    "numero": 5013,
+    "serie": "MSUB",
+    "servico": {},
+    "tomador": {}
+  }
+}
+```
+
+Endpoint: `POST /2/nfse/substituir`.
+
+O payload enviado e exatamente o `request_payload` aprovado em `NfseSubstitutionPreview`. Nao envia `uuid`, XML original, payload da emissao manual, payload de cancelamento, payload de manifestacao, dados livres da `NfseManualEmissionPreview` ou dados livres da `NfseManualEmission`.
+
+OpenAPI: nenhuma alteracao aplicada; o schema validado ja cobre `/2/nfse/substituir` com `ambiente`, `codigo_verificacao`, `motivo` e `rps`.

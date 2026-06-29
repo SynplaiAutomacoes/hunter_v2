@@ -7,7 +7,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from apps.finance.models.finance import FiscalProductPreviewStatus, NfseItem, NfseItemStatus, NfseMunicipalCapability, NfseSubstitutionPreview, WebmaniaCompany
+from apps.finance.models.finance import FiscalEmissionAttemptStatus, FiscalProductPreviewStatus, NfseItem, NfseItemStatus, NfseManualEmission, NfseMunicipalCapability, NfseSubstitution, NfseSubstitutionPreview, WebmaniaCompany
 from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
 
 
@@ -38,10 +38,62 @@ def _validate_service(service: dict[str, Any]) -> None:
         raise ValidationError("O novo RPS exige classe de imposto ou tributacao/retenções explicitas.")
 
 
+def _manual_emission_for_item(item: NfseItem) -> NfseManualEmission | None:
+    try:
+        return item.manual_emission
+    except NfseManualEmission.DoesNotExist:
+        return None
+
+
 def _validate_capability(*, workshop: Any) -> None:
     capabilities = NfseMunicipalCapability.objects.filter(workshop=workshop, is_active=True)
     if capabilities.exists() and not capabilities.filter(substitution_enabled=True).exists():
         raise ValidationError("A capacidade municipal ativa nao permite preparar substituicao NFS-e.")
+
+
+def _validate_manual_capability(*, emission: NfseManualEmission) -> None:
+    capability = emission.preview.municipal_capability
+    if capability.workshop_id != emission.workshop_id or capability.company_id != emission.company_id:
+        raise ValidationError("A capacidade municipal nao pertence a empresa/oficina da emissao manual.")
+    if not capability.is_active or not capability.substitution_enabled:
+        raise ValidationError("A capacidade municipal ativa nao permite preparar substituicao NFS-e.")
+
+
+def validate_nfse_substitution_original(original_nfse: NfseItem, *, workshop: Any) -> NfseManualEmission | None:
+    if original_nfse.workshop_id != workshop.pk:
+        raise ValidationError("A NFS-e original pertence a outra oficina.")
+    if original_nfse.status != NfseItemStatus.aprovado:
+        raise ValidationError("A preview exige NFS-e original autorizada.")
+    if not original_nfse.uuid:
+        raise ValidationError("A NFS-e original nao possui UUID remoto.")
+    verification_code = str(original_nfse.verification_code or "").strip()
+    if not verification_code:
+        raise ValidationError("A NFS-e original nao possui codigo de verificacao.")
+    xml_url = str(original_nfse.xml_url or "").strip()
+    if not xml_url:
+        raise ValidationError("A NFS-e original nao possui XML disponivel para snapshot.")
+    if original_nfse.cancellations.exclude(status=FiscalEmissionAttemptStatus.FAILED).exists():
+        raise ValidationError("NFS-e com cancelamento ativo, autorizado ou incerto nao pode ser substituida.")
+    if NfseSubstitution.objects.filter(original_nfse=original_nfse).exclude(status=FiscalEmissionAttemptStatus.FAILED).exists():
+        raise ValidationError("Ja existe substituicao ativa, autorizada ou incerta para esta NFS-e original.")
+    manual_emission = _manual_emission_for_item(original_nfse)
+    if manual_emission is not None:
+        if manual_emission.status == FiscalEmissionAttemptStatus.UNCERTAIN or manual_emission.is_uncertain:
+            raise ValidationError("A emissao manual NFS-e esta incerta e deve ser reconciliada antes da substituicao.")
+        _validate_manual_capability(emission=manual_emission)
+        return manual_emission
+    _validate_capability(workshop=workshop)
+    return None
+
+
+def is_nfse_item_eligible_for_substitution_preview(item: NfseItem | None, *, workshop: Any | None = None) -> bool:
+    if item is None:
+        return False
+    try:
+        validate_nfse_substitution_original(original_nfse=item, workshop=workshop or item.workshop)
+    except ValidationError:
+        return False
+    return True
 
 
 @transaction.atomic
@@ -59,18 +111,10 @@ def create_nfse_substitution_preview(
 ) -> NfseSubstitutionPreview:
     if not is_nfse_substitution_preview_enabled(workshop=workshop):
         raise ValidationError("A preview de substituicao NFS-e esta desabilitada para esta oficina.")
-    _validate_capability(workshop=workshop)
-    locked = NfseItem.objects.select_for_update().get(pk=original_nfse.pk, workshop=workshop)
-    if locked.status != NfseItemStatus.aprovado:
-        raise ValidationError("A preview exige NFS-e original autorizada.")
-    if not locked.uuid:
-        raise ValidationError("A NFS-e original nao possui UUID remoto.")
+    locked = NfseItem.objects.select_for_update(of=("self",)).get(pk=original_nfse.pk, workshop=workshop)
+    validate_nfse_substitution_original(original_nfse=locked, workshop=workshop)
     verification_code = str(locked.verification_code or "").strip()
-    if not verification_code:
-        raise ValidationError("A NFS-e original nao possui codigo de verificacao.")
     xml_url = str(locked.xml_url or "").strip()
-    if not xml_url:
-        raise ValidationError("A NFS-e original nao possui XML disponivel para snapshot.")
     if environment not in {"1", "2"}:
         raise ValidationError("Ambiente invalido para a preview de substituicao.")
     if reason_code not in {1, 2, 4}:
@@ -119,14 +163,12 @@ def create_nfse_substitution_preview(
 
 @transaction.atomic
 def approve_nfse_substitution_preview(*, preview: NfseSubstitutionPreview, approved_by: Any) -> NfseSubstitutionPreview:
-    locked = NfseSubstitutionPreview.objects.select_for_update().select_related("original_nfse").get(pk=preview.pk, workshop=preview.workshop)
+    locked = NfseSubstitutionPreview.objects.select_for_update(of=("self",)).select_related("original_nfse").get(pk=preview.pk, workshop=preview.workshop)
     if not is_nfse_substitution_preview_enabled(workshop=locked.workshop):
         raise ValidationError("A preview de substituicao NFS-e esta desabilitada para esta oficina.")
-    _validate_capability(workshop=locked.workshop)
     if locked.validation_status != FiscalProductPreviewStatus.VALIDATED:
         raise ValidationError("Somente preview validada pode ser aprovada.")
-    if locked.original_nfse.status != NfseItemStatus.aprovado:
-        raise ValidationError("A NFS-e original deixou de ser elegivel para substituicao.")
+    validate_nfse_substitution_original(original_nfse=locked.original_nfse, workshop=locked.workshop)
     if NfseSubstitutionPreview.objects.filter(original_nfse=locked.original_nfse, is_approved=True).exclude(pk=locked.pk).exists():
         raise ValidationError("Ja existe preview aprovada para esta NFS-e original.")
     locked.validation_status = FiscalProductPreviewStatus.APPROVED

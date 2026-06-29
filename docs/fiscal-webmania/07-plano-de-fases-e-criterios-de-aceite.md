@@ -1017,7 +1017,7 @@ Criterios atendidos: contrato remoto preservado; `NfseCancellation` reutilizado;
 
 ## Fase 3.9.0 - Reavaliacao apos Ciclo Minimo da NFS-e Manual
 
-Status: **em planejamento documental em 2026-06-28**. A Fase 3.8.1 foi validada e encerrada no checkpoint `29f3f3a9`.
+Status: **validada documentalmente em 2026-06-28** no checkpoint `21d684e7`. A Fase 3.8.1 foi validada e encerrada no checkpoint `29f3f3a9`.
 
 Alteracoes permitidas: somente `docs/fiscal-webmania/**` e, se houver correcao oficialmente confirmada, `docs/fiscal-webmania/api/webmania_fiscal_openapi_validated.json`.
 
@@ -1133,3 +1133,26 @@ Tipo de implementacao: **A) extensao segura do fluxo atual de substituicao NFS-e
 - Criterios de aceite: substituicao manual reutiliza o fluxo NFS-e existente; preview/emissao manual permanecem imutaveis; original manual so vira substituida com confirmacao remota; substituta possui `NfseItem` proprio; nenhuma NFS-e recebida/importada, manifestacao manual, CT-e/MDF-e/NFCom/DC-e, evento IBS/CBS, credito/debito ou complementar tributaria e iniciada.
 
 OpenAPI: o schema atual permanece suficiente; nenhuma correcao oficial nova foi confirmada nesta reavaliacao.
+
+## Fase 3.9.1 - Substituicao da NFS-e Manual Nova
+
+Status: **validada tecnicamente em 2026-06-29**, com checkpoint criado nesta entrega. A Fase 3.9.0 foi validada documentalmente no checkpoint `21d684e7`.
+
+Escopo: substituir somente NFS-e manual nova gerada por `NfseManualEmission`, materializada em `NfseItem` autorizado, com UUID, codigo de verificacao e XML original preservado.
+
+Estrategia implementada: **A) extensao segura do fluxo atual de substituicao NFS-e**. Foram reutilizados `NfseSubstitutionPreview`, `NfseSubstitution`, `FiscalEmissionAttempt(operation_type="nfse_substitution")`, endpoint `POST /2/nfse/substituir`, webhook e reconciliacao ja existentes.
+
+Fora de escopo nesta fase: manifestacao da NFS-e manual nova, NFS-e recebida/importada, emissao manual adicional, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria.
+
+Resultado local:
+
+- elegibilidade de preview/substituicao adaptada para aceitar `NfseManualEmission.nfse_item`;
+- capability manual validada por `NfseManualEmission.preview.municipal_capability.substitution_enabled`;
+- bloqueio de original manual sem UUID, codigo de verificacao, XML, autorizacao, capability, flag, permissao ou com cancelamento/substituicao ativa/incerta;
+- payload remoto permanece exatamente o payload aprovado da preview: `ambiente`, `codigo_verificacao`, `motivo`, `rps`;
+- substituta criada como nova `NfseItem` somente apos confirmacao remota valida;
+- original manual marcada como `substituido` somente apos confirmacao remota valida;
+- XML original da emissao manual preservado; XML/PDF da substituta separados;
+- UI minima no detalhe da emissao manual para preparar substituicao elegivel.
+
+Criterios atendidos: fluxo paralelo nao criado; `FiscalDocument(nfse)` nao criado; manifestacao manual nao iniciada; NFS-e recebida/importada nao iniciada; webhook/reconciliacao nao repetem POST; testes direcionados e regressoes NFS-e passaram.

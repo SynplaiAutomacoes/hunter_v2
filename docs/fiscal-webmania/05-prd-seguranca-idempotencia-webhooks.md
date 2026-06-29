@@ -710,3 +710,22 @@ Garantias a preservar:
 - Ambiguidade entre original manual, original legada, substituta ou outra oficina deve deixar o evento pendente.
 
 Risco principal: adaptar elegibilidade sem abrir substituicao para NFS-e manual incompleta. Bloqueios obrigatorios: sem UUID, sem `codigo_verificacao`, status nao autorizado, cancelada, substituida, incerta, cancelamento ativo/incerto, substituicao ativa/incerta, capability/flag desligada, permissao ausente ou cross-workshop.
+
+## Fase 3.9.1 - seguranca implementada na substituicao manual
+
+A Fase 3.9.1 reutiliza `FiscalEmissionAttempt(operation_type="nfse_substitution")` e a chave idempotente existente por oficina, preview/substituicao e geracao da intencao. A chamada remota e unica por preview aprovada; estados `sent`, `succeeded` e `uncertain` bloqueiam reenvio automatico.
+
+Bloqueios implementados para a original manual:
+
+- sem `NfseManualEmission` vinculada quando nao ha `NfseRequest`;
+- status diferente de autorizada;
+- status cancelada, substituida ou `uncertain`;
+- ausencia de UUID, codigo de verificacao ou XML original;
+- emissao manual `uncertain`;
+- cancelamento ativo/autorizado/incerto;
+- substituicao ativa/autorizada/incerta;
+- capability de substituicao desligada;
+- feature flag de preview desligada;
+- cross-workshop.
+
+Webhook e reconciliacao permanecem os do fluxo de substituicao: resolver por UUID da substituta ou por `nfse_substituida` deterministico, pendenciar ambiguidade e usar somente GET na reconciliacao. Nenhum caminho repete `POST /2/nfse/substituir`.

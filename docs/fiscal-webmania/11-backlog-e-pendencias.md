@@ -337,3 +337,11 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Manifestacao da NFS-e manual fica adiada ate Padrao Nacional/papel fiscal estarem claros.
 - NFS-e recebida/importada exige fase propria para XML, identificadores, tomador/prestador, oficina correta, cross-workshop e manifestacao posterior.
 - NFS-e expandida ampla, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria continuam adiados.
+
+## Apos a Fase 3.9.1
+
+- Substituicao da NFS-e manual nova implementada por extensao do fluxo atual.
+- Pendencias remanescentes: manifestacao da NFS-e manual, NFS-e recebida/importada, consolidacao/`FiscalDocument(nfse)`, backfill de NFS-e legada, expansao multi-RPS/manual ampla e regras adicionais municipais.
+- A manifestacao da NFS-e manual continua dependente de Padrao Nacional e papel fiscal claro.
+- A NFS-e recebida/importada continua dependente de fluxo proprio de XML/identidade/tenancy.
+- CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria seguem nao iniciados.
