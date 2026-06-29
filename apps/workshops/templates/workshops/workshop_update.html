@@ -142,38 +142,36 @@
 
                     <div class="col-span-12 lg:col-span-4">{{ company_form.unidade_empresa|as_crispy_field }}</div>
                     <div class="col-span-12 lg:col-span-4">{{ company_form.regime_tributario|as_crispy_field }}</div>
-                    <div class="col-span-12 lg:col-span-4">{{ company_form.telefone|as_crispy_field }}</div>
-
-                    <div class="col-span-12 lg:col-span-8">
-                        <label class="label pt-0 pb-1"><span class="label-text text-xs">WhatsApp</span></label>
-                        <div class="flex items-center gap-3">
-                            <template x-if="whatsappChecking">
-                                <span class="loading loading-spinner loading-sm"></span>
-                            </template>
-                            <template x-if="!whatsappChecking && whatsappConnected">
-                                <span class="badge badge-success gap-1">
-                                    <span class="material-icons text-sm">check_circle</span>
-                                    Conectado
-                                </span>
-                            </template>
-                            <template x-if="!whatsappChecking && !whatsappConnected">
-                                <span class="badge badge-ghost gap-1">
-                                    <span class="material-icons text-sm">link_off</span>
-                                    Nao conectado
-                                </span>
-                            </template>
-                            <template x-if="whatsappConnected">
-                                <button type="button" class="btn btn-outline btn-error btn-xs" @click="disconnectWhatsapp()" :disabled="whatsappChecking">
-                                    <span class="material-icons text-sm">link_off</span>
-                                    Desconectar
-                                </button>
-                            </template>
-                            <template x-if="!whatsappConnected">
-                                <button type="button" class="btn btn-primary btn-xs" @click="connectWhatsapp()" :disabled="whatsappChecking">
-                                    <span class="material-icons text-sm">qr_code</span>
-                                    Conectar
-                                </button>
-                            </template>
+                    <div class="col-span-12 lg:col-span-4">
+                        <div class="flex items-end gap-2">
+                            <div class="flex-1">{{ company_form.telefone|as_crispy_field }}</div>
+                            <div class="flex items-center gap-1 pb-3">
+                                <template x-if="whatsappChecking">
+                                    <span class="loading loading-spinner loading-sm"></span>
+                                </template>
+                                <template x-if="!whatsappChecking && whatsappConnected">
+                                    <span class="badge badge-success badge-sm gap-1">
+                                        <span class="material-icons text-sm">check_circle</span>
+                                        Conectado
+                                    </span>
+                                </template>
+                                <template x-if="!whatsappChecking && !whatsappConnected">
+                                    <span class="badge badge-ghost badge-sm gap-1">
+                                        <span class="material-icons text-sm">link_off</span>
+                                        Nao conectado
+                                    </span>
+                                </template>
+                                <template x-if="whatsappConnected">
+                                    <button type="button" class="btn btn-outline btn-error btn-xs" @click="disconnectWhatsapp()" :disabled="whatsappChecking">
+                                        <span class="material-icons text-sm">link_off</span>
+                                    </button>
+                                </template>
+                                <template x-if="!whatsappConnected">
+                                    <button type="button" class="btn btn-primary btn-xs" @click="connectWhatsapp()" :disabled="whatsappChecking">
+                                        <span class="material-icons text-sm">qr_code</span>
+                                    </button>
+                                </template>
+                            </div>
                         </div>
                     </div>
 
