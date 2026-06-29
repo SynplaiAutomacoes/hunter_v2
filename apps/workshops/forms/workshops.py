@@ -198,6 +198,11 @@ class WorkshopCompanySectionForm(BaseWebmaniaCompanySectionForm):
         label=Workshop.is_active.field.verbose_name,
         widget=CheckboxInput(),
     )
+    whatsapp_phone = forms.CharField(
+        required=False,
+        label="Telefone Assistente Virtual",
+        widget=PhoneInput(),
+    )
 
     class Meta:
         model = WebmaniaCompany
@@ -238,6 +243,7 @@ class WorkshopCompanySectionForm(BaseWebmaniaCompanySectionForm):
         self.fields["logomarca"].help_text = "A URL da logomarca e sincronizada automaticamente com o upload da logo da oficina."
         if self.workshop is not None:
             self.initial["workshop_is_active"] = bool(self.workshop.is_active)
+            self.initial["whatsapp_phone"] = str(self.workshop.whatsapp_phone or "")
 
     def clean(self) -> dict[str, Any]:
         cleaned_data_raw = super().clean()
@@ -281,6 +287,10 @@ class WorkshopCompanySectionForm(BaseWebmaniaCompanySectionForm):
             if self.workshop.is_active != workshop_is_active:
                 self.workshop.is_active = workshop_is_active
                 self.workshop.save(update_fields=["is_active"])
+            whatsapp_phone = str(self.cleaned_data.get("whatsapp_phone") or "").strip()
+            if self.workshop.whatsapp_phone != whatsapp_phone:
+                self.workshop.whatsapp_phone = whatsapp_phone
+                self.workshop.save(update_fields=["whatsapp_phone"])
 
         return instance
 

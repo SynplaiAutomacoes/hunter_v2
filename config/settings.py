@@ -80,6 +80,7 @@ STORAGE_ENDPOINT = os.getenv("ENDPOINT", "")
 STORAGE_REGION = os.getenv("REGION", "auto")
 
 WHATSAPP_API_URL = os.getenv("WHATSAPP_API_URL", "https://whatsapp-hunter.up.railway.app")
+EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL", "")
 
 if not DEBUG:
     SECURE_SSL_REDIRECT = os.getenv("DJANGO_SECURE_SSL_REDIRECT", "1").lower() in ("1", "true", "yes")
@@ -184,6 +185,12 @@ CRISPY_TEMPLATE_PACK = "tailwind"
 CRISPY_ALLOWED_TEMPLATE_PACKS = ("tailwind",)
 
 WHATSAPP_API_URL = os.getenv("WHATSAPP_API_URL", "https://whatsapp-hunter.up.railway.app")
+EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL", "")
+
+RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "localhost")
+RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", "5672"))
+RABBITMQ_USER = os.getenv("RABBITMQ_USER", "guest")
+RABBITMQ_PASSWORD = os.getenv("RABBITMQ_PASSWORD", "guest")
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases

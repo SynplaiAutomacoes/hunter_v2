@@ -42,6 +42,12 @@ class CustomerMessageGroup(TimeStampedModel):
     message = models.TextField(verbose_name="Mensagem personalizada")
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
     customers = models.ManyToManyField(Customer, through="CustomerMessageGroupMembership", related_name="message_groups", blank=True)
+    filter_criteria = models.JSONField(
+        null=True,
+        blank=True,
+        verbose_name="Critérios de segmentação",
+        help_text="Configuração JSON com regras para incluir clientes automaticamente no grupo. Deixe vazio para usar apenas seleção manual.",
+    )
 
     class Meta:
         verbose_name = "Grupo de mensagem"
