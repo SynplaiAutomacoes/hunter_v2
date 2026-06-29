@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class DispatchGroupsRequest:
     workshop_id: int | None = None
+    group_id: int | None = None
 
 
 @dataclass
@@ -36,7 +37,7 @@ class DispatchGroupsResult:
 
 
 class MessageGroupRepository(Protocol):
-    def find_active_groups(self, workshop_id: int | None = None) -> QuerySet[CustomerMessageGroup]: ...
+    def find_active_groups(self, workshop_id: int | None = None, group_id: int | None = None) -> QuerySet[CustomerMessageGroup]: ...
 
     def get_group_members(self, group: CustomerMessageGroup) -> QuerySet[Any]: ...
 
@@ -65,7 +66,7 @@ class DispatchMessageGroupsUseCase:
         self._queue_publisher = queue_publisher
 
     def execute(self, request: DispatchGroupsRequest) -> DispatchGroupsResult:
-        groups = self._group_repo.find_active_groups(request.workshop_id)
+        groups = self._group_repo.find_active_groups(workshop_id=request.workshop_id, group_id=request.group_id)
         result = DispatchGroupsResult(total_groups=len(groups), total_customers=0)
         notified_workshops: dict[int, str] = {}
 

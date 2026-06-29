@@ -16,4 +16,5 @@ urlpatterns = [
     path("groups/preview-segment/", segment_preview_view.CustomerMessageGroupSegmentPreviewView.as_view(), name="customer_message_group_segment_preview"),
     path("groups/<int:pk>/edit/", message_group_views.CustomerMessageGroupUpdateView.as_view(), name="customer_message_group_update"),
     path("groups/<int:pk>/delete/", message_group_views.CustomerMessageGroupDeleteView.as_view(), name="customer_message_group_delete"),
+    path("groups/<int:pk>/dispatch/", message_group_views.CustomerMessageGroupDispatchView.as_view(), name="customer_message_group_dispatch"),
 ]

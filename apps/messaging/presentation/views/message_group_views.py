@@ -1,26 +1,42 @@
 from __future__ import annotations
 
+import json
+import logging
 from collections.abc import Iterable
 from typing import Any
 
+from django.conf import settings
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.db.models import Count, Max, Q, QuerySet
 from django.http import HttpResponse, HttpResponseRedirect
+from django.shortcuts import get_object_or_404, render
 from django.urls import reverse, reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
+from django.views.generic.base import View
 
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.infrastructure.search import apply_text_search
 from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.core.presentation.tables import TableActionDefaults
-from apps.core.templatetags.table_tags import TableColumn
+from apps.core.templatetags.table_tags import TableAction, TableColumn
 from apps.customer.models import Customer
+from apps.messaging.application.use_cases.dispatch_message_groups import (
+    DispatchGroupsRequest,
+    DispatchMessageGroupsUseCase,
+)
 from apps.messaging.infrastructure.forms.message_group_form import CustomerMessageGroupForm
+from apps.messaging.infrastructure.queue.rabbitmq_publisher import RabbitMQPublisher
+from apps.messaging.infrastructure.repositories.django_message_group_repository import (
+    DjangoMessageGroupRepository,
+)
+from apps.messaging.infrastructure.services.segment_query_builder import resolve_segment
 from apps.messaging.models import CustomerMessageGroup, CustomerMessageGroupMembership, MessageTemplate
 from apps.messaging.rendering import format_phone_value, format_variable_value
 from apps.messaging.variables import get_variable_groups
 from apps.workshops.mixin import WorkshopScopedMixin
+
+logger = logging.getLogger(__name__)
 
 
 CUSTOMER_MESSAGE_GROUP_CUSTOMER_FILTERS: tuple[QueryParamFilter, ...] = (
@@ -174,6 +190,16 @@ class CustomerMessageGroupListView(LoginRequiredMixin, WorkshopScopedMixin, Htmx
             TableColumn("Criado em", attr="created_at_display"),
         ]
         context["actions"] = [
+            TableAction(
+                url_name="messaging:customer_message_group_dispatch",
+                label="Disparar",
+                icon="send",
+                a_class="btn-table-dispatch",
+                aria_label="Disparar mensagens do grupo",
+                hx_target="#modal-container",
+                hx_swap="innerHTML",
+                hx_push_url="false",
+            ),
             TableActionDefaults.edit("messaging:customer_message_group_update"),
             TableActionDefaults.delete("messaging:customer_message_group_delete"),
         ]
@@ -300,3 +326,56 @@ class CustomerMessageGroupCustomerPickerView(LoginRequiredMixin, WorkshopScopedM
             TableColumn("Última O.S.", attr=lambda customer: format_variable_value(customer.latest_os_at) if customer.latest_os_at else "-", searchable=False, sort_by="latest_os_at"),
         ]
         return context
+
+
+class CustomerMessageGroupDispatchView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    http_method_names = ["get", "post"]
+
+    def _build_use_case(self) -> DispatchMessageGroupsUseCase:
+        queue_publisher = RabbitMQPublisher(
+            host=settings.RABBITMQ_HOST,
+            port=settings.RABBITMQ_PORT,
+            username=settings.RABBITMQ_USER,
+            password=settings.RABBITMQ_PASSWORD,
+        )
+        return DispatchMessageGroupsUseCase(
+            group_repo=DjangoMessageGroupRepository(),
+            segment_builder=resolve_segment,
+            queue_publisher=queue_publisher,
+        )
+
+    def get(self, request, *args: Any, **kwargs: Any) -> HttpResponse:
+        group = get_object_or_404(CustomerMessageGroup, pk=kwargs["pk"], workshop=self.workshop)
+        group.members_count = CustomerMessageGroupMembership.objects.filter(group=group).count()
+        return render(request, "messaging/partials/customer_message_group_dispatch_modal.html", {"group": group})
+
+    def post(self, request, *args: Any, **kwargs: Any) -> HttpResponse:
+        group = get_object_or_404(CustomerMessageGroup, pk=kwargs["pk"], workshop=self.workshop)
+
+        try:
+            use_case = self._build_use_case()
+            result = use_case.execute(DispatchGroupsRequest(group_id=group.pk))
+
+            response = HttpResponse()
+            response["HX-Trigger"] = json.dumps(
+                {
+                    "customer-message-groups-table-refresh": True,
+                    "showToast": {
+                        "message": f'Disparo do grupo "{group.name}" concluído. {result.total_customers} cliente(s) na fila.',
+                        "type": "success",
+                    },
+                }
+            )
+            return response
+        except Exception as e:
+            logger.exception("dispatch_failed", extra={"group_id": group.pk, "group_name": group.name})
+            response = HttpResponse()
+            response["HX-Trigger"] = json.dumps(
+                {
+                    "showToast": {
+                        "message": f'Erro ao disparar grupo "{group.name}": {str(e)}',
+                        "type": "error",
+                    },
+                }
+            )
+            return response
