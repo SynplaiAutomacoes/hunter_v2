@@ -43,13 +43,18 @@ class Command(BaseCommand):
             type=int,
             help="Filtrar o disparo para uma oficina especifica",
         )
+        parser.add_argument(
+            "--group-id",
+            type=int,
+            help="Filtrar o disparo para um grupo de mensagem especifico",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         self.stdout.write("Iniciando disparo de grupos de mensagens...")
 
         try:
             use_case = _build_dispatch_use_case()
-            request = DispatchGroupsRequest(workshop_id=options.get("workshop_id"))
+            request = DispatchGroupsRequest(workshop_id=options.get("workshop_id"), group_id=options.get("group_id"))
             result = use_case.execute(request)
 
             self.stdout.write(f"Grupos processados: {result.total_groups}")

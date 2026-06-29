@@ -64,10 +64,12 @@ class FakeGroupRepository:
     def __init__(self, groups: list[CustomerMessageGroup]) -> None:
         self.groups = groups
 
-    def find_active_groups(self, workshop_id: int | None = None) -> list[CustomerMessageGroup]:
+    def find_active_groups(self, workshop_id: int | None = None, group_id: int | None = None) -> list[CustomerMessageGroup]:
         result = [g for g in self.groups if g.is_active]
         if workshop_id is not None:
             result = [g for g in result if g.workshop_id == workshop_id]
+        if group_id is not None:
+            result = [g for g in result if g.pk == group_id]
         return result
 
     def get_group_members(self, group: CustomerMessageGroup) -> QuerySet[Customer]:

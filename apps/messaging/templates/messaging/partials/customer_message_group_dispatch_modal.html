@@ -1,0 +1,37 @@
+<input type="checkbox" id="customer-message-group-dispatch-modal" class="modal-toggle" checked />
+
+<div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-box">
+        <h3 class="text-lg font-bold text-base-content">Disparar mensagens do grupo</h3>
+        <p class="text-base-content/70 mt-1">As mensagens serão enviadas para a fila de processamento do WhatsApp.</p>
+
+        <div class="alert alert-info mt-4">
+            <span class="material-icons">send</span>
+            <div>
+                <div class="font-semibold">Confirmar disparo</div>
+                <div class="text-sm">
+                    Tem certeza que deseja disparar as mensagens do grupo
+                    <span class="font-medium">{{ group.name }}</span>?
+                    <br/>
+                    Clientes no grupo: <span class="font-medium">{{ group.members_count }}</span>
+                </div>
+            </div>
+        </div>
+
+        <form
+            method="post"
+            class="modal-action"
+            hx-post="{{ request.path }}"
+            hx-target="#modal-container"
+            hx-swap="innerHTML"
+        >
+            {% csrf_token %}
+            <label for="customer-message-group-dispatch-modal" class="btn btn-ghost">Cancelar</label>
+            <button type="submit" class="btn btn-primary">
+                <span class="material-icons">send</span>
+                Disparar
+            </button>
+        </form>
+    </div>
+    <label class="modal-backdrop" for="customer-message-group-dispatch-modal">Close</label>
+</div>
