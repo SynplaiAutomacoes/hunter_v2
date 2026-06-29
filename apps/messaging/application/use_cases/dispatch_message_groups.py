@@ -48,7 +48,7 @@ class SegmentQueryBuilder(Protocol):
 class MessageQueuePublisher(Protocol):
     def publish_dispatch_item(self, item: DispatchItem, workshop_id: int) -> None: ...
 
-    def publish_workshop_control(self, workshop_id: int) -> None: ...
+    def publish_workshop_control(self, workshop_id: int, whatsapp_instance_name: str = "") -> None: ...
 
     def close(self) -> None: ...
 
@@ -67,7 +67,7 @@ class DispatchMessageGroupsUseCase:
     def execute(self, request: DispatchGroupsRequest) -> DispatchGroupsResult:
         groups = self._group_repo.find_active_groups(request.workshop_id)
         result = DispatchGroupsResult(total_groups=len(groups), total_customers=0)
-        notified_workshops: set[int] = set()
+        notified_workshops: dict[int, str] = {}
 
         try:
             for group in groups:
@@ -77,10 +77,11 @@ class DispatchMessageGroupsUseCase:
                 if group_result.error:
                     result.errors.append(group_result.error)
                 if group_result.total_customers > 0:
-                    notified_workshops.add(group.workshop_id)
+                    instance_name = str(group.workshop.whatsapp_instance_name or "")
+                    notified_workshops[group.workshop_id] = instance_name
 
-            for workshop_id in notified_workshops:
-                self._queue_publisher.publish_workshop_control(workshop_id)
+            for workshop_id, instance_name in notified_workshops.items():
+                self._queue_publisher.publish_workshop_control(workshop_id, whatsapp_instance_name=instance_name)
 
             return result
         finally:

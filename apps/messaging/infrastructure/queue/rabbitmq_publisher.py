@@ -65,13 +65,18 @@ class RabbitMQPublisher:
         except Exception as e:
             raise RabbitMQPublisherError(f"Failed to publish message: {e}") from e
 
-    def publish_workshop_control(self, workshop_id: int) -> None:
+    def publish_workshop_control(self, workshop_id: int, whatsapp_instance_name: str = "") -> None:
         if self._channel is None or self._connection is None or self._connection.is_closed:
             raise RabbitMQPublisherError("RabbitMQ connection is closed")
 
         try:
             self._channel.queue_declare(queue=self._CONTROL_QUEUE, durable=True)
-            payload = json.dumps({"workshop_id": workshop_id}).encode("utf-8")
+            payload = json.dumps(
+                {
+                    "workshop_id": workshop_id,
+                    "whatsapp_instance_name": whatsapp_instance_name,
+                }
+            ).encode("utf-8")
             self._channel.basic_publish(
                 exchange="",
                 routing_key=self._CONTROL_QUEUE,

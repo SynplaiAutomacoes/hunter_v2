@@ -45,6 +45,12 @@ class Workshop(TimeStampedModel):
     certificate_password = models.CharField(verbose_name="Senha do Certificado", max_length=255, null=True, blank=True)
     last_nsu_sefaz = models.CharField(null=True, blank=True, default="0")
     last_sefaz_search_date = models.DateTimeField(null=True, blank=True)
+    whatsapp_instance_name = CharField(
+        verbose_name="Nome da instância WhatsApp",
+        max_length=64,
+        blank=True,
+        default="",
+    )
 
     class Meta:
         verbose_name = "Oficina"

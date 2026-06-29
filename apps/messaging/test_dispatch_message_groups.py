@@ -86,13 +86,13 @@ class FakeQueuePublisher:
     def __init__(self) -> None:
         self.published: list[DispatchItem] = []
         self.closed = False
-        self.control_notifications: list[int] = []
+        self.control_notifications: list[tuple[int, str]] = []
 
     def publish_dispatch_item(self, item: DispatchItem, workshop_id: int = 0) -> None:
         self.published.append(item)
 
-    def publish_workshop_control(self, workshop_id: int) -> None:
-        self.control_notifications.append(workshop_id)
+    def publish_workshop_control(self, workshop_id: int, whatsapp_instance_name: str = "") -> None:
+        self.control_notifications.append((workshop_id, whatsapp_instance_name))
 
     def close(self) -> None:
         self.closed = True

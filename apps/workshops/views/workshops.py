@@ -39,6 +39,7 @@ from apps.workshops.forms.workshops import (
     WorkshopLogoForm,
     WorkshopOptionalsSectionForm,
     WorkshopPdfObservationSectionForm,
+    WorkshopWhatsAppForm,
 )
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.services.files import (
@@ -181,6 +182,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
     TAB_OPCIONAIS = "opcionais"
     TAB_CREDENCIAIS = "credenciais"
     TAB_PDF_OBSERVATION = "pdf_observation"
+    TAB_WHATSAPP = "whatsapp"
     TAB_LOGO_AUTOUPLOAD = "logo_autoupload"
     TABS = {
         TAB_EMPRESA,
@@ -190,6 +192,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         TAB_OPCIONAIS,
         TAB_CREDENCIAIS,
         TAB_PDF_OBSERVATION,
+        TAB_WHATSAPP,
     }
 
     NF_SUBTAB_NFE = "nfe"
@@ -254,6 +257,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             self.TAB_CERTIFICADO: WorkshopCertificateSectionForm(instance=self.object),
             self.TAB_OPCIONAIS: WorkshopOptionalsSectionForm(instance=self.company, workshop=self.object),
             self.TAB_PDF_OBSERVATION: WorkshopPdfObservationSectionForm(instance=self.object),
+            self.TAB_WHATSAPP: WorkshopWhatsAppForm(instance=self.object),
         }
 
         if data is None and files is None:
@@ -271,6 +275,8 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             form_map[self.TAB_OPCIONAIS] = WorkshopOptionalsSectionForm(data=data, files=files, instance=self.company, workshop=self.object)
         elif active_tab == self.TAB_PDF_OBSERVATION:
             form_map[self.TAB_PDF_OBSERVATION] = WorkshopPdfObservationSectionForm(data=data, files=files, instance=self.object)
+        elif active_tab == self.TAB_WHATSAPP:
+            form_map[self.TAB_WHATSAPP] = WorkshopWhatsAppForm(data=data, files=files, instance=self.object)
 
         return form_map
 
@@ -357,6 +363,8 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             "certificate_form": forms_map[self.TAB_CERTIFICADO],
             "optionals_form": forms_map[self.TAB_OPCIONAIS],
             "pdf_observation_form": forms_map[self.TAB_PDF_OBSERVATION],
+            "whatsapp_form": forms_map.get(self.TAB_WHATSAPP),
+            "whatsapp_instance_name": self.object.whatsapp_instance_name,
             "credential_preview_fields": self._credential_preview_fields(),
             "certificate_status": self._certificate_status(),
             "has_certificate_file": self.object.has_certificate_file,
@@ -578,6 +586,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         }
         restricted_workshop_tabs = {
             self.TAB_PDF_OBSERVATION,
+            self.TAB_WHATSAPP,
         }
 
         if active_tab in restricted_webmania_tabs and not self._can_change_webmania_company():
@@ -621,6 +630,15 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
                     tab=active_tab,
                     nf_subtab=active_nf_subtab,
                     success_message="Observacao do PDF atualizada com sucesso.",
+                )
+        elif active_tab == self.TAB_WHATSAPP:
+            whatsapp_form = cast(WorkshopWhatsAppForm, forms_map[self.TAB_WHATSAPP])
+            if whatsapp_form.is_valid():
+                return self._save_workshop_tab_form(
+                    form=whatsapp_form,
+                    tab=active_tab,
+                    nf_subtab=active_nf_subtab,
+                    success_message="Telefone do WhatsApp atualizado com sucesso.",
                 )
         elif active_tab == self.TAB_CREDENCIAIS:
             messages.info(request, "As credenciais dessa aba sao apenas para visualizacao.")

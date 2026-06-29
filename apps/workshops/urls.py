@@ -12,6 +12,12 @@ from .views.workshops import (
     WorkshopUpdateView,
 )
 
+from .views.whatsapp_connection import (
+    WhatsAppConnectView,
+    WhatsAppStatusView,
+    WhatsAppDisconnectView,
+)
+
 from apps.workshops.views.monthly_costs import (
     MonthlyCostListView,
     MonthlyCostCreateView,
@@ -58,4 +64,8 @@ urlpatterns = [
     #
     path("webmania/empresas/sync/", WorkshopWebmaniaSyncView.as_view(), name="webmania_company_sync"),
     path("historico-emissoes/", WorkshopEmissionHistoryView.as_view(), name="emission_history"),
+    # WhatsApp
+    path("<int:pk>/whatsapp/connect/", WhatsAppConnectView.as_view(), name="whatsapp_connect"),
+    path("<int:pk>/whatsapp/status/", WhatsAppStatusView.as_view(), name="whatsapp_status"),
+    path("<int:pk>/whatsapp/disconnect/", WhatsAppDisconnectView.as_view(), name="whatsapp_disconnect"),
 ]
