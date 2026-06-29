@@ -514,12 +514,3 @@ class WorkshopCertificateSectionForm(CoreForm):
 
     def has_new_upload(self) -> bool:
         return self.cleaned_data.get("pfx_certificate") is not None
-
-
-class WorkshopWhatsAppForm(CoreModelForm):
-    class Meta:
-        model = Workshop
-        fields = ["phone"]
-        widgets = {
-            "phone": PhoneInput(),
-        }

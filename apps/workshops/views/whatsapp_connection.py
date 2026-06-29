@@ -25,10 +25,11 @@ class WhatsAppConnectView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, *args, **kwargs):
         workshop = self.workshop
-        phone = str(workshop.phone or "").strip()
+        company = getattr(workshop, "webmania_company", None)
+        phone = str(company.telefone or "").strip() if company else ""
 
         if not phone:
-            return JsonResponse({"ok": False, "message": "Telefone da oficina nao configurado."}, status=400)
+            return JsonResponse({"ok": False, "message": "Telefone da empresa nao configurado. Preencha o campo telefone na aba Empresa."}, status=400)
 
         instance_name = f"workshop_{workshop.pk}"
 
