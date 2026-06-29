@@ -731,3 +731,17 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 **Justificativa:** a manifestacao faz mais sentido para documentos em que a oficina e tomadora ou intermediaria. A forma mais defensavel de provar esse papel e validar o XML recebido, extrair CNPJs, municipio, ambiente, UUID/chave/codigo e congelar hash/snapshot. A consulta Webmania por identificador e util como complemento, mas a documentacao revalidada nao confirma endpoint de importacao que substitua XML e papel fiscal.
 
 **Consequencias:** a proxima implementacao, se aprovada, deve ser preparatoria e local; nao deve criar `NfseItem`, `FiscalDocument(nfse)` nem executar `POST /2/nfse/manifestar`. Manifestacao futura dependera de documento recebido validado, papel `taker` ou `intermediary`, Padrao Nacional e capability ativa.
+
+## ADR - Fase 3.12.0: manifestacao de NFS-e recebida por extensao segura
+
+**Status:** em planejamento documental em 2026-06-29.
+
+**Contexto:** a Fase 3.11.1 foi validada no checkpoint `b25ad698`, criando `NfseReceivedDocument` por XML validado. O documento recebido agora possui XML snapshot/hash, UUID/identificador/codigo, CNPJs extraidos, role fiscal, oficina, empresa, status de validacao e protecao por permissoes. A importacao nao cria artefatos de emissao nem chama Webmania.
+
+**Decisao:** escolher Opcao A e planejar `3.12.1 - Manifestacao de NFS-e Recebida` como extensao segura de `NfseManifestation` existente, nao como fluxo paralelo.
+
+**Justificativa:** a manifestacao oficial e por tomador ou intermediario no Padrao Nacional. Diferente da NFS-e manual emitida pela propria oficina, a NFS-e recebida validada por XML pode provar que a oficina atua como tomadora ou intermediaria. O fluxo existente de `NfseManifestation` ja resolve payload, tentativa, idempotencia, timeout, webhook e reconciliacao; duplicar isso criaria risco e manutencao desnecessaria.
+
+**Consequencias:** a fase funcional futura deve adaptar a modelagem para vincular uma manifestacao a exatamente uma origem: `nfse_item` ou `received_document`. Deve bloquear provider, unknown, multiple, sem UUID, sem Padrao Nacional, status terminal/incerto e cross-workshop. Nao criar `NfseItem`, nao criar `FiscalDocument(nfse)`, nao alterar XML recebido e nao reusar permissoes de importacao como permissao de manifestacao.
+
+**OpenAPI:** nenhuma alteracao. O contrato oficial ja esta representado para manifestacao, webhook, consulta e status.

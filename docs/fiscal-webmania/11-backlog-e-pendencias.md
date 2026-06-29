@@ -361,3 +361,20 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Pendencias tecnicas: parser XML confiavel, hash/snapshot, validacao de CNPJs/papel fiscal, duplicidade, cross-workshop, status remoto e protecao de payload/XML.
 - Consulta Webmania por identificador permanece apoio/reconciliacao, nao fonte unica inicial.
 - CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria seguem nao iniciados.
+
+## Apos a Fase 3.11.1
+
+- Registro local de NFS-e recebida por XML validado implementado no checkpoint `b25ad698`.
+- Pendencia principal: manifestacao de NFS-e recebida a partir de `NfseReceivedDocument` validado.
+- Importacao por consulta Webmania, lote, e-mail/ERP e integracoes externas continuam adiadas.
+- Manifestacao da NFS-e manual permanece adiada por papel fiscal inseguro.
+- CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria seguem nao iniciados.
+
+## Apos a Fase 3.12.0
+
+- Proxima fase recomendada: `3.12.1 - Manifestacao de NFS-e Recebida`.
+- Implementar como extensao segura de `NfseManifestation`, vinculando exatamente uma origem: `nfse_item` ou `NfseReceivedDocument`.
+- Liberar somente roles `taker` e `intermediary`, com UUID seguro, XML validado, Padrao Nacional confirmado e `manifestation_enabled=True`.
+- Bloquear provider, unknown, multiple, CNPJ divergente, XML invalido/ausente, sem UUID, sem Padrao Nacional, cancelado, substituido, uncertain, duplicado e cross-workshop.
+- Nao criar `NfseItem`, `FiscalDocument(nfse)` ou fluxo paralelo de manifestacao recebida.
+- Roadmap restante: consulta Webmania para recebidas, lote, e-mail/ERP, NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos restantes e complementar tributaria continuam adiados.

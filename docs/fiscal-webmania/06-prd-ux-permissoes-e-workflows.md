@@ -618,3 +618,35 @@ Manifestacao futura, em fase separada, podera reutilizar:
 - `view_nfse_manifestation_payload`.
 
 UX planejada: tela de importacao/registro de NFS-e recebida com upload de XML como fonte preferencial, exibicao de divergencias, validacao explicita do papel fiscal da oficina, historico de validacoes, status "nao manifestavel" quando o papel for prestador/desconhecido/divergente, e payload/XML protegidos por permissao e oficina.
+
+## Fase 3.11.1 - UX e permissoes implementadas para NFS-e recebida
+
+Foram implementadas lista, importacao por XML, detalhe, payload sanitizado e download do XML original para `NfseReceivedDocument`. Permissoes efetivas:
+
+- `import_nfse_received`;
+- `view_nfse_received`;
+- `view_nfse_received_payload`;
+- `download_nfse_received_xml`.
+
+A UI nao oferece manifestacao, consulta Webmania, emissao, cancelamento ou substituicao da recebida.
+
+## Fase 3.12.0 - UX e permissoes planejadas para manifestacao recebida
+
+A futura acao de manifestar deve aparecer somente no detalhe de `NfseReceivedDocument` validado, role `taker` ou `intermediary`, UUID seguro, Padrao Nacional confirmado, capability `manifestation_enabled` ativa e usuario com `issue_nfse_manifestation`.
+
+Permissoes planejadas: reutilizar `issue_nfse_manifestation`, `view_nfse_manifestation`, `view_nfse_manifestation_payload` e `download_nfse_manifestation`. Permissoes de importacao de recebida, emissao manual, cancelamento ou substituicao nao autorizam manifestacao.
+
+UI minima:
+
+- acao "Manifestar" condicionada a elegibilidade;
+- form com evento confirmacao/rejeicao;
+- manifestador predefinido ou restrito conforme role (`taker` => tomador, `intermediary` => intermediario);
+- motivo obrigatorio para rejeicao;
+- justificativa obrigatoria somente para motivo `9`;
+- justificativa bloqueada para motivos `1..5`;
+- confirmacao explicita antes do POST;
+- historico de manifestacoes no detalhe da recebida;
+- payload/retorno/download protegidos por permissao e oficina;
+- aviso de que XML recebido e dados fiscais extraidos permanecem imutaveis.
+
+Nao exibir manifestacao para `provider`, `unknown`, `multiple`, documento cancelado/substituido/uncertain, sem UUID, sem Padrao Nacional, duplicado ou cross-workshop.

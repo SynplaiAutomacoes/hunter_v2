@@ -1057,3 +1057,25 @@ Matriz de origem:
 Decisao final da Fase 3.11.0: **Opcao A - criar preview/registro local de NFS-e recebida a partir de XML validado**. A consulta por identificador fica como apoio futuro, porque a documentacao revalidada nao confirma endpoint de importacao com dados suficientes para substituir XML, identidade e papel fiscal.
 
 OpenAPI: nenhuma alteracao aplicada. O schema atual permanece suficiente para consulta/status/manifestacao, mas nao ha schema oficial suficiente para importacao REST de NFS-e recebida de terceiros.
+
+## Fase 3.12.0 - reavaliacao API da manifestacao de NFS-e recebida
+
+A Fase 3.11.1 foi validada no checkpoint `b25ad698`, criando `NfseReceivedDocument` por XML validado, sem chamada Webmania e sem criar `NfseItem`, `FiscalDocument(nfse)`, `FiscalEmissionAttempt` ou `NfseManifestation`.
+
+Fonte oficial revalidada em 2026-06-29: [documentacao oficial Webmania NFS-e](https://webmania.com.br/docs/rest-api-nfse/). `POST /2/nfse/manifestar` continua sendo o contrato aplicavel para manifestacao de participacao no Padrao Nacional. O contrato permanece:
+
+| Aspecto | Contrato revalidado | Decisao Hunter |
+| --- | --- | --- |
+| Endpoint | `POST /2/nfse/manifestar` | usar somente em fase funcional propria |
+| Escopo | manifestacao de participacao no Padrao Nacional | exigir `national_standard_enabled=True` |
+| Identificador | `uuid` ou chave | para recebido, preferir UUID extraido/validado do XML; chave fica fallback futuro se provada segura |
+| Manifestador | `1` tomador, `2` intermediario | mapear de `NfseReceivedDocument.role`; bloquear provider/unknown/multiple |
+| Evento | `1` confirmacao, `2` rejeicao | validar antes do POST |
+| Rejeicao | `motivo_rejeicao` em `1..5` ou `9`; motivo `9` exige justificativa | manter as regras ja implementadas em `NfseManifestation` |
+| Desfazer manifestacao | nao encontrado endpoint oficial claro | nao implementar desfazimento |
+| Consulta/reconciliacao | consulta por identificador/UUID disponivel no contrato NFS-e geral | usar apenas GET consultivo, nunca repetir POST |
+| Status/capability | `/2/nfse/status` e capability local | exigir `manifestation_enabled=True` |
+
+Decisao API: **Opcao A**, implementar em fase futura a manifestacao de NFS-e recebida, porque o contrato remoto e o mesmo ja validado para `NfseManifestation` e o novo `NfseReceivedDocument` fornece identidade/papel fiscal que faltavam. O ajuste necessario e local: vincular `NfseManifestation` a documento recebido validado sem criar `NfseItem` ou `FiscalDocument(nfse)`.
+
+OpenAPI: nenhuma alteracao aplicada; nao houve correcao oficial nova. O schema atual permanece suficiente para `POST /2/nfse/manifestar`, webhook `manifestacao_nfse`, consulta e status.

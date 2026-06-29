@@ -187,6 +187,18 @@
 - Validacao: 6 testes especificos da fase e 57 testes regressivos NFS-e passaram; `makemigrations finance --check --dry-run`, Ruff nos Python tocados e `git diff --check` passaram.
 - `mypy .` executado e nao bloqueante: falha por baseline amplo preexistente (`3220 errors in 264 files`), incluindo stubs ausentes e erros tipados antigos fora da fase.
 
+## Fase 3.12.0 - reavaliacao documental da manifestacao de NFS-e recebida
+
+- Fase 3.11.1 aprovada e encerrada no checkpoint `b25ad698`; Fase 3.11.0 mantida como checkpoint documental `6f36f7fc`.
+- Registrado que `NfseReceivedDocument`, importacao local por XML, `nfse_received_import_enabled`, snapshot/hash de XML e validacao de papel fiscal estao implementados.
+- Confirmada documentalmente a ausencia de chamada Webmania, `NfseItem`, `FiscalDocument(nfse)`, `FiscalEmissionAttempt` e `NfseManifestation` no fluxo de importacao recebida.
+- Revalidada documentacao oficial Webmania NFS-e para `POST /2/nfse/manifestar`: endpoint do Padrao Nacional, manifestador tomador/intermediario, eventos confirmacao/rejeicao, motivos `1..5/9`, justificativa obrigatoria somente no motivo `9` e sem endpoint claro de desfazimento.
+- Matriz de elegibilidade comparou tomador, intermediario, prestador, desconhecido, multiplos papeis, CNPJ divergente, XML invalido/ausente, sem UUID, sem Padrao Nacional, cancelado, substituido, uncertain, duplicado e cross-workshop.
+- Decisao recomendada: **Opcao A**, implementar futuramente manifestacao de NFS-e recebida como extensao segura de `NfseManifestation`, vinculada a `NfseReceivedDocument` validado, sem criar fluxo paralelo.
+- Proxima fase sugerida: `3.12.1 - Manifestacao de NFS-e Recebida`, restrita a roles `taker` e `intermediary`, capability `national_standard_enabled` + `manifestation_enabled`, UUID seguro e webhook/reconciliacao sem repetir POST.
+- OpenAPI validado considerado suficiente; nenhuma alteracao aplicada.
+- Nenhum codigo funcional, migration, service, view, template ou teste foi alterado.
+
 ## Fase 3.4.1 - inicio
 
 - Fase 3.4P validada no checkpoint `747b6750a62d6ed59bed84c4616f89793c4247b4`.

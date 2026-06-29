@@ -770,3 +770,31 @@ Bloqueios planejados:
 - tentativa de manifestar antes de `validation_status=validated`.
 
 Webhook recebido sem documento local deve ficar pendente. Reconciliacao futura de documento recebido deve ser somente GET/consulta e nao deve repetir `POST /2/nfse/manifestar`.
+
+## Fase 3.11.1 - seguranca implementada para importacao recebida
+
+`NfseReceivedDocument` foi implementado como fronteira local de confianca. A importacao exige flag `nfse_received_import_enabled`, XML parseavel, bloqueio de DTD/entidade, hash SHA-256 do XML normalizado, unicidade por oficina para hash/UUID/identificador, papel fiscal seguro e colisao negativa contra NFS-e emitida localmente.
+
+O fluxo nao possui gateway remoto: nenhuma chamada Webmania, nenhum webhook, nenhuma reconciliacao e nenhum `FiscalEmissionAttempt`. Payload/XML sao protegidos por permissoes especificas de recebidas.
+
+## Fase 3.12.0 - seguranca planejada para manifestacao recebida
+
+A futura manifestacao de NFS-e recebida deve reutilizar a seguranca de `NfseManifestation`: tentativa persistida antes do POST, payload congelado, idempotencia por intencao, timeout `uncertain`, webhook por UUID remoto unico da manifestacao e reconciliacao somente GET.
+
+Chave idempotente planejada: oficina, tipo de origem (`received_document`), id do `NfseReceivedDocument`, evento, manifestador, operation type `nfse_manifestation`, id da intencao e geracao fixa. A chave nao deve usar somente UUID da NFS-e recebida, porque o mesmo documento pode ter eventos/manifestadores distintos.
+
+Bloqueios obrigatorios antes de criar a intencao:
+
+- `validation_status` diferente de `validated`;
+- role diferente de `taker` ou `intermediary`;
+- role `provider`, `unknown` ou `multiple`;
+- XML ausente/invalido ou hash ausente;
+- UUID/identificador remoto inseguro;
+- `remote_status` cancelado/substituido/anulado ou estado local `uncertain`;
+- documento duplicado ou cross-workshop;
+- `national_standard_enabled=False`;
+- `manifestation_enabled=False`;
+- usuario sem `issue_nfse_manifestation`;
+- tentativa ativa/concluida/incerta para o mesmo documento, evento e manifestador.
+
+Webhook `modelo=manifestacao_nfse` deve continuar resolvendo por UUID remoto unico da manifestacao. Se houver colisao entre manifestacao local e recebida, o evento fica pendente; nao deve cair para UUID da NFS-e original. Reconciliacao de manifestacao recebida deve exigir UUID remoto da manifestacao e nunca repetir `POST /2/nfse/manifestar`.

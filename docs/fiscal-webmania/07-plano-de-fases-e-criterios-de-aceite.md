@@ -1279,3 +1279,110 @@ Criterios de aceite: XML original preservado; hash e duplicidade validados; pape
 Implementacao: `NfseReceivedDocument`, flag `WebmaniaCompany.nfse_received_import_enabled`, servico local `nfse_received`, form/view/templates de importacao/lista/detalhe/payload/XML e migration `0069_webmaniacompany_nfse_received_import_enabled_and_more.py`.
 
 Validacao executada: nova classe `FiscalPhaseThreeNfseReceivedDocumentTests`, regressao das classes de manifestacao, emissao manual, cancelamento e substituicao NFS-e, `makemigrations --check --dry-run`, Ruff nos Python tocados e `git diff --check`. `mypy .` foi executado e permanece bloqueado por baseline amplo preexistente do projeto.
+
+## Fase 3.12.0 - Reavaliacao da Manifestacao de NFS-e Recebida
+
+Status: **em planejamento documental em 2026-06-29**. A Fase 3.11.1 foi validada e encerrada no checkpoint `b25ad698`; o checkpoint documental anterior da Fase 3.11.0 e `6f36f7fc`.
+
+Escopo autorizado: somente documentacao em `docs/fiscal-webmania/**` e OpenAPI apenas se houver correcao oficial confirmada. Nenhum codigo funcional, migration, service, view, template ou teste deve ser alterado nesta fase.
+
+### Contexto implementado pela Fase 3.11.1
+
+`NfseReceivedDocument` foi implementado como registro local de NFS-e recebida por XML validado. A fase entregou `nfse_received_import_enabled`, snapshot/hash de XML, extracao de identificadores, CNPJs, municipio, ambiente, valor/status remoto, validacao de papel fiscal, duplicidade e protecao por oficina/permissao. O fluxo de importacao nao chama Webmania e confirmou ausencia de criacao de `NfseItem`, `FiscalDocument(nfse)`, `FiscalEmissionAttempt` e `NfseManifestation`.
+
+### Revalidacao oficial Webmania
+
+Fonte oficial revalidada em 2026-06-29: documentacao Webmania NFS-e em `https://webmania.com.br/docs/rest-api-nfse/`. `POST /2/nfse/manifestar` permanece documentado como manifestacao de participacao da NFS-e do Padrao Nacional. O contrato segue pequeno: ambiente, identificador remoto (`uuid` ou chave quando aplicavel), manifestador `1` tomador ou `2` intermediario, evento `1` confirmacao ou `2` rejeicao, e campos condicionais de rejeicao. Motivos aceitos continuam `1`, `2`, `3`, `4`, `5` e `9`; motivo `9` exige justificativa entre 15 e 255 caracteres; justificativa e proibida quando o motivo nao for `9`. Nao foi identificado endpoint oficial claro para desfazer/cancelar manifestacao.
+
+Consulta/reconciliacao permanecem consultivas: usar `GET /2/nfse/consulta/{identifier}` somente quando houver UUID remoto seguro da manifestacao/documento, sem repetir `POST`. `/2/nfse/status` segue como base de capability municipal; localmente a regra segura continua exigir `national_standard_enabled=True` e `manifestation_enabled=True`.
+
+OpenAPI: nenhuma alteracao aplicada; o schema atual ja cobre manifestacao, webhook `modelo=manifestacao_nfse`, consulta e status. Nao ha correcao oficial nova confirmada.
+
+### Matriz de elegibilidade
+
+| Documento recebido | Elegivel para manifestacao? | Pre-condicoes | Bloqueios | Risco |
+| ------------------ | --------------------------: | ------------- | --------- | ----- |
+| Validado como tomador | Sim, em fase funcional futura | `NfseReceivedDocument.validation_status=validated`, role `taker`, XML snapshot/hash, UUID seguro, oficina/empresa coerentes, Padrao Nacional e capability confirmados | cancelado, substituido, uncertain, duplicado, cross-workshop, sem UUID ou sem capability | Medio |
+| Validado como intermediario | Sim, em fase funcional futura | Mesmo bloco anterior, role `intermediary`, manifestador `2` coerente | ausencia de CNPJ intermediario seguro, ambiguidade de papel, sem Padrao Nacional | Medio/alto |
+| Validado como prestador | Nao | N/A | oficina e prestadora/emissora, nao tomadora/intermediaria | Alto |
+| Papel desconhecido | Nao | N/A | CNPJ da oficina nao aparece em papel fiscal reconhecido | Alto |
+| Multiplos papeis | Nao | N/A | oficina aparece em mais de um papel; manifestador ambiguo | Alto |
+| CNPJ divergente | Nao | N/A | XML nao corresponde a empresa/oficina ativa ou cross-workshop | Alto |
+| XML invalido | Nao | N/A | fronteira de confianca quebrada | Alto |
+| XML ausente | Nao | N/A | sem snapshot/hash e sem prova de papel fiscal | Alto |
+| Sem UUID/identificador seguro | Nao | N/A | payload e webhook/reconciliacao inseguros | Alto |
+| Sem Padrao Nacional confirmado | Nao | N/A | endpoint oficial e restrito ao Padrao Nacional | Alto |
+| Com Padrao Nacional confirmado | Depende do papel | role `taker` ou `intermediary`, capability ativa e UUID seguro | role `provider`, `unknown`, `multiple` ou status terminal | Medio |
+| Cancelado | Nao | N/A | estado fiscal terminal | Alto |
+| Substituido | Nao | N/A | documento original encerrado por substituicao | Alto |
+| Uncertain | Nao | reconciliacao previa obrigatoria | estado remoto inconclusivo | Alto |
+| Duplicado | Nao | N/A | duplicidade por hash, UUID ou identificador | Alto |
+| Cross-workshop | Nao | N/A | violacao de tenancy/oficina | Alto |
+
+### Matriz de evento e manifestador
+
+| Evento | Manifestador | Campos obrigatorios | Elegivel para recebido? | Observacao |
+| ------ | ------------ | ------------------- | ----------------------: | ---------- |
+| Confirmacao | Tomador (`1`) | `ambiente`, `uuid`, `manifestador=1`, `evento=1` | Sim, se role `taker` | Nao enviar motivo ou justificativa |
+| Confirmacao | Intermediario (`2`) | `ambiente`, `uuid`, `manifestador=2`, `evento=1` | Sim, se role `intermediary` | Nao enviar motivo ou justificativa |
+| Rejeicao | Tomador (`1`) | `ambiente`, `uuid`, `manifestador=1`, `evento=2`, `motivo_rejeicao` | Sim, se role `taker` | Exige motivo oficial |
+| Rejeicao | Intermediario (`2`) | `ambiente`, `uuid`, `manifestador=2`, `evento=2`, `motivo_rejeicao` | Sim, se role `intermediary` | Exige motivo oficial |
+| Rejeicao motivo diferente de `9` | Tomador ou intermediario conforme role | Campos da rejeicao sem `justificativa_rejeicao` | Sim | Justificativa proibida |
+| Rejeicao motivo `9` | Tomador ou intermediario conforme role | Campos da rejeicao + `justificativa_rejeicao` | Sim | Justificativa obrigatoria entre 15 e 255 caracteres |
+| Justificativa obrigatoria | Tomador ou intermediario | `motivo_rejeicao=9` + justificativa valida | Sim | Falta de justificativa bloqueia antes do POST |
+| Justificativa proibida | Tomador ou intermediario | `motivo_rejeicao` em `1..5` | Sim, sem justificativa | Qualquer justificativa deve bloquear |
+
+### Decisao
+
+Escolher **Opcao A - implementar manifestacao de NFS-e recebida** em fase funcional futura, com ajuste controlado do fluxo existente.
+
+Justificativa: apos a Fase 3.11.1, `NfseReceivedDocument` validado fornece a prova local que faltava para documentos de terceiros: XML congelado, hash, CNPJs extraidos, papel fiscal, oficina, identificadores e duplicidade. A manifestacao deve ser permitida somente para roles `taker` e `intermediary`, com Padrao Nacional confirmado por capability segura e UUID remoto seguro. O fluxo atual `NfseManifestation` ja possui contrato, idempotencia, timeout `uncertain`, webhook e reconciliacao GET-only, mas a modelagem atual exige `nfse_item`; portanto a proxima fase deve ser **A) extensao segura de `NfseManifestation` existente**, nao fluxo paralelo, adicionando vinculo opcional/alternativo a `NfseReceivedDocument`.
+
+### Escopo da proxima fase proposta
+
+Fase futura recomendada: `3.12.1 - Manifestacao de NFS-e Recebida`.
+
+- Objetivo: permitir manifestacao de `NfseReceivedDocument` validado como tomador ou intermediario.
+- Endpoint: `POST /2/nfse/manifestar`.
+- Modelagem: estender `NfseManifestation` para aceitar origem recebida por `received_document` ou campo equivalente, mantendo `nfse_item` para origem local existente; bloquear instancias sem exatamente uma origem.
+- Operacao/idempotencia: chave por oficina, origem (`nfse_item` ou `received_document`), evento, manifestador e geracao da intencao; estados `sent`, `succeeded` e `uncertain` bloqueiam reenvio.
+- Vinculo com `NfseReceivedDocument`: exigir mesma oficina, `validation_status=validated`, role `taker`/`intermediary`, UUID seguro, XML preservado e dados fiscais imutaveis.
+- Permissoes: reutilizar `issue_nfse_manifestation`, `view_nfse_manifestation`, `view_nfse_manifestation_payload` e `download_nfse_manifestation`; permissoes de importacao, emissao, cancelamento ou substituicao nao manifestam.
+- Feature flag/capability: exigir `NfseReceivedDocument.company` com capability municipal ativa, `national_standard_enabled=True` e `manifestation_enabled=True`; se a capability nao puder ser resolvida com seguranca, bloquear.
+- UI minima: acao no detalhe da NFS-e recebida validada, selecao de evento/manifestador coerente com role, motivo/justificativa quando rejeicao, confirmacao explicita, historico e payload/download protegidos.
+- Webhook/reconciliacao: webhook `modelo=manifestacao_nfse` resolve por UUID remoto unico da manifestacao; ambiguidade fica pendente; reconciliacao usa GET por UUID remoto da manifestacao e nunca repete POST.
+- Downloads/payload: payload sanitizado e XML/artefato de manifestacao separados do XML recebido original.
+- Bloqueios: provider, unknown, multiple, divergente, XML invalido/ausente, sem UUID, sem Padrao Nacional, cancelado, substituido, uncertain, duplicado e cross-workshop.
+- Criterios de aceite: nenhuma criacao de `NfseItem` ou `FiscalDocument(nfse)`, nenhum ajuste no XML recebido, dados extraidos imutaveis, payload remoto restrito e regressao da manifestacao local existente preservada.
+
+### Testes planejados
+
+Elegibilidade: manifestar recebido validado como tomador; manifestar recebido validado como intermediario; bloquear prestador, desconhecido, multiplos papeis, CNPJ divergente, XML invalido, sem UUID, sem Padrao Nacional, cancelado, substituido, uncertain, duplicado e cross-workshop.
+
+Payload: enviar somente `ambiente`, `uuid`, `manifestador`, `evento`; rejeicao envia `motivo_rejeicao`; `justificativa_rejeicao` somente com motivo `9`; nao enviar XML, dados fiscais extraidos, payload de emissao, cancelamento ou substituicao.
+
+Modelagem: criar `NfseManifestation` vinculada ao recebido; nao criar `NfseItem`; nao criar `FiscalDocument(nfse)`; nao alterar XML recebido; nao alterar dados extraidos; manter idempotencia por documento/evento/manifestador.
+
+Seguranca: exigir `issue_nfse_manifestation`; proteger payload/downloads; provar que permissoes de importacao, emissao, cancelamento e substituicao nao manifestam; bloquear cross-workshop.
+
+Webhook/reconciliacao: webhook seguro atualiza a manifestacao recebida correta; webhook ambiguo fica pendente; reconciliacao consulta sem reenviar POST; reconciliacao ambigua nao atualiza.
+
+Regressao: importacao de NFS-e recebida, manifestacao NFS-e existente, emissao manual, cancelamento manual, substituicao manual, NFS-e legada e NF-e/NFC-e nao regridem.
+
+### Roadmap curto
+
+| Bloco | Status | Recomendacao |
+| ----- | ------ | ------------ |
+| Manifestacao da NFS-e manual | adiada | manter bloqueada ate haver prova de papel tomador/intermediario |
+| NFS-e recebida por consulta Webmania | nao iniciada | usar apenas como apoio/reconciliacao apos XML validado |
+| Importacao em lote | nao iniciada | adiar ate fluxo unitario recebido estar estavel |
+| Integracao e-mail/ERP | nao iniciada | adiar; deve alimentar pipeline de XML validado |
+| NFS-e expandida | nao iniciada | quebrar por subfases apos manifestacao recebida |
+| CT-e | nao iniciada | adiar ate dominio operacional proprio |
+| MDF-e | nao iniciada | adiar ate CT-e/MDF-e terem fonte local |
+| NFCom | nao iniciada | adiar; confirmar relevancia e feature flag |
+| DC-e | nao iniciada | adiar; API v2.0.0 exige dominio proprio |
+| Eventos IBS/CBS 112120/112140/211xxx | adiados | reavaliar depois dos eventos ja validados |
+| Creditos 2-5 | adiados | manter bloqueados ate fonte fiscal suficiente |
+| Debitos 1-3 e 5-8 | adiados | manter bloqueados ate fonte fiscal suficiente |
+| Complementar tributaria | adiada | exige auditoria propria de base tributaria |

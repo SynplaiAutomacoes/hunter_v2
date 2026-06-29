@@ -806,3 +806,84 @@ Para a fase futura de registro local de NFS-e recebida, planejar:
 - documento recebido nao cria `NfseItem` emitido;
 - documento recebido nao cria `FiscalDocument(nfse)`;
 - manifestacao futura so libera documentos recebidos validados.
+
+## Cobertura adicionada na Fase 3.11.1
+
+Novos testes em `FiscalPhaseThreeNfseReceivedDocumentTests` cobrem:
+
+- importacao de XML valido com snapshot/hash e papel tomador;
+- roles intermediario e prestador, com prestador nao manifestavel;
+- bloqueio de role desconhecido, multiplo, status cancelado e feature flag desligada;
+- duplicidade por XML e colisao com NFS-e emitida localmente;
+- imutabilidade de dados fiscais validados;
+- payload/XML protegidos por permissoes especificas;
+- ausencia de chamada Webmania, `NfseItem`, `FiscalDocument`, `FiscalEmissionAttempt` e `NfseManifestation`.
+
+Validacoes executadas: 6 testes especificos da fase, 57 regressivos NFS-e, migration-check, Ruff focado e diff-check passaram. `mypy .` permaneceu bloqueado por baseline preexistente.
+
+## Testes planejados pela Fase 3.12.0
+
+Nenhum teste funcional foi criado na Fase 3.12.0 porque ela e documental.
+
+Para `3.12.1 - Manifestacao de NFS-e Recebida`, planejar:
+
+### Elegibilidade
+
+- manifesta documento recebido validado como tomador;
+- manifesta documento recebido validado como intermediario;
+- bloqueia papel prestador;
+- bloqueia papel desconhecido;
+- bloqueia multiplos papeis;
+- bloqueia CNPJ divergente;
+- bloqueia XML invalido;
+- bloqueia sem UUID;
+- bloqueia sem Padrao Nacional confirmado;
+- bloqueia cancelado;
+- bloqueia substituido;
+- bloqueia uncertain;
+- bloqueia duplicado;
+- bloqueia cross-workshop.
+
+### Payload
+
+- envia payload restrito a `ambiente`, `uuid`, `manifestador`, `evento`;
+- rejeicao envia `motivo_rejeicao`;
+- `justificativa_rejeicao` somente com `motivo_rejeicao=9`;
+- nao envia XML;
+- nao envia dados fiscais extraidos;
+- nao envia payload de emissao, cancelamento ou substituicao.
+
+### Modelagem
+
+- cria `NfseManifestation` vinculada ao recebido;
+- nao cria `NfseItem`;
+- nao cria `FiscalDocument(nfse)`;
+- nao altera XML recebido;
+- nao altera dados extraidos;
+- idempotencia por documento/evento/manifestador.
+
+### Seguranca
+
+- exige `issue_nfse_manifestation`;
+- payload protegido;
+- downloads protegidos;
+- permissoes de importacao nao manifestam;
+- permissoes de emissao/cancelamento/substituicao nao manifestam;
+- cross-workshop bloqueado.
+
+### Webhook/reconciliacao
+
+- webhook seguro atualiza manifestacao recebida correta;
+- webhook ambiguo fica pendente;
+- reconciliacao consulta sem reenviar POST;
+- reconciliacao ambigua nao atualiza.
+
+### Regressao
+
+- importacao de NFS-e recebida continua funcionando;
+- manifestacao NFS-e existente continua funcionando;
+- emissao manual continua funcionando;
+- cancelamento manual continua funcionando;
+- substituicao manual continua funcionando;
+- NFS-e legada nao regride;
+- NF-e/NFC-e nao regridem.

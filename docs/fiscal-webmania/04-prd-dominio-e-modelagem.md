@@ -899,3 +899,21 @@ Campos minimos planejados, ajustados ao estilo do projeto:
 Constraints planejadas: unicidade por oficina para `xml_hash`, UUID e chave/identificador quando preenchidos; bloqueio de documento emitido pelo proprio Hunter como recebido; bloqueio cross-workshop; falhas de validacao preservadas em `validation_errors` sem criar `NfseItem` ou `FiscalDocument(nfse)`.
 
 Manifestacao futura deve depender de `NfseReceivedDocument` validado, papel `taker` ou `intermediary`, Padrao Nacional confirmado, UUID/chave segura e capability `manifestation_enabled`. Papel `provider`, `unknown`, `multiple` ou `divergent` bloqueia manifestacao.
+
+## Fase 3.11.1 - modelagem implementada para NFS-e recebida
+
+Foi criado `NfseReceivedDocument` como entidade propria de NFS-e recebida por XML. A entidade guarda `workshop`, `company`, origem `xml_upload`, `xml_snapshot`, `xml_hash`, UUID, identificador/chave, codigo de verificacao, CNPJs de prestador/tomador/intermediario, municipio, ambiente, data, valor, status local/remoto, role fiscal, status de validacao, erros, payload parseado e usuario criador.
+
+Tambem foi criada a flag `WebmaniaCompany.nfse_received_import_enabled`. A importacao local valida XML, hash, duplicidade, papel fiscal e colisao com documentos emitidos pelo Hunter. Nao cria `NfseItem`, nao cria `FiscalDocument(nfse)`, nao cria `FiscalEmissionAttempt` e nao cria `NfseManifestation`.
+
+## Fase 3.12.0 - modelagem recomendada para manifestacao de NFS-e recebida
+
+Decisao de dominio: **extensao segura de `NfseManifestation` existente**, nao fluxo paralelo especifico.
+
+A modelagem atual de `NfseManifestation` e adequada para payload, status, tentativa, retorno remoto, UUID da manifestacao, webhook e reconciliacao, mas hoje exige `nfse_item` obrigatorio. A fase funcional futura deve introduzir um vinculo alternativo a `NfseReceivedDocument` (`received_document` ou nome equivalente), mantendo `nfse_item` para manifestacoes de NFS-e local existentes.
+
+Regra estrutural planejada: exatamente uma origem por manifestacao. Uma instancia deve ter `nfse_item` XOR `received_document`; instancias sem origem ou com duas origens devem ser invalidas. A constraint/idempotencia deve mudar de `nfse_item + event + manifestor` para origem normalizada (`nfse_item` ou `received_document`) + `manifestation_code` + `manifestor`, sempre escopada por oficina.
+
+Elegibilidade de recebido: `validation_status=validated`, role `taker` ou `intermediary`, UUID seguro, XML snapshot/hash preservados, mesma oficina/empresa, status nao cancelado/substituido/uncertain, Padrao Nacional e `manifestation_enabled` confirmados por capability segura. `provider`, `unknown`, `multiple`, divergente, duplicado ou cross-workshop bloqueiam.
+
+Dados preservados: a manifestacao nao altera `xml_snapshot`, `xml_hash`, CNPJs, municipio, ambiente, valor, status remoto extraido ou payload parseado do recebido. XML/artefato de manifestacao, se retornado, permanece separado em `NfseManifestation`.
