@@ -124,6 +124,7 @@
 - Decisao recomendada: **Opcao A**, implementar substituicao da NFS-e manual como extensao segura do fluxo atual de substituicao NFS-e, reutilizando `NfseSubstitutionPreview`, `NfseSubstitution`, `POST /2/nfse/substituir`, idempotencia, webhook e reconciliacao ja validados.
 - OpenAPI validado revisado como suficiente; nenhuma alteracao aplicada.
 - Nenhum codigo funcional, migration, service, view, template ou teste foi alterado.
+
 - Status posterior: Fase 3.9.0 validada documentalmente e commitada no checkpoint `21d684e7`.
 
 ## Fase 3.9.1 - implementacao da substituicao da NFS-e manual
@@ -154,6 +155,17 @@
 - Decisao recomendada: **Opcao B**, adiar manifestacao da NFS-e manual por ambiguidade de papel fiscal da oficina como tomadora/intermediaria em nota emitida pela propria oficina.
 - Opcao C permanece como provavel proximo planejamento: preparar NFS-e recebida/importada antes de ampliar manifestacao para documentos de terceiros.
 - OpenAPI validado revisado como suficiente; nenhuma alteracao aplicada.
+- Nenhum codigo funcional, migration, service, view, template ou teste foi alterado.
+
+## Fase 3.11.0 - planejamento tecnico da NFS-e recebida/importada
+
+- Fase 3.10.0 validada documentalmente e commitada no checkpoint `8d5c7192`.
+- Registrada decisao aprovada: manifestacao da NFS-e manual adiada; priorizar preparacao de NFS-e recebida/importada de terceiros.
+- Revalidada documentacao oficial Webmania NFS-e para consulta por identificador, `/status`, manifestacao Padrao Nacional e webhooks. Nao foi encontrado endpoint REST claro de importacao/sincronizacao de NFS-e recebida que forneca XML completo, identidade e papel fiscal.
+- Matriz de origem comparou upload XML, consulta por identificador, webhook sem documento previo, digitacao manual, importacao por lote e integracao futura e-mail/ERP.
+- Matriz de papel fiscal comparou tomador, intermediario, prestador, desconhecido, multiplos papeis e CNPJ divergente.
+- Decisao recomendada: **Opcao A**, criar preview/registro local de NFS-e recebida a partir de XML validado, sem manifestacao funcional.
+- OpenAPI validado revisado como suficiente para consulta/status/manifestacao; nenhuma alteracao aplicada.
 - Nenhum codigo funcional, migration, service, view, template ou teste foi alterado.
 
 ## Fase 3.4.1 - inicio

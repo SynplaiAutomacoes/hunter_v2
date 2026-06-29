@@ -747,3 +747,26 @@ Bloqueios que permanecem obrigatorios para qualquer fase futura:
 - ausencia de papel fiscal da oficina como tomadora ou intermediaria.
 
 Webhook/reconciliacao: nenhum webhook deve inferir sucesso de manifestacao manual por UUID da NFS-e original. A confirmacao deve depender do UUID remoto da manifestacao ou identificador equivalente seguro. Reconciliacao segue exclusivamente consultiva e nunca repete `POST /2/nfse/manifestar`.
+
+## Fase 3.11.0 - seguranca planejada para NFS-e recebida/importada
+
+O registro de NFS-e recebida deve ser local e validativo. Nenhuma importacao pode emitir, cancelar, substituir ou manifestar documento. O XML validado e o hash devem ser a primeira fronteira de confianca; consulta Webmania e webhook servem como enriquecimento/reconciliacao, nunca como prova unica inicial de papel fiscal.
+
+Bloqueios planejados:
+
+- XML ausente quando a origem exigir XML;
+- XML invalido ou nao parseavel;
+- hash duplicado;
+- UUID duplicado;
+- chave/identificador duplicado;
+- CNPJ da oficina ausente no XML;
+- CNPJ da oficina com papel desconhecido;
+- CNPJ divergente entre XML, empresa Webmania e oficina ativa;
+- municipio incompatível;
+- ambiente incompatível;
+- documento cancelado, substituido ou `uncertain`;
+- documento de outra oficina;
+- documento emitido pelo proprio Hunter importado como recebido;
+- tentativa de manifestar antes de `validation_status=validated`.
+
+Webhook recebido sem documento local deve ficar pendente. Reconciliacao futura de documento recebido deve ser somente GET/consulta e nao deve repetir `POST /2/nfse/manifestar`.

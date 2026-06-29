@@ -1022,3 +1022,38 @@ Decisao final: **Opcao B - adiar manifestacao da NFS-e manual**. O endpoint e cl
 Opcao C permanece como caminho provavel posterior: preparar NFS-e recebida/importada antes de ampliar manifestacao, porque esse fluxo tem melhor aderencia ao papel de tomador/intermediario, desde que haja XML, UUID/chave, papel fiscal e tenancy seguros.
 
 OpenAPI: nenhuma alteracao aplicada; nao houve correcao oficial nova para `api/webmania_fiscal_openapi_validated.json`.
+
+## Fase 3.11.0 - matriz API para NFS-e recebida/importada
+
+A Fase 3.10.0 foi validada documentalmente no checkpoint `8d5c7192`. A manifestacao da NFS-e manual foi adiada e a decisao aprovada prioriza preparar dominio de NFS-e recebida/importada de terceiros antes de qualquer manifestacao sobre documentos recebidos.
+
+Fonte oficial revalidada em 2026-06-29: [documentacao oficial Webmania NFS-e](https://webmania.com.br/docs/rest-api-nfse/). A documentacao REST NFS-e continua cobrindo consulta por identificador/UUID, `/2/nfse/status`, manifestacao Padrao Nacional e webhooks/notificacoes fiscais. Nao foi identificado endpoint REST claro de importacao/sincronizacao de NFS-e recebida de terceiros que entregue, sozinho, XML completo, papel fiscal da oficina e validacao de tenancy.
+
+Campos identificadores planejados para documento recebido:
+
+| Campo | Fonte preferencial | Uso planejado | Lacuna |
+| --- | --- | --- | --- |
+| UUID | XML ou consulta Webmania por identificador | identidade remota principal quando presente | pode faltar em XML municipal/legado |
+| Chave/identificador | XML ou digitacao assistida | fallback de consulta e deduplicacao | formato pode variar por municipio/provedor |
+| Codigo de verificacao | XML/retorno consultado | validacao complementar | nao substitui UUID/chave |
+| CNPJ prestador | XML | detectar documento de terceiro e bloquear documento emitido pela propria oficina | depende de parser XML confiavel |
+| CNPJ tomador | XML | validar papel tomador | obrigatorio para manifestacao futura como tomador |
+| CNPJ intermediario | XML, quando existir | validar papel intermediario | pode estar ausente |
+| Municipio | XML | compatibilidade e capacidade municipal | codigos podem variar entre XML municipal e nacional |
+| Ambiente | XML ou metadado escolhido | bloquear mistura producao/homologacao | nem todo XML expõe de forma uniforme |
+| XML | upload/manual ou download validado | fonte congelada preferencial | endpoint REST de importacao nao confirmado |
+
+Matriz de origem:
+
+| Origem | Possui XML? | Possui UUID/chave? | Confianca | Risco | Recomendacao |
+| ------ | ----------: | -----------------: | --------- | ----- | ------------ |
+| Upload manual de XML | Sim | Normalmente sim, conforme XML | Alta, se parser validar assinatura/estrutura e hash | XML falso/incompleto ou emitido pela propria oficina | **Opcao A: fonte preferencial para registro local** |
+| Consulta Webmania por identificador | Nao garantido localmente | Sim | Media | retorno pode ser insuficiente para papel fiscal/XML completo | usar como complemento/reconciliacao, nao fonte unica inicial |
+| Webhook recebido sem documento previo | Nao | Sim, se payload trouxer UUID | Baixa/media | ambiguidade de oficina e falta de XML | pendenciar ate registro validado |
+| Digitacao manual de UUID/chave/codigo | Nao | Sim | Baixa | erro humano e papel fiscal nao comprovado | permitir apenas como rascunho/consulta assistida futura |
+| Importacao por lote | Sim, se lote de XMLs | Alta apos validacao individual | duplicidade e falha parcial | fase posterior apos importacao unitária |
+| Integracao futura com e-mail/ERP | Variavel | Variavel | Media | fonte externa nao autenticada e anexos divergentes | adiar; reaproveitar pipeline de XML validado |
+
+Decisao final da Fase 3.11.0: **Opcao A - criar preview/registro local de NFS-e recebida a partir de XML validado**. A consulta por identificador fica como apoio futuro, porque a documentacao revalidada nao confirma endpoint de importacao com dados suficientes para substituir XML, identidade e papel fiscal.
+
+OpenAPI: nenhuma alteracao aplicada. O schema atual permanece suficiente para consulta/status/manifestacao, mas nao ha schema oficial suficiente para importacao REST de NFS-e recebida de terceiros.

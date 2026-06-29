@@ -783,3 +783,26 @@ Se uma fase futura de manifestacao manual for aprovada, a cobertura minima dever
 - webhook resolve somente com identificador seguro da manifestacao;
 - reconciliacao consulta sem reenviar `POST /2/nfse/manifestar`;
 - regressoes de emissao, cancelamento e substituicao manual continuam passando.
+
+## Testes planejados pela Fase 3.11.0
+
+Nenhum teste funcional foi criado na Fase 3.11.0 porque ela e documental.
+
+Para a fase futura de registro local de NFS-e recebida, planejar:
+
+- importa XML valido;
+- bloqueia XML invalido;
+- bloqueia duplicidade por hash;
+- bloqueia duplicidade por UUID;
+- bloqueia duplicidade por chave/identificador;
+- identifica papel tomador;
+- identifica papel intermediario;
+- bloqueia papel prestador para manifestacao;
+- bloqueia papel desconhecido;
+- bloqueia CNPJ divergente;
+- bloqueia cross-workshop;
+- bloqueia documento cancelado/substituido/uncertain;
+- protege payload/XML por permissao;
+- documento recebido nao cria `NfseItem` emitido;
+- documento recebido nao cria `FiscalDocument(nfse)`;
+- manifestacao futura so libera documentos recebidos validados.

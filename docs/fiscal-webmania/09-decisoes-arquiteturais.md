@@ -721,3 +721,13 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 **Alternativas avaliadas:** implementar como extensao segura de `NfseManifestation`; criar fluxo separado manual; preparar NFS-e recebida/importada. A primeira e tecnicamente possivel, mas fiscalmente ambigua. A segunda foi rejeitada por duplicar fluxo. A terceira permanece recomendada como preparacao posterior, porque documentos recebidos de terceiros tendem a se alinhar melhor ao papel de manifestador.
 
 **Consequencias:** manifestacao da NFS-e manual continua pendente; NFS-e recebida/importada deve ser planejada antes de manifestacao de terceiros; nenhuma alteracao em OpenAPI ou codigo funcional foi feita.
+
+## ADR - Fase 3.11.0: NFS-e recebida por XML antes de manifestacao
+
+**Status:** em planejamento documental em 2026-06-29.
+
+**Decisao:** escolher Opcao A, criar em fase futura um registro local de NFS-e recebida/importada baseado em XML validado (`NfseReceivedDocument` ou nome equivalente), antes de qualquer manifestacao funcional.
+
+**Justificativa:** a manifestacao faz mais sentido para documentos em que a oficina e tomadora ou intermediaria. A forma mais defensavel de provar esse papel e validar o XML recebido, extrair CNPJs, municipio, ambiente, UUID/chave/codigo e congelar hash/snapshot. A consulta Webmania por identificador e util como complemento, mas a documentacao revalidada nao confirma endpoint de importacao que substitua XML e papel fiscal.
+
+**Consequencias:** a proxima implementacao, se aprovada, deve ser preparatoria e local; nao deve criar `NfseItem`, `FiscalDocument(nfse)` nem executar `POST /2/nfse/manifestar`. Manifestacao futura dependera de documento recebido validado, papel `taker` ou `intermediary`, Padrao Nacional e capability ativa.

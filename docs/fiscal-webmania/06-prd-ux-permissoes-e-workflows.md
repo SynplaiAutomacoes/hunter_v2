@@ -600,3 +600,21 @@ Se uma fase futura for aprovada, a UI minima devera:
 - exigir motivo/justificativa de rejeicao quando aplicavel;
 - pedir confirmacao explicita antes do POST;
 - nao oferecer manifestacao para cancelada, substituida, uncertain, municipal legada ou recebida/importada sem dominio proprio.
+
+## Fase 3.11.0 - UX e permissoes planejadas para NFS-e recebida
+
+Permissoes planejadas:
+
+- `import_nfse_received`;
+- `view_nfse_received`;
+- `view_nfse_received_payload`;
+- `download_nfse_received_xml`.
+
+Manifestacao futura, em fase separada, podera reutilizar:
+
+- `issue_nfse_manifestation`;
+- `view_nfse_manifestation`;
+- `download_nfse_manifestation`;
+- `view_nfse_manifestation_payload`.
+
+UX planejada: tela de importacao/registro de NFS-e recebida com upload de XML como fonte preferencial, exibicao de divergencias, validacao explicita do papel fiscal da oficina, historico de validacoes, status "nao manifestavel" quando o papel for prestador/desconhecido/divergente, e payload/XML protegidos por permissao e oficina.

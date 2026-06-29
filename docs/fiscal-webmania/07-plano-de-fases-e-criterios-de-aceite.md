@@ -1211,3 +1211,59 @@ Se, mesmo assim, uma fase futura de manifestacao manual for aprovada, ela deve s
 | Complementar tributaria | adiada | exige auditoria propria de base tributaria |
 
 OpenAPI: nenhuma alteracao aplicada.
+
+## Fase 3.11.0 - Planejamento Tecnico da NFS-e Recebida/Importada de Terceiros
+
+Status: **em planejamento documental em 2026-06-29**. A Fase 3.10.0 foi validada documentalmente no checkpoint `8d5c7192`.
+
+Escopo autorizado: somente documentacao em `docs/fiscal-webmania/**` e OpenAPI apenas se houver correcao oficial confirmada. Nenhum codigo funcional, migration, service, view, template ou teste deve ser alterado nesta fase.
+
+### Objetivo
+
+Planejar dominio seguro para registrar NFS-e emitida por terceiros e recebida pela oficina antes de permitir qualquer manifestacao futura. O dominio deve responder: fonte confiavel, XML/UUID/chave/codigo, oficina correta, papel fiscal, duplicidade, cross-workshop e elegibilidade de manifestacao.
+
+### Revalidacao oficial
+
+Fonte oficial revalidada em 2026-06-29: documentacao Webmania NFS-e. A API REST confirma consulta por identificador/UUID, status/capabilities e manifestacao Padrao Nacional. Nao foi encontrado endpoint REST claro de importacao/sincronizacao de NFS-e recebida com XML completo e papel fiscal validado.
+
+### Matriz de origem do documento
+
+| Origem | Possui XML? | Possui UUID/chave? | Confianca | Risco | Recomendacao |
+| ------ | ----------: | -----------------: | --------- | ----- | ------------ |
+| Upload manual de XML | Sim | Normalmente sim | Alta apos parser/hash/validacao | XML falso, incompleto ou da propria oficina | Fonte inicial preferencial |
+| Consulta Webmania por identificador | Nao garantido | Sim | Media | retorno insuficiente para papel fiscal | Complemento/reconciliacao |
+| Webhook sem documento previo | Nao | Possivel | Baixa/media | oficina ambigua e sem XML | Pendenciar ate registro validado |
+| Digitacao manual de UUID/chave/codigo | Nao | Sim | Baixa | erro humano e sem papel fiscal | Somente rascunho/consulta assistida |
+| Importacao por lote | Sim, se lote XML | Normalmente sim | Alta apos validacao individual | duplicidade e falha parcial | Posterior ao fluxo unitario |
+| E-mail/ERP futuro | Variavel | Variavel | Media | origem externa e anexos divergentes | Adiar; alimentar pipeline XML |
+
+### Matriz de papel fiscal
+
+| Papel da oficina | Como validar | Elegivel para manifestacao? | Risco | Observacao |
+| ---------------- | ------------ | --------------------------: | ----- | ---------- |
+| Tomador | CNPJ da empresa/oficina aparece como tomador no XML | Sim, depois de validado e Padrao Nacional confirmado | Medio | Usa `manifestador=1` |
+| Intermediario | CNPJ aparece como intermediario no XML | Sim, depois de validado e Padrao Nacional confirmado | Medio/alto | Usa `manifestador=2`; campo pode faltar |
+| Prestador | CNPJ aparece como prestador/emissor | Nao | Alto | Bloquear manifestacao; pode ser documento proprio |
+| Desconhecido | CNPJ da oficina nao aparece em papel reconhecido | Nao | Alto | Requer correcao manual/administrativa |
+| Multiplos papeis | CNPJ aparece em mais de um papel | Nao ate resolucao | Alto | Ambiguo; exigir decisao administrativa |
+| CNPJ divergente | XML nao corresponde a empresa/oficina ativa | Nao | Alto | Bloquear cross-workshop |
+
+### Decisao
+
+Escolher **Opcao A - criar preview/registro local de NFS-e recebida**. Upload e validacao de XML sao a fonte mais segura para estabelecer identidade, hash, prestador, tomador/intermediario, municipio, ambiente e papel fiscal. Consulta por identificador deve ser apoio posterior, porque a documentacao oficial nao confirma importacao REST suficiente.
+
+### Escopo da proxima fase proposta
+
+Fase futura recomendada: `3.11.1 - Registro local de NFS-e recebida por XML`.
+
+- Objetivo: criar `NfseReceivedDocument` local validado, sem manifestar.
+- Dados congelados: XML snapshot, hash, UUID/chave/codigo, CNPJs, municipio, ambiente, valores, status e payload parseado.
+- Modelagem: entidade propria, sem `NfseItem` e sem `FiscalDocument(nfse)`.
+- Validacoes: XML, duplicidade, papel fiscal, oficina, municipio, ambiente, status terminal/incerto e documento proprio.
+- Permissoes: `import_nfse_received`, `view_nfse_received`, `view_nfse_received_payload`, `download_nfse_received_xml`.
+- Feature flag/capability: flag administrativa de importacao; manifestacao futura ainda exige `national_standard_enabled` e `manifestation_enabled`.
+- UX: upload XML, resultado de validacao, divergencias, papel fiscal, status manifestavel/nao manifestavel, downloads protegidos.
+- Testes: importacao valida, XML invalido, duplicidades, papeis, cross-workshop, documento proprio, payload/XML protegido e ausencia de criacao de `NfseItem`/`FiscalDocument(nfse)`.
+- Criterios de aceite: documento recebido validado e auditavel, sem POST de manifestacao, sem alterar fluxos manuais/legados e com manifestacao futura bloqueada ate fase propria.
+
+OpenAPI: nenhuma alteracao aplicada; nao ha schema oficial suficiente para importacao REST de NFS-e recebida.

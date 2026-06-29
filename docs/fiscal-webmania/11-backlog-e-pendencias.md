@@ -353,3 +353,11 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Proximo bloco recomendado: planejar NFS-e recebida/importada de terceiros antes de manifestacao de documentos recebidos.
 - Bloqueios mantidos: NFS-e manual cancelada, substituida, uncertain, sem UUID, sem Padrao Nacional confirmado, municipal legada e recebida/importada sem dominio proprio.
 - Demais blocos seguem adiados: NFS-e expandida ampla, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria.
+
+## Apos a Fase 3.11.0
+
+- Proximo bloco funcional recomendado: registro local de NFS-e recebida por upload de XML validado.
+- Manifestacao de documentos recebidos continua posterior ao dominio recebido validado.
+- Pendencias tecnicas: parser XML confiavel, hash/snapshot, validacao de CNPJs/papel fiscal, duplicidade, cross-workshop, status remoto e protecao de payload/XML.
+- Consulta Webmania por identificador permanece apoio/reconciliacao, nao fonte unica inicial.
+- CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria seguem nao iniciados.

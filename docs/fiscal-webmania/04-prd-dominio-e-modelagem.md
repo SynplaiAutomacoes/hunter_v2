@@ -863,3 +863,39 @@ A modelagem existente de `NfseManifestation` continua adequada para NFS-e local 
 Conclusao de dominio: nao criar modelo paralelo de manifestacao manual e nao ampliar `NfseManifestation` nesta fase. A decisao correta e manter manifestacao manual pendente ate existir criterio explicito de papel fiscal. Se uma fase futura for aprovada, a preferencia segue sendo extensao segura de `NfseManifestation`, nao fluxo separado, com bloqueio para manual cancelada, substituida, uncertain, sem UUID ou sem Padrao Nacional confirmado.
 
 NFS-e recebida/importada de terceiros permanece fora do dominio atual. Ela deve ter fase propria antes de ser usada como base de manifestacao, porque exige XML recebido, identificadores remotos, papel da oficina, associacao segura a cliente/oficina e protecao cross-workshop.
+
+## Fase 3.11.0 - modelagem planejada para NFS-e recebida/importada
+
+Entidade planejada: `NfseReceivedDocument`.
+
+Responsabilidade: representar NFS-e emitida por terceiro e recebida pela oficina em papel fiscal validado. Nao substitui `NfseItem` emitido pelo Hunter, nao nasce de `NfseManualEmission`, nao e `NfseSubstitution`, nao e `NfseCancellation` e nao executa `NfseManifestation`.
+
+Campos minimos planejados, ajustados ao estilo do projeto:
+
+- `workshop`;
+- `company`;
+- `source` (`xml_upload`, `webmania_query`, `webhook_pending`, `manual_identifier`, `batch_import`, `external_integration`);
+- `xml_snapshot`;
+- `xml_hash`;
+- `uuid`;
+- `access_key_or_identifier`;
+- `verification_code`;
+- `provider_tax_id`;
+- `taker_tax_id`;
+- `intermediary_tax_id`;
+- `municipality_code`;
+- `environment`;
+- `issue_date`;
+- `service_amount`;
+- `status`;
+- `remote_status`;
+- `role` (`taker`, `intermediary`, `provider`, `unknown`, `multiple`, `divergent`);
+- `validation_status`;
+- `validation_errors`;
+- `raw_payload`;
+- `created_by`;
+- timestamps herdados de `TimeStampedModel`.
+
+Constraints planejadas: unicidade por oficina para `xml_hash`, UUID e chave/identificador quando preenchidos; bloqueio de documento emitido pelo proprio Hunter como recebido; bloqueio cross-workshop; falhas de validacao preservadas em `validation_errors` sem criar `NfseItem` ou `FiscalDocument(nfse)`.
+
+Manifestacao futura deve depender de `NfseReceivedDocument` validado, papel `taker` ou `intermediary`, Padrao Nacional confirmado, UUID/chave segura e capability `manifestation_enabled`. Papel `provider`, `unknown`, `multiple` ou `divergent` bloqueia manifestacao.
