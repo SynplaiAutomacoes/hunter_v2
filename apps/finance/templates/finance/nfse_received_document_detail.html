@@ -1,4 +1,5 @@
 {% extends 'crud/detail.html' %}
+{% load crispy_forms_tags %}
 {% block crud_title %}NFS-e recebida{% endblock %}
 {% block crud_subtitle %}Documento local importado por XML de terceiro.{% endblock %}
 {% block crud_back_url %}{% url 'finance:nfse_received_document_list' %}{% endblock %}
@@ -20,5 +21,7 @@
 {% if can_view_payload %}<a class="btn btn-outline btn-sm" href="{% url 'finance:nfse_received_document_payload' document.pk %}">Payload sanitizado</a>{% endif %}
 {% if can_download_xml %}<a class="btn btn-outline btn-sm" href="{% url 'finance:nfse_received_document_xml' document.pk %}">XML original</a>{% endif %}
 </div></div></div>
-{% if document.manifestation_eligible %}<div class="alert alert-info mt-4">Elegibilidade futura de manifestação: papel e identificador compatíveis. A manifestação não está implementada nesta fase.</div>{% else %}<div class="alert alert-warning mt-4">{{ document.manifestation_block_reason }}</div>{% endif %}
+{% if manifestation_eligible %}<div class="alert alert-info mt-4">Documento elegível para manifestação como {{ document.get_role_display }}.</div>{% else %}<div class="alert alert-warning mt-4">{{ manifestation_block_reason|default:document.manifestation_block_reason }}</div>{% endif %}
+{% if can_issue_manifestation and manifestation_eligible %}<div class="card bg-base-100 shadow mt-4"><div class="card-body"><h2 class="card-title">Manifestar NFS-e recebida</h2><form method="post" action="{% url 'finance:nfse_received_document_manifestation_issue' document.pk %}" class="space-y-4">{% csrf_token %}{{ manifestation_form|crispy }}<div class="flex justify-end"><button class="btn btn-primary">Manifestar</button></div></form></div></div>{% endif %}
+{% if manifestations %}<div class="card bg-base-100 shadow mt-4"><div class="card-body"><h2 class="card-title">Manifestações</h2><div class="overflow-x-auto"><table class="table table-zebra"><thead><tr><th>Evento</th><th>Manifestador</th><th>Status</th><th>UUID remoto</th><th></th></tr></thead><tbody>{% for manifestation in manifestations %}<tr><td>{{ manifestation.get_manifestation_type_display }}</td><td>{{ manifestation.get_manifestation_role_display }}</td><td>{{ manifestation.get_status_display }}</td><td>{{ manifestation.remote_uuid|default:"-" }}</td><td class="flex gap-2">{% if can_view_manifestation_payload %}<a class="btn btn-outline btn-xs" href="{% url 'finance:nfse_received_document_manifestation_payload' document.pk manifestation.pk %}">Payload</a>{% endif %}{% if can_download_manifestation and manifestation.xml_manifestation %}<a class="btn btn-outline btn-xs" href="{% url 'finance:nfse_received_document_manifestation_download' document.pk manifestation.pk %}">XML</a>{% endif %}</td></tr>{% endfor %}</tbody></table></div></div></div>{% endif %}
 {% endblock %}

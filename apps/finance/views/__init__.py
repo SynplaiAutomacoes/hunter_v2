@@ -23,7 +23,7 @@ from .nfse import NfseBatchReconcileView, NfseCancellationDownloadView, NfseCanc
 from .nfse_capabilities import NfseMunicipalCapabilityCreateView, NfseMunicipalCapabilityListView, NfseMunicipalCapabilityStatusView, NfseMunicipalCapabilityUpdateView
 from .nfse_manual_emission_preview import NfseManualEmissionPreviewApproveView, NfseManualEmissionPreviewCreateView, NfseManualEmissionPreviewDetailView, NfseManualEmissionPreviewListView, NfseManualEmissionPreviewPayloadView
 from .nfse_manual_emission import NfseManualEmissionCancelView, NfseManualEmissionCancellationDownloadView, NfseManualEmissionCancellationPayloadView, NfseManualEmissionDetailView, NfseManualEmissionDownloadView, NfseManualEmissionIssueView, NfseManualEmissionListView, NfseManualEmissionPayloadView, NfseManualEmissionReconcileView
-from .nfse_received import NfseReceivedDocumentDetailView, NfseReceivedDocumentImportView, NfseReceivedDocumentListView, NfseReceivedDocumentPayloadView, NfseReceivedDocumentXmlDownloadView
+from .nfse_received import NfseReceivedDocumentDetailView, NfseReceivedDocumentImportView, NfseReceivedDocumentListView, NfseReceivedDocumentManifestationDownloadView, NfseReceivedDocumentManifestationIssueView, NfseReceivedDocumentManifestationPayloadView, NfseReceivedDocumentPayloadView, NfseReceivedDocumentXmlDownloadView
 from .nfse_substitution_preview import NfseSubstitutionDownloadView, NfseSubstitutionIssueView, NfseSubstitutionPayloadView, NfseSubstitutionPreviewApproveView, NfseSubstitutionPreviewCreateView, NfseSubstitutionPreviewDetailView, NfseSubstitutionPreviewListView, NfseSubstitutionPreviewPayloadView
 from .reports import FinancialReportsHomeView, ReportMovementEditView, ReportMovementDeleteView
 from .tax_class import TaxClassCreateView, TaxClassListView, TaxClassManagerView, TaxClassPresetCreateView, TaxClassPresetListView, TaxClassPresetUpdateView, TaxClassUpdateView
@@ -142,6 +142,9 @@ __all__ = [
     "NfseReceivedDocumentDetailView",
     "NfseReceivedDocumentImportView",
     "NfseReceivedDocumentListView",
+    "NfseReceivedDocumentManifestationDownloadView",
+    "NfseReceivedDocumentManifestationIssueView",
+    "NfseReceivedDocumentManifestationPayloadView",
     "NfseReceivedDocumentPayloadView",
     "NfseReceivedDocumentXmlDownloadView",
     "NfseSubstitutionPreviewApproveView",

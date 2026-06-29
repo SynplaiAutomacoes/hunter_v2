@@ -1249,7 +1249,8 @@ class NfseManifestation(TimeStampedModel):
         INTERMEDIARY = "intermediary", "Intermediario"
 
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="nfse_manifestations")
-    nfse_item = models.ForeignKey(NfseItem, verbose_name="NFS-e", on_delete=models.PROTECT, related_name="manifestations")
+    nfse_item = models.ForeignKey(NfseItem, verbose_name="NFS-e", on_delete=models.PROTECT, related_name="manifestations", null=True, blank=True)
+    received_document = models.ForeignKey("NfseReceivedDocument", verbose_name="NFS-e recebida", on_delete=models.PROTECT, related_name="manifestations", null=True, blank=True)
     manifestation_type = models.CharField(verbose_name="Tipo", max_length=16, choices=ManifestationType.choices, db_index=True)
     manifestation_code = models.PositiveSmallIntegerField(verbose_name="Evento")
     manifestation_role = models.CharField(verbose_name="Manifestador", max_length=16, choices=ManifestationRole.choices, db_index=True)
@@ -1271,13 +1272,23 @@ class NfseManifestation(TimeStampedModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["nfse_item", "manifestation_code", "manifestor"],
-                condition=models.Q(status__in=[FiscalEmissionAttemptStatus.STARTED, FiscalEmissionAttemptStatus.SENT, FiscalEmissionAttemptStatus.SUCCEEDED, FiscalEmissionAttemptStatus.UNCERTAIN]),
+                condition=models.Q(nfse_item__isnull=False, status__in=[FiscalEmissionAttemptStatus.STARTED, FiscalEmissionAttemptStatus.SENT, FiscalEmissionAttemptStatus.SUCCEEDED, FiscalEmissionAttemptStatus.UNCERTAIN]),
                 name="unique_active_nfse_manifestation",
+            ),
+            models.UniqueConstraint(
+                fields=["received_document", "manifestation_code", "manifestor"],
+                condition=models.Q(received_document__isnull=False, status__in=[FiscalEmissionAttemptStatus.STARTED, FiscalEmissionAttemptStatus.SENT, FiscalEmissionAttemptStatus.SUCCEEDED, FiscalEmissionAttemptStatus.UNCERTAIN]),
+                name="uniq_active_nfse_recv_man",
+            ),
+            models.CheckConstraint(
+                condition=(models.Q(nfse_item__isnull=False, received_document__isnull=True) | models.Q(nfse_item__isnull=True, received_document__isnull=False)),
+                name="nfse_manifest_single_origin",
             ),
         ]
         indexes = [
             models.Index(fields=["workshop", "status"], name="nfse_manifest_scope_status_idx"),
             models.Index(fields=["nfse_item", "manifestation_code", "manifestor"], name="nfse_manifest_item_type_idx"),
+            models.Index(fields=["received_document", "manifestation_code", "manifestor"], name="nfse_man_recv_type_idx"),
         ]
         permissions = [
             ("issue_nfse_manifestation", "Pode manifestar NFS-e"),
@@ -1288,8 +1299,12 @@ class NfseManifestation(TimeStampedModel):
 
     def clean(self) -> None:
         super().clean()
+        if bool(self.nfse_item_id) == bool(self.received_document_id):
+            raise ValidationError("A manifestacao NFS-e exige exatamente uma origem fiscal.")
         if self.nfse_item_id and self.nfse_item.workshop_id != self.workshop_id:
             raise ValidationError({"nfse_item": "A NFS-e pertence a outra oficina."})
+        if self.received_document_id and self.received_document.workshop_id != self.workshop_id:
+            raise ValidationError({"received_document": "A NFS-e recebida pertence a outra oficina."})
         if self.manifestation_type == self.ManifestationType.CONFIRMATION and self.manifestation_code != 1:
             raise ValidationError({"manifestation_code": "Confirmacao deve usar evento 1."})
         if self.manifestation_type == self.ManifestationType.REJECTION and self.manifestation_code != 2:
@@ -1311,7 +1326,7 @@ class NfseManifestation(TimeStampedModel):
 
     def save(self, *args, **kwargs) -> None:
         if self.pk:
-            immutable_fields = ("workshop_id", "nfse_item_id", "manifestation_type", "manifestation_code", "manifestation_role", "manifestor", "rejection_reason", "rejection_justification", "request_payload")
+            immutable_fields = ("workshop_id", "nfse_item_id", "received_document_id", "manifestation_type", "manifestation_code", "manifestation_role", "manifestor", "rejection_reason", "rejection_justification", "request_payload")
             persisted = type(self).objects.filter(pk=self.pk).values(*immutable_fields).first()
             if persisted and any(persisted[field] != getattr(self, field) for field in immutable_fields):
                 raise ValidationError("A intencao e o payload da manifestacao NFS-e sao imutaveis.")
@@ -1319,7 +1334,8 @@ class NfseManifestation(TimeStampedModel):
         super().save(*args, **kwargs)
 
     def __str__(self) -> str:
-        return f"NfseManifestation[{self.nfse_item_id}:{self.manifestation_code}:{self.status}]"
+        origin = self.nfse_item_id or f"received:{self.received_document_id}"
+        return f"NfseManifestation[{origin}:{self.manifestation_code}:{self.status}]"
 
 
 class NfseReceivedDocument(TimeStampedModel):
@@ -1380,7 +1396,7 @@ class NfseReceivedDocument(TimeStampedModel):
 
     @property
     def manifestation_eligible(self) -> bool:
-        return self.validation_status == self.ValidationStatus.VALIDATED and self.role in {self.Role.TAKER, self.Role.INTERMEDIARY} and bool(self.uuid or self.access_key_or_identifier)
+        return self.validation_status == self.ValidationStatus.VALIDATED and self.role in {self.Role.TAKER, self.Role.INTERMEDIARY} and bool(self.uuid)
 
     @property
     def manifestation_block_reason(self) -> str:
@@ -1390,8 +1406,8 @@ class NfseReceivedDocument(TimeStampedModel):
             return "Oficina consta como prestadora; manifestacao futura e bloqueada."
         if self.role in {self.Role.UNKNOWN, self.Role.MULTIPLE}:
             return "Papel fiscal da oficina nao e seguro para manifestacao."
-        if not (self.uuid or self.access_key_or_identifier):
-            return "Documento sem identificador remoto seguro."
+        if not self.uuid:
+            return "Documento sem UUID remoto seguro."
         return ""
 
     def clean(self) -> None:

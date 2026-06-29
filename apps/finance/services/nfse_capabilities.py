@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from apps.finance.models.finance import NfseMunicipalCapability, NfseRequest, TaxClassNfse, WebmaniaCompany
+from apps.finance.models.finance import NfseMunicipalCapability, NfseReceivedDocument, NfseRequest, TaxClassNfse, WebmaniaCompany
 
 
 class NfseCapabilityError(Exception):
@@ -106,3 +106,18 @@ def validate_nfse_manifestation_capability(*, nfse_request: NfseRequest) -> Nfse
     if not resolution.capability.manifestation_enabled:
         raise NfseCapabilityError("A manifestacao NFS-e esta desabilitada para o municipio configurado.")
     return resolution
+
+
+def validate_nfse_received_manifestation_capability(*, document: NfseReceivedDocument) -> NfseCapabilityResolution:
+    capabilities = NfseMunicipalCapability.objects.filter(workshop=document.workshop, company=document.company, is_active=True)
+    if document.municipality_code:
+        capabilities = capabilities.filter(city_code=document.municipality_code)
+    matches = list(capabilities.order_by("pk")[:2])
+    if len(matches) != 1:
+        raise NfseCapabilityError("A manifestacao da NFS-e recebida exige capacidade municipal unica e segura.")
+    capability = matches[0]
+    if not capability.national_standard_enabled:
+        raise NfseCapabilityError("A manifestacao NFS-e e restrita ao Padrao Nacional.")
+    if not capability.manifestation_enabled:
+        raise NfseCapabilityError("A manifestacao NFS-e esta desabilitada para o municipio configurado.")
+    return NfseCapabilityResolution(capability=capability, legacy_compatibility_used=False)

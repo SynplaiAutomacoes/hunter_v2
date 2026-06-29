@@ -15847,6 +15847,213 @@ class FiscalPhaseThreeNfseReceivedDocumentTests(TestCase):
         self.assertIn(document.xml_snapshot, xml_response.content.decode())
 
 
+class FiscalPhaseThreeNfseReceivedManifestationTests(TestCase):
+    def setUp(self) -> None:
+        from apps.finance.models.finance import NfseMunicipalCapability
+
+        self.user, self.workshop = create_director_user_with_workshop(suffix=93)
+        self.company = WebmaniaCompany.objects.create(
+            workshop=self.workshop,
+            webmania_company_id="NFSE-RECEIVED-MANIFEST",
+            cnpj="11.222.333/0001-81",
+            bearer_access_token="encrypted-token",
+            cidade="Sao Paulo",
+            uf="SP",
+            nfse_received_import_enabled=True,
+        )
+        self.capability = NfseMunicipalCapability.objects.create(
+            workshop=self.workshop,
+            company=self.company,
+            city_code="3550308",
+            city_name="Sao Paulo",
+            state="SP",
+            national_standard_enabled=True,
+            manifestation_enabled=True,
+        )
+
+    def _xml(
+        self,
+        *,
+        uuid: str = "66000000-0000-0000-0000-000000001001",
+        identifier: str = "NFSE-REC-MAN-0001",
+        provider_tax_id: str = "22.333.444/0001-55",
+        taker_tax_id: str = "11.222.333/0001-81",
+        intermediary_tax_id: str = "",
+        status: str = "Autorizada",
+    ) -> bytes:
+        intermediary = f"<Intermediario><CpfCnpj>{intermediary_tax_id}</CpfCnpj></Intermediario>" if intermediary_tax_id else ""
+        return f"""
+        <CompNfse>
+            <Nfse>
+                <InfNfse Id="{identifier}">
+                    <Uuid>{uuid}</Uuid>
+                    <Numero>{identifier}</Numero>
+                    <CodigoVerificacao>COD-{identifier}</CodigoVerificacao>
+                    <DataEmissao>2026-06-20T10:30:00-03:00</DataEmissao>
+                    <Ambiente>2</Ambiente>
+                    <Situacao>{status}</Situacao>
+                    <Prestador><CpfCnpj>{provider_tax_id}</CpfCnpj></Prestador>
+                    <Tomador><CpfCnpj>{taker_tax_id}</CpfCnpj></Tomador>
+                    {intermediary}
+                    <Servico><Valores><ValorServicos>1234.56</ValorServicos></Valores><CodigoMunicipio>3550308</CodigoMunicipio></Servico>
+                </InfNfse>
+            </Nfse>
+        </CompNfse>
+        """.encode()
+
+    def _import(self, xml: bytes | None = None) -> NfseReceivedDocument:
+        from apps.finance.services.nfse_received import import_nfse_received_xml
+
+        return import_nfse_received_xml(workshop=self.workshop, company=self.company, xml_bytes=xml or self._xml(), created_by=self.user)
+
+    def _document(
+        self,
+        *,
+        uuid: str = "66000000-0000-0000-0000-000000001099",
+        identifier: str = "NFSE-REC-MAN-0099",
+        role: str = NfseReceivedDocument.Role.TAKER,
+        validation_status: str = NfseReceivedDocument.ValidationStatus.VALIDATED,
+        status: str = "received",
+        remote_status: str = "Autorizada",
+        xml_snapshot: str | None = None,
+        xml_hash: str | None = None,
+    ) -> NfseReceivedDocument:
+        return NfseReceivedDocument.objects.create(
+            workshop=self.workshop,
+            company=self.company,
+            xml_snapshot=xml_snapshot if xml_snapshot is not None else f"<CompNfse><Uuid>{uuid}</Uuid></CompNfse>",
+            xml_hash=xml_hash if xml_hash is not None else (identifier.lower().replace("-", "") + "0" * 64)[:64],
+            uuid=uuid,
+            access_key_or_identifier=identifier,
+            verification_code=f"COD-{identifier}",
+            provider_tax_id="22333444000155",
+            taker_tax_id="11222333000181",
+            municipality_code="3550308",
+            environment="2",
+            status=status,
+            remote_status=remote_status,
+            role=role,
+            validation_status=validation_status,
+            raw_payload={"uuid": uuid, "identifier": identifier},
+            created_by=self.user,
+        )
+
+    def _manifest(self, document: NfseReceivedDocument, *, event: int = 1, manifestor: int = 1, rejection_reason: int | None = None, rejection_justification: str = "", response_payload: dict[str, Any] | None = None):
+        from apps.finance.services.nfse_manifestation import manifest_nfse_received_document
+
+        payload = response_payload or {"modelo": "manifestacao_nfse", "uuid": "77000000-0000-0000-0000-000000001001", "status": "aprovado", "xml": "https://example.test/manifestacao-recebida.xml"}
+        with (
+            patch("apps.finance.services.nfse_manifestation._build_headers", return_value={"X-Test": "ok"}),
+            patch("apps.finance.services.nfse_manifestation._build_manifestation_url", return_value="https://api.webmania.com.br/2/nfse/manifestar"),
+            patch("apps.finance.services.nfse_manifestation.requests.post", return_value=_mock_response(payload)) as post_mock,
+        ):
+            manifestation = manifest_nfse_received_document(document=document, event=event, manifestor=manifestor, rejection_reason=rejection_reason, rejection_justification=rejection_justification, created_by=self.user)
+        return manifestation, post_mock
+
+    def test_taker_confirmation_posts_restricted_payload_without_emission_side_effects(self) -> None:
+        document = self._import()
+        original_xml = document.xml_snapshot
+
+        manifestation, post_mock = self._manifest(document, event=1, manifestor=1)
+        attempt = FiscalEmissionAttempt.objects.get(operation_type=FiscalEmissionOperationType.NFSE_MANIFESTATION)
+
+        expected_payload = {"ambiente": 2, "uuid": document.uuid, "manifestador": 1, "evento": 1}
+        post_mock.assert_called_once_with("https://api.webmania.com.br/2/nfse/manifestar", json=expected_payload, headers={"X-Test": "ok"}, timeout=30)
+        self.assertEqual(manifestation.received_document, document)
+        self.assertIsNone(manifestation.nfse_item_id)
+        self.assertEqual(manifestation.request_payload, expected_payload)
+        self.assertEqual(attempt.request_model, NfseManifestation.__name__)
+        self.assertEqual(attempt.request_id, manifestation.pk)
+        self.assertEqual(NfseItem.objects.count(), 0)
+        self.assertEqual(FiscalDocument.objects.count(), 0)
+        document.refresh_from_db()
+        self.assertEqual(document.xml_snapshot, original_xml)
+
+    def test_intermediary_rejection_posts_manifestor_two_and_rejection_fields(self) -> None:
+        document = self._import(
+            self._xml(
+                uuid="66000000-0000-0000-0000-000000001002",
+                identifier="NFSE-REC-MAN-0002",
+                taker_tax_id="44.555.666/0001-77",
+                intermediary_tax_id="11.222.333/0001-81",
+            )
+        )
+
+        manifestation, post_mock = self._manifest(document, event=2, manifestor=2, rejection_reason=9, rejection_justification="Justificativa fiscal valida")
+
+        expected_payload = {"ambiente": 2, "uuid": document.uuid, "manifestador": 2, "evento": 2, "motivo_rejeicao": 9, "justificativa_rejeicao": "Justificativa fiscal valida"}
+        self.assertEqual(document.role, NfseReceivedDocument.Role.INTERMEDIARY)
+        self.assertEqual(manifestation.request_payload, expected_payload)
+        post_mock.assert_called_once_with("https://api.webmania.com.br/2/nfse/manifestar", json=expected_payload, headers={"X-Test": "ok"}, timeout=30)
+
+    def test_blocks_unsafe_roles_capability_missing_uuid_status_and_manifestor_mismatch(self) -> None:
+        from apps.finance.services.nfse_manifestation import NfseManifestationError, manifest_nfse_received_document
+
+        blocked_cases = [
+            self._document(uuid="66000000-0000-0000-0000-000000001010", identifier="NFSE-REC-MAN-0010", role=NfseReceivedDocument.Role.PROVIDER),
+            self._document(uuid="66000000-0000-0000-0000-000000001011", identifier="NFSE-REC-MAN-0011", role=NfseReceivedDocument.Role.TAKER, status="cancelado", remote_status="Cancelada"),
+            self._document(uuid="", identifier="NFSE-REC-MAN-0012", role=NfseReceivedDocument.Role.TAKER),
+        ]
+        for document in blocked_cases:
+            with self.subTest(document=document.pk), patch("apps.finance.services.nfse_manifestation.requests.post") as post_mock, self.assertRaises(NfseManifestationError):
+                manifest_nfse_received_document(document=document, event=1, manifestor=1, created_by=self.user)
+            post_mock.assert_not_called()
+
+        document = self._document(uuid="66000000-0000-0000-0000-000000001013", identifier="NFSE-REC-MAN-0013")
+        with patch("apps.finance.services.nfse_manifestation.requests.post") as post_mock, self.assertRaisesMessage(NfseManifestationError, "Manifestador incompativel"):
+            manifest_nfse_received_document(document=document, event=1, manifestor=2, created_by=self.user)
+        post_mock.assert_not_called()
+
+        self.capability.national_standard_enabled = False
+        self.capability.save(update_fields=["national_standard_enabled"])
+        document = self._document(uuid="66000000-0000-0000-0000-000000001014", identifier="NFSE-REC-MAN-0014")
+        with patch("apps.finance.services.nfse_manifestation.requests.post") as post_mock, self.assertRaisesMessage(NfseManifestationError, "Padrao Nacional"):
+            manifest_nfse_received_document(document=document, event=1, manifestor=1, created_by=self.user)
+        post_mock.assert_not_called()
+
+    def test_timeout_marks_received_manifestation_uncertain_and_blocks_retry_without_resend(self) -> None:
+        from apps.finance.services.nfse_manifestation import NfseManifestationError, manifest_nfse_received_document
+
+        document = self._import(self._xml(uuid="66000000-0000-0000-0000-000000001020", identifier="NFSE-REC-MAN-0020"))
+        with (
+            patch("apps.finance.services.nfse_manifestation._build_headers", return_value={}),
+            patch("apps.finance.services.nfse_manifestation.requests.post", side_effect=requests.Timeout),
+            self.assertRaises(NfseManifestationError),
+        ):
+            manifest_nfse_received_document(document=document, event=1, manifestor=1, created_by=self.user)
+        manifestation = NfseManifestation.objects.get(received_document=document)
+        attempt = FiscalEmissionAttempt.objects.get(operation_type=FiscalEmissionOperationType.NFSE_MANIFESTATION)
+        self.assertEqual(manifestation.status, FiscalEmissionAttemptStatus.UNCERTAIN)
+        self.assertEqual(attempt.status, FiscalEmissionAttemptStatus.UNCERTAIN)
+
+        with patch("apps.finance.services.nfse_manifestation.requests.post") as retry_mock, self.assertRaises(NfseManifestationError):
+            manifest_nfse_received_document(document=document, event=1, manifestor=1, created_by=self.user)
+        retry_mock.assert_not_called()
+
+    def test_received_manifestation_webhook_updates_only_manifestation(self) -> None:
+        from apps.finance.services.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        document = self._import(self._xml(uuid="66000000-0000-0000-0000-000000001030", identifier="NFSE-REC-MAN-0030"))
+        manifestation, _ = self._manifest(document, response_payload={"modelo": "manifestacao_nfse", "uuid": "77000000-0000-0000-0000-000000001030", "status": "aprovado"})
+
+        event = store_webhook_event(payload={"modelo": "manifestacao_nfse", "uuid": str(manifestation.remote_uuid), "status": "aprovado", "xml": "https://example.test/manifestacao-final.xml"})
+        self.assertTrue(process_webhook_event(event))
+        manifestation.refresh_from_db()
+        document.refresh_from_db()
+        self.assertEqual(manifestation.status, FiscalEmissionAttemptStatus.SUCCEEDED)
+        self.assertEqual(manifestation.xml_manifestation, "https://example.test/manifestacao-final.xml")
+        self.assertEqual(document.validation_status, NfseReceivedDocument.ValidationStatus.VALIDATED)
+
+    def test_issue_view_requires_received_manifestation_permission(self) -> None:
+        from apps.finance.views.nfse_received import NfseReceivedDocumentManifestationIssueView
+
+        document = self._import(self._xml(uuid="66000000-0000-0000-0000-000000001040", identifier="NFSE-REC-MAN-0040"))
+        request = RequestFactory().post("/", data={"event": "1", "confirmed": "on"})
+        request.user = self.user
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=False), self.assertRaises(PermissionDenied):
+            NfseReceivedDocumentManifestationIssueView.as_view()(request, pk=document.pk)
+
+
 class FiscalPhaseThreeNfseManifestationTests(TestCase):
     def setUp(self) -> None:
         from apps.finance.models.finance import NfseMunicipalCapability

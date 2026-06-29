@@ -1210,6 +1210,20 @@ Se, mesmo assim, uma fase futura de manifestacao manual for aprovada, ela deve s
 | Debitos 1-3 e 5-8 | adiados | manter bloqueados ate fonte fiscal suficiente |
 | Complementar tributaria | adiada | exige auditoria propria de base tributaria |
 
+## Fase 3.12.1 - Manifestacao de NFS-e Recebida
+
+Status: **validada tecnicamente em 2026-06-29**. A Fase 3.12.0 foi validada documentalmente no checkpoint `a5b4f4b`.
+
+Escopo autorizado: manifestar somente `NfseReceivedDocument` validado, papel `taker` ou `intermediary`, por `POST /2/nfse/manifestar`, reutilizando `NfseManifestation` e `FiscalEmissionAttempt(operation_type="nfse_manifestation")`.
+
+Fora de escopo: manifestacao da NFS-e manual, emissao, cancelamento ou substituicao de recebida, consulta Webmania como fonte de importacao, lote, e-mail/ERP, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
+
+Criterios de aceite validados: payload remoto restrito a `ambiente`, `uuid`, `manifestador`, `evento`, `motivo_rejeicao` e `justificativa_rejeicao`; somente roles `taker`/`intermediary`; Padrao Nacional e capability de manifestacao exigidos; idempotencia por documento/evento/manifestador; webhook/reconciliacao sem repetir POST; XML recebido e dados extraidos imutaveis; nenhum `NfseItem`; nenhum `FiscalDocument(nfse)`.
+
+Implementacao: `NfseManifestation.received_document` com constraint de origem unica, migration `0070_remove_nfsemanifestation_unique_active_nfse_manifestation_and_more.py`, capability segura para recebido, service `manifest_nfse_received_document`, UI minima no detalhe de `NfseReceivedDocument`, payload/download protegidos e testes `FiscalPhaseThreeNfseReceivedManifestationTests`.
+
+Validacao executada: migration check, 69 testes fiscais direcionados de NFS-e recebida/manifestacao/manual/cancelamento/substituicao, Ruff nos Python tocados e `git diff --check`. `mypy .` nao foi executado nesta fase por nao ser bloqueante e por baseline amplo preexistente registrado nas fases anteriores.
+
 OpenAPI: nenhuma alteracao aplicada.
 
 ## Fase 3.11.0 - Planejamento Tecnico da NFS-e Recebida/Importada de Terceiros

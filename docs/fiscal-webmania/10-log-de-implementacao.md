@@ -198,6 +198,29 @@
 - Proxima fase sugerida: `3.12.1 - Manifestacao de NFS-e Recebida`, restrita a roles `taker` e `intermediary`, capability `national_standard_enabled` + `manifestation_enabled`, UUID seguro e webhook/reconciliacao sem repetir POST.
 - OpenAPI validado considerado suficiente; nenhuma alteracao aplicada.
 - Nenhum codigo funcional, migration, service, view, template ou teste foi alterado.
+- Status posterior: Fase 3.12.0 validada documentalmente e commitada no checkpoint `a5b4f4b`.
+
+## Fase 3.12.1 - inicio da manifestacao de NFS-e recebida
+
+- Fase 3.12.0 aprovada no checkpoint `a5b4f4b`.
+- Autorizada implementacao somente da manifestacao de `NfseReceivedDocument` validado, como extensao segura de `NfseManifestation`.
+- Escopo: `POST /2/nfse/manifestar`, roles `taker` e `intermediary`, UUID seguro, XML validado, Padrao Nacional e capability `manifestation_enabled`.
+- Permanecem fora de escopo: manifestacao da NFS-e manual, emissao, cancelamento ou substituicao de NFS-e recebida, consulta Webmania como fonte de importacao, lote, e-mail/ERP, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
+- Regras de seguranca: nao criar `NfseItem`, nao criar `FiscalDocument(nfse)`, nao alterar XML recebido e nao alterar dados fiscais extraidos.
+
+## Fase 3.12.1 - implementacao e validacao tecnica
+
+- `NfseManifestation` foi estendida com origem alternativa `received_document`, mantendo `nfse_item` para origem local e exigindo exatamente uma origem fiscal.
+- Implementado service de manifestacao de NFS-e recebida com payload restrito a `ambiente`, `uuid`, `manifestador`, `evento`, `motivo_rejeicao` e `justificativa_rejeicao`, sem XML, CNPJ, dados extraidos ou payloads de emissao/cancelamento/substituicao.
+- Elegibilidade exige `NfseReceivedDocument` validado, XML snapshot/hash, UUID remoto, role `taker` ou `intermediary`, capability municipal unica, `national_standard_enabled=True`, `manifestation_enabled=True`, status nao cancelado/substituido/incerto e ausencia de manifestacao ativa/sucedida/incerta duplicada.
+- UI minima adicionada no detalhe da NFS-e recebida, com formulario de confirmacao/rejeicao, historico, payload e XML da manifestacao protegidos por permissoes de `NfseManifestation`.
+- Webhook/reconciliacao existentes foram preservados para `modelo=manifestacao_nfse`; timeout permanece `uncertain` e bloqueia reenvio sem repetir POST.
+- Auto-revisao corrigiu lock PostgreSQL em `select_for_update` com FKs opcionais, limitando o bloqueio a linha da manifestacao.
+- Validacoes executadas:
+  - `uv run python manage.py makemigrations finance --check --dry-run`
+  - `uv run python manage.py test apps.finance.tests.FiscalPhaseThreeNfseReceivedDocumentTests apps.finance.tests.FiscalPhaseThreeNfseManifestationTests apps.finance.tests.FiscalPhaseThreeNfseReceivedManifestationTests apps.finance.tests.FiscalPhaseThreeNfseManualEmissionPreviewTests apps.finance.tests.FiscalPhaseThreeNfseManualEmissionTests apps.finance.tests.FiscalPhaseThreeNfseCancellationTests apps.finance.tests.FiscalPhaseThreeNfseSubstitutionPreviewTests apps.finance.tests.FiscalPhaseThreeNfseSubstitutionTests --keepdb`
+  - `uv run ruff check` nos Python tocados
+- Permanecem fora do escopo: manifestacao da NFS-e manual, emissao/cancelamento/substituicao de NFS-e recebida, `NfseItem`, `FiscalDocument(nfse)`, importacao por consulta Webmania/lote/e-mail/ERP e demais familias fiscais.
 
 ## Fase 3.4.1 - inicio
 
