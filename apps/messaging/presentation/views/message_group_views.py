@@ -329,6 +329,8 @@ class CustomerMessageGroupCustomerPickerView(LoginRequiredMixin, WorkshopScopedM
 
 
 class CustomerMessageGroupDispatchView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = CustomerMessageGroup
+    workshop_permission_codename = "change_customermessagegroup"
     http_method_names = ["get", "post"]
 
     def _build_use_case(self) -> DispatchMessageGroupsUseCase:
