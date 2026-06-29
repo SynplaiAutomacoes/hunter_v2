@@ -167,6 +167,25 @@
 - Decisao recomendada: **Opcao A**, criar preview/registro local de NFS-e recebida a partir de XML validado, sem manifestacao funcional.
 - OpenAPI validado revisado como suficiente para consulta/status/manifestacao; nenhuma alteracao aplicada.
 - Nenhum codigo funcional, migration, service, view, template ou teste foi alterado.
+- Status posterior: Fase 3.11.0 validada documentalmente e commitada no checkpoint `6f36f7fc`.
+
+## Fase 3.11.1 - inicio do registro local de NFS-e recebida por XML
+
+- Fase 3.11.0 aprovada no checkpoint `6f36f7fc`.
+- Autorizado somente registro local unitario de NFS-e recebida/importada de terceiros a partir de upload manual de XML.
+- Fonte inicial: XML validado localmente; consulta Webmania por identificador, webhook sem documento previo, digitacao manual, lote e e-mail/ERP permanecem fora do escopo.
+- Nao criar manifestacao funcional, `NfseItem`, `FiscalDocument(nfse)`, `FiscalEmissionAttempt` ou chamada Webmania nesta fase.
+- Devem ser implementados hash/snapshot XML, validacao de papel fiscal da oficina, duplicidade, cross-workshop, permissoes proprias e UI minima protegida.
+
+## Fase 3.11.1 - implementacao e validacao tecnica
+
+- Criados `WebmaniaCompany.nfse_received_import_enabled` e `NfseReceivedDocument` pela migration `0069_webmaniacompany_nfse_received_import_enabled_and_more.py`.
+- Implementado servico local de importacao por XML com hash SHA-256 do XML normalizado, snapshot imutavel, extracao de UUID/identificador/codigo, CNPJs, municipio, ambiente, data, valor e status remoto do XML.
+- Validacao bloqueia XML invalido/inseguro, duplicidade por hash/UUID/identificador, papel fiscal desconhecido/multiplo, status cancelado/substituido/anulado, empresa de outra oficina e colisao com NFS-e ja emitida localmente.
+- UI minima adicionada para lista, importacao, detalhe, payload sanitizado e download do XML original, com permissoes `import_nfse_received`, `view_nfse_received`, `view_nfse_received_payload` e `download_nfse_received_xml`.
+- Auto-revisao confirmou ausencia de chamada Webmania, `NfseManifestation`, `NfseItem`, `FiscalDocument(nfse)` e `FiscalEmissionAttempt` neste fluxo.
+- Validacao: 6 testes especificos da fase e 57 testes regressivos NFS-e passaram; `makemigrations finance --check --dry-run`, Ruff nos Python tocados e `git diff --check` passaram.
+- `mypy .` executado e nao bloqueante: falha por baseline amplo preexistente (`3220 errors in 264 files`), incluindo stubs ausentes e erros tipados antigos fora da fase.
 
 ## Fase 3.4.1 - inicio
 

@@ -132,6 +132,7 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
             "nfse_substitution_preview_enabled",
             "nfse_manual_emission_preview_enabled",
             "nfse_manual_emission_enabled",
+            "nfse_received_import_enabled",
             "certificado",
             "certificado_senha",
             "partilha_icms_contribuinte",
@@ -202,6 +203,7 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
             "nfse_substitution_preview_enabled": CheckboxInput(),
             "nfse_manual_emission_preview_enabled": CheckboxInput(),
             "nfse_manual_emission_enabled": CheckboxInput(),
+            "nfse_received_import_enabled": CheckboxInput(),
         }
 
     def __init__(self, *args, **kwargs):
@@ -290,6 +292,7 @@ class WebmaniaCompanyUpdateForm(CoreModelForm):
                 Field("nfse_substitution_preview_enabled", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("nfse_manual_emission_preview_enabled", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("nfse_manual_emission_enabled", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("nfse_received_import_enabled", wrapper_class="col-span-12 lg:col-span-4"),
             ]
         )
 

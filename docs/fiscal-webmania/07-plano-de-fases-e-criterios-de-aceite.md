@@ -1267,3 +1267,15 @@ Fase futura recomendada: `3.11.1 - Registro local de NFS-e recebida por XML`.
 - Criterios de aceite: documento recebido validado e auditavel, sem POST de manifestacao, sem alterar fluxos manuais/legados e com manifestacao futura bloqueada ate fase propria.
 
 OpenAPI: nenhuma alteracao aplicada; nao ha schema oficial suficiente para importacao REST de NFS-e recebida.
+
+## Fase 3.11.1 - Registro Local de NFS-e Recebida por XML
+
+Status: **validada tecnicamente em 2026-06-29**. A Fase 3.11.0 foi validada documentalmente no checkpoint `6f36f7fc`.
+
+Escopo: criar registro local unitario de NFS-e recebida/importada de terceiros a partir de upload manual de XML validado. Manifestacao de NFS-e recebida, manifestacao manual, emissao, cancelamento/substituicao de recebida, consulta Webmania como fonte unica, importacao em lote, e-mail/ERP, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria permanecem fora do escopo.
+
+Criterios de aceite: XML original preservado; hash e duplicidade validados; papel fiscal determinado com seguranca; acesso protegido por oficina/permissao; nenhuma chamada Webmania; nenhuma `NfseManifestation`; nenhum `NfseItem`; nenhum `FiscalDocument(nfse)`; nenhum `FiscalEmissionAttempt`.
+
+Implementacao: `NfseReceivedDocument`, flag `WebmaniaCompany.nfse_received_import_enabled`, servico local `nfse_received`, form/view/templates de importacao/lista/detalhe/payload/XML e migration `0069_webmaniacompany_nfse_received_import_enabled_and_more.py`.
+
+Validacao executada: nova classe `FiscalPhaseThreeNfseReceivedDocumentTests`, regressao das classes de manifestacao, emissao manual, cancelamento e substituicao NFS-e, `makemigrations --check --dry-run`, Ruff nos Python tocados e `git diff --check`. `mypy .` foi executado e permanece bloqueado por baseline amplo preexistente do projeto.

@@ -45,7 +45,7 @@ from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.movement_group import MovementGroup
-from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentLink, FiscalDocumentLinkRole, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, FiscalNumberInutilization, FiscalNumberInutilizationStatus, NfeItem, NfeRequest, NfeRequestStatus, NfseCancellation, NfseItem, NfseManifestation, NfseManualEmission, NfseManualEmissionPreview, NfseRequest, NfseRequestStatus, NfseSubstitutionPreview, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentLink, FiscalDocumentLinkRole, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, FiscalNumberInutilization, FiscalNumberInutilizationStatus, NfeItem, NfeRequest, NfeRequestStatus, NfseCancellation, NfseItem, NfseManifestation, NfseManualEmission, NfseManualEmissionPreview, NfseReceivedDocument, NfseRequest, NfseRequestStatus, NfseSubstitutionPreview, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
@@ -15700,6 +15700,151 @@ class FiscalPhaseThreeNfseCancellationConcurrentTests(TransactionTestCase):
         self.assertEqual(put_mock.call_count, 1, results)
         self.assertEqual(NfseCancellation.objects.filter(item=self.item).count(), 1)
         self.assertIn("sent", results)
+
+
+class FiscalPhaseThreeNfseReceivedDocumentTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=92)
+        self.company = WebmaniaCompany.objects.create(
+            workshop=self.workshop,
+            webmania_company_id="NFSE-RECEIVED",
+            cnpj="11.222.333/0001-81",
+            bearer_access_token="encrypted-token",
+            cidade="Sao Paulo",
+            uf="SP",
+            nfse_received_import_enabled=True,
+        )
+
+    def _xml(
+        self,
+        *,
+        uuid: str = "66000000-0000-0000-0000-000000000001",
+        identifier: str = "NFSE-REC-0001",
+        verification_code: str = "COD-REC-1",
+        provider_tax_id: str = "22.333.444/0001-55",
+        taker_tax_id: str = "11.222.333/0001-81",
+        intermediary_tax_id: str = "",
+        status: str = "Autorizada",
+        amount: str = "1234.56",
+    ) -> bytes:
+        intermediary = f"<Intermediario><CpfCnpj>{intermediary_tax_id}</CpfCnpj></Intermediario>" if intermediary_tax_id else ""
+        return f"""
+        <CompNfse>
+            <Nfse>
+                <InfNfse Id="{identifier}">
+                    <Uuid>{uuid}</Uuid>
+                    <Numero>{identifier}</Numero>
+                    <CodigoVerificacao>{verification_code}</CodigoVerificacao>
+                    <DataEmissao>2026-06-20T10:30:00-03:00</DataEmissao>
+                    <Ambiente>2</Ambiente>
+                    <Situacao>{status}</Situacao>
+                    <Prestador><CpfCnpj>{provider_tax_id}</CpfCnpj></Prestador>
+                    <Tomador><CpfCnpj>{taker_tax_id}</CpfCnpj></Tomador>
+                    {intermediary}
+                    <Servico><Valores><ValorServicos>{amount}</ValorServicos></Valores><CodigoMunicipio>3550308</CodigoMunicipio></Servico>
+                </InfNfse>
+            </Nfse>
+        </CompNfse>
+        """.encode()
+
+    def _import(self, xml: bytes | None = None) -> NfseReceivedDocument:
+        from apps.finance.services.nfse_received import import_nfse_received_xml
+
+        return import_nfse_received_xml(workshop=self.workshop, company=self.company, xml_bytes=xml or self._xml(), created_by=self.user)
+
+    def test_import_received_nfse_xml_persists_local_snapshot_without_emission_side_effects(self) -> None:
+        with patch("requests.post") as post_mock, patch("requests.get") as get_mock, patch("requests.put") as put_mock:
+            document = self._import()
+
+        post_mock.assert_not_called()
+        get_mock.assert_not_called()
+        put_mock.assert_not_called()
+        self.assertEqual(document.source, NfseReceivedDocument.Source.XML_UPLOAD)
+        self.assertEqual(document.validation_status, NfseReceivedDocument.ValidationStatus.VALIDATED)
+        self.assertEqual(document.role, NfseReceivedDocument.Role.TAKER)
+        self.assertEqual(document.uuid, "66000000-0000-0000-0000-000000000001")
+        self.assertEqual(document.access_key_or_identifier, "NFSE-REC-0001")
+        self.assertEqual(document.verification_code, "COD-REC-1")
+        self.assertEqual(document.provider_tax_id, "22333444000155")
+        self.assertEqual(document.taker_tax_id, "11222333000181")
+        self.assertEqual(document.municipality_code, "3550308")
+        self.assertEqual(document.environment, "2")
+        self.assertEqual(document.service_amount, Decimal("1234.56"))
+        self.assertIn("<CompNfse>", document.xml_snapshot)
+        self.assertEqual(len(document.xml_hash), 64)
+        self.assertEqual(NfseItem.objects.count(), 0)
+        self.assertEqual(FiscalDocument.objects.count(), 0)
+        self.assertEqual(FiscalEmissionAttempt.objects.count(), 0)
+        self.assertEqual(NfseManifestation.objects.count(), 0)
+
+    def test_resolves_intermediary_and_provider_roles_but_only_taker_or_intermediary_are_future_manifestable(self) -> None:
+        intermediary = self._import(self._xml(uuid="66000000-0000-0000-0000-000000000002", identifier="NFSE-REC-0002", taker_tax_id="44.555.666/0001-77", intermediary_tax_id="11.222.333/0001-81"))
+        provider = self._import(self._xml(uuid="66000000-0000-0000-0000-000000000003", identifier="NFSE-REC-0003", provider_tax_id="11.222.333/0001-81", taker_tax_id="44.555.666/0001-77"))
+
+        self.assertEqual(intermediary.role, NfseReceivedDocument.Role.INTERMEDIARY)
+        self.assertTrue(intermediary.manifestation_eligible)
+        self.assertEqual(provider.role, NfseReceivedDocument.Role.PROVIDER)
+        self.assertFalse(provider.manifestation_eligible)
+        self.assertIn("prestadora", provider.manifestation_block_reason)
+
+    def test_blocks_unknown_multiple_canceled_and_feature_disabled_imports(self) -> None:
+        from apps.finance.services.nfse_received import NfseReceivedImportError, import_nfse_received_xml
+
+        cases = [
+            self._xml(uuid="66000000-0000-0000-0000-000000000004", identifier="NFSE-REC-0004", taker_tax_id="44.555.666/0001-77"),
+            self._xml(uuid="66000000-0000-0000-0000-000000000005", identifier="NFSE-REC-0005", provider_tax_id="11.222.333/0001-81", taker_tax_id="11.222.333/0001-81"),
+            self._xml(uuid="66000000-0000-0000-0000-000000000006", identifier="NFSE-REC-0006", status="Cancelada"),
+        ]
+        for xml in cases:
+            with self.subTest(xml=xml[:80]), self.assertRaises(NfseReceivedImportError):
+                import_nfse_received_xml(workshop=self.workshop, company=self.company, xml_bytes=xml, created_by=self.user)
+
+        self.company.nfse_received_import_enabled = False
+        self.company.save(update_fields=["nfse_received_import_enabled"])
+        with self.assertRaisesMessage(NfseReceivedImportError, "nao esta habilitada"):
+            import_nfse_received_xml(workshop=self.workshop, company=self.company, xml_bytes=self._xml(uuid="66000000-0000-0000-0000-000000000007", identifier="NFSE-REC-0007"), created_by=self.user)
+
+    def test_blocks_duplicates_and_issued_nfse_collisions(self) -> None:
+        from apps.finance.services.nfse_received import NfseReceivedImportError
+
+        self._import()
+        with self.assertRaisesMessage(NfseReceivedImportError, "ja importado"):
+            self._import()
+
+        budget = Budget.objects.create(workshop=self.workshop, entry_date=timezone.now().date())
+        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, status=WorkOrderStatus.APPROVED)
+        request = NfseRequest.objects.create(workshop=self.workshop, workorder=workorder, tax_class="NFSE-RECEIVED-COLLISION")
+        NfseItem.objects.create(workshop=self.workshop, workorder=workorder, request=request, uuid="66000000-0000-0000-0000-000000000008", status="aprovado")
+
+        with self.assertRaisesMessage(NfseReceivedImportError, "ja emitida localmente"):
+            self._import(self._xml(uuid="66000000-0000-0000-0000-000000000008", identifier="NFSE-REC-0008"))
+
+    def test_model_validation_keeps_validated_fiscal_fields_immutable(self) -> None:
+        document = self._import()
+        document.service_amount = Decimal("10.00")
+        with self.assertRaisesMessage(ValidationError, "imutaveis"):
+            document.save()
+
+    def test_payload_and_xml_views_use_specific_received_document_permissions(self) -> None:
+        from apps.finance.views.nfse_received import NfseReceivedDocumentPayloadView
+
+        document = self._import()
+        request = RequestFactory().get("/")
+        request.user = self.user
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=False), self.assertRaises(PermissionDenied):
+            NfseReceivedDocumentPayloadView.as_view()(request, pk=document.pk)
+
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+        with patch("apps.workshops.mixin.has_workshop_perm", return_value=True):
+            payload_response = self.client.get(reverse("finance:nfse_received_document_payload", kwargs={"pk": document.pk}))
+            xml_response = self.client.get(reverse("finance:nfse_received_document_xml", kwargs={"pk": document.pk}))
+        self.assertEqual(payload_response.status_code, 200)
+        self.assertEqual(payload_response.json()["raw_payload"]["uuid"], document.uuid)
+        self.assertEqual(xml_response.status_code, 200)
+        self.assertIn(document.xml_snapshot, xml_response.content.decode())
 
 
 class FiscalPhaseThreeNfseManifestationTests(TestCase):

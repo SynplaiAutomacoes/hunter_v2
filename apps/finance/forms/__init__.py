@@ -19,6 +19,7 @@ from .fiscal_credit_product_preview import FiscalCreditProductPreviewCreateForm
 from .nfe import NfeRequestStep1Form, NfeRequestStep2Form, NfeRequestStep3Form
 from .nfse import NfseRequestStep1Form, NfseRequestStep2Form, NfseRequestStep3Form
 from .nfse_capabilities import NfseMunicipalCapabilityForm
+from .nfse_received import NfseReceivedDocumentUploadForm
 from .tax_class import (
     CST_PIS_COFINS_CHOICES,
     CofinsScenarioForm,
@@ -90,6 +91,7 @@ __all__ = [
     "NfseRequestStep2Form",
     "NfseRequestStep3Form",
     "NfseMunicipalCapabilityForm",
+    "NfseReceivedDocumentUploadForm",
     "NfseTaxClassForm",
     "NfeTaxClassForm",
     "PisScenarioForm",

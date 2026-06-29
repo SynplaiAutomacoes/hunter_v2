@@ -521,6 +521,7 @@ class WebmaniaCompany(TimeStampedModel):
     nfse_substitution_preview_enabled = models.BooleanField(verbose_name="Preview de substituicao NFS-e habilitada", default=False)
     nfse_manual_emission_preview_enabled = models.BooleanField(verbose_name="Preview de emissao manual NFS-e habilitada", default=False)
     nfse_manual_emission_enabled = models.BooleanField(verbose_name="Emissao manual NFS-e habilitada", default=False)
+    nfse_received_import_enabled = models.BooleanField(verbose_name="Importacao de NFS-e recebida habilitada", default=False)
     desativar_epec = models.CharField(verbose_name="Desativar EPEC", max_length=4, blank=True, default="")
     ocultar_total_etiqueta = models.CharField(verbose_name="Ocultar total etiqueta", max_length=4, blank=True, default="")
 
@@ -1319,6 +1320,129 @@ class NfseManifestation(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"NfseManifestation[{self.nfse_item_id}:{self.manifestation_code}:{self.status}]"
+
+
+class NfseReceivedDocument(TimeStampedModel):
+    class Source(models.TextChoices):
+        XML_UPLOAD = "xml_upload", "Upload XML"
+
+    class Role(models.TextChoices):
+        TAKER = "taker", "Tomador"
+        INTERMEDIARY = "intermediary", "Intermediario"
+        PROVIDER = "provider", "Prestador"
+        UNKNOWN = "unknown", "Desconhecido"
+        MULTIPLE = "multiple", "Multiplos papeis"
+
+    class ValidationStatus(models.TextChoices):
+        DRAFT = "draft", "Rascunho"
+        VALIDATED = "validated", "Validado"
+        REJECTED = "rejected", "Rejeitado"
+
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="nfse_received_documents")
+    company = models.ForeignKey(WebmaniaCompany, verbose_name="Empresa Webmania", on_delete=models.PROTECT, related_name="nfse_received_documents")
+    source = models.CharField(verbose_name="Origem", max_length=24, choices=Source.choices, default=Source.XML_UPLOAD, db_index=True)
+    xml_snapshot = models.TextField(verbose_name="XML original")
+    xml_hash = models.CharField(verbose_name="Hash do XML", max_length=64, db_index=True)
+    uuid = models.CharField(verbose_name="UUID remoto", max_length=64, blank=True, default="", db_index=True)
+    access_key_or_identifier = models.CharField(verbose_name="Chave/identificador", max_length=80, blank=True, default="", db_index=True)
+    verification_code = models.CharField(verbose_name="Codigo de verificacao", max_length=80, blank=True, default="")
+    provider_tax_id = models.CharField(verbose_name="CPF/CNPJ prestador", max_length=14, blank=True, default="", db_index=True)
+    taker_tax_id = models.CharField(verbose_name="CPF/CNPJ tomador", max_length=14, blank=True, default="", db_index=True)
+    intermediary_tax_id = models.CharField(verbose_name="CPF/CNPJ intermediario", max_length=14, blank=True, default="", db_index=True)
+    municipality_code = models.CharField(verbose_name="Codigo municipio", max_length=20, blank=True, default="")
+    environment = models.CharField(verbose_name="Ambiente", max_length=1, blank=True, default="", choices=(("", "Nao informado"), ("1", "Producao"), ("2", "Homologacao")))
+    issue_date = models.DateTimeField(verbose_name="Data de emissao", null=True, blank=True)
+    service_amount = models.DecimalField(verbose_name="Valor do servico", max_digits=15, decimal_places=2, null=True, blank=True)
+    status = models.CharField(verbose_name="Status local", max_length=20, default="received", db_index=True)
+    remote_status = models.CharField(verbose_name="Status remoto", max_length=40, blank=True, default="")
+    role = models.CharField(verbose_name="Papel da oficina", max_length=16, choices=Role.choices, default=Role.UNKNOWN, db_index=True)
+    validation_status = models.CharField(verbose_name="Status de validacao", max_length=16, choices=ValidationStatus.choices, default=ValidationStatus.DRAFT, db_index=True)
+    validation_errors = models.JSONField(verbose_name="Erros de validacao", default=list, blank=True)
+    raw_payload = models.JSONField(verbose_name="Payload parseado", default=dict, blank=True)
+    created_by = models.ForeignKey("accounts.User", verbose_name="Criado por", on_delete=models.SET_NULL, null=True, blank=True, related_name="nfse_received_documents")
+
+    class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(fields=["workshop", "xml_hash"], name="unique_nfse_received_xml_hash_workshop"),
+            models.UniqueConstraint(fields=["workshop", "uuid"], condition=~models.Q(uuid=""), name="unique_nfse_received_uuid_workshop"),
+            models.UniqueConstraint(fields=["workshop", "access_key_or_identifier"], condition=~models.Q(access_key_or_identifier=""), name="unique_nfse_received_identifier_workshop"),
+        ]
+        indexes = [
+            models.Index(fields=["workshop", "validation_status"], name="nfse_received_scope_status_idx"),
+            models.Index(fields=["workshop", "role"], name="nfse_received_scope_role_idx"),
+        ]
+        permissions = [
+            ("import_nfse_received", "Pode importar NFS-e recebida"),
+            ("view_nfse_received", "Pode visualizar NFS-e recebida"),
+            ("view_nfse_received_payload", "Pode visualizar payload da NFS-e recebida"),
+            ("download_nfse_received_xml", "Pode baixar XML da NFS-e recebida"),
+        ]
+
+    @property
+    def manifestation_eligible(self) -> bool:
+        return self.validation_status == self.ValidationStatus.VALIDATED and self.role in {self.Role.TAKER, self.Role.INTERMEDIARY} and bool(self.uuid or self.access_key_or_identifier)
+
+    @property
+    def manifestation_block_reason(self) -> str:
+        if self.validation_status != self.ValidationStatus.VALIDATED:
+            return "Documento recebido ainda nao validado."
+        if self.role == self.Role.PROVIDER:
+            return "Oficina consta como prestadora; manifestacao futura e bloqueada."
+        if self.role in {self.Role.UNKNOWN, self.Role.MULTIPLE}:
+            return "Papel fiscal da oficina nao e seguro para manifestacao."
+        if not (self.uuid or self.access_key_or_identifier):
+            return "Documento sem identificador remoto seguro."
+        return ""
+
+    def clean(self) -> None:
+        super().clean()
+        if self.company_id and self.workshop_id and self.company.workshop_id != self.workshop_id:
+            raise ValidationError({"company": "A empresa Webmania pertence a outra oficina."})
+        if self.source != self.Source.XML_UPLOAD:
+            raise ValidationError({"source": "Nesta fase, somente upload manual de XML e permitido."})
+        if not self.xml_snapshot.strip():
+            raise ValidationError({"xml_snapshot": "XML obrigatorio."})
+        if not self.xml_hash.strip():
+            raise ValidationError({"xml_hash": "Hash do XML obrigatorio."})
+        if self.validation_status == self.ValidationStatus.VALIDATED:
+            if not (self.uuid or self.access_key_or_identifier or self.verification_code):
+                raise ValidationError("NFS-e recebida validada exige UUID, chave/identificador ou codigo de verificacao.")
+            if not (self.provider_tax_id or self.taker_tax_id or self.intermediary_tax_id):
+                raise ValidationError("NFS-e recebida validada exige CPF/CNPJ fiscal extraido do XML.")
+            if self.role in {self.Role.UNKNOWN, self.Role.MULTIPLE}:
+                raise ValidationError("NFS-e recebida validada exige papel fiscal seguro.")
+
+    def save(self, *args, **kwargs) -> None:
+        if self.pk:
+            immutable_fields = (
+                "workshop_id",
+                "company_id",
+                "source",
+                "xml_snapshot",
+                "xml_hash",
+                "uuid",
+                "access_key_or_identifier",
+                "verification_code",
+                "provider_tax_id",
+                "taker_tax_id",
+                "intermediary_tax_id",
+                "municipality_code",
+                "environment",
+                "issue_date",
+                "service_amount",
+                "remote_status",
+                "role",
+                "raw_payload",
+            )
+            persisted = type(self).objects.filter(pk=self.pk).values("validation_status", *immutable_fields).first()
+            if persisted and persisted["validation_status"] == self.ValidationStatus.VALIDATED and any(persisted[field] != getattr(self, field) for field in immutable_fields):
+                raise ValidationError("Os dados fiscais de uma NFS-e recebida validada sao imutaveis.")
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        identifier = self.uuid or self.access_key_or_identifier or self.xml_hash[:12]
+        return f"NfseReceivedDocument[{self.workshop_id}:{identifier}]"
 
 
 class NfeItem(models.Model):
