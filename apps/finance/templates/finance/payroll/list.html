@@ -8,6 +8,17 @@
                 <h1 class="text-3xl font-bold text-base-content">Folha de Pagamento</h1>
                 <p class="text-base-content/70">Acompanhe a folha consolidada por colaborador.</p>
             </div>
+            <div class="flex items-center gap-2">
+                <button type="button" class="btn btn-success" id="btn-pagar-selecionados" disabled
+                        hx-post="{% url 'finance:payroll_bulk_pay' %}"
+                        hx-include="#payroll-table .payroll-checkbox:checked"
+                        hx-confirm="Tem certeza que deseja marcar todas as folhas selecionadas como pagas? As comissões vinculadas também serão marcadas como pagas."
+                        hx-target="#payroll-section"
+                        hx-swap="outerHTML">
+                    <span class="material-icons">payments</span>
+                    Pagar selecionados
+                </button>
+            </div>
         </div>
 
         <form method="get" action="{% url 'finance:payroll_list' %}" class="card border border-base-300 bg-base-100 shadow-xl" x-data>
@@ -103,60 +114,137 @@
             </div>
         </div>
 
-        <div class="card border border-base-300 bg-base-100 shadow-xl">
-            <div class="card-body gap-4 p-5 md:p-6">
-                {% if payroll_rows %}
-                    <div class="overflow-x-auto">
-                        <table class="table table-sm md:table-md">
-                            <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
-                                <tr>
-                                    <th>Colaborador</th>
-                                    <th>Vencimento</th>
-                                    <th>Pago</th>
-                                    <th>Salário</th>
-                                    <th>VT</th>
-                                    <th>Benefícios</th>
-                                    <th>Comissões</th>
-                                    <th>Total</th>
-                                    <th class="text-right">Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for row in payroll_rows %}
+        <div id="payroll-section">
+            <div class="card border border-base-300 bg-base-100 shadow-xl">
+                <div class="card-body gap-4 p-5 md:p-6">
+                    {% if payroll_rows %}
+                        <div class="overflow-x-auto">
+                            <table class="table table-sm md:table-md" id="payroll-table">
+                                <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
                                     <tr>
-                                        <td>{{ row.collaborator_name }}</td>
-                                        <td>{{ row.due_date|date:"d/m/Y" }}</td>
-                                        <td>
-                                            <span class="inline-flex items-center gap-1 font-semibold {{ row.paid_indicator.class }}">
-                                                <span class="material-icons text-base">{{ row.paid_indicator.icon }}</span>
-                                                {{ row.paid_indicator.label }}
-                                            </span>
-                                        </td>
-                                        <td>{{ row.salary_amount }}</td>
-                                        <td>{{ row.transport_allowance_amount }}</td>
-                                        <td>{{ row.benefits_amount }}</td>
-                                        <td>{{ row.commission_amount }}</td>
-                                        <td class="font-semibold">{{ row.total_amount }}</td>
-                                        <td>
-                                            <div class="flex justify-end gap-2">
-                                                <button type="button" class="btn btn-ghost btn-xs" title="Editar folha" hx-get="{{ row.edit_url }}" hx-target="#payroll-edit-modal-container" hx-swap="innerHTML">
-                                                    <span class="material-icons text-sm">edit</span>
-                                                </button>
-                                                <button type="button" class="btn btn-primary btn-xs" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{{ row.receipt_url }}', downloadUrl: '{{ row.receipt_url }}?download=1' } }))">
-                                                    Resumo
-                                                </button>
-                                            </div>
-                                        </td>
+                                        <th class="w-10">
+                                            <input type="checkbox" id="select-all-payroll" class="checkbox checkbox-primary checkbox-sm" />
+                                        </th>
+                                        <th>Colaborador</th>
+                                        <th>Vencimento</th>
+                                        <th>Pago</th>
+                                        <th>Salário</th>
+                                        <th>VT</th>
+                                        <th>Benefícios</th>
+                                        <th>Comissões</th>
+                                        <th>Total</th>
+                                        <th class="text-right">Ações</th>
                                     </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                {% else %}
-                    <div class="rounded-xl border border-dashed border-base-300 px-6 py-8 text-center text-sm text-base-content/60">
-                        Nenhuma folha encontrada para os filtros selecionados.
-                    </div>
-                {% endif %}
+                                </thead>
+                                <tbody>
+                                    {% for row in payroll_rows %}
+                                        <tr>
+                                            <td>
+                                                {% if not row.is_paid %}
+                                                    <input type="checkbox" name="payroll_ids" value="{{ row.id }}" class="checkbox checkbox-primary checkbox-sm payroll-checkbox" />
+                                                {% endif %}
+                                            </td>
+                                            <td>{{ row.collaborator_name }}</td>
+                                            <td>{{ row.due_date|date:"d/m/Y" }}</td>
+                                            <td>
+                                                <span class="inline-flex items-center gap-1 font-semibold {{ row.paid_indicator.class }}">
+                                                    <span class="material-icons text-base">{{ row.paid_indicator.icon }}</span>
+                                                    {{ row.paid_indicator.label }}
+                                                </span>
+                                            </td>
+                                            <td>{{ row.salary_amount }}</td>
+                                            <td>{{ row.transport_allowance_amount }}</td>
+                                            <td>{{ row.benefits_amount }}</td>
+                                            <td>{{ row.commission_amount }}</td>
+                                            <td class="font-semibold">{{ row.total_amount }}</td>
+                                            <td>
+                                                <div class="flex justify-end gap-2">
+                                                    <button type="button" class="btn btn-ghost btn-xs" title="Editar folha" hx-get="{{ row.edit_url }}" hx-target="#payroll-edit-modal-container" hx-swap="innerHTML">
+                                                        <span class="material-icons text-sm">edit</span>
+                                                    </button>
+                                                    <button type="button" class="btn btn-primary btn-xs" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{{ row.receipt_url }}', downloadUrl: '{{ row.receipt_url }}?download=1' } }))">
+                                                        Resumo
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <script>
+                        (function () {
+                            if (window.__payrollSelectionInitDone) {
+                                return;
+                            }
+                            window.__payrollSelectionInitDone = true;
+
+                            var btnPagar = document.getElementById('btn-pagar-selecionados');
+
+                            function updateActionButtons() {
+                                var checkboxes = document.querySelectorAll('#payroll-table .payroll-checkbox:checked');
+                                var hasSelection = checkboxes.length > 0;
+                                if (btnPagar) {
+                                    btnPagar.disabled = !hasSelection;
+                                    if (hasSelection) btnPagar.removeAttribute('disabled');
+                                    else btnPagar.setAttribute('disabled', 'disabled');
+                                }
+                            }
+
+                            function init() {
+                                btnPagar = document.getElementById('btn-pagar-selecionados');
+                                var selectAll = document.getElementById('select-all-payroll');
+                                if (!selectAll) {
+                                    updateActionButtons();
+                                    return;
+                                }
+                                var checkboxes = document.querySelectorAll('#payroll-table .payroll-checkbox');
+                                var checked = 0;
+                                for (var i = 0; i < checkboxes.length; i++) {
+                                    if (checkboxes[i].checked) checked++;
+                                }
+                                selectAll.checked = checked === checkboxes.length && checkboxes.length > 0;
+                                selectAll.indeterminate = checked > 0 && checked < checkboxes.length;
+                                updateActionButtons();
+                            }
+
+                            document.addEventListener('change', function (e) {
+                                if (e.target.id === 'select-all-payroll') {
+                                    var checkboxes = document.querySelectorAll('#payroll-table .payroll-checkbox');
+                                    for (var i = 0; i < checkboxes.length; i++) {
+                                        checkboxes[i].checked = e.target.checked;
+                                    }
+                                    e.target.checked = e.target.checked;
+                                    e.target.indeterminate = false;
+                                }
+                                if (e.target.matches('#payroll-table .payroll-checkbox')) {
+                                    var selectAll = document.getElementById('select-all-payroll');
+                                    if (!selectAll) return;
+                                    var checkboxes = document.querySelectorAll('#payroll-table .payroll-checkbox');
+                                    var checked = 0;
+                                    for (var i = 0; i < checkboxes.length; i++) {
+                                        if (checkboxes[i].checked) checked++;
+                                    }
+                                    selectAll.checked = checked === checkboxes.length;
+                                    selectAll.indeterminate = checked > 0 && checked < checkboxes.length;
+                                }
+                                updateActionButtons();
+                            });
+
+                            document.body.addEventListener('htmx:afterSwap', function () {
+                                init();
+                            });
+
+                            init();
+                        })();
+                        </script>
+                    {% else %}
+                        <div class="rounded-xl border border-dashed border-base-300 px-6 py-8 text-center text-sm text-base-content/60">
+                            Nenhuma folha encontrada para os filtros selecionados.
+                        </div>
+                    {% endif %}
+                </div>
             </div>
         </div>
 
