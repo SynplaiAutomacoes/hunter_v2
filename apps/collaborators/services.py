@@ -208,12 +208,8 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
         active_workorder_ids.add(workorder.pk)
         base_amount = Decimal(str(workorder.total_services_value.amount or ZERO))
         commission_amount = _quantize(base_amount * percentage)
-        status = CollaboratorCommissionEntry.Status.PAID if _is_workorder_commission_paid(workorder=workorder) else CollaboratorCommissionEntry.Status.FORECAST
-        paid_at = timezone.localdate() if status == CollaboratorCommissionEntry.Status.PAID else None
-        existing_entry = CollaboratorCommissionEntry.objects.filter(collaborator=collaborator, workorder=workorder).only("status", "paid_at").first()
-        if existing_entry and existing_entry.status == CollaboratorCommissionEntry.Status.PAID:
-            status = CollaboratorCommissionEntry.Status.PAID
-            paid_at = existing_entry.paid_at or timezone.localdate()
+        status = CollaboratorCommissionEntry.Status.FORECAST
+        paid_at = None
 
         entry, _ = CollaboratorCommissionEntry.objects.update_or_create(
             collaborator=collaborator,

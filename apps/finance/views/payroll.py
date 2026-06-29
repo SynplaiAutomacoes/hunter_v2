@@ -272,11 +272,11 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         form = PayrollPaymentForm(request.POST, instance=payroll.financial_movement, workshop=self.workshop, payroll=payroll)
         if form.is_valid():
             movement = form.save()
+            sync_collaborator_payroll(collaborator=payroll.collaborator, reference_date=date(payroll.reference_year, payroll.reference_month, 1), lock_reference=True)
             if movement.is_paid:
                 _mark_payroll_commissions_as_paid(payroll=payroll)
             else:
                 _unmark_payroll_commissions_as_paid(payroll=payroll)
-            sync_collaborator_payroll(collaborator=payroll.collaborator, reference_date=date(payroll.reference_year, payroll.reference_month, 1), lock_reference=True)
             response = HttpResponse()
             response["HX-Refresh"] = "true"
             response["HX-Trigger"] = '{"showToast": {"message": "Folha atualizada com sucesso.", "type": "success"}}'
