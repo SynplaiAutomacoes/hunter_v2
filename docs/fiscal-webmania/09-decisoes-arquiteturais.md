@@ -769,3 +769,15 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 **Justificativa:** o XML validado continua sendo a evidencia local principal de identidade, papel fiscal e dados tributarios. A consulta remota e util para reconciliacao operacional, mas pode divergir do XML e nao deve sobrescrever hash, snapshot, UUID, CNPJs, municipio, ambiente ou valor extraidos.
 
 **Consequencias:** a consulta usa somente GET, depende de feature flag e permissao propria, registra divergencias auditaveis e nao cria `NfseItem`, `FiscalDocument(nfse)`, `FiscalEmissionAttempt` ou manifestacao automatica. Importacao por consulta, lote e integracoes externas continuam fases futuras.
+
+## ADR - Fase 3.14.0: proximo bloco apos NFS-e recebida completa
+
+**Status:** em planejamento documental em 2026-06-29.
+
+**Contexto:** a Fase 3.13.1 foi validada no checkpoint `01f0924d`. O bloco NFS-e recebida possui registro local por XML, manifestacao segura e consulta/reconciliacao GET-only. A consulta implementada preserva XML/hash/dados extraidos, registra divergencias em `NfseReceivedDocumentConsultation` e nao cria manifestacao automatica, `NfseItem` ou `FiscalDocument(nfse)`.
+
+**Decisao:** escolher importacao em lote de XML de NFS-e recebida como proxima fase funcional pequena.
+
+**Justificativa:** o lote XML reaproveita a fonte local mais confiavel ja validada, aumenta valor operacional para oficinas com muitos documentos recebidos e evita dependencia de consulta Webmania como origem. E menor e mais testavel que e-mail/ERP, NFS-e expandida ampla, CT-e/MDF-e/NFCom/DC-e, eventos IBS/CBS pendentes, creditos/debitos restantes ou complementar tributaria.
+
+**Consequencias:** a proxima fase deve ser XML-only, com relatorio por arquivo, importacao parcial segura, bloqueio de duplicidade e cross-workshop. Consulta Webmania continua apenas apoio consultivo; e-mail/ERP fica posterior ao lote local; manifestacao manual e demais dominios fiscais permanecem adiados.

@@ -1094,3 +1094,24 @@ A Fase 3.13.0 foi validada documentalmente no checkpoint `d83b37dc`. A decisao a
 Identificador seguro: preferir `uuid`; usar `access_key_or_identifier` apenas quando UUID estiver ausente e o campo tiver vindo do XML validado. `verification_code + municipio + ambiente` permanece fora desta implementacao por nao haver contrato local seguro suficiente.
 
 OpenAPI: nenhuma alteracao aplicada; o schema atual ja cobre consulta, status, manifestacao e webhooks.
+
+## Fase 3.14.0 - matriz API apos NFS-e recebida completa
+
+Status: em planejamento documental em 2026-06-29. A Fase 3.13.1 foi validada no checkpoint `01f0924d`.
+
+| Bloco | Endpoint Webmania relevante | Situacao para o Hunter |
+| ----- | --------------------------- | ---------------------- |
+| Importacao em lote de XML de NFS-e recebida | Nenhum endpoint obrigatorio; upload local de XML | Recomendado. Deve reaproveitar parser local e nao consultar Webmania automaticamente. |
+| Integracao e-mail/ERP | N/A | Adiar; origem externa fora da matriz Webmania. |
+| Consulta Webmania ampliada | `GET /2/nfse/consulta/{identifier}`, `GET /2/nfse/status` | Ja implementada como apoio GET-only; manter consultiva. |
+| Manifestacao NFS-e manual | `POST /2/nfse/manifestar` | Contrato claro, mas papel fiscal inseguro; manter adiada. |
+| NFS-e expandida | `/2/nfse/*` ja mapeados | Nao abrir fase ampla; exigir subfase documental. |
+| CT-e | `/2/cte/*` | Contrato em alto nivel claro; dominio local ausente. |
+| MDF-e | `/2/mdfe/*` | Contrato em alto nivel claro; dominio logistico ausente. |
+| NFCom | `/2/nfcom/*` | API v2.0.0 mapeada; sem aderencia de produto imediata. |
+| DC-e | `/2/dce/*` | API v2.0.0 mapeada; sem dominio local. |
+| IBS/CBS `112120`, `112140`, `211xxx` | `/1/nfe/evento-ibs-cbs/` | Contrato parcial conhecido; fontes fiscais continuam ausentes. |
+| Creditos 2-5 e debitos 1-3/5-8 | `/1/nfe/emissao/` com finalidades 5/6 | Contrato depende de tipo; fontes locais insuficientes. |
+| Complementar tributaria | `/1/nfe/complementar/` e matriz NF-e | Contrato parcial; exige auditoria tributaria propria. |
+
+Decisao API: a proxima fase recomendada nao exige alteracao no OpenAPI validado, porque a importacao em lote proposta e local e baseada exclusivamente em XML. O schema atual permanece suficiente; nenhuma correcao oficial nova foi confirmada.

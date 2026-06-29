@@ -1297,7 +1297,7 @@ OpenAPI: o schema atual permanece suficiente; nenhuma correcao oficial nova foi 
 
 ## Fase 3.13.1 - Consulta/Reconciliacao Auxiliar para NFS-e Recebida
 
-Status: **validada tecnicamente em 2026-06-29**. A Fase 3.13.0 foi validada documentalmente no checkpoint `d83b37dc`.
+Status: **validada em 2026-06-29** no checkpoint `01f0924d`. A Fase 3.13.0 foi validada documentalmente no checkpoint `d83b37dc`.
 
 Escopo autorizado: implementar consulta GET-only para `NfseReceivedDocument` ja registrado por XML validado. A consulta deve ser apoio consultivo e nao pode criar documento recebido sem XML, substituir XML/hash/dados fiscais extraidos, manifestar automaticamente, criar `NfseItem`, criar `FiscalDocument(nfse)` ou executar emissao, cancelamento ou substituicao.
 
@@ -1306,6 +1306,76 @@ Modelagem planejada: preferir entidade propria de snapshot consultivo (`NfseRece
 Criterios de aceite cumpridos: consulta por identificador seguro; resposta sanitizada; divergencias registradas sem sobrescrita; permissoes especificas; feature flag propria; UI minima no detalhe da recebida; nenhuma regressao da importacao XML ou da manifestacao de recebida.
 
 Validacao tecnica: migration `0071`; testes focados `FiscalPhaseThreeNfseReceivedConsultationTests`; bateria fiscal direcionada com importacao XML, manifestacao recebida, consulta recebida e fluxos NFS-e manuais/legados; `makemigrations finance --check --dry-run`; Ruff nos Python tocados; `git diff --check`.
+
+Implementacao validada: `NfseReceivedDocumentConsultation`, flag `WebmaniaCompany.nfse_received_consultation_enabled`, consulta GET-only, divergencias consultivas sem sobrescrita destrutiva, preservacao de XML/hash/dados extraidos, ausencia de manifestacao automatica, ausencia de `NfseItem` e ausencia de `FiscalDocument(nfse)`.
+
+## Fase 3.14.0 - Reavaliacao apos NFS-e Recebida Completa
+
+Status: **em planejamento documental em 2026-06-29**. A Fase 3.13.1 foi validada e encerrada no checkpoint `01f0924d`.
+
+Escopo autorizado: somente `docs/fiscal-webmania/**` e OpenAPI validado apenas se houver correcao oficialmente confirmada. Nenhum codigo funcional, migration, service, view, template ou teste deve ser alterado nesta fase.
+
+### Contexto implementado
+
+O bloco NFS-e recebida agora possui registro local por XML, manifestacao de NFS-e recebida e consulta/reconciliacao auxiliar GET-only. O registro por XML criou a fonte local primaria (`NfseReceivedDocument`) com XML snapshot/hash e dados extraidos. A manifestacao recebida estendeu `NfseManifestation` sem criar `NfseItem` ou `FiscalDocument(nfse)`. A consulta auxiliar criou `NfseReceivedDocumentConsultation`, migration `0071` e flag `nfse_received_consultation_enabled`, mantendo o retorno Webmania como snapshot consultivo separado.
+
+### Matriz comparativa
+
+| Bloco | Fonte local existe? | Contrato Webmania claro? | Reaproveita infraestrutura atual? | Dependencia externa | Risco fiscal | Valor de negocio | Recomendacao |
+| ----- | ------------------: | -----------------------: | --------------------------------: | ------------------- | ------------ | ---------------- | ------------ |
+| Importacao em lote de XML de NFS-e recebida | Sim: parser unitario, `NfseReceivedDocument`, hash, UUID/identificador e papel fiscal ja existem | N/A, pois o lote deve ser upload local de XML | Alta: reaproveita parser, validacao, duplicidade, permissoes, XML protegido e UI de recebidas | Baixa/media: tamanho de upload, armazenamento temporario e UX de lote | Medio, controlavel com validacao por arquivo e bloqueio cross-workshop | Alto | Recomendar como proxima fase funcional |
+| Integracao futura com e-mail/ERP para XML de NFS-e | Parcial: parser XML existe, mas origem externa nao | N/A para e-mail/ERP; depende de provedores externos | Media: reaproveita parser, mas exige pipeline novo | Alta: autenticacao, anexos, caixas, ERP, filas e monitoramento | Alto por origem incorreta e anexo adulterado | Medio/alto | Adiar; exigir fase preparatoria propria |
+| Consulta Webmania como apoio futuro ampliado | Sim: `NfseReceivedDocument` e `NfseReceivedDocumentConsultation` existem | Sim para `GET /2/nfse/consulta/{identifier}` e `/2/nfse/status` | Alta para reconciliacao consultiva | API Webmania e disponibilidade de identificador | Medio se continuar consultiva; alto se virar fonte primaria | Medio | Manter como apoio; nao usar para criar recebida sem XML |
+| Manifestacao da NFS-e manual | Parcial: NFS-e manual autorizada possui UUID/`NfseItem` | Sim para manifestacao, mas papel fiscal da oficina em nota propria segue inseguro | Alta tecnica: `NfseManifestation` existe | Confirmacao fiscal/juridica externa | Alto | Medio | Manter adiada |
+| NFS-e expandida | Parcial: legado, manual e recebida existem; consolidacao geral nao | Parcial: endpoints claros, mas variacao municipal permanece | Media/alta | Provedores municipais, backfill e convivencia de origens | Alto | Alto | Nao abrir amplo; se retomada, fazer subfase documental |
+| CT-e | Nao: falta dominio operacional de transporte/carga | Sim em alto nivel | Media tecnica, baixa de dominio | Alta: remetente, destinatario, veiculo, carga, entrega | Alto | Baixo/medio | Adiar |
+| MDF-e | Nao: depende de logistica, veiculos, condutor e documentos vinculados | Sim em alto nivel | Baixa/media | Alta: CT-e/NF-e, percurso, encerramento | Alto | Baixo | Adiar |
+| NFCom | Nao: nao ha dominio de comunicacao/telecom no produto | Sim; API v2.0.0 documentada | Media tecnica | Alta: credenciamento e dominio especializado | Alto | Muito baixo | Adiar; manter feature flag interna futura |
+| DC-e | Nao: nao ha dominio local especifico | Sim; API v2.0.0 documentada | Media tecnica | Alta: documento externo e demanda nao comprovada | Alto | Muito baixo | Adiar |
+| Eventos IBS/CBS 112120 | Nao suficiente: falta contexto ALC/ZFM/importacao fiscal por item | Sim/parcial ja mapeado | Alta tecnica pelos eventos ja validados, baixa de dominio | Alta: ALC/ZFM, estoque, item fiscal e isencao | Alto | Baixo | Adiar |
+| Eventos IBS/CBS 112140 | Nao suficiente: falta pagamento antecipado fiscal e nao fornecimento por item | Sim/parcial ja mapeado | Alta tecnica, baixa de dominio | Alta: nota de debito/pagamento antecipado/item | Alto | Baixo | Adiar |
+| Eventos IBS/CBS 211xxx | Nao suficiente | Parcial; familia ampla e sem fonte local definida | Media | Alta: papel destinatario, documentos externos e apuracao | Alto | Baixo/medio | Adiar; exigir auditoria propria |
+| Creditos 2-5 | Parcial: ciclo credito tipo 1 existe, mas fontes dos demais tipos nao | Parcial por tipo | Media/alta | Media/alta: fonte fiscal e monetaria por tipo | Alto | Medio | Adiar |
+| Debitos 1-3 e 5-8 | Parcial: debito tipo 4 existe, mas demais tipos nao | Parcial por tipo | Media/alta | Media/alta: referencias e fontes por tipo | Alto | Medio | Adiar |
+| Complementar tributaria | Nao suficiente: complemento atual nao cobre tributos | Parcial | Media | Alta: base tributaria historica, IBS/CBS e regras por imposto | Alto | Medio/alto | Adiar ate auditoria tributaria |
+
+### Avaliacoes especificas
+
+Importacao em lote de XML de NFS-e recebida: e o menor proximo passo com fonte local suficiente. Reaproveita o parser XML unitario, `NfseReceivedDocument`, hash, UUID/identificador, validacao de papel fiscal, permissao de recebidas e protecao de XML/payload. Deve validar cada arquivo isoladamente, detectar duplicidade por hash, UUID e identificador, gerar relatorio por arquivo, permitir importacao parcial segura, limitar quantidade/tamanho, bloquear cross-workshop e nunca substituir XML validado de documento existente. Rollback total nao deve ser regra padrao quando parte do lote for valida; a decisao recomendada e persistir os arquivos validos e registrar erros dos invalidos no relatorio do lote.
+
+Integracao e-mail/ERP: deve permanecer adiada. Embora possa alimentar o mesmo parser XML no futuro, a origem dos XMLs exige autenticacao, permissoes, tratamento de anexos, seguranca contra documentos errados, filas/pipeline assincrono, observabilidade e regras de duplicidade fora do dominio fiscal imediato. E-mail/ERP deve entrar somente apos o lote local por XML estar validado.
+
+Consulta Webmania ampliada: permanece apoio consultivo. A Fase 3.13.1 ja implementou GET-only com snapshot separado; ampliar esse apoio pode ser util para relatorios e reconciliacao, mas nao deve virar fonte de criacao de NFS-e recebida sem XML nem disparar manifestacao.
+
+Manifestacao da NFS-e manual: permanece adiada. A NFS-e manual emitida pela oficina nao prova, por si, que a oficina possa manifestar como tomadora ou intermediaria. Sem confirmacao fiscal clara, liberar isso criaria risco maior que valor imediato.
+
+NFS-e expandida: nao ha recomendacao para fase ampla. Qualquer retomada deve ser documental/preparatoria e mapear convivencia entre legado, manual, recebida e eventual consolidacao `FiscalDocument(nfse)`, sem backfill prematuro.
+
+CT-e, MDF-e, NFCom e DC-e: permanecem adiados. Os contratos Webmania existem em alto nivel, mas faltam fontes locais operacionais e dominios de produto para transporte, logistica, comunicacao/telecom ou documentos especificos.
+
+IBS/CBS, creditos/debitos e complementar tributaria: o fechamento de NFS-e recebida nao resolve as dependencias desses blocos. Eventos `112120`, `112140` e `211xxx` ainda exigem fontes fiscais por item e contexto operacional especifico. Creditos 2-5, debitos 1-3/5-8 e complementar tributaria continuam dependentes de auditorias por tipo/regra tributaria.
+
+### Decisao
+
+Escolher **Opcao A - Implementar importacao em lote de XML de NFS-e recebida** como proxima fase funcional, em subfase propria apos esta reavaliacao.
+
+Justificativa: e o bloco com melhor combinacao de fonte local existente, reaproveitamento de infraestrutura validada, escopo pequeno/preparatorio, valor de produto e testes deterministicos. Ele fortalece o dominio recebido sem depender de inferencia fiscal fragil, sem criar documento por consulta Webmania, sem abrir familia fiscal nova e sem alterar documentos ja registrados.
+
+### Escopo proposto da proxima fase - Fase 3.14.1 Importacao em Lote de XML de NFS-e Recebida
+
+- Objetivo: permitir upload de multiplos XMLs de NFS-e recebida, processando cada arquivo de forma independente e gerando relatorio de sucesso/erro por arquivo.
+- Endpoint: nao ha endpoint Webmania; entrada local por formulario/upload de arquivos XML.
+- Modelagem: reaproveitar `NfseReceivedDocument`; se necessario, criar entidade leve de lote/resultado para auditoria do processamento e relatorio por arquivo. Nao criar documento recebido sem XML.
+- Idempotencia: bloquear duplicidades por hash, UUID e identificador dentro da oficina/empresa; tratar duplicidade dentro do proprio lote como erro do arquivo duplicado, sem substituir documento existente.
+- Permissoes: permissao especifica para importacao em lote de recebidas, separada de manifestacao, consulta e payload.
+- Feature flag/capability: usar `nfse_received_import_enabled`; nao exigir capability Webmania para importar XML local; capability de manifestacao continua separada.
+- UI minima: tela de upload multiplo, resumo de processados/importados/ignorados/com erro, download/visualizacao de relatorio e links para documentos criados.
+- Webhook/reconciliacao: nenhum webhook e nenhuma consulta automatica nesta fase. Consulta Webmania continua acao manual/consultiva ja validada.
+- Testes planejados: lote com todos validos; lote com validos e invalidos; duplicidade por hash, UUID e identificador; duplicidade no mesmo lote; XML de outra oficina/empresa bloqueado; limite de tamanho/quantidade; relatorio por arquivo; importacao parcial sem rollback dos validos; XML/payload protegido; nenhuma manifestacao automatica; nenhuma chamada Webmania; nenhum `NfseItem`; nenhum `FiscalDocument(nfse)`.
+- Riscos: consumo de memoria em lotes grandes, UX de erro pouco clara, arquivos malformados, duplicidade parcial, XML de empresa errada e expectativa de rollback total.
+- Criterios de aceite: usa apenas XML; nao cria documento recebido sem XML; nao substitui XML validado de documento existente; nao manifesta automaticamente; nao consulta Webmania automaticamente; nao cria `NfseItem`; nao cria `FiscalDocument(nfse)`; gera relatorio por arquivo; bloqueia duplicidades e cross-workshop; testes determinísticos cobrem falhas parciais.
+
+OpenAPI: nenhuma alteracao. A proxima fase recomendada e importacao local por XML e nao depende de novo endpoint Webmania.
 
 ## Fase 3.11.0 - Planejamento Tecnico da NFS-e Recebida/Importada de Terceiros
 

@@ -823,3 +823,19 @@ Garantias apos a consulta:
 - consulta nao cria `NfseManifestation`, nao chama `POST /2/nfse/manifestar`, nao cria `NfseItem`, nao cria `FiscalDocument(nfse)` e nao cria documento recebido sem XML.
 
 Webhook sem documento recebido previamente validado continua pendente/fora do escopo desta fase.
+
+## Fase 3.14.0 - seguranca recomendada para lote XML de recebidas
+
+Status: em planejamento documental em 2026-06-29. A Fase 3.13.1 foi validada no checkpoint `01f0924d`.
+
+Regras de seguranca para a proxima fase recomendada:
+
+- A importacao em lote deve aceitar somente XMLs; nao deve criar documento recebido por consulta Webmania, digitacao de UUID ou webhook sem documento previo.
+- Cada arquivo deve ser validado isoladamente contra oficina/empresa, hash, UUID, identificador, papel fiscal, XML malformado e status extraido.
+- Duplicidades por hash, UUID e identificador devem ser bloqueadas sem sobrescrever o documento existente.
+- Falha de um arquivo nao deve apagar documentos validos ja importados no mesmo lote; o comportamento esperado e importacao parcial com relatorio auditavel.
+- XML e payloads derivados devem manter as mesmas protecoes de permissao/download do upload unitario.
+- Nao ha webhook nem reconciliacao automatica no lote; consulta Webmania permanece acao consultiva separada.
+- Nenhum lote deve criar manifestacao automatica, `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt`.
+
+Riscos principais: lote grande consumindo memoria, arquivo de outra oficina, duplicidade parcial, relatorio incompleto e expectativa de rollback total. A mitigacao documental recomendada e limite de tamanho/quantidade, validacao por arquivo, resultado persistido ou exibido por arquivo e bloqueios cross-workshop determinísticos.

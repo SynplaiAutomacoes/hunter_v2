@@ -671,3 +671,24 @@ UI minima:
 - alertas informam divergencias sem sugerir sobrescrita de dados fiscais.
 
 Nao ha botao de importacao por identificador nesta fase e a consulta nao manifesta automaticamente.
+
+## Fase 3.14.0 - UX recomendada para importacao em lote XML
+
+Status: em planejamento documental em 2026-06-29. A Fase 3.13.1 foi validada no checkpoint `01f0924d`.
+
+Workflow recomendado para a proxima fase:
+
+1. Usuario com permissao especifica acessa acao de importacao em lote em NFS-e recebidas.
+2. Usuario seleciona multiplos arquivos XML, respeitando limites de quantidade e tamanho.
+3. Sistema processa cada arquivo isoladamente, reaproveitando a validacao do upload unitario.
+4. Sistema exibe relatorio com totais de importados, duplicados, invalidos e bloqueados por oficina/empresa.
+5. Cada linha do relatorio deve indicar nome do arquivo, resultado, motivo de erro e link para o documento criado quando houver.
+
+Permissoes recomendadas:
+
+- permissao propria para importar lote de NFS-e recebida;
+- permissoes existentes de payload/XML continuam governando visualizacao e download;
+- permissao de manifestacao nao autoriza importacao em lote;
+- permissao de consulta Webmania nao autoriza importacao em lote.
+
+UX explicitamente fora do escopo da proxima fase: e-mail/ERP, processamento assincrono externo, consulta Webmania automatica, manifestacao automatica, edicao/substituicao de XML validado e criacao de `NfseItem` ou `FiscalDocument(nfse)`.

@@ -945,3 +945,20 @@ Tambem foi criada a flag `WebmaniaCompany.nfse_received_consultation_enabled`, s
 Dados preservados em `NfseReceivedDocument`: `xml_snapshot`, `xml_hash`, UUID, identificador, codigo de verificacao, CNPJs, municipio, ambiente, data, valor, status remoto extraido do XML, role fiscal e payload parseado. Divergencias da consulta nunca sobrescrevem esses campos.
 
 Nao foram criados `NfseItem`, `FiscalDocument(nfse)`, `NfseManifestation` ou `FiscalEmissionAttempt` para consulta.
+
+## Fase 3.14.0 - modelagem recomendada para o proximo bloco
+
+Status: em planejamento documental em 2026-06-29. A Fase 3.13.1 foi validada no checkpoint `01f0924d`, com `NfseReceivedDocumentConsultation`, migration `0071`, flag `nfse_received_consultation_enabled` e consulta GET-only implementados.
+
+Decisao de dominio recomendada: a proxima fase deve implementar importacao em lote de XML de NFS-e recebida, reaproveitando `NfseReceivedDocument` como entidade primaria. A criacao de recebida continua exigindo XML; consulta Webmania nao vira fonte primaria.
+
+Modelagem esperada para 3.14.1:
+
+- `NfseReceivedDocument` permanece o registro fiscal individual e imutavel quanto a XML/hash/dados extraidos.
+- O lote pode ser representado por entidade leve de auditoria, por exemplo `NfseReceivedDocumentImportBatch`, e resultados por arquivo, se isso for necessario para relatorio persistido.
+- Duplicidade deve considerar hash, UUID e identificador dentro da oficina/empresa.
+- Arquivos validos podem ser persistidos mesmo quando outros arquivos do lote falham, desde que o relatorio por arquivo seja completo.
+- Nenhum lote pode substituir XML validado de documento existente.
+- Nenhum lote pode criar `NfseItem`, `FiscalDocument(nfse)` ou `NfseManifestation`.
+
+Integracao e-mail/ERP, CT-e/MDF-e/NFCom/DC-e, eventos IBS/CBS pendentes, creditos/debitos restantes e complementar tributaria exigem modelagens de dominio proprias e permanecem fora do escopo imediato.

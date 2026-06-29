@@ -903,3 +903,26 @@ Novos testes em `FiscalPhaseThreeNfseReceivedConsultationTests` cobrem:
 - permissao especifica para consultar e payload protegido.
 
 Regressoes obrigatorias da fase: importacao recebida, manifestacao recebida, manifestacao NFS-e existente, emissao manual, cancelamento manual e substituicao manual.
+
+## Plano de testes para Fase 3.14.1 - lote XML de NFS-e recebida
+
+Status: planejado na Fase 3.14.0.
+
+Testes obrigatorios recomendados:
+
+- lote com todos os XMLs validos cria um `NfseReceivedDocument` por arquivo;
+- lote misto persiste os validos e registra erro por arquivo invalido;
+- duplicidade por hash bloqueia novo registro sem sobrescrever o existente;
+- duplicidade por UUID e identificador bloqueia novo registro;
+- duplicidade dentro do proprio lote e reportada corretamente;
+- XML de outra oficina/empresa e bloqueado por validacao de CNPJ/papel fiscal;
+- XML malformado ou sem UUID/identificador seguro gera erro por arquivo;
+- limites de quantidade e tamanho sao aplicados;
+- relatorio apresenta nome do arquivo, resultado, motivo e link do documento criado;
+- nenhuma chamada Webmania e feita automaticamente;
+- nenhuma manifestacao automatica e criada;
+- nenhum `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt` e criado;
+- permissoes de lote, payload e download permanecem separadas;
+- upload unitario, manifestacao recebida e consulta recebida nao regridem.
+
+Operacao: a fase deve ser validada com testes deterministicos usando arquivos XML pequenos e cenarios de falha parcial. `mypy .` continua nao bloqueante enquanto o baseline amplo preexistente nao for saneado.

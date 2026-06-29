@@ -251,6 +251,17 @@
 - UI minima no detalhe de NFS-e recebida, historico de consultas, payload protegido e permissoes especificas de consulta/payload.
 - Validacoes: `makemigrations finance --check --dry-run` OK; 4 testes focados OK; 73 testes fiscais direcionados OK; Ruff nos Python tocados OK; `git diff --check` OK.
 - Nao foram iniciados manifestacao manual, emissao, cancelamento/substituicao de recebida, importacao por consulta, lote, e-mail/ERP, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes ou complementar tributaria.
+- Status posterior: Fase 3.13.1 validada e encerrada no checkpoint `01f0924d`.
+
+## Fase 3.14.0 - reavaliacao apos NFS-e recebida completa
+
+- Fase 3.13.1 aprovada, validada e encerrada no checkpoint `01f0924d`.
+- Registrado bloco NFS-e recebida completo com registro local por XML, manifestacao recebida e consulta/reconciliacao GET-only.
+- Confirmado que `NfseReceivedDocumentConsultation`, migration `0071` e flag `nfse_received_consultation_enabled` foram implementados; XML/hash/dados extraidos permanecem preservados e divergencias sao consultivas.
+- Reavaliados importacao em lote XML, e-mail/ERP, consulta Webmania ampliada, manifestacao manual, NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria.
+- Decisao recomendada: **Opcao A**, implementar importacao em lote de XML de NFS-e recebida, sem consulta Webmania automatica, sem criacao sem XML, sem sobrescrever XML validado, sem manifestacao automatica, sem `NfseItem` e sem `FiscalDocument(nfse)`.
+- OpenAPI validado permanece suficiente; nenhuma correcao oficial nova foi aplicada.
+- Nenhum codigo funcional, migration, service, view, template ou teste foi alterado nesta fase documental.
 
 ## Fase 3.4.1 - inicio
 

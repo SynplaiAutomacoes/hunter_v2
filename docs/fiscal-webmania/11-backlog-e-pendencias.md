@@ -391,9 +391,18 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 
 ## Apos a Fase 3.13.1
 
-- Consulta/reconciliacao auxiliar de NFS-e recebida implementada e validada tecnicamente.
+- Consulta/reconciliacao auxiliar de NFS-e recebida implementada e validada no checkpoint `01f0924d`.
 - `NfseReceivedDocumentConsultation` registra snapshot remoto e divergencias sem alterar `NfseReceivedDocument`.
-- Pendencias remanescentes: importacao em lote de XML, integracao e-mail/ERP, eventual consulta como fonte de descoberta apenas apos fase propria, relatorios/reconciliacao operacional ampliada e consolidacao `FiscalDocument(nfse)` sob demanda.
+- Pendencia recomendada: importacao em lote de XML de NFS-e recebida, baseada exclusivamente em XML, com relatorio por arquivo e bloqueio de duplicidades/cross-workshop.
+- Pendencias remanescentes posteriores: integracao e-mail/ERP, eventual consulta como fonte de descoberta apenas apos fase propria, relatorios/reconciliacao operacional ampliada e consolidacao `FiscalDocument(nfse)` sob demanda.
 - Manifestacao da NFS-e manual permanece adiada por papel fiscal inseguro.
 - Emissao, cancelamento e substituicao de NFS-e recebida continuam fora de escopo.
 - CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria seguem nao iniciados.
+
+## Apos a Fase 3.14.0
+
+- Reavaliacao documental recomenda a Fase 3.14.1 para importacao em lote de XML de NFS-e recebida.
+- E-mail/ERP permanece adiado ate existir lote local validado e desenho de pipeline externo.
+- Consulta Webmania permanece apoio GET-only e nao fonte de criacao de documento recebido.
+- NFS-e expandida ampla, CT-e, MDF-e, NFCom e DC-e permanecem adiados por falta de dominio local suficiente.
+- Eventos IBS/CBS `112120`, `112140`, `211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria permanecem dependentes de fontes fiscais especificas.
