@@ -443,6 +443,7 @@ class CommissionStatusUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 sync_collaborator_payroll(
                     collaborator=commission.collaborator,
                     reference_date=date(commission.reference_year, commission.reference_month, 1),
+                    lock_reference=True,
                 )
             response = HttpResponse()
             response["HX-Refresh"] = "true"

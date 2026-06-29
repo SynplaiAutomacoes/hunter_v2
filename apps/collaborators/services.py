@@ -81,8 +81,11 @@ def _sum_salary_by_type(*, workshop: Workshop, collaborator_type: str, reference
     return Money(total, "BRL")
 
 
-def _resolve_payroll_reference_date(*, collaborator: WorkshopCollaborator, reference_date: date | None = None) -> date:
+def _resolve_payroll_reference_date(*, collaborator: WorkshopCollaborator, reference_date: date | None = None, lock_reference: bool = False) -> date:
     resolved = _resolve_reference_date(reference_date)
+    if lock_reference:
+        return resolved
+
     current_month_reference = _resolve_reference_date()
     existing_payroll = CollaboratorPayroll.objects.filter(collaborator=collaborator, reference_year=resolved.year, reference_month=resolved.month).select_related("financial_movement").first()
 
@@ -168,7 +171,7 @@ def get_or_create_collaborator_financial_group(*, collaborator: WorkshopCollabor
 
 
 @transaction.atomic
-def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, reference_date: date | None = None) -> list[CollaboratorCommissionEntry]:
+def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, reference_date: date | None = None, lock_reference: bool = False) -> list[CollaboratorCommissionEntry]:
     resolved = _resolve_reference_date(reference_date)
     if not collaborator.receives_commission or collaborator.commission_percentage is None:
         CollaboratorCommissionEntry.objects.filter(
@@ -198,7 +201,7 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
             continue
 
         commission_reference = _resolve_commission_reference_date(workorder=workorder)
-        effective_reference = _resolve_payroll_reference_date(collaborator=collaborator, reference_date=commission_reference)
+        effective_reference = _resolve_payroll_reference_date(collaborator=collaborator, reference_date=commission_reference, lock_reference=lock_reference)
         if effective_reference.year != resolved.year or effective_reference.month != resolved.month:
             continue
 
@@ -322,13 +325,13 @@ def recalculate_historical_commissions(*, workshop: Workshop | None = None, dry_
 
 
 @transaction.atomic
-def sync_collaborator_payroll(*, collaborator: WorkshopCollaborator, reference_date: date | None = None) -> CollaboratorPayroll:
-    resolved = _resolve_payroll_reference_date(collaborator=collaborator, reference_date=reference_date)
+def sync_collaborator_payroll(*, collaborator: WorkshopCollaborator, reference_date: date | None = None, lock_reference: bool = False) -> CollaboratorPayroll:
+    resolved = _resolve_payroll_reference_date(collaborator=collaborator, reference_date=reference_date, lock_reference=lock_reference)
     existing_payroll = CollaboratorPayroll.objects.filter(collaborator=collaborator, reference_year=resolved.year, reference_month=resolved.month).select_related("financial_movement").first()
     if existing_payroll and existing_payroll.financial_movement and existing_payroll.financial_movement.is_paid:
         return existing_payroll
 
-    commission_entries = sync_collaborator_commission_entries(collaborator=collaborator, reference_date=resolved)
+    commission_entries = sync_collaborator_commission_entries(collaborator=collaborator, reference_date=resolved, lock_reference=lock_reference)
 
     salary_amount = Money(_quantize(collaborator.salary_amount), "BRL")
     transport_amount = calculate_transport_allowance_total(collaborator=collaborator, reference_date=resolved)

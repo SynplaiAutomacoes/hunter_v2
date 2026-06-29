@@ -7,7 +7,7 @@ from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocument
 from .commissions import CommissionReportPdfView, CommissionReportView, CommissionStatusUpdateView
 from .nfe import NfeDocumentDownloadView, NfePreviewPdfView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestInvalidateView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView
 from .nfse import NfseDocumentDownloadView, NfsePreviewPdfView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestReconcileView, NfseRequestUpdateView
-from .payroll import PayrollEditModalView, PayrollListView
+from .payroll import PayrollBulkPayView, PayrollEditModalView, PayrollListView
 from .reports import FinancialReportsHomeView, ReportMovementEditView, ReportMovementDeleteView
 from .tax_class import TaxClassCreateView, TaxClassListView, TaxClassManagerView, TaxClassPresetCreateView, TaxClassPresetListView, TaxClassPresetUpdateView, TaxClassUpdateView
 from .webhook import WebhookView
@@ -39,6 +39,7 @@ __all__ = [
     "FinancialReportsHomeView",
     "ReportMovementEditView",
     "ReportMovementDeleteView",
+    "PayrollBulkPayView",
     "PayrollEditModalView",
     "PayrollListView",
     "FinancialGroupUpdateView",
