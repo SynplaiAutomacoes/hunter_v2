@@ -8,8 +8,9 @@ from django.test import TestCase
 from djmoney.money import Money
 
 from apps.budget.models import Budget, BudgetStatus
-from apps.collaborators.models import CollaboratorCommissionEntry, WorkshopCollaborator
+from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
+from apps.finance.views.payroll import _mark_payroll_commissions_as_paid, _unmark_payroll_commissions_as_paid
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 from apps.workshops.models.workshops import Workshop
 
@@ -131,3 +132,123 @@ class CollaboratorCommissionSyncTests(TestCase):
             sync_workorder_collaborator_payrolls(workorder=workorder)
 
         self.assertEqual(CollaboratorCommissionEntry.objects.filter(workorder=workorder, collaborator=collaborator).count(), 1)
+
+    def test_mark_payroll_commissions_as_paid_respects_month_boundary(self) -> None:
+        workshop = create_workshop(suffix=4)
+        collaborator = create_collaborator(workshop=workshop, suffix=4)
+        wo1 = create_workorder(workshop=workshop, budget_type="sale")
+        wo2 = create_workorder(workshop=workshop, budget_type="sale")
+        wo1.collaborators.add(collaborator)
+        wo2.collaborators.add(collaborator)
+
+        payroll_m6 = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            reference_year=2026,
+            reference_month=6,
+            due_date=date(2026, 6, 5),
+            salary_amount=Money(2000, "BRL"),
+            total_amount=Money(2000, "BRL"),
+        )
+
+        m6_entry = CollaboratorCommissionEntry.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            workorder=wo1,
+            payroll=payroll_m6,
+            reference_year=2026,
+            reference_month=6,
+            percentage=Decimal("0.100000"),
+            base_amount=Money(1000, "BRL"),
+            commission_amount=Money(100, "BRL"),
+            status=CollaboratorCommissionEntry.Status.FORECAST,
+        )
+        m7_entry = CollaboratorCommissionEntry.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            workorder=wo2,
+            payroll=payroll_m6,
+            reference_year=2026,
+            reference_month=7,
+            percentage=Decimal("0.100000"),
+            base_amount=Money(1000, "BRL"),
+            commission_amount=Money(100, "BRL"),
+            status=CollaboratorCommissionEntry.Status.FORECAST,
+        )
+
+        _mark_payroll_commissions_as_paid(payroll=payroll_m6)
+
+        m6_entry.refresh_from_db()
+        m7_entry.refresh_from_db()
+
+        self.assertEqual(m6_entry.status, CollaboratorCommissionEntry.Status.PAID)
+        self.assertIsNotNone(m6_entry.paid_at)
+        self.assertEqual(
+            m7_entry.status,
+            CollaboratorCommissionEntry.Status.FORECAST,
+            "Month 7 commission should NOT be marked as paid when paying month 6 payroll",
+        )
+        self.assertIsNone(m7_entry.paid_at)
+
+    def test_unmark_payroll_commissions_reverts_status_and_respects_month_boundary(self) -> None:
+        workshop = create_workshop(suffix=5)
+        collaborator = create_collaborator(workshop=workshop, suffix=5)
+        wo1 = create_workorder(workshop=workshop, budget_type="sale")
+        wo2 = create_workorder(workshop=workshop, budget_type="sale")
+        wo1.collaborators.add(collaborator)
+        wo2.collaborators.add(collaborator)
+
+        payroll_m6 = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            reference_year=2026,
+            reference_month=6,
+            due_date=date(2026, 6, 5),
+            salary_amount=Money(2000, "BRL"),
+            total_amount=Money(2000, "BRL"),
+        )
+
+        m6_entry = CollaboratorCommissionEntry.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            workorder=wo1,
+            payroll=payroll_m6,
+            reference_year=2026,
+            reference_month=6,
+            percentage=Decimal("0.100000"),
+            base_amount=Money(1000, "BRL"),
+            commission_amount=Money(100, "BRL"),
+            status=CollaboratorCommissionEntry.Status.PAID,
+            paid_at=date(2026, 6, 5),
+        )
+        m7_entry = CollaboratorCommissionEntry.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            workorder=wo2,
+            payroll=payroll_m6,
+            reference_year=2026,
+            reference_month=7,
+            percentage=Decimal("0.100000"),
+            base_amount=Money(1000, "BRL"),
+            commission_amount=Money(100, "BRL"),
+            status=CollaboratorCommissionEntry.Status.PAID,
+            paid_at=date(2026, 7, 5),
+        )
+
+        _unmark_payroll_commissions_as_paid(payroll=payroll_m6)
+
+        m6_entry.refresh_from_db()
+        m7_entry.refresh_from_db()
+
+        self.assertEqual(
+            m6_entry.status,
+            CollaboratorCommissionEntry.Status.FORECAST,
+            "Month 6 commission should revert to FORECAST when month 6 payroll is unpaid",
+        )
+        self.assertIsNone(m6_entry.paid_at)
+        self.assertEqual(
+            m7_entry.status,
+            CollaboratorCommissionEntry.Status.PAID,
+            "Month 7 commission should stay PAID when unpaying month 6 payroll",
+        )
+        self.assertIsNotNone(m7_entry.paid_at)
