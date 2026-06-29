@@ -220,11 +220,25 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 def _mark_payroll_commissions_as_paid(*, payroll: CollaboratorPayroll) -> None:
     now = timezone.localdate()
     CollaboratorCommissionEntry.objects.filter(
-        payroll=payroll,
+        collaborator=payroll.collaborator,
+        reference_year=payroll.reference_year,
+        reference_month=payroll.reference_month,
         status=CollaboratorCommissionEntry.Status.FORECAST,
     ).update(
         status=CollaboratorCommissionEntry.Status.PAID,
         paid_at=now,
+    )
+
+
+def _unmark_payroll_commissions_as_paid(*, payroll: CollaboratorPayroll) -> None:
+    CollaboratorCommissionEntry.objects.filter(
+        collaborator=payroll.collaborator,
+        reference_year=payroll.reference_year,
+        reference_month=payroll.reference_month,
+        status=CollaboratorCommissionEntry.Status.PAID,
+    ).update(
+        status=CollaboratorCommissionEntry.Status.FORECAST,
+        paid_at=None,
     )
 
 
@@ -260,6 +274,8 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
             movement = form.save()
             if movement.is_paid:
                 _mark_payroll_commissions_as_paid(payroll=payroll)
+            else:
+                _unmark_payroll_commissions_as_paid(payroll=payroll)
             sync_collaborator_payroll(collaborator=payroll.collaborator, reference_date=date(payroll.reference_year, payroll.reference_month, 1), lock_reference=True)
             response = HttpResponse()
             response["HX-Refresh"] = "true"
