@@ -761,3 +761,25 @@ Validacoes executadas na fase:
 - `ruff check` nos arquivos Python tocados: OK.
 - `git diff --check`: OK.
 - `mypy .`: nao bloqueante; falhou no baseline preexistente com 3205 erros em 261 arquivos, incluindo stubs ausentes e managers Django nao resolvidos.
+
+## Testes planejados pela Fase 3.10.0
+
+Nenhum teste funcional foi criado na Fase 3.10.0 porque ela e documental.
+
+Se uma fase futura de manifestacao manual for aprovada, a cobertura minima devera incluir:
+
+- manifesta NFS-e manual Padrao Nacional autorizada apenas quando o papel fiscal estiver confirmado;
+- manifesta NFS-e manual substituta Padrao Nacional somente se a substituta estiver autorizada e o papel fiscal estiver confirmado;
+- bloqueia NFS-e manual cancelada;
+- bloqueia NFS-e manual substituida;
+- bloqueia NFS-e manual `uncertain`;
+- bloqueia NFS-e manual sem UUID;
+- bloqueia NFS-e manual sem Padrao Nacional confirmado;
+- bloqueia NFS-e recebida/importada enquanto nao existir dominio proprio;
+- bloqueia NFS-e municipal legada;
+- exige `issue_nfse_manifestation`;
+- envia somente payload do contrato atual (`ambiente`, `uuid` ou `chave`, `manifestador`, `evento`, e campos de rejeicao quando aplicavel);
+- usa idempotencia por `nfse_manifestation`;
+- webhook resolve somente com identificador seguro da manifestacao;
+- reconciliacao consulta sem reenviar `POST /2/nfse/manifestar`;
+- regressoes de emissao, cancelamento e substituicao manual continuam passando.

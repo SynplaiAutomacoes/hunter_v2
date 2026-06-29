@@ -709,3 +709,15 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 **Justificativa:** o contrato remoto e identico ao fluxo ja validado de substituicao NFS-e. A diferenca relevante e local: a original pode ter `request_id=None`, desde que exista `NfseManualEmission` vinculada e confirmada. A capability vem da preview de emissao manual, e nao de `NfseRequest`.
 
 **Consequencias:** a substituta manual tambem pode nascer sem `NfseRequest`/OS; isso e intencional quando a original manual nao possui esses vinculos. `FiscalDocument(nfse)` permanece adiado. Manifestacao manual e NFS-e recebida/importada permanecem fases futuras separadas.
+
+## ADR - Fase 3.10.0: adiar manifestacao da NFS-e manual
+
+**Status:** em planejamento documental em 2026-06-29.
+
+**Decisao:** adiar a manifestacao da NFS-e manual. Nao implementar `Fase 3.10.1` agora.
+
+**Justificativa:** `NfseManifestation` e `operation_type="nfse_manifestation"` ja existem e o endpoint oficial `POST /2/nfse/manifestar` continua claro para Padrao Nacional. O problema e o papel fiscal: a documentacao oficial descreve manifestacao por tomador ou intermediario, enquanto a NFS-e manual emitida pelo Hunter normalmente e documento da propria oficina prestadora. Sem criterio local para provar que a oficina atua como tomadora/intermediaria, a extensao funcional abriria risco fiscal.
+
+**Alternativas avaliadas:** implementar como extensao segura de `NfseManifestation`; criar fluxo separado manual; preparar NFS-e recebida/importada. A primeira e tecnicamente possivel, mas fiscalmente ambigua. A segunda foi rejeitada por duplicar fluxo. A terceira permanece recomendada como preparacao posterior, porque documentos recebidos de terceiros tendem a se alinhar melhor ao papel de manifestador.
+
+**Consequencias:** manifestacao da NFS-e manual continua pendente; NFS-e recebida/importada deve ser planejada antes de manifestacao de terceiros; nenhuma alteracao em OpenAPI ou codigo funcional foi feita.

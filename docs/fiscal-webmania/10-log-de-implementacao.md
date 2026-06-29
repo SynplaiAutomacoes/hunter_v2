@@ -145,6 +145,17 @@
   - `uv run mypy .` executado como nao bloqueante; falhou no baseline preexistente com 3205 erros em 261 arquivos.
 - Permanecem fora do escopo: manifestacao da NFS-e manual, NFS-e recebida/importada, emissao manual adicional, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
 
+## Fase 3.10.0 - reavaliacao da manifestacao da NFS-e manual
+
+- Fase 3.9.1 aprovada, validada e encerrada no checkpoint `99254f33`.
+- Registrado que a substituicao da NFS-e manual reutiliza `NfseSubstitutionPreview`, `NfseSubstitution`, `operation_type="nfse_substitution"` e `POST /2/nfse/substituir`, preservando XML original e criando nova `NfseItem` substituta somente apos confirmacao remota valida.
+- Revalidada documentacao oficial Webmania NFS-e para `POST /2/nfse/manifestar`: manifestacao de participacao no Padrao Nacional, por tomador ou intermediario, com payload de `ambiente`, `uuid|chave`, `manifestador`, `evento` e campos de rejeicao quando aplicavel.
+- Matriz documental comparou NFS-e manual autorizada, substituta, cancelada, substituida, uncertain, sem UUID, sem Padrao Nacional, NFS-e recebida/importada e NFS-e legada municipal.
+- Decisao recomendada: **Opcao B**, adiar manifestacao da NFS-e manual por ambiguidade de papel fiscal da oficina como tomadora/intermediaria em nota emitida pela propria oficina.
+- Opcao C permanece como provavel proximo planejamento: preparar NFS-e recebida/importada antes de ampliar manifestacao para documentos de terceiros.
+- OpenAPI validado revisado como suficiente; nenhuma alteracao aplicada.
+- Nenhum codigo funcional, migration, service, view, template ou teste foi alterado.
+
 ## Fase 3.4.1 - inicio
 
 - Fase 3.4P validada no checkpoint `747b6750a62d6ed59bed84c4616f89793c4247b4`.

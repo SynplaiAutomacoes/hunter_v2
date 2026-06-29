@@ -729,3 +729,21 @@ Bloqueios implementados para a original manual:
 - cross-workshop.
 
 Webhook e reconciliacao permanecem os do fluxo de substituicao: resolver por UUID da substituta ou por `nfse_substituida` deterministico, pendenciar ambiguidade e usar somente GET na reconciliacao. Nenhum caminho repete `POST /2/nfse/substituir`.
+
+## Fase 3.10.0 - seguranca da manifestacao manual reavaliada
+
+`NfseManifestation`, `FiscalEmissionAttempt(operation_type="nfse_manifestation")`, webhook e reconciliacao consultiva ja existem para manifestacao NFS-e Padrao Nacional. A seguranca tecnica de idempotencia e retry e reaproveitavel; o bloqueio remanescente e fiscal: nao ha papel de manifestador seguro para NFS-e manual emitida pela propria oficina.
+
+Bloqueios que permanecem obrigatorios para qualquer fase futura:
+
+- `national_standard_enabled=False`;
+- `manifestation_enabled=False`;
+- usuario sem `issue_nfse_manifestation`;
+- NFS-e manual cancelada, substituida ou `uncertain`;
+- NFS-e manual sem UUID seguro;
+- NFS-e manual substituta sem confirmacao remota valida;
+- NFS-e recebida/importada sem dominio de importacao e tenancy;
+- NFS-e municipal legada;
+- ausencia de papel fiscal da oficina como tomadora ou intermediaria.
+
+Webhook/reconciliacao: nenhum webhook deve inferir sucesso de manifestacao manual por UUID da NFS-e original. A confirmacao deve depender do UUID remoto da manifestacao ou identificador equivalente seguro. Reconciliacao segue exclusivamente consultiva e nunca repete `POST /2/nfse/manifestar`.

@@ -345,3 +345,11 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - A manifestacao da NFS-e manual continua dependente de Padrao Nacional e papel fiscal claro.
 - A NFS-e recebida/importada continua dependente de fluxo proprio de XML/identidade/tenancy.
 - CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria seguem nao iniciados.
+
+## Apos a Fase 3.10.0
+
+- Manifestacao da NFS-e manual permanece adiada.
+- Motivo: risco fiscal de papel do manifestador; NFS-e manual emitida pela propria oficina nao prova atuacao como tomadora ou intermediaria.
+- Proximo bloco recomendado: planejar NFS-e recebida/importada de terceiros antes de manifestacao de documentos recebidos.
+- Bloqueios mantidos: NFS-e manual cancelada, substituida, uncertain, sem UUID, sem Padrao Nacional confirmado, municipal legada e recebida/importada sem dominio proprio.
+- Demais blocos seguem adiados: NFS-e expandida ampla, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria.

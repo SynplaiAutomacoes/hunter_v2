@@ -855,3 +855,11 @@ Extensao implementada:
 - `FiscalDocument(nfse)` nao foi criado.
 
 Dados preservados: `NfseManualEmissionPreview`, `NfseManualEmission.request_payload`, XML original da NFS-e manual e snapshot do XML original. XML/PDF da substituta ficam em `NfseSubstitution`.
+
+## Fase 3.10.0 - modelagem reavaliada para manifestacao manual
+
+A modelagem existente de `NfseManifestation` continua adequada para NFS-e local Padrao Nacional quando o papel fiscal do manifestador e seguro. Para a NFS-e manual emitida pelo proprio Hunter, a entidade local confiavel e `NfseManualEmission -> NfseItem`, mas ela representa documento emitido pela oficina. A modelagem nao contem, nesta data, uma prova de que a oficina atua como tomadora ou intermediaria da propria NFS-e manual.
+
+Conclusao de dominio: nao criar modelo paralelo de manifestacao manual e nao ampliar `NfseManifestation` nesta fase. A decisao correta e manter manifestacao manual pendente ate existir criterio explicito de papel fiscal. Se uma fase futura for aprovada, a preferencia segue sendo extensao segura de `NfseManifestation`, nao fluxo separado, com bloqueio para manual cancelada, substituida, uncertain, sem UUID ou sem Padrao Nacional confirmado.
+
+NFS-e recebida/importada de terceiros permanece fora do dominio atual. Ela deve ter fase propria antes de ser usada como base de manifestacao, porque exige XML recebido, identificadores remotos, papel da oficina, associacao segura a cliente/oficina e protecao cross-workshop.

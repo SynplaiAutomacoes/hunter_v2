@@ -1156,3 +1156,58 @@ Resultado local:
 - UI minima no detalhe da emissao manual para preparar substituicao elegivel.
 
 Criterios atendidos: fluxo paralelo nao criado; `FiscalDocument(nfse)` nao criado; manifestacao manual nao iniciada; NFS-e recebida/importada nao iniciada; webhook/reconciliacao nao repetem POST; testes direcionados e regressoes NFS-e passaram.
+
+## Fase 3.10.0 - Reavaliacao da Manifestacao da NFS-e Manual
+
+Status: **em planejamento documental em 2026-06-29**. A Fase 3.9.1 foi validada e encerrada no checkpoint `99254f33`.
+
+Escopo autorizado: somente documentacao em `docs/fiscal-webmania/**`. Nenhum codigo funcional, migration, service, view, template ou teste deve ser alterado nesta fase.
+
+### Revalidacao e contexto
+
+A manifestacao NFS-e ja existe no Hunter por `NfseManifestation` e `operation_type="nfse_manifestation"`, restrita a Padrao Nacional, com idempotencia, webhook e reconciliacao consultiva. A documentacao oficial Webmania NFS-e revalidada em 2026-06-29 continua tratando `POST /2/nfse/manifestar` como manifestacao de participacao no Padrao Nacional, por tomador ou intermediario.
+
+A Fase 3.9.1 deixou a NFS-e manual substituivel, mas nao mudou o papel fiscal da oficina. A NFS-e manual emitida pelo sistema normalmente e documento emitido pela propria oficina prestadora, nao documento recebido contra ela.
+
+### Matriz de elegibilidade
+
+| Documento | Elegivel para manifestacao? | Pre-condicoes | Bloqueios | Risco |
+| --------- | --------------------------: | ------------- | --------- | ----- |
+| NFS-e manual autorizada Padrao Nacional | Nao nesta fase | UUID seguro, autorizada, `national_standard_enabled`, `manifestation_enabled`, papel tomador/intermediario confirmado | papel fiscal nao confirmado para nota emitida pela propria oficina | Alto |
+| NFS-e manual substituta Padrao Nacional | Nao nesta fase | substituicao sucedida, `replacement_nfse` autorizada, UUID seguro, Padrao Nacional confirmado | mesmo risco fiscal da original manual; substituta tambem e emitida pela oficina | Alto |
+| NFS-e manual cancelada | Nao | N/A | documento terminal | Alto |
+| NFS-e manual substituida | Nao | N/A | original encerrada por substituicao | Alto |
+| NFS-e manual uncertain | Nao | reconciliacao previa | estado remoto inconclusivo | Alto |
+| NFS-e manual sem UUID | Nao | N/A | identificador inseguro para webhook/reconciliacao | Alto |
+| NFS-e manual sem Padrao Nacional confirmado | Nao | N/A | endpoint oficial restrito ao Padrao Nacional | Alto |
+| NFS-e recebida/importada de terceiros | Nao nesta fase | exigiria XML/UUID/chave, papel fiscal e tenancy | dominio local inexistente | Alto |
+| NFS-e legada municipal | Nao | N/A | sem Padrao Nacional confirmado | Medio/alto |
+
+### Decisao
+
+Escolher **Opcao B - adiar manifestacao da NFS-e manual**.
+
+Justificativa: a infraestrutura atual e tecnicamente reaproveitavel, mas ainda ha ambiguidade fiscal sobre manifestar uma NFS-e que a propria oficina emitiu. O contrato oficial fala em tomador/intermediario. Sem prova local do papel da oficina, uma fase funcional poderia permitir manifestacao indevida.
+
+### Proxima fase recomendada
+
+Nao autorizar `Fase 3.10.1 - Manifestacao da NFS-e Manual` ainda. A proxima fase documental recomendada e avaliar **NFS-e recebida/importada de terceiros**, porque esse fluxo tende a possuir aderencia fiscal mais clara ao papel de tomador/intermediario, mas depende de dominio de importacao, XML, identidade remota, associacao a oficina e bloqueio cross-workshop.
+
+Se, mesmo assim, uma fase futura de manifestacao manual for aprovada, ela deve ser **A) extensao segura de `NfseManifestation` existente**, nunca fluxo paralelo, e deve exigir: Padrao Nacional confirmado, capability ativa, UUID seguro, papel fiscal explicito, permissao `issue_nfse_manifestation`, payload restrito, idempotencia `nfse_manifestation`, webhook por UUID da manifestacao e reconciliacao sem POST.
+
+### Roadmap curto
+
+| Bloco | Status | Recomendacao |
+| ----- | ------ | ------------ |
+| NFS-e recebida/importada | nao iniciada | preparar fase documental antes de manifestacao de terceiros |
+| NFS-e expandida | nao iniciada | quebrar por subfases apos identidade/importacao |
+| CT-e | nao iniciada | adiar ate dominio operacional proprio |
+| MDF-e | nao iniciada | adiar ate CT-e/MDF-e terem fonte local |
+| NFCom | nao iniciada | adiar; confirmar relevancia e feature flag |
+| DC-e | nao iniciada | adiar; API v2.0.0 exige dominio proprio |
+| Eventos IBS/CBS 112120/112140/211xxx | adiados | reavaliar depois dos eventos ja validados |
+| Creditos 2-5 | adiados | manter bloqueados ate fonte fiscal suficiente |
+| Debitos 1-3 e 5-8 | adiados | manter bloqueados ate fonte fiscal suficiente |
+| Complementar tributaria | adiada | exige auditoria propria de base tributaria |
+
+OpenAPI: nenhuma alteracao aplicada.

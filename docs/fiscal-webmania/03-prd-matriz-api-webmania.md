@@ -985,3 +985,40 @@ Endpoint: `POST /2/nfse/substituir`.
 O payload enviado e exatamente o `request_payload` aprovado em `NfseSubstitutionPreview`. Nao envia `uuid`, XML original, payload da emissao manual, payload de cancelamento, payload de manifestacao, dados livres da `NfseManualEmissionPreview` ou dados livres da `NfseManualEmission`.
 
 OpenAPI: nenhuma alteracao aplicada; o schema validado ja cobre `/2/nfse/substituir` com `ambiente`, `codigo_verificacao`, `motivo` e `rps`.
+
+## Fase 3.10.0 - reavaliacao API da manifestacao da NFS-e manual
+
+A Fase 3.9.1 foi validada e encerrada no checkpoint `99254f33`. A substituicao da NFS-e manual esta implementada por extensao segura de `NfseSubstitutionPreview`, `NfseSubstitution` e `operation_type="nfse_substitution"`, usando `POST /2/nfse/substituir`; o XML original da NFS-e manual permanece preservado e a nova `NfseItem` substituta nasce somente apos confirmacao remota valida.
+
+Fonte oficial revalidada em 2026-06-29: [documentacao oficial Webmania NFS-e](https://webmania.com.br/docs/rest-api-nfse/). A pagina continua listando `POST /2/nfse/manifestar` como manifestacao de participacao no Padrao Nacional. O contrato documentado permanece:
+
+| Aspecto | Contrato revalidado | Decisao Hunter |
+| --- | --- | --- |
+| Endpoint | `POST /2/nfse/manifestar` | continua coberto pelo OpenAPI local validado |
+| Escopo | manifestacao de participacao na NFS-e do Padrao Nacional | bloquear se `national_standard_enabled` nao estiver confirmado |
+| Identificador | `uuid` ou `chave` | preferir UUID local seguro; chave so em fluxo futuro de importacao/identidade |
+| Manifestador | `1` tomador ou `2` intermediario | nao inferir papel para NFS-e emitida pela propria oficina |
+| Evento | `1` confirmacao ou `2` rejeicao | exigir selecao explicita em fase funcional futura |
+| Rejeicao | `motivo_rejeicao` `1..5` ou `9`; justificativa obrigatoria quando motivo `9` | validar antes de qualquer POST |
+| Consulta/reconciliacao | sem endpoint especifico de manifestacao separado do contrato NFS-e geral | usar somente consulta GET quando houver UUID remoto da manifestacao |
+| Status/capability | `/2/nfse/status` informa capacidades municipais, mas historicamente nao confirmou `manifestar` de forma tao direta quanto consulta/cancelamento/substituicao | exigir `national_standard_enabled=True` e `manifestation_enabled=True` |
+
+Matriz de elegibilidade da Fase 3.10.0:
+
+| Documento | Elegivel para manifestacao? | Pre-condicoes | Bloqueios | Risco |
+| --------- | --------------------------: | ------------- | --------- | ----- |
+| NFS-e manual autorizada Padrao Nacional | Nao nesta decisao | `NfseManualEmission.nfse_item` autorizado, UUID seguro, `national_standard_enabled`, `manifestation_enabled` e papel fiscal confirmado | papel de tomador/intermediario nao e seguro para nota emitida pela propria oficina prestadora | Alto |
+| NFS-e manual substituta Padrao Nacional | Nao nesta decisao | Substituicao concluida, `replacement_nfse` autorizada, UUID seguro e Padrao Nacional confirmado | mesmo risco de papel fiscal da original manual; nao inferir manifestador | Alto |
+| NFS-e manual cancelada | Nao | N/A | documento terminal; cancelamento ja altera estado fiscal | Alto |
+| NFS-e manual substituida | Nao | N/A | original encerrada por substituicao; se algum dia couber manifestar, avaliar somente a substituta | Alto |
+| NFS-e manual uncertain | Nao | reconciliacao previa obrigatoria | estado remoto inconclusivo; webhook/reconciliacao podem ainda mudar o documento | Alto |
+| NFS-e manual sem UUID | Nao | N/A | identificador local insuficiente; chave nao e fonte primaria segura no fluxo manual atual | Alto |
+| NFS-e manual sem Padrao Nacional confirmado | Nao | N/A | endpoint oficial e especifico do Padrao Nacional | Alto |
+| NFS-e recebida/importada de terceiros | Nao nesta fase | exigiria dominio de importacao, XML, identidade, papel tomador/intermediario e tenancy | fluxo local inexistente; cross-workshop e papel fiscal indefinidos | Alto |
+| NFS-e legada municipal | Nao | N/A | sem Padrao Nacional confirmado; fluxo 3.6.1 ja bloqueia municipal legado | Medio/alto |
+
+Decisao final: **Opcao B - adiar manifestacao da NFS-e manual**. O endpoint e claro e `NfseManifestation` e tecnicamente reutilizavel, mas a documentacao oficial vincula a operacao ao Padrao Nacional e ao papel do tomador/intermediario. Para NFS-e manual emitida pelo proprio sistema, a oficina normalmente e prestadora/emissora; manifestar a propria nota como tomador/intermediario criaria ambiguidade fiscal.
+
+Opcao C permanece como caminho provavel posterior: preparar NFS-e recebida/importada antes de ampliar manifestacao, porque esse fluxo tem melhor aderencia ao papel de tomador/intermediario, desde que haja XML, UUID/chave, papel fiscal e tenancy seguros.
+
+OpenAPI: nenhuma alteracao aplicada; nao houve correcao oficial nova para `api/webmania_fiscal_openapi_validated.json`.

@@ -587,3 +587,16 @@ O fluxo reutilizado permanece:
 - baixar XML/PDF com `download_nfse_substitution`.
 
 Permissoes de emissao manual, cancelamento e manifestacao nao autorizam substituicao. A UI nao oferece manifestacao da NFS-e manual nesta fase.
+
+## Fase 3.10.0 - UX e permissoes reavaliadas para manifestacao manual
+
+Nenhuma UI nova deve ser criada nesta fase. A acao de manifestar NFS-e manual continua oculta, mesmo quando o usuario possui permissao de manifestacao, porque permissao nao resolve o papel fiscal do manifestador.
+
+Se uma fase futura for aprovada, a UI minima devera:
+
+- mostrar a acao somente para NFS-e manual Padrao Nacional autorizada e com papel fiscal explicitamente confirmado;
+- reutilizar `issue_nfse_manifestation`, `view_nfse_manifestation_payload` e downloads/eventos protegidos;
+- exigir selecao de manifestador (`tomador` ou `intermediario`) e evento (`confirmacao` ou `rejeicao`);
+- exigir motivo/justificativa de rejeicao quando aplicavel;
+- pedir confirmacao explicita antes do POST;
+- nao oferecer manifestacao para cancelada, substituida, uncertain, municipal legada ou recebida/importada sem dominio proprio.
