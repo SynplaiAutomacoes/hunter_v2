@@ -1,0 +1,178 @@
+{% extends 'crud/page.html' %}
+{% load l10n %}
+
+{% block crud_content %}
+    <div class="space-y-6">
+        <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-base-content">Folha de Pagamento</h1>
+                <p class="text-base-content/70">Acompanhe a folha consolidada por colaborador.</p>
+            </div>
+        </div>
+
+        <form method="get" action="{% url 'finance:payroll_list' %}" class="card border border-base-300 bg-base-100 shadow-xl" x-data>
+            <div class="card-body gap-4 p-5 md:p-6">
+                <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-end">
+                    <div>
+                        <label for="payroll-search">Pesquisar</label>
+                        <input id="payroll-search" type="text" name="search" value="{{ request.GET.search|default:'' }}" placeholder="Colaborador..." class="input input-bordered w-full" />
+                    </div>
+
+                    <div class="{% if has_modal_date_filter %}opacity-50{% endif %}">
+                        <label for="payroll-month">Competência</label>
+                        <div class="flex items-center gap-2 rounded-xl border border-base-300 bg-base-100 p-2 {% if has_modal_date_filter %}pointer-events-none bg-base-200{% endif %}">
+                            <span class="material-icons text-primary">calendar_month</span>
+                            <select id="payroll-month" name="mes" class="select select-sm bg-base-100 font-medium" onchange="this.form.requestSubmit()" {% if has_modal_date_filter %}disabled{% endif %}>
+                                {% for value, label in month_choices %}
+                                    <option value="{{ value|unlocalize }}" {% if selected_month == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                            <select name="ano" class="select select-sm bg-base-100 font-medium" onchange="this.form.requestSubmit()" {% if has_modal_date_filter %}disabled{% endif %}>
+                                {% for value in year_choices %}
+                                    <option value="{{ value|unlocalize }}" {% if selected_year == value %}selected{% endif %}>{{ value|unlocalize }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        {% if has_modal_date_filter %}
+                            <p class="mt-1 text-xs text-warning">Ignorado enquanto o filtro por data estiver ativo.</p>
+                            <input type="hidden" name="mes" value="{{ selected_month|unlocalize }}">
+                            <input type="hidden" name="ano" value="{{ selected_year|unlocalize }}">
+                        {% endif %}
+                    </div>
+
+                    <div class="flex flex-col gap-2 sm:flex-row">
+                        <button type="submit" class="btn btn-primary">Buscar</button>
+                        <button type="button" class="btn btn-primary" @click="$refs.payrollFilterModal.showModal()">
+                            <span class="material-icons text-[18px]">filter_list</span>
+                            Filtro
+                        </button>
+                        {% if has_active_filters %}
+                            <a href="{{ clear_filters_url }}" class="btn btn-error text-white">Limpar</a>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <dialog id="payroll-filter-modal" class="modal" x-ref="payrollFilterModal" @click="if ($event.target === $el) $el.close()">
+                    <div class="modal-box w-11/12 max-w-3xl border border-base-300 bg-base-100 shadow-2xl">
+                        <h3 class="text-base font-semibold text-base-content">Filtrar folha</h3>
+                        <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                            <div>
+                                <label for="payroll-start-date">Data inicial</label>
+                                <input id="payroll-start-date" type="date" name="data_inicial" value="{{ request.GET.data_inicial|default:'' }}" class="input input-bordered w-full" />
+                            </div>
+                            <div>
+                                <label for="payroll-end-date">Data final</label>
+                                <input id="payroll-end-date" type="date" name="data_final" value="{{ request.GET.data_final|default:'' }}" class="input input-bordered w-full" />
+                            </div>
+                            <div>
+                                <label for="payroll-collaborator">Colaborador</label>
+                                <select id="payroll-collaborator" name="collaborator" class="select select-bordered w-full">
+                                    <option value="">Todos</option>
+                                    {% for collaborator in collaborator_filters %}
+                                        <option value="{{ collaborator.pk }}" {% if selected_collaborator_id == collaborator.pk %}selected{% endif %}>{{ collaborator.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div>
+                                <label for="payroll-status">Status</label>
+                                <select id="payroll-status" name="status" class="select select-bordered w-full">
+                                    {% for value, label in status_choices %}
+                                        <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                            <button type="button" class="btn-form-cancel" @click="$refs.payrollFilterModal.close()">Cancelar</button>
+                            <button type="submit" class="btn btn-primary">Filtrar</button>
+                        </div>
+                    </div>
+                    <button type="button" class="modal-backdrop" @click="$refs.payrollFilterModal.close()">close</button>
+                </dialog>
+            </div>
+        </form>
+
+        <div class="grid gap-4 md:grid-cols-2">
+            <div class="rounded-xl border border-base-300 bg-base-100 p-5 shadow-xl">
+                <p class="text-sm font-medium uppercase tracking-[0.16em] text-base-content/55">Total Pendente</p>
+                <p class="mt-2 text-3xl font-black">R$ {{ pending_amount|floatformat:2 }}</p>
+            </div>
+            <div class="rounded-xl border border-base-300 bg-base-100 p-5 shadow-xl">
+                <p class="text-sm font-medium uppercase tracking-[0.16em] text-base-content/55">Total pago</p>
+                <p class="mt-2 text-3xl font-black">R$ {{ paid_amount|floatformat:2 }}</p>
+            </div>
+        </div>
+
+        <div class="card border border-base-300 bg-base-100 shadow-xl">
+            <div class="card-body gap-4 p-5 md:p-6">
+                {% if payroll_rows %}
+                    <div class="overflow-x-auto">
+                        <table class="table table-sm md:table-md">
+                            <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
+                                <tr>
+                                    <th>Colaborador</th>
+                                    <th>Vencimento</th>
+                                    <th>Status</th>
+                                    <th>Salário</th>
+                                    <th>VT</th>
+                                    <th>Benefícios</th>
+                                    <th>Comissões</th>
+                                    <th>Total</th>
+                                    <th class="text-right">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in payroll_rows %}
+                                    <tr>
+                                        <td>{{ row.collaborator_name }}</td>
+                                        <td>{{ row.due_date|date:"d/m/Y" }}</td>
+                                        <td>
+                                            <span class="inline-flex items-center gap-1 font-semibold {{ row.paid_indicator.class }}">
+                                                <span class="material-icons text-base">{{ row.paid_indicator.icon }}</span>
+                                                {{ row.paid_indicator.label }}
+                                            </span>
+                                        </td>
+                                        <td>{{ row.salary_amount }}</td>
+                                        <td>{{ row.transport_allowance_amount }}</td>
+                                        <td>{{ row.benefits_amount }}</td>
+                                        <td>{{ row.commission_amount }}</td>
+                                        <td class="font-semibold">{{ row.total_amount }}</td>
+                                        <td>
+                                            <div class="flex justify-end gap-2">
+                                                <button type="button" class="btn btn-ghost btn-xs" title="Editar folha" hx-get="{{ row.edit_url }}" hx-target="#payroll-edit-modal-container" hx-swap="innerHTML">
+                                                    <span class="material-icons text-sm">edit</span>
+                                                </button>
+                                                <button type="button" class="btn btn-primary btn-xs" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{{ row.receipt_url }}', downloadUrl: '{{ row.receipt_url }}?download=1' } }))">Resumo</button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="rounded-xl border border-dashed border-base-300 px-6 py-8 text-center text-sm text-base-content/60">
+                        Nenhuma folha encontrada para os filtros selecionados.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div id="payroll-edit-modal-container"></div>
+
+        <dialog id="pdfModal" class="modal" x-data="{ url: '', downloadUrl: '', title: 'Resumo do pagamento' }" @open-pdf-modal.window="url = $event.detail.url; downloadUrl = $event.detail.downloadUrl || ''; title = $event.detail.title || 'Resumo do pagamento'; $el.showModal()">
+            <div class="modal-box flex h-[90vh] w-full max-w-5xl flex-col p-0">
+                <div class="flex items-center justify-between border-b bg-base-200 px-6 py-4">
+                    <h3 class="flex items-center gap-2 text-xl font-bold"><span class="material-icons">description</span><span x-text="title"></span></h3>
+                    <div class="flex gap-2">
+                        <button type="button" class="btn btn-sm btn-primary" onclick="const frame = document.querySelector('#pdfModal iframe'); if (frame && frame.contentWindow) { frame.contentWindow.focus(); frame.contentWindow.print(); }">Imprimir</button>
+                        <button type="button" class="btn btn-sm btn-success" x-show="downloadUrl" @click="window.open(downloadUrl, '_blank')">Baixar PDF</button>
+                        <button type="button" class="btn btn-sm" onclick="document.getElementById('pdfModal').close()">Fechar</button>
+                    </div>
+                </div>
+                <div class="flex-1 bg-gray-100"><template x-if="url"><iframe :src="url" class="h-full w-full" frameborder="0"></iframe></template></div>
+            </div>
+            <form method="dialog" class="modal-backdrop"><button>close</button></form>
+        </dialog>
+    </div>
+{% endblock crud_content %}

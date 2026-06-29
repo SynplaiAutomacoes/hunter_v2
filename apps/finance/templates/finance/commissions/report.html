@@ -9,45 +9,85 @@
             </div>
         </div>
 
-        <form method="get" action="{% url 'finance:commission_report' %}" class="card border border-base-300 bg-base-100 shadow-xl">
+        <form method="get" action="{% url 'finance:commission_report' %}" class="card border border-base-300 bg-base-100 shadow-xl" x-data>
             <div class="card-body gap-4 p-5 md:p-6">
-                <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-                    <div class="xl:col-span-2">
+                <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-end">
+                    <div>
                         <label for="commission-search">Pesquisar</label>
                         <input id="commission-search" type="text" name="search" value="{{ request.GET.search|default:'' }}" placeholder="Colaborador, cliente, OS..." class="input input-bordered w-full" />
                     </div>
-                    <div>
-                        <label for="commission-start-date">Data inicial</label>
-                        <input id="commission-start-date" type="date" name="data_inicial" value="{{ request.GET.data_inicial|default:'' }}" class="input input-bordered w-full" />
-                    </div>
-                    <div>
-                        <label for="commission-end-date">Data final</label>
-                        <input id="commission-end-date" type="date" name="data_final" value="{{ request.GET.data_final|default:'' }}" class="input input-bordered w-full" />
-                    </div>
-                    <div>
-                        <label for="commission-status">Status</label>
-                        <select id="commission-status" name="status" class="select select-bordered w-full">
-                            {% for value, label in status_choices %}
-                                <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                </div>
 
-                <div class="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
-                    <div>
-                        <label for="commission-collaborator">Colaborador</label>
-                        <select id="commission-collaborator" name="collaborator" class="select select-bordered w-full">
-                            <option value="">Todos</option>
-                            {% for collaborator in collaborator_filters %}
-                                <option value="{{ collaborator.pk }}" {% if selected_collaborator_id == collaborator.pk %}selected{% endif %}>{{ collaborator.name }}</option>
-                            {% endfor %}
-                        </select>
+                    <div class="{% if has_modal_date_filter %}opacity-50{% endif %}">
+                        <label for="commission-month">Competência</label>
+                        <div class="flex items-center gap-2 rounded-xl border border-base-300 bg-base-100 p-2 {% if has_modal_date_filter %}pointer-events-none bg-base-200{% endif %}">
+                            <span class="material-icons text-primary">calendar_month</span>
+                            <select id="commission-month" name="mes" class="select select-sm bg-base-100 font-medium" {% if has_modal_date_filter %}disabled{% endif %}>
+                                {% for value, label in month_choices %}
+                                    <option value="{{ value }}" {% if selected_month == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                            <select name="ano" class="select select-sm bg-base-100 font-medium" {% if has_modal_date_filter %}disabled{% endif %}>
+                                {% for value in year_choices %}
+                                    <option value="{{ value }}" {% if selected_year == value %}selected{% endif %}>{{ value }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        {% if has_modal_date_filter %}
+                            <p class="mt-1 text-xs text-warning">Ignorado enquanto o filtro por data estiver ativo.</p>
+                            <input type="hidden" name="mes" value="{{ selected_month }}">
+                            <input type="hidden" name="ano" value="{{ selected_year }}">
+                        {% endif %}
                     </div>
 
                     <div class="flex flex-col gap-2 sm:flex-row">
-                        {% url 'finance:commission_report_pdf' as commission_report_pdf_url %}
-                        <button type="submit" class="btn btn-primary">Filtrar</button>
+                        <button type="submit" class="btn btn-primary">Buscar</button>
+                        <button type="button" class="btn btn-primary" @click="$refs.commissionFilterModal.showModal()">
+                            <span class="material-icons text-[18px]">filter_list</span>
+                            Filtro
+                        </button>
+                    </div>
+                </div>
+
+                <dialog id="commission-filter-modal" class="modal" x-ref="commissionFilterModal" @click="if ($event.target === $el) $el.close()">
+                    <div class="modal-box w-11/12 max-w-3xl border border-base-300 bg-base-100 shadow-2xl">
+                        <h3 class="text-base font-semibold text-base-content">Filtrar comissões</h3>
+                        <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                            <div>
+                                <label for="commission-start-date">Data inicial</label>
+                                <input id="commission-start-date" type="date" name="data_inicial" value="{{ request.GET.data_inicial|default:'' }}" class="input input-bordered w-full" />
+                            </div>
+                            <div>
+                                <label for="commission-end-date">Data final</label>
+                                <input id="commission-end-date" type="date" name="data_final" value="{{ request.GET.data_final|default:'' }}" class="input input-bordered w-full" />
+                            </div>
+                            <div>
+                                <label for="commission-collaborator">Colaborador</label>
+                                <select id="commission-collaborator" name="collaborator" class="select select-bordered w-full">
+                                    <option value="">Todos</option>
+                                    {% for collaborator in collaborator_filters %}
+                                        <option value="{{ collaborator.pk }}" {% if selected_collaborator_id == collaborator.pk %}selected{% endif %}>{{ collaborator.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div>
+                                <label for="commission-status">Status</label>
+                                <select id="commission-status" name="status" class="select select-bordered w-full">
+                                    {% for value, label in status_choices %}
+                                        <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                            <button type="button" class="btn-form-cancel" @click="$refs.commissionFilterModal.close()">Cancelar</button>
+                            <button type="submit" class="btn btn-primary">Filtrar</button>
+                        </div>
+                    </div>
+                    <button type="button" class="modal-backdrop" @click="$refs.commissionFilterModal.close()">close</button>
+                </dialog>
+
+                <div class="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                    {% url 'finance:commission_report_pdf' as commission_report_pdf_url %}
                         <button type="button"
                                 class="btn btn-secondary gap-2"
                                 onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Relatório de Comissões', url: '{{ commission_report_pdf_url }}{% if request.GET.urlencode %}?{{ request.GET.urlencode }}{% endif %}', downloadUrl: '{{ commission_report_pdf_url }}?download=1{% if request.GET.urlencode %}&{{ request.GET.urlencode }}{% endif %}' } }))">
@@ -57,7 +97,6 @@
                         {% if has_active_filters %}
                             <a href="{{ clear_filters_url }}" class="btn btn-error text-white">Limpar</a>
                         {% endif %}
-                    </div>
                 </div>
             </div>
         </form>
@@ -94,6 +133,7 @@
                                     <th>%</th>
                                     <th>Comissão</th>
                                     <th>Status</th>
+                                    <th class="text-right">Ações</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -109,7 +149,22 @@
                                         <td>{{ row.percentage }}</td>
                                         <td class="font-semibold">{{ row.commission_amount }}</td>
                                         <td>
-                                            <span class="badge {% if row.status == 'PAID' %}badge-success{% else %}badge-warning{% endif %}">{{ row.status_label }}</span>
+                                            <span class="inline-flex items-center gap-1 font-semibold {{ row.paid_indicator.class }}">
+                                                <span class="material-icons text-base">{{ row.paid_indicator.icon }}</span>
+                                                {{ row.paid_indicator.label }}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <div class="flex justify-end">
+                                                <button type="button"
+                                                        class="btn btn-ghost btn-xs"
+                                                        title="Editar comissão"
+                                                        hx-get="{{ row.edit_url }}"
+                                                        hx-target="#commission-edit-modal-container"
+                                                        hx-swap="innerHTML">
+                                                    <span class="material-icons text-sm">edit</span>
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 {% endfor %}
@@ -137,6 +192,8 @@
                 {% endif %}
             </div>
         </div>
+
+        <div id="commission-edit-modal-container"></div>
 
         <dialog
             id="pdfModal"

@@ -1,0 +1,130 @@
+{% load crispy_forms_tags %}
+
+<dialog
+    id="payroll-edit-modal"
+    class="modal"
+    x-data="{ activeTab: 'collaborator' }"
+    x-ref="payrollEditModal"
+    x-init="$nextTick(() => $el.showModal())"
+    @click="if ($event.target === $el) $el.close()"
+    @close="$el.remove()"
+>
+    <div class="modal-box w-[95vw] max-w-7xl border border-base-300 bg-base-100 p-6 shadow-2xl md:p-10">
+        <div class="mb-4 flex items-center justify-between gap-4">
+            <div>
+                <h3 class="flex items-center gap-3 text-2xl font-bold text-base-content">
+                    <span class="material-icons text-primary">payments</span>
+                    Editar Folha de Pagamento
+                </h3>
+                <p class="mt-1 text-sm text-base-content/65">{{ payroll.collaborator.name }} · {{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year }}</p>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm btn-circle" @click="$refs.payrollEditModal.close()" aria-label="Fechar">
+                <span class="material-icons text-xl">close</span>
+            </button>
+        </div>
+
+        <div class="tabs tabs-boxed mb-6 flex w-full flex-wrap gap-2 bg-base-200/70 p-2">
+            <button type="button" class="btn btn-sm" :class="activeTab === 'collaborator' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'collaborator'">Dados do colaborador</button>
+            <button type="button" class="btn btn-sm" :class="activeTab === 'commissions' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'commissions'">Comissões</button>
+            <button type="button" class="btn btn-sm" :class="activeTab === 'payment' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'payment'">Sobre o pagamento</button>
+            <button type="button" class="btn btn-sm" :class="activeTab === 'summary' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'summary'">Resumo</button>
+        </div>
+
+        <form method="post" hx-post="{% url 'finance:payroll_edit_modal' payroll.pk %}" hx-target="closest .modal" hx-swap="outerHTML">
+            {% csrf_token %}
+            <div class="max-h-[60vh] overflow-y-auto px-1 py-2">
+                <section x-show="activeTab === 'collaborator'" x-cloak class="space-y-4">
+                    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4">
+                            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Nome</p>
+                            <p class="mt-1 font-semibold">{{ payroll.collaborator.name }}</p>
+                        </div>
+                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4">
+                            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Cargo</p>
+                            <p class="mt-1 font-semibold">{{ payroll.collaborator.position|default:"-" }}</p>
+                        </div>
+                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4">
+                            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Admissão</p>
+                            <p class="mt-1 font-semibold">{{ payroll.collaborator.admission_date|date:"d/m/Y" }}</p>
+                        </div>
+                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4">
+                            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Salário</p>
+                            <p class="mt-1 font-semibold">{{ payroll.salary_amount }}</p>
+                        </div>
+                    </div>
+                    <a href="{% url 'collaborators:collaborator_update' payroll.collaborator.pk %}" class="btn btn-outline">
+                        <span class="material-icons text-sm">open_in_new</span>
+                        Editar Colaborador
+                    </a>
+                </section>
+
+                <section x-show="activeTab === 'commissions'" x-cloak class="space-y-4">
+                    <div class="overflow-x-auto rounded-xl border border-base-300">
+                        <table class="table table-sm">
+                            <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
+                                <tr>
+                                    <th>O.S.</th>
+                                    <th>Competência</th>
+                                    <th>Base</th>
+                                    <th>%</th>
+                                    <th>Valor</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for commission in payroll.commission_entries.all %}
+                                    <tr>
+                                        <td>#{{ commission.workorder.get_id }}</td>
+                                        <td>{{ commission.reference_month|stringformat:'02d' }}/{{ commission.reference_year }}</td>
+                                        <td>{{ commission.base_amount }}</td>
+                                        <td>{{ commission.percentage|floatformat:4 }}</td>
+                                        <td class="font-semibold">{{ commission.commission_amount }}</td>
+                                        <td>{{ commission.get_status_display }}</td>
+                                    </tr>
+                                {% empty %}
+                                    <tr><td colspan="6" class="py-6 text-center text-base-content/60">Nenhuma comissão vinculada.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section x-show="activeTab === 'payment'" x-cloak class="space-y-4">
+                    <h3 class="flex items-center gap-2 text-base font-semibold text-base-content"><span class="material-icons text-sm">payments</span> Sobre o pagamento</h3>
+                    <div class="grid grid-cols-12 gap-4">
+                        <div class="col-span-12 lg:col-span-4">{{ form.due_date|as_crispy_field }}</div>
+                        <div class="col-span-12 lg:col-span-4">{{ form.amount|as_crispy_field }}</div>
+                        <div class="col-span-12 lg:col-span-4">{{ form.is_paid|as_crispy_field }}</div>
+                        <div class="col-span-12 lg:col-span-4">{{ form.payment_method|as_crispy_field }}</div>
+                        <div class="col-span-12 lg:col-span-4">{{ form.budget_plan|as_crispy_field }}</div>
+                        <div class="col-span-12 lg:col-span-4">{{ form.bank_account|as_crispy_field }}</div>
+                        <div class="col-span-12 lg:col-span-4">{{ form.nf_number|as_crispy_field }}</div>
+                        <div class="col-span-12">{{ form.financial_observation|as_crispy_field }}</div>
+                    </div>
+                </section>
+
+                <section x-show="activeTab === 'summary'" x-cloak class="space-y-4">
+                    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Salário</p><p class="mt-1 font-bold">{{ payroll.salary_amount }}</p></div>
+                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">VT</p><p class="mt-1 font-bold">{{ payroll.transport_allowance_amount }}</p></div>
+                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Benefícios</p><p class="mt-1 font-bold">{{ payroll.benefits_amount }}</p></div>
+                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Comissões</p><p class="mt-1 font-bold">{{ payroll.commission_amount }}</p></div>
+                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Total</p><p class="mt-1 font-black text-success">{{ payroll.total_amount }}</p></div>
+                    </div>
+                    <button type="button" class="btn btn-secondary" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{% url 'collaborators:collaborator_payroll_receipt' payroll.collaborator.pk payroll.pk %}', downloadUrl: '{% url 'collaborators:collaborator_payroll_receipt' payroll.collaborator.pk payroll.pk %}?download=1' } }))">
+                        <span class="material-icons text-sm">picture_as_pdf</span>
+                        Imprimir PDF
+                    </button>
+                </section>
+            </div>
+
+            <div class="modal-action mt-8 flex items-center justify-end gap-3 border-t border-base-200 pt-6">
+                <button type="button" class="btn-form-cancel" @click="$refs.payrollEditModal.close()">Cancelar</button>
+                <button type="submit" class="btn btn-primary">
+                    <span class="material-icons text-sm">save</span>
+                    Salvar
+                </button>
+            </div>
+        </form>
+    </div>
+</dialog>

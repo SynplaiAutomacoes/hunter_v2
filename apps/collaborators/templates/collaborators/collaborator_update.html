@@ -517,7 +517,7 @@
             <div class="mt-4 rounded-xl border border-base-200 bg-base-50/40 p-4">
                 <div class="mb-4 flex items-center justify-between gap-2">
                     <div>
-                        <h4 class="font-semibold">Holerite simplificado</h4>
+                        <h4 class="font-semibold">Resumo simplificado</h4>
                         <p class="text-sm text-base-content/70">Competencia {{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year|unlocalize }}</p>
                     </div>
                     <div class="flex flex-col items-end gap-2 text-right text-sm">
@@ -529,9 +529,9 @@
                             <button
                                 type="button"
                                 class="btn btn-primary btn-xs"
-                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Holerite do colaborador', url: '{% url 'collaborators:collaborator_payroll_receipt' form.instance.pk payroll.pk %}' } }))"
+                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{% url 'collaborators:collaborator_payroll_receipt' form.instance.pk payroll.pk %}' } }))"
                             >
-                                Holerite
+                                Resumo
                             </button>
                             {% if payroll.financial_movement %}
                                 <a href="{% url 'finance:reports_home' %}?search={{ payroll.financial_movement.description|urlencode }}" class="btn btn-ghost btn-xs">Ver no financeiro</a>
@@ -561,16 +561,25 @@
                         </thead>
                         <tbody>
                             {% for item in payroll.items.all %}
+                                {% if item.item_type != "COMMISSION" %}
                                 <tr>
                                     <td>{{ item.title }}</td>
                                     <td>{{ item.description|default:'-' }}</td>
                                     <td>{{ item.amount }}</td>
                                 </tr>
+                                {% endif %}
                             {% empty %}
                                 <tr>
                                     <td colspan="3" class="text-center text-base-content/60">Nenhum item detalhado.</td>
                                 </tr>
                             {% endfor %}
+                            {% if payroll.commission_amount.amount > 0 %}
+                                <tr>
+                                    <td>Comissões</td>
+                                    <td>Valor consolidado das comissões da competência.</td>
+                                    <td>{{ payroll.commission_amount }}</td>
+                                </tr>
+                            {% endif %}
                         </tbody>
                     </table>
                 </div>
@@ -594,8 +603,8 @@
 <dialog
     id="pdfModal"
     class="modal"
-    x-data="{ url: '', downloadUrl: '', title: 'Visualização do holerite' }"
-    @open-pdf-modal.window="url = $event.detail.url; downloadUrl = $event.detail.downloadUrl || ''; title = $event.detail.title || 'Visualização do holerite'; $el.showModal()"
+    x-data="{ url: '', downloadUrl: '', title: 'Visualização do resumo' }"
+    @open-pdf-modal.window="url = $event.detail.url; downloadUrl = $event.detail.downloadUrl || ''; title = $event.detail.title || 'Visualização do resumo'; $el.showModal()"
 >
     <div class="modal-box flex h-[90vh] w-full max-w-5xl flex-col p-0">
         <div class="flex items-center justify-between border-b bg-base-200 px-6 py-4">

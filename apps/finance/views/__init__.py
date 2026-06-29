@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-def sync_b2b_companies_to_database(*args, **kwargs):
-    from apps.core.infrastructure.providers import get_fiscal_service
-    return get_fiscal_service().sync_b2b_companies_to_database(*args, **kwargs)
 from .financial_group import FinancialGroupCreateView, FinancialGroupDeleteView, FinancialGroupListView, FinancialGroupUpdateView
 from .common import DirectorWorkshopAccessMixin
 from .emission import EmissionPreviewView, EmissionRequestCreateView, EmissionWorkOrderItemUpdateView, EmissionWorkOrderKitComponentUpdateView, NfeCreateRedirectView, NfseCreateRedirectView
 from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocumentsListView
-from .commissions import CommissionReportView, CommissionReportPdfView
+from .commissions import CommissionReportPdfView, CommissionReportView, CommissionStatusUpdateView
 from .nfe import NfeDocumentDownloadView, NfePreviewPdfView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestInvalidateView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView
 from .nfse import NfseDocumentDownloadView, NfsePreviewPdfView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestReconcileView, NfseRequestUpdateView
+from .payroll import PayrollEditModalView, PayrollListView
 from .reports import FinancialReportsHomeView, ReportMovementEditView, ReportMovementDeleteView
 from .tax_class import TaxClassCreateView, TaxClassListView, TaxClassManagerView, TaxClassPresetCreateView, TaxClassPresetListView, TaxClassPresetUpdateView, TaxClassUpdateView
 from .webhook import WebhookView
@@ -21,6 +19,12 @@ from .webmania import (
     WebmaniaRequestsView,
 )
 from .dre import DreExcelView, DrePdfPreviewView, DrePdfView, DreReportView, DreResultsView
+
+
+def sync_b2b_companies_to_database(*args, **kwargs):
+    from apps.core.infrastructure.providers import get_fiscal_service
+
+    return get_fiscal_service().sync_b2b_companies_to_database(*args, **kwargs)
 
 
 __all__ = [
@@ -35,11 +39,14 @@ __all__ = [
     "FinancialReportsHomeView",
     "ReportMovementEditView",
     "ReportMovementDeleteView",
+    "PayrollEditModalView",
+    "PayrollListView",
     "FinancialGroupUpdateView",
     "IssuedDocumentsArchiveDownloadView",
     "IssuedDocumentsListView",
     "CommissionReportView",
     "CommissionReportPdfView",
+    "CommissionStatusUpdateView",
     "NfeCreateRedirectView",
     "NfeDocumentDownloadView",
     "NfePreviewPdfView",
