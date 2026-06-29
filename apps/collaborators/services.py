@@ -126,6 +126,18 @@ def _is_workorder_commission_paid(*, workorder: WorkOrder) -> bool:
     return bool(parent_movement and parent_movement.is_paid)
 
 
+def _workorder_can_generate_commission(*, workorder: WorkOrder) -> bool:
+    return workorder.status == WorkOrderStatus.APPROVED and workorder.budget_type == "sale"
+
+
+def remove_pending_workorder_commissions(*, workorder: WorkOrder) -> int:
+    deleted_count, _ = CollaboratorCommissionEntry.objects.filter(
+        workorder=workorder,
+        status=CollaboratorCommissionEntry.Status.FORECAST,
+    ).delete()
+    return deleted_count
+
+
 def _build_commission_payroll_item_description(*, entry: CollaboratorCommissionEntry) -> str:
     return f"{entry.percentage * Decimal('100'):.2f}% sobre {entry.base_amount}"
 
@@ -159,15 +171,18 @@ def get_or_create_collaborator_financial_group(*, collaborator: WorkshopCollabor
 def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, reference_date: date | None = None) -> list[CollaboratorCommissionEntry]:
     resolved = _resolve_reference_date(reference_date)
     if not collaborator.receives_commission or collaborator.commission_percentage is None:
-        CollaboratorCommissionEntry.objects.filter(collaborator=collaborator, reference_year=resolved.year, reference_month=resolved.month).delete()
+        CollaboratorCommissionEntry.objects.filter(
+            collaborator=collaborator,
+            reference_year=resolved.year,
+            reference_month=resolved.month,
+            status=CollaboratorCommissionEntry.Status.FORECAST,
+        ).delete()
         return []
 
     workorders = (
         WorkOrder.objects.filter(
             workshop=collaborator.workshop,
             collaborators=collaborator,
-            status=WorkOrderStatus.APPROVED,
-            budget_type="sale",
         )
         .prefetch_related("payments")
         .order_by("id")
@@ -178,6 +193,10 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
     percentage = Decimal(str(collaborator.commission_percentage or 0))
 
     for workorder in workorders:
+        if not _workorder_can_generate_commission(workorder=workorder):
+            remove_pending_workorder_commissions(workorder=workorder)
+            continue
+
         commission_reference = _resolve_commission_reference_date(workorder=workorder)
         effective_reference = _resolve_payroll_reference_date(collaborator=collaborator, reference_date=commission_reference)
         if effective_reference.year != resolved.year or effective_reference.month != resolved.month:
@@ -188,6 +207,10 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
         commission_amount = _quantize(base_amount * percentage)
         status = CollaboratorCommissionEntry.Status.PAID if _is_workorder_commission_paid(workorder=workorder) else CollaboratorCommissionEntry.Status.FORECAST
         paid_at = timezone.localdate() if status == CollaboratorCommissionEntry.Status.PAID else None
+        existing_entry = CollaboratorCommissionEntry.objects.filter(collaborator=collaborator, workorder=workorder).only("status", "paid_at").first()
+        if existing_entry and existing_entry.status == CollaboratorCommissionEntry.Status.PAID:
+            status = CollaboratorCommissionEntry.Status.PAID
+            paid_at = existing_entry.paid_at or timezone.localdate()
 
         entry, _ = CollaboratorCommissionEntry.objects.update_or_create(
             collaborator=collaborator,
@@ -208,7 +231,7 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
     stale_entries = CollaboratorCommissionEntry.objects.filter(collaborator=collaborator, reference_year=resolved.year, reference_month=resolved.month)
     if active_workorder_ids:
         stale_entries = stale_entries.exclude(workorder_id__in=active_workorder_ids)
-    stale_entries.delete()
+    stale_entries.filter(status=CollaboratorCommissionEntry.Status.FORECAST).delete()
     return synced_entries
 
 
@@ -366,6 +389,8 @@ def sync_collaborator_payroll(*, collaborator: WorkshopCollaborator, reference_d
 
 
 def sync_workorder_collaborator_payrolls(*, workorder: WorkOrder, reference_date: date | None = None) -> list[CollaboratorPayroll]:
+    if not _workorder_can_generate_commission(workorder=workorder):
+        remove_pending_workorder_commissions(workorder=workorder)
     payrolls: list[CollaboratorPayroll] = []
     for collaborator in workorder.collaborators.all():
         payrolls.append(sync_collaborator_payroll(collaborator=collaborator, reference_date=reference_date))

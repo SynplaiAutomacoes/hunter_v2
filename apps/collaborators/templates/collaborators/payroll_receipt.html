@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8" />
     <script src="https://cdn.tailwindcss.com"></script>
-    <title>Holerite - {{ collaborator.name }} - {{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year }}</title>
+    <title>Resumo - {{ collaborator.name }} - {{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year }}</title>
     <style>
         @page { size: A4; margin: 6mm; }
 
@@ -49,7 +49,7 @@
                 <div class="min-w-0 flex-1 pr-4 workshop-header-main">
                     <div class="min-w-0">
                         <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500">Demonstrativo mensal</p>
-                        <h1 class="mt-1 text-[20px] font-bold uppercase">Holerite do colaborador</h1>
+                        <h1 class="mt-1 text-[20px] font-bold uppercase">Resumo do pagamento</h1>
                         <p class="mt-2 text-[12px] font-semibold">{{ payroll.workshop.name|default:"-" }}</p>
                         <p class="mt-1 text-[11px] text-gray-600">CNPJ: {{ payroll.workshop.cnpj|cnpj_br|default:"-" }}</p>
                         <p class="text-[11px] text-gray-600">Telefone: {{ payroll.workshop.pdf_phone|phone_br|default:"-" }}</p>
@@ -101,7 +101,7 @@
         <div class="mt-4 overflow-hidden rounded-lg border border-gray-200">
             <div class="border-b border-gray-200 bg-gray-50 px-4 py-3">
                 <h2 class="text-[13px] font-bold uppercase">Itens da folha</h2>
-                <p class="mt-1 text-[10px] text-gray-500">Detalhamento dos valores que compõem o holerite.</p>
+                <p class="mt-1 text-[10px] text-gray-500">Detalhamento dos valores que compõem o resumo.</p>
             </div>
 
             <table class="report-table text-[11px]">
@@ -114,16 +114,25 @@
                 </thead>
                 <tbody>
                     {% for item in payroll.items.all %}
+                        {% if item.item_type != "COMMISSION" %}
                         <tr class="border-t border-gray-200 align-top">
                             <td class="px-3 py-3 font-semibold">{{ item.title }}</td>
                             <td class="px-3 py-3 text-gray-600">{{ item.description|default:"-" }}</td>
                             <td class="px-3 py-3 text-right font-semibold">{{ item.amount }}</td>
                         </tr>
+                        {% endif %}
                     {% empty %}
                         <tr class="border-t border-gray-200">
                             <td colspan="3" class="px-4 py-6 text-center text-gray-500">Nenhum item detalhado nesta folha.</td>
                         </tr>
                     {% endfor %}
+                    {% if payroll.commission_amount.amount > 0 %}
+                        <tr class="border-t border-gray-200 align-top">
+                            <td class="px-3 py-3 font-semibold">Comissões</td>
+                            <td class="px-3 py-3 text-gray-600">Valor consolidado das comissões da competência.</td>
+                            <td class="px-3 py-3 text-right font-semibold">{{ payroll.commission_amount }}</td>
+                        </tr>
+                    {% endif %}
                 </tbody>
             </table>
         </div>

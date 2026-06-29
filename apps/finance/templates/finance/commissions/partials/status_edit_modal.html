@@ -1,0 +1,57 @@
+<dialog
+    id="commission-status-edit-modal"
+    class="modal"
+    x-data
+    x-ref="commissionStatusModal"
+    x-init="$nextTick(() => $el.showModal())"
+    @click="if ($event.target === $el) $el.close()"
+    @close="$el.remove()"
+>
+    <div class="modal-box w-11/12 max-w-lg border border-base-300 bg-base-100 shadow-2xl">
+        <div class="mb-5 flex items-center justify-between gap-4">
+            <div>
+                <h3 class="flex items-center gap-2 text-xl font-bold text-base-content">
+                    <span class="material-icons text-primary">edit</span>
+                    Editar comissão
+                </h3>
+                <p class="mt-1 text-sm text-base-content/65">
+                    {{ commission.collaborator.name }} · O.S. #{{ commission.workorder.get_id }}
+                </p>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm btn-circle" @click="$refs.commissionStatusModal.close()" aria-label="Fechar">
+                <span class="material-icons text-xl">close</span>
+            </button>
+        </div>
+
+        <form
+            method="post"
+            hx-post="{% url 'finance:commission_status_edit' commission.pk %}"
+            hx-target="closest .modal"
+            hx-swap="outerHTML"
+        >
+            {% csrf_token %}
+            <div class="space-y-4">
+                <div class="rounded-xl border border-base-300 bg-base-200/60 p-4">
+                    <p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Valor da comissão</p>
+                    <p class="mt-1 text-2xl font-black text-base-content">{{ commission.commission_amount }}</p>
+                </div>
+
+                <div>
+                    <label for="{{ form.status.id_for_label }}" class="mb-1 block text-sm font-medium text-base-content">{{ form.status.label }}</label>
+                    {{ form.status }}
+                    {% for error in form.status.errors %}
+                        <p class="mt-1 text-sm text-error">{{ error }}</p>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="modal-action mt-6 border-t border-base-200 pt-4">
+                <button type="button" class="btn-form-cancel" @click="$refs.commissionStatusModal.close()">Cancelar</button>
+                <button type="submit" class="btn btn-primary">
+                    <span class="material-icons text-sm">save</span>
+                    Salvar
+                </button>
+            </div>
+        </form>
+    </div>
+</dialog>

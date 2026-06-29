@@ -4,24 +4,74 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
+from django import forms
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import HttpResponse
+from django.shortcuts import render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
+from django.utils import timezone
 from django.views import View
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import TemplateView
 from djmoney.money import Money
 
 from apps.collaborators.models import CollaboratorCommissionEntry, WorkshopCollaborator
+from apps.collaborators.services import sync_collaborator_payroll
 from apps.core.domain.contracts.documents import DocumentRenderRequest
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response, render_template_request_to_pdf
 from apps.core.infrastructure.search import build_text_search_query
 from apps.finance.forms.emission_ui import format_money
 from apps.workorder.models import WorkOrderStatus
 from apps.workshops.mixin import WorkshopScopedMixin
+
+
+MONTH_CHOICES = (
+    (1, "Janeiro"),
+    (2, "Fevereiro"),
+    (3, "Março"),
+    (4, "Abril"),
+    (5, "Maio"),
+    (6, "Junho"),
+    (7, "Julho"),
+    (8, "Agosto"),
+    (9, "Setembro"),
+    (10, "Outubro"),
+    (11, "Novembro"),
+    (12, "Dezembro"),
+)
+
+
+def _parse_int_param(raw_value: str | None, *, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(str(raw_value or "").strip())
+    except (TypeError, ValueError):
+        return default
+    if value < minimum or value > maximum:
+        return default
+    return value
+
+
+def build_paid_status_indicator(*, is_paid: bool) -> dict[str, str]:
+    return {
+        "icon": "check_circle" if is_paid else "cancel",
+        "class": "text-success" if is_paid else "text-error",
+        "label": "Sim" if is_paid else "Não",
+    }
+
+
+class CommissionStatusForm(forms.ModelForm):
+    status = forms.ChoiceField(
+        label="Status de pagamento",
+        choices=CollaboratorCommissionEntry.Status.choices,
+        widget=forms.Select(attrs={"class": "select select-bordered w-full"}),
+    )
+
+    class Meta:
+        model = CollaboratorCommissionEntry
+        fields = ["status"]
 
 
 class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
@@ -66,11 +116,17 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
         return selected_status
 
     def _get_filter_params(self) -> dict[str, Any]:
+        today = timezone.localdate()
+        start_date = self._parse_date_param(self.request.GET.get("data_inicial"))
+        end_date = self._parse_date_param(self.request.GET.get("data_final"))
         return {
-            "start_date": self._parse_date_param(self.request.GET.get("data_inicial")),
-            "end_date": self._parse_date_param(self.request.GET.get("data_final")),
+            "start_date": start_date,
+            "end_date": end_date,
             "collaborator_id": self._get_selected_collaborator_id(),
             "status": self._get_selected_status(),
+            "month": _parse_int_param(self.request.GET.get("mes"), default=today.month, minimum=1, maximum=12),
+            "year": _parse_int_param(self.request.GET.get("ano"), default=today.year, minimum=2000, maximum=9999),
+            "has_modal_date_filter": bool(start_date or end_date),
         }
 
     def _get_collaborators_queryset(self):
@@ -92,6 +148,8 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
             queryset = queryset.filter(criado_em__date__gte=filter_params["start_date"])
         if filter_params["end_date"] is not None:
             queryset = queryset.filter(criado_em__date__lte=filter_params["end_date"])
+        if not filter_params["has_modal_date_filter"]:
+            queryset = queryset.filter(reference_month=filter_params["month"], reference_year=filter_params["year"])
         if filter_params["collaborator_id"] is not None:
             queryset = queryset.filter(collaborator_id=filter_params["collaborator_id"])
         if filter_params["status"]:
@@ -171,6 +229,8 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
                     "commission_amount": entry.commission_amount,
                     "status": entry.status,
                     "status_label": entry.get_status_display(),
+                    "paid_indicator": build_paid_status_indicator(is_paid=entry.status == CollaboratorCommissionEntry.Status.PAID),
+                    "edit_url": reverse("finance:commission_status_edit", kwargs={"pk": entry.pk}),
                 }
             )
         return rows
@@ -195,8 +255,13 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
         context["status_choices"] = self.STATUS_CHOICES
         context["selected_collaborator_id"] = filter_params["collaborator_id"]
         context["selected_status"] = filter_params["status"]
+        context["selected_month"] = filter_params["month"]
+        context["selected_year"] = filter_params["year"]
+        context["month_choices"] = MONTH_CHOICES
+        context["year_choices"] = range(timezone.localdate().year - 4, timezone.localdate().year + 2)
+        context["has_modal_date_filter"] = filter_params["has_modal_date_filter"]
         context["clear_filters_url"] = reverse("finance:commission_report")
-        context["has_active_filters"] = bool(filter_params["start_date"] or filter_params["end_date"] or filter_params["collaborator_id"] is not None or filter_params["status"] or str(self.request.GET.get("search") or "").strip())
+        context["has_active_filters"] = bool(filter_params["start_date"] or filter_params["end_date"] or filter_params["collaborator_id"] is not None or filter_params["status"] or str(self.request.GET.get("search") or "").strip() or self.request.GET.get("mes") or self.request.GET.get("ano"))
         context["page_obj"] = page_obj
         context["is_paginated"] = paginator.num_pages > 1
         context["prev_url"] = self._build_pagination_url(page_number=page_obj.previous_page_number()) if page_obj.has_previous() else None
@@ -237,6 +302,11 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return selected_status
 
     def _get_queryset(self):
+        today = timezone.localdate()
+        start_date = self._parse_date_param(self.request.GET.get("data_inicial"))
+        end_date = self._parse_date_param(self.request.GET.get("data_final"))
+        selected_month = _parse_int_param(self.request.GET.get("mes"), default=today.month, minimum=1, maximum=12)
+        selected_year = _parse_int_param(self.request.GET.get("ano"), default=today.year, minimum=2000, maximum=9999)
         queryset = (
             CollaboratorCommissionEntry.objects.filter(
                 workshop=self.workshop,
@@ -253,8 +323,6 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
             .order_by("collaborator__name", "-workorder__delivered_at")
         )
 
-        start_date = self._parse_date_param(self.request.GET.get("data_inicial"))
-        end_date = self._parse_date_param(self.request.GET.get("data_final"))
         collaborator_id = self._get_selected_collaborator_id()
         status = self._get_selected_status()
 
@@ -262,6 +330,8 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
             queryset = queryset.filter(criado_em__date__gte=start_date)
         if end_date is not None:
             queryset = queryset.filter(criado_em__date__lte=end_date)
+        if start_date is None and end_date is None:
+            queryset = queryset.filter(reference_month=selected_month, reference_year=selected_year)
         if collaborator_id is not None:
             queryset = queryset.filter(collaborator_id=collaborator_id)
         if status:
@@ -344,3 +414,40 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
             )
         )
         return build_pdf_http_response(document=document, download=request.GET.get("download") == "1")
+
+
+class CommissionStatusUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = CollaboratorCommissionEntry
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "financialmovement"
+    workshop_permission_codename = "change_financialmovement"
+    template_name = "finance/commissions/partials/status_edit_modal.html"
+
+    def _get_object(self) -> CollaboratorCommissionEntry:
+        return CollaboratorCommissionEntry.objects.select_related("collaborator", "workorder").get(pk=self.kwargs["pk"], workshop=self.workshop)
+
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        commission = self._get_object()
+        form = CommissionStatusForm(instance=commission)
+        return render(request, self.template_name, {"commission": commission, "form": form})
+
+    def post(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        commission = self._get_object()
+        previous_status = commission.status
+        form = CommissionStatusForm(request.POST, instance=commission)
+        if form.is_valid():
+            commission = form.save(commit=False)
+            commission.paid_at = timezone.localdate() if commission.status == CollaboratorCommissionEntry.Status.PAID else None
+            commission.save(update_fields=["status", "paid_at"])
+            if previous_status != commission.status:
+                sync_collaborator_payroll(
+                    collaborator=commission.collaborator,
+                    reference_date=date(commission.reference_year, commission.reference_month, 1),
+                )
+            response = HttpResponse()
+            response["HX-Refresh"] = "true"
+            response["HX-Trigger"] = '{"showToast": {"message": "Comissão atualizada com sucesso.", "type": "success"}}'
+            return response
+        response = render(request, self.template_name, {"commission": commission, "form": form}, status=400)
+        response["HX-Trigger"] = '{"showToast": {"message": "Revise os dados da comissão.", "type": "error"}}'
+        return response
