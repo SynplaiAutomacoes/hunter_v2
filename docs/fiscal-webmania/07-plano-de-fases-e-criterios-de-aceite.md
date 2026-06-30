@@ -1395,7 +1395,7 @@ Validacao tecnica: `makemigrations finance --check --dry-run` OK; `FiscalPhaseTh
 
 ## Fase 3.15.0 - Reavaliacao do Roadmap apos Consolidacao de NFS-e Recebida
 
-Status: **em planejamento documental em 2026-06-29**. A Fase 3.14.1 foi validada e encerrada no checkpoint `b53e862b`.
+Status: **validada documentalmente em 2026-06-29** no checkpoint `4815728b`. A Fase 3.14.1 foi validada e encerrada no checkpoint `b53e862b`.
 
 Escopo autorizado: somente `docs/fiscal-webmania/**` e OpenAPI validado apenas se houver correcao oficialmente confirmada. Nenhum codigo funcional, migration, service, view, template ou teste deve ser alterado nesta fase.
 
@@ -1457,6 +1457,129 @@ Justificativa: depois de registro unitario, manifestacao, consulta e lote XML, a
 - Criterios de aceite: fase documental sem codigo funcional; nenhuma integracao real; nenhuma chamada remota; nenhuma importacao automatica; plano seguro para fase funcional futura.
 
 OpenAPI: nenhuma alteracao. A fase recomendada nao depende de endpoint Webmania novo.
+
+## Fase 3.15.1 - Planejamento de Integracao E-mail/ERP para XML NFS-e
+
+Status: **em planejamento documental em 2026-06-29**. A Fase 3.15.0 foi validada documentalmente e encerrada no checkpoint `4815728b`.
+
+Escopo autorizado: somente documentacao em `docs/fiscal-webmania/**` e OpenAPI apenas se houver correcao oficial confirmada. Nenhum codigo funcional, migration, service, view, template ou teste deve ser alterado nesta fase.
+
+### Objetivo
+
+Planejar uma futura integracao para entrada de XMLs de NFS-e recebida a partir de fontes externas: e-mail, ERP, armazenamento externo e outros sistemas operacionais da oficina. A fase define arquitetura, riscos, fronteiras, contratos internos e criterios de aceite antes de qualquer implementacao real.
+
+### Principio central
+
+A fonte externa nao e fonte fiscal autonoma. Ela apenas entrega arquivos XML candidatos ao dominio local. O pipeline validado de XML continua sendo o nucleo fiscal: XML como fonte primaria, importacao unitaria/lote como fronteira fiscal, validacoes de `NfseReceivedDocument`, duplicidade por hash/UUID/identificador, bloqueio cross-workshop, sem manifestacao automatica, sem consulta Webmania automatica e sem documento recebido sem XML.
+
+### Matriz de fontes externas
+
+| Fonte | Como receber XML | Autenticacao | Risco | Recomendacao |
+| ----- | ---------------- | ------------ | ----- | ------------ |
+| Caixa de e-mail dedicada por oficina | Ler anexos XML de conta exclusiva | OAuth/IMAP com credencial por oficina | Credencial externa, anexo adulterado, volume e retencao | Boa candidata futura; exigir inbox pendente e revisao humana |
+| Caixa de e-mail compartilhada | Ler anexos de conta comum a varias oficinas/empresas | OAuth/IMAP central com regras de roteamento | Alto risco de cross-workshop e CNPJ errado | Evitar como primeira implementacao; usar somente com segregacao forte |
+| Encaminhamento manual de e-mail | Usuario baixa ou encaminha anexos para a plataforma | Sessao do usuario e permissao local | Menor automacao, erro humano no anexo | Aceitavel como transicao, mas deve cair na mesma caixa pendente |
+| IMAP/Gmail API/Microsoft Graph | Coleta programatica de anexos | OAuth com escopos minimos, revogacao e rotacao | Dependencia externa, consentimento, paginacao e duplicidade por mensagem | Planejar depois da inbox; nao implementar nesta fase |
+| ERP com exportacao manual | Usuario exporta XML do ERP e envia ao Hunter | Permissao local do usuario | Arquivo errado, origem nao auditada | Manter como fallback via upload/lote ou inbox manual |
+| ERP com API | Conector busca XMLs em endpoint do ERP | Token por oficina/empresa, escopos minimos | Contrato variavel, indisponibilidade e identidade da empresa | Adiar ate existir contrato concreto de ERP |
+| Pasta monitorada/Drive/SharePoint | Coletar arquivos de pasta configurada | OAuth/credencial por pasta e oficina | Arquivos mistos, path traversal, permissao ampla | Somente com allowlist e revisao humana |
+| Upload manual como fallback | Usuario seleciona XMLs no fluxo existente | Permissao `import_nfse_received_batch` | Baixo, ja controlado pelo lote | Manter como nucleo operacional validado |
+| Webhook externo, se existir | Sistema externo envia XML candidato | Assinatura/token, allowlist e rate limit | Spoofing, payload grande, importacao silenciosa | Aceitar apenas para criar item pendente; nunca importar direto |
+
+### Matriz de arquitetura
+
+| Arquitetura | Descricao | Vantagem | Risco | Recomendacao |
+| ----------- | --------- | -------- | ----- | ------------ |
+| Importacao manual assistida a partir de anexos | Usuario coleta anexos e envia ao lote ou inbox | Simples, sem credencial externa | Pouca automacao | Manter como fallback e caminho de baixo risco |
+| Conector e-mail com fila | Job coleta anexos de caixas configuradas e cria itens pendentes | Alto valor para oficinas com volume | Credenciais, spoofing, duplicidade por mensagem | Fase futura apos inbox local |
+| Conector ERP com fila | Job busca XMLs em API/exportacao ERP e cria itens pendentes | Automatiza origem operacional | Contratos variaveis por ERP | Adiar ate contrato conhecido |
+| Pasta monitorada | Coleta arquivos de Drive/SharePoint/pasta externa | Facil para operacao | Arquivos indevidos e permissao ampla | Usar apenas com allowlist e limites |
+| Job agendado | Executa coleta periodica de fontes configuradas | Observavel e controlavel | Reprocessamento e falhas parciais | Planejar com idempotencia antes de implementar |
+| Importacao sob demanda pelo usuario | Usuario aciona coleta de uma fonte configurada | Controle humano e menor risco | Menos automatica | Preferivel para primeira implementacao funcional |
+| Pipeline assincrono completo | Coleta, valida, enfileira, revisa e importa em background | Escala melhor | Maior complexidade operacional | Adiar; nao e a proxima fase funcional minima |
+
+### Contrato interno planejado
+
+Modelo conceitual recomendado: `NfseExternalXmlInbox` e `NfseExternalXmlInboxItem`, ou nomes equivalentes.
+
+Campos planejados para item externo: `workshop`, `company`, `source_type`, `source_identifier`, `original_filename`, `content_type`, `xml_snapshot`, `xml_hash`, `received_at`, `status`, `validation_errors`, `linked_batch`, `linked_received_document`, `created_at` e `updated_at`.
+
+Estados planejados: `pending_review`, `approved_for_batch`, `imported`, `discarded`, `rejected`, `duplicate` e `error`.
+
+O item externo pendente nao e documento fiscal. Ele so pode virar documento recebido quando aprovado e processado pelo lote/importador XML validado.
+
+### Relacao com lote XML
+
+Decisao: escolher **B - caixa de entrada pendente para usuario revisar e acionar lote**.
+
+Motivo: a criacao automatica de lote a partir dos XMLs coletados aumentaria o risco de importacao silenciosa, CNPJ/oficina errada, anexo adulterado e expectativa de manifestacao automatica. A inbox pendente preserva revisao humana e reaproveita `NfseReceivedImportBatch`, `NfseReceivedImportBatchItem`, parser XML, duplicidade, validacao de papel fiscal, relatorio por arquivo, limites e permissoes.
+
+### Seguranca, autenticacao e limites
+
+Controles planejados: bloquear anexo adulterado, e-mail spoofado, remetente nao confiavel, XML de outra oficina, XML de outro CNPJ, ZIP inseguro, arquivo grande demais, arquivo duplicado, arquivo nao XML, malware/executavel, path traversal, exposicao indevida de XML fiscal, cross-workshop e permissoes fracas.
+
+Autenticacao planejada: OAuth para Gmail/Microsoft quando aplicavel, credenciais por oficina/empresa, conta dedicada, escopos minimos, revogacao, rotacao, auditoria de acesso e segregacao por oficina.
+
+Auditoria planejada: fonte, data/hora de recebimento, usuario ou job, remetente ou sistema externo, hash do XML, vinculo com lote, vinculo com documento recebido, descartes, erros e reprocessamentos.
+
+Idempotencia planejada: hash XML, identificador fiscal, identificador externo da fonte, id da mensagem de e-mail quando houver, fingerprint de anexo e `source_identifier`.
+
+Limites planejados: quantidade maxima de anexos por e-mail, tamanho maximo por XML, tamanho maximo por mensagem, quantidade maxima por execucao, frequencia de job, retencao de itens rejeitados e retencao de XMLs descartados.
+
+### UX, permissoes e flags planejadas
+
+Telas futuras: configurar fonte externa, visualizar caixa de entrada, ver origem/remetente/sistema, revisar XML antes da importacao, descartar item, enviar para lote, visualizar erros, historico e desativar fonte externa.
+
+Permissoes planejadas: `configure_nfse_external_xml_source`, `view_nfse_external_xml_inbox`, `process_nfse_external_xml_inbox`, `discard_nfse_external_xml_inbox` e `view_nfse_external_xml_payload`.
+
+Decisao: `import_nfse_received_batch` nao deve processar a caixa externa sozinha. A inbox precisa de permissao separada; o lote fiscal permanece governado por permissao propria.
+
+Flags planejadas: `nfse_external_xml_inbox_enabled`, `nfse_email_xml_import_enabled` e `nfse_erp_xml_import_enabled`. As flags devem ser por oficina/empresa quando envolverem fonte ou credencial externa; uma flag global pode existir como kill switch operacional.
+
+### Decisao
+
+Escolher **Opcao A - Implementar caixa de entrada externa de XML** como proxima recomendacao funcional futura, mas a fase 3.15.1 permanece apenas documental/preparatoria.
+
+Justificativa tecnica/fiscal: a inbox local cria fronteira clara entre origem operacional e dominio fiscal. E-mail, ERP, pasta externa ou webhook podem fornecer XML candidato, mas o documento recebido so nasce pelo pipeline validado de XML/lote. Isso reduz risco de credenciais, spoofing, anexo adulterado, documento de outra oficina e importacao silenciosa.
+
+### Escopo da proxima fase funcional sugerida
+
+Objetivo: implementar a caixa de entrada externa manual/assistida de XML, sem conector real de e-mail/ERP ainda.
+
+Escopo planejado: modelagem `NfseExternalXmlInbox`/`NfseExternalXmlInboxItem` ou equivalente, permissoes e flags separadas, tela de inbox/detalhe, validacao basica de arquivo XML candidato, hash/fingerprint, status pendente, descarte auditavel, envio manual de itens aprovados ao lote XML, vinculo com `NfseReceivedImportBatch`/`NfseReceivedDocument` e auditoria.
+
+Fora de escopo da proxima fase funcional: conector real IMAP/Gmail/Microsoft, conector ERP real, pasta monitorada real, webhook externo real, pipeline assincrono completo, importacao automatica, consulta Webmania automatica, manifestacao automatica e qualquer criacao de `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt`.
+
+### Testes planejados
+
+- registra XML candidato vindo de fonte externa;
+- bloqueia arquivo nao XML;
+- bloqueia arquivo grande;
+- bloqueia XML duplicado;
+- bloqueia XML de outra oficina;
+- mantem item pendente ate revisao;
+- envia item aprovado para lote;
+- nao cria documento recebido diretamente sem pipeline validado;
+- nao manifesta automaticamente;
+- nao consulta Webmania automaticamente;
+- nao cria `NfseItem`;
+- nao cria `FiscalDocument(nfse)`;
+- verifica permissoes de configuracao;
+- verifica permissoes de processamento;
+- bloqueia cross-workshop;
+- registra auditoria;
+- permite reprocessamento idempotente.
+
+### Criterios de aceite documentais
+
+- Fase 3.15.0 marcada como validada no checkpoint `4815728b`.
+- Matriz de fontes externas documentada.
+- Matriz de arquitetura documentada.
+- Contrato interno planejado documentado.
+- Relacao com lote XML definida como inbox pendente com revisao humana.
+- Permissoes, flags, auditoria, idempotencia, limites e testes planejados documentados.
+- OpenAPI Webmania mantido sem alteracao.
+- Nenhum codigo funcional, migration, service, view, template ou teste alterado.
 
 ## Fase 3.11.0 - Planejamento Tecnico da NFS-e Recebida/Importada de Terceiros
 

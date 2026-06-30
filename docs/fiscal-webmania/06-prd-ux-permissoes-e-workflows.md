@@ -703,7 +703,7 @@ Permissoes implementadas: `import_nfse_received_batch` para iniciar lote e `view
 
 ## Fase 3.15.0 - UX e permissoes planejadas para e-mail/ERP
 
-Status: em planejamento documental em 2026-06-29. A Fase 3.14.1 foi validada no checkpoint `b53e862b`.
+Status: validada documentalmente em 2026-06-29 no checkpoint `4815728b`. A Fase 3.14.1 foi validada no checkpoint `b53e862b`.
 
 UX futura a planejar:
 
@@ -715,3 +715,31 @@ UX futura a planejar:
 - erros por anexo e historico de reprocessamento.
 
 Permissoes futuras devem separar configuracao de fonte externa, visualizacao da fila, processamento de anexos e visualizacao de documentos importados. Permissoes de consulta, manifestacao, emissao, cancelamento ou substituicao nao devem autorizar e-mail/ERP.
+
+## Fase 3.15.1 - UX, permissoes e flags planejadas para caixa externa
+
+Status: em planejamento documental em 2026-06-29. A Fase 3.15.0 foi validada documentalmente no checkpoint `4815728b`.
+
+Telas futuras planejadas:
+
+- configuracao de fonte externa por oficina/empresa;
+- status de autenticacao, revogacao e ultima coleta;
+- caixa de entrada de XMLs candidatos;
+- detalhe do item com origem, remetente ou sistema, nome original, hash, data de recebimento e erros;
+- revisao antes da importacao fiscal;
+- acao para descartar item;
+- acao para enviar itens aprovados ao lote XML;
+- historico de descartes, erros e reprocessamentos;
+- desativacao de fonte externa sem apagar historico.
+
+Permissoes planejadas:
+
+- `configure_nfse_external_xml_source`;
+- `view_nfse_external_xml_inbox`;
+- `process_nfse_external_xml_inbox`;
+- `discard_nfse_external_xml_inbox`;
+- `view_nfse_external_xml_payload`.
+
+Decisao de permissao: `import_nfse_received_batch` nao deve, sozinha, processar a caixa externa. A caixa de entrada precisa de permissao separada porque envolve origem externa, credenciais, anexos e descarte; a permissao de lote continua governando a importacao fiscal apos revisao.
+
+Feature flags planejadas: `nfse_external_xml_inbox_enabled`, `nfse_email_xml_import_enabled` e `nfse_erp_xml_import_enabled`. As flags devem ser por oficina/empresa quando envolverem credenciais ou fonte operacional; flag global pode existir apenas como kill switch administrativo.

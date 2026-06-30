@@ -712,7 +712,7 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 
 ## ADR - Fase 3.10.0: adiar manifestacao da NFS-e manual
 
-**Status:** em planejamento documental em 2026-06-29.
+**Status:** validada documentalmente em 2026-06-29 no checkpoint `8d5c7192`.
 
 **Decisao:** adiar a manifestacao da NFS-e manual. Nao implementar `Fase 3.10.1` agora.
 
@@ -794,7 +794,7 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 
 ## ADR - Fase 3.15.0: proximo bloco apos consolidacao recebida
 
-**Status:** em planejamento documental em 2026-06-29.
+**Status:** validada documentalmente em 2026-06-29 no checkpoint `4815728b`.
 
 **Contexto:** a Fase 3.14.1 foi validada no checkpoint `b53e862b`, encerrando o ciclo recebido com upload unitario XML, manifestacao, consulta GET-only e lote XML auditavel.
 
@@ -803,3 +803,17 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 **Justificativa:** o dominio fiscal recebido ja esta pronto para processar XMLs locais. A lacuna agora e a origem externa desses XMLs. Implementar conector real sem fase preparatoria criaria riscos de credenciais, anexos errados, duplicidade, fila e importacao silenciosa.
 
 **Consequencias:** nenhuma integracao real deve ser implementada na proxima fase documental. Consulta Webmania ampliada, manifestacao manual, NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos e complementar tributaria permanecem adiados.
+
+## ADR - Fase 3.15.1: caixa de entrada externa antes de conectores reais
+
+**Status:** em planejamento documental em 2026-06-29.
+
+**Contexto:** a Fase 3.15.0 foi validada documentalmente no checkpoint `4815728b` e autorizou apenas planejamento preparatorio de integracao e-mail/ERP para XML de NFS-e. O lote XML local ja existe e e a fronteira fiscal segura.
+
+**Decisao:** escolher **Opcao A - Implementar caixa de entrada externa de XML** como recomendacao para uma futura fase funcional, com revisao humana antes do lote. Nao implementar conector real nesta fase.
+
+**Justificativa:** a caixa de entrada separa origem operacional de importacao fiscal. E-mail, ERP, pasta externa ou webhook podem fornecer XML candidato, mas o documento recebido so nasce pelo pipeline validado de XML/lote. Isso reduz risco de credenciais, spoofing, anexo adulterado, documento de outra oficina e importacao silenciosa.
+
+**Consequencias:** a proxima implementacao, se aprovada, deve criar dominio intermediario auditavel, permissoes e flags proprias, sem chamar Webmania, sem manifestar, sem criar `NfseItem`, sem criar `FiscalDocument(nfse)` e sem criar `FiscalEmissionAttempt`. Conectores reais IMAP/Gmail/Microsoft/ERP continuam posteriores.
+
+**OpenAPI:** nenhuma alteracao. A decisao e local e nao envolve endpoint Webmania novo.

@@ -1126,7 +1126,7 @@ OpenAPI: nenhuma alteracao aplicada; o schema atual permanece suficiente.
 
 ## Fase 3.15.0 - matriz API apos consolidacao de NFS-e recebida
 
-Status: em planejamento documental em 2026-06-29. A Fase 3.14.1 foi validada no checkpoint `b53e862b`.
+Status: validada documentalmente em 2026-06-29 no checkpoint `4815728b`. A Fase 3.14.1 foi validada no checkpoint `b53e862b`.
 
 | Bloco | Endpoint Webmania relevante | Situacao para o Hunter |
 | ----- | --------------------------- | ---------------------- |
@@ -1143,3 +1143,17 @@ Status: em planejamento documental em 2026-06-29. A Fase 3.14.1 foi validada no 
 | Complementar tributaria | `/1/nfe/complementar/` e matriz NF-e | Contrato parcial; exige auditoria tributaria propria. |
 
 Decisao API: a proxima fase recomendada nao altera o OpenAPI, porque sera preparatoria para integracao externa de origem XML. Nenhuma correcao oficial nova foi confirmada.
+
+## Fase 3.15.1 - matriz API da origem externa de XML
+
+Status: em planejamento documental em 2026-06-29. A Fase 3.15.0 foi validada documentalmente no checkpoint `4815728b`.
+
+| Fonte externa | Endpoint Webmania envolvido | Decisao |
+| ------------- | --------------------------- | ------- |
+| Caixa de e-mail, IMAP, Gmail API ou Microsoft Graph | Nenhum | Origem operacional externa; deve entregar XML candidato ao dominio local. |
+| ERP com exportacao manual ou API | Nenhum Webmania | Contrato do ERP deve terminar em XML candidato, nao em documento fiscal criado. |
+| Pasta monitorada, Drive ou SharePoint | Nenhum | Deve ser tratada como origem de arquivos candidatos, com auditoria e revisao. |
+| Webhook externo operacional | Nenhum Webmania | So aceitavel como entrada de arquivo candidato autenticada e auditada. |
+| Pipeline fiscal local | Nenhum novo endpoint | Deve reutilizar `NfseReceivedImportBatch`, parser XML e validacoes ja existentes. |
+
+OpenAPI: nenhuma alteracao aplicada. A fase 3.15.1 trata de origem externa local para XML e nao exige endpoint Webmania novo. Consulta, manifestacao, emissao, cancelamento e substituicao Webmania permanecem fora do escopo desta fase.

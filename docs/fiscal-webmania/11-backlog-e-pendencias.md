@@ -423,3 +423,12 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Manifestacao manual permanece adiada por papel fiscal inseguro.
 - NFS-e expandida ampla e novos dominios fiscais permanecem adiados.
 - Eventos IBS/CBS `112120/112140/211xxx`, creditos/debitos pendentes e complementar tributaria continuam dependentes de fontes fiscais especificas.
+
+## Apos a Fase 3.15.1
+
+- Decisao recomendada: implementar caixa de entrada externa de XML antes de qualquer conector real.
+- Primeira fase funcional futura deve ser manual/assistida: criar itens candidatos, revisar, descartar ou enviar ao lote XML.
+- Conectores reais de e-mail, Gmail/Microsoft, ERP, pasta monitorada e webhook externo permanecem adiados ate a inbox local estar validada.
+- Importacao automatica, consulta Webmania automatica e manifestacao automatica permanecem proibidas.
+- `NfseItem`, `FiscalDocument(nfse)` e `FiscalEmissionAttempt` nao devem ser criados pela origem externa de XML.
+- Pendencias remanescentes: conectores reais, processamento assincrono completo, relatorios operacionais ampliados e eventual consolidacao `FiscalDocument(nfse)` sob demanda.

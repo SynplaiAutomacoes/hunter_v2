@@ -850,7 +850,7 @@ Nao ha consulta Webmania automatica, webhook, manifestacao automatica, `NfseItem
 
 ## Fase 3.15.0 - seguranca recomendada para integracao e-mail/ERP
 
-Status: em planejamento documental em 2026-06-29. A Fase 3.14.1 foi validada no checkpoint `b53e862b`.
+Status: validada documentalmente em 2026-06-29 no checkpoint `4815728b`. A Fase 3.14.1 foi validada no checkpoint `b53e862b`.
 
 Riscos a tratar antes de qualquer implementacao:
 
@@ -863,3 +863,25 @@ Riscos a tratar antes de qualquer implementacao:
 - necessidade de fila/job e observabilidade.
 
 Regras recomendadas: e-mail/ERP deve apenas fornecer XMLs para um pipeline controlado que reutilize o lote local. Nao pode consultar Webmania automaticamente, manifestar automaticamente, criar documento sem XML, criar `NfseItem`, criar `FiscalDocument(nfse)` ou criar `FiscalEmissionAttempt`.
+
+## Fase 3.15.1 - seguranca planejada para caixa externa de XML
+
+Status: em planejamento documental em 2026-06-29. A Fase 3.15.0 foi validada documentalmente no checkpoint `4815728b`.
+
+Controles obrigatorios planejados:
+
+- validar extensao, MIME declarado e conteudo XML antes de aceitar item candidato;
+- bloquear ZIP inseguro, arquivo executavel, path traversal, arquivo vazio e arquivo acima do limite;
+- calcular `xml_hash` canonico e bloquear duplicidade por hash, UUID, identificador, origem externa e mensagem/anexo quando aplicavel;
+- validar CNPJ, papel fiscal e oficina/empresa antes de enviar item para lote;
+- manter cross-workshop bloqueado em todas as telas, jobs e downloads;
+- exigir revisao humana antes de transformar item pendente em lote fiscal;
+- auditar fonte, data/hora, usuario ou job, remetente/sistema externo, hash, descarte, erro e reprocessamento;
+- proteger payload/XML por permissao propria e evitar exposicao de XML fiscal em logs;
+- manter itens rejeitados e descartados com retencao definida, sem apagar historico.
+
+Autenticacao planejada: OAuth para Gmail/Microsoft quando aplicavel, credenciais por oficina ou empresa, conta dedicada, escopos minimos, revogacao, rotacao, auditoria de acesso e segregacao por oficina. Nenhuma autenticacao externa sera implementada nesta fase documental.
+
+Idempotencia planejada: hash XML, identificador fiscal, identificador externo da fonte, id da mensagem de e-mail quando houver, fingerprint de anexo e `source_identifier`. Reprocessamento deve ser seguro, nao duplicar documento, nao sobrescrever XML validado e nao apagar historico.
+
+Nao ha webhook fiscal nesta fase. Um eventual webhook externo operacional, se existir em fase futura, deve apenas criar item candidato autenticado na caixa de entrada e nunca chamar Webmania, manifestar ou criar documento recebido diretamente.

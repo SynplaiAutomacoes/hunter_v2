@@ -975,7 +975,7 @@ O documento fiscal individual continua sendo `NfseReceivedDocument`. O lote nao 
 
 ## Fase 3.15.0 - modelagem recomendada apos consolidacao recebida
 
-Status: em planejamento documental em 2026-06-29. A Fase 3.14.1 foi validada no checkpoint `b53e862b`.
+Status: validada documentalmente em 2026-06-29 no checkpoint `4815728b`. A Fase 3.14.1 foi validada no checkpoint `b53e862b`.
 
 Decisao de dominio: a proxima fase deve ser preparatoria/documental para integracao e-mail/ERP como fonte externa de XMLs, sem implementar pipeline real ainda.
 
@@ -989,3 +989,22 @@ Modelagem a avaliar na fase futura:
 - isolamento estrito por oficina e empresa.
 
 `NfseReceivedDocument` e `NfseReceivedImportBatch` continuam sendo a fronteira fiscal. E-mail/ERP nao deve criar documento sem XML nem substituir XML validado.
+
+## Fase 3.15.1 - modelagem planejada da caixa de entrada externa de XML
+
+Status: em planejamento documental em 2026-06-29. A Fase 3.15.0 foi validada documentalmente no checkpoint `4815728b`.
+
+Decisao de dominio: escolher **Opcao A - Implementar caixa de entrada externa de XML** em fase funcional futura, como dominio local intermediario. A fase atual apenas planeja essa modelagem; nao cria models, migrations ou services.
+
+Modelo conceitual recomendado:
+
+- `NfseExternalXmlInbox`: configuracao/logica de uma origem externa por oficina/empresa, com tipo de fonte, identificador, estado, flags e metadados de auditoria.
+- `NfseExternalXmlInboxItem`: XML candidato recebido da origem externa, ainda pendente de revisao humana e antes de qualquer importacao fiscal.
+
+Campos planejados para o item: `workshop`, `company`, `source_type`, `source_identifier`, `original_filename`, `content_type`, `xml_snapshot`, `xml_hash`, `received_at`, `status`, `validation_errors`, `linked_batch`, `linked_received_document`, `created_at` e `updated_at`.
+
+Estados planejados: `pending_review`, `approved_for_batch`, `imported`, `discarded`, `rejected`, `duplicate` e `error`. Um item pendente nao e documento fiscal; somente o lote XML validado pode criar `NfseReceivedDocument`.
+
+Relacao com lote XML: a recomendacao e **B - caixa de entrada pendente para usuario revisar e acionar lote**. A criacao automatica de lote a partir de XML coletado deve ficar adiada, porque aumenta risco de importacao silenciosa e documento de oficina errada.
+
+Fronteira fiscal permanente: origem externa entrega XML candidato; `NfseReceivedImportBatch` e `NfseReceivedDocument` continuam sendo o nucleo fiscal. A futura implementacao nao deve criar documento recebido sem XML, nao deve substituir XML validado, nao deve criar `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt` e nao deve manifestar automaticamente.

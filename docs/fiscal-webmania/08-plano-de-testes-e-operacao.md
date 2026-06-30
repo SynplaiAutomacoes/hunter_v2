@@ -961,3 +961,28 @@ Como a proxima fase recomendada e documental/preparatoria, os testes funcionais 
 - ausencia de chamada Webmania;
 - ausencia de manifestacao automatica;
 - integracao com `NfseReceivedImportBatch`.
+
+## Plano de testes para futura Fase 3.15.2 - caixa externa de XML
+
+Status: planejado na Fase 3.15.1.
+
+Testes funcionais futuros recomendados:
+
+- registra XML candidato vindo de fonte externa sem criar `NfseReceivedDocument`;
+- bloqueia arquivo nao XML, vazio, executavel, ZIP inseguro e path traversal;
+- bloqueia arquivo acima do limite e mensagem com anexos acima do limite;
+- calcula hash/fingerprint e bloqueia duplicidade por hash, UUID, identificador e origem externa;
+- bloqueia XML de outra oficina/empresa antes de enviar ao lote;
+- mantem item em `pending_review` ate acao humana;
+- descarta item com auditoria e sem apagar XML/historico quando a politica exigir retencao;
+- envia item aprovado para `NfseReceivedImportBatch`;
+- vincula item importado ao lote e ao `NfseReceivedDocument`;
+- nao cria documento recebido diretamente fora do pipeline validado;
+- nao consulta Webmania automaticamente;
+- nao manifesta automaticamente;
+- nao cria `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt`;
+- valida permissoes de configuracao, visualizacao, processamento, descarte e payload;
+- bloqueia cross-workshop em lista, detalhe, processamento, descarte e payload;
+- reprocessa de forma idempotente sem duplicar documento nem sobrescrever XML validado.
+
+Operacao planejada: iniciar com importacao sob demanda/revisao humana. Conectores reais de e-mail, ERP, pasta monitorada ou webhook externo devem ter bateria propria quando forem autorizados.

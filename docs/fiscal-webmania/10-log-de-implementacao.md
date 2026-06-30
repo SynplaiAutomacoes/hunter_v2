@@ -254,7 +254,17 @@
 - Decisao recomendada: **Opcao A**, planejar integracao e-mail/ERP para XML NFS-e em fase exclusivamente preparatoria/documental.
 - OpenAPI validado permanece suficiente; nenhuma correcao oficial nova foi aplicada.
 - Nenhum codigo funcional, migration, service, view, template ou teste foi alterado nesta fase documental.
-- Status posterior: Fase 3.13.0 validada documentalmente e commitada no checkpoint `d83b37dc`.
+- Status posterior: Fase 3.15.0 validada documentalmente e commitada no checkpoint `4815728b`.
+
+## Fase 3.15.1 - planejamento de integracao e-mail/ERP para XML NFS-e
+
+- Fase 3.15.0 reconhecida como validada documentalmente no checkpoint `4815728b`.
+- Planejada caixa de entrada externa de XML como dominio intermediario antes de qualquer conector real.
+- Produzidas matriz de fontes externas e matriz de arquitetura.
+- Decidido reaproveitar `NfseReceivedImportBatch` e `NfseReceivedImportBatchItem` por revisao humana, nao por importacao automatica.
+- Planejados contrato `NfseExternalXmlInbox`/`NfseExternalXmlInboxItem`, permissoes, flags, auditoria, idempotencia, limites e testes futuros.
+- OpenAPI Webmania mantido sem alteracao porque a fase trata de origem externa local.
+- Nenhum codigo funcional, migration, service, view, template ou teste foi alterado.
 
 ## Fase 3.13.1 - inicio da consulta auxiliar de NFS-e recebida
 
