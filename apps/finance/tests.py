@@ -46,7 +46,7 @@ from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.movement_group import MovementGroup
-from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentLink, FiscalDocumentLinkRole, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, FiscalNumberInutilization, FiscalNumberInutilizationStatus, NfeItem, NfeRequest, NfeRequestStatus, NfseCancellation, NfseItem, NfseManifestation, NfseManualEmission, NfseManualEmissionPreview, NfseReceivedDocument, NfseReceivedImportBatch, NfseReceivedImportBatchItem, NfseRequest, NfseRequestStatus, NfseSubstitutionPreview, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentLink, FiscalDocumentLinkRole, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, FiscalNumberInutilization, FiscalNumberInutilizationStatus, NfeItem, NfeRequest, NfeRequestStatus, NfseCancellation, NfseExternalXmlInbox, NfseExternalXmlInboxItem, NfseItem, NfseManifestation, NfseManualEmission, NfseManualEmissionPreview, NfseReceivedDocument, NfseReceivedImportBatch, NfseReceivedImportBatchItem, NfseRequest, NfseRequestStatus, NfseSubstitutionPreview, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
@@ -16008,6 +16008,211 @@ class FiscalPhaseThreeNfseReceivedBatchImportTests(TestCase):
             response = self.client.post(reverse("finance:nfse_received_batch_import"), data={"company": self.company.pk, "xml_files": files, "confirmed": "on"})
         self.assertEqual(response.status_code, 302)
         self.assertEqual(NfseReceivedDocument.objects.count(), 2)
+
+
+class FiscalPhaseThreeNfseExternalXmlInboxTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=97)
+        self.company = WebmaniaCompany.objects.create(
+            workshop=self.workshop,
+            webmania_company_id="NFSE-EXTERNAL-INBOX",
+            cnpj="11.222.333/0001-81",
+            bearer_access_token="encrypted-token",
+            cidade="Sao Paulo",
+            uf="SP",
+            nfse_received_import_enabled=True,
+            nfse_external_xml_inbox_enabled=True,
+        )
+
+    def _xml(
+        self,
+        *,
+        uuid: str = "66000000-0000-0000-0000-000000004001",
+        identifier: str = "NFSE-EXT-INBOX-0001",
+        provider_tax_id: str = "22.333.444/0001-55",
+        taker_tax_id: str = "11.222.333/0001-81",
+        status: str = "Autorizada",
+        amount: str = "1234.56",
+    ) -> bytes:
+        return f"""
+        <CompNfse>
+            <Nfse>
+                <InfNfse Id="{identifier}">
+                    <Uuid>{uuid}</Uuid>
+                    <Numero>{identifier}</Numero>
+                    <CodigoVerificacao>COD-{identifier}</CodigoVerificacao>
+                    <DataEmissao>2026-06-20T10:30:00-03:00</DataEmissao>
+                    <Ambiente>2</Ambiente>
+                    <Situacao>{status}</Situacao>
+                    <Prestador><CpfCnpj>{provider_tax_id}</CpfCnpj></Prestador>
+                    <Tomador><CpfCnpj>{taker_tax_id}</CpfCnpj></Tomador>
+                    <Servico><Valores><ValorServicos>{amount}</ValorServicos></Valores><CodigoMunicipio>3550308</CodigoMunicipio></Servico>
+                </InfNfse>
+            </Nfse>
+        </CompNfse>
+        """.encode()
+
+    def _upload_file(self, name: str, content: bytes):
+        from apps.finance.services.nfse_external_xml_inbox import NfseExternalXmlInboxUploadFile
+
+        return NfseExternalXmlInboxUploadFile(filename=name, content=content, content_type="application/xml")
+
+    def _create_inbox(self, files):
+        from apps.finance.services.nfse_external_xml_inbox import create_nfse_external_xml_inbox
+
+        return create_nfse_external_xml_inbox(workshop=self.workshop, company=self.company, files=files, source_label="Anexos recebidos manualmente", created_by=self.user)
+
+    def test_registers_valid_candidates_without_creating_document_or_batch(self) -> None:
+        files = [
+            self._upload_file("a.xml", self._xml(uuid="66000000-0000-0000-0000-000000004001", identifier="NFSE-EXT-INBOX-0001")),
+            self._upload_file("b.xml", self._xml(uuid="66000000-0000-0000-0000-000000004002", identifier="NFSE-EXT-INBOX-0002", amount="4321.00")),
+        ]
+        with patch("requests.get") as get_mock, patch("requests.post") as post_mock, patch("requests.put") as put_mock:
+            inbox = self._create_inbox(files)
+
+        self.assertEqual(inbox.status, NfseExternalXmlInbox.Status.OPEN)
+        self.assertEqual(inbox.total_items, 2)
+        self.assertEqual(inbox.pending_count, 2)
+        self.assertEqual(NfseExternalXmlInboxItem.objects.filter(status=NfseExternalXmlInboxItem.Status.PENDING).count(), 2)
+        item = inbox.items.order_by("pk").first()
+        self.assertEqual(len(item.xml_hash), 64)
+        self.assertEqual(item.parsed_summary["uuid"], "66000000-0000-0000-0000-000000004001")
+        self.assertEqual(item.parsed_summary["role"], NfseReceivedDocument.Role.TAKER)
+        self.assertEqual(NfseReceivedDocument.objects.count(), 0)
+        self.assertEqual(NfseReceivedImportBatch.objects.count(), 0)
+        self.assertEqual(NfseManifestation.objects.count(), 0)
+        self.assertEqual(NfseItem.objects.count(), 0)
+        self.assertEqual(FiscalDocument.objects.count(), 0)
+        self.assertEqual(FiscalEmissionAttempt.objects.count(), 0)
+        get_mock.assert_not_called()
+        post_mock.assert_not_called()
+        put_mock.assert_not_called()
+
+    def test_records_invalid_duplicate_existing_and_wrong_workshop_candidates_per_item(self) -> None:
+        from apps.finance.services.nfse_received import import_nfse_received_xml
+
+        import_nfse_received_xml(workshop=self.workshop, company=self.company, xml_bytes=self._xml(uuid="66000000-0000-0000-0000-000000004010", identifier="NFSE-EXT-INBOX-0010"), created_by=self.user)
+        duplicate_existing = self._xml(uuid="66000000-0000-0000-0000-000000004010", identifier="NFSE-EXT-INBOX-0010")
+        duplicate_in_upload = self._xml(uuid="66000000-0000-0000-0000-000000004011", identifier="NFSE-EXT-INBOX-0011")
+        inbox = self._create_inbox(
+            [
+                self._upload_file("valid.xml", duplicate_in_upload),
+                self._upload_file("duplicate-in-upload.xml", duplicate_in_upload),
+                self._upload_file("existing.xml", duplicate_existing),
+                self._upload_file("not-xml.txt", b"<CompNfse />"),
+                self._upload_file("invalid.xml", b"<CompNfse>"),
+                self._upload_file("other-workshop.xml", self._xml(uuid="66000000-0000-0000-0000-000000004012", identifier="NFSE-EXT-INBOX-0012", taker_tax_id="99.888.777/0001-66")),
+            ]
+        )
+
+        self.assertEqual(inbox.total_items, 6)
+        self.assertEqual(inbox.pending_count, 1)
+        self.assertEqual(inbox.error_count, 5)
+        self.assertTrue(inbox.items.filter(safe_filename="duplicate-in-upload.xml", status=NfseExternalXmlInboxItem.Status.DUPLICATE).exists())
+        self.assertTrue(inbox.items.filter(safe_filename="existing.xml", status=NfseExternalXmlInboxItem.Status.DUPLICATE).exists())
+        self.assertTrue(inbox.items.filter(safe_filename="not-xml.txt", status=NfseExternalXmlInboxItem.Status.INVALID).exists())
+        self.assertTrue(inbox.items.filter(safe_filename="invalid.xml", status=NfseExternalXmlInboxItem.Status.INVALID).exists())
+        self.assertTrue(inbox.items.filter(safe_filename="other-workshop.xml", status=NfseExternalXmlInboxItem.Status.INVALID).exists())
+        self.assertEqual(NfseReceivedDocument.objects.count(), 1)
+
+    def test_human_review_approves_valid_item_discards_with_audit_and_blocks_invalid_processing(self) -> None:
+        from apps.finance.services.nfse_external_xml_inbox import NfseExternalXmlInboxError, approve_nfse_external_xml_inbox_item, discard_nfse_external_xml_inbox_item, process_nfse_external_xml_inbox
+
+        inbox = self._create_inbox([self._upload_file("valid.xml", self._xml()), self._upload_file("invalid.xml", b"<CompNfse>")])
+        valid_item = inbox.items.get(status=NfseExternalXmlInboxItem.Status.PENDING)
+        invalid_item = inbox.items.get(status=NfseExternalXmlInboxItem.Status.INVALID)
+
+        approved = approve_nfse_external_xml_inbox_item(item=valid_item, approved_by=self.user)
+        discarded = discard_nfse_external_xml_inbox_item(item=invalid_item, reason="XML malformado", discarded_by=self.user)
+
+        self.assertEqual(approved.status, NfseExternalXmlInboxItem.Status.APPROVED)
+        self.assertEqual(approved.approved_by, self.user)
+        self.assertEqual(discarded.status, NfseExternalXmlInboxItem.Status.DISCARDED)
+        self.assertEqual(discarded.discard_reason, "XML malformado")
+        with self.assertRaisesMessage(NfseExternalXmlInboxError, "Somente item pendente"):
+            approve_nfse_external_xml_inbox_item(item=discarded, approved_by=self.user)
+
+        batch = process_nfse_external_xml_inbox(inbox=inbox, processed_by=self.user)
+        self.assertEqual(batch.total_files, 1)
+        self.assertEqual(NfseReceivedDocument.objects.count(), 1)
+        invalid_item.refresh_from_db()
+        self.assertEqual(invalid_item.status, NfseExternalXmlInboxItem.Status.DISCARDED)
+
+    def test_processes_approved_items_through_existing_batch_pipeline_and_links_results(self) -> None:
+        from apps.finance.services.nfse_external_xml_inbox import approve_nfse_external_xml_inbox_item, process_nfse_external_xml_inbox
+
+        inbox = self._create_inbox(
+            [
+                self._upload_file("a.xml", self._xml(uuid="66000000-0000-0000-0000-000000004021", identifier="NFSE-EXT-INBOX-0021")),
+                self._upload_file("b.xml", self._xml(uuid="66000000-0000-0000-0000-000000004022", identifier="NFSE-EXT-INBOX-0022")),
+            ]
+        )
+        for item in inbox.items.all():
+            approve_nfse_external_xml_inbox_item(item=item, approved_by=self.user)
+
+        with patch("requests.get") as get_mock, patch("requests.post") as post_mock, patch("requests.put") as put_mock:
+            batch = process_nfse_external_xml_inbox(inbox=inbox, processed_by=self.user)
+
+        inbox.refresh_from_db()
+        self.assertEqual(batch.status, NfseReceivedImportBatch.Status.COMPLETED)
+        self.assertEqual(inbox.status, NfseExternalXmlInbox.Status.PROCESSED)
+        self.assertEqual(inbox.processed_count, 2)
+        self.assertEqual(NfseReceivedDocument.objects.count(), 2)
+        for item in inbox.items.all():
+            self.assertEqual(item.status, NfseExternalXmlInboxItem.Status.PROCESSED)
+            self.assertEqual(item.linked_batch, batch)
+            self.assertIsNotNone(item.linked_batch_item)
+            self.assertIsNotNone(item.linked_received_document)
+        self.assertEqual(NfseManifestation.objects.count(), 0)
+        self.assertEqual(NfseItem.objects.count(), 0)
+        self.assertEqual(FiscalDocument.objects.count(), 0)
+        self.assertEqual(FiscalEmissionAttempt.objects.count(), 0)
+        get_mock.assert_not_called()
+        post_mock.assert_not_called()
+        put_mock.assert_not_called()
+
+    def test_blocks_feature_disabled_processed_reprocessing_and_duplicate_active_inbox(self) -> None:
+        from apps.finance.services.nfse_external_xml_inbox import NfseExternalXmlInboxError, approve_nfse_external_xml_inbox_item, create_nfse_external_xml_inbox, process_nfse_external_xml_inbox
+
+        self.company.nfse_external_xml_inbox_enabled = False
+        self.company.save(update_fields=["nfse_external_xml_inbox_enabled"])
+        with self.assertRaisesMessage(NfseExternalXmlInboxError, "nao esta habilitada"):
+            create_nfse_external_xml_inbox(workshop=self.workshop, company=self.company, files=[self._upload_file("blocked.xml", self._xml())], created_by=self.user)
+
+        self.company.nfse_external_xml_inbox_enabled = True
+        self.company.save(update_fields=["nfse_external_xml_inbox_enabled"])
+        first = self._create_inbox([self._upload_file("first.xml", self._xml(uuid="66000000-0000-0000-0000-000000004031", identifier="NFSE-EXT-INBOX-0031"))])
+        duplicate = self._create_inbox([self._upload_file("duplicate.xml", self._xml(uuid="66000000-0000-0000-0000-000000004031", identifier="NFSE-EXT-INBOX-0031"))])
+        self.assertEqual(duplicate.items.get().status, NfseExternalXmlInboxItem.Status.DUPLICATE)
+
+        approve_nfse_external_xml_inbox_item(item=first.items.get(), approved_by=self.user)
+        process_nfse_external_xml_inbox(inbox=first, processed_by=self.user)
+        with self.assertRaisesMessage(NfseExternalXmlInboxError, "Nao ha itens aprovados"):
+            process_nfse_external_xml_inbox(inbox=first, processed_by=self.user)
+
+    def test_views_require_specific_permissions_and_payload_is_workshop_scoped(self) -> None:
+        from apps.finance.views.nfse_received import NfseExternalXmlInboxItemPayloadView, NfseExternalXmlInboxUploadView
+
+        request = RequestFactory().post("/", data={"confirmed": "on"})
+        request.user = self.user
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=False), self.assertRaises(PermissionDenied):
+            NfseExternalXmlInboxUploadView.as_view()(request)
+
+        inbox = self._create_inbox([self._upload_file("payload.xml", self._xml(uuid="66000000-0000-0000-0000-000000004041", identifier="NFSE-EXT-INBOX-0041"))])
+        item = inbox.items.get()
+        payload_request = RequestFactory().get("/")
+        payload_request.user = self.user
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=False), self.assertRaises(PermissionDenied):
+            NfseExternalXmlInboxItemPayloadView.as_view()(payload_request, pk=inbox.pk, item_pk=item.pk)
+
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+        with patch("apps.workshops.mixin.has_workshop_perm", return_value=True):
+            response = self.client.get(reverse("finance:nfse_external_xml_inbox_item_payload", kwargs={"pk": inbox.pk, "item_pk": item.pk}))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["xml_hash"], item.xml_hash)
 
 
 class FiscalPhaseThreeNfseReceivedConsultationTests(TestCase):

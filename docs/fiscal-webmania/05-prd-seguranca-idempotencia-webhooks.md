@@ -885,3 +885,13 @@ Autenticacao planejada: OAuth para Gmail/Microsoft quando aplicavel, credenciais
 Idempotencia planejada: hash XML, identificador fiscal, identificador externo da fonte, id da mensagem de e-mail quando houver, fingerprint de anexo e `source_identifier`. Reprocessamento deve ser seguro, nao duplicar documento, nao sobrescrever XML validado e nao apagar historico.
 
 Nao ha webhook fiscal nesta fase. Um eventual webhook externo operacional, se existir em fase futura, deve apenas criar item candidato autenticado na caixa de entrada e nunca chamar Webmania, manifestar ou criar documento recebido diretamente.
+
+## Fase 3.15.2 - seguranca implementada na inbox externa
+
+Status: em implementacao controlada em 2026-06-30. A Fase 3.15.1 foi validada documentalmente no checkpoint `5882cd4e`.
+
+Controles implementados: flag propria por empresa/oficina, upload manual apenas, nome seguro por arquivo, limite de quantidade/tamanho herdado do lote XML, rejeicao de arquivo vazio, extensao nao XML, conteudo sem aparencia XML, XML malformado, DTD/entidade externa, XML duplicado no envio, XML duplicado contra inbox ativa, XML duplicado contra `NfseReceivedDocument`, papel fiscal inseguro e CNPJ/oficina divergente quando parseavel.
+
+Processamento: somente item aprovado por usuario e ainda nao vinculado a lote e enviado ao `NfseReceivedImportBatch`. Item descartado, invalido, duplicado ou ja processado nao e processado. Reprocessamento de item ja processado e bloqueado por ausencia de itens aprovados sem lote.
+
+Nao ha webhook externo real, job agendado, consulta Webmania automatica, manifestacao automatica ou exposicao de path local.

@@ -1,0 +1,11 @@
+{% extends 'crud/list.html' %}
+
+{% block crud_title %}Inbox externa de XML NFS-e{% endblock %}
+{% block crud_subtitle %}XMLs candidatos ficam pendentes ate revisao humana e processamento pelo lote XML validado.{% endblock %}
+{% block crud_header_actions %}<div class="flex gap-2">{% if can_upload_external_inbox %}<a class="btn btn-primary btn-sm" href="{% url 'finance:nfse_external_xml_inbox_upload' %}">Enviar XMLs candidatos</a>{% endif %}<a class="btn btn-ghost btn-sm" href="{% url 'finance:nfse_received_document_list' %}">NFS-e recebidas</a></div>{% endblock %}
+{% block crud_list_content %}
+<div class="alert alert-info mb-4">A inbox nao importa automaticamente, nao consulta Webmania e nao manifesta documentos. O documento fiscal so nasce apos processamento pelo pipeline de XML/lote.</div>
+<div class="overflow-x-auto"><table class="table table-zebra"><thead><tr><th>Empresa</th><th>Origem</th><th>Status</th><th>Itens</th><th>Pendentes</th><th>Aprovados</th><th>Processados</th><th></th></tr></thead><tbody>
+{% for inbox in inboxes %}<tr><td>{{ inbox.company }}</td><td>{{ inbox.source_label|default:inbox.get_source_type_display }}</td><td>{{ inbox.get_status_display }}</td><td>{{ inbox.total_items }}</td><td>{{ inbox.pending_count }}</td><td>{{ inbox.approved_count }}</td><td>{{ inbox.processed_count }}</td><td><a class="btn btn-ghost btn-sm" href="{% url 'finance:nfse_external_xml_inbox_detail' inbox.pk %}">Abrir</a></td></tr>{% empty %}<tr><td colspan="8">Nenhuma inbox registrada.</td></tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}

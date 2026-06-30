@@ -1157,3 +1157,11 @@ Status: em planejamento documental em 2026-06-29. A Fase 3.15.0 foi validada doc
 | Pipeline fiscal local | Nenhum novo endpoint | Deve reutilizar `NfseReceivedImportBatch`, parser XML e validacoes ja existentes. |
 
 OpenAPI: nenhuma alteracao aplicada. A fase 3.15.1 trata de origem externa local para XML e nao exige endpoint Webmania novo. Consulta, manifestacao, emissao, cancelamento e substituicao Webmania permanecem fora do escopo desta fase.
+
+## Fase 3.15.2 - matriz API da inbox externa local
+
+Status: em implementacao controlada em 2026-06-30. A Fase 3.15.1 foi validada documentalmente no checkpoint `5882cd4e`.
+
+Nenhum endpoint Webmania foi adicionado ou consumido. A inbox implementada e local/manual/assistida e aceita somente upload de XML candidato. O processamento aprovado pelo usuario reaproveita o pipeline local de `NfseReceivedImportBatch`; nao chama `GET /2/nfse/consulta/{identifier}`, `GET /2/nfse/status`, `POST /2/nfse/manifestar`, emissao, cancelamento ou substituicao.
+
+OpenAPI: nenhuma alteracao aplicada; o schema Webmania permanece suficiente.

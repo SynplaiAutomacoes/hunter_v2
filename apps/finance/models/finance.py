@@ -523,6 +523,7 @@ class WebmaniaCompany(TimeStampedModel):
     nfse_manual_emission_enabled = models.BooleanField(verbose_name="Emissao manual NFS-e habilitada", default=False)
     nfse_received_import_enabled = models.BooleanField(verbose_name="Importacao de NFS-e recebida habilitada", default=False)
     nfse_received_consultation_enabled = models.BooleanField(verbose_name="Consulta de NFS-e recebida habilitada", default=False)
+    nfse_external_xml_inbox_enabled = models.BooleanField(verbose_name="Inbox externa de XML NFS-e habilitada", default=False)
     desativar_epec = models.CharField(verbose_name="Desativar EPEC", max_length=4, blank=True, default="")
     ocultar_total_etiqueta = models.CharField(verbose_name="Ocultar total etiqueta", max_length=4, blank=True, default="")
 
@@ -1586,6 +1587,123 @@ class NfseReceivedImportBatchItem(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"NfseReceivedImportBatchItem[{self.batch_id}:{self.filename}:{self.status}]"
+
+
+class NfseExternalXmlInbox(TimeStampedModel):
+    class SourceType(models.TextChoices):
+        MANUAL_UPLOAD = "manual_upload", "Upload manual"
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Aberta"
+        PARTIALLY_PROCESSED = "partially_processed", "Parcialmente processada"
+        PROCESSED = "processed", "Processada"
+        CLOSED = "closed", "Fechada"
+        FAILED = "failed", "Falhou"
+
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="nfse_external_xml_inboxes")
+    company = models.ForeignKey(WebmaniaCompany, verbose_name="Empresa Webmania", on_delete=models.PROTECT, related_name="nfse_external_xml_inboxes")
+    source_type = models.CharField(verbose_name="Tipo de origem", max_length=32, choices=SourceType.choices, default=SourceType.MANUAL_UPLOAD, db_index=True)
+    source_label = models.CharField(verbose_name="Origem declarada", max_length=120, blank=True, default="")
+    status = models.CharField(verbose_name="Status", max_length=32, choices=Status.choices, default=Status.OPEN, db_index=True)
+    total_items = models.PositiveIntegerField(verbose_name="Total de itens", default=0)
+    pending_count = models.PositiveIntegerField(verbose_name="Pendentes", default=0)
+    approved_count = models.PositiveIntegerField(verbose_name="Aprovados", default=0)
+    discarded_count = models.PositiveIntegerField(verbose_name="Descartados", default=0)
+    processed_count = models.PositiveIntegerField(verbose_name="Processados", default=0)
+    error_count = models.PositiveIntegerField(verbose_name="Erros", default=0)
+    created_by = models.ForeignKey("accounts.User", verbose_name="Criado por", on_delete=models.SET_NULL, null=True, blank=True, related_name="nfse_external_xml_inboxes")
+    processed_by = models.ForeignKey("accounts.User", verbose_name="Processado por", on_delete=models.SET_NULL, null=True, blank=True, related_name="processed_nfse_external_xml_inboxes")
+    processed_at = models.DateTimeField(verbose_name="Processado em", null=True, blank=True)
+
+    class Meta(TimeStampedModel.Meta):
+        indexes = [
+            models.Index(fields=["workshop", "-criado_em"], name="nfse_ext_inbox_time_idx"),
+            models.Index(fields=["workshop", "status"], name="nfse_ext_inbox_status_idx"),
+        ]
+        permissions = [
+            ("view_nfse_external_xml_inbox", "Pode visualizar inbox externa de XML NFS-e"),
+            ("upload_nfse_external_xml_inbox", "Pode enviar XML para inbox externa NFS-e"),
+            ("approve_nfse_external_xml_inbox", "Pode aprovar XML da inbox externa NFS-e"),
+            ("process_nfse_external_xml_inbox", "Pode processar inbox externa de XML NFS-e"),
+            ("discard_nfse_external_xml_inbox", "Pode descartar XML da inbox externa NFS-e"),
+            ("view_nfse_external_xml_payload", "Pode visualizar XML da inbox externa NFS-e"),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if self.company_id and self.workshop_id and self.company.workshop_id != self.workshop_id:
+            raise ValidationError({"company": "A empresa Webmania pertence a outra oficina."})
+        if self.source_type != self.SourceType.MANUAL_UPLOAD:
+            raise ValidationError({"source_type": "Nesta fase, somente upload manual/assistido e permitido."})
+
+    def save(self, *args, **kwargs) -> None:
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"NfseExternalXmlInbox[{self.workshop_id}:{self.status}:{self.total_items}]"
+
+
+class NfseExternalXmlInboxItem(TimeStampedModel):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pendente"
+        INVALID = "invalid", "Invalido"
+        DUPLICATE = "duplicate", "Duplicado"
+        APPROVED = "approved", "Aprovado"
+        DISCARDED = "discarded", "Descartado"
+        PROCESSED = "processed", "Processado"
+        ERROR = "error", "Erro"
+
+    inbox = models.ForeignKey(NfseExternalXmlInbox, verbose_name="Inbox", on_delete=models.CASCADE, related_name="items")
+    original_filename = models.CharField(verbose_name="Nome original", max_length=255)
+    safe_filename = models.CharField(verbose_name="Nome seguro", max_length=255)
+    content_type = models.CharField(verbose_name="Tipo de conteudo", max_length=120, blank=True, default="")
+    xml_snapshot = models.TextField(verbose_name="XML candidato", blank=True, default="")
+    xml_hash = models.CharField(verbose_name="Hash do XML", max_length=64, blank=True, default="", db_index=True)
+    size_bytes = models.PositiveIntegerField(verbose_name="Tamanho em bytes", default=0)
+    source_metadata = models.JSONField(verbose_name="Metadados da origem", default=dict, blank=True)
+    status = models.CharField(verbose_name="Status", max_length=24, choices=Status.choices, default=Status.PENDING, db_index=True)
+    validation_errors = models.JSONField(verbose_name="Erros de validacao", default=list, blank=True)
+    parsed_summary = models.JSONField(verbose_name="Resumo parseado", default=dict, blank=True)
+    discard_reason = models.TextField(verbose_name="Motivo de descarte", blank=True, default="")
+    discarded_by = models.ForeignKey("accounts.User", verbose_name="Descartado por", on_delete=models.SET_NULL, null=True, blank=True, related_name="discarded_nfse_external_xml_items")
+    discarded_at = models.DateTimeField(verbose_name="Descartado em", null=True, blank=True)
+    approved_by = models.ForeignKey("accounts.User", verbose_name="Aprovado por", on_delete=models.SET_NULL, null=True, blank=True, related_name="approved_nfse_external_xml_items")
+    approved_at = models.DateTimeField(verbose_name="Aprovado em", null=True, blank=True)
+    processed_by = models.ForeignKey("accounts.User", verbose_name="Processado por", on_delete=models.SET_NULL, null=True, blank=True, related_name="processed_nfse_external_xml_items")
+    processed_at = models.DateTimeField(verbose_name="Processado em", null=True, blank=True)
+    linked_batch = models.ForeignKey(NfseReceivedImportBatch, verbose_name="Lote vinculado", on_delete=models.SET_NULL, null=True, blank=True, related_name="external_inbox_items")
+    linked_batch_item = models.ForeignKey(NfseReceivedImportBatchItem, verbose_name="Item de lote vinculado", on_delete=models.SET_NULL, null=True, blank=True, related_name="external_inbox_items")
+    linked_received_document = models.ForeignKey(NfseReceivedDocument, verbose_name="NFS-e recebida vinculada", on_delete=models.SET_NULL, null=True, blank=True, related_name="external_inbox_items")
+
+    class Meta(TimeStampedModel.Meta):
+        indexes = [
+            models.Index(fields=["inbox", "status"], name="nfse_ext_item_status_idx"),
+            models.Index(fields=["inbox", "xml_hash"], name="nfse_ext_item_hash_idx"),
+            models.Index(fields=["status", "xml_hash"], name="nfse_ext_active_hash_idx"),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if not self.original_filename.strip():
+            raise ValidationError({"original_filename": "Informe o nome original."})
+        if not self.safe_filename.strip():
+            raise ValidationError({"safe_filename": "Informe o nome seguro."})
+        if self.linked_batch_id and self.inbox_id and self.linked_batch.workshop_id != self.inbox.workshop_id:
+            raise ValidationError({"linked_batch": "O lote pertence a outra oficina."})
+        if self.linked_batch_item_id and self.linked_batch_id and self.linked_batch_item.batch_id != self.linked_batch_id:
+            raise ValidationError({"linked_batch_item": "O item de lote nao pertence ao lote vinculado."})
+        if self.linked_received_document_id and self.inbox_id and self.linked_received_document.workshop_id != self.inbox.workshop_id:
+            raise ValidationError({"linked_received_document": "A NFS-e recebida pertence a outra oficina."})
+        if self.status in {self.Status.PENDING, self.Status.APPROVED, self.Status.PROCESSED} and not self.xml_snapshot.strip():
+            raise ValidationError({"xml_snapshot": "XML candidato obrigatorio para item ativo."})
+
+    def save(self, *args, **kwargs) -> None:
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"NfseExternalXmlInboxItem[{self.inbox_id}:{self.safe_filename}:{self.status}]"
 
 
 class NfeItem(models.Model):

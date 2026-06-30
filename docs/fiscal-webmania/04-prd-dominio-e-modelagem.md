@@ -1008,3 +1008,15 @@ Estados planejados: `pending_review`, `approved_for_batch`, `imported`, `discard
 Relacao com lote XML: a recomendacao e **B - caixa de entrada pendente para usuario revisar e acionar lote**. A criacao automatica de lote a partir de XML coletado deve ficar adiada, porque aumenta risco de importacao silenciosa e documento de oficina errada.
 
 Fronteira fiscal permanente: origem externa entrega XML candidato; `NfseReceivedImportBatch` e `NfseReceivedDocument` continuam sendo o nucleo fiscal. A futura implementacao nao deve criar documento recebido sem XML, nao deve substituir XML validado, nao deve criar `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt` e nao deve manifestar automaticamente.
+
+## Fase 3.15.2 - modelagem implementada da inbox externa
+
+Status: em implementacao controlada em 2026-06-30. A Fase 3.15.1 foi validada documentalmente no checkpoint `5882cd4e`.
+
+Modelagem criada: `WebmaniaCompany.nfse_external_xml_inbox_enabled`, `NfseExternalXmlInbox` e `NfseExternalXmlInboxItem`.
+
+`NfseExternalXmlInbox` representa a operacao local/manual de entrada de XML candidato por oficina/empresa, com origem `manual_upload`, status, contadores, usuario criador e auditoria de processamento.
+
+`NfseExternalXmlInboxItem` representa o XML candidato com nome original/seguro, XML snapshot, hash, tamanho, metadados de origem, status, erros, resumo parseado, aprovacao, descarte, processamento e vinculos com `NfseReceivedImportBatch`, `NfseReceivedImportBatchItem` e `NfseReceivedDocument`.
+
+O item da inbox nao e documento fiscal. Documento recebido continua nascendo somente pelo lote/importador XML validado. A inbox nao cria `NfseItem`, `FiscalDocument(nfse)`, `FiscalEmissionAttempt` ou `NfseManifestation`.

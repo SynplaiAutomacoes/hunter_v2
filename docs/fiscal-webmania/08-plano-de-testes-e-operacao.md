@@ -986,3 +986,13 @@ Testes funcionais futuros recomendados:
 - reprocessa de forma idempotente sem duplicar documento nem sobrescrever XML validado.
 
 Operacao planejada: iniciar com importacao sob demanda/revisao humana. Conectores reais de e-mail, ERP, pasta monitorada ou webhook externo devem ter bateria propria quando forem autorizados.
+
+## Cobertura planejada/implementada na Fase 3.15.2
+
+Status: em implementacao controlada em 2026-06-30.
+
+Nova classe: `FiscalPhaseThreeNfseExternalXmlInboxTests`.
+
+Cobertura esperada: registro de XML candidato, multiplos XMLs, resumo parseado, hash, status pendente, ausencia de documento/lote automatico, invalidos por arquivo, duplicidade no envio, duplicidade contra inbox/documento, CNPJ/oficina divergente, aprovacao humana, descarte com auditoria, processamento pelo lote XML, vinculos com lote/item/documento, bloqueio de reprocessamento, permissoes e payload protegido.
+
+Regressoes obrigatorias: upload unitario, lote XML, consulta recebida, manifestacao recebida, manifestacao NFS-e existente, preview/emissao/cancelamento/substituicao manual e NFS-e legada.

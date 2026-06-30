@@ -266,6 +266,16 @@
 - OpenAPI Webmania mantido sem alteracao porque a fase trata de origem externa local.
 - Nenhum codigo funcional, migration, service, view, template ou teste foi alterado.
 
+## Fase 3.15.2 - caixa de entrada externa de XML NFS-e recebida
+
+- Fase 3.15.1 validada documentalmente no checkpoint `5882cd4e`.
+- Implementada inbox local/manual/assistida para XMLs candidatos, sem conector real de e-mail/ERP.
+- Criados `NfseExternalXmlInbox`, `NfseExternalXmlInboxItem` e flag `nfse_external_xml_inbox_enabled`.
+- Criado service que registra candidatos, aprova, descarta e processa aprovados via `NfseReceivedImportBatch`.
+- UI minima adicionada para lista, upload, detalhe, aprovacao, descarte, processamento e payload protegido.
+- Testes novos em `FiscalPhaseThreeNfseExternalXmlInboxTests`.
+- OpenAPI Webmania mantido sem alteracao.
+
 ## Fase 3.13.1 - inicio da consulta auxiliar de NFS-e recebida
 
 - Fase 3.13.0 aprovada no checkpoint `d83b37dc`.

@@ -12,11 +12,12 @@ from django.shortcuts import get_object_or_404, redirect
 from django.views import View
 from django.views.generic import DetailView, FormView, ListView
 
-from apps.finance.forms.nfse_received import NfseReceivedDocumentBatchUploadForm, NfseReceivedDocumentUploadForm
+from apps.finance.forms.nfse_received import NfseExternalXmlInboxDiscardForm, NfseExternalXmlInboxUploadForm, NfseReceivedDocumentBatchUploadForm, NfseReceivedDocumentUploadForm
 from apps.core.forms import CoreForm
-from apps.finance.models.finance import FiscalEmissionAttemptStatus, NfseManifestation, NfseReceivedDocument, NfseReceivedDocumentConsultation, NfseReceivedImportBatch
+from apps.finance.models.finance import FiscalEmissionAttemptStatus, NfseExternalXmlInbox, NfseExternalXmlInboxItem, NfseManifestation, NfseReceivedDocument, NfseReceivedDocumentConsultation, NfseReceivedImportBatch
 from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
 from apps.finance.services.nfse_manifestation import NfseManifestationError, is_nfse_received_document_eligible_for_manifestation, manifest_nfse_received_document, nfse_received_document_manifestation_block_reason
+from apps.finance.services.nfse_external_xml_inbox import NfseExternalXmlInboxError, NfseExternalXmlInboxUploadFile, approve_nfse_external_xml_inbox_item, create_nfse_external_xml_inbox, discard_nfse_external_xml_inbox_item, process_nfse_external_xml_inbox
 from apps.finance.services.nfse_received_batch import NfseReceivedBatchFile, NfseReceivedBatchImportError, import_nfse_received_xml_batch
 from apps.finance.services.nfse_received_consultation import NfseReceivedConsultationError, consult_nfse_received_document, is_nfse_received_document_eligible_for_consultation, nfse_received_document_consultation_block_reason
 from apps.finance.services.nfse_received import NfseReceivedImportError, import_nfse_received_xml
@@ -75,6 +76,8 @@ class NfseReceivedDocumentListView(NfseReceivedDocumentPermissionMixin, ListView
         context = super().get_context_data(**kwargs)
         context["can_import"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfsereceiveddocument", codename="import_nfse_received", request=self.request)
         context["can_import_batch"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfsereceivedimportbatch", codename="import_nfse_received_batch", request=self.request)
+        context["can_view_external_inbox"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfseexternalxmlinbox", codename="view_nfse_external_xml_inbox", request=self.request)
+        context["can_upload_external_inbox"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfseexternalxmlinbox", codename="upload_nfse_external_xml_inbox", request=self.request)
         return context
 
 
@@ -136,6 +139,148 @@ class NfseReceivedImportBatchDetailView(LoginRequiredMixin, WorkshopScopedMixin,
 
     def get_queryset(self):
         return NfseReceivedImportBatch.objects.filter(workshop=self.workshop).select_related("company", "created_by").prefetch_related("items__received_document")
+
+
+class NfseExternalXmlInboxPermissionMixin(LoginRequiredMixin, WorkshopScopedMixin):
+    model = NfseExternalXmlInbox
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfseexternalxmlinbox"
+
+    def get_queryset(self):
+        return NfseExternalXmlInbox.objects.filter(workshop=self.workshop).select_related("company", "created_by", "processed_by").prefetch_related("items__linked_batch", "items__linked_received_document")
+
+
+class NfseExternalXmlInboxListView(NfseExternalXmlInboxPermissionMixin, ListView):
+    template_name = "finance/nfse_external_xml_inbox_list.html"
+    context_object_name = "inboxes"
+    workshop_permission_codename = "view_nfse_external_xml_inbox"
+
+    def get_queryset(self):
+        return super().get_queryset().order_by("-criado_em")
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["can_upload_external_inbox"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfseexternalxmlinbox", codename="upload_nfse_external_xml_inbox", request=self.request)
+        return context
+
+
+class NfseExternalXmlInboxUploadView(LoginRequiredMixin, WorkshopScopedMixin, FormView):
+    template_name = "finance/nfse_external_xml_inbox_form.html"
+    form_class = NfseExternalXmlInboxUploadForm
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfseexternalxmlinbox"
+    workshop_permission_codename = "upload_nfse_external_xml_inbox"
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["workshop"] = self.workshop
+        return kwargs
+
+    def form_valid(self, form):
+        upload_files = [
+            NfseExternalXmlInboxUploadFile(filename=uploaded.name, content=uploaded.read(), content_type=getattr(uploaded, "content_type", ""))
+            for uploaded in self.request.FILES.getlist("xml_files")
+        ]
+        try:
+            inbox = create_nfse_external_xml_inbox(workshop=self.workshop, company=form.cleaned_data["company"], files=upload_files, source_label=form.cleaned_data.get("source_label", ""), created_by=self.request.user)
+        except (NfseExternalXmlInboxError, ValidationError) as exc:
+            messages.error(self.request, "; ".join(getattr(exc, "messages", [str(exc)])))
+            return self.form_invalid(form)
+        if inbox.error_count:
+            messages.warning(self.request, "XMLs candidatos registrados com pendencias. Revise os itens antes de aprovar.")
+        else:
+            messages.success(self.request, "XMLs candidatos registrados na inbox para revisao humana.")
+        return redirect("finance:nfse_external_xml_inbox_detail", pk=inbox.pk)
+
+
+class NfseExternalXmlInboxDetailView(NfseExternalXmlInboxPermissionMixin, DetailView):
+    template_name = "finance/nfse_external_xml_inbox_detail.html"
+    context_object_name = "inbox"
+    workshop_permission_codename = "view_nfse_external_xml_inbox"
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["discard_form"] = NfseExternalXmlInboxDiscardForm()
+        context["can_approve_external_inbox"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfseexternalxmlinbox", codename="approve_nfse_external_xml_inbox", request=self.request)
+        context["can_discard_external_inbox"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfseexternalxmlinbox", codename="discard_nfse_external_xml_inbox", request=self.request)
+        context["can_process_external_inbox"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfseexternalxmlinbox", codename="process_nfse_external_xml_inbox", request=self.request)
+        context["can_view_external_payload"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfseexternalxmlinbox", codename="view_nfse_external_xml_payload", request=self.request)
+        return context
+
+
+class NfseExternalXmlInboxItemApproveView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfseexternalxmlinbox"
+    workshop_permission_codename = "approve_nfse_external_xml_inbox"
+
+    def post(self, request, *args, **kwargs):
+        item = get_object_or_404(NfseExternalXmlInboxItem.objects.select_related("inbox", "inbox__workshop"), pk=kwargs["item_pk"], inbox_id=kwargs["pk"], inbox__workshop=self.workshop)
+        try:
+            approve_nfse_external_xml_inbox_item(item=item, approved_by=request.user)
+        except NfseExternalXmlInboxError as exc:
+            messages.error(request, "; ".join(getattr(exc, "messages", [str(exc)])))
+        else:
+            messages.success(request, "Item aprovado para processamento pelo lote XML.")
+        return redirect("finance:nfse_external_xml_inbox_detail", pk=kwargs["pk"])
+
+
+class NfseExternalXmlInboxItemDiscardView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfseexternalxmlinbox"
+    workshop_permission_codename = "discard_nfse_external_xml_inbox"
+
+    def post(self, request, *args, **kwargs):
+        item = get_object_or_404(NfseExternalXmlInboxItem.objects.select_related("inbox", "inbox__workshop"), pk=kwargs["item_pk"], inbox_id=kwargs["pk"], inbox__workshop=self.workshop)
+        form = NfseExternalXmlInboxDiscardForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Informe o motivo do descarte.")
+            return redirect("finance:nfse_external_xml_inbox_detail", pk=kwargs["pk"])
+        try:
+            discard_nfse_external_xml_inbox_item(item=item, reason=form.cleaned_data["reason"], discarded_by=request.user)
+        except NfseExternalXmlInboxError as exc:
+            messages.error(request, "; ".join(getattr(exc, "messages", [str(exc)])))
+        else:
+            messages.success(request, "Item descartado com auditoria.")
+        return redirect("finance:nfse_external_xml_inbox_detail", pk=kwargs["pk"])
+
+
+class NfseExternalXmlInboxProcessView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfseexternalxmlinbox"
+    workshop_permission_codename = "process_nfse_external_xml_inbox"
+
+    def post(self, request, *args, **kwargs):
+        inbox = get_object_or_404(NfseExternalXmlInbox.objects.filter(workshop=self.workshop).select_related("company"), pk=kwargs["pk"])
+        try:
+            batch = process_nfse_external_xml_inbox(inbox=inbox, processed_by=request.user)
+        except (NfseExternalXmlInboxError, ValidationError) as exc:
+            messages.error(request, "; ".join(getattr(exc, "messages", [str(exc)])))
+            return redirect("finance:nfse_external_xml_inbox_detail", pk=inbox.pk)
+        if batch.error_count:
+            messages.warning(request, "Itens aprovados enviados ao lote com erros. Revise os vinculos por item.")
+        else:
+            messages.success(request, "Itens aprovados processados pelo lote XML.")
+        return redirect("finance:nfse_external_xml_inbox_detail", pk=inbox.pk)
+
+
+class NfseExternalXmlInboxItemPayloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfseexternalxmlinbox"
+    workshop_permission_codename = "view_nfse_external_xml_payload"
+
+    def get(self, request, *args, **kwargs):
+        item = get_object_or_404(NfseExternalXmlInboxItem.objects.select_related("inbox"), pk=kwargs["item_pk"], inbox_id=kwargs["pk"], inbox__workshop=self.workshop)
+        return JsonResponse(
+            {
+                "id": item.pk,
+                "status": item.status,
+                "safe_filename": item.safe_filename,
+                "xml_hash": item.xml_hash,
+                "parsed_summary": item.parsed_summary,
+                "validation_errors": item.validation_errors,
+                "xml_snapshot": item.xml_snapshot,
+            }
+        )
 
 
 class NfseReceivedDocumentDetailView(NfseReceivedDocumentPermissionMixin, DetailView):

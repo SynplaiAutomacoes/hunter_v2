@@ -743,3 +743,13 @@ Permissoes planejadas:
 Decisao de permissao: `import_nfse_received_batch` nao deve, sozinha, processar a caixa externa. A caixa de entrada precisa de permissao separada porque envolve origem externa, credenciais, anexos e descarte; a permissao de lote continua governando a importacao fiscal apos revisao.
 
 Feature flags planejadas: `nfse_external_xml_inbox_enabled`, `nfse_email_xml_import_enabled` e `nfse_erp_xml_import_enabled`. As flags devem ser por oficina/empresa quando envolverem credenciais ou fonte operacional; flag global pode existir apenas como kill switch administrativo.
+
+## Fase 3.15.2 - UX e permissoes implementadas para inbox externa
+
+Status: em implementacao controlada em 2026-06-30. A Fase 3.15.1 foi validada documentalmente no checkpoint `5882cd4e`.
+
+UX minima implementada: lista de inboxes, upload manual/assistido de XMLs candidatos, detalhe da inbox com contadores, itens, erros, resumo, vinculos com lote/documento, aprovacao, descarte com motivo, processamento de aprovados e payload protegido.
+
+Permissoes implementadas em `NfseExternalXmlInbox`: `view_nfse_external_xml_inbox`, `upload_nfse_external_xml_inbox`, `approve_nfse_external_xml_inbox`, `process_nfse_external_xml_inbox`, `discard_nfse_external_xml_inbox` e `view_nfse_external_xml_payload`.
+
+Permissoes de consulta, manifestacao, emissao, cancelamento, substituicao e lote nao aprovam nem processam a inbox por si so.

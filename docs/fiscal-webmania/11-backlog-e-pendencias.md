@@ -432,3 +432,10 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Importacao automatica, consulta Webmania automatica e manifestacao automatica permanecem proibidas.
 - `NfseItem`, `FiscalDocument(nfse)` e `FiscalEmissionAttempt` nao devem ser criados pela origem externa de XML.
 - Pendencias remanescentes: conectores reais, processamento assincrono completo, relatorios operacionais ampliados e eventual consolidacao `FiscalDocument(nfse)` sob demanda.
+
+## Apos a Fase 3.15.2
+
+- Inbox externa local/manual implementada para XMLs candidatos.
+- Pendencias remanescentes: conector real de e-mail, OAuth/Gmail/Microsoft, ERP real, pasta monitorada, webhook externo real, job agendado e pipeline assincrono completo.
+- Importacao automatica, consulta Webmania automatica e manifestacao automatica seguem proibidas ate fase propria.
+- `NfseItem`, `FiscalDocument(nfse)` e `FiscalEmissionAttempt` continuam fora da inbox.

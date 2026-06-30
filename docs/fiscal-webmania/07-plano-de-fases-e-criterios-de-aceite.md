@@ -1581,6 +1581,16 @@ Fora de escopo da proxima fase funcional: conector real IMAP/Gmail/Microsoft, co
 - OpenAPI Webmania mantido sem alteracao.
 - Nenhum codigo funcional, migration, service, view, template ou teste alterado.
 
+## Fase 3.15.2 - Caixa de Entrada Externa de XML para NFS-e Recebida
+
+Status: **em implementacao controlada em 2026-06-30**. A Fase 3.15.1 foi validada documentalmente e encerrada no checkpoint `5882cd4e`.
+
+Escopo autorizado: inbox local/manual/assistida para XMLs candidatos. Conectores reais de e-mail/ERP, IMAP, Gmail API, Microsoft Graph, pasta monitorada, webhook externo real, job agendado, pipeline assincrono completo, consulta Webmania automatica, manifestacao automatica, documento sem XML, `NfseItem`, `FiscalDocument(nfse)` e `FiscalEmissionAttempt` permanecem fora de escopo.
+
+Implementacao prevista nesta fase: `NfseExternalXmlInbox`, `NfseExternalXmlInboxItem`, flag `nfse_external_xml_inbox_enabled`, service local, forms, views, rotas, templates, testes e documentacao. O processamento deve reaproveitar `NfseReceivedImportBatch` e vincular item da inbox ao item de lote/documento quando houver sucesso.
+
+Criterios de aceite: item candidato nao cria documento fiscal; item aprovado nao cria documento fiscal; somente processamento humano envia aprovados ao lote XML; duplicidades e cross-workshop sao bloqueados; payload/XML e protegido por permissao; nenhuma chamada Webmania automatica e feita.
+
 ## Fase 3.11.0 - Planejamento Tecnico da NFS-e Recebida/Importada de Terceiros
 
 Status: **em planejamento documental em 2026-06-29**. A Fase 3.10.0 foi validada documentalmente no checkpoint `8d5c7192`.

@@ -68,3 +68,29 @@ class NfseReceivedDocumentBatchUploadForm(CoreForm):
         if total_size > MAX_NFSE_RECEIVED_BATCH_TOTAL_SIZE:
             raise forms.ValidationError("O tamanho total do lote excede o limite permitido.")
         return files
+
+
+class NfseExternalXmlInboxUploadForm(CoreForm):
+    company = forms.ModelChoiceField(label="Empresa", queryset=WebmaniaCompany.objects.none(), required=True)
+    source_label = forms.CharField(label="Origem declarada", required=False, max_length=120, help_text="Ex.: anexos recebidos por e-mail, exportacao manual de ERP ou arquivo operacional da oficina.")
+    xml_files = MultipleFileField(label="XMLs candidatos", required=True, widget=MultipleFileInput(attrs={"multiple": True}))
+    confirmed = forms.BooleanField(label="Confirmo que a inbox nao importa automaticamente, nao consulta Webmania e nao manifesta documentos.", required=True)
+
+    def __init__(self, *args, workshop=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.workshop = workshop
+        if workshop is not None:
+            self.fields["company"].queryset = WebmaniaCompany.objects.filter(workshop=workshop, nfse_external_xml_inbox_enabled=True).order_by("razao_social", "nome_completo", "pk")
+
+    def clean_xml_files(self):
+        files = self.cleaned_data["xml_files"]
+        if len(files) > MAX_NFSE_RECEIVED_BATCH_FILES:
+            raise forms.ValidationError(f"A inbox deve receber no maximo {MAX_NFSE_RECEIVED_BATCH_FILES} arquivos por envio.")
+        total_size = sum(xml_file.size for xml_file in files)
+        if total_size > MAX_NFSE_RECEIVED_BATCH_TOTAL_SIZE:
+            raise forms.ValidationError("O tamanho total do envio excede o limite permitido.")
+        return files
+
+
+class NfseExternalXmlInboxDiscardForm(CoreForm):
+    reason = forms.CharField(label="Motivo do descarte", required=True, max_length=1000, widget=forms.Textarea(attrs={"rows": 3}))

@@ -817,3 +817,15 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 **Consequencias:** a proxima implementacao, se aprovada, deve criar dominio intermediario auditavel, permissoes e flags proprias, sem chamar Webmania, sem manifestar, sem criar `NfseItem`, sem criar `FiscalDocument(nfse)` e sem criar `FiscalEmissionAttempt`. Conectores reais IMAP/Gmail/Microsoft/ERP continuam posteriores.
 
 **OpenAPI:** nenhuma alteracao. A decisao e local e nao envolve endpoint Webmania novo.
+
+## ADR - Fase 3.15.2: inbox local/manual antes de conectores externos
+
+**Status:** em implementacao controlada em 2026-06-30.
+
+**Contexto:** a Fase 3.15.1 foi validada documentalmente no checkpoint `5882cd4e`. A decisao aprovada foi implementar caixa de entrada local para XMLs candidatos, sem conector real.
+
+**Decisao:** implementar `NfseExternalXmlInbox` e `NfseExternalXmlInboxItem` como camada operacional intermediaria. Itens podem ser pendentes, invalidos, duplicados, aprovados, descartados, processados ou erro. Somente itens aprovados sao enviados ao lote XML validado.
+
+**Justificativa:** a inbox permite capturar XMLs candidatos e auditar origem manual sem criar caminho fiscal paralelo. O lote continua dono da criacao de `NfseReceivedDocument`.
+
+**Consequencias:** a implementacao adiciona flag e permissoes proprias. Nenhum conector real, Webmania automatica, manifestacao automatica, `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt` e criado pela inbox.
