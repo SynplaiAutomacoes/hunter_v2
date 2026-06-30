@@ -996,3 +996,19 @@ Nova classe: `FiscalPhaseThreeNfseExternalXmlInboxTests`.
 Cobertura esperada: registro de XML candidato, multiplos XMLs, resumo parseado, hash, status pendente, ausencia de documento/lote automatico, invalidos por arquivo, duplicidade no envio, duplicidade contra inbox/documento, CNPJ/oficina divergente, aprovacao humana, descarte com auditoria, processamento pelo lote XML, vinculos com lote/item/documento, bloqueio de reprocessamento, permissoes e payload protegido.
 
 Regressoes obrigatorias: upload unitario, lote XML, consulta recebida, manifestacao recebida, manifestacao NFS-e existente, preview/emissao/cancelamento/substituicao manual e NFS-e legada.
+
+## Plano de testes para Fase 3.16.1 - ampliacao operacional da inbox XML
+
+Status: planejado na Fase 3.16.0.
+
+Testes futuros recomendados:
+
+- filtros por status, empresa, origem e periodo;
+- busca por nome de arquivo, hash, UUID e identificador parseado;
+- exportacao de relatorio sem expor XML quando usuario nao possuir permissao de payload;
+- acoes em massa de aprovacao/descarte com confirmacao explicita;
+- bloqueio de aprovacao em massa para itens invalidos, duplicados, descartados ou processados;
+- reprocessamento controlado sem duplicar lote nem documento;
+- painel de auditoria com criacao, aprovacao, descarte, processamento, lote e documento;
+- cross-workshop em lista, filtros, detalhe, exportacao e acoes;
+- ausencia de chamada Webmania, manifestacao automatica, `NfseItem`, `FiscalDocument(nfse)` e `FiscalEmissionAttempt`.

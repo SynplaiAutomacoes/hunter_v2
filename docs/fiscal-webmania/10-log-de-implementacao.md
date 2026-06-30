@@ -276,6 +276,16 @@
 - Testes novos em `FiscalPhaseThreeNfseExternalXmlInboxTests`.
 - OpenAPI Webmania mantido sem alteracao.
 
+## Fase 3.16.0 - reavaliacao apos inbox externa XML
+
+- Fase 3.15.2 aprovada, validada e encerrada no checkpoint `517d25b8`.
+- Registrados `NfseExternalXmlInbox`, `NfseExternalXmlInboxItem`, migration `0073`, flag `nfse_external_xml_inbox_enabled`, upload manual/assistido, aprovacao humana, descarte com auditoria, processamento via `NfseReceivedImportBatch` e vinculos com lote/item/documento.
+- Confirmadas ausencias de conectores reais de e-mail/ERP, consulta Webmania automatica, manifestacao automatica, documento recebido sem XML, `NfseItem`, `FiscalDocument(nfse)` e `FiscalEmissionAttempt`.
+- Reavaliados conector e-mail, ERP, pasta/Drive/SharePoint, webhook externo, ampliacao da inbox local, consulta Webmania ampliada, manifestacao manual, NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
+- Decisao recomendada: **Opcao D**, ampliar inbox local antes de conectores reais.
+- OpenAPI Webmania mantido sem alteracao.
+- Nenhum codigo funcional, migration, service, view, template ou teste foi alterado nesta fase documental.
+
 ## Fase 3.13.1 - inicio da consulta auxiliar de NFS-e recebida
 
 - Fase 3.13.0 aprovada no checkpoint `d83b37dc`.

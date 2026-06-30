@@ -753,3 +753,11 @@ UX minima implementada: lista de inboxes, upload manual/assistido de XMLs candid
 Permissoes implementadas em `NfseExternalXmlInbox`: `view_nfse_external_xml_inbox`, `upload_nfse_external_xml_inbox`, `approve_nfse_external_xml_inbox`, `process_nfse_external_xml_inbox`, `discard_nfse_external_xml_inbox` e `view_nfse_external_xml_payload`.
 
 Permissoes de consulta, manifestacao, emissao, cancelamento, substituicao e lote nao aprovam nem processam a inbox por si so.
+
+## Fase 3.16.0 - UX apos inbox externa local
+
+Status: em planejamento documental em 2026-06-30. A Fase 3.15.2 foi validada no checkpoint `517d25b8`.
+
+A inbox local ja possui fluxo minimo. Melhorias pequenas recomendadas antes de conectores reais: filtros por status/empresa/origem, busca por hash/arquivo/UUID, exportacao de relatorio, acoes em massa de aprovacao/descarte com confirmacao, retencao visivel, reprocessamento controlado e painel de auditoria.
+
+Permissoes existentes devem continuar separadas: visualizar, enviar, aprovar, processar, descartar e payload. Nenhuma permissao de consulta, manifestacao, emissao, cancelamento, substituicao ou lote deve liberar automaticamente a operacao da inbox.

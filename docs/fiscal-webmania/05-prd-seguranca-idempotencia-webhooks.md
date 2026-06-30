@@ -895,3 +895,11 @@ Controles implementados: flag propria por empresa/oficina, upload manual apenas,
 Processamento: somente item aprovado por usuario e ainda nao vinculado a lote e enviado ao `NfseReceivedImportBatch`. Item descartado, invalido, duplicado ou ja processado nao e processado. Reprocessamento de item ja processado e bloqueado por ausencia de itens aprovados sem lote.
 
 Nao ha webhook externo real, job agendado, consulta Webmania automatica, manifestacao automatica ou exposicao de path local.
+
+## Fase 3.16.0 - seguranca apos inbox externa local
+
+Status: em planejamento documental em 2026-06-30. A Fase 3.15.2 foi validada no checkpoint `517d25b8`.
+
+Conectores reais de e-mail, ERP, pasta monitorada e webhook externo continuam com risco alto por credenciais, spoofing/origem falsa, segregacao por oficina, anexos adulterados, idempotencia por mensagem e observabilidade. A inbox local reduziu o risco de origem operacional, mas nao resolveu autenticacao externa.
+
+Recomendacao de seguranca: priorizar melhorias locais e auditaveis da inbox antes de conectores reais. Qualquer conector futuro deve criar apenas item de inbox pendente, com revisao humana obrigatoria, sem consulta Webmania automatica e sem manifestacao automatica.

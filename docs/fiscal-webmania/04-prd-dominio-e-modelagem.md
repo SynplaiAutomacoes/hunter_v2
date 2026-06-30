@@ -1020,3 +1020,11 @@ Modelagem criada: `WebmaniaCompany.nfse_external_xml_inbox_enabled`, `NfseExtern
 `NfseExternalXmlInboxItem` representa o XML candidato com nome original/seguro, XML snapshot, hash, tamanho, metadados de origem, status, erros, resumo parseado, aprovacao, descarte, processamento e vinculos com `NfseReceivedImportBatch`, `NfseReceivedImportBatchItem` e `NfseReceivedDocument`.
 
 O item da inbox nao e documento fiscal. Documento recebido continua nascendo somente pelo lote/importador XML validado. A inbox nao cria `NfseItem`, `FiscalDocument(nfse)`, `FiscalEmissionAttempt` ou `NfseManifestation`.
+
+## Fase 3.16.0 - dominio apos inbox externa local
+
+Status: em planejamento documental em 2026-06-30. A Fase 3.15.2 foi validada no checkpoint `517d25b8`.
+
+O bloco NFS-e recebida agora possui registro unitario por XML, manifestacao de recebida, consulta auxiliar GET-only, lote XML e inbox externa local/manual/assistida. A fonte fiscal continua sendo `NfseReceivedDocument` criado pelo pipeline XML/lote.
+
+A proxima evolucao de menor risco no dominio e ampliar a propria inbox local: filtros, busca, relatorio/exportacao, acoes em massa controladas, retencao, reprocessamento explicito e painel de auditoria. Conectores reais de e-mail/ERP/pasta/webhook devem continuar fora do dominio funcional enquanto autenticacao, segregacao por oficina e contratos externos nao estiverem definidos.

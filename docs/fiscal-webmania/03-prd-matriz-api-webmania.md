@@ -1165,3 +1165,22 @@ Status: em implementacao controlada em 2026-06-30. A Fase 3.15.1 foi validada do
 Nenhum endpoint Webmania foi adicionado ou consumido. A inbox implementada e local/manual/assistida e aceita somente upload de XML candidato. O processamento aprovado pelo usuario reaproveita o pipeline local de `NfseReceivedImportBatch`; nao chama `GET /2/nfse/consulta/{identifier}`, `GET /2/nfse/status`, `POST /2/nfse/manifestar`, emissao, cancelamento ou substituicao.
 
 OpenAPI: nenhuma alteracao aplicada; o schema Webmania permanece suficiente.
+
+## Fase 3.16.0 - matriz API apos inbox externa local
+
+Status: em planejamento documental em 2026-06-30. A Fase 3.15.2 foi validada no checkpoint `517d25b8`.
+
+| Bloco | Endpoint Webmania relevante | Situacao para o Hunter |
+| ----- | --------------------------- | ---------------------- |
+| Conector real de e-mail para XML NFS-e | N/A | Depende de IMAP/Gmail/Microsoft/OAuth; nao e contrato Webmania. |
+| Conector real de ERP para XML NFS-e | N/A | Depende de ERP especifico; nao ha contrato definido. |
+| Pasta monitorada/Drive/SharePoint | N/A | Origem externa local; depende de credenciais e segregacao. |
+| Webhook externo de XML | N/A | Possivel origem futura; exigiria assinatura/autenticacao propria. |
+| Ampliacao da inbox externa local | Nenhum | Reaproveita dominio local implementado, sem novo endpoint remoto. |
+| Consulta Webmania ampliada para recebidas | `GET /2/nfse/consulta/{identifier}`, `GET /2/nfse/status` | Ja existe apoio GET-only; manter consultivo. |
+| Manifestacao NFS-e manual | `POST /2/nfse/manifestar` | Contrato existe; papel fiscal segue inseguro. |
+| NFS-e expandida | `/2/nfse/*` | Exige subfase documental; nao abrir bloco amplo. |
+| CT-e, MDF-e, NFCom, DC-e | Familias `/2/*` respectivas | Contratos mapeados em alto nivel; dominio local ausente. |
+| IBS/CBS, creditos/debitos e complementar | NF-e/eventos existentes | Nao ficaram mais seguros pela inbox NFS-e. |
+
+OpenAPI: nenhuma alteracao aplicada. A reavaliacao trata principalmente de origem externa de XML e pipeline local; o schema Webmania permanece suficiente.

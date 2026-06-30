@@ -439,3 +439,11 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Pendencias remanescentes: conector real de e-mail, OAuth/Gmail/Microsoft, ERP real, pasta monitorada, webhook externo real, job agendado e pipeline assincrono completo.
 - Importacao automatica, consulta Webmania automatica e manifestacao automatica seguem proibidas ate fase propria.
 - `NfseItem`, `FiscalDocument(nfse)` e `FiscalEmissionAttempt` continuam fora da inbox.
+
+## Apos a Fase 3.16.0
+
+- Reavaliacao recomenda ampliar a inbox local antes de conectores reais.
+- Proxima fase sugerida: filtros, busca, relatorio/exportacao, acoes em massa controladas, retencao, reprocessamento seguro, painel de auditoria e vinculos mais claros com lote/documento.
+- Conectores reais de e-mail/ERP, pasta monitorada e webhook externo continuam adiados ate autenticacao, segregacao e contratos externos estarem definidos.
+- Consulta Webmania ampliada permanece consultiva e nao deve criar NFS-e recebida.
+- Manifestacao manual, NFS-e expandida ampla, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria continuam fora do escopo imediato.

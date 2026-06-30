@@ -1591,6 +1591,85 @@ Implementacao prevista nesta fase: `NfseExternalXmlInbox`, `NfseExternalXmlInbox
 
 Criterios de aceite: item candidato nao cria documento fiscal; item aprovado nao cria documento fiscal; somente processamento humano envia aprovados ao lote XML; duplicidades e cross-workshop sao bloqueados; payload/XML e protegido por permissao; nenhuma chamada Webmania automatica e feita.
 
+## Fase 3.16.0 - Reavaliacao apos Inbox Externa de XML NFS-e
+
+Status: **em planejamento documental em 2026-06-30**. A Fase 3.15.2 foi validada e encerrada no checkpoint `517d25b8`.
+
+Escopo autorizado: somente documentacao em `docs/fiscal-webmania/**` e OpenAPI apenas se houver correcao oficial confirmada. Nenhum codigo funcional, migration, service, view, template ou teste deve ser alterado nesta fase.
+
+### Contexto implementado
+
+O bloco NFS-e recebida possui registro unitario por XML, manifestacao de NFS-e recebida, consulta/reconciliacao auxiliar GET-only, importacao em lote de XML, caixa de entrada externa local/manual/assistida e processamento da inbox via lote XML validado.
+
+Implementado e validado no checkpoint `517d25b8`: `NfseExternalXmlInbox`, `NfseExternalXmlInboxItem`, migration `0073`, flag `nfse_external_xml_inbox_enabled`, upload manual/assistido de XMLs candidatos, aprovacao humana, descarte com motivo/auditoria, processamento de aprovados via `NfseReceivedImportBatch` e vinculo com lote, item de lote e `NfseReceivedDocument`. Permanecem ausentes conectores reais de e-mail/ERP, consulta Webmania automatica, manifestacao automatica, documento recebido sem XML, `NfseItem`, `FiscalDocument(nfse)` e `FiscalEmissionAttempt`.
+
+### Matriz comparativa
+
+| Bloco | Fonte local existe? | Contrato externo claro? | Reaproveita infraestrutura atual? | Dependencia externa | Risco fiscal/seguranca | Valor de negocio | Recomendacao |
+| ----- | ------------------: | ----------------------: | --------------------------------: | ------------------- | ---------------------- | ---------------- | ------------ |
+| Conector real de e-mail para XML NFS-e | Parcial: inbox local existe; origem e-mail real nao | Nao; IMAP/Gmail/Microsoft/OAuth nao definidos | Alta via inbox/lote | Alta: conta, OAuth/IMAP, message-id, anexos | Alto sem segregacao por oficina e revogacao claras | Alto | Adiar; exigir fase propria de autenticacao/segregacao |
+| Conector real de ERP para XML NFS-e | Parcial: inbox local existe; ERP real nao | Nao; nenhum ERP/contrato definido | Alta via inbox/lote | Alta: API/token/exportacao por ERP | Alto por CNPJ errado e contrato variavel | Medio/alto | Adiar ate ERP especifico |
+| Pasta monitorada/Drive/SharePoint | Parcial: inbox local existe | Parcial; depende de provedor | Alta via inbox/lote | Media/alta: OAuth/pasta/permissoes | Alto por arquivo adulterado e acesso amplo | Medio | Adiar; nao e mais simples que melhorar inbox local |
+| Webhook externo de XML | Parcial: inbox local existe | Nao; assinatura/payload ausentes | Alta via inbox/lote | Alta: origem externa, assinatura, rate limit | Alto por spoofing e importacao silenciosa | Medio | Adiar; apenas futuro item pendente de inbox |
+| Ampliacao da inbox externa local | Sim: `NfseExternalXmlInbox` implementado | N/A | Muito alta | Baixa | Baixo/medio, controlavel por permissoes | Alto operacional | **Recomendar Opcao D** |
+| Consulta Webmania ampliada para NFS-e recebida | Sim: documentos XML e consulta GET-only existem | Sim para GET/status | Alta | API Webmania | Medio; risco de virar fonte primaria indevida | Medio | Manter consultiva; nao criar por consulta |
+| Manifestacao da NFS-e manual | Parcial: NFS-e manual local existe | Endpoint claro, papel fiscal nao | Alta tecnica | Confirmacao fiscal/juridica | Alto por papel de manifestador inseguro | Medio | Manter adiada |
+| NFS-e expandida | Parcial: legado/manual/recebida existem | Parcial; varios endpoints | Media/alta | Backfill e convivencia de origens | Alto em bloco amplo | Alto | Adiar; se retomada, subfase documental propria |
+| CT-e | Nao | Sim em alto nivel | Baixa/media | Transporte/carga/documentos | Alto | Baixo/medio | Adiar |
+| MDF-e | Nao | Sim em alto nivel | Baixa/media | Logistica/veiculo/condutor | Alto | Baixo | Adiar |
+| NFCom | Nao | Sim; API mapeada | Media tecnica, baixa dominio | Comunicacao/telecom | Alto | Muito baixo | Adiar |
+| DC-e | Nao | Sim; API mapeada | Media tecnica, baixa dominio | Dominio especifico | Alto | Muito baixo | Adiar |
+| Eventos IBS/CBS 112120 | Nao suficiente | Parcial | Alta tecnica, baixa fonte fiscal | ALC/ZFM/importacao fiscal por item | Alto | Baixo | Adiar |
+| Eventos IBS/CBS 112140 | Nao suficiente | Parcial | Alta tecnica, baixa fonte fiscal | Pagamento antecipado/debito/nao fornecimento | Alto | Baixo/medio | Adiar |
+| Eventos IBS/CBS 211xxx | Nao suficiente | Parcial; familia ampla | Media | Papel destinatario/documentos externos | Alto | Baixo/medio | Adiar; exigir auditoria propria |
+| Creditos 2-5 | Parcial: credito tipo 1 existe | Parcial por tipo | Media/alta | Fonte fiscal/monetaria por tipo | Alto | Medio | Adiar |
+| Debitos 1-3 e 5-8 | Parcial: debito tipo 4 existe | Parcial por tipo | Media/alta | Fonte fiscal/monetaria por tipo | Alto | Medio | Adiar |
+| Complementar tributaria | Nao suficiente | Parcial | Media | Base tributaria historica e regras por imposto | Alto | Medio/alto | Adiar ate auditoria tributaria |
+
+### Avaliacoes especificas
+
+Conector real de e-mail: deve permanecer adiado. Caixa dedicada por oficina e melhor que caixa compartilhada, mas ainda exige definicao de OAuth/IMAP/Gmail/Microsoft, escopos, revogacao, segregacao, message-id, remetente confiavel, anexos, limites, fila/job e observabilidade. Sem autenticacao e segregacao claras, o risco operacional e alto demais.
+
+Conector ERP: deve permanecer adiado. Nao ha ERP especifico, API, formato de exportacao, token, periodicidade ou mapeamento por oficina/empresa. Sem contrato claro, a inbox receberia XMLs de origem insegura.
+
+Pasta monitorada/Drive/SharePoint: nao deve ser a proxima fase. Parece simples, mas exige OAuth/permissao de pasta, segregacao por oficina, controle de origem, job e protecao contra arquivo adulterado. Deve passar pela inbox apenas em fase futura.
+
+Webhook externo: apenas possibilidade futura. Sem assinatura, idempotencia, payload e auditoria definidos, webhook externo abre risco de origem falsa. Se existir no futuro, deve criar item pendente na inbox e nunca importar direto.
+
+Ampliacao da inbox local: e o menor proximo bloco com valor real. Filtros, busca, relatorio/exportacao, acoes em massa, retencao, reprocessamento controlado, painel de auditoria e vinculos mais claros com lote/documento melhoram operacao sem introduzir credenciais externas.
+
+Consulta Webmania ampliada: permanece apoio consultivo. Nao deve ser fonte de criacao de NFS-e recebida e nao deve substituir XML validado.
+
+Manifestacao da NFS-e manual: manter adiada por papel fiscal inseguro da oficina como tomadora/intermediaria de documento emitido por ela propria.
+
+NFS-e expandida: nao abrir fase ampla. Se retomada, deve ser nova fase documental com subescopo pequeno e convivencia entre legado, manual, recebida, lote e inbox.
+
+CT-e, MDF-e, NFCom e DC-e: permanecem adiados por ausencia de fonte local operacional e por exigirem dominios de transporte, logistica, comunicacao ou documentos especificos.
+
+IBS/CBS, creditos/debitos e complementar tributaria: a inbox NFS-e nao resolve fontes fiscais desses blocos. Eventos `112120`, `112140`, `211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria continuam dependentes de auditoria por tipo.
+
+### Decisao
+
+Escolher **Opcao D - Ampliar inbox local** como proxima recomendacao funcional pequena.
+
+Justificativa: a inbox local ja existe, nao depende de contrato externo, reaproveita `NfseExternalXmlInbox`, `NfseExternalXmlInboxItem`, `NfseReceivedImportBatch` e `NfseReceivedDocument`, tem baixo risco fiscal e aumenta valor operacional antes de qualquer conector real. Conectores de e-mail/ERP/pasta/webhook devem aguardar definicao de autenticacao, segregacao e contratos externos.
+
+### Escopo proposto da proxima fase - Fase 3.16.1 Ampliacao Operacional da Inbox XML NFS-e
+
+- Objetivo: melhorar operacao local da inbox sem conectores reais.
+- Modelagem: preferir campos/metadados existentes; criar campos novos apenas se necessarios para retencao, reprocessamento ou auditoria.
+- Permissoes: manter permissoes separadas de visualizar, enviar, aprovar, processar, descartar e payload; avaliar permissao para exportar relatorio se criada.
+- Feature flags: continuar usando `nfse_external_xml_inbox_enabled`.
+- UX: filtros, busca, relatorio/exportacao, acoes em massa com confirmacao, painel de auditoria e vinculos mais claros com lote/documento.
+- Relacao com inbox/lote: nenhum item cria documento fiscal diretamente; aprovados continuam seguindo para `NfseReceivedImportBatch`.
+- Validacoes: preservar duplicidade por hash/UUID/identificador, cross-workshop, arquivo inseguro, status invalido e item ja processado.
+- Auditoria: evidenciar criacao, aprovacao, descarte, processamento, vinculo com lote/documento e erros.
+- Testes: filtros/busca, exportacao se houver, acoes em massa, retencao/reprocessamento controlado, permissoes, cross-workshop e garantia de ausencia de Webmania/manifestacao automatica.
+- Riscos: acoes em massa indevidas, exportacao de XML/payload sem permissao, reprocessamento duplicado e relatorios ambíguos.
+- Criterios de aceite: nenhuma integracao externa real; nenhuma importacao automatica; nenhuma consulta Webmania automatica; nenhuma manifestacao automatica; nenhum documento sem XML; nenhum `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt`.
+
+OpenAPI: nenhuma alteracao. A proxima fase recomendada e local e nao depende de endpoint Webmania novo.
+
 ## Fase 3.11.0 - Planejamento Tecnico da NFS-e Recebida/Importada de Terceiros
 
 Status: **em planejamento documental em 2026-06-29**. A Fase 3.10.0 foi validada documentalmente no checkpoint `8d5c7192`.
