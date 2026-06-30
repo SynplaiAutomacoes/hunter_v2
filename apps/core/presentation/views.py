@@ -249,12 +249,18 @@ class DashboardFinancialReportView(View):
             "sinal_pago_mes_anterior": sinal_pago_mes_anterior,
             "warranty_count": warranty_count,
             "courtesy_count": courtesy_count,
+            "summary_count_label": (
+                "Quantidade de Veículos" if indicador in ("carros_mes", "garantia_cortesia_mes")
+                else "Quantidade de Registros"
+            ),
         }
 
     def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
         context = self._build_report_context(request=request)
         if context is None:
             return HttpResponse("Indicador inválido", status=400)
+
+        context["is_pdf"] = True
 
         document = render_template_request_to_pdf(
             DocumentRenderRequest(
@@ -281,6 +287,7 @@ class DashboardFinancialReportModalView(View):
             return HttpResponse("Indicador inválido", status=400)
 
         context["pdf_download_url"] = context["download_url"]
+        context["is_pdf"] = False
         return TemplateResponse(request, self.template_name, context)
 
 
