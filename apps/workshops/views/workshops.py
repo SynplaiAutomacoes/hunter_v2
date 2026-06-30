@@ -114,6 +114,9 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
         if user_account is None:
             raise PermissionDenied
 
+        if user.is_superuser:
+            return super().dispatch(request, *args, **kwargs)
+
         if getattr(user_account, "owner_id", None) != getattr(user, "id", None):
             raise PermissionDenied
 
