@@ -16214,6 +16214,155 @@ class FiscalPhaseThreeNfseExternalXmlInboxTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["xml_hash"], item.xml_hash)
 
+    def test_list_filters_and_search_are_workshop_scoped(self) -> None:
+        other_user, other_workshop = create_director_user_with_workshop(suffix=98)
+        other_company = WebmaniaCompany.objects.create(
+            workshop=other_workshop,
+            webmania_company_id="NFSE-EXTERNAL-INBOX-OTHER",
+            cnpj="55.666.777/0001-80",
+            bearer_access_token="encrypted-token",
+            cidade="Sao Paulo",
+            uf="SP",
+            nfse_received_import_enabled=True,
+            nfse_external_xml_inbox_enabled=True,
+        )
+        self._create_inbox([self._upload_file("searchable-main.xml", self._xml(uuid="66000000-0000-0000-0000-000000004051", identifier="NFSE-EXT-INBOX-0051", provider_tax_id="22.333.444/0001-55"))])
+        from apps.finance.services.nfse_external_xml_inbox import create_nfse_external_xml_inbox
+
+        create_nfse_external_xml_inbox(
+            workshop=other_workshop,
+            company=other_company,
+            files=[self._upload_file("searchable-other.xml", self._xml(uuid="66000000-0000-0000-0000-000000004052", identifier="NFSE-EXT-INBOX-0052", taker_tax_id="55.666.777/0001-80"))],
+            source_label="Outra oficina",
+            created_by=other_user,
+        )
+
+        from apps.finance.views.nfse_received import NfseExternalXmlInboxListView
+
+        request = RequestFactory().get("/", data={"q": "searchable", "item_status": NfseExternalXmlInboxItem.Status.PENDING})
+        request.user = self.user
+        view = NfseExternalXmlInboxListView()
+        view.request = request
+        view.workshop = self.workshop
+        inboxes = list(view.get_queryset())
+        self.assertEqual(len(inboxes), 1)
+        self.assertEqual(inboxes[0].workshop_id, self.workshop.pk)
+
+    def test_bulk_actions_record_result_per_item_and_preserve_xml_batch_pipeline(self) -> None:
+        from apps.finance.services.nfse_external_xml_inbox import bulk_approve_nfse_external_xml_inbox_items, bulk_discard_nfse_external_xml_inbox_items, bulk_process_nfse_external_xml_inbox_items
+
+        inbox = self._create_inbox(
+            [
+                self._upload_file("bulk-valid-a.xml", self._xml(uuid="66000000-0000-0000-0000-000000004061", identifier="NFSE-EXT-INBOX-0061")),
+                self._upload_file("bulk-valid-b.xml", self._xml(uuid="66000000-0000-0000-0000-000000004062", identifier="NFSE-EXT-INBOX-0062")),
+                self._upload_file("bulk-invalid.xml", b"<CompNfse>"),
+            ]
+        )
+        pending_ids = list(inbox.items.filter(status=NfseExternalXmlInboxItem.Status.PENDING).values_list("pk", flat=True))
+        invalid = inbox.items.get(status=NfseExternalXmlInboxItem.Status.INVALID)
+
+        approve_result = bulk_approve_nfse_external_xml_inbox_items(inbox=inbox, item_ids=[*pending_ids, invalid.pk], approved_by=self.user)
+        self.assertEqual(approve_result.success_count, 2)
+        self.assertEqual(approve_result.error_count, 1)
+        invalid.refresh_from_db()
+        self.assertEqual(invalid.status, NfseExternalXmlInboxItem.Status.INVALID)
+
+        with self.assertRaisesMessage(ValidationError, "Informe o motivo"):
+            bulk_discard_nfse_external_xml_inbox_items(inbox=inbox, item_ids=[invalid.pk], reason="", discarded_by=self.user)
+        discard_result = bulk_discard_nfse_external_xml_inbox_items(inbox=inbox, item_ids=[invalid.pk], reason="XML malformado em revisao", discarded_by=self.user)
+        self.assertEqual(discard_result.success_count, 1)
+        invalid.refresh_from_db()
+        self.assertEqual(invalid.discard_reason, "XML malformado em revisao")
+
+        with patch("requests.get") as get_mock, patch("requests.post") as post_mock, patch("requests.put") as put_mock:
+            process_result = bulk_process_nfse_external_xml_inbox_items(inbox=inbox, item_ids=[*pending_ids, invalid.pk], processed_by=self.user)
+
+        self.assertEqual(process_result.success_count, 2)
+        self.assertEqual(process_result.error_count, 1)
+        self.assertEqual(NfseReceivedImportBatch.objects.count(), 1)
+        self.assertEqual(NfseReceivedDocument.objects.count(), 2)
+        self.assertEqual(NfseManifestation.objects.count(), 0)
+        self.assertEqual(NfseItem.objects.count(), 0)
+        self.assertEqual(FiscalDocument.objects.count(), 0)
+        self.assertEqual(FiscalEmissionAttempt.objects.count(), 0)
+        for item in inbox.items.filter(status=NfseExternalXmlInboxItem.Status.PROCESSED):
+            self.assertEqual(item.processed_by, self.user)
+            self.assertIsNotNone(item.linked_batch)
+            self.assertIsNotNone(item.linked_received_document)
+        get_mock.assert_not_called()
+        post_mock.assert_not_called()
+        put_mock.assert_not_called()
+
+    def test_bulk_view_requires_permission_and_processes_only_selected_approved_items(self) -> None:
+        inbox = self._create_inbox(
+            [
+                self._upload_file("view-bulk-a.xml", self._xml(uuid="66000000-0000-0000-0000-000000004071", identifier="NFSE-EXT-INBOX-0071")),
+                self._upload_file("view-bulk-b.xml", self._xml(uuid="66000000-0000-0000-0000-000000004072", identifier="NFSE-EXT-INBOX-0072")),
+            ]
+        )
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+        item_ids = list(inbox.items.values_list("pk", flat=True))
+
+        with patch("apps.workshops.mixin.has_workshop_perm", return_value=False):
+            response = self.client.post(reverse("finance:nfse_external_xml_inbox_bulk_action", kwargs={"pk": inbox.pk}), data={"action": "approve", "item_ids": item_ids})
+        self.assertEqual(response.status_code, 403)
+
+        with patch("apps.workshops.mixin.has_workshop_perm", return_value=True):
+            response = self.client.post(reverse("finance:nfse_external_xml_inbox_bulk_action", kwargs={"pk": inbox.pk}), data={"action": "approve", "item_ids": item_ids})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(inbox.items.filter(status=NfseExternalXmlInboxItem.Status.APPROVED).count(), 2)
+
+        with patch("apps.workshops.mixin.has_workshop_perm", return_value=True):
+            response = self.client.post(reverse("finance:nfse_external_xml_inbox_bulk_action", kwargs={"pk": inbox.pk}), data={"action": "process", "item_ids": [item_ids[0]]})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(NfseReceivedDocument.objects.count(), 1)
+        self.assertEqual(inbox.items.filter(status=NfseExternalXmlInboxItem.Status.PROCESSED).count(), 1)
+        self.assertEqual(inbox.items.filter(status=NfseExternalXmlInboxItem.Status.APPROVED).count(), 1)
+
+    def test_export_csv_requires_permission_is_workshop_scoped_and_omits_raw_xml(self) -> None:
+        other_user, other_workshop = create_director_user_with_workshop(suffix=99)
+        other_company = WebmaniaCompany.objects.create(
+            workshop=other_workshop,
+            webmania_company_id="NFSE-EXTERNAL-INBOX-EXPORT-OTHER",
+            cnpj="66.777.888/0001-90",
+            bearer_access_token="encrypted-token",
+            cidade="Sao Paulo",
+            uf="SP",
+            nfse_received_import_enabled=True,
+            nfse_external_xml_inbox_enabled=True,
+        )
+        self._create_inbox([self._upload_file("export-main.xml", self._xml(uuid="66000000-0000-0000-0000-000000004081", identifier="NFSE-EXT-INBOX-0081"))])
+        from apps.finance.services.nfse_external_xml_inbox import create_nfse_external_xml_inbox
+
+        create_nfse_external_xml_inbox(
+            workshop=other_workshop,
+            company=other_company,
+            files=[self._upload_file("export-other.xml", self._xml(uuid="66000000-0000-0000-0000-000000004082", identifier="NFSE-EXT-INBOX-0082", taker_tax_id="66.777.888/0001-90"))],
+            source_label="Outra oficina",
+            created_by=other_user,
+        )
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+
+        with patch("apps.workshops.mixin.has_workshop_perm", return_value=False):
+            forbidden = self.client.get(reverse("finance:nfse_external_xml_inbox_export"))
+        self.assertEqual(forbidden.status_code, 403)
+
+        with patch("apps.workshops.mixin.has_workshop_perm", return_value=True):
+            response = self.client.get(reverse("finance:nfse_external_xml_inbox_export"), data={"q": "export"})
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn("export-main.xml", content)
+        self.assertNotIn("export-other.xml", content)
+        self.assertNotIn("<CompNfse", content)
+        self.assertNotIn("xml_snapshot", content)
+
 
 class FiscalPhaseThreeNfseReceivedConsultationTests(TestCase):
     def setUp(self) -> None:

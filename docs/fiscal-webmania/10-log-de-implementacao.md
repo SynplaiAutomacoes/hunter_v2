@@ -286,6 +286,20 @@
 - OpenAPI Webmania mantido sem alteracao.
 - Nenhum codigo funcional, migration, service, view, template ou teste foi alterado nesta fase documental.
 
+## Fase 3.16.1 - ampliacao operacional da inbox XML
+
+- Fase 3.16.0 validada documentalmente e commitada no checkpoint `267fc601`.
+- Implementados filtros/busca na lista e no detalhe da inbox, com escopo por oficina ativa.
+- Implementada exportacao CSV protegida por `export_nfse_external_xml_inbox`, sem XML bruto, credenciais ou path local.
+- Implementadas acoes em massa protegidas por `bulk_manage_nfse_external_xml_inbox`: aprovar, descartar com motivo obrigatorio e processar selecionados aprovados.
+- Processamento em massa continua usando `NfseReceivedImportBatch`; a inbox nao cria `NfseReceivedDocument` diretamente.
+- Migration `0074_alter_nfseexternalxmlinbox_options.py` adiciona somente permissoes de exportacao e gestao em massa.
+- UI atualizada com filtros, totais, selecao, acoes em massa, auditoria resumida e vinculos com lote/documento.
+- Validacoes executadas: `uv run python manage.py makemigrations finance --check --dry-run` OK; `uv run python manage.py test apps.finance.tests.FiscalPhaseThreeNfseExternalXmlInboxTests --keepdb` passou com 10 testes; bateria fiscal direcionada de 89 testes passou; Ruff nos Python tocados OK; `git diff --check` OK.
+- `mypy .` foi executado como nao bloqueante e falhou no baseline amplo preexistente: 3284 erros em 266 arquivos. A checagem focada dos Python tocados tambem e contaminada pelo grafo legado e reportou 1708 erros em 139 arquivos.
+- Retencao/arquivamento e reprocessamento de erro nao foram implementados por ausencia de politica fiscal explicita.
+- Permanecem fora de escopo: conectores reais de e-mail/ERP, OAuth/IMAP/Gmail/Microsoft, pasta monitorada/Drive/SharePoint, webhook externo, job agendado, consulta Webmania automatica, manifestacao automatica, documento sem XML, `NfseItem`, `FiscalDocument(nfse)`, `FiscalEmissionAttempt`, CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
+
 ## Fase 3.13.1 - inicio da consulta auxiliar de NFS-e recebida
 
 - Fase 3.13.0 aprovada no checkpoint `d83b37dc`.

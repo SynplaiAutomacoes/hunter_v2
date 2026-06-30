@@ -761,3 +761,13 @@ Status: em planejamento documental em 2026-06-30. A Fase 3.15.2 foi validada no 
 A inbox local ja possui fluxo minimo. Melhorias pequenas recomendadas antes de conectores reais: filtros por status/empresa/origem, busca por hash/arquivo/UUID, exportacao de relatorio, acoes em massa de aprovacao/descarte com confirmacao, retencao visivel, reprocessamento controlado e painel de auditoria.
 
 Permissoes existentes devem continuar separadas: visualizar, enviar, aprovar, processar, descartar e payload. Nenhuma permissao de consulta, manifestacao, emissao, cancelamento, substituicao ou lote deve liberar automaticamente a operacao da inbox.
+
+## Fase 3.16.1 - UX e permissoes operacionais da inbox XML
+
+Status: em implementacao tecnica em 2026-06-30. A Fase 3.16.0 foi validada documentalmente no checkpoint `267fc601`.
+
+UX implementada: filtros na lista, busca textual, paginacao, CSV, filtros no detalhe, selecao de itens, acoes em massa para aprovar, descartar e processar, motivo obrigatorio no descarte em massa, auditoria resumida por item e links mais claros para lote/documento recebido.
+
+Permissoes novas: `export_nfse_external_xml_inbox` para relatorio CSV e `bulk_manage_nfse_external_xml_inbox` para acoes em massa. As permissoes existentes continuam separadas para visualizar, enviar, aprovar, processar, descartar e ver payload/XML.
+
+Workflow preservado: a inbox continua local e manual/assistida; nenhum item cria documento fiscal diretamente; somente o lote XML validado cria `NfseReceivedDocument`.

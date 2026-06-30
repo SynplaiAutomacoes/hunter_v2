@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import csv
 from typing import Any
 
 from django import forms
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
+from django.db.models import Q
 from django.http import Http404
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
@@ -17,7 +19,7 @@ from apps.core.forms import CoreForm
 from apps.finance.models.finance import FiscalEmissionAttemptStatus, NfseExternalXmlInbox, NfseExternalXmlInboxItem, NfseManifestation, NfseReceivedDocument, NfseReceivedDocumentConsultation, NfseReceivedImportBatch
 from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
 from apps.finance.services.nfse_manifestation import NfseManifestationError, is_nfse_received_document_eligible_for_manifestation, manifest_nfse_received_document, nfse_received_document_manifestation_block_reason
-from apps.finance.services.nfse_external_xml_inbox import NfseExternalXmlInboxError, NfseExternalXmlInboxUploadFile, approve_nfse_external_xml_inbox_item, create_nfse_external_xml_inbox, discard_nfse_external_xml_inbox_item, process_nfse_external_xml_inbox
+from apps.finance.services.nfse_external_xml_inbox import NfseExternalXmlInboxBulkResult, NfseExternalXmlInboxError, NfseExternalXmlInboxUploadFile, approve_nfse_external_xml_inbox_item, bulk_approve_nfse_external_xml_inbox_items, bulk_discard_nfse_external_xml_inbox_items, bulk_process_nfse_external_xml_inbox_items, create_nfse_external_xml_inbox, discard_nfse_external_xml_inbox_item, process_nfse_external_xml_inbox
 from apps.finance.services.nfse_received_batch import NfseReceivedBatchFile, NfseReceivedBatchImportError, import_nfse_received_xml_batch
 from apps.finance.services.nfse_received_consultation import NfseReceivedConsultationError, consult_nfse_received_document, is_nfse_received_document_eligible_for_consultation, nfse_received_document_consultation_block_reason
 from apps.finance.services.nfse_received import NfseReceivedImportError, import_nfse_received_xml
@@ -154,13 +156,68 @@ class NfseExternalXmlInboxListView(NfseExternalXmlInboxPermissionMixin, ListView
     template_name = "finance/nfse_external_xml_inbox_list.html"
     context_object_name = "inboxes"
     workshop_permission_codename = "view_nfse_external_xml_inbox"
+    paginate_by = 25
 
     def get_queryset(self):
-        return super().get_queryset().order_by("-criado_em")
+        queryset = super().get_queryset()
+        status = str(self.request.GET.get("status") or "").strip()
+        item_status = str(self.request.GET.get("item_status") or "").strip()
+        source = str(self.request.GET.get("source") or "").strip()
+        uploaded_by = str(self.request.GET.get("uploaded_by") or "").strip()
+        date_from = str(self.request.GET.get("date_from") or "").strip()
+        date_to = str(self.request.GET.get("date_to") or "").strip()
+        has_batch = str(self.request.GET.get("has_batch") or "").strip()
+        has_document = str(self.request.GET.get("has_document") or "").strip()
+        has_error = str(self.request.GET.get("has_error") or "").strip()
+        has_duplicate = str(self.request.GET.get("has_duplicate") or "").strip()
+        query = str(self.request.GET.get("q") or "").strip()
+        if status:
+            queryset = queryset.filter(status=status)
+        if source:
+            queryset = queryset.filter(source_label__icontains=source)
+        if uploaded_by.isdigit():
+            queryset = queryset.filter(created_by_id=int(uploaded_by))
+        if date_from:
+            queryset = queryset.filter(criado_em__date__gte=date_from)
+        if date_to:
+            queryset = queryset.filter(criado_em__date__lte=date_to)
+        if item_status:
+            queryset = queryset.filter(items__status=item_status)
+        if has_batch == "yes":
+            queryset = queryset.filter(items__linked_batch__isnull=False)
+        elif has_batch == "no":
+            queryset = queryset.filter(items__linked_batch__isnull=True)
+        if has_document == "yes":
+            queryset = queryset.filter(items__linked_received_document__isnull=False)
+        elif has_document == "no":
+            queryset = queryset.filter(items__linked_received_document__isnull=True)
+        if has_error == "yes":
+            queryset = queryset.filter(items__status__in=[NfseExternalXmlInboxItem.Status.INVALID, NfseExternalXmlInboxItem.Status.DUPLICATE, NfseExternalXmlInboxItem.Status.ERROR])
+        if has_duplicate == "yes":
+            queryset = queryset.filter(items__status=NfseExternalXmlInboxItem.Status.DUPLICATE)
+        if query:
+            queryset = queryset.filter(
+                Q(source_label__icontains=query)
+                | Q(items__safe_filename__icontains=query)
+                | Q(items__original_filename__icontains=query)
+                | Q(items__xml_hash__icontains=query)
+                | Q(items__parsed_summary__uuid__icontains=query)
+                | Q(items__parsed_summary__access_key_or_identifier__icontains=query)
+                | Q(items__parsed_summary__provider_tax_id__icontains=query)
+                | Q(items__parsed_summary__taker_tax_id__icontains=query)
+                | Q(items__parsed_summary__intermediary_tax_id__icontains=query)
+                | Q(items__validation_errors__icontains=query)
+                | Q(items__discard_reason__icontains=query)
+            )
+        return queryset.distinct().order_by("-criado_em")
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         context["can_upload_external_inbox"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfseexternalxmlinbox", codename="upload_nfse_external_xml_inbox", request=self.request)
+        context["can_export_external_inbox"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfseexternalxmlinbox", codename="export_nfse_external_xml_inbox", request=self.request)
+        context["status_choices"] = NfseExternalXmlInbox.Status.choices
+        context["item_status_choices"] = NfseExternalXmlInboxItem.Status.choices
+        context["filters"] = self.request.GET
         return context
 
 
@@ -205,6 +262,10 @@ class NfseExternalXmlInboxDetailView(NfseExternalXmlInboxPermissionMixin, Detail
         context["can_discard_external_inbox"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfseexternalxmlinbox", codename="discard_nfse_external_xml_inbox", request=self.request)
         context["can_process_external_inbox"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfseexternalxmlinbox", codename="process_nfse_external_xml_inbox", request=self.request)
         context["can_view_external_payload"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfseexternalxmlinbox", codename="view_nfse_external_xml_payload", request=self.request)
+        context["can_bulk_manage_external_inbox"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfseexternalxmlinbox", codename="bulk_manage_nfse_external_xml_inbox", request=self.request)
+        context["filtered_items"] = _filter_external_inbox_items(inbox=self.object, params=self.request.GET)
+        context["item_status_choices"] = NfseExternalXmlInboxItem.Status.choices
+        context["filters"] = self.request.GET
         return context
 
 
@@ -263,6 +324,76 @@ class NfseExternalXmlInboxProcessView(LoginRequiredMixin, WorkshopScopedMixin, V
         return redirect("finance:nfse_external_xml_inbox_detail", pk=inbox.pk)
 
 
+class NfseExternalXmlInboxBulkActionView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfseexternalxmlinbox"
+    workshop_permission_codename = "bulk_manage_nfse_external_xml_inbox"
+
+    def post(self, request, *args, **kwargs):
+        inbox = get_object_or_404(NfseExternalXmlInbox.objects.filter(workshop=self.workshop).select_related("company"), pk=kwargs["pk"])
+        item_ids = _selected_item_ids(request)
+        action = str(request.POST.get("action") or "").strip()
+        try:
+            if action == "approve":
+                result = bulk_approve_nfse_external_xml_inbox_items(inbox=inbox, item_ids=item_ids, approved_by=request.user)
+            elif action == "discard":
+                result = bulk_discard_nfse_external_xml_inbox_items(inbox=inbox, item_ids=item_ids, reason=str(request.POST.get("discard_reason") or ""), discarded_by=request.user)
+            elif action == "process":
+                result = bulk_process_nfse_external_xml_inbox_items(inbox=inbox, item_ids=item_ids, processed_by=request.user)
+            else:
+                raise NfseExternalXmlInboxError("Acao em massa invalida.")
+        except (NfseExternalXmlInboxError, ValidationError) as exc:
+            messages.error(request, "; ".join(getattr(exc, "messages", [str(exc)])))
+            return redirect("finance:nfse_external_xml_inbox_detail", pk=inbox.pk)
+        _message_bulk_result(request=request, result=result)
+        return redirect("finance:nfse_external_xml_inbox_detail", pk=inbox.pk)
+
+
+class NfseExternalXmlInboxExportView(NfseExternalXmlInboxPermissionMixin, View):
+    workshop_permission_codename = "export_nfse_external_xml_inbox"
+
+    def get(self, request, *args, **kwargs):
+        inboxes = NfseExternalXmlInboxListView()
+        inboxes.request = request
+        inboxes.workshop = self.workshop
+        inbox_ids = list(inboxes.get_queryset().values_list("pk", flat=True))
+        items = (
+            NfseExternalXmlInboxItem.objects.filter(inbox_id__in=inbox_ids, inbox__workshop=self.workshop)
+            .select_related("inbox", "inbox__company", "approved_by", "discarded_by", "linked_batch", "linked_received_document")
+            .order_by("-inbox__criado_em", "pk")
+        )
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = 'attachment; filename="nfse-inbox-xml-relatorio.csv"'
+        writer = csv.writer(response)
+        writer.writerow(["inbox", "item", "status", "arquivo", "hash", "origem", "criado_em", "aprovado_em", "aprovado_por", "descartado_em", "descartado_por", "motivo_descarte", "lote", "documento_recebido", "erro", "uuid", "identificador", "cnpj_prestador", "cnpj_tomador"])
+        for item in items:
+            summary = item.parsed_summary or {}
+            writer.writerow(
+                [
+                    item.inbox_id,
+                    item.pk,
+                    item.status,
+                    item.safe_filename,
+                    item.xml_hash,
+                    item.inbox.source_label or item.inbox.get_source_type_display(),
+                    item.criado_em.isoformat(),
+                    item.approved_at.isoformat() if item.approved_at else "",
+                    item.approved_by.get_full_name() or item.approved_by.get_username() if item.approved_by_id else "",
+                    item.discarded_at.isoformat() if item.discarded_at else "",
+                    item.discarded_by.get_full_name() or item.discarded_by.get_username() if item.discarded_by_id else "",
+                    item.discard_reason,
+                    item.linked_batch_id or "",
+                    item.linked_received_document_id or "",
+                    "; ".join(item.validation_errors or []),
+                    summary.get("uuid", ""),
+                    summary.get("access_key_or_identifier", ""),
+                    summary.get("provider_tax_id", ""),
+                    summary.get("taker_tax_id", ""),
+                ]
+            )
+        return response
+
+
 class NfseExternalXmlInboxItemPayloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_app_label = "finance"
     workshop_permission_model = "nfseexternalxmlinbox"
@@ -281,6 +412,45 @@ class NfseExternalXmlInboxItemPayloadView(LoginRequiredMixin, WorkshopScopedMixi
                 "xml_snapshot": item.xml_snapshot,
             }
         )
+
+
+def _filter_external_inbox_items(*, inbox: NfseExternalXmlInbox, params) -> Any:
+    queryset = inbox.items.select_related("approved_by", "discarded_by", "processed_by", "linked_batch", "linked_received_document").order_by("pk")
+    status = str(params.get("item_status") or "").strip()
+    query = str(params.get("q") or "").strip()
+    if status:
+        queryset = queryset.filter(status=status)
+    if query:
+        queryset = queryset.filter(
+            Q(safe_filename__icontains=query)
+            | Q(original_filename__icontains=query)
+            | Q(xml_hash__icontains=query)
+            | Q(parsed_summary__uuid__icontains=query)
+            | Q(parsed_summary__access_key_or_identifier__icontains=query)
+            | Q(parsed_summary__provider_tax_id__icontains=query)
+            | Q(parsed_summary__taker_tax_id__icontains=query)
+            | Q(parsed_summary__intermediary_tax_id__icontains=query)
+            | Q(validation_errors__icontains=query)
+            | Q(discard_reason__icontains=query)
+        )
+    return queryset
+
+
+def _selected_item_ids(request) -> list[int]:
+    item_ids: list[int] = []
+    for raw_id in request.POST.getlist("item_ids"):
+        if str(raw_id).isdigit():
+            item_ids.append(int(raw_id))
+    return item_ids
+
+
+def _message_bulk_result(*, request, result: NfseExternalXmlInboxBulkResult) -> None:
+    message = f"Acao em massa concluida: {result.success_count} sucesso(s), {result.error_count} erro(s)."
+    if result.error_count:
+        details = "; ".join(f"{item.filename}: {item.message}" for item in result.results if not item.success)
+        messages.warning(request, f"{message} {details}")
+    else:
+        messages.success(request, message)
 
 
 class NfseReceivedDocumentDetailView(NfseReceivedDocumentPermissionMixin, DetailView):

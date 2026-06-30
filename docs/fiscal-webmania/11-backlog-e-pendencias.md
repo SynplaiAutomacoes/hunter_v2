@@ -447,3 +447,12 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Conectores reais de e-mail/ERP, pasta monitorada e webhook externo continuam adiados ate autenticacao, segregacao e contratos externos estarem definidos.
 - Consulta Webmania ampliada permanece consultiva e nao deve criar NFS-e recebida.
 - Manifestacao manual, NFS-e expandida ampla, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria continuam fora do escopo imediato.
+
+## Apos a Fase 3.16.1
+
+- Filtros, busca, CSV e acoes em massa da inbox local foram implementados.
+- Pendencias remanescentes da inbox: politica de retencao/arquivamento logico, reprocessamento controlado de erro, painel de auditoria mais analitico e eventual job operacional futuro, todos dependentes de fase propria.
+- Conectores reais de e-mail/ERP, OAuth, IMAP, Gmail API, Microsoft Graph, pasta monitorada, Drive, SharePoint e webhook externo continuam adiados.
+- Consulta Webmania automatica, manifestacao automatica e criacao direta de documento recebido pela inbox continuam proibidas.
+- `NfseItem`, `FiscalDocument(nfse)` e `FiscalEmissionAttempt` continuam fora da inbox.
+- CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria seguem nao iniciados.

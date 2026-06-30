@@ -1593,7 +1593,7 @@ Criterios de aceite: item candidato nao cria documento fiscal; item aprovado nao
 
 ## Fase 3.16.0 - Reavaliacao apos Inbox Externa de XML NFS-e
 
-Status: **em planejamento documental em 2026-06-30**. A Fase 3.15.2 foi validada e encerrada no checkpoint `517d25b8`.
+Status: **validada documentalmente em 2026-06-30**. A Fase 3.15.2 foi validada e encerrada no checkpoint `517d25b8`; esta reavaliacao foi commitada no checkpoint `267fc601`.
 
 Escopo autorizado: somente documentacao em `docs/fiscal-webmania/**` e OpenAPI apenas se houver correcao oficial confirmada. Nenhum codigo funcional, migration, service, view, template ou teste deve ser alterado nesta fase.
 
@@ -1669,6 +1669,36 @@ Justificativa: a inbox local ja existe, nao depende de contrato externo, reaprov
 - Criterios de aceite: nenhuma integracao externa real; nenhuma importacao automatica; nenhuma consulta Webmania automatica; nenhuma manifestacao automatica; nenhum documento sem XML; nenhum `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt`.
 
 OpenAPI: nenhuma alteracao. A proxima fase recomendada e local e nao depende de endpoint Webmania novo.
+
+## Fase 3.16.1 - Ampliacao Operacional da Inbox XML NFS-e
+
+Status: **em implementacao tecnica em 2026-06-30**. A Fase 3.16.0 foi validada documentalmente no checkpoint `267fc601`.
+
+Escopo autorizado: melhorar a operacao local de `NfseExternalXmlInbox` e `NfseExternalXmlInboxItem`, preservando o fluxo fiscal: XML candidato entra na inbox, usuario revisa, aprova ou descarta, somente itens aprovados seguem para `NfseReceivedImportBatch`, e somente o lote XML cria `NfseReceivedDocument`.
+
+Implementacao desta fase:
+
+- filtros na lista por status da inbox, status do item, periodo, usuario de upload, origem declarada, lote vinculado, documento vinculado, erro e duplicidade;
+- busca por nome de arquivo, hash, UUID, identificador, CNPJ/CPF extraido do resumo parseado, erro e motivo de descarte;
+- paginacao da lista de inboxes;
+- exportacao CSV protegida por `export_nfse_external_xml_inbox`, sem XML bruto, sem credenciais e sem path local;
+- acoes em massa protegidas por `bulk_manage_nfse_external_xml_inbox`;
+- aprovacao em massa somente reaproveitando a validacao existente de item pendente, XML/hash e duplicidade ativa;
+- descarte em massa com motivo obrigatorio;
+- processamento em massa somente de itens aprovados, selecionados e sem vinculo previo, reaproveitando o lote XML validado;
+- resultado por item retornado ao usuario por mensagem operacional;
+- auditoria preservada pelos campos `approved_by/approved_at`, `discarded_by/discarded_at`, `processed_by/processed_at`, motivo de descarte e vinculos com lote/documento;
+- UI com filtros, totais, selecao, acoes em massa, auditoria resumida e links claros para lote/documento.
+
+Migration: `0074_alter_nfseexternalxmlinbox_options.py`, apenas para permissao de exportacao e permissao de gestao em massa. Nenhum novo campo fiscal foi criado.
+
+Retencao/limpeza logica: nao implementada nesta fase, por ausencia de politica explicita para XML fiscal e por haver itens vinculados a lote/documento.
+
+Reprocessamento controlado de erro: nao implementado nesta fase. O processamento em massa nao reabre item com erro e nao ignora duplicidade; eventual reprocessamento deve ser planejado separadamente.
+
+OpenAPI: nenhuma alteracao. A fase e local e nao depende de endpoint Webmania novo.
+
+Criterios de aceite: filtros e busca respeitam oficina ativa; CSV respeita oficina ativa e nao expoe XML bruto; acoes em massa exigem permissao especifica e geram resultado por item; descarte exige motivo; processamento em massa passa pelo lote XML; nenhuma consulta Webmania automatica; nenhuma manifestacao automatica; nenhuma criacao direta de `NfseReceivedDocument` pela inbox; nenhum `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt`; nenhum conector real de e-mail/ERP/pasta/webhook/job foi iniciado.
 
 ## Fase 3.11.0 - Planejamento Tecnico da NFS-e Recebida/Importada de Terceiros
 

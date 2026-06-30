@@ -1028,3 +1028,13 @@ Status: em planejamento documental em 2026-06-30. A Fase 3.15.2 foi validada no 
 O bloco NFS-e recebida agora possui registro unitario por XML, manifestacao de recebida, consulta auxiliar GET-only, lote XML e inbox externa local/manual/assistida. A fonte fiscal continua sendo `NfseReceivedDocument` criado pelo pipeline XML/lote.
 
 A proxima evolucao de menor risco no dominio e ampliar a propria inbox local: filtros, busca, relatorio/exportacao, acoes em massa controladas, retencao, reprocessamento explicito e painel de auditoria. Conectores reais de e-mail/ERP/pasta/webhook devem continuar fora do dominio funcional enquanto autenticacao, segregacao por oficina e contratos externos nao estiverem definidos.
+
+## Fase 3.16.1 - dominio operacional da inbox XML
+
+Status: em implementacao tecnica em 2026-06-30. A Fase 3.16.0 foi validada documentalmente no checkpoint `267fc601`.
+
+`NfseExternalXmlInbox` e `NfseExternalXmlInboxItem` foram mantidos como dominio unico da inbox local. A fase nao criou nova entidade fiscal, nao criou documento recebido diretamente e nao alterou `NfseReceivedDocument`.
+
+Foram adicionadas operacoes de leitura/gestao local: filtros, busca, exportacao CSV sem XML bruto e acoes em massa. O processamento em massa continua selecionando itens aprovados e delegando a criacao fiscal exclusivamente ao `NfseReceivedImportBatch`.
+
+Retencao e reprocessamento foram mantidos como pendencias futuras, porque exigem politica fiscal explicita e regras adicionais para nao duplicar lote/documento.

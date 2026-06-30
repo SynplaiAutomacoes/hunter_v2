@@ -903,3 +903,13 @@ Status: em planejamento documental em 2026-06-30. A Fase 3.15.2 foi validada no 
 Conectores reais de e-mail, ERP, pasta monitorada e webhook externo continuam com risco alto por credenciais, spoofing/origem falsa, segregacao por oficina, anexos adulterados, idempotencia por mensagem e observabilidade. A inbox local reduziu o risco de origem operacional, mas nao resolveu autenticacao externa.
 
 Recomendacao de seguranca: priorizar melhorias locais e auditaveis da inbox antes de conectores reais. Qualquer conector futuro deve criar apenas item de inbox pendente, com revisao humana obrigatoria, sem consulta Webmania automatica e sem manifestacao automatica.
+
+## Fase 3.16.1 - seguranca operacional da inbox XML
+
+Status: em implementacao tecnica em 2026-06-30. A Fase 3.16.0 foi validada documentalmente no checkpoint `267fc601`.
+
+Controles implementados: filtros e busca sempre partem de `workshop` ativo; exportacao CSV exige `export_nfse_external_xml_inbox` e nao inclui XML bruto, credenciais ou path local; acoes em massa exigem `bulk_manage_nfse_external_xml_inbox`; descarte em massa exige motivo; processamento em massa aceita somente itens aprovados, sem vinculo previo e com XML/hash.
+
+Auditoria permanece persistida nos campos existentes de usuario/data de aprovacao, descarte e processamento, no motivo de descarte e nos vinculos com lote/documento. Falhas em item individual nao derrubam a acao inteira.
+
+Nao foram implementados conector real, webhook externo, job agendado, consulta Webmania automatica, manifestacao automatica, reprocessamento de erro ou limpeza fisica de XML fiscal.

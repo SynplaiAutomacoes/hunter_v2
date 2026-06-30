@@ -843,3 +843,17 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 **Consequencias:** a proxima fase deve continuar local, sem conector real, sem Webmania automatica, sem manifestacao automatica e sem criar documento fiscal fora do lote XML. NFS-e expandida, CT-e/MDF-e/NFCom/DC-e, IBS/CBS pendentes, creditos/debitos e complementar tributaria permanecem adiados.
 
 **OpenAPI:** nenhuma alteracao.
+
+## ADR - Fase 3.16.1: operacao em massa e relatorio local da inbox XML
+
+**Status:** em implementacao tecnica em 2026-06-30.
+
+**Contexto:** a Fase 3.16.0 foi validada documentalmente no checkpoint `267fc601` e decidiu ampliar a inbox local antes de conectores reais.
+
+**Decisao:** implementar filtros, busca, CSV e acoes em massa sobre `NfseExternalXmlInbox`/`NfseExternalXmlInboxItem`, mantendo `NfseReceivedImportBatch` como unica fronteira de criacao de `NfseReceivedDocument`.
+
+**Justificativa:** a operacao local reduz trabalho manual sem introduzir credenciais externas, automacao fiscal ou fonte remota. CSV sem XML bruto atende relatorio operacional sem expor payload fiscal. Acoes em massa reaproveitam validacoes existentes e registram usuario/data por item.
+
+**Consequencias:** foram criadas apenas permissoes de exportacao e gestao em massa. Retencao e reprocessamento de erro permanecem adiados. Nenhum conector, Webmania automatica, manifestacao automatica, `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt` foi introduzido.
+
+**OpenAPI:** nenhuma alteracao.

@@ -1627,6 +1627,8 @@ class NfseExternalXmlInbox(TimeStampedModel):
             ("process_nfse_external_xml_inbox", "Pode processar inbox externa de XML NFS-e"),
             ("discard_nfse_external_xml_inbox", "Pode descartar XML da inbox externa NFS-e"),
             ("view_nfse_external_xml_payload", "Pode visualizar XML da inbox externa NFS-e"),
+            ("export_nfse_external_xml_inbox", "Pode exportar relatorio da inbox externa NFS-e"),
+            ("bulk_manage_nfse_external_xml_inbox", "Pode executar acoes em massa na inbox externa NFS-e"),
         ]
 
     def clean(self) -> None:

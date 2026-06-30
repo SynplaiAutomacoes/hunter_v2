@@ -1184,3 +1184,11 @@ Status: em planejamento documental em 2026-06-30. A Fase 3.15.2 foi validada no 
 | IBS/CBS, creditos/debitos e complementar | NF-e/eventos existentes | Nao ficaram mais seguros pela inbox NFS-e. |
 
 OpenAPI: nenhuma alteracao aplicada. A reavaliacao trata principalmente de origem externa de XML e pipeline local; o schema Webmania permanece suficiente.
+
+## Fase 3.16.1 - ampliacao operacional da inbox XML
+
+Status: em implementacao tecnica em 2026-06-30. A Fase 3.16.0 foi validada documentalmente no checkpoint `267fc601`.
+
+Nenhum endpoint Webmania foi adicionado ou consumido. Filtros, busca, CSV e acoes em massa operam exclusivamente sobre `NfseExternalXmlInbox` e `NfseExternalXmlInboxItem`, preservando o processamento via `NfseReceivedImportBatch`.
+
+OpenAPI: nenhuma alteracao aplicada; nao ha novo contrato remoto para a fase.

@@ -27,6 +27,29 @@ class NfseExternalXmlInboxUploadFile:
     content_type: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class NfseExternalXmlInboxBulkItemResult:
+    item_id: int
+    filename: str
+    status: str
+    success: bool
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class NfseExternalXmlInboxBulkResult:
+    action: str
+    results: list[NfseExternalXmlInboxBulkItemResult]
+
+    @property
+    def success_count(self) -> int:
+        return sum(1 for result in self.results if result.success)
+
+    @property
+    def error_count(self) -> int:
+        return sum(1 for result in self.results if not result.success)
+
+
 class NfseExternalXmlInboxError(ValidationError):
     pass
 
@@ -107,9 +130,12 @@ def discard_nfse_external_xml_inbox_item(*, item: NfseExternalXmlInboxItem, reas
 
 
 @transaction.atomic
-def process_nfse_external_xml_inbox(*, inbox: NfseExternalXmlInbox, processed_by: Any | None = None) -> NfseReceivedImportBatch:
+def process_nfse_external_xml_inbox(*, inbox: NfseExternalXmlInbox, processed_by: Any | None = None, item_ids: list[int] | None = None) -> NfseReceivedImportBatch:
     locked_inbox = NfseExternalXmlInbox.objects.select_related("company").get(pk=inbox.pk, workshop=inbox.workshop)
-    approved_items = list(locked_inbox.items.select_for_update().filter(status=NfseExternalXmlInboxItem.Status.APPROVED, linked_batch__isnull=True).order_by("pk"))
+    approved_queryset = locked_inbox.items.select_for_update().filter(status=NfseExternalXmlInboxItem.Status.APPROVED, linked_batch__isnull=True)
+    if item_ids is not None:
+        approved_queryset = approved_queryset.filter(pk__in=item_ids)
+    approved_items = list(approved_queryset.order_by("pk"))
     if not approved_items:
         raise NfseExternalXmlInboxError("Nao ha itens aprovados para processar.")
     files = [NfseReceivedBatchFile(filename=item.safe_filename, content=item.xml_snapshot.encode("utf-8")) for item in approved_items]
@@ -147,6 +173,70 @@ def process_nfse_external_xml_inbox(*, inbox: NfseExternalXmlInbox, processed_by
     locked_inbox.save(update_fields=["processed_by", "processed_at", "atualizado_em"])
     refresh_nfse_external_xml_inbox_totals(locked_inbox)
     return batch
+
+
+def bulk_approve_nfse_external_xml_inbox_items(*, inbox: NfseExternalXmlInbox, item_ids: list[int], approved_by: Any | None = None) -> NfseExternalXmlInboxBulkResult:
+    items = _bulk_items(inbox=inbox, item_ids=item_ids)
+    results: list[NfseExternalXmlInboxBulkItemResult] = []
+    for item in items:
+        try:
+            approved = approve_nfse_external_xml_inbox_item(item=item, approved_by=approved_by)
+        except NfseExternalXmlInboxError as exc:
+            results.append(_bulk_result(item=item, success=False, message="; ".join(_messages(exc))))
+        else:
+            results.append(_bulk_result(item=approved, success=True, message="Item aprovado."))
+    return NfseExternalXmlInboxBulkResult(action="approve", results=results)
+
+
+def bulk_discard_nfse_external_xml_inbox_items(*, inbox: NfseExternalXmlInbox, item_ids: list[int], reason: str, discarded_by: Any | None = None) -> NfseExternalXmlInboxBulkResult:
+    reason = reason.strip()
+    if not reason:
+        raise NfseExternalXmlInboxError("Informe o motivo do descarte.")
+    items = _bulk_items(inbox=inbox, item_ids=item_ids)
+    results: list[NfseExternalXmlInboxBulkItemResult] = []
+    for item in items:
+        try:
+            discarded = discard_nfse_external_xml_inbox_item(item=item, reason=reason, discarded_by=discarded_by)
+        except NfseExternalXmlInboxError as exc:
+            results.append(_bulk_result(item=item, success=False, message="; ".join(_messages(exc))))
+        else:
+            results.append(_bulk_result(item=discarded, success=True, message="Item descartado."))
+    return NfseExternalXmlInboxBulkResult(action="discard", results=results)
+
+
+def bulk_process_nfse_external_xml_inbox_items(*, inbox: NfseExternalXmlInbox, item_ids: list[int], processed_by: Any | None = None) -> NfseExternalXmlInboxBulkResult:
+    items = _bulk_items(inbox=inbox, item_ids=item_ids)
+    results: list[NfseExternalXmlInboxBulkItemResult] = []
+    eligible_ids: list[int] = []
+    for item in items:
+        if item.status != NfseExternalXmlInboxItem.Status.APPROVED:
+            results.append(_bulk_result(item=item, success=False, message="Somente item aprovado pode ser processado."))
+            continue
+        if item.linked_batch_id or item.linked_received_document_id:
+            results.append(_bulk_result(item=item, success=False, message="Item ja possui vinculo de processamento."))
+            continue
+        if not item.xml_snapshot.strip() or not item.xml_hash:
+            results.append(_bulk_result(item=item, success=False, message="Item sem XML valido nao pode ser processado."))
+            continue
+        eligible_ids.append(item.pk)
+
+    if eligible_ids:
+        try:
+            process_nfse_external_xml_inbox(inbox=inbox, processed_by=processed_by, item_ids=eligible_ids)
+        except (NfseExternalXmlInboxError, ValidationError) as exc:
+            message = "; ".join(_messages(exc))
+            for item in items:
+                if item.pk in eligible_ids:
+                    results.append(_bulk_result(item=item, success=False, message=message))
+        else:
+            refreshed_items = {item.pk: item for item in NfseExternalXmlInboxItem.objects.filter(pk__in=eligible_ids)}
+            for item_id in eligible_ids:
+                refreshed = refreshed_items[item_id]
+                if refreshed.status == NfseExternalXmlInboxItem.Status.PROCESSED:
+                    results.append(_bulk_result(item=refreshed, success=True, message="Item processado pelo lote XML."))
+                else:
+                    results.append(_bulk_result(item=refreshed, success=False, message="; ".join(refreshed.validation_errors or ["Item processado com erro."])))
+    return NfseExternalXmlInboxBulkResult(action="process", results=results)
 
 
 def refresh_nfse_external_xml_inbox_totals(inbox: NfseExternalXmlInbox) -> None:
@@ -310,6 +400,17 @@ def _summary_from_parsed(*, parsed, role: str) -> dict[str, Any]:
 
 def _batch_items_by_hash(batch: NfseReceivedImportBatch) -> dict[str, NfseReceivedImportBatchItem]:
     return {item.xml_hash: item for item in batch.items.all() if item.xml_hash}
+
+
+def _bulk_items(*, inbox: NfseExternalXmlInbox, item_ids: list[int]) -> list[NfseExternalXmlInboxItem]:
+    unique_ids = list(dict.fromkeys(item_ids))
+    if not unique_ids:
+        raise NfseExternalXmlInboxError("Selecione ao menos um item.")
+    return list(NfseExternalXmlInboxItem.objects.filter(inbox=inbox, inbox__workshop=inbox.workshop, pk__in=unique_ids).select_related("inbox").order_by("pk"))
+
+
+def _bulk_result(*, item: NfseExternalXmlInboxItem, success: bool, message: str) -> NfseExternalXmlInboxBulkItemResult:
+    return NfseExternalXmlInboxBulkItemResult(item_id=item.pk, filename=item.safe_filename, status=item.status, success=success, message=message)
 
 
 def _create_item(

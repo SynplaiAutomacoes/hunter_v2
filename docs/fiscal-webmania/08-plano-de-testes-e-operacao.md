@@ -1012,3 +1012,23 @@ Testes futuros recomendados:
 - painel de auditoria com criacao, aprovacao, descarte, processamento, lote e documento;
 - cross-workshop em lista, filtros, detalhe, exportacao e acoes;
 - ausencia de chamada Webmania, manifestacao automatica, `NfseItem`, `FiscalDocument(nfse)` e `FiscalEmissionAttempt`.
+
+## Cobertura implementada na Fase 3.16.1
+
+Status: em implementacao tecnica em 2026-06-30.
+
+Classe ampliada: `FiscalPhaseThreeNfseExternalXmlInboxTests`.
+
+Cobertura adicionada:
+
+- filtros e busca por dados dos itens respeitando oficina ativa;
+- acoes em massa com sucesso/erro por item;
+- aprovacao em massa bloqueando item invalido;
+- descarte em massa com motivo obrigatorio;
+- processamento em massa somente de itens aprovados selecionados;
+- processamento preservando `NfseReceivedImportBatch` como unico criador de `NfseReceivedDocument`;
+- view de acao em massa exigindo permissao propria;
+- exportacao CSV exigindo permissao propria, respeitando oficina ativa e sem XML bruto;
+- garantias negativas de ausencia de Webmania, `NfseManifestation`, `NfseItem`, `FiscalDocument(nfse)` e `FiscalEmissionAttempt`.
+
+Nao implementado nesta fase: retencao/arquivamento e reprocessamento de erro. Ambos permanecem pendentes por exigirem politica fiscal propria e testes adicionais de duplicidade.
