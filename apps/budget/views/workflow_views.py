@@ -1038,7 +1038,7 @@ def _compute_budget_diff(state_old, state_new):
                 if s_v_old != s_v_new:
                     item_changes[f] = {"label": f_label, "old": v_old, "new": v_new}
             if item_changes:
-                diff["items"]["modified"].append({"description": item_new.get("description") or item_old.get("description"), "item_type": item_new.get("item_type"), "changes": item_changes})
+                diff["items"]["modified"].append({"key": key, "description": item_new.get("description") or item_old.get("description"), "item_type": item_new.get("item_type"), "changes": item_changes})
 
     return diff
 
@@ -1095,15 +1095,17 @@ def _apply_budget_diff(state, diff):
         new_state["items"][key] = item
 
     for mod in diff.get("items", {}).get("modified", []):
-        target_key = None
-        for k, item in new_state["items"].items():
-            if item.get("description") == mod.get("description") and item.get("item_type") == mod.get("item_type"):
-                target_key = k
-                break
-
-        if target_key:
+        target_key = mod.get("key")
+        if target_key and target_key in new_state["items"]:
             for field, change in mod.get("changes", {}).items():
                 new_state["items"][target_key][field] = change["new"]
+        else:
+            # Fallback para compatibilidade caso o diff antigo nao tenha key
+            for k, item in new_state["items"].items():
+                if item.get("description") == mod.get("description") and item.get("item_type") == mod.get("item_type"):
+                    for field, change in mod.get("changes", {}).items():
+                        new_state["items"][k][field] = change["new"]
+                    break
 
     return new_state
 
