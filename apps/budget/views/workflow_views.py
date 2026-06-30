@@ -1110,6 +1110,23 @@ def _apply_budget_diff(state, diff):
     return new_state
 
 
+def _consolidate_budget_revision(budget):
+    # Buscar a ultima reabertura
+    entry = budget.history_entries.filter(action=BudgetHistory.Action.REOPENED).order_by("-criado_em", "-pk").first()
+    if entry and entry.snapshot:
+        snapshot = entry.snapshot
+        # Identificar se ja e um diff. Se nao tiver "fields" e "items" estruturados como diff (ou se "items" for uma lista), e o snapshot completo.
+        is_diff = "fields" in snapshot or (isinstance(snapshot.get("items"), dict) and ("added" in snapshot["items"] or "removed" in snapshot["items"]))
+
+        if not is_diff:
+            # E o snapshot completo original. Vamos calcular o diff em relacao ao estado atual.
+            state_old = snapshot
+            state_new = _serialize_budget_state(budget)
+            diff = _compute_budget_diff(state_old, state_new)
+            entry.snapshot = diff
+            entry.save(update_fields=["snapshot"])
+
+
 class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = Budget
     workshop_permission_codename = "add_budget"
@@ -1172,27 +1189,19 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 budget.cancellation_reason = ""
                 budget.regenerate_signature_token()
 
-                # Reconstruct the previous budget state using history entries
-                history_entries = list(budget.history_entries.filter(action=BudgetHistory.Action.REOPENED).order_by("criado_em", "pk"))
-
-                state = _get_empty_budget_state()
-                for entry in history_entries:
-                    if entry.snapshot:
-                        state = _apply_budget_diff(state, entry.snapshot)
-
-                # Current state of the budget before reopening
-                current_state = _serialize_budget_state(budget)
-
-                # Compute the diff
-                diff = _compute_budget_diff(state, current_state)
+                # Salvar o estado inicial completo no momento da reabertura
+                snapshot = _serialize_budget_state(budget)
 
                 BudgetHistory.objects.create(
                     budget=budget,
                     user=request.user,
                     action=BudgetHistory.Action.REOPENED,
                     reason=reopen_reason,
-                    snapshot=diff,
+                    snapshot=snapshot,
                 )
+
+            if status in ("approve", "cancel", "reject"):
+                _consolidate_budget_revision(budget)
 
             budget.status = status_map[status]
             budget.save()
