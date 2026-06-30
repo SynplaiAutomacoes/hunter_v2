@@ -1672,7 +1672,7 @@ OpenAPI: nenhuma alteracao. A proxima fase recomendada e local e nao depende de 
 
 ## Fase 3.16.1 - Ampliacao Operacional da Inbox XML NFS-e
 
-Status: **em implementacao tecnica em 2026-06-30**. A Fase 3.16.0 foi validada documentalmente no checkpoint `267fc601`.
+Status: **validada em 2026-06-30** no checkpoint `166eda86`. A Fase 3.16.0 foi validada documentalmente no checkpoint `267fc601`.
 
 Escopo autorizado: melhorar a operacao local de `NfseExternalXmlInbox` e `NfseExternalXmlInboxItem`, preservando o fluxo fiscal: XML candidato entra na inbox, usuario revisa, aprova ou descarta, somente itens aprovados seguem para `NfseReceivedImportBatch`, e somente o lote XML cria `NfseReceivedDocument`.
 
@@ -1699,6 +1699,83 @@ Reprocessamento controlado de erro: nao implementado nesta fase. O processamento
 OpenAPI: nenhuma alteracao. A fase e local e nao depende de endpoint Webmania novo.
 
 Criterios de aceite: filtros e busca respeitam oficina ativa; CSV respeita oficina ativa e nao expoe XML bruto; acoes em massa exigem permissao especifica e geram resultado por item; descarte exige motivo; processamento em massa passa pelo lote XML; nenhuma consulta Webmania automatica; nenhuma manifestacao automatica; nenhuma criacao direta de `NfseReceivedDocument` pela inbox; nenhum `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt`; nenhum conector real de e-mail/ERP/pasta/webhook/job foi iniciado.
+
+## Fase 3.17.0 - Fechamento do Bloco NFS-e Recebida e Reavaliacao do Proximo Eixo Fiscal
+
+Status: **em planejamento documental em 2026-06-30**. A Fase 3.16.1 foi validada e encerrada no checkpoint `166eda86`.
+
+Escopo autorizado: somente documentacao em `docs/fiscal-webmania/**` e OpenAPI apenas se houver correcao oficial confirmada. Nenhum codigo funcional, migration, service, view, template ou teste deve ser alterado nesta fase.
+
+### Fechamento do bloco NFS-e recebida
+
+O bloco NFS-e recebida pode ser considerado funcionalmente consolidado para origem XML local/manual/assistida. Estao implementados: registro unitario por XML, manifestacao de NFS-e recebida, consulta/reconciliacao auxiliar GET-only, importacao em lote de XML, inbox externa local/manual/assistida e ampliacao operacional da inbox.
+
+Na Fase 3.16.1 foram validados: filtros/busca, paginacao, exportacao CSV sem XML bruto, acoes em massa, descarte com motivo obrigatorio, processamento em massa apenas de itens aprovados, permissoes `export_nfse_external_xml_inbox` e `bulk_manage_nfse_external_xml_inbox`, migration `0074` e UI operacional. Permanecem confirmadas as ausencias de conectores reais de e-mail/ERP, consulta Webmania automatica, manifestacao automatica, criacao direta de `NfseReceivedDocument` pela inbox, `NfseItem`, `FiscalDocument(nfse)` e `FiscalEmissionAttempt`.
+
+Pendencias fora do bloco consolidado: conector real e-mail/ERP, pasta monitorada, webhook externo, importacao por consulta Webmania, manifestacao automatica e manifestacao da NFS-e manual.
+
+### Matriz comparativa
+
+| Bloco | Fonte local existe? | Contrato externo/API claro? | Reaproveita infraestrutura atual? | Dependencia externa | Risco fiscal/seguranca | Valor de negocio | Recomendacao |
+| ----- | ------------------: | --------------------------: | --------------------------------: | ------------------- | ---------------------- | ---------------- | ------------ |
+| Conector real de e-mail para XML NFS-e | Parcial: inbox local existe; origem e-mail real nao | Nao definido para IMAP/Gmail/Microsoft | Alta via inbox/lote | Alta: OAuth/IMAP/contas/anexos | Alto por credenciais, spoofing e segregacao | Alto | Adiar; exigir fase propria com fonte concreta |
+| Conector real de ERP para XML NFS-e | Parcial: inbox local existe; ERP real nao | Nao; nenhum ERP escolhido | Alta via inbox/lote | Alta: API/token/exportacao por ERP | Alto por CNPJ/empresa errada e contrato variavel | Medio/alto | Adiar ate ERP especifico |
+| Pasta monitorada/Drive/SharePoint | Parcial: inbox local existe | Parcial por provedor | Alta via inbox/lote | Media/alta: OAuth/pasta/permissoes | Alto por arquivo adulterado e acesso amplo | Medio | Adiar; nao e menor que auditoria |
+| Webhook externo de XML | Parcial: inbox local existe | Nao; assinatura/payload ausentes | Alta via inbox/lote | Alta: origem externa e assinatura | Alto por spoofing/importacao silenciosa | Medio | Adiar; futuro webhook deve criar item pendente |
+| Novas melhorias da inbox XML | Sim | N/A | Alta | Baixa | Baixo/medio | Medio | Manter em backlog; retencao/reprocessamento exigem fase propria |
+| Consulta Webmania ampliada para NFS-e recebida | Sim | Sim para GET/status | Alta | API Webmania | Medio se virar fonte primaria | Medio | Manter consultiva; nao criar documento por consulta |
+| Manifestacao da NFS-e manual | Parcial: manual existe | Endpoint claro, papel fiscal nao | Alta tecnica | Confirmacao fiscal/juridica | Alto por papel fiscal inseguro | Medio | Manter adiada |
+| NFS-e expandida | Parcial: legado/manual/recebida existem | Parcial | Media/alta | Backfill e convivencia de origens | Alto em escopo amplo | Alto | Adiar; se retomada, somente documental |
+| CT-e | Nao | Sim em alto nivel | Baixa/media | Dominio transporte/carga | Alto | Baixo/medio | Adiar |
+| MDF-e | Nao | Sim em alto nivel | Baixa/media | Dominio logistica/veiculo/condutor | Alto | Baixo | Adiar |
+| NFCom | Nao | Sim; API mapeada | Media tecnica, baixa dominio | Dominio comunicacao/telecom | Alto | Muito baixo | Adiar |
+| DC-e | Nao | Sim; API mapeada | Media tecnica, baixa dominio | Dominio especifico | Alto | Muito baixo | Adiar |
+| Eventos IBS/CBS 112120 | Nao suficiente | Parcial | Alta tecnica, baixa fonte fiscal | ALC/ZFM/importacao fiscal por item | Alto | Baixo | Adiar |
+| Eventos IBS/CBS 112140 | Nao suficiente | Parcial | Alta tecnica, baixa fonte fiscal | Pagamento antecipado/debito/nao fornecimento | Alto | Baixo/medio | Adiar |
+| Eventos IBS/CBS 211xxx | Nao suficiente | Parcial; familia ampla | Media | Papel destinatario/documentos externos | Alto | Baixo/medio | Adiar; exigir auditoria propria |
+| Creditos 2-5 | Parcial: credito tipo 1 existe | Parcial por tipo | Media/alta | Fonte fiscal/monetaria por tipo | Alto | Medio | Adiar |
+| Debitos 1-3 e 5-8 | Parcial: debito tipo 4 existe | Parcial por tipo | Media/alta | Fonte fiscal/monetaria por tipo | Alto | Medio | Adiar |
+| Complementar tributaria | Nao suficiente | Parcial | Media | Base tributaria historica e regras por imposto | Alto | Medio/alto | Adiar ate auditoria tributaria |
+| Auditoria tecnica/fiscal geral do modulo | Sim | N/A | Muito alta | Baixa | Baixo; reduz risco acumulado | Alto | **Recomendar Opcao A** |
+
+### Avaliacoes especificas
+
+Conectores externos de e-mail, ERP, pasta monitorada e webhook externo devem permanecer adiados. A inbox local ja existe e reduz risco operacional, mas nao substitui fonte externa concreta, autenticacao, segregacao por oficina, credenciais seguras, assinatura/idempotencia e testes determinísticos.
+
+Novas melhorias da inbox XML devem ficar em backlog. Retencao/arquivamento logico e reprocessamento controlado sao uteis, mas exigem politica fiscal explicita para nao apagar XML fiscal, nao perder historico e nao duplicar lote/documento.
+
+Consulta Webmania ampliada para NFS-e recebida permanece apenas consultiva. Nao deve criar documento recebido sem XML, substituir XML/hash/dados extraidos nem iniciar manifestacao automatica.
+
+Manifestacao da NFS-e manual continua adiada. Ainda nao ha confirmacao fiscal clara de que a oficina pode manifestar documento emitido por ela propria como tomador ou intermediario.
+
+NFS-e expandida nao deve ser retomada como fase ampla. O ciclo NFS-e cresceu em muitas subfases e possui convivencia entre legado, manual, recebida, lote e inbox; qualquer retorno deve ser precedido por auditoria e subfase documental pequena.
+
+CT-e, MDF-e, NFCom e DC-e permanecem adiados porque nao ha fonte local operacional suficiente e todos exigem dominio novo de transporte, logistica, comunicacao ou documentos especificos.
+
+IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria nao ficaram mais seguros pelo fechamento da NFS-e recebida. As dependencias fiscais de fonte por item, papel do destinatario, regras de credito/debito e base historica tributaria continuam abertas.
+
+Auditoria tecnica/fiscal geral passa a ser o proximo eixo mais seguro porque reduz risco acumulado sem abrir novo dominio, sem chamada remota nova e sem inferencia fiscal fragil.
+
+### Decisao
+
+Escolher **Opcao A - Encerrar bloco NFS-e recebida e executar auditoria tecnica/fiscal geral**.
+
+Justificativa: o bloco NFS-e recebida esta funcionalmente consolidado, enquanto o modulo fiscal acumulou muitas migrations, permissoes, flags, services, payloads, testes e documentos. Antes de abrir novo dominio fiscal ou retomar blocos tributarios sensiveis, a fase de menor risco e maior retorno e uma auditoria documental/tecnica geral, sem implementacao funcional nova.
+
+### Escopo proposto da proxima fase - Fase 3.17.1 Auditoria Tecnica/Fiscal Geral
+
+- Objetivo: revisar consistencia e riscos do modulo fiscal apos o fechamento de NFS-e recebida.
+- Areas a revisar: migrations fiscais, models, permissoes, feature flags, services Webmania, views fiscais, templates fiscais, testes direcionados, PRDs/ADRs/log/backlog e baseline `mypy`.
+- Modelagem: mapear entidades fiscais e fronteiras entre `NfseItem`, `NfseReceivedDocument`, `FiscalDocument`, tentativas, eventos, manifestacoes, consultas, lotes e inbox.
+- Permissoes: conferir granularidade, nomes, relacao com workshop e exposicao de payload/XML.
+- Feature flags: revisar flags por empresa/oficina e confirmar que nao liberam fluxos indevidos.
+- UX: revisar links, labels, mensagens de bloqueio, historicos e downloads protegidos.
+- Servicos: revisar idempotencia, payloads, sanitizacao, duplicidade, timeout `uncertain`, reconciliacao e ausencia de reenvio indevido.
+- Testes: mapear cobertura direcionada por subfase e lacunas de regressao.
+- Riscos: baseline `mypy`, duplicidade de regras, divergencia documental, payload sensivel, cross-workshop, imports historicos e convivencia legado/manual/recebida.
+- Criterios de aceite: nenhum codigo funcional novo; relatorio de auditoria documentado; backlog priorizado; OpenAPI alterado somente se houver correcao oficial; nenhuma fase posterior iniciada.
+
+OpenAPI: nenhuma alteracao. O schema atual permanece suficiente para a decisao documental desta fase.
 
 ## Fase 3.11.0 - Planejamento Tecnico da NFS-e Recebida/Importada de Terceiros
 

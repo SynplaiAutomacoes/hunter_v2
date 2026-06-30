@@ -906,10 +906,16 @@ Recomendacao de seguranca: priorizar melhorias locais e auditaveis da inbox ante
 
 ## Fase 3.16.1 - seguranca operacional da inbox XML
 
-Status: em implementacao tecnica em 2026-06-30. A Fase 3.16.0 foi validada documentalmente no checkpoint `267fc601`.
+Status: validada em 2026-06-30 no checkpoint `166eda86`. A Fase 3.16.0 foi validada documentalmente no checkpoint `267fc601`.
 
 Controles implementados: filtros e busca sempre partem de `workshop` ativo; exportacao CSV exige `export_nfse_external_xml_inbox` e nao inclui XML bruto, credenciais ou path local; acoes em massa exigem `bulk_manage_nfse_external_xml_inbox`; descarte em massa exige motivo; processamento em massa aceita somente itens aprovados, sem vinculo previo e com XML/hash.
 
 Auditoria permanece persistida nos campos existentes de usuario/data de aprovacao, descarte e processamento, no motivo de descarte e nos vinculos com lote/documento. Falhas em item individual nao derrubam a acao inteira.
 
 Nao foram implementados conector real, webhook externo, job agendado, consulta Webmania automatica, manifestacao automatica, reprocessamento de erro ou limpeza fisica de XML fiscal.
+
+## Fase 3.17.0 - seguranca no fechamento NFS-e recebida
+
+O bloco recebido preserva as principais garantias: XML/hash/dados extraidos imutaveis, cross-workshop bloqueado, payload/XML protegido por permissoes, consulta Webmania apenas auxiliar, manifestacao recebida em fase propria e inbox sem importacao automatica.
+
+Riscos residuais devem ser tratados por auditoria geral: crescimento de permissoes fiscais, acumulado de migrations, baseline `mypy`, consistencia de idempotencia entre servicos e risco de divergencia documental apos muitas subfases. Conectores externos seguem adiados por credenciais, spoofing, segregacao e observabilidade.

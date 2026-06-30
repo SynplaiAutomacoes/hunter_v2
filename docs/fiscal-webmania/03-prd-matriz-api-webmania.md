@@ -1187,8 +1187,18 @@ OpenAPI: nenhuma alteracao aplicada. A reavaliacao trata principalmente de orige
 
 ## Fase 3.16.1 - ampliacao operacional da inbox XML
 
-Status: em implementacao tecnica em 2026-06-30. A Fase 3.16.0 foi validada documentalmente no checkpoint `267fc601`.
+Status: validada em 2026-06-30 no checkpoint `166eda86`. A Fase 3.16.0 foi validada documentalmente no checkpoint `267fc601`.
 
 Nenhum endpoint Webmania foi adicionado ou consumido. Filtros, busca, CSV e acoes em massa operam exclusivamente sobre `NfseExternalXmlInbox` e `NfseExternalXmlInboxItem`, preservando o processamento via `NfseReceivedImportBatch`.
 
 OpenAPI: nenhuma alteracao aplicada; nao ha novo contrato remoto para a fase.
+
+## Fase 3.17.0 - matriz API para fechamento do bloco NFS-e recebida
+
+Status: em planejamento documental em 2026-06-30. A Fase 3.16.1 foi validada e encerrada no checkpoint `166eda86`.
+
+O bloco NFS-e recebida agora cobre registro unitario por XML, manifestacao de recebida, consulta/reconciliacao GET-only, importacao em lote XML, inbox local/manual/assistida e operacao ampliada da inbox. Nenhum desses fluxos depende de novo endpoint Webmania alem de consulta e manifestacao ja mapeadas.
+
+Decisao API preliminar: nao ha correcao oficial nova para `api/webmania_fiscal_openapi_validated.json`. Conectores externos de e-mail/ERP/pasta/webhook nao sao endpoints Webmania. CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS, creditos/debitos e complementar tributaria exigem fase documental propria antes de qualquer mudanca de contrato.
+
+OpenAPI: nenhuma alteracao aplicada.

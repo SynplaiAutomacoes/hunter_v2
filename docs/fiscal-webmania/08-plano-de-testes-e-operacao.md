@@ -1015,7 +1015,7 @@ Testes futuros recomendados:
 
 ## Cobertura implementada na Fase 3.16.1
 
-Status: em implementacao tecnica em 2026-06-30.
+Status: validada em 2026-06-30 no checkpoint `166eda86`.
 
 Classe ampliada: `FiscalPhaseThreeNfseExternalXmlInboxTests`.
 
@@ -1032,3 +1032,18 @@ Cobertura adicionada:
 - garantias negativas de ausencia de Webmania, `NfseManifestation`, `NfseItem`, `FiscalDocument(nfse)` e `FiscalEmissionAttempt`.
 
 Nao implementado nesta fase: retencao/arquivamento e reprocessamento de erro. Ambos permanecem pendentes por exigirem politica fiscal propria e testes adicionais de duplicidade.
+
+## Plano de testes para Fase 3.17.1 - auditoria tecnica/fiscal geral
+
+Status: planejado na Fase 3.17.0.
+
+Testes e verificacoes recomendados:
+
+- mapear baterias direcionadas por subfase fiscal;
+- revisar cobertura de NFS-e recebida, inbox, manifestacao, consulta, lote, NFS-e manual, NFS-e legada, NF-e/NFC-e e IBS/CBS ja implementados;
+- identificar lacunas de regressao sem criar testes funcionais nesta fase documental;
+- revisar `makemigrations --check`, Ruff, `git diff --check` e baseline `mypy`;
+- listar alvos de teste obrigatorios para qualquer fase posterior;
+- confirmar ausencia de chamada Webmania automatica em fluxos locais;
+- confirmar protecao de payload/XML e cross-workshop nas trilhas fiscais;
+- gerar backlog priorizado de correcoes pequenas, sem executar implementacao funcional.

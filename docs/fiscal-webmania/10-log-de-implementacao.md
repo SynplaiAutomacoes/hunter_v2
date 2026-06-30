@@ -299,6 +299,17 @@
 - `mypy .` foi executado como nao bloqueante e falhou no baseline amplo preexistente: 3284 erros em 266 arquivos. A checagem focada dos Python tocados tambem e contaminada pelo grafo legado e reportou 1708 erros em 139 arquivos.
 - Retencao/arquivamento e reprocessamento de erro nao foram implementados por ausencia de politica fiscal explicita.
 - Permanecem fora de escopo: conectores reais de e-mail/ERP, OAuth/IMAP/Gmail/Microsoft, pasta monitorada/Drive/SharePoint, webhook externo, job agendado, consulta Webmania automatica, manifestacao automatica, documento sem XML, `NfseItem`, `FiscalDocument(nfse)`, `FiscalEmissionAttempt`, CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
+- Status posterior: Fase 3.16.1 validada e encerrada no checkpoint `166eda86`.
+
+## Fase 3.17.0 - fechamento do bloco NFS-e recebida
+
+- Fase 3.16.1 aprovada, validada e encerrada no checkpoint `166eda86`.
+- Registrado que o bloco NFS-e recebida esta funcionalmente consolidado para origem XML local/manual/assistida: importacao unitaria, lote XML, consulta GET-only, manifestacao recebida, inbox local e operacao ampliada.
+- Confirmadas ausencias de conectores reais de e-mail/ERP, consulta Webmania automatica, manifestacao automatica, criacao direta de `NfseReceivedDocument` pela inbox, `NfseItem`, `FiscalDocument(nfse)` e `FiscalEmissionAttempt`.
+- Reavaliados conectores externos, novas melhorias da inbox, consulta Webmania ampliada, manifestacao manual, NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendentes, creditos/debitos pendentes, complementar tributaria e auditoria tecnica/fiscal geral.
+- Decisao recomendada: **Opcao A**, encerrar bloco NFS-e recebida e executar auditoria tecnica/fiscal geral antes de novo dominio fiscal.
+- OpenAPI Webmania mantido sem alteracao.
+- Nenhum codigo funcional, migration, service, view, template ou teste foi alterado nesta fase documental.
 
 ## Fase 3.13.1 - inicio da consulta auxiliar de NFS-e recebida
 

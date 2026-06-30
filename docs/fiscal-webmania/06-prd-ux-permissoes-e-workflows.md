@@ -764,10 +764,16 @@ Permissoes existentes devem continuar separadas: visualizar, enviar, aprovar, pr
 
 ## Fase 3.16.1 - UX e permissoes operacionais da inbox XML
 
-Status: em implementacao tecnica em 2026-06-30. A Fase 3.16.0 foi validada documentalmente no checkpoint `267fc601`.
+Status: validada em 2026-06-30 no checkpoint `166eda86`. A Fase 3.16.0 foi validada documentalmente no checkpoint `267fc601`.
 
 UX implementada: filtros na lista, busca textual, paginacao, CSV, filtros no detalhe, selecao de itens, acoes em massa para aprovar, descartar e processar, motivo obrigatorio no descarte em massa, auditoria resumida por item e links mais claros para lote/documento recebido.
 
 Permissoes novas: `export_nfse_external_xml_inbox` para relatorio CSV e `bulk_manage_nfse_external_xml_inbox` para acoes em massa. As permissoes existentes continuam separadas para visualizar, enviar, aprovar, processar, descartar e ver payload/XML.
 
 Workflow preservado: a inbox continua local e manual/assistida; nenhum item cria documento fiscal diretamente; somente o lote XML validado cria `NfseReceivedDocument`.
+
+## Fase 3.17.0 - UX e permissoes apos consolidacao NFS-e recebida
+
+O bloco NFS-e recebida possui UX suficiente para operacao local: importacao unitaria, lote XML, consulta consultiva, manifestacao recebida, inbox e operacao ampliada da inbox. Permissoes permanecem separadas para importar, consultar, manifestar, visualizar payload/XML, aprovar/processar/descartar inbox, exportar CSV e executar acoes em massa.
+
+A proxima fase recomendada deve auditar consistencia de permissoes e labels antes de novos dominios fiscais, sem criar novo fluxo de usuario funcional.

@@ -846,7 +846,7 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 
 ## ADR - Fase 3.16.1: operacao em massa e relatorio local da inbox XML
 
-**Status:** em implementacao tecnica em 2026-06-30.
+**Status:** validada em 2026-06-30 no checkpoint `166eda86`.
 
 **Contexto:** a Fase 3.16.0 foi validada documentalmente no checkpoint `267fc601` e decidiu ampliar a inbox local antes de conectores reais.
 
@@ -855,5 +855,19 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 **Justificativa:** a operacao local reduz trabalho manual sem introduzir credenciais externas, automacao fiscal ou fonte remota. CSV sem XML bruto atende relatorio operacional sem expor payload fiscal. Acoes em massa reaproveitam validacoes existentes e registram usuario/data por item.
 
 **Consequencias:** foram criadas apenas permissoes de exportacao e gestao em massa. Retencao e reprocessamento de erro permanecem adiados. Nenhum conector, Webmania automatica, manifestacao automatica, `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt` foi introduzido.
+
+**OpenAPI:** nenhuma alteracao.
+
+## ADR - Fase 3.17.0: encerrar NFS-e recebida e auditar o modulo fiscal
+
+**Status:** em planejamento documental em 2026-06-30.
+
+**Contexto:** a Fase 3.16.1 foi validada e encerrada no checkpoint `166eda86`. O bloco NFS-e recebida possui registro unitario, manifestacao, consulta auxiliar, lote XML, inbox local e operacao ampliada.
+
+**Decisao:** escolher **Opcao A - Encerrar bloco NFS-e recebida e executar auditoria tecnica/fiscal geral** antes de abrir novo dominio fiscal ou retomar blocos tributarios sensiveis.
+
+**Justificativa:** o modulo acumulou muitas subfases, migrations, permissoes, flags, services, payloads, testes e documentos. Auditoria geral reduz risco de regressao, inconsistencias e duplicidade de regras sem depender de credenciais externas ou inferencia fiscal fragil.
+
+**Consequencias:** a proxima fase deve ser preferencialmente documental/tecnica, sem implementacao funcional nova. Conectores externos, NFS-e expandida ampla, CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendentes, creditos/debitos e complementar tributaria permanecem adiados.
 
 **OpenAPI:** nenhuma alteracao.

@@ -1031,10 +1031,16 @@ A proxima evolucao de menor risco no dominio e ampliar a propria inbox local: fi
 
 ## Fase 3.16.1 - dominio operacional da inbox XML
 
-Status: em implementacao tecnica em 2026-06-30. A Fase 3.16.0 foi validada documentalmente no checkpoint `267fc601`.
+Status: validada em 2026-06-30 no checkpoint `166eda86`. A Fase 3.16.0 foi validada documentalmente no checkpoint `267fc601`.
 
 `NfseExternalXmlInbox` e `NfseExternalXmlInboxItem` foram mantidos como dominio unico da inbox local. A fase nao criou nova entidade fiscal, nao criou documento recebido diretamente e nao alterou `NfseReceivedDocument`.
 
 Foram adicionadas operacoes de leitura/gestao local: filtros, busca, exportacao CSV sem XML bruto e acoes em massa. O processamento em massa continua selecionando itens aprovados e delegando a criacao fiscal exclusivamente ao `NfseReceivedImportBatch`.
 
 Retencao e reprocessamento foram mantidos como pendencias futuras, porque exigem politica fiscal explicita e regras adicionais para nao duplicar lote/documento.
+
+## Fase 3.17.0 - dominio apos fechamento do bloco NFS-e recebida
+
+O dominio de NFS-e recebida pode ser considerado funcionalmente consolidado para origem XML local: `NfseReceivedDocument`, `NfseReceivedImportBatch`, `NfseExternalXmlInbox`, consulta consultiva e manifestacao recebida possuem fronteiras definidas e nao criam `NfseItem` nem `FiscalDocument(nfse)`.
+
+A proxima evolucao de menor risco nao deve abrir novo dominio fiscal amplo imediatamente. A recomendacao de dominio e executar auditoria tecnica/fiscal geral para revisar modelos, permissoes, flags, servicos, duplicidade de regras, idempotencia, payloads sensiveis e consistencia documental antes de CT-e/MDF-e/NFCom/DC-e ou novos blocos IBS/CBS/credito/debito.

@@ -456,3 +456,12 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Consulta Webmania automatica, manifestacao automatica e criacao direta de documento recebido pela inbox continuam proibidas.
 - `NfseItem`, `FiscalDocument(nfse)` e `FiscalEmissionAttempt` continuam fora da inbox.
 - CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria seguem nao iniciados.
+
+## Apos a Fase 3.17.0
+
+- Bloco NFS-e recebida considerado funcionalmente consolidado para origem XML local/manual/assistida.
+- Proxima fase recomendada: auditoria tecnica/fiscal geral do modulo, preferencialmente documental/tecnica e sem implementacao funcional nova.
+- Pendencias de inbox que continuam futuras: retencao/arquivamento logico, reprocessamento controlado de erro e conectores externos reais.
+- Conectores reais de e-mail/ERP, OAuth, IMAP, Gmail API, Microsoft Graph, pasta monitorada, Drive, SharePoint, webhook externo e job agendado continuam adiados.
+- NFS-e expandida ampla, manifestacao da NFS-e manual, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria devem aguardar auditoria ou fase documental propria.
+- Auditoria deve revisar migrations, permissoes, feature flags, modelos, services Webmania, testes direcionados, documentacao, idempotencia, payloads sensiveis, cross-workshop e baseline `mypy`.
