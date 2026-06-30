@@ -1200,11 +1200,11 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     snapshot=snapshot,
                 )
 
-            if status in ("approve", "cancel", "reject"):
-                _consolidate_budget_revision(budget)
-
             budget.status = status_map[status]
             budget.save()
+
+        if status in ("approve", "cancel", "reject"):
+            _consolidate_budget_revision(budget)
 
         return JsonResponse({"success": True})
 
