@@ -233,6 +233,17 @@
 - Decisao recomendada: **Opcao A**, planejar consulta/reconciliacao auxiliar para `NfseReceivedDocument`, estritamente consultiva, sem criar documento recebido sem XML, sem substituir XML validado, sem manifestar automaticamente, sem `NfseItem` e sem `FiscalDocument(nfse)`.
 - OpenAPI validado permanece suficiente; nenhuma correcao oficial nova foi aplicada.
 - Nenhum codigo funcional, migration, service, view, template ou teste foi alterado nesta fase documental.
+- Status posterior: Fase 3.14.0 validada documentalmente e commitada no checkpoint `18d1840d`.
+
+## Fase 3.14.1 - implementacao e validacao tecnica
+
+- Criados `NfseReceivedImportBatch` e `NfseReceivedImportBatchItem` pela migration `0072`.
+- Implementado service de lote XML-only que reaproveita parser/importador unitario, isola erros por arquivo e permite importacao parcial auditavel.
+- Implementados limites de 20 arquivos, 2 MB por XML e 20 MB por lote, com bloqueio de extensao insegura, arquivo vazio e conteudo nao XML.
+- Implementada UI minima com upload multiplo, relatorio por arquivo, totais e links para documentos importados.
+- Permissoes especificas: `import_nfse_received_batch` e `view_nfse_received_batch`; flag reaproveitada: `nfse_received_import_enabled`.
+- Validacoes: `makemigrations finance --check --dry-run` OK; 6 testes focados OK; 79 testes fiscais direcionados OK; Ruff nos Python tocados OK.
+- Nao foram iniciados consulta Webmania automatica, manifestacao automatica/manual, documento sem XML, e-mail/ERP, NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendentes, creditos/debitos pendentes ou complementar tributaria.
 - Status posterior: Fase 3.13.0 validada documentalmente e commitada no checkpoint `d83b37dc`.
 
 ## Fase 3.13.1 - inicio da consulta auxiliar de NFS-e recebida

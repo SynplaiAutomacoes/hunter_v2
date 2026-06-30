@@ -406,3 +406,11 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Consulta Webmania permanece apoio GET-only e nao fonte de criacao de documento recebido.
 - NFS-e expandida ampla, CT-e, MDF-e, NFCom e DC-e permanecem adiados por falta de dominio local suficiente.
 - Eventos IBS/CBS `112120`, `112140`, `211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria permanecem dependentes de fontes fiscais especificas.
+
+## Apos a Fase 3.14.1
+
+- Importacao em lote de XML de NFS-e recebida implementada e validada tecnicamente.
+- Pendencias remanescentes: e-mail/ERP para obtencao externa de XMLs, relatorios operacionais ampliados, eventual processamento assincrono de lotes grandes e consolidacao `FiscalDocument(nfse)` sob demanda.
+- Consulta Webmania permanece apoio GET-only e nao fonte de criacao.
+- Manifestacao automatica, emissao/cancelamento/substituicao de recebida e manifestacao manual permanecem fora de escopo.
+- CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria seguem nao iniciados.

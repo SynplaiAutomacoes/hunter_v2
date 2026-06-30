@@ -926,3 +926,20 @@ Testes obrigatorios recomendados:
 - upload unitario, manifestacao recebida e consulta recebida nao regridem.
 
 Operacao: a fase deve ser validada com testes deterministicos usando arquivos XML pequenos e cenarios de falha parcial. `mypy .` continua nao bloqueante enquanto o baseline amplo preexistente nao for saneado.
+
+## Cobertura adicionada na Fase 3.14.1
+
+`FiscalPhaseThreeNfseReceivedBatchImportTests` cobre:
+
+- lote com multiplos XMLs validos;
+- relatorio persistido por arquivo;
+- lote misto com valido, XML invalido, duplicado e CNPJ/oficina divergente;
+- duplicidade por hash, UUID e identificador contra base existente;
+- duplicidade dentro do proprio lote;
+- limites de quantidade, tamanho, arquivo vazio e extensao insegura;
+- permissoes especificas de lote e relatorio protegido;
+- upload multiplo pela UI;
+- ausencia de chamada Webmania;
+- ausencia de `NfseManifestation`, `NfseItem`, `FiscalDocument(nfse)` e `FiscalEmissionAttempt`.
+
+Validacao executada: 6 testes focados da fase OK; 79 testes fiscais direcionados OK; `makemigrations finance --check --dry-run` OK; Ruff nos Python tocados OK.

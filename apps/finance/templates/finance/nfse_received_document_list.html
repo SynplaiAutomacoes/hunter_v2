@@ -2,7 +2,7 @@
 
 {% block crud_title %}NFS-e recebidas{% endblock %}
 {% block crud_subtitle %}Registros locais importados exclusivamente por XML enviado pelo usuário.{% endblock %}
-{% block crud_header_actions %}{% if can_import %}<a class="btn btn-primary btn-sm" href="{% url 'finance:nfse_received_document_import' %}">Importar XML</a>{% endif %}{% endblock %}
+{% block crud_header_actions %}<div class="flex gap-2">{% if can_import_batch %}<a class="btn btn-secondary btn-sm" href="{% url 'finance:nfse_received_batch_import' %}">Importar lote XML</a>{% endif %}{% if can_import %}<a class="btn btn-primary btn-sm" href="{% url 'finance:nfse_received_document_import' %}">Importar XML</a>{% endif %}</div>{% endblock %}
 {% block crud_list_content %}
 <div class="overflow-x-auto"><table class="table table-zebra"><thead><tr><th>Empresa</th><th>Papel</th><th>Validação</th><th>Identificador</th><th>Valor</th><th></th></tr></thead><tbody>
 {% for document in documents %}<tr><td>{{ document.company }}</td><td>{{ document.get_role_display }}</td><td>{{ document.get_validation_status_display }}</td><td>{{ document.uuid|default:document.access_key_or_identifier|default:"-" }}</td><td>{% if document.service_amount %}R$ {{ document.service_amount }}{% else %}-{% endif %}</td><td><a class="btn btn-ghost btn-sm" href="{% url 'finance:nfse_received_document_detail' document.pk %}">Abrir</a></td></tr>{% empty %}<tr><td colspan="6">Nenhuma NFS-e recebida importada.</td></tr>{% endfor %}

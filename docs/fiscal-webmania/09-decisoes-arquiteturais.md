@@ -781,3 +781,13 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 **Justificativa:** o lote XML reaproveita a fonte local mais confiavel ja validada, aumenta valor operacional para oficinas com muitos documentos recebidos e evita dependencia de consulta Webmania como origem. E menor e mais testavel que e-mail/ERP, NFS-e expandida ampla, CT-e/MDF-e/NFCom/DC-e, eventos IBS/CBS pendentes, creditos/debitos restantes ou complementar tributaria.
 
 **Consequencias:** a proxima fase deve ser XML-only, com relatorio por arquivo, importacao parcial segura, bloqueio de duplicidade e cross-workshop. Consulta Webmania continua apenas apoio consultivo; e-mail/ERP fica posterior ao lote local; manifestacao manual e demais dominios fiscais permanecem adiados.
+
+## ADR - Fase 3.14.1: lote persistido e importacao parcial
+
+**Status:** implementado e validado tecnicamente em 2026-06-29.
+
+**Decisao:** persistir lote e itens por arquivo em `NfseReceivedImportBatch` e `NfseReceivedImportBatchItem`, em vez de relatorio transiente.
+
+**Justificativa:** o lote e uma operacao fiscal auditavel com importacao parcial. Persistir resultados por arquivo permite explicar duplicidades, XMLs invalidos, CNPJ/oficina divergente e documentos criados sem depender de estado de tela.
+
+**Consequencias:** a importacao continua usando `NfseReceivedDocument` como documento fiscal primario, reaproveita o parser/importador unitario e nao cria Webmania calls, manifestacoes, `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt`.

@@ -962,3 +962,13 @@ Modelagem esperada para 3.14.1:
 - Nenhum lote pode criar `NfseItem`, `FiscalDocument(nfse)` ou `NfseManifestation`.
 
 Integracao e-mail/ERP, CT-e/MDF-e/NFCom/DC-e, eventos IBS/CBS pendentes, creditos/debitos restantes e complementar tributaria exigem modelagens de dominio proprias e permanecem fora do escopo imediato.
+
+## Fase 3.14.1 - modelagem implementada para lote XML de recebidas
+
+Foram criados `NfseReceivedImportBatch` e `NfseReceivedImportBatchItem` pela migration `0072`.
+
+`NfseReceivedImportBatch` representa a execucao auditavel do lote, com oficina, empresa, origem `xml_upload`, status, totais, contadores e usuario criador.
+
+`NfseReceivedImportBatchItem` representa o resultado por arquivo, com nome sanitizado, hash XML, status, documento recebido importado quando houver, codigo/mensagem de erro, erros de validacao e resumo parseado.
+
+O documento fiscal individual continua sendo `NfseReceivedDocument`. O lote nao cria nova fonte fiscal, nao cria documento sem XML e nao altera XML/hash/dados extraidos de documentos existentes.

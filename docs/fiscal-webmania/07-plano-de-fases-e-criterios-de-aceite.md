@@ -1311,7 +1311,7 @@ Implementacao validada: `NfseReceivedDocumentConsultation`, flag `WebmaniaCompan
 
 ## Fase 3.14.0 - Reavaliacao apos NFS-e Recebida Completa
 
-Status: **em planejamento documental em 2026-06-29**. A Fase 3.13.1 foi validada e encerrada no checkpoint `01f0924d`.
+Status: **validada documentalmente em 2026-06-29** no checkpoint `18d1840d`. A Fase 3.13.1 foi validada e encerrada no checkpoint `01f0924d`.
 
 Escopo autorizado: somente `docs/fiscal-webmania/**` e OpenAPI validado apenas se houver correcao oficialmente confirmada. Nenhum codigo funcional, migration, service, view, template ou teste deve ser alterado nesta fase.
 
@@ -1376,6 +1376,22 @@ Justificativa: e o bloco com melhor combinacao de fonte local existente, reaprov
 - Criterios de aceite: usa apenas XML; nao cria documento recebido sem XML; nao substitui XML validado de documento existente; nao manifesta automaticamente; nao consulta Webmania automaticamente; nao cria `NfseItem`; nao cria `FiscalDocument(nfse)`; gera relatorio por arquivo; bloqueia duplicidades e cross-workshop; testes determinísticos cobrem falhas parciais.
 
 OpenAPI: nenhuma alteracao. A proxima fase recomendada e importacao local por XML e nao depende de novo endpoint Webmania.
+
+## Fase 3.14.1 - Importacao em Lote de XML de NFS-e Recebida
+
+Status: **validada tecnicamente em 2026-06-29**. A Fase 3.14.0 foi validada documentalmente no checkpoint `18d1840d`.
+
+Escopo implementado: importacao local de multiplos XMLs de NFS-e recebida, com lote e itens persistidos, relatorio por arquivo, importacao parcial segura, duplicidade por hash/UUID/identificador, limites conservadores e reaproveitamento do parser/importador unitario.
+
+Modelagem implementada: `NfseReceivedImportBatch` e `NfseReceivedImportBatchItem`, migration `0072`. O lote registra oficina, empresa, origem XML, status, totais, duplicados, erros e usuario. Cada item registra arquivo, hash, status, documento recebido quando importado, erro, validacoes e resumo parseado.
+
+Limites implementados: ate 20 arquivos por lote, 2 MB por XML e 20 MB no total; extensao `.xml`, conteudo iniciado por XML e arquivo nao vazio.
+
+Permissoes implementadas: `import_nfse_received_batch` e `view_nfse_received_batch`, separadas de consulta e manifestacao. A flag reaproveitada e `nfse_received_import_enabled`, porque o lote e extensao conservadora da importacao XML local.
+
+Criterios de aceite cumpridos: usa apenas XML; nao cria documento sem XML; nao sobrescreve XML validado; nao consulta Webmania automaticamente; nao manifesta automaticamente; nao cria `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt`; gera relatorio por arquivo; bloqueia duplicidades e cross-workshop; testes determinísticos cobrem falhas parciais.
+
+Validacao tecnica: `makemigrations finance --check --dry-run` OK; `FiscalPhaseThreeNfseReceivedBatchImportTests` com 6 testes OK; bateria fiscal direcionada com 79 testes OK; Ruff nos Python tocados OK.
 
 ## Fase 3.11.0 - Planejamento Tecnico da NFS-e Recebida/Importada de Terceiros
 

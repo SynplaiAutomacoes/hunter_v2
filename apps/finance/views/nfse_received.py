@@ -12,11 +12,12 @@ from django.shortcuts import get_object_or_404, redirect
 from django.views import View
 from django.views.generic import DetailView, FormView, ListView
 
-from apps.finance.forms.nfse_received import NfseReceivedDocumentUploadForm
+from apps.finance.forms.nfse_received import NfseReceivedDocumentBatchUploadForm, NfseReceivedDocumentUploadForm
 from apps.core.forms import CoreForm
-from apps.finance.models.finance import FiscalEmissionAttemptStatus, NfseManifestation, NfseReceivedDocument, NfseReceivedDocumentConsultation
+from apps.finance.models.finance import FiscalEmissionAttemptStatus, NfseManifestation, NfseReceivedDocument, NfseReceivedDocumentConsultation, NfseReceivedImportBatch
 from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
 from apps.finance.services.nfse_manifestation import NfseManifestationError, is_nfse_received_document_eligible_for_manifestation, manifest_nfse_received_document, nfse_received_document_manifestation_block_reason
+from apps.finance.services.nfse_received_batch import NfseReceivedBatchFile, NfseReceivedBatchImportError, import_nfse_received_xml_batch
 from apps.finance.services.nfse_received_consultation import NfseReceivedConsultationError, consult_nfse_received_document, is_nfse_received_document_eligible_for_consultation, nfse_received_document_consultation_block_reason
 from apps.finance.services.nfse_received import NfseReceivedImportError, import_nfse_received_xml
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
@@ -73,6 +74,7 @@ class NfseReceivedDocumentListView(NfseReceivedDocumentPermissionMixin, ListView
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         context["can_import"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfsereceiveddocument", codename="import_nfse_received", request=self.request)
+        context["can_import_batch"] = has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label="finance", model="nfsereceivedimportbatch", codename="import_nfse_received_batch", request=self.request)
         return context
 
 
@@ -97,6 +99,43 @@ class NfseReceivedDocumentImportView(LoginRequiredMixin, WorkshopScopedMixin, Fo
             return self.form_invalid(form)
         messages.success(self.request, "NFS-e recebida registrada a partir do XML.")
         return redirect("finance:nfse_received_document_detail", pk=document.pk)
+
+
+class NfseReceivedDocumentBatchImportView(LoginRequiredMixin, WorkshopScopedMixin, FormView):
+    template_name = "finance/nfse_received_document_batch_form.html"
+    form_class = NfseReceivedDocumentBatchUploadForm
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfsereceivedimportbatch"
+    workshop_permission_codename = "import_nfse_received_batch"
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["workshop"] = self.workshop
+        return kwargs
+
+    def form_valid(self, form):
+        batch_files = [NfseReceivedBatchFile(filename=uploaded.name, content=uploaded.read()) for uploaded in self.request.FILES.getlist("xml_files")]
+        try:
+            batch = import_nfse_received_xml_batch(workshop=self.workshop, company=form.cleaned_data["company"], files=batch_files, created_by=self.request.user)
+        except (NfseReceivedBatchImportError, ValidationError) as exc:
+            messages.error(self.request, "; ".join(getattr(exc, "messages", [str(exc)])))
+            return self.form_invalid(form)
+        if batch.error_count:
+            messages.warning(self.request, "Lote processado com erros. Revise o relatorio por arquivo.")
+        else:
+            messages.success(self.request, "Lote de XMLs importado com sucesso.")
+        return redirect("finance:nfse_received_batch_detail", pk=batch.pk)
+
+
+class NfseReceivedImportBatchDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
+    template_name = "finance/nfse_received_batch_detail.html"
+    context_object_name = "batch"
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfsereceivedimportbatch"
+    workshop_permission_codename = "view_nfse_received_batch"
+
+    def get_queryset(self):
+        return NfseReceivedImportBatch.objects.filter(workshop=self.workshop).select_related("company", "created_by").prefetch_related("items__received_document")
 
 
 class NfseReceivedDocumentDetailView(NfseReceivedDocumentPermissionMixin, DetailView):

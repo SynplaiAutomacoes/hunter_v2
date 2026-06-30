@@ -1115,3 +1115,11 @@ Status: em planejamento documental em 2026-06-29. A Fase 3.13.1 foi validada no 
 | Complementar tributaria | `/1/nfe/complementar/` e matriz NF-e | Contrato parcial; exige auditoria tributaria propria. |
 
 Decisao API: a proxima fase recomendada nao exige alteracao no OpenAPI validado, porque a importacao em lote proposta e local e baseada exclusivamente em XML. O schema atual permanece suficiente; nenhuma correcao oficial nova foi confirmada.
+
+## Fase 3.14.1 - matriz API da importacao em lote XML
+
+A importacao em lote implementada nao adiciona endpoint Webmania. A entrada e local, por upload multiplo de XMLs, e o processamento reaproveita o parser/importador unitario.
+
+Garantias de API: nenhuma chamada a `GET /2/nfse/consulta/{identifier}`, `GET /2/nfse/status`, `POST /2/nfse/manifestar`, emissao, cancelamento ou substituicao e disparada pelo lote.
+
+OpenAPI: nenhuma alteracao aplicada; o schema atual permanece suficiente.

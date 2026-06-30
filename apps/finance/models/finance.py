@@ -1503,6 +1503,91 @@ class NfseReceivedDocumentConsultation(TimeStampedModel):
         return f"NfseReceivedDocumentConsultation[{self.received_document_id}:{self.identifier}]"
 
 
+class NfseReceivedImportBatch(TimeStampedModel):
+    class Source(models.TextChoices):
+        XML_UPLOAD = "xml_upload", "Upload XML"
+
+    class Status(models.TextChoices):
+        PROCESSING = "processing", "Processando"
+        COMPLETED = "completed", "Concluido"
+        COMPLETED_WITH_ERRORS = "completed_with_errors", "Concluido com erros"
+        FAILED = "failed", "Falhou"
+
+    workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="nfse_received_import_batches")
+    company = models.ForeignKey(WebmaniaCompany, verbose_name="Empresa Webmania", on_delete=models.PROTECT, related_name="nfse_received_import_batches")
+    source = models.CharField(verbose_name="Origem", max_length=24, choices=Source.choices, default=Source.XML_UPLOAD, db_index=True)
+    status = models.CharField(verbose_name="Status", max_length=32, choices=Status.choices, default=Status.PROCESSING, db_index=True)
+    total_files = models.PositiveIntegerField(verbose_name="Total de arquivos", default=0)
+    success_count = models.PositiveIntegerField(verbose_name="Importados", default=0)
+    error_count = models.PositiveIntegerField(verbose_name="Erros", default=0)
+    duplicate_count = models.PositiveIntegerField(verbose_name="Duplicados", default=0)
+    created_by = models.ForeignKey("accounts.User", verbose_name="Criado por", on_delete=models.SET_NULL, null=True, blank=True, related_name="nfse_received_import_batches")
+
+    class Meta(TimeStampedModel.Meta):
+        indexes = [
+            models.Index(fields=["workshop", "-criado_em"], name="nfse_recv_batch_time_idx"),
+            models.Index(fields=["workshop", "status"], name="nfse_recv_batch_status_idx"),
+        ]
+        permissions = [
+            ("import_nfse_received_batch", "Pode importar lote de XML de NFS-e recebida"),
+            ("view_nfse_received_batch", "Pode visualizar lote de NFS-e recebida"),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if self.company_id and self.workshop_id and self.company.workshop_id != self.workshop_id:
+            raise ValidationError({"company": "A empresa Webmania pertence a outra oficina."})
+        if self.source != self.Source.XML_UPLOAD:
+            raise ValidationError({"source": "Nesta fase, somente lote local de XML e permitido."})
+
+    def save(self, *args, **kwargs) -> None:
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"NfseReceivedImportBatch[{self.workshop_id}:{self.status}:{self.total_files}]"
+
+
+class NfseReceivedImportBatchItem(TimeStampedModel):
+    class Status(models.TextChoices):
+        IMPORTED = "imported", "Importado"
+        REJECTED = "rejected", "Rejeitado"
+        DUPLICATE = "duplicate", "Duplicado"
+        INVALID_XML = "invalid_xml", "XML invalido"
+        INVALID_TENANT = "invalid_tenant", "Oficina/CNPJ invalido"
+        ERROR = "error", "Erro"
+
+    batch = models.ForeignKey(NfseReceivedImportBatch, verbose_name="Lote", on_delete=models.CASCADE, related_name="items")
+    filename = models.CharField(verbose_name="Arquivo", max_length=255)
+    xml_hash = models.CharField(verbose_name="Hash do XML", max_length=64, blank=True, default="", db_index=True)
+    status = models.CharField(verbose_name="Status", max_length=24, choices=Status.choices, db_index=True)
+    received_document = models.ForeignKey(NfseReceivedDocument, verbose_name="NFS-e recebida", on_delete=models.SET_NULL, null=True, blank=True, related_name="batch_items")
+    error_code = models.CharField(verbose_name="Codigo do erro", max_length=40, blank=True, default="")
+    error_message = models.TextField(verbose_name="Mensagem do erro", blank=True, default="")
+    validation_errors = models.JSONField(verbose_name="Erros de validacao", default=list, blank=True)
+    raw_summary = models.JSONField(verbose_name="Resumo parseado", default=dict, blank=True)
+
+    class Meta(TimeStampedModel.Meta):
+        indexes = [
+            models.Index(fields=["batch", "status"], name="nfse_recv_bi_status_idx"),
+            models.Index(fields=["batch", "xml_hash"], name="nfse_recv_bi_hash_idx"),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if self.received_document_id and self.batch_id and self.received_document.workshop_id != self.batch.workshop_id:
+            raise ValidationError({"received_document": "A NFS-e recebida pertence a outra oficina."})
+        if not self.filename.strip():
+            raise ValidationError({"filename": "Informe o nome do arquivo."})
+
+    def save(self, *args, **kwargs) -> None:
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"NfseReceivedImportBatchItem[{self.batch_id}:{self.filename}:{self.status}]"
+
+
 class NfeItem(models.Model):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE)
     workorder = models.ForeignKey("workorder.WorkOrder", verbose_name="Ordem de Serviço", on_delete=models.CASCADE)

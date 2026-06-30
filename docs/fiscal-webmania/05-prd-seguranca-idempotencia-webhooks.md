@@ -839,3 +839,11 @@ Regras de seguranca para a proxima fase recomendada:
 - Nenhum lote deve criar manifestacao automatica, `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt`.
 
 Riscos principais: lote grande consumindo memoria, arquivo de outra oficina, duplicidade parcial, relatorio incompleto e expectativa de rollback total. A mitigacao documental recomendada e limite de tamanho/quantidade, validacao por arquivo, resultado persistido ou exibido por arquivo e bloqueios cross-workshop determinísticos.
+
+## Fase 3.14.1 - seguranca implementada para lote XML
+
+O lote implementado e XML-only, local e sem gateway remoto. Cada arquivo e validado isoladamente por extensao, tamanho, conteudo XML, parser existente, papel fiscal, duplicidade e colisao com documentos emitidos localmente.
+
+Duplicidades sao bloqueadas dentro do lote e contra a base existente por hash, UUID e identificador. O comportamento e importacao parcial: arquivos validos sao persistidos e arquivos invalidos geram itens de erro no relatorio.
+
+Nao ha consulta Webmania automatica, webhook, manifestacao automatica, `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt` no fluxo de lote.

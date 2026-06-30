@@ -16,6 +16,7 @@ from urllib.parse import quote
 import requests
 from django.contrib.messages import get_messages
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.contrib.auth.models import Permission
 from django.contrib.sessions.middleware import SessionMiddleware
@@ -45,7 +46,7 @@ from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.forms.payment_method import PaymentMethodForm
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.movement_group import MovementGroup
-from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentLink, FiscalDocumentLinkRole, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, FiscalNumberInutilization, FiscalNumberInutilizationStatus, NfeItem, NfeRequest, NfeRequestStatus, NfseCancellation, NfseItem, NfseManifestation, NfseManualEmission, NfseManualEmissionPreview, NfseReceivedDocument, NfseRequest, NfseRequestStatus, NfseSubstitutionPreview, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
+from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentLink, FiscalDocumentLinkRole, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, FiscalNumberInutilization, FiscalNumberInutilizationStatus, NfeItem, NfeRequest, NfeRequestStatus, NfseCancellation, NfseItem, NfseManifestation, NfseManualEmission, NfseManualEmissionPreview, NfseReceivedDocument, NfseReceivedImportBatch, NfseReceivedImportBatchItem, NfseRequest, NfseRequestStatus, NfseSubstitutionPreview, TaxClassNfe, TaxClassNfeIcmsScenario, TaxClassNfse, TaxClassPreset, TaxClassSyncState, WebmaniaCompany, WebmaniaWebhookEvent
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.payment_method import PaymentMethod
@@ -15845,6 +15846,168 @@ class FiscalPhaseThreeNfseReceivedDocumentTests(TestCase):
         self.assertEqual(payload_response.json()["raw_payload"]["uuid"], document.uuid)
         self.assertEqual(xml_response.status_code, 200)
         self.assertIn(document.xml_snapshot, xml_response.content.decode())
+
+
+class FiscalPhaseThreeNfseReceivedBatchImportTests(TestCase):
+    def setUp(self) -> None:
+        self.user, self.workshop = create_director_user_with_workshop(suffix=95)
+        self.company = WebmaniaCompany.objects.create(
+            workshop=self.workshop,
+            webmania_company_id="NFSE-RECEIVED-BATCH",
+            cnpj="11.222.333/0001-81",
+            bearer_access_token="encrypted-token",
+            cidade="Sao Paulo",
+            uf="SP",
+            nfse_received_import_enabled=True,
+        )
+
+    def _xml(
+        self,
+        *,
+        uuid: str = "66000000-0000-0000-0000-000000003001",
+        identifier: str = "NFSE-REC-BATCH-0001",
+        provider_tax_id: str = "22.333.444/0001-55",
+        taker_tax_id: str = "11.222.333/0001-81",
+        status: str = "Autorizada",
+        amount: str = "1234.56",
+    ) -> bytes:
+        return f"""
+        <CompNfse>
+            <Nfse>
+                <InfNfse Id="{identifier}">
+                    <Uuid>{uuid}</Uuid>
+                    <Numero>{identifier}</Numero>
+                    <CodigoVerificacao>COD-{identifier}</CodigoVerificacao>
+                    <DataEmissao>2026-06-20T10:30:00-03:00</DataEmissao>
+                    <Ambiente>2</Ambiente>
+                    <Situacao>{status}</Situacao>
+                    <Prestador><CpfCnpj>{provider_tax_id}</CpfCnpj></Prestador>
+                    <Tomador><CpfCnpj>{taker_tax_id}</CpfCnpj></Tomador>
+                    <Servico><Valores><ValorServicos>{amount}</ValorServicos></Valores><CodigoMunicipio>3550308</CodigoMunicipio></Servico>
+                </InfNfse>
+            </Nfse>
+        </CompNfse>
+        """.encode()
+
+    def _batch_file(self, name: str, content: bytes):
+        from apps.finance.services.nfse_received_batch import NfseReceivedBatchFile
+
+        return NfseReceivedBatchFile(filename=name, content=content)
+
+    def _import_batch(self, files):
+        from apps.finance.services.nfse_received_batch import import_nfse_received_xml_batch
+
+        return import_nfse_received_xml_batch(workshop=self.workshop, company=self.company, files=files, created_by=self.user)
+
+    def test_imports_valid_xml_batch_with_file_report_and_no_remote_or_fiscal_flows(self) -> None:
+        files = [
+            self._batch_file("a.xml", self._xml(uuid="66000000-0000-0000-0000-000000003001", identifier="NFSE-REC-BATCH-0001")),
+            self._batch_file("b.xml", self._xml(uuid="66000000-0000-0000-0000-000000003002", identifier="NFSE-REC-BATCH-0002", amount="4321.00")),
+        ]
+        with patch("requests.get") as get_mock, patch("requests.post") as post_mock, patch("requests.put") as put_mock:
+            batch = self._import_batch(files)
+
+        self.assertEqual(batch.status, NfseReceivedImportBatch.Status.COMPLETED)
+        self.assertEqual(batch.total_files, 2)
+        self.assertEqual(batch.success_count, 2)
+        self.assertEqual(batch.error_count, 0)
+        self.assertEqual(NfseReceivedDocument.objects.count(), 2)
+        self.assertEqual(batch.items.filter(status=NfseReceivedImportBatchItem.Status.IMPORTED).count(), 2)
+        self.assertTrue(all(item.received_document_id for item in batch.items.all()))
+        self.assertEqual(NfseItem.objects.count(), 0)
+        self.assertEqual(FiscalDocument.objects.count(), 0)
+        self.assertEqual(NfseManifestation.objects.count(), 0)
+        self.assertEqual(FiscalEmissionAttempt.objects.count(), 0)
+        get_mock.assert_not_called()
+        post_mock.assert_not_called()
+        put_mock.assert_not_called()
+
+    def test_mixed_batch_imports_valid_xml_and_reports_invalid_duplicate_and_tenant_errors(self) -> None:
+        files = [
+            self._batch_file("valid.xml", self._xml(uuid="66000000-0000-0000-0000-000000003011", identifier="NFSE-REC-BATCH-0011")),
+            self._batch_file("invalid.xml", b"<CompNfse>"),
+            self._batch_file("duplicate.xml", self._xml(uuid="66000000-0000-0000-0000-000000003011", identifier="NFSE-REC-BATCH-0011")),
+            self._batch_file("other-workshop.xml", self._xml(uuid="66000000-0000-0000-0000-000000003012", identifier="NFSE-REC-BATCH-0012", taker_tax_id="99.888.777/0001-66")),
+        ]
+
+        batch = self._import_batch(files)
+
+        self.assertEqual(batch.status, NfseReceivedImportBatch.Status.COMPLETED_WITH_ERRORS)
+        self.assertEqual(batch.success_count, 1)
+        self.assertEqual(batch.error_count, 3)
+        self.assertEqual(batch.duplicate_count, 1)
+        self.assertEqual(NfseReceivedDocument.objects.count(), 1)
+        self.assertTrue(batch.items.filter(filename="invalid.xml", status=NfseReceivedImportBatchItem.Status.INVALID_XML).exists())
+        self.assertTrue(batch.items.filter(filename="duplicate.xml", status=NfseReceivedImportBatchItem.Status.DUPLICATE, error_code="duplicate_in_batch").exists())
+        self.assertTrue(batch.items.filter(filename="other-workshop.xml", status=NfseReceivedImportBatchItem.Status.INVALID_TENANT).exists())
+
+    def test_blocks_duplicates_against_existing_documents_without_overwriting(self) -> None:
+        existing = self._import_batch([self._batch_file("existing.xml", self._xml(uuid="66000000-0000-0000-0000-000000003021", identifier="NFSE-REC-BATCH-0021"))]).items.get().received_document
+        original_xml = existing.xml_snapshot
+
+        hash_duplicate = self._xml(uuid="66000000-0000-0000-0000-000000003021", identifier="NFSE-REC-BATCH-0021")
+        uuid_duplicate = self._xml(uuid="66000000-0000-0000-0000-000000003021", identifier="NFSE-REC-BATCH-0021-NEW")
+        identifier_duplicate = self._xml(uuid="66000000-0000-0000-0000-000000003022", identifier="NFSE-REC-BATCH-0021")
+        batch = self._import_batch([self._batch_file("hash.xml", hash_duplicate), self._batch_file("uuid.xml", uuid_duplicate), self._batch_file("identifier.xml", identifier_duplicate)])
+
+        self.assertEqual(batch.status, NfseReceivedImportBatch.Status.FAILED)
+        self.assertEqual(batch.success_count, 0)
+        self.assertEqual(batch.duplicate_count, 3)
+        self.assertEqual(NfseReceivedDocument.objects.count(), 1)
+        existing.refresh_from_db()
+        self.assertEqual(existing.xml_snapshot, original_xml)
+
+    def test_applies_limits_and_rejects_empty_non_xml_and_unsafe_extension(self) -> None:
+        from apps.finance.services.nfse_received_batch import MAX_NFSE_RECEIVED_BATCH_FILES, NfseReceivedBatchImportError
+
+        too_many = [self._batch_file(f"{index}.xml", self._xml(uuid=f"66000000-0000-0000-0000-{index:012d}", identifier=f"NFSE-LIMIT-{index}")) for index in range(MAX_NFSE_RECEIVED_BATCH_FILES + 1)]
+        with self.assertRaisesMessage(NfseReceivedBatchImportError, "maximo"):
+            self._import_batch(too_many)
+
+        batch = self._import_batch(
+            [
+                self._batch_file("empty.xml", b""),
+                self._batch_file("not-xml.txt", b"<CompNfse />"),
+                self._batch_file("large.xml", b"<CompNfse>" + (b" " * (2 * 1024 * 1024)) + b"</CompNfse>"),
+            ]
+        )
+
+        self.assertEqual(batch.status, NfseReceivedImportBatch.Status.FAILED)
+        self.assertEqual(batch.items.filter(error_code="empty_file").count(), 1)
+        self.assertEqual(batch.items.filter(error_code="invalid_extension").count(), 1)
+        self.assertEqual(batch.items.filter(error_code="file_too_large").count(), 1)
+
+    def test_batch_views_require_specific_permission_and_report_is_workshop_scoped(self) -> None:
+        from apps.finance.views.nfse_received import NfseReceivedDocumentBatchImportView
+
+        request = RequestFactory().post("/", data={"confirmed": "on"})
+        request.user = self.user
+        with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=False), self.assertRaises(PermissionDenied):
+            NfseReceivedDocumentBatchImportView.as_view()(request)
+
+        batch = self._import_batch([self._batch_file("valid.xml", self._xml(uuid="66000000-0000-0000-0000-000000003031", identifier="NFSE-REC-BATCH-0031"))])
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+        with patch("apps.workshops.mixin.has_workshop_perm", return_value=True):
+            response = self.client.get(reverse("finance:nfse_received_batch_detail", kwargs={"pk": batch.pk}))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "valid.xml")
+
+    def test_batch_upload_form_accepts_multiple_xml_files(self) -> None:
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+        files = [
+            SimpleUploadedFile("upload-a.xml", self._xml(uuid="66000000-0000-0000-0000-000000003041", identifier="NFSE-REC-BATCH-0041"), content_type="application/xml"),
+            SimpleUploadedFile("upload-b.xml", self._xml(uuid="66000000-0000-0000-0000-000000003042", identifier="NFSE-REC-BATCH-0042"), content_type="application/xml"),
+        ]
+        with patch("apps.workshops.mixin.has_workshop_perm", return_value=True):
+            response = self.client.post(reverse("finance:nfse_received_batch_import"), data={"company": self.company.pk, "xml_files": files, "confirmed": "on"})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(NfseReceivedDocument.objects.count(), 2)
 
 
 class FiscalPhaseThreeNfseReceivedConsultationTests(TestCase):

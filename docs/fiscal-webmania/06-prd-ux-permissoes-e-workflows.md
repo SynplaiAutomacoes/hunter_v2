@@ -692,3 +692,11 @@ Permissoes recomendadas:
 - permissao de consulta Webmania nao autoriza importacao em lote.
 
 UX explicitamente fora do escopo da proxima fase: e-mail/ERP, processamento assincrono externo, consulta Webmania automatica, manifestacao automatica, edicao/substituicao de XML validado e criacao de `NfseItem` ou `FiscalDocument(nfse)`.
+
+## Fase 3.14.1 - UX e permissoes implementadas para lote XML
+
+Foi adicionada acao "Importar lote XML" na lista de NFS-e recebidas, formulario com upload multiplo, limites visiveis e confirmacao explicita de que nao ha consulta Webmania nem manifestacao automatica.
+
+O relatorio do lote exibe status, totais, duplicados, erros e uma linha por arquivo, com link para o `NfseReceivedDocument` importado quando houver.
+
+Permissoes implementadas: `import_nfse_received_batch` para iniciar lote e `view_nfse_received_batch` para visualizar o relatorio. Permissoes de consulta, manifestacao, emissao, cancelamento ou substituicao nao autorizam lote.
