@@ -5,7 +5,7 @@ from django.template.loader import render_to_string
 
 from apps.core.domain import DocumentPayload
 from apps.core.domain.contracts.documents import DocumentPayload, DocumentRenderRequest
-from apps.core.infrastructure.pdf.playwright import render_pdf_from_html
+from apps.core.infrastructure.pdf.pdf_engine import render_pdf_from_html
 
 
 def render_template_request_to_pdf(render_request: DocumentRenderRequest) -> DocumentPayload:
