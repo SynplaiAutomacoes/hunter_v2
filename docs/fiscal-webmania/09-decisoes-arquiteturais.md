@@ -832,7 +832,7 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 
 ## ADR - Fase 3.16.0: ampliar inbox local antes de conectores reais
 
-**Status:** em planejamento documental em 2026-06-30.
+**Status:** validada documentalmente em 2026-06-30 no checkpoint `424a3c2a`.
 
 **Contexto:** a Fase 3.15.2 foi validada no checkpoint `517d25b8`. O bloco NFS-e recebida ja possui XML unitario, manifestacao recebida, consulta GET-only, lote XML e inbox local/manual.
 
@@ -841,6 +841,20 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 **Justificativa:** conectores reais de e-mail/ERP/pasta/webhook ainda dependem de autenticacao, segregacao por oficina, contratos externos, idempotencia por origem e observabilidade. A inbox local ja tem fonte e dominio implementados; melhorar filtros, busca, auditoria, relatorio e acoes controladas aumenta valor com risco menor.
 
 **Consequencias:** a proxima fase deve continuar local, sem conector real, sem Webmania automatica, sem manifestacao automatica e sem criar documento fiscal fora do lote XML. NFS-e expandida, CT-e/MDF-e/NFCom/DC-e, IBS/CBS pendentes, creditos/debitos e complementar tributaria permanecem adiados.
+
+**OpenAPI:** nenhuma alteracao.
+
+## ADR - Fase 3.17.1: auditoria sem correcao funcional imediata
+
+**Status:** em auditoria documental/tecnica em 2026-06-30.
+
+**Contexto:** a Fase 3.17.0 foi validada documentalmente no checkpoint `424a3c2a` e decidiu executar auditoria geral antes de abrir novo dominio fiscal.
+
+**Decisao:** realizar auditoria documental/tecnica do modulo fiscal, registrar achados por severidade e manter a fase sem implementacao funcional nova enquanto nao houver achado critico/alto.
+
+**Justificativa:** o bloco NFS-e recebida consolidou varias fronteiras locais e remotas. A revisao das migrations 0070-0074, permissoes, flags, services, UX e testes nao exige correcao imediata; abrir nova funcionalidade aumentaria risco sem tratar o baseline acumulado.
+
+**Consequencias:** backlog residual passa a priorizar baseline `mypy`, retencao/reprocessamento da inbox e auditoria analitica, todos em fases proprias. Conectores externos, NFS-e expandida ampla, CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendentes, creditos/debitos e complementar tributaria permanecem adiados.
 
 **OpenAPI:** nenhuma alteracao.
 

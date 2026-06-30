@@ -777,3 +777,13 @@ Workflow preservado: a inbox continua local e manual/assistida; nenhum item cria
 O bloco NFS-e recebida possui UX suficiente para operacao local: importacao unitaria, lote XML, consulta consultiva, manifestacao recebida, inbox e operacao ampliada da inbox. Permissoes permanecem separadas para importar, consultar, manifestar, visualizar payload/XML, aprovar/processar/descartar inbox, exportar CSV e executar acoes em massa.
 
 A proxima fase recomendada deve auditar consistencia de permissoes e labels antes de novos dominios fiscais, sem criar novo fluxo de usuario funcional.
+
+## Fase 3.17.1 - auditoria de UX, permissoes e workflows
+
+Status: em auditoria documental/tecnica em 2026-06-30. A Fase 3.17.0 foi validada documentalmente no checkpoint `424a3c2a`.
+
+Achado de UX: as telas existentes comunicam a diferenca entre importacao XML, consulta consultiva, manifestacao recebida, lote e inbox. A auditoria nao autorizou nova tela, novo botao funcional ou novo fluxo de usuario.
+
+Achado de permissoes: a granularidade atual continua adequada para o bloco recebido. Permissoes de lote nao autorizam inbox por si so; permissoes de inbox nao criam documento recebido diretamente; permissoes de consulta nao manifestam; permissoes de manifestacao nao substituem/cancelam/emitem.
+
+Decisao: manter qualquer melhoria de labels, painel analitico de auditoria, retencao ou reprocessamento como backlog futuro, para evitar acoplamento de UX com regra fiscal nova nesta fase.

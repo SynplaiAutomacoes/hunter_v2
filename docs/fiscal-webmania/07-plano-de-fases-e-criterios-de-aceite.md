@@ -1702,7 +1702,7 @@ Criterios de aceite: filtros e busca respeitam oficina ativa; CSV respeita ofici
 
 ## Fase 3.17.0 - Fechamento do Bloco NFS-e Recebida e Reavaliacao do Proximo Eixo Fiscal
 
-Status: **em planejamento documental em 2026-06-30**. A Fase 3.16.1 foi validada e encerrada no checkpoint `166eda86`.
+Status: **validada documentalmente em 2026-06-30** no checkpoint `424a3c2a`. A Fase 3.16.1 foi validada e encerrada no checkpoint `166eda86`.
 
 Escopo autorizado: somente documentacao em `docs/fiscal-webmania/**` e OpenAPI apenas se houver correcao oficial confirmada. Nenhum codigo funcional, migration, service, view, template ou teste deve ser alterado nesta fase.
 
@@ -1776,6 +1776,44 @@ Justificativa: o bloco NFS-e recebida esta funcionalmente consolidado, enquanto 
 - Criterios de aceite: nenhum codigo funcional novo; relatorio de auditoria documentado; backlog priorizado; OpenAPI alterado somente se houver correcao oficial; nenhuma fase posterior iniciada.
 
 OpenAPI: nenhuma alteracao. O schema atual permanece suficiente para a decisao documental desta fase.
+
+## Fase 3.17.1 - Auditoria Tecnica/Fiscal Geral
+
+Status: **em auditoria documental/tecnica em 2026-06-30**. A Fase 3.17.0 foi validada documentalmente no checkpoint `424a3c2a`.
+
+Escopo autorizado: auditoria tecnica/documental do modulo fiscal apos fechamento da NFS-e recebida. Nenhum fluxo funcional novo, conector, endpoint remoto novo, familia fiscal nova, migration corretiva ou teste novo deve ser criado salvo correcao pequena, segura e explicitamente necessaria; a auditoria inicial nao identificou correcao funcional obrigatoria.
+
+### Matriz de achados
+
+| Area | Achado | Severidade | Acao | Status |
+| ---- | ------ | ---------- | ---- | ------ |
+| Modelagem NFS-e recebida | Fronteiras entre `NfseItem`, `NfseReceivedDocument`, lote, inbox, consulta e manifestacao permanecem coerentes | Informativa | Documentar decisao | Registrado |
+| Migrations 0070-0074 | Sequencia adiciona origens/consultas/lote/inbox/permissoes sem detectar necessidade de migration corretiva | Informativa | Manter historico | Registrado |
+| Permissoes | Permissoes seguem granulares para payload/XML, consulta, manifestacao, lote, inbox, CSV e acoes em massa | Informativa | Manter regressao direcionada | Registrado |
+| Feature flags | Flags de recebida, consulta e inbox continuam separadas e nao abrem conector externo real | Informativa | Manter separacao | Registrado |
+| Services Webmania | Consulta recebida e GET-only; manifestacao e acao explicita; fluxos XML locais nao chamam Webmania automaticamente | Informativa | Manter criterio | Registrado |
+| XML fiscal sensivel | XML/hash preservados; CSV sem XML bruto; payload/download protegidos por permissao | Informativa | Manter protecao | Registrado |
+| Idempotencia e duplicidade | Bloqueios ativos para hash/UUID/identificador, manifestacao ativa/sucedida/incerta e item de inbox processado | Informativa | Manter testes direcionados | Registrado |
+| UX e workflows | Operacao local esta separada entre unidade, lote, consulta, manifestacao e inbox | Baixa | Melhorias analiticas ficam em backlog | Registrado |
+| Baseline `mypy` | Baseline amplo permanece nao bloqueante e contamina checagem global | Media | Reduzir em fase tecnica futura | Backlog |
+| Retencao/reprocessamento da inbox | Ainda sem politica fiscal explicita de retencao ou reprocessamento controlado de erro | Baixa | Planejar fase propria | Backlog |
+
+### Decisao da auditoria
+
+Nenhum achado critico ou alto foi identificado na auditoria documental/tecnica inicial. A decisao e nao implementar correcao funcional nesta fase e registrar backlog priorizado para riscos residuais.
+
+OpenAPI: nenhuma alteracao. A fase nao reabre contrato Webmania nem adiciona endpoint.
+
+Criterios de aceite:
+
+- Fase 3.17.0 confirmada com checkpoint documental;
+- relatorio de auditoria documentado;
+- backlog residual atualizado;
+- `makemigrations finance --check --dry-run` executado;
+- bateria fiscal direcionada executada;
+- `mypy .` executado como nao bloqueante se viavel;
+- `git diff --check` executado;
+- nenhum conector real, consulta automatica, manifestacao automatica, criacao sem XML, nova familia fiscal ou fase posterior iniciada.
 
 ## Fase 3.11.0 - Planejamento Tecnico da NFS-e Recebida/Importada de Terceiros
 

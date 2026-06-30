@@ -1035,7 +1035,7 @@ Nao implementado nesta fase: retencao/arquivamento e reprocessamento de erro. Am
 
 ## Plano de testes para Fase 3.17.1 - auditoria tecnica/fiscal geral
 
-Status: planejado na Fase 3.17.0.
+Status: em execucao documental/tecnica em 2026-06-30. A Fase 3.17.0 foi validada documentalmente no checkpoint `424a3c2a`.
 
 Testes e verificacoes recomendados:
 
@@ -1047,3 +1047,21 @@ Testes e verificacoes recomendados:
 - confirmar ausencia de chamada Webmania automatica em fluxos locais;
 - confirmar protecao de payload/XML e cross-workshop nas trilhas fiscais;
 - gerar backlog priorizado de correcoes pequenas, sem executar implementacao funcional.
+
+Plano de validacao desta auditoria:
+
+- `uv run python manage.py makemigrations finance --check --dry-run`;
+- bateria fiscal direcionada cobrindo NFS-e recebida, lote, inbox, consulta, manifestacao, NFS-e manual, cancelamento e substituicao;
+- `uv run mypy .` como nao bloqueante, com registro do baseline se falhar;
+- `git diff --check`;
+- `git status --short` antes do checkpoint.
+
+Ruff nao e obrigatorio se a fase permanecer exclusivamente documental, sem Python tocado.
+
+Resultado executado em 2026-06-30:
+
+- `uv run python manage.py makemigrations finance --check --dry-run`: OK, sem changes detected;
+- bateria fiscal direcionada: 89 testes OK;
+- `uv run mypy .`: nao bloqueante, falhou no baseline amplo preexistente com 3284 erros em 266 arquivos, checando 688 fontes;
+- `git diff --check`: OK antes do checkpoint;
+- Ruff: nao aplicavel, pois a fase permaneceu documental e nenhum Python foi alterado.

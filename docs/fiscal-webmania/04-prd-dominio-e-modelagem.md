@@ -1044,3 +1044,13 @@ Retencao e reprocessamento foram mantidos como pendencias futuras, porque exigem
 O dominio de NFS-e recebida pode ser considerado funcionalmente consolidado para origem XML local: `NfseReceivedDocument`, `NfseReceivedImportBatch`, `NfseExternalXmlInbox`, consulta consultiva e manifestacao recebida possuem fronteiras definidas e nao criam `NfseItem` nem `FiscalDocument(nfse)`.
 
 A proxima evolucao de menor risco nao deve abrir novo dominio fiscal amplo imediatamente. A recomendacao de dominio e executar auditoria tecnica/fiscal geral para revisar modelos, permissoes, flags, servicos, duplicidade de regras, idempotencia, payloads sensiveis e consistencia documental antes de CT-e/MDF-e/NFCom/DC-e ou novos blocos IBS/CBS/credito/debito.
+
+## Fase 3.17.1 - auditoria de dominio e modelagem
+
+Status: em auditoria documental/tecnica em 2026-06-30. A Fase 3.17.0 foi validada documentalmente no checkpoint `424a3c2a`.
+
+Achado de dominio: as fronteiras principais permanecem coerentes. `NfseItem` continua representando NFS-e emitida local/legada; `NfseReceivedDocument` representa NFS-e recebida por XML; `FiscalDocument` segue concentrado em NF-e/NFC-e e derivados ja migrados; `NfseReceivedImportBatch` e a unica fronteira de criacao fiscal em lote; `NfseExternalXmlInbox` permanece como entrada candidata e nao fiscal.
+
+Achado de migrations: `0070` estende `NfseManifestation` com origem alternativa por `received_document`, preservando origem unica por constraint e unicidade ativa separada por origem. `0071` adiciona consulta consultiva de recebida. `0072` cria lote XML. `0073` cria inbox local/manual. `0074` altera apenas permissoes da inbox. A auditoria nao identificou necessidade de migration corretiva.
+
+Decisao de dominio: nao criar abstracao fiscal ampla, backfill para `FiscalDocument(nfse)` ou nova familia fiscal nesta fase. Qualquer consolidacao futura deve ser planejada separadamente, com migracao e regressao proprias.

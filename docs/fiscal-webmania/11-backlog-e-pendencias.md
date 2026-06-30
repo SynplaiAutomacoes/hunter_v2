@@ -465,3 +465,13 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Conectores reais de e-mail/ERP, OAuth, IMAP, Gmail API, Microsoft Graph, pasta monitorada, Drive, SharePoint, webhook externo e job agendado continuam adiados.
 - NFS-e expandida ampla, manifestacao da NFS-e manual, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria devem aguardar auditoria ou fase documental propria.
 - Auditoria deve revisar migrations, permissoes, feature flags, modelos, services Webmania, testes direcionados, documentacao, idempotencia, payloads sensiveis, cross-workshop e baseline `mypy`.
+
+## Apos a Fase 3.17.1
+
+- Auditoria documental/tecnica nao encontrou achado critico ou alto que exigisse correcao funcional imediata.
+- Prioridade tecnica residual: reduzir baseline global de `mypy`, hoje amplo e nao bloqueante.
+- Prioridades operacionais da inbox: definir politica fiscal de retencao/arquivamento logico, reprocessamento controlado de erro e painel analitico de auditoria.
+- Manter testes direcionados obrigatorios para qualquer fase fiscal posterior envolvendo NFS-e recebida, lote, inbox, consulta, manifestacao, NFS-e manual, cancelamento e substituicao.
+- Conectores reais de e-mail/ERP, OAuth, IMAP, Gmail API, Microsoft Graph, pasta monitorada, Drive, SharePoint, webhook externo e job agendado continuam adiados.
+- Consulta Webmania automatica, manifestacao automatica, criacao direta de `NfseReceivedDocument` pela inbox e documento recebido sem XML continuam proibidos.
+- NFS-e expandida ampla, manifestacao da NFS-e manual, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria seguem nao iniciados.

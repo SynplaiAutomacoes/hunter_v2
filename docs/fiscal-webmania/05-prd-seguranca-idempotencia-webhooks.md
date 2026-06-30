@@ -919,3 +919,19 @@ Nao foram implementados conector real, webhook externo, job agendado, consulta W
 O bloco recebido preserva as principais garantias: XML/hash/dados extraidos imutaveis, cross-workshop bloqueado, payload/XML protegido por permissoes, consulta Webmania apenas auxiliar, manifestacao recebida em fase propria e inbox sem importacao automatica.
 
 Riscos residuais devem ser tratados por auditoria geral: crescimento de permissoes fiscais, acumulado de migrations, baseline `mypy`, consistencia de idempotencia entre servicos e risco de divergencia documental apos muitas subfases. Conectores externos seguem adiados por credenciais, spoofing, segregacao e observabilidade.
+
+## Fase 3.17.1 - auditoria de seguranca, idempotencia e webhooks
+
+Status: em auditoria documental/tecnica em 2026-06-30. A Fase 3.17.0 foi validada documentalmente no checkpoint `424a3c2a`.
+
+Achados sem severidade critica/alta:
+
+- permissoes fiscais seguem granulares para importar, consultar, manifestar, visualizar payload/XML, operar inbox, exportar CSV e executar acoes em massa;
+- flags de NFS-e recebida, consulta e inbox continuam separadas por empresa/oficina e nao liberam conector externo real;
+- fluxos locais de XML nao fazem chamada Webmania automatica e nao manifestam automaticamente;
+- consulta Webmania de recebida permanece GET-only e consultiva, sem sobrescrever XML/hash/dados extraidos;
+- manifestacao recebida exige documento validado, Padrao Nacional/capability compativel e bloqueia duplicidade ativa, sucedida ou incerta;
+- exportacao da inbox nao inclui XML bruto, credenciais ou path local;
+- webhooks/reconciliacoes existentes nao foram ampliados por esta auditoria.
+
+Risco residual medio: o baseline amplo de `mypy` continua nao bloqueante e pode ocultar falhas fora do escopo fiscal imediato. A mitigacao recomendada e manter testes direcionados fortes e abrir fase tecnica separada para reduzir o baseline gradualmente.

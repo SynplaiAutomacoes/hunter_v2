@@ -310,6 +310,20 @@
 - Decisao recomendada: **Opcao A**, encerrar bloco NFS-e recebida e executar auditoria tecnica/fiscal geral antes de novo dominio fiscal.
 - OpenAPI Webmania mantido sem alteracao.
 - Nenhum codigo funcional, migration, service, view, template ou teste foi alterado nesta fase documental.
+- Status posterior: Fase 3.17.0 validada documentalmente e encerrada no checkpoint `424a3c2a`.
+
+## Fase 3.17.1 - auditoria tecnica/fiscal geral
+
+- Fase 3.17.0 confirmada e encerrada no checkpoint `424a3c2a`.
+- Auditoria documental/tecnica iniciada sem implementacao funcional nova.
+- Revisadas as fronteiras de dominio entre `NfseItem`, `NfseReceivedDocument`, `NfseReceivedImportBatch`, `NfseExternalXmlInbox`, consulta recebida, manifestacao e `FiscalDocument`.
+- Revisadas migrations `0070` a `0074`: origem unica para manifestacao, consulta consultiva, lote XML, inbox local/manual e permissoes operacionais da inbox.
+- Revisadas garantias documentais de permissoes, flags, Webmania GET-only/acao explicita, ausencia de conector externo, protecao de XML/payload e duplicidade/idempotencia.
+- Nenhum achado critico ou alto foi identificado na auditoria documental/tecnica inicial.
+- Riscos residuais registrados: baseline amplo `mypy`, retencao/reprocessamento da inbox e painel analitico de auditoria.
+- Validacoes executadas: `uv run python manage.py makemigrations finance --check --dry-run` OK, sem changes detected; bateria fiscal direcionada passou com 89 testes; `uv run mypy .` executado como nao bloqueante e falhou no baseline preexistente com 3284 erros em 266 arquivos; `git diff --check` OK.
+- OpenAPI Webmania mantido sem alteracao.
+- Nenhum conector real, consulta Webmania automatica, manifestacao automatica, criacao sem XML, `NfseItem`, `FiscalDocument(nfse)`, `FiscalEmissionAttempt`, CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendente, credito/debito pendente ou complementar tributaria foi iniciado.
 
 ## Fase 3.13.1 - inicio da consulta auxiliar de NFS-e recebida
 
