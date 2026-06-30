@@ -20,7 +20,7 @@ class BudgetItemEditForm(CoreModelForm):
         model = BudgetItem
         fields = ["description", "quantity", "is_customer_supplied", "product_selling_price",
                   "product_cost_price", "shipping", "service_selling_price", "service_cost_price",
-                  "duration", "ncm", "item_benefit_type"]
+                  "service_shipping", "duration", "ncm", "item_benefit_type"]
 
         widgets = {
             "description": TextInput(),
@@ -31,6 +31,7 @@ class BudgetItemEditForm(CoreModelForm):
             "shipping": MoneyInput(),
             "service_selling_price": MoneyInput(),
             "service_cost_price": MoneyInput(),
+            "service_shipping": MoneyInput(),
             "duration": DurationInput(),
             "item_benefit_type": RadioSelect(),
         }
@@ -151,12 +152,13 @@ class LocalProductForm(CoreModelForm):
 class LocalServiceForm(CoreModelForm):
     class Meta:
         model = BudgetItem
-        fields = ["description", "quantity", "service_cost_price", "service_selling_price", "duration", "item_benefit_type"]
+        fields = ["description", "quantity", "service_cost_price", "service_selling_price", "service_shipping", "duration", "item_benefit_type"]
         widgets = {
             "description": TextInput(attrs={"placeholder": "Ex: Serviço Especial Ferrari"}),
             "quantity": NumberInput(),
             "service_cost_price": MoneyInput(),
             "service_selling_price": MoneyInput(),
+            "service_shipping": MoneyInput(),
             "duration": DurationInput(),
             "item_benefit_type": RadioSelect(),
         }
@@ -168,6 +170,7 @@ class LocalServiceForm(CoreModelForm):
         self.fields["description"].label = "Descrição"
         self.fields["quantity"].label = "Quantidade"
         self.fields["service_cost_price"].label = "Custo"
+        self.fields["service_shipping"].label = "Frete"
         self.fields["duration"].label = "Duração"
 
         # Disable item_benefit_type if budget is fixed
