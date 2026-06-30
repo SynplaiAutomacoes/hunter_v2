@@ -972,3 +972,20 @@ Foram criados `NfseReceivedImportBatch` e `NfseReceivedImportBatchItem` pela mig
 `NfseReceivedImportBatchItem` representa o resultado por arquivo, com nome sanitizado, hash XML, status, documento recebido importado quando houver, codigo/mensagem de erro, erros de validacao e resumo parseado.
 
 O documento fiscal individual continua sendo `NfseReceivedDocument`. O lote nao cria nova fonte fiscal, nao cria documento sem XML e nao altera XML/hash/dados extraidos de documentos existentes.
+
+## Fase 3.15.0 - modelagem recomendada apos consolidacao recebida
+
+Status: em planejamento documental em 2026-06-29. A Fase 3.14.1 foi validada no checkpoint `b53e862b`.
+
+Decisao de dominio: a proxima fase deve ser preparatoria/documental para integracao e-mail/ERP como fonte externa de XMLs, sem implementar pipeline real ainda.
+
+Modelagem a avaliar na fase futura:
+
+- fonte externa por oficina/empresa, com credenciais e escopo;
+- caixa/fila de anexos antes de qualquer importacao fiscal;
+- fingerprint por origem/anexo/hash para idempotencia;
+- vinculo posterior com `NfseReceivedImportBatch`;
+- trilha de auditoria de quem configurou, quando processou e por qual regra;
+- isolamento estrito por oficina e empresa.
+
+`NfseReceivedDocument` e `NfseReceivedImportBatch` continuam sendo a fronteira fiscal. E-mail/ERP nao deve criar documento sem XML nem substituir XML validado.

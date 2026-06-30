@@ -1379,7 +1379,7 @@ OpenAPI: nenhuma alteracao. A proxima fase recomendada e importacao local por XM
 
 ## Fase 3.14.1 - Importacao em Lote de XML de NFS-e Recebida
 
-Status: **validada tecnicamente em 2026-06-29**. A Fase 3.14.0 foi validada documentalmente no checkpoint `18d1840d`.
+Status: **validada em 2026-06-29** no checkpoint `b53e862b`. A Fase 3.14.0 foi validada documentalmente no checkpoint `18d1840d`.
 
 Escopo implementado: importacao local de multiplos XMLs de NFS-e recebida, com lote e itens persistidos, relatorio por arquivo, importacao parcial segura, duplicidade por hash/UUID/identificador, limites conservadores e reaproveitamento do parser/importador unitario.
 
@@ -1392,6 +1392,71 @@ Permissoes implementadas: `import_nfse_received_batch` e `view_nfse_received_bat
 Criterios de aceite cumpridos: usa apenas XML; nao cria documento sem XML; nao sobrescreve XML validado; nao consulta Webmania automaticamente; nao manifesta automaticamente; nao cria `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt`; gera relatorio por arquivo; bloqueia duplicidades e cross-workshop; testes determinísticos cobrem falhas parciais.
 
 Validacao tecnica: `makemigrations finance --check --dry-run` OK; `FiscalPhaseThreeNfseReceivedBatchImportTests` com 6 testes OK; bateria fiscal direcionada com 79 testes OK; Ruff nos Python tocados OK.
+
+## Fase 3.15.0 - Reavaliacao do Roadmap apos Consolidacao de NFS-e Recebida
+
+Status: **em planejamento documental em 2026-06-29**. A Fase 3.14.1 foi validada e encerrada no checkpoint `b53e862b`.
+
+Escopo autorizado: somente `docs/fiscal-webmania/**` e OpenAPI validado apenas se houver correcao oficialmente confirmada. Nenhum codigo funcional, migration, service, view, template ou teste deve ser alterado nesta fase.
+
+### Contexto implementado
+
+O bloco NFS-e recebida agora possui registro unitario por XML, manifestacao de NFS-e recebida, consulta/reconciliacao auxiliar GET-only e importacao em lote de XML. A base local consolidada inclui XML/hash/dados extraidos, papel fiscal, duplicidades, lote persistido e relatorio por arquivo. Consulta Webmania continua apoio consultivo e nao fonte primaria. Manifestacao automatica continua proibida.
+
+### Matriz comparativa
+
+| Bloco | Fonte local existe? | Contrato Webmania claro? | Reaproveita infraestrutura atual? | Dependencia externa | Risco fiscal | Valor de negocio | Recomendacao |
+| ----- | ------------------: | -----------------------: | --------------------------------: | ------------------- | ------------ | ---------------- | ------------ |
+| Integracao futura com e-mail/ERP para XML de NFS-e | Parcial: parser, lote XML e documentos recebidos existem; origem externa nao | N/A para e-mail/ERP; Webmania nao participa da origem | Alta para ingestao XML; baixa/media para conectores externos | Alta: caixas, ERP, autenticacao, anexos, filas e observabilidade | Alto se importar origem errada; medio se for apenas fase preparatoria | Alto | Recomendar fase preparatoria/documental |
+| Consulta Webmania ampliada para NFS-e recebida | Sim: consulta GET-only ja existe | Sim para `GET /2/nfse/consulta/{identifier}` e `/2/nfse/status` | Alta | API Webmania e identificador seguro | Medio; alto se usuario esperar substituicao do XML | Medio | Manter como apoio; adiar automacao |
+| Manifestacao da NFS-e manual | Parcial: NFS-e manual possui UUID/`NfseItem` | Contrato de manifestacao claro, papel fiscal nao | Alta tecnica | Confirmacao fiscal/juridica de papel tomador/intermediario | Alto | Medio | Manter adiada |
+| NFS-e expandida | Parcial: legado, manual e recebida consolidados; `FiscalDocument(nfse)` ainda nao | Parcial; varios endpoints claros com variacao municipal | Media/alta | Backfill, convivencia de origens, municipio/provedor | Alto | Alto | Nao abrir bloco amplo; exigir subfase documental |
+| CT-e | Nao | Sim em alto nivel | Media tecnica; baixa de dominio | Transporte, carga, remetente, destinatario, veiculos | Alto | Baixo/medio | Adiar |
+| MDF-e | Nao | Sim em alto nivel | Baixa/media | Logistica, veiculo, condutor, documentos vinculados | Alto | Baixo | Adiar |
+| NFCom | Nao | Sim; API v2.0.0 mapeada | Media tecnica | Dominio comunicacao/telecom e credenciamento | Alto | Muito baixo | Adiar |
+| DC-e | Nao | Sim; API v2.0.0 mapeada | Media tecnica | Dominio especifico e demanda nao comprovada | Alto | Muito baixo | Adiar |
+| Eventos IBS/CBS 112120 | Nao suficiente | Parcial/confirmado em matriz anterior | Alta tecnica, baixa de dominio | ALC/ZFM, importacao fiscal por item e contexto de isencao | Alto | Baixo | Adiar |
+| Eventos IBS/CBS 112140 | Nao suficiente | Parcial/confirmado em matriz anterior | Alta tecnica, baixa de dominio | Pagamento antecipado, nota de debito e nao fornecimento por item | Alto | Baixo/medio | Adiar |
+| Eventos IBS/CBS 211xxx | Nao suficiente | Parcial; familia ampla | Media | Papel destinatario, documentos externos, estoque ou apuracao | Alto | Baixo/medio | Adiar; exigir auditoria propria |
+| Creditos 2-5 | Parcial: credito tipo 1 existe | Parcial por tipo | Media/alta | Fonte fiscal/monetaria por tipo | Alto | Medio | Adiar |
+| Debitos 1-3 e 5-8 | Parcial: debito tipo 4 existe | Parcial por tipo | Media/alta | Fonte fiscal/monetaria por tipo; debito 6 liga ao 112140 | Alto | Medio | Adiar |
+| Complementar tributaria | Nao suficiente | Parcial | Media | Base tributaria historica, XML/projecao fiscal e regras por imposto | Alto | Medio/alto | Adiar ate auditoria tributaria |
+
+### Avaliacoes especificas
+
+Integracao e-mail/ERP: deve virar somente fase preparatoria/documental. O valor de negocio e claro porque o lote XML local ja existe e oficinas podem receber XMLs por canais externos. Porem a origem dos XMLs exige autenticacao, permissoes, anexos, seguranca contra documento errado, tratamento de duplicidade, auditoria, fila/job e observabilidade. Implementar pipeline real agora abriria dependencia fora do dominio fiscal. A proxima fase deve desenhar fontes, riscos, contratos internos e limites antes de qualquer conector.
+
+Consulta Webmania ampliada: o GET atual e suficiente para consulta manual e historico consultivo. Rotina automatica/agendada pode ter valor, mas traz risco de usuario interpretar retorno como substituto do XML. Deve continuar apenas apoio, nao fonte primaria, e qualquer automacao deve ser posterior a politicas de reconciliacao claras.
+
+Manifestacao da NFS-e manual: permanece adiada. A oficina emissora/prestadora nao tem papel de tomadora/intermediaria confirmado para manifestar a propria NFS-e manual.
+
+NFS-e expandida: ha infraestrutura ampla, mas nao ha subescopo funcional pequeno sem risco de consolidacao/backfill. Se retomada, deve ser nova fase documental para convivencia entre legado, manual, recebida e eventual `FiscalDocument(nfse)`.
+
+CT-e, MDF-e, NFCom e DC-e: permanecem adiados. Ha contratos Webmania em alto nivel, mas faltam fontes locais operacionais e dominio de produto para transporte, logistica, comunicacao/telecom ou documentos especificos.
+
+IBS/CBS, creditos/debitos e complementar tributaria: a consolidacao NFS-e recebida nao resolve as fontes fiscais desses blocos. `112120` segue dependente de ALC/ZFM/importacao fiscal por item; `112140` depende de pagamento antecipado e debito/nao fornecimento; `211xxx` depende de papel destinatario e documentos externos. Creditos 2-5, debitos 1-3/5-8 e complementar tributaria continuam exigindo auditorias por tipo.
+
+### Decisao
+
+Escolher **Opcao A - Planejar integracao e-mail/ERP para XML de NFS-e** como proxima fase, estritamente **preparatoria/documental**, sem implementar pipeline real ainda.
+
+Justificativa: depois de registro unitario, manifestacao, consulta e lote XML, a maior lacuna operacional do bloco recebido e a origem dos XMLs. Uma fase preparatoria agrega valor sem risco fiscal imediato, define fronteiras de autenticacao/anexos/fila/auditoria e impede que e-mail/ERP seja implementado como atalho inseguro para importar documento errado.
+
+### Escopo proposto da proxima fase - Fase 3.15.1 Planejamento de Integracao E-mail/ERP para XML NFS-e
+
+- Objetivo: planejar pipeline futuro para receber XMLs de NFS-e por e-mail/ERP e alimentar o lote XML validado.
+- Endpoint: nenhum Webmania; conectores externos a definir documentalmente.
+- Modelagem: mapear fontes, credenciais, anexos, fila/job, deduplicacao, auditoria e relacao com `NfseReceivedImportBatch`.
+- Idempotencia: planejar fingerprint por fonte/anexo/hash e deduplicacao antes do parser.
+- Permissoes: planejar permissoes separadas para configurar origem externa, visualizar caixa/fila e aprovar processamento.
+- Feature flag/capability: planejar flag propria para integracao externa, separada de `nfse_received_import_enabled`.
+- UI minima: planejamento de tela de fontes, fila de anexos, erros, reprocessamento e vinculo a lotes.
+- Webhook/reconciliacao: nenhum webhook fiscal; e-mail/ERP deve apenas fornecer XML ao pipeline local.
+- Testes planejados: mocks de origem externa, anexos validos/invalidos, duplicidade, permissao, fila, isolamento por oficina e garantia de que nao ha chamada Webmania/manifestacao automatica.
+- Riscos: credenciais, anexos adulterados, documento de outra oficina, importacao silenciosa indevida, LGPD/dados sensiveis, volume alto e reprocessamento.
+- Criterios de aceite: fase documental sem codigo funcional; nenhuma integracao real; nenhuma chamada remota; nenhuma importacao automatica; plano seguro para fase funcional futura.
+
+OpenAPI: nenhuma alteracao. A fase recomendada nao depende de endpoint Webmania novo.
 
 ## Fase 3.11.0 - Planejamento Tecnico da NFS-e Recebida/Importada de Terceiros
 

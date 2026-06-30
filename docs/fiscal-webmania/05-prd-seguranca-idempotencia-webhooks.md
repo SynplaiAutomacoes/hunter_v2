@@ -847,3 +847,19 @@ O lote implementado e XML-only, local e sem gateway remoto. Cada arquivo e valid
 Duplicidades sao bloqueadas dentro do lote e contra a base existente por hash, UUID e identificador. O comportamento e importacao parcial: arquivos validos sao persistidos e arquivos invalidos geram itens de erro no relatorio.
 
 Nao ha consulta Webmania automatica, webhook, manifestacao automatica, `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt` no fluxo de lote.
+
+## Fase 3.15.0 - seguranca recomendada para integracao e-mail/ERP
+
+Status: em planejamento documental em 2026-06-29. A Fase 3.14.1 foi validada no checkpoint `b53e862b`.
+
+Riscos a tratar antes de qualquer implementacao:
+
+- autenticacao e armazenamento de credenciais externas;
+- anexos adulterados ou com conteudo nao XML;
+- e-mails/ERP com documentos de outra oficina;
+- reprocessamento de anexos duplicados;
+- processamento silencioso sem revisao;
+- exposicao de dados fiscais sensiveis;
+- necessidade de fila/job e observabilidade.
+
+Regras recomendadas: e-mail/ERP deve apenas fornecer XMLs para um pipeline controlado que reutilize o lote local. Nao pode consultar Webmania automaticamente, manifestar automaticamente, criar documento sem XML, criar `NfseItem`, criar `FiscalDocument(nfse)` ou criar `FiscalEmissionAttempt`.

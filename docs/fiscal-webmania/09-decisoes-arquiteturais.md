@@ -791,3 +791,15 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 **Justificativa:** o lote e uma operacao fiscal auditavel com importacao parcial. Persistir resultados por arquivo permite explicar duplicidades, XMLs invalidos, CNPJ/oficina divergente e documentos criados sem depender de estado de tela.
 
 **Consequencias:** a importacao continua usando `NfseReceivedDocument` como documento fiscal primario, reaproveita o parser/importador unitario e nao cria Webmania calls, manifestacoes, `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt`.
+
+## ADR - Fase 3.15.0: proximo bloco apos consolidacao recebida
+
+**Status:** em planejamento documental em 2026-06-29.
+
+**Contexto:** a Fase 3.14.1 foi validada no checkpoint `b53e862b`, encerrando o ciclo recebido com upload unitario XML, manifestacao, consulta GET-only e lote XML auditavel.
+
+**Decisao:** escolher planejamento de integracao e-mail/ERP para XML de NFS-e como proxima fase, somente preparatoria/documental.
+
+**Justificativa:** o dominio fiscal recebido ja esta pronto para processar XMLs locais. A lacuna agora e a origem externa desses XMLs. Implementar conector real sem fase preparatoria criaria riscos de credenciais, anexos errados, duplicidade, fila e importacao silenciosa.
+
+**Consequencias:** nenhuma integracao real deve ser implementada na proxima fase documental. Consulta Webmania ampliada, manifestacao manual, NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos e complementar tributaria permanecem adiados.

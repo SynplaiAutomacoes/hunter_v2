@@ -700,3 +700,18 @@ Foi adicionada acao "Importar lote XML" na lista de NFS-e recebidas, formulario 
 O relatorio do lote exibe status, totais, duplicados, erros e uma linha por arquivo, com link para o `NfseReceivedDocument` importado quando houver.
 
 Permissoes implementadas: `import_nfse_received_batch` para iniciar lote e `view_nfse_received_batch` para visualizar o relatorio. Permissoes de consulta, manifestacao, emissao, cancelamento ou substituicao nao autorizam lote.
+
+## Fase 3.15.0 - UX e permissoes planejadas para e-mail/ERP
+
+Status: em planejamento documental em 2026-06-29. A Fase 3.14.1 foi validada no checkpoint `b53e862b`.
+
+UX futura a planejar:
+
+- tela de fontes externas por oficina;
+- status de autenticacao/conexao;
+- fila de anexos/XMLs pendentes;
+- acao manual para revisar/processar;
+- vinculo do processamento com lote XML;
+- erros por anexo e historico de reprocessamento.
+
+Permissoes futuras devem separar configuracao de fonte externa, visualizacao da fila, processamento de anexos e visualizacao de documentos importados. Permissoes de consulta, manifestacao, emissao, cancelamento ou substituicao nao devem autorizar e-mail/ERP.

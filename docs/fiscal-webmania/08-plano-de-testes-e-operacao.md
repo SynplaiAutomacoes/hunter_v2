@@ -943,3 +943,21 @@ Operacao: a fase deve ser validada com testes deterministicos usando arquivos XM
 - ausencia de `NfseManifestation`, `NfseItem`, `FiscalDocument(nfse)` e `FiscalEmissionAttempt`.
 
 Validacao executada: 6 testes focados da fase OK; 79 testes fiscais direcionados OK; `makemigrations finance --check --dry-run` OK; Ruff nos Python tocados OK.
+
+## Plano de testes para Fase 3.15.1 - planejamento e-mail/ERP
+
+Status: planejado na Fase 3.15.0.
+
+Como a proxima fase recomendada e documental/preparatoria, os testes funcionais ficam para uma fase posterior. A fase 3.15.1 deve especificar testes futuros para:
+
+- conectores externos mockados;
+- anexos validos e invalidos;
+- XML duplicado por hash/fingerprint;
+- documento de outra oficina;
+- permissao para configurar fonte externa;
+- permissao para processar fila;
+- isolamento por oficina;
+- reprocessamento idempotente;
+- ausencia de chamada Webmania;
+- ausencia de manifestacao automatica;
+- integracao com `NfseReceivedImportBatch`.

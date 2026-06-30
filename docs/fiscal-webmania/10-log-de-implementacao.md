@@ -244,6 +244,16 @@
 - Permissoes especificas: `import_nfse_received_batch` e `view_nfse_received_batch`; flag reaproveitada: `nfse_received_import_enabled`.
 - Validacoes: `makemigrations finance --check --dry-run` OK; 6 testes focados OK; 79 testes fiscais direcionados OK; Ruff nos Python tocados OK.
 - Nao foram iniciados consulta Webmania automatica, manifestacao automatica/manual, documento sem XML, e-mail/ERP, NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendentes, creditos/debitos pendentes ou complementar tributaria.
+- Status posterior: Fase 3.14.1 validada e encerrada no checkpoint `b53e862b`.
+
+## Fase 3.15.0 - reavaliacao apos consolidacao NFS-e recebida
+
+- Fase 3.14.1 aprovada, validada e encerrada no checkpoint `b53e862b`.
+- Registrado ciclo recebido completo: upload unitario XML, manifestacao recebida, consulta GET-only e lote XML auditavel.
+- Reavaliados e-mail/ERP, consulta Webmania ampliada, manifestacao manual, NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria.
+- Decisao recomendada: **Opcao A**, planejar integracao e-mail/ERP para XML NFS-e em fase exclusivamente preparatoria/documental.
+- OpenAPI validado permanece suficiente; nenhuma correcao oficial nova foi aplicada.
+- Nenhum codigo funcional, migration, service, view, template ou teste foi alterado nesta fase documental.
 - Status posterior: Fase 3.13.0 validada documentalmente e commitada no checkpoint `d83b37dc`.
 
 ## Fase 3.13.1 - inicio da consulta auxiliar de NFS-e recebida

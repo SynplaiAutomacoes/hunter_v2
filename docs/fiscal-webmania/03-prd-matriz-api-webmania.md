@@ -1123,3 +1123,23 @@ A importacao em lote implementada nao adiciona endpoint Webmania. A entrada e lo
 Garantias de API: nenhuma chamada a `GET /2/nfse/consulta/{identifier}`, `GET /2/nfse/status`, `POST /2/nfse/manifestar`, emissao, cancelamento ou substituicao e disparada pelo lote.
 
 OpenAPI: nenhuma alteracao aplicada; o schema atual permanece suficiente.
+
+## Fase 3.15.0 - matriz API apos consolidacao de NFS-e recebida
+
+Status: em planejamento documental em 2026-06-29. A Fase 3.14.1 foi validada no checkpoint `b53e862b`.
+
+| Bloco | Endpoint Webmania relevante | Situacao para o Hunter |
+| ----- | --------------------------- | ---------------------- |
+| Integracao e-mail/ERP para XML NFS-e | N/A | Recomendar fase preparatoria/documental; origem externa deve alimentar XML local, nao Webmania. |
+| Consulta Webmania ampliada | `GET /2/nfse/consulta/{identifier}`, `GET /2/nfse/status` | Ja suficiente como apoio manual/consultivo; automacao adiada. |
+| Manifestacao NFS-e manual | `POST /2/nfse/manifestar` | Contrato existe, mas papel fiscal inseguro; manter adiada. |
+| NFS-e expandida | `/2/nfse/*` | Nao abrir bloco amplo; exigir nova subfase documental. |
+| CT-e | `/2/cte/*` | Contrato em alto nivel claro; dominio local ausente. |
+| MDF-e | `/2/mdfe/*` | Contrato em alto nivel claro; dominio logistico ausente. |
+| NFCom | `/2/nfcom/*` | API v2.0.0 mapeada; sem aderencia imediata. |
+| DC-e | `/2/dce/*` | API v2.0.0 mapeada; sem dominio local. |
+| IBS/CBS `112120`, `112140`, `211xxx` | `/1/nfe/evento-ibs-cbs/` | Contrato parcial conhecido; fontes fiscais continuam ausentes. |
+| Creditos 2-5 e debitos 1-3/5-8 | `/1/nfe/emissao/` com finalidades 5/6 | Contrato depende de tipo; fontes locais insuficientes. |
+| Complementar tributaria | `/1/nfe/complementar/` e matriz NF-e | Contrato parcial; exige auditoria tributaria propria. |
+
+Decisao API: a proxima fase recomendada nao altera o OpenAPI, porque sera preparatoria para integracao externa de origem XML. Nenhuma correcao oficial nova foi confirmada.

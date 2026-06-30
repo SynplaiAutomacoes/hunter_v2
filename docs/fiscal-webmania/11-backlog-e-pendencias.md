@@ -409,8 +409,17 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 
 ## Apos a Fase 3.14.1
 
-- Importacao em lote de XML de NFS-e recebida implementada e validada tecnicamente.
-- Pendencias remanescentes: e-mail/ERP para obtencao externa de XMLs, relatorios operacionais ampliados, eventual processamento assincrono de lotes grandes e consolidacao `FiscalDocument(nfse)` sob demanda.
+- Importacao em lote de XML de NFS-e recebida implementada e validada no checkpoint `b53e862b`.
+- Pendencia recomendada: fase preparatoria/documental para e-mail/ERP como origem externa de XMLs.
+- Pendencias remanescentes: relatorios operacionais ampliados, eventual processamento assincrono de lotes grandes e consolidacao `FiscalDocument(nfse)` sob demanda.
 - Consulta Webmania permanece apoio GET-only e nao fonte de criacao.
 - Manifestacao automatica, emissao/cancelamento/substituicao de recebida e manifestacao manual permanecem fora de escopo.
 - CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria seguem nao iniciados.
+
+## Apos a Fase 3.15.0
+
+- Reavaliacao documental recomenda planejar integracao e-mail/ERP para XML NFS-e como fase preparatoria.
+- Consulta Webmania ampliada permanece adiada para evitar substituicao indevida do XML.
+- Manifestacao manual permanece adiada por papel fiscal inseguro.
+- NFS-e expandida ampla e novos dominios fiscais permanecem adiados.
+- Eventos IBS/CBS `112120/112140/211xxx`, creditos/debitos pendentes e complementar tributaria continuam dependentes de fontes fiscais especificas.
