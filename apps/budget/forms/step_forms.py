@@ -1875,12 +1875,13 @@ class BudgetStep4Form(CoreModelForm):
                                                 <input type="checkbox" id="select-all-services" class="checkbox text-white checkbox-sm" 
                                                        style="border-color: white; color: white;" aria-label="Selecionar todos os serviços">
                                             </th>
-                                            <th class="w-[24%] text-left">DESCRIÇÃO</th>
-                                            <th class="w-[8%] text-center">QTD.</th>
-                                            <th class="w-[12%] text-right">CUSTO/MECÂNICO</th>
-                                            <th class="w-[14%] text-right">VALOR VENDA</th>
+                                            <th class="w-[20%] text-left">DESCRIÇÃO</th>
+                                            <th class="w-[7%] text-center">QTD.</th>
+                                            <th class="w-[11%] text-right">CUSTO/MECÂNICO</th>
+                                            <th class="w-[13%] text-right">VALOR VENDA</th>
+                                            <th class="w-[9%] text-right">FRETE</th>
                                             <th class="w-[10%] text-center">TEMPO</th>
-                                            <th class="w-[14%] text-right">TOTAL</th>
+                                            <th class="w-[13%] text-right">TOTAL</th>
                                             <th class="w-[12%] text-center budget-step4-actions">AÇÕES</th>
                                         </tr>
                                     </thead>
@@ -2104,6 +2105,7 @@ class BudgetStep5Form(CoreModelForm):
         # Custos baseados sempre nos itens do orçamento
         custo_pecas = budget.total_costs_products_value
         custo_frete_pecas = budget.total_products_shipping
+        custo_frete_servicos = budget.total_services_shipping
         custo_servico_terceiros = budget.total_third_party_services_cost
         custo_hora_mecanico = dados.get("custo_hora_mecanico") or zerado
 
@@ -2608,6 +2610,11 @@ class BudgetStep5Form(CoreModelForm):
                                     <div class="grid grid-cols-12 border border-base-300 bg-base-100">
                                         <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Frete de Peças</span>
                                         <span class="col-span-4 p-2 border-l border-base-300">{custo_frete_pecas}</span>
+                                    </div>
+
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Frete de Serviços</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300">{custo_frete_servicos}</span>
                                     </div>
 
                                     <div class="grid grid-cols-12 border border-base-300 bg-base-100">
@@ -3363,23 +3370,27 @@ class BudgetStep6Form(CoreModelForm):
                                 <table class="table table-zebra table-fixed w-full">
                                     <thead class="bg-primary text-primary-content">
                                         <tr>
-                                            <th class="w-[32%] whitespace-nowrap text-left">
+                                            <th class="w-[28%] whitespace-nowrap text-left">
                                                 NOME
                                             </th>
                                             
-                                            <th class="w-[8%] whitespace-nowrap text-center">
+                                            <th class="w-[7%] whitespace-nowrap text-center">
                                                 QTD.
                                             </th>
                                             
-                                            <th class="w-[14%] whitespace-nowrap text-right">
+                                            <th class="w-[13%] whitespace-nowrap text-right">
                                                 CUSTO
                                             </th>
                                             
-                                            <th class="w-[16%] whitespace-nowrap text-right">
+                                            <th class="w-[14%] whitespace-nowrap text-right">
                                                 VALOR
                                             </th>
                                             
-                                            <th class="w-[10%] whitespace-nowrap text-center">
+                                            <th class="w-[9%] whitespace-nowrap text-right">
+                                                FRETE
+                                            </th>
+                                            
+                                            <th class="w-[9%] whitespace-nowrap text-center">
                                                 TEMPO
                                             </th>
                                             

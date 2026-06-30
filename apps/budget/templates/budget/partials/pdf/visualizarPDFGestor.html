@@ -208,19 +208,21 @@
           class="w-full table-fixed text-left border-collapse text-[10px] mt-1 leading-tight"
         >
           <colgroup>
-            <col class="w-[31%]" />
-            <col class="w-[8%]" />
-            <col class="w-[13%]" />
-            <col class="w-[13%]" />
-            <col class="w-[10%]" />
-            <col class="w-[13%]" />
+            <col class="w-[28%]" />
+            <col class="w-[7%]" />
             <col class="w-[12%]" />
+            <col class="w-[9%]" />
+            <col class="w-[12%]" />
+            <col class="w-[9%]" />
+            <col class="w-[12%]" />
+            <col class="w-[11%]" />
           </colgroup>
           <thead>
             <tr class="bg-gray-100 border-b-2 border-gray-200">
               <th class="p-1 font-semibold">Descrição</th>
               <th class="p-1 font-semibold text-center">Quantidade</th>
               <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">Valor de Venda</th>
+              <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">Frete</th>
               <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">Valor Total</th>
               <th class="p-1 px-2 font-semibold text-center whitespace-nowrap">Tempo</th>
               <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">Custo/Mecânico</th>
@@ -233,6 +235,7 @@
               <td class="p-1">{{ s.description }}{% if s.item_benefit_type == "warranty" %}<span class="benefit-badge benefit-badge-warranty">Garantia</span>{% elif s.item_benefit_type == "courtesy" %}<span class="benefit-badge benefit-badge-courtesy">Cortesia</span>{% endif %}</td>
               <td class="p-1 text-center">{{ s.quantity }}</td>
               <td class="p-1 px-2 text-right whitespace-nowrap">{{ s.unit_price }}</td>
+              <td class="p-1 px-2 text-right whitespace-nowrap">{{ s.shipping }}</td>
               <td class="p-1 px-2 text-right whitespace-nowrap">{{ s.total_price }}</td>
               <td class="p-1 px-2 text-center whitespace-nowrap">{{ s.duration_display }}</td>
               <td class="p-1 px-2 text-right font-bold whitespace-nowrap">{{ s.service_mechanic_cost_price }}</td>

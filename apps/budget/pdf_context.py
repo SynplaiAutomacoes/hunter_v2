@@ -22,7 +22,10 @@ def is_visible_pdf_pricing_line(line: Any) -> bool:
     """Treat a zero-quantity or zero-priced budget line as removed from every PDF."""
     if line.quantity <= 0:
         return False
-    line_value = line.raw_total - line.shipping if line.kind == "product" else line.raw_total
+    if line.kind == "product":
+        line_value = line.raw_total - line.shipping
+    else:
+        line_value = line.raw_total + line.shipping
     return line_value.amount > _ZERO_DECIMAL
 
 
@@ -38,20 +41,21 @@ def _build_pdf_pages(produtos: list[dict], servicos: list[dict], kits: list[dict
     ]
 
 
-def calculate_markup_multiplier(*, total_budget_value: Money, total_costs_products_value: Money, total_costs_services_value: Money, total_products_shipping: Money = Money(0, "BRL")) -> Decimal:
-    total_cost_amount = total_costs_products_value.amount + total_costs_services_value.amount + total_products_shipping.amount
+def calculate_markup_multiplier(*, total_budget_value: Money, total_costs_products_value: Money, total_costs_services_value: Money, total_products_shipping: Money = Money(0, "BRL"), total_services_shipping: Money = Money(0, "BRL")) -> Decimal:
+    total_cost_amount = total_costs_products_value.amount + total_costs_services_value.amount + total_products_shipping.amount + total_services_shipping.amount
     if total_cost_amount <= _ZERO_DECIMAL:
         return _ZERO_DECIMAL
 
     return (total_budget_value.amount / total_cost_amount).quantize(_TWO_DECIMAL_PLACES, rounding=ROUND_HALF_UP)
 
 
-def _calculate_soma_markup(*, total_budget_value: Money, total_costs_products_value: Money, total_costs_services_value: Money, total_products_shipping: Money = Money(0, "BRL")) -> Decimal:
+def _calculate_soma_markup(*, total_budget_value: Money, total_costs_products_value: Money, total_costs_services_value: Money, total_products_shipping: Money = Money(0, "BRL"), total_services_shipping: Money = Money(0, "BRL")) -> Decimal:
     return calculate_markup_multiplier(
         total_budget_value=total_budget_value,
         total_costs_products_value=total_costs_products_value,
         total_costs_services_value=total_costs_services_value,
         total_products_shipping=total_products_shipping,
+        total_services_shipping=total_services_shipping,
     )
 
 
@@ -109,6 +113,7 @@ def _merge_selected_service_rows(servicos: list[dict]) -> list[dict]:
             continue
 
         existing["quantity"] = int(existing.get("quantity") or 0) + int(row.get("quantity") or 0)
+        existing["shipping"] = existing.get("shipping", Money(0, "BRL")) + row.get("shipping", Money(0, "BRL"))
         existing["total_price"] = existing.get("total_price", Money(0, "BRL")) + row.get("total_price", Money(0, "BRL"))
         existing["service_cost_price"] = existing.get("service_cost_price", Money(0, "BRL")) + row.get("service_cost_price", Money(0, "BRL"))
         existing["service_mechanic_cost_price"] = existing.get("service_mechanic_cost_price", Money(0, "BRL")) + row.get("service_mechanic_cost_price", Money(0, "BRL"))
@@ -173,6 +178,7 @@ def _build_snapshot_service_rows(*, budget: Any, snapshot) -> list[dict[str, Any
                 "description": line.description,
                 "quantity": line.quantity,
                 "unit_price": unit_price,
+                "shipping": line.shipping,
                 "total_price": total_price,
                 "service_cost_price": fallback_cost,
                 "service_mechanic_cost_price": service_mechanic_cost_price,
@@ -287,6 +293,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 "description": line.item.description,
                 "quantity": line.item.quantity,
                 "unit_price": line.unit_price,
+                "shipping": getattr(line.item, "service_shipping", Money(0, "BRL")),
                 "total_price": line.total_price,
                 "service_cost_price": line.warranty_total_price,
                 "service_mechanic_cost_price": service_mechanic_cost_price,
@@ -355,6 +362,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                     "description": service.name,
                     "quantity": total_quantity,
                     "unit_price": override.service_selling_price,
+                    "shipping": Money(0, "BRL"),
                     "total_price": override.service_selling_price * total_quantity,
                     "service_cost_price": service_cost_price,
                     "service_mechanic_cost_price": service_mechanic_cost_price,
@@ -399,6 +407,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
     workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=budget.workshop)
     total_services_cost_original_value = sum((line["service_cost_price"] for line in servicos), Money(0, "BRL"))
     total_services_mechanic_cost_value = sum((line["service_mechanic_cost_price"] for line in servicos), Money(0, "BRL"))
+    total_services_shipping_value = sum((line["shipping"] for line in servicos), Money(0, "BRL"))
     total_profit_service_value = sum((line["profit_value"] for line in servicos), Money(0, "BRL"))
     total_products_cost_value = sum((line["product_cost_price"] for line in produtos), Money(0, "BRL"))
     total_products_shipping_value = sum((line["shipping"] for line in produtos), Money(0, "BRL"))
@@ -408,6 +417,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         total_costs_products_value=total_products_cost_value,
         total_costs_services_value=total_services_mechanic_cost_value,
         total_products_shipping=total_products_shipping_value,
+        total_services_shipping=total_services_shipping_value,
     )
 
     return {

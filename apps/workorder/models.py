@@ -384,6 +384,10 @@ class WorkOrder(TimeStampedModel):
         return self.pricing_snapshot.total_products_shipping
 
     @property
+    def total_services_shipping(self) -> Money:
+        return self.pricing_snapshot.total_services_shipping
+
+    @property
     def resolved_discount_percentage(self) -> Decimal:
         return (Decimal(self.discount_percentage or 0) * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
@@ -690,6 +694,7 @@ class WorkOrder(TimeStampedModel):
                         product_selling_price=budget_item.product_selling_price,
                         service_cost_price=budget_item.service_cost_price,
                         service_selling_price=budget_item.service_selling_price,
+                        service_shipping=budget_item.service_shipping,
                         duration=budget_item.duration,
                     )
                     for budget_item in budget_items
@@ -820,6 +825,7 @@ class WorkOrderItem(TimeStampedModel):
 
     service_cost_price = MoneyField(verbose_name="Custo", max_digits=14, decimal_places=2, default=0)
     service_selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2, default=0)
+    service_shipping = MoneyField(verbose_name="Frete do Serviço", max_digits=14, decimal_places=2, default=0)
     duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
     kit_snapshot_frozen = models.BooleanField(verbose_name="Kit snapshot frozen", default=False)
 
@@ -938,6 +944,7 @@ class WorkOrderItem(TimeStampedModel):
             elif self.service:
                 self.service_cost_price = self.service.suggested_cost or Money(0, "BRL")
                 self.service_selling_price = self.service.selling_price
+                self.service_shipping = self.service.shipping or Money(0, "BRL")
                 self.duration = self.service.duration
                 self.description = self.service.name
 
@@ -1078,7 +1085,8 @@ class WorkOrderItem(TimeStampedModel):
     def total_price(self):
         if self.kit:
             return self.get_kit_total_with_overrides()
-        return ((self.product_selling_price + self.service_selling_price) * self.quantity) + self.shipping
+        shipping_total = self.shipping + self.service_shipping
+        return ((self.product_selling_price + self.service_selling_price) * self.quantity) + shipping_total
 
     def get_kit_total_with_overrides(self):
         if not self.kit:
