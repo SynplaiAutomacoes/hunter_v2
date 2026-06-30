@@ -1,4 +1,5 @@
 import json
+import copy
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
@@ -894,6 +895,219 @@ class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return HttpResponse(status=204)
 
 
+def _serialize_budget_state(budget):
+    items = budget.items.select_related("product", "service", "kit")
+    serialized_items = {}
+    for item in items:
+        if item.product_id:
+            key = f"product_{item.product_id}"
+        elif item.service_id:
+            key = f"service_{item.service_id}"
+        elif item.kit_id:
+            key = f"kit_{item.kit_id}"
+        else:
+            key = f"local_{item.description}"
+
+        serialized_items[key] = {
+            "item_type": "product" if item.product_id else ("service" if item.service_id else "kit"),
+            "description": item.description,
+            "quantity": item.quantity,
+            "product_selling_price": str(item.product_selling_price),
+            "product_cost_price": str(item.product_cost_price),
+            "service_selling_price": str(item.service_selling_price),
+            "service_cost_price": str(item.service_cost_price),
+            "shipping": str(item.shipping),
+            "duration": str(item.duration) if item.duration else None,
+            "product_id": item.product_id,
+            "service_id": item.service_id,
+            "kit_id": item.kit_id,
+            "is_local": item.is_local,
+            "is_customer_supplied": item.is_customer_supplied,
+            "total": str(item.total_price),
+        }
+
+    return {
+        "budget_fields": {
+            "discount_value": str(budget.resolved_discount_value),
+            "discount_percentage": str(budget.resolved_discount_percentage),
+            "discount_type": budget.discount_type,
+            "problem_description": budget.problem_description or "",
+            "technical_diagnosis": budget.technical_diagnosis or "",
+            "notes": budget.notes or "",
+            "observations": budget.observations or "",
+            "current_km": budget.current_km,
+            "entry_date": str(budget.entry_date) if budget.entry_date else "",
+            "expiration_date": str(budget.expiration_date) if budget.expiration_date else "",
+            "customer_agreed_departure_at": str(budget.customer_agreed_departure_at) if budget.customer_agreed_departure_at else "",
+            "service_expected_completion_at": str(budget.service_expected_completion_at) if budget.service_expected_completion_at else "",
+            "budget_type": budget.budget_type,
+            "customer": budget.customer.name if budget.customer else "",
+            "vehicle": f"{budget.vehicle.brand} {budget.vehicle.model} ({budget.vehicle.plate})" if budget.vehicle else "",
+        },
+        "items": serialized_items,
+    }
+
+
+def _get_empty_budget_state():
+    return {
+        "budget_fields": {
+            "discount_value": "R$ 0,00",
+            "discount_percentage": "0.00",
+            "discount_type": "both",
+            "problem_description": "",
+            "technical_diagnosis": "",
+            "notes": "",
+            "observations": "",
+            "current_km": 0,
+            "entry_date": "",
+            "expiration_date": "",
+            "customer_agreed_departure_at": "",
+            "service_expected_completion_at": "",
+            "budget_type": "sale",
+            "customer": "",
+            "vehicle": "",
+        },
+        "items": {},
+    }
+
+
+def _compute_budget_diff(state_old, state_new):
+    diff = {"fields": {}, "items": {"added": [], "removed": [], "modified": []}}
+
+    field_labels = {
+        "discount_value": "Valor do Desconto",
+        "discount_percentage": "Percentual do Desconto",
+        "discount_type": "Tipo de Desconto",
+        "problem_description": "Relato Principal do Cliente",
+        "technical_diagnosis": "Observações Técnicas",
+        "notes": "Observações Complementares",
+        "observations": "Observações",
+        "current_km": "KM Atual",
+        "entry_date": "Data de Entrada",
+        "expiration_date": "Data de Validade",
+        "customer_agreed_departure_at": "Data de saída combinada",
+        "service_expected_completion_at": "Data prevista de término",
+        "budget_type": "Tipo de Orçamento",
+        "customer": "Cliente",
+        "vehicle": "Veículo",
+    }
+
+    old_fields = state_old.get("budget_fields", {})
+    new_fields = state_new.get("budget_fields", {})
+
+    for field, label in field_labels.items():
+        val_old = old_fields.get(field)
+        val_new = new_fields.get(field)
+
+        s_old = str(val_old or "").strip()
+        s_new = str(val_new or "").strip()
+
+        if s_old != s_new:
+            diff["fields"][field] = {"label": label, "old": val_old, "new": val_new}
+
+    old_items = state_old.get("items", {})
+    new_items = state_new.get("items", {})
+
+    all_keys = set(old_items.keys()) | set(new_items.keys())
+    for key in all_keys:
+        item_old = old_items.get(key)
+        item_new = new_items.get(key)
+
+        if item_old and not item_new:
+            diff["items"]["removed"].append(item_old)
+        elif not item_old and item_new:
+            diff["items"]["added"].append(item_new)
+        elif item_old and item_new:
+            item_changes = {}
+            item_fields = {
+                "description": "Descrição",
+                "quantity": "Quantidade",
+                "product_selling_price": "Valor Venda (Peça)",
+                "service_selling_price": "Valor Venda (Serviço)",
+                "shipping": "Frete",
+                "is_customer_supplied": "Peça trazida pelo cliente",
+                "total": "Total",
+            }
+            for f, f_label in item_fields.items():
+                v_old = item_old.get(f)
+                v_new = item_new.get(f)
+
+                s_v_old = str(v_old if v_old is not None else "").strip()
+                s_v_new = str(v_new if v_new is not None else "").strip()
+
+                if s_v_old != s_v_new:
+                    item_changes[f] = {"label": f_label, "old": v_old, "new": v_new}
+            if item_changes:
+                diff["items"]["modified"].append({"description": item_new.get("description") or item_old.get("description"), "item_type": item_new.get("item_type"), "changes": item_changes})
+
+    return diff
+
+
+def _apply_budget_diff(state, diff):
+    new_state = copy.deepcopy(state)
+
+    if "items" in diff and isinstance(diff["items"], list):
+        new_state["budget_fields"]["discount_value"] = diff.get("discount_value", "R$ 0,00")
+        new_state["budget_fields"]["discount_percentage"] = diff.get("discount_percentage", "0.00")
+        new_state["budget_fields"]["discount_type"] = diff.get("discount_type", "both")
+
+        serialized_items = {}
+        for item in diff["items"]:
+            desc = item.get("description") or ""
+            if item.get("product_id"):
+                key = f"product_{item['product_id']}"
+            elif item.get("service_id"):
+                key = f"service_{item['service_id']}"
+            elif item.get("kit_id"):
+                key = f"kit_{item['kit_id']}"
+            else:
+                key = f"local_{desc}"
+            serialized_items[key] = item
+        new_state["items"] = serialized_items
+        return new_state
+
+    for field, change in diff.get("fields", {}).items():
+        new_state["budget_fields"][field] = change["new"]
+
+    for item in diff.get("items", {}).get("removed", []):
+        key = None
+        if item.get("product_id"):
+            key = f"product_{item['product_id']}"
+        elif item.get("service_id"):
+            key = f"service_{item['service_id']}"
+        elif item.get("kit_id"):
+            key = f"kit_{item['kit_id']}"
+        else:
+            key = f"local_{item.get('description', '')}"
+        if key in new_state["items"]:
+            del new_state["items"][key]
+
+    for item in diff.get("items", {}).get("added", []):
+        key = None
+        if item.get("product_id"):
+            key = f"product_{item['product_id']}"
+        elif item.get("service_id"):
+            key = f"service_{item['service_id']}"
+        elif item.get("kit_id"):
+            key = f"kit_{item['kit_id']}"
+        else:
+            key = f"local_{item.get('description', '')}"
+        new_state["items"][key] = item
+
+    for mod in diff.get("items", {}).get("modified", []):
+        target_key = None
+        for k, item in new_state["items"].items():
+            if item.get("description") == mod.get("description") and item.get("item_type") == mod.get("item_type"):
+                target_key = k
+                break
+
+        if target_key:
+            for field, change in mod.get("changes", {}).items():
+                new_state["items"][target_key][field] = change["new"]
+
+    return new_state
+
+
 class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = Budget
     workshop_permission_codename = "add_budget"
@@ -956,40 +1170,26 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 budget.cancellation_reason = ""
                 budget.regenerate_signature_token()
 
-                # Build snapshot of current budget items before reopen
-                snapshot_items = budget.items.select_related("product", "service", "kit")
-                snapshot = {
-                    "discount_value": str(budget.resolved_discount_value),
-                    "discount_percentage": str(budget.resolved_discount_percentage),
-                    "discount_type": budget.discount_type,
-                    "items": [
-                        {
-                            "item_type": "product" if item.product_id else ("service" if item.service_id else "kit"),
-                            "description": item.description,
-                            "quantity": item.quantity,
-                            "product_selling_price": str(item.product_selling_price),
-                            "product_cost_price": str(item.product_cost_price),
-                            "service_selling_price": str(item.service_selling_price),
-                            "service_cost_price": str(item.service_cost_price),
-                            "shipping": str(item.shipping),
-                            "duration": str(item.duration) if item.duration else None,
-                            "product_id": item.product_id,
-                            "service_id": item.service_id,
-                            "kit_id": item.kit_id,
-                            "is_local": item.is_local,
-                            "is_customer_supplied": item.is_customer_supplied,
-                            "total": str(item.total_price),
-                        }
-                        for item in snapshot_items
-                    ],
-                }
+                # Reconstruct the previous budget state using history entries
+                history_entries = list(budget.history_entries.filter(action=BudgetHistory.Action.REOPENED).order_by("criado_em", "pk"))
+
+                state = _get_empty_budget_state()
+                for entry in history_entries:
+                    if entry.snapshot:
+                        state = _apply_budget_diff(state, entry.snapshot)
+
+                # Current state of the budget before reopening
+                current_state = _serialize_budget_state(budget)
+
+                # Compute the diff
+                diff = _compute_budget_diff(state, current_state)
 
                 BudgetHistory.objects.create(
                     budget=budget,
                     user=request.user,
                     action=BudgetHistory.Action.REOPENED,
                     reason=reopen_reason,
-                    snapshot=snapshot,
+                    snapshot=diff,
                 )
 
             budget.status = status_map[status]

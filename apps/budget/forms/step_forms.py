@@ -2942,16 +2942,12 @@ class BudgetStep6Form(CoreModelForm):
             history_rows = ""
             for idx, entry in enumerate(history_entries):
                 rev_number = idx + 1
-                has_snapshot = bool(entry.snapshot and entry.snapshot.get("items"))
+                has_snapshot = bool(entry.snapshot)
                 rev_button = ""
                 if has_snapshot:
                     snapshot_json = json.dumps(entry.snapshot)
                     snapshot_scripts += f"<script type='application/json' id='rev-snapshot-{entry.pk}'>{snapshot_json}</script>"
-                    rev_button = (
-                        f"<a role='button' class='btn btn-ghost btn-xs text-info' "
-                        f"onclick='openRevisionModal({entry.pk}, {rev_number}); return false;'>"
-                        f"Rev {rev_number}</a>"
-                    )
+                    rev_button = f"<a role='button' class='btn btn-ghost btn-xs text-info' onclick='openRevisionModal({entry.pk}, {rev_number}); return false;'>Rev {rev_number}</a>"
                 else:
                     rev_button = f"<span class='badge badge-ghost badge-sm'>Rev {rev_number}</span>"
 
@@ -2974,7 +2970,7 @@ class BudgetStep6Form(CoreModelForm):
                     <a role="button" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
                        onclick="document.getElementById('revisionModal').close()">✕</a>
                     <h3 class="font-bold text-lg" id="revisionModalTitle">Revisão</h3>
-                    <div class="overflow-x-auto mt-4" id="revisionModalBody"></div>
+                    <div class="overflow-y-auto mt-4" id="revisionModalBody"></div>
                 </div>
                 <div class="modal-backdrop" onclick="document.getElementById('revisionModal').close()"></div>
             </dialog>
@@ -2989,38 +2985,141 @@ class BudgetStep6Form(CoreModelForm):
 
                 let html = '';
 
-                // Discount info
-                if (snapshot.discount_value && snapshot.discount_value !== 'R$\\u00a00,00' && snapshot.discount_value !== 'R$ 0,00') {
-                    html += '<div class="alert alert-info mb-4 text-sm"><span>Desconto: ' +
-                        snapshot.discount_value + ' (' + snapshot.discount_percentage + '%)</span></div>';
-                }
+                // Verificar se e o formato antigo (items e uma lista)
+                const isOldFormat = snapshot.items && Array.isArray(snapshot.items);
 
-                // Items table
-                const items = snapshot.items || [];
-                if (items.length === 0) {
-                    html += '<p class="text-sm text-base-content/60">Nenhum item registrado nesta revisão.</p>';
+                if (isOldFormat) {
+                    // Renderizar no formato antigo: tabela completa
+                    if (snapshot.discount_value && snapshot.discount_value !== 'R$\\u00a00,00' && snapshot.discount_value !== 'R$ 0,00') {
+                        html += '<div class="alert alert-info mb-4 text-sm"><span>Desconto: ' +
+                            snapshot.discount_value + ' (' + snapshot.discount_percentage + '%)</span></div>';
+                    }
+
+                    const items = snapshot.items || [];
+                    if (items.length === 0) {
+                        html += '<p class="text-sm text-base-content/60">Nenhum item registrado nesta revisão.</p>';
+                    } else {
+                        html += '<table class="table table-sm table-zebra w-full">';
+                        html += '<thead><tr>';
+                        html += '<th>Tipo</th><th>Descrição</th><th class="text-center">Qtd</th>';
+                        html += '<th class="text-right">Peça</th><th class="text-right">Serviço</th>';
+                        html += '<th class="text-right">Total</th>';
+                        html += '</tr></thead><tbody>';
+                        const typeLabels = {product: 'Peça', service: 'Serviço', kit: 'Kit'};
+                        const typeBadges = {product: 'badge-primary', service: 'badge-secondary', kit: 'badge-accent'};
+                        items.forEach(function(item) {
+                            const badge = typeBadges[item.item_type] || 'badge-ghost';
+                            const label = typeLabels[item.item_type] || item.item_type;
+                            html += '<tr>';
+                            html += '<td><span class="badge badge-sm ' + badge + '">' + label + '</span></td>';
+                            html += '<td>' + (item.description || '-') + '</td>';
+                            html += '<td class="text-center">' + item.quantity + '</td>';
+                            html += '<td class="text-right">' + (item.product_selling_price || '-') + '</td>';
+                            html += '<td class="text-right">' + (item.service_selling_price || '-') + '</td>';
+                            html += '<td class="text-right font-medium">' + (item.total || '-') + '</td>';
+                            html += '</tr>';
+                        });
+                        html += '</tbody></table>';
+                    }
                 } else {
-                    html += '<table class="table table-sm table-zebra w-full">';
-                    html += '<thead><tr>';
-                    html += '<th>Tipo</th><th>Descrição</th><th class="text-center">Qtd</th>';
-                    html += '<th class="text-right">Peça</th><th class="text-right">Serviço</th>';
-                    html += '<th class="text-right">Total</th>';
-                    html += '</tr></thead><tbody>';
-                    const typeLabels = {product: 'Peça', service: 'Serviço', kit: 'Kit'};
-                    const typeBadges = {product: 'badge-primary', service: 'badge-secondary', kit: 'badge-accent'};
-                    items.forEach(function(item) {
-                        const badge = typeBadges[item.item_type] || 'badge-ghost';
-                        const label = typeLabels[item.item_type] || item.item_type;
-                        html += '<tr>';
-                        html += '<td><span class="badge badge-sm ' + badge + '">' + label + '</span></td>';
-                        html += '<td>' + (item.description || '-') + '</td>';
-                        html += '<td class="text-center">' + item.quantity + '</td>';
-                        html += '<td class="text-right">' + (item.product_selling_price || '-') + '</td>';
-                        html += '<td class="text-right">' + (item.service_selling_price || '-') + '</td>';
-                        html += '<td class="text-right font-medium">' + (item.total || '-') + '</td>';
-                        html += '</tr>';
-                    });
-                    html += '</tbody></table>';
+                    // Formato novo de diff!
+                    const fields = snapshot.fields || {};
+                    const items = snapshot.items || {added: [], removed: [], modified: []};
+
+                    let hasChanges = false;
+
+                    // 1. Mostrar campos gerais modificados
+                    const fieldKeys = Object.keys(fields);
+                    if (fieldKeys.length > 0) {
+                        hasChanges = true;
+                        html += '<div class="mb-5">';
+                        html += '<h4 class="font-semibold text-base mb-2 border-b pb-1 text-base-content">Informações Gerais Modificadas</h4>';
+                        html += '<ul class="list-disc list-inside space-y-1 text-sm text-base-content/80">';
+                        fieldKeys.forEach(function(key) {
+                            const change = fields[key];
+                            const oldVal = (change.old !== null && change.old !== undefined && change.old !== '') ? change.old : '<i>(vazio)</i>';
+                            const newVal = (change.new !== null && change.new !== undefined && change.new !== '') ? change.new : '<i>(vazio)</i>';
+                            html += '<li><strong>' + change.label + '</strong>: de ' + oldVal + ' para ' + newVal + '</li>';
+                        });
+                        html += '</ul>';
+                        html += '</div>';
+                    }
+
+                    // 2. Mostrar itens adicionados
+                    const added = items.added || [];
+                    if (added.length > 0) {
+                        hasChanges = true;
+                        html += '<div class="mb-5">';
+                        html += '<h4 class="font-semibold text-base mb-2 border-b pb-1 text-success">Itens Adicionados</h4>';
+                        html += '<table class="table table-sm table-zebra w-full">';
+                        html += '<thead><tr><th>Tipo</th><th>Descrição</th><th class="text-center">Qtd</th><th class="text-right">Total</th></tr></thead><tbody>';
+                        const typeLabels = {product: 'Peça', service: 'Serviço', kit: 'Kit'};
+                        const typeBadges = {product: 'badge-primary', service: 'badge-secondary', kit: 'badge-accent'};
+                        added.forEach(function(item) {
+                            const badge = typeBadges[item.item_type] || 'badge-ghost';
+                            const label = typeLabels[item.item_type] || item.item_type;
+                            html += '<tr>';
+                            html += '<td><span class="badge badge-sm ' + badge + '">' + label + '</span></td>';
+                            html += '<td>' + (item.description || '-') + '</td>';
+                            html += '<td class="text-center">' + item.quantity + '</td>';
+                            html += '<td class="text-right font-medium">' + (item.total || '-') + '</td>';
+                            html += '</tr>';
+                        });
+                        html += '</tbody></table>';
+                        html += '</div>';
+                    }
+
+                    // 3. Mostrar itens removidos
+                    const removed = items.removed || [];
+                    if (removed.length > 0) {
+                        hasChanges = true;
+                        html += '<div class="mb-5">';
+                        html += '<h4 class="font-semibold text-base mb-2 border-b pb-1 text-error">Itens Removidos</h4>';
+                        html += '<table class="table table-sm table-zebra w-full">';
+                        html += '<thead><tr><th>Tipo</th><th>Descrição</th><th class="text-center">Qtd</th><th class="text-right">Total</th></tr></thead><tbody>';
+                        const typeLabels = {product: 'Peça', service: 'Serviço', kit: 'Kit'};
+                        const typeBadges = {product: 'badge-primary', service: 'badge-secondary', kit: 'badge-accent'};
+                        removed.forEach(function(item) {
+                            const badge = typeBadges[item.item_type] || 'badge-ghost';
+                            const label = typeLabels[item.item_type] || item.item_type;
+                            html += '<tr>';
+                            html += '<td><span class="badge badge-sm ' + badge + '">' + label + '</span></td>';
+                            html += '<td>' + (item.description || '-') + '</td>';
+                            html += '<td class="text-center">' + item.quantity + '</td>';
+                            html += '<td class="text-right font-medium">' + (item.total || '-') + '</td>';
+                            html += '</tr>';
+                        });
+                        html += '</tbody></table>';
+                        html += '</div>';
+                    }
+
+                    // 4. Mostrar itens modificados
+                    const modified = items.modified || [];
+                    if (modified.length > 0) {
+                        hasChanges = true;
+                        html += '<div class="mb-5">';
+                        html += '<h4 class="font-semibold text-base mb-2 border-b pb-1 text-warning">Itens Modificados</h4>';
+                        html += '<div class="space-y-3">';
+                        modified.forEach(function(mod) {
+                            const typeLabels = {product: 'Peça', service: 'Serviço', kit: 'Kit'};
+                            const label = typeLabels[mod.item_type] || mod.item_type;
+                            html += '<div class="p-3 rounded bg-base-200/50 text-sm border border-base-300">';
+                            html += '<div class="font-semibold text-base-content mb-1">' + label + ': ' + mod.description + '</div>';
+                            html += '<ul class="list-disc list-inside space-y-1 text-xs text-base-content/80">';
+                            Object.keys(mod.changes).forEach(function(fKey) {
+                                const change = mod.changes[fKey];
+                                html += '<li><strong>' + change.label + '</strong>: de ' + change.old + ' para ' + change.new + '</li>';
+                            });
+                            html += '</ul>';
+                            html += '</div>';
+                        });
+                        html += '</div>';
+                        html += '</div>';
+                    }
+
+                    if (!hasChanges) {
+                        html += '<p class="text-sm text-base-content/60">Nenhuma alteração foi realizada nesta revisão.</p>';
+                    }
                 }
 
                 body.innerHTML = html;
@@ -3029,14 +3128,7 @@ class BudgetStep6Form(CoreModelForm):
             </script>
             """
 
-            reopen_history_html = (
-                f"{snapshot_scripts}"
-                f"<div class='mt-4 rounded-xl border border-base-300 bg-base-200/40 p-4'>"
-                f"<h5 class='text-lg font-semibold text-base-content'>Histórico de reaberturas</h5>"
-                f"<div class='mt-3 space-y-3'>{history_rows}</div>"
-                f"</div>"
-                f"{revision_modal_html}"
-            )
+            reopen_history_html = f"{snapshot_scripts}<div class='mt-4 rounded-xl border border-base-300 bg-base-200/40 p-4'><h5 class='text-lg font-semibold text-base-content'>Histórico de reaberturas</h5><div class='mt-3 space-y-3'>{history_rows}</div></div>{revision_modal_html}"
 
         # Render das linhas (mantido)
         rows = _render_budget_items_rows(budget, step6=True)
