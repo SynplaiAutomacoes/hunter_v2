@@ -834,6 +834,36 @@ class Budget(TimeStampedModel):
         return self.selected_items_total_base_value - resolved_discount_value
 
     @property
+    def benefit_summary_label(self) -> str:
+        if self.budget_type == BudgetType.WARRANTY:
+            return "Garantia"
+        if self.budget_type == BudgetType.COURTESY:
+            return "Cortesia"
+        return ""
+
+    @property
+    def benefit_summary_total_value(self) -> Money:
+        if not self.is_fixed_budget:
+            return Money(0, "BRL")
+
+        gross_total = Money(0, "BRL")
+        for item in self._iter_items():
+            gross_total += item.total_price
+        return gross_total
+
+    @property
+    def summary_total_before_benefit_value(self) -> Money:
+        if self.is_fixed_budget:
+            return self.benefit_summary_total_value
+        return self.selected_items_total_budget_value
+
+    @property
+    def summary_amount_due_value(self) -> Money:
+        if self.is_fixed_budget:
+            return Money(0, "BRL")
+        return self.selected_items_total_budget_value
+
+    @property
     def display_resolved_discount_percentage(self) -> Decimal:
         if not self.is_fixed_budget:
             return self.resolved_discount_percentage
@@ -1298,34 +1328,24 @@ class BudgetItem(TimeStampedModel):
 
     @property
     def display_product_selling_price(self) -> Money:
-        if self.budget.is_fixed_budget:
-            return Money(0, "BRL")
         return self.product_selling_price
 
     @property
     def display_service_selling_price(self) -> Money:
-        if self.budget.is_fixed_budget:
-            return Money(0, "BRL")
         return self.service_selling_price
 
     @property
     def display_total_price(self) -> Money:
-        if self.budget.is_fixed_budget:
-            return Money(0, "BRL")
         if self.kit:
             return self.get_kit_total_with_overrides()
         return self.total_price
 
     @property
     def display_unit_price(self) -> Money:
-        if self.budget.is_fixed_budget:
-            return Money(0, "BRL")
         return self.unit_price
 
     @property
     def display_kit_unit_price(self) -> Money:
-        if self.budget.is_fixed_budget:
-            return Money(0, "BRL")
         return self.kit_unit_price
 
     def _get_kit_unit_cost_and_price(self) -> tuple[Money, Money]:

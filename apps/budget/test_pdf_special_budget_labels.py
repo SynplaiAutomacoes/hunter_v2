@@ -53,6 +53,9 @@ class BudgetPdfSpecialBudgetLabelTests(SimpleTestCase):
             "total_produtos": "R$ 0,00",
             "total_servicos": "R$ 0,00",
             "total_geral": "R$ 0,00",
+            "benefit_label": "Cortesia" if is_courtesy_budget else "Garantia" if is_warranty_budget else "",
+            "benefit_total": "R$ 0,00",
+            "total_a_pagar": "R$ 0,00",
             "desconto": "R$ 0,00",
             "discount_products": "R$ 0,00",
             "discount_services": "R$ 0,00",
@@ -75,6 +78,9 @@ class BudgetPdfSpecialBudgetLabelTests(SimpleTestCase):
                 self.assertIn("Orçamento de Cortesia", html)
                 self.assertNotIn("Orçamento de Garantia", html)
 
+                if template_name != "budget/partials/pdf/visualizarPDFMecanico.html":
+                    self.assertIn("TOTAL A PAGAR:", html)
+
     def test_special_budget_label_renders_warranty_in_every_budget_pdf(self) -> None:
         for template_name in self.templates:
             with self.subTest(template_name=template_name):
@@ -82,6 +88,9 @@ class BudgetPdfSpecialBudgetLabelTests(SimpleTestCase):
 
                 self.assertIn("Orçamento de Garantia", html)
                 self.assertNotIn("Orçamento de Cortesia", html)
+
+                if template_name != "budget/partials/pdf/visualizarPDFMecanico.html":
+                    self.assertIn("TOTAL A PAGAR:", html)
 
     def test_special_budget_label_is_hidden_for_sale_in_every_budget_pdf(self) -> None:
         for template_name in self.templates:

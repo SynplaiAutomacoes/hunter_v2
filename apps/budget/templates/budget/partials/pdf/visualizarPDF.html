@@ -445,10 +445,22 @@
                         </div>
                         {% endif %}
                     {% endif %}
+                    {% if is_warranty_or_courtesy and benefit_total.amount > 0 %}
+                    <div class="flex justify-between mb-1 text-red-600">
+                        <span>{{ benefit_label }}:</span>
+                        <span>- {{ benefit_total }}</span>
+                    </div>
+                    {% endif %}
                     <div class="flex justify-between font-bold text-[16px] mt-2 pt-2 border-t border-gray-300">
                         <span>TOTAL GERAL:</span>
                         <span>{{ total_geral }}</span>
                     </div>
+                    {% if is_warranty_or_courtesy %}
+                    <div class="flex justify-between font-bold text-[16px] mt-2 text-green-700">
+                        <span>TOTAL A PAGAR:</span>
+                        <span>{{ total_a_pagar }}</span>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
             {% if is_warranty_or_courtesy and warranty_message %}
