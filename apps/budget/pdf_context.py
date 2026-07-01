@@ -225,7 +225,6 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
     total_geral = budget.summary_total_before_benefit_value
     benefit_label = budget.benefit_summary_label
     benefit_total = budget.benefit_summary_total_value
-    total_a_pagar = budget.summary_amount_due_value
 
     discount_type = budget.discount_type or WorkOrderDiscountType.BOTH
 
@@ -430,7 +429,6 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         "total_geral": total_geral,
         "benefit_label": benefit_label,
         "benefit_total": benefit_total,
-        "total_a_pagar": total_a_pagar,
         "soma_markup": soma_markup,
         "soma_markup_display": _format_decimal_multiplier(soma_markup),
         "observations": budget.observations if observacao is None else observacao,

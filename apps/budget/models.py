@@ -657,7 +657,7 @@ class Budget(TimeStampedModel):
     def sync_discount_fields(self) -> None:
         self.invalidate_pricing_snapshot_cache()
         resolved_discount_value, resolved_discount_percentage = resolve_discount_fields(
-            total_base_value=self.summary_chargeable_base_value,
+            total_base_value=self.total_base_value,
             discount_value=self.discount_value,
             discount_percentage=self.discount_percentage,
         )
@@ -768,7 +768,7 @@ class Budget(TimeStampedModel):
 
     @property
     def display_total_base_value(self) -> Money:
-        return self.summary_total_before_benefit_value
+        return self.total_base_value
 
     @property
     def total_budget_value(self) -> Money:
@@ -784,11 +784,11 @@ class Budget(TimeStampedModel):
 
     @property
     def display_resolved_discount_value(self) -> Money:
-        return self.summary_discount_value
+        return self.resolved_discount_value
 
     @property
     def display_total_budget_value(self) -> Money:
-        return self.summary_amount_due_value
+        return self.total_budget_value
 
     @property
     def selected_items_total_products_without_shipping(self) -> Money:
@@ -817,7 +817,12 @@ class Budget(TimeStampedModel):
 
     @property
     def selected_items_total_budget_value(self) -> Money:
-        return self.summary_amount_due_value
+        resolved_discount_value, _ = resolve_discount_fields(
+            total_base_value=self.selected_items_total_base_value,
+            discount_value=self.discount_value,
+            discount_percentage=self.discount_percentage,
+        )
+        return self.selected_items_total_base_value - resolved_discount_value
 
     @property
     def has_benefit_items(self) -> bool:
@@ -866,12 +871,7 @@ class Budget(TimeStampedModel):
 
     @property
     def display_resolved_discount_percentage(self) -> Decimal:
-        _, resolved_discount_percentage = resolve_discount_fields(
-            total_base_value=self.summary_chargeable_base_value,
-            discount_value=self.discount_value,
-            discount_percentage=self.discount_percentage,
-        )
-        return resolved_discount_percentage
+        return self.resolved_discount_percentage
 
     @property
     def has_local_items(self):

@@ -15,10 +15,6 @@
         <span>Tempo Total</span>
         <span>{{ budget.total_duration_display }}</span>
     </div>
-    <div class="border rounded-xl flex justify-between items-center p-3 rounded mb-2">
-        <span class="font-bold">Total Geral</span>
-        <span class="font-bold">{{ budget.summary_total_before_benefit_value }}</span>
-    </div>
     {% if budget.display_resolved_discount_value.amount > 0 %}
     <div class="border rounded-xl flex justify-between items-center p-3 rounded mb-2 border-warning/30 bg-warning/10 text-base-content">
         <span class="font-medium text-warning">Desconto</span>
@@ -30,16 +26,11 @@
         <span class="font-medium text-info">{{ budget.benefit_summary_label }}</span>
         <span class="font-medium text-info">- {{ budget.benefit_summary_total_value }}</span>
     </div>
-    <div class="border rounded-xl flex justify-between items-center p-3 rounded mb-2 bg-success/10 border-success/30 text-base-content">
-        <span class="font-bold text-success">Total a Pagar</span>
-        <span class="font-bold text-success">{{ budget.summary_amount_due_value }}</span>
-    </div>
-    {% elif budget.display_resolved_discount_value.amount > 0 %}
-    <div class="border rounded-xl flex justify-between items-center p-3 rounded mb-2 bg-success/10 border-success/30 text-base-content">
-        <span class="font-bold text-success">Total a Pagar</span>
-        <span class="font-bold text-success">{{ budget.summary_amount_due_value }}</span>
-    </div>
     {% endif %}
+    <div class="border rounded-xl flex justify-between items-center p-3 rounded mb-2">
+        <span class="font-bold">Total Geral</span>
+        <span class="font-bold">{{ budget.summary_total_before_benefit_value }}</span>
+    </div>
     {% if budget.warranty_items_count %}
     <div class="flex items-center gap-2 text-sm p-3">
         <span class="badge badge-error badge-xs">{{ budget.warranty_items_count }}</span>
