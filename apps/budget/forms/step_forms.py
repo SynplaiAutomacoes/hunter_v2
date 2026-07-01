@@ -2148,6 +2148,15 @@ class BudgetStep5Form(CoreModelForm):
 
         discount_amount = budget.display_resolved_discount_value.amount if budget.display_resolved_discount_value else Decimal("0")
         discount_display = budget.display_resolved_discount_value if discount_amount != Decimal("0") else Money(0, "BRL")
+        benefit_amount = budget.benefit_summary_total_value.amount if budget.benefit_summary_total_value else Decimal("0")
+        benefit_summary_html = ""
+        if benefit_amount > Decimal("0"):
+            benefit_summary_html = f"""
+                <div class="flex justify-between text-xl font-semibold text-info">
+                    <span>{budget.benefit_summary_label}:</span>
+                    <span id="step5-benefit-display">- {budget.benefit_summary_total_value}</span>
+                </div>
+            """
         self.initial["discount_percentage"] = budget.display_resolved_discount_percentage
         self.initial["discount_value"] = budget.display_resolved_discount_value
         self.initial["discount_type"] = budget.discount_type or WorkOrderDiscountType.BOTH
@@ -2776,8 +2785,9 @@ class BudgetStep5Form(CoreModelForm):
                                             <span>Desconto:</span>
                                             <span id="step5-discount-display">{discount_display}</span>
                                         </div>
+                                        {benefit_summary_html}
                                         <div class="flex justify-between text-xl font-black">
-                                            <span>Valor Final:</span>
+                                            <span>Total a Pagar:</span>
                                             <span id="valor-final-display">{budget.display_total_budget_value}</span>
                                         </div>
                                     </div>"""),
