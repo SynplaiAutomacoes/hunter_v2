@@ -740,7 +740,7 @@ class Budget(TimeStampedModel):
 
     @property
     def warranty_total_products_value(self) -> Money:
-        return self.total_costs_products_value + self.total_products_shipping
+        return self.total_costs_products_value
 
     @property
     def warranty_total_products_value_without_shipping(self) -> Money:
@@ -748,7 +748,7 @@ class Budget(TimeStampedModel):
 
     @property
     def warranty_total_services_value(self) -> Money:
-        return self.total_costs_services_value + self.total_services_shipping
+        return self.total_costs_services_value
 
     @property
     def warranty_total_base_value(self) -> Money:
@@ -756,25 +756,25 @@ class Budget(TimeStampedModel):
 
     @property
     def display_total_products_by_slider(self) -> Money:
-        if self.is_warranty_budget:
+        if self.is_fixed_budget:
             return self.warranty_total_products_value
         return self.get_total_products_by_slider
 
     @property
     def display_total_products_by_slider_without_shipping(self) -> Money:
-        if self.is_warranty_budget:
+        if self.is_fixed_budget:
             return self.warranty_total_products_value_without_shipping
         return self.get_total_products_by_slider_without_shipping
 
     @property
     def display_total_services_by_slider(self) -> Money:
-        if self.is_warranty_budget:
+        if self.is_fixed_budget:
             return self.warranty_total_services_value
         return self.get_total_services_by_slider
 
     @property
     def display_total_base_value(self) -> Money:
-        if self.is_warranty_budget:
+        if self.is_fixed_budget:
             return self.warranty_total_base_value
         return self.total_base_value
 
@@ -792,7 +792,7 @@ class Budget(TimeStampedModel):
 
     @property
     def display_resolved_discount_value(self) -> Money:
-        if not self.is_warranty_budget:
+        if not self.is_fixed_budget:
             return self.resolved_discount_value
 
         resolved_discount_value, _ = resolve_discount_fields(
@@ -808,19 +808,19 @@ class Budget(TimeStampedModel):
 
     @property
     def selected_items_total_products_without_shipping(self) -> Money:
-        if self.is_warranty_budget:
+        if self.is_fixed_budget:
             return self.warranty_total_products_value_without_shipping
         return self.total_products_value - self.total_products_shipping
 
     @property
     def selected_items_total_services_value(self) -> Money:
-        if self.is_warranty_budget:
+        if self.is_fixed_budget:
             return self.warranty_total_services_value
         return self.total_services_value
 
     @property
     def selected_items_total_base_value(self) -> Money:
-        if self.is_warranty_budget:
+        if self.is_fixed_budget:
             return self.warranty_total_base_value
         return self.total_products_value + self.total_services_value
 
@@ -835,7 +835,7 @@ class Budget(TimeStampedModel):
 
     @property
     def display_resolved_discount_percentage(self) -> Decimal:
-        if not self.is_warranty_budget:
+        if not self.is_fixed_budget:
             return self.resolved_discount_percentage
 
         _, resolved_discount_percentage = resolve_discount_fields(
