@@ -70,9 +70,9 @@
                     <p class="text-[11px] mt-1">Data prevista de entrega: {{ budget.customer_agreed_departure_at|date:"d/m/Y" }}</p>
                     <small class="block text-[10px] text-gray-500 leading-tight mt-1">Essa data pode ser alterada caso haja algum imprevisto. O cliente será informado caso ocorra qualquer mudança.</small>
                 {% endif %}
-                {% if budget.is_warranty_budget %}
+                {% if is_warranty_or_courtesy %}
                 <div class="mt-2 inline-block rounded border border-amber-400 bg-amber-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-900">
-                    Orçamento de Garantia
+                    {{ special_budget_label }}
                 </div>
                 {% endif %}
             </div>
