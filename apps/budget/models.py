@@ -67,6 +67,11 @@ class BudgetItemBenefitType(models.TextChoices):
     COURTESY = "courtesy", "Cortesia"
 
 
+class BudgetItemLocalType(models.TextChoices):
+    PRODUCT = "product", "Produto"
+    SERVICE = "service", "Serviço"
+
+
 class PricingMethod(models.TextChoices):
     HUNTER = "hunter", "Hunter"
     TRADITIONAL = "traditional", "Tradicional"
@@ -544,9 +549,13 @@ class Budget(TimeStampedModel):
         return data["rentabilidade"]
 
     def _is_local_product_item(self, item: "BudgetItem") -> bool:
+        if item.local_item_type == BudgetItemLocalType.PRODUCT:
+            return True
         return bool(item.is_local and ((item.product_cost_price and item.product_cost_price.amount > 0) or (item.product_selling_price and item.product_selling_price.amount > 0) or (item.shipping and item.shipping.amount > 0)))
 
     def _is_local_service_item(self, item: "BudgetItem") -> bool:
+        if item.local_item_type == BudgetItemLocalType.SERVICE:
+            return True
         return bool(item.is_local and ((item.service_cost_price and item.service_cost_price.amount > 0) or (item.service_selling_price and item.service_selling_price.amount > 0) or item.duration))
 
     def _iter_items(self) -> Iterable["BudgetItem"]:
@@ -959,6 +968,13 @@ class BudgetItem(TimeStampedModel):
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
     is_local = models.BooleanField(verbose_name="Item Local", default=False,
                                    help_text="Item criado apenas neste orçamento, não cadastrado no banco de dados")
+    local_item_type = models.CharField(
+        verbose_name="Tipo do Item Local",
+        max_length=20,
+        choices=BudgetItemLocalType.choices,
+        blank=True,
+        default="",
+    )
     is_customer_supplied = models.BooleanField(verbose_name="Peça trazida pelo cliente", default=False)
 
     ## Produto
