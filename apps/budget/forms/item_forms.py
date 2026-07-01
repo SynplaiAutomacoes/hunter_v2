@@ -2,6 +2,7 @@ from django import forms
 from django.forms import RadioSelect
 from django.urls import reverse
 from djmoney.forms import MoneyField
+from djmoney.money import Money
 
 from apps.budget.models import BudgetItem, BudgetItemBenefitType
 from apps.catalog.models.groups import CatalogGroup
@@ -18,9 +19,7 @@ class BudgetItemEditForm(CoreModelForm):
 
     class Meta:
         model = BudgetItem
-        fields = ["description", "quantity", "is_customer_supplied", "product_selling_price",
-                  "product_cost_price", "shipping", "service_selling_price", "service_cost_price",
-                  "service_shipping", "duration", "ncm", "item_benefit_type"]
+        fields = ["description", "quantity", "is_customer_supplied", "product_selling_price", "product_cost_price", "shipping", "service_selling_price", "service_cost_price", "service_shipping", "duration", "ncm", "item_benefit_type"]
 
         widgets = {
             "description": TextInput(),
@@ -46,9 +45,12 @@ class BudgetItemEditForm(CoreModelForm):
         if is_fixed_budget:
             self.fields["item_benefit_type"].disabled = True
 
+        if "service_shipping" in self.fields:
+            self.fields["service_shipping"].required = False
+
         # Se for kit, remover todos os campos de edição (kits usam modal próprio)
         if item.kit:
-            fields_to_remove = ["service_selling_price", "service_cost_price", "duration", "product_selling_price", "product_cost_price", "shipping", "is_customer_supplied"]
+            fields_to_remove = ["service_selling_price", "service_cost_price", "service_shipping", "duration", "product_selling_price", "product_cost_price", "shipping", "is_customer_supplied"]
             for field in fields_to_remove:
                 if field in self.fields:
                     self.fields.pop(field)
@@ -59,6 +61,7 @@ class BudgetItemEditForm(CoreModelForm):
         if item_type == "product":
             self.fields.pop("service_selling_price")
             self.fields.pop("service_cost_price")
+            self.fields.pop("service_shipping")
             self.fields.pop("duration")
             if item.product is None:
                 self.fields.pop("ncm")
@@ -97,6 +100,9 @@ class BudgetItemEditForm(CoreModelForm):
             raise forms.ValidationError("Itens em orçamento de cortesia devem ser do tipo 'Cortesia'.")
         return value
 
+    def clean_service_shipping(self):
+        return self.cleaned_data.get("service_shipping") or Money(0, "BRL")
+
 
 class BudgetKitProductEditRowForm(CoreForm):
     quantity = forms.IntegerField(min_value=0, widget=NumberInput(attrs={"data-field": "quantity", "min": "0"}))
@@ -107,7 +113,7 @@ class BudgetKitProductEditRowForm(CoreForm):
 
 class BudgetKitServiceEditRowForm(CoreForm):
     quantity = forms.IntegerField(min_value=0, widget=NumberInput(attrs={"data-field": "quantity", "min": "0"}))
-    cost = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "cost", "readonly": "readonly"}))
+    cost = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "cost"}))
     price = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "price"}))
     duration = forms.CharField(required=False, widget=DurationInput(attrs={"data-field": "duration"}))
 
@@ -171,6 +177,7 @@ class LocalServiceForm(CoreModelForm):
         self.fields["quantity"].label = "Quantidade"
         self.fields["service_cost_price"].label = "Custo"
         self.fields["service_shipping"].label = "Frete"
+        self.fields["service_shipping"].required = False
         self.fields["duration"].label = "Duração"
 
         # Disable item_benefit_type if budget is fixed
@@ -199,6 +206,9 @@ class LocalServiceForm(CoreModelForm):
         if self._expected_benefit_type == "courtesy" and value != "courtesy":
             raise forms.ValidationError("Itens em orçamento de cortesia devem ser do tipo 'Cortesia'.")
         return value
+
+    def clean_service_shipping(self):
+        return self.cleaned_data.get("service_shipping") or Money(0, "BRL")
 
 
 class QuickProductForm(CoreModelForm):

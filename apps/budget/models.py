@@ -982,8 +982,7 @@ class BudgetItem(TimeStampedModel):
     # Dados
     description = models.CharField(verbose_name="Descrição", max_length=100, default="")
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
-    is_local = models.BooleanField(verbose_name="Item Local", default=False,
-                                   help_text="Item criado apenas neste orçamento, não cadastrado no banco de dados")
+    is_local = models.BooleanField(verbose_name="Item Local", default=False, help_text="Item criado apenas neste orçamento, não cadastrado no banco de dados")
     local_item_type = models.CharField(
         verbose_name="Tipo do Item Local",
         max_length=20,
@@ -1004,8 +1003,7 @@ class BudgetItem(TimeStampedModel):
     service_shipping = MoneyField(verbose_name="Frete do Serviço", max_digits=14, decimal_places=2, default=0)
     duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
     kit_snapshot_frozen = models.BooleanField(verbose_name="Snapshot do kit congelado", default=False)
-    item_benefit_type = models.CharField(verbose_name="Tipo de Benefício", max_length=20,
-                                         choices=BudgetItemBenefitType.choices, default=BudgetItemBenefitType.NORMAL)
+    item_benefit_type = models.CharField(verbose_name="Tipo de Benefício", max_length=20, choices=BudgetItemBenefitType.choices, default=BudgetItemBenefitType.NORMAL)
 
     def save(self, *args, **kwargs):
         is_new = not self.pk
@@ -1295,7 +1293,7 @@ class BudgetItem(TimeStampedModel):
         # Se for kit, calcular com base nos overrides
         if self.kit:
             return self.get_kit_total_with_overrides()
-        shipping_total = self.shipping + self.service_shipping
+        shipping_total = self.shipping + (self.service_shipping * self.quantity)
         return ((self.product_selling_price + self.service_selling_price) * self.quantity) + shipping_total
 
     @property
