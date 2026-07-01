@@ -1,0 +1,398 @@
+def build_step5_assets_html(*, metodo_precificacao: str, step5_should_block_next_button: str, mark_step5_calculation_viewed_url: str, update_budget_discount_url: str) -> str:
+    return f"""
+                <style>
+                    :root[data-theme="light"] {{
+                      --step5-accent: #0f766e;
+                      --step5-warning-soft: rgba(245, 158, 11, 0.16);
+                    }}
+
+                    :root[data-theme="dark"] {{
+                      --step5-accent: #5eead4;
+                      --step5-warning-soft: rgba(245, 158, 11, 0.22);
+                    }}
+
+                    input[type="range"].centered-range {{
+                      -webkit-appearance: none;
+                      -moz-appearance: none;
+                      width: 100%;
+                      height: 8px;
+                      background: transparent;
+                    }}
+
+                    input[type="range"].centered-range::-webkit-slider-runnable-track {{
+                      height: 8px;
+                      border-radius: 999px;
+                      background: linear-gradient(
+                        to right,
+                        #e5e7eb var(--left),
+                        #2563eb var(--left),
+                        #2563eb var(--right),
+                        #e5e7eb var(--right)
+                      );
+                    }}
+
+                    input[type="range"].centered-range::-webkit-slider-thumb {{
+                      -webkit-appearance: none;
+                      width: 24px;
+                      height: 24px;
+                      background: #007bff;
+                      border-radius: 50%;
+                      margin-top: -8px;
+                      cursor: pointer;
+                    }}
+
+                    input[type="range"].centered-range::-moz-range-track {{
+                      height: 8px;
+                      border-radius: 999px;
+                      background: linear-gradient(
+                        to right,
+                        #e5e7eb var(--left),
+                        #2563eb var(--left),
+                        #2563eb var(--right),
+                        #e5e7eb var(--right)
+                      );
+                    }}
+
+                    input[type="range"].centered-range::-moz-range-thumb {{
+                      width: 24px;
+                      height: 24px;
+                      background: #007bff;
+                      border-radius: 50%;
+                      border: none;
+                    }}
+
+                    .step5-accent-text {{
+                        color: var(--step5-accent);
+                    }}
+
+                    .step5-accent-border {{
+                        border-color: var(--step5-accent);
+                    }}
+
+                    .step5-warning-surface {{
+                        background-color: var(--step5-warning-soft);
+                    }}
+
+                    .step5-calculating-dot {{
+                        animation: step5-loading-blink 1s infinite;
+                    }}
+
+                    .step5-calculating-dot:nth-child(2) {{
+                        animation-delay: 0.2s;
+                    }}
+
+                    .step5-calculating-dot:nth-child(3) {{
+                        animation-delay: 0.4s;
+                    }}
+
+                    @keyframes step5-loading-blink {{
+                        0%, 80%, 100% {{
+                            opacity: 0.2;
+                        }}
+                        40% {{
+                            opacity: 1;
+                        }}
+                    }}
+                    /* Cores de Rentabilidade */
+                    .rentabilidade-bom {{ color: #22c55e !important; border-color: #22c55e !important; }}
+                    .rentabilidade-medio {{ color: #f59e0b !important; border-color: #f59e0b !important; }} 
+                    .rentabilidade-ruim {{ color: #ef4444 !important; border-color: #ef4444 !important; }}
+                    
+                    .bg-rentabilidade-bom {{ background-color: rgba(34, 197, 94, 0.1); }}
+                    .bg-rentabilidade-medio {{ background-color: rgba(245, 158, 11, 0.1); }}
+                    .bg-rentabilidade-ruim {{ background-color: rgba(239, 68, 68, 0.1); }}
+                </style>
+                <script>
+                        (function() {{
+                            console.log("Método de Precificação:", "{metodo_precificacao}");
+                            let timeout = null;
+
+                            function parseDotDecimal(value) {{
+                                const normalized = String(value ?? '').trim().replace(',', '.');
+                                if (!normalized) return 0;
+                                const parsed = Number.parseFloat(normalized);
+                                return Number.isFinite(parsed) ? parsed : 0;
+                            }}
+
+                            function clamp(value, min, max) {{
+                                return Math.min(Math.max(value, min), max);
+                            }}
+
+                            function roundCurrency(value) {{
+                                return Math.round((value + Number.EPSILON) * 100) / 100;
+                            }}
+
+                            function formatMoney(value) {{
+                                return value.toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
+                            }}
+
+                            function formatFraction(fraction) {{
+                                return fraction.toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
+                            }}
+
+                            function formatPercentageDisplay(fraction) {{
+                                return (fraction * 100).toLocaleString('pt-BR', {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }});
+                            }}
+
+                            function getDiscountElements() {{
+                                const displayMoney = document.getElementById('id_discount_value_0_display');
+                                const hiddenMoney = document.getElementById('id_discount_value_0');
+                                const displayPercentage = document.getElementById('id_discount_percentage_display');
+                                const hiddenPercentage = document.getElementById('id_discount_percentage');
+                                const subtotalDisplay = document.getElementById('step5-subtotal-display');
+                                const discountDisplay = document.getElementById('step5-discount-display');
+                                const totalDisplay = document.getElementById('valor-final-display');
+
+                                if (!displayMoney || !hiddenMoney || !displayPercentage || !hiddenPercentage || !subtotalDisplay || !discountDisplay || !totalDisplay) {{
+                                    return null;
+                                }}
+
+                                return {{
+                                    displayMoney,
+                                    hiddenMoney,
+                                    displayPercentage,
+                                    hiddenPercentage,
+                                    subtotalDisplay,
+                                    discountDisplay,
+                                    totalDisplay,
+                                }};
+                            }}
+
+                            function getBaseTotal(elements) {{
+                                return parseDotDecimal(elements.subtotalDisplay.dataset.baseTotal);
+                            }}
+
+                            function updateSummary(elements, discountAmount) {{
+                                const baseTotal = getBaseTotal(elements);
+                                const resolvedDiscount = clamp(roundCurrency(discountAmount), 0, baseTotal);
+                                const totalValue = roundCurrency(baseTotal - resolvedDiscount);
+
+                                elements.discountDisplay.textContent = `R$ ${{formatMoney(resolvedDiscount)}}`;
+                                elements.totalDisplay.textContent = `R$ ${{formatMoney(totalValue)}}`;
+                            }}
+
+                            function syncFromPercentage(elements) {{
+                                const baseTotal = getBaseTotal(elements);
+                                const fraction = clamp(parseDotDecimal(elements.hiddenPercentage.value), 0, 1);
+                                const amount = baseTotal > 0 ? clamp(roundCurrency(baseTotal * fraction), 0, baseTotal) : 0;
+
+                                elements.hiddenMoney.value = amount.toFixed(2);
+                                elements.displayMoney.value = formatMoney(amount);
+                                elements.hiddenPercentage.value = formatFraction(fraction);
+                                updateSummary(elements, amount);
+                            }}
+
+                            function syncFromValue(elements, updateSourceDisplay = true) {{
+                                const baseTotal = getBaseTotal(elements);
+                                const amount = clamp(roundCurrency(parseDotDecimal(elements.hiddenMoney.value)), 0, baseTotal);
+                                const fraction = baseTotal > 0 ? clamp(amount / baseTotal, 0, 1) : 0;
+
+                                elements.hiddenMoney.value = amount.toFixed(2);
+                                if (updateSourceDisplay) {{
+                                    elements.displayMoney.value = formatMoney(amount);
+                                }}
+                                elements.hiddenPercentage.value = formatFraction(fraction);
+                                elements.displayPercentage.value = formatPercentageDisplay(fraction);
+                                updateSummary(elements, amount);
+                            }}
+
+                            function getDiscountTypeValue() {{
+                                const checked = document.querySelector('input[name="discount_type"]:checked');
+                                return checked ? checked.value : 'both';
+                            }}
+
+                            function persistDiscount(elements) {{
+                                clearTimeout(timeout);
+                                timeout = setTimeout(() => {{
+                                    htmx.ajax('POST', '{update_budget_discount_url}', {{
+                                        values: {{
+                                            "discount_value_0": elements.hiddenMoney.value,
+                                            "discount_percentage": elements.hiddenPercentage.value,
+                                            "discount_type": getDiscountTypeValue(),
+                                        }},
+                                        swap: 'none',
+                                    }});
+                                }}, 800);
+                            }}
+
+                            function bindDiscountSync() {{
+                                const elements = getDiscountElements();
+                                if (!elements) return;
+
+                                if (elements.displayMoney.dataset.discountSyncBound !== 'true') {{
+                                    const handleMoneyInput = () => {{
+                                        window.setTimeout(() => {{
+                                            syncFromValue(elements, false);
+                                            persistDiscount(elements);
+                                        }}, 0);
+                                    }};
+                                    elements.displayMoney.addEventListener('input', handleMoneyInput);
+                                    elements.displayMoney.addEventListener('blur', handleMoneyInput);
+                                    elements.displayMoney.dataset.discountSyncBound = 'true';
+                                }}
+
+                                if (elements.hiddenPercentage.dataset.discountSyncBound !== 'true') {{
+                                    const handlePercentageInput = () => {{
+                                        window.setTimeout(() => {{
+                                            syncFromPercentage(elements);
+                                            persistDiscount(elements);
+                                        }}, 0);
+                                    }};
+                                    elements.hiddenPercentage.addEventListener('widget:formatted-change', handlePercentageInput);
+                                    elements.hiddenPercentage.dataset.discountSyncBound = 'true';
+                                }}
+
+                                if (parseDotDecimal(elements.hiddenPercentage.value) > 0) {{
+                                    syncFromPercentage(elements);
+                                    return;
+                                }}
+
+                                syncFromValue(elements);
+                            }}
+
+                            document.addEventListener('change', function(e) {{
+                                if (e.target && e.target.name === 'discount_type') {{
+                                    const elements = getDiscountElements();
+                                    if (elements) {{
+                                        clearTimeout(timeout);
+                                        persistDiscount(elements);
+                                    }}
+                                }}
+                            }});
+
+                            document.addEventListener('DOMContentLoaded', bindDiscountSync);
+                            document.body.addEventListener('htmx:afterSettle', bindDiscountSync);
+                        }})();
+
+                        (function () {{
+                            function initCalculationGate() {{
+                                const calculateButton = document.getElementById('step5-calculate-values-btn');
+                                const calculationStatus = document.getElementById('step5-calculation-status');
+                                const loadingCard = document.getElementById('step5-calc-loader-card');
+                                const methodCard = document.getElementById('step5-method-card');
+                                const controlsCard = document.getElementById('step5-controls-card');
+                                const submitButton = document.getElementById('budget-submit-btn');
+                                const calculatedInput = document.getElementById('id_step5_calculated');
+                                const shouldBlockNextStep = {step5_should_block_next_button};
+
+                                if (!calculateButton || !loadingCard || !methodCard || !controlsCard || calculateButton.dataset.initialized === 'true') return;
+
+                                if (submitButton && shouldBlockNextStep) {{
+                                    submitButton.disabled = true;
+                                    submitButton.classList.add('btn-disabled');
+                                }}
+
+                                calculateButton.dataset.initialized = 'true';
+
+                                calculateButton.addEventListener('click', async () => {{
+                                    if (calculateButton.disabled) return;
+
+                                    if (calculatedInput) {{
+                                        calculatedInput.value = '1';
+                                    }}
+
+                                    calculateButton.disabled = true;
+                                    calculateButton.classList.add('btn-disabled');
+
+                                    const label = calculateButton.querySelector('[data-step5-calc-label]');
+                                    if (label) {{
+                                        label.textContent = 'Calculando...';
+                                    }}
+
+                                    if (calculationStatus) {{
+                                        calculationStatus.classList.remove('hidden');
+                                        calculationStatus.classList.add('flex');
+                                    }}
+
+                                    try {{
+                                        await fetch('{mark_step5_calculation_viewed_url}', {{
+                                            method: 'POST',
+                                            headers: {{
+                                                'X-CSRFToken': '{{{{ csrf_token }}}}',
+                                                'X-Requested-With': 'XMLHttpRequest',
+                                            }},
+                                        }});
+                                    }} catch (error) {{
+                                        console.error('Erro ao marcar calculo do step 5:', error);
+                                    }}
+
+                                    window.setTimeout(() => {{
+                                        loadingCard.classList.add('hidden');
+                                        methodCard.classList.remove('hidden');
+                                        controlsCard.classList.remove('hidden');
+
+                                        if (submitButton) {{
+                                            submitButton.disabled = false;
+                                            submitButton.classList.remove('btn-disabled');
+                                        }}
+
+                                        if (typeof window.step5InitSlider === 'function') {{
+                                            window.step5InitSlider();
+                                        }}
+                                    }}, 5000);
+                                }});
+                            }}
+
+                            document.addEventListener('DOMContentLoaded', initCalculationGate);
+                            document.body.addEventListener('htmx:afterSettle', initCalculationGate);
+                        }})();
+
+                        (function () {{
+                            window.step5InitSlider = function initSlider() {{
+                                const slider = document.querySelector('input[name="slider"]');
+                                const labelPecaPct = document.getElementById('val-peca');
+                                const labelMOPct = document.getElementById('val-mo');
+                                const vendaPecaEl = document.getElementById('display-venda-pecas');
+                                const vendaMOEl = document.getElementById('display-venda-mo');
+                        
+                                if (!slider || !vendaPecaEl || !vendaMOEl) return;
+                        
+                                const basePeca = parseFloat(vendaPecaEl.dataset.baseVal);
+                                const baseMO = parseFloat(vendaMOEl.dataset.baseVal);
+                                const costPeca = parseFloat(vendaPecaEl.dataset.costVal);
+                                const fretePeca = parseFloat(vendaPecaEl.dataset.freteVal || 0);
+                                const minVendaPeca = costPeca + fretePeca;
+                                const costMO = parseFloat(vendaMOEl.dataset.costVal);
+                        
+                                const totalLucro = Math.max(
+                                    (basePeca + baseMO) - (minVendaPeca + costMO),
+                                    0
+                                );
+                        
+                                const format = (v) =>
+                                    "R$ " + v.toLocaleString("pt-BR", {{ minimumFractionDigits: 2, maximumFractionDigits: 2 }}
+                                );
+                        
+                                function updateFill(val) {{
+                                    const min = -100;
+                                    const max = 100;
+                                    const center = 50;
+                                    const percent = ((val - min) / (max - min)) * 100;
+                        
+                                    if (val === 0) {{
+                                        slider.style.setProperty('--left', `${{center}}%`);
+                                        slider.style.setProperty('--right', `${{center}}%`);
+                                    }} else if (val < 0) {{
+                                        slider.style.setProperty('--left', `${{percent}}%`);
+                                        slider.style.setProperty('--right', `${{center}}%`);
+                                    }} else {{
+                                        slider.style.setProperty('--left', `${{center}}%`);
+                                        slider.style.setProperty('--right', `${{percent}}%`);
+                                    }}
+                                }}
+                        
+                                function update(val) {{
+                                    labelPecaPct.textContent = val < 0 ? Math.abs(val) : 0;
+                                    labelMOPct.textContent = val > 0 ? val : 0;
+                        
+                                    updateFill(val);
+                                }}
+                        
+                                slider.addEventListener('input', e => update(e.target.value));
+                                update(slider.value || 0);
+                            }};
+                        
+                            document.addEventListener('DOMContentLoaded', window.step5InitSlider);
+                            document.body.addEventListener('htmx:afterSettle', window.step5InitSlider);
+                        }})();
+                    </script>"""
