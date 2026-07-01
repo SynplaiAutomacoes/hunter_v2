@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 from datetime import date
 
+from django.contrib.auth import get_user_model
 from django.test import RequestFactory, TestCase
 from djmoney.money import Money
 
-from apps.budget.models import Budget, BudgetItem, BudgetItemBenefitType
+from apps.budget.models import Budget, BudgetItem, BudgetItemBenefitType, BudgetType
+from apps.budget.views.workflow_views import BudgetUpdateView
 from apps.budget.views.item_views import BudgetItemUpdateView
 from apps.budget.views.local_item_views import CreateLocalItemView
 from apps.catalog.models.groups import CatalogGroup
@@ -177,3 +179,75 @@ class BudgetItemModalFlowTests(TestCase):
         self.assertEqual(response.headers["HX-Retarget"], "#product-list-body")
         self.assertIn("Produto local zerado", response_html)
         self.assertNotIn("Nenhum produto adicionado", response_html)
+
+    def test_budget_type_sync_updates_existing_items_benefit_type(self) -> None:
+        product = Product.objects.create(
+            workshop=self.workshop,
+            group=self.group,
+            code="P-003",
+            name="Amortecedor",
+            unit=Product.Unit.UND,
+            cost_price=Money("100.00", "BRL"),
+            selling_price=Money("180.00", "BRL"),
+        )
+        item = BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, product=product, quantity=1)
+        item.item_benefit_type = BudgetItemBenefitType.NORMAL
+        item.save(update_fields=["item_benefit_type"])
+
+        self.budget.budget_type = BudgetType.WARRANTY
+        self.budget.save(update_fields=["budget_type"])
+        item.refresh_from_db()
+        self.assertEqual(item.item_benefit_type, BudgetItemBenefitType.WARRANTY)
+
+        self.budget.budget_type = BudgetType.COURTESY
+        self.budget.save(update_fields=["budget_type"])
+        item.refresh_from_db()
+        self.assertEqual(item.item_benefit_type, BudgetItemBenefitType.COURTESY)
+
+        self.budget.budget_type = BudgetType.SALE
+        self.budget.save(update_fields=["budget_type"])
+        item.refresh_from_db()
+        self.assertEqual(item.item_benefit_type, BudgetItemBenefitType.NORMAL)
+
+    def test_budget_update_view_syncs_items_even_when_form_mutates_instance_before_save(self) -> None:
+        user = get_user_model().objects.create_user(username="budget-sync", password="test")
+        product = Product.objects.create(
+            workshop=self.workshop,
+            group=self.group,
+            code="P-004",
+            name="Bateria",
+            unit=Product.Unit.UND,
+            cost_price=Money("200.00", "BRL"),
+            selling_price=Money("320.00", "BRL"),
+        )
+        item = BudgetItem.objects.create(workshop=self.workshop, budget=self.budget, product=product, quantity=1)
+        item.item_benefit_type = BudgetItemBenefitType.NORMAL
+        item.save(update_fields=["item_benefit_type"])
+
+        self.budget.budget_type = BudgetType.WARRANTY
+        self.assertEqual(self.budget.budget_type, BudgetType.WARRANTY)
+
+        class MutatedBudgetTypeForm:
+            instance = self.budget
+
+            def save(self) -> Budget:
+                self.instance.save()
+                return self.instance
+
+        request = self.factory.post(f"/budget/{self.budget.pk}/edit/?step=1", data={"budget_type": BudgetType.WARRANTY})
+        request.user = user
+        request.session = self.client.session
+        view = BudgetUpdateView()
+        view.request = request
+        view.kwargs = {"pk": self.budget.pk}
+        view.workshop = self.workshop
+        view.object = self.budget
+        view.steps_definition = [{"form_class": MutatedBudgetTypeForm}, {"form_class": MutatedBudgetTypeForm}]
+
+        response = view.form_valid(MutatedBudgetTypeForm())
+
+        item.refresh_from_db()
+        self.budget.refresh_from_db()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.budget.budget_type, BudgetType.WARRANTY)
+        self.assertEqual(item.item_benefit_type, BudgetItemBenefitType.WARRANTY)
