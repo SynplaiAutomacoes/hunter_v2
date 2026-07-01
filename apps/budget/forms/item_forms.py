@@ -19,9 +19,7 @@ class BudgetItemEditForm(CoreModelForm):
 
     class Meta:
         model = BudgetItem
-        fields = ["description", "quantity", "is_customer_supplied", "product_selling_price",
-                  "product_cost_price", "shipping", "service_selling_price", "service_cost_price",
-                  "service_shipping", "duration", "ncm", "item_benefit_type"]
+        fields = ["description", "quantity", "is_customer_supplied", "product_selling_price", "product_cost_price", "shipping", "service_selling_price", "service_cost_price", "service_shipping", "duration", "ncm", "item_benefit_type"]
 
         widgets = {
             "description": TextInput(),
@@ -115,7 +113,7 @@ class BudgetKitProductEditRowForm(CoreForm):
 
 class BudgetKitServiceEditRowForm(CoreForm):
     quantity = forms.IntegerField(min_value=0, widget=NumberInput(attrs={"data-field": "quantity", "min": "0"}))
-    cost = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "cost", "readonly": "readonly"}))
+    cost = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "cost"}))
     price = MoneyField(required=False, widget=MoneyInput(attrs={"data-field": "price"}))
     duration = forms.CharField(required=False, widget=DurationInput(attrs={"data-field": "duration"}))
 

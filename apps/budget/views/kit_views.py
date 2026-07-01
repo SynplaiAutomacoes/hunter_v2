@@ -97,10 +97,11 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 duration_str = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
             service_mechanic_cost = _calculate_service_mechanic_cost(duration, budget)
+            initial_cost = override.service_cost_price if override.service_cost_price else service_mechanic_cost
             row_form = BudgetKitServiceEditRowForm(
                 initial={
                     "quantity": override.quantity,
-                    "cost": service_mechanic_cost,
+                    "cost": initial_cost,
                     "price": override.service_selling_price,
                     "duration": duration_str,
                 },
@@ -205,7 +206,15 @@ class BudgetKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
                         duration = timedelta(0)
 
                 service_selling_price = (existing_override.service_selling_price if existing_override else service.selling_price) if budget.is_warranty_budget else Money(Decimal(str(service_data.get("price", 0))), "BRL")
-                service_cost_price = _calculate_service_mechanic_cost(duration or timedelta(0), budget)
+                raw_cost = service_data.get("cost")
+                if raw_cost is not None:
+                    parsed_cost = _parse_decimal_value(str(raw_cost))
+                    if parsed_cost and parsed_cost > 0:
+                        service_cost_price = Money(parsed_cost, "BRL")
+                    else:
+                        service_cost_price = _calculate_service_mechanic_cost(duration or timedelta(0), budget)
+                else:
+                    service_cost_price = _calculate_service_mechanic_cost(duration or timedelta(0), budget)
 
                 override, created = BudgetKitItemOverride.objects.update_or_create(
                     workshop=self.workshop,
