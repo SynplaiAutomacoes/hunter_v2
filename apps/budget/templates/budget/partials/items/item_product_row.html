@@ -63,12 +63,12 @@
     <td class="text-right">{{ item.product_cost_price }}</td>
     <td class="text-right">
         {% if step6 %}
-            {% if budget.is_fixed_budget %}R$ 0,00{% else %}{{ slider_price }}{% endif %}
+            {{ slider_price }}
         {% else %}
             {{ item.display_product_selling_price }}
         {% endif %}
     </td>
-    <td class="text-right">{% if budget.is_fixed_budget %}R$ 0,00{% else %}{{ item.shipping }}{% endif %}</td>
+    <td class="text-right">{{ item.shipping }}</td>
     <td class="font-bold text-right">
         {% if step6 %}
             {{ slider_total_price }}

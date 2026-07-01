@@ -38,7 +38,7 @@
                                 <th class="w-1/3">Descrição</th>
                                 <th class="w-20 text-center">Qtd</th>
                                 <th class="w-32">Custo (R$)</th>
-                                {% if not item.budget.is_fixed_budget %}<th class="w-32">Venda (R$)</th>{% endif %}
+                                {% if not item.budget.is_warranty_budget %}<th class="w-32">Venda (R$)</th>{% endif %}
                                 <th class="w-32">Frete (R$)</th>
                                 <th class="w-32">Total (R$)</th>
                             </tr>
@@ -53,7 +53,7 @@
                                 <td>
                                     {{ product.form.cost }}
                                 </td>
-                                {% if not item.budget.is_fixed_budget %}
+                                {% if not item.budget.is_warranty_budget %}
                                 <td>
                                     {{ product.form.price }}
                                 </td>
@@ -104,7 +104,7 @@
                                 <th class="w-1/3">Descrição</th>
                                 <th class="w-20 text-center">Qtd</th>
                                 <th class="w-32">Custo (R$)</th>
-                                {% if not item.budget.is_fixed_budget %}<th class="w-32">Venda (R$)</th>{% endif %}
+                                {% if not item.budget.is_warranty_budget %}<th class="w-32">Venda (R$)</th>{% endif %}
                                 <th class="w-32">Duração</th>
                                 <th class="w-32">Total (R$)</th>
                             </tr>
@@ -119,7 +119,7 @@
                                 <td>
                                     {{ service.form.cost }}
                                 </td>
-                                {% if not item.budget.is_fixed_budget %}
+                                {% if not item.budget.is_warranty_budget %}
                                 <td>
                                     {{ service.form.price }}
                                 </td>
@@ -268,7 +268,7 @@
 
     function calculateProductRowTotal(row) {
         const qty = parseInt(getFieldValue(row, 'quantity'), 10) || 0;
-        const price = {% if item.budget.is_fixed_budget %}parseCurrency(getFieldValue(row, 'cost')){% else %}parseCurrency(getFieldValue(row, 'price')){% endif %};
+        const price = {% if item.budget.is_warranty_budget %}parseCurrency(getFieldValue(row, 'cost')){% else %}parseCurrency(getFieldValue(row, 'price')){% endif %};
         const shipping = parseCurrency(getFieldValue(row, 'shipping'));
         const total = qty > 0 ? (price * qty) + shipping : 0;
         const totalElement = row.querySelector('.product-total');
@@ -278,7 +278,7 @@
 
     function calculateServiceRowTotal(row) {
         const qty = parseInt(getFieldValue(row, 'quantity'), 10) || 0;
-        const price = {% if item.budget.is_fixed_budget %}parseCurrency(getFieldValue(row, 'cost')){% else %}parseCurrency(getFieldValue(row, 'price')){% endif %};
+        const price = {% if item.budget.is_warranty_budget %}parseCurrency(getFieldValue(row, 'cost')){% else %}parseCurrency(getFieldValue(row, 'price')){% endif %};
         const total = price * qty;
         const totalElement = row.querySelector('.service-total');
         if (totalElement) totalElement.textContent = formatCurrency(total);
@@ -368,7 +368,7 @@
 
     function bindRowEvents() {
         document.querySelectorAll('#products-table-body tr[data-product-id]').forEach(row => {
-            ['quantity', {% if not item.budget.is_fixed_budget %}'price', {% endif %}'shipping'].forEach(fieldName => {
+            ['quantity', {% if not item.budget.is_warranty_budget %}'price', {% endif %}'shipping'].forEach(fieldName => {
                 const input = getFieldInput(row, fieldName);
                 if (!input) return;
                 input.addEventListener('input', updateProductTotals);
@@ -381,7 +381,7 @@
         });
 
         document.querySelectorAll('#services-table-body tr[data-service-id]').forEach(row => {
-            ['quantity', {% if not item.budget.is_fixed_budget %}'price', {% endif %}'cost'].forEach(fieldName => {
+            ['quantity', {% if not item.budget.is_warranty_budget %}'price', {% endif %}'cost'].forEach(fieldName => {
                 const input = getFieldInput(row, fieldName);
                 if (!input) return;
                 input.addEventListener('input', updateServiceTotals);
