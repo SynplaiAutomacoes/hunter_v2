@@ -57,13 +57,13 @@ def build_step5_context(budget) -> Step5PricingContext:
     duracao_em_horas = _parse_duracao_em_horas(duracao_total)
     custo_total_mao_obra = custo_hora_mecanico * duracao_em_horas
 
-    venda_servico_terceiros = Money(0, "BRL") if budget.is_warranty_budget else budget.total_third_party_services_selling
-    venda_pecas = budget.display_total_products_by_slider_without_shipping
-    venda_mao_obra = Money(0, "BRL") if budget.is_warranty_budget else budget.display_total_services_by_slider - venda_servico_terceiros
+    venda_servico_terceiros = budget.total_third_party_services_selling
+    venda_pecas = budget.display_total_products_by_slider
+    venda_mao_obra = budget.display_total_services_by_slider - venda_servico_terceiros
 
-    metodo_precificacao = "Garantia" if budget.is_warranty_budget else (dados.get("method_name") or "")
-    lucro_operacional = zerado if budget.is_warranty_budget else (dados.get("lucro_operacional") or zerado)
-    rentabilidade = Decimal("0") if budget.is_warranty_budget else (dados.get("rentabilidade") or 0)
+    metodo_precificacao = dados.get("method_name") or ""
+    lucro_operacional = dados.get("lucro_operacional") or zerado
+    rentabilidade = dados.get("rentabilidade") or Decimal("0")
     mlr = budget.get_mlr
     mlo = budget.get_mlo
 
