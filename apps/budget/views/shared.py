@@ -120,6 +120,11 @@ def _calculate_service_prices(duration, workshop_cost):
 
 
 def _budget_item_row_template(item):
+    if item.local_item_type == "product":
+        return "budget/partials/items/item_product_row.html"
+    if item.local_item_type == "service":
+        return "budget/partials/items/item_service_row.html"
+
     is_local_product = item.is_local and (item.product_cost_price.amount > 0 or item.product_selling_price.amount > 0 or item.shipping.amount > 0)
     is_local_service = item.is_local and (item.service_cost_price.amount > 0 or item.service_selling_price.amount > 0 or item.duration)
 
@@ -131,6 +136,8 @@ def _budget_item_row_template(item):
 
 
 def _local_item_kind(item):
+    if item.local_item_type in {"product", "service"}:
+        return item.local_item_type
     is_product = item.product_cost_price.amount > 0 or item.product_selling_price.amount > 0
     return "product" if is_product else "service"
 

@@ -30,12 +30,12 @@
                     <div class="flex gap-2">
                         <button type="button"
                                 class="btn btn-outline btn-sm gap-2"
-                                hx-get="{% url 'budget:create_local_item' budget.id item_type %}"
-                                hx-target="#modal-container"
+                                hx-get="{% url 'budget:create_local_item' budget.id item_type %}?modal_context=child"
+                                hx-target="#child-modal-container"
                                 hx-swap="innerHTML"
-                                onclick="form_modal.showModal()">
+                                onclick="window.openBudgetChildModal && window.openBudgetChildModal()">
                             <span class="material-icons text-sm">note_add</span>
-                            Incluir Novo Item
+                            Incluir Item Local
                         </button>
 
                         <button type="button"
@@ -45,7 +45,7 @@
                                 hx-swap="innerHTML"
                                 onclick="window.openBudgetChildModal && window.openBudgetChildModal()">
                             <span class="material-icons text-sm">add_circle</span>
-                            Cadastrar Novo
+                            Cadastrar no Catálogo
                         </button>
                     </div>
                     {% endif %}

@@ -11,6 +11,7 @@ from django.views.generic import TemplateView
 from djmoney.money import Money
 
 from apps.budget.forms import BudgetItemEditForm, BudgetStep3Form
+from apps.budget.forms.shared import _budget_item_type, _render_budget_items_rows
 from apps.budget.models import Budget, BudgetItem
 from apps.catalog.kit_applications import build_vehicle_context_label, evaluate_kit_vehicle_compatibility, vehicle_has_complete_application_context
 from apps.catalog.models.kits import Kit
@@ -20,6 +21,7 @@ from apps.catalog.price_tracking import build_product_price_warning, build_servi
 from apps.catalog.product_issues import annotate_product_issues
 from apps.core.presentation.widgets import NumberInput
 from apps.workshops.mixin import WorkshopScopedMixin
+from apps.budget.utils import HtmxResponseHelper
 
 from .shared import (
     LOCKED_BUDGET_EDIT_MESSAGE,
@@ -68,6 +70,8 @@ def _normalize_selected_item_ids(raw_ids: list[str]) -> tuple[list[int], list[st
 
 
 def _is_local_product_item(item: BudgetItem) -> bool:
+    if item.local_item_type == "product":
+        return True
     has_product_cost = bool(item.product_cost_price and item.product_cost_price.amount > 0)
     has_product_sale = bool(item.product_selling_price and item.product_selling_price.amount > 0)
     has_shipping = bool(item.shipping and item.shipping.amount > 0)
@@ -79,6 +83,8 @@ def _is_product_budget_item(item: BudgetItem) -> bool:
 
 
 def _is_local_service_item(item: BudgetItem) -> bool:
+    if item.local_item_type == "service":
+        return True
     has_service_cost = bool(item.service_cost_price and item.service_cost_price.amount > 0)
     has_service_sale = bool(item.service_selling_price and item.service_selling_price.amount > 0)
     has_duration = bool(item.duration)
@@ -471,6 +477,21 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         )
 
     @staticmethod
+    def _render_updated_item_list_body(*, budget: Budget, item: BudgetItem) -> str:
+        item_type = _budget_item_type(item)
+        target_by_item_type = {
+            "product": "product-list-body",
+            "service": "service-list-body",
+            "kit": "kit-list-body",
+        }
+        target_id = target_by_item_type.get(item_type)
+        if target_id is None:
+            return ""
+
+        rows = _render_budget_items_rows(budget, step6=False)
+        return f'<tbody id="{target_id}" hx-swap-oob="innerHTML">{rows[item_type]}</tbody>'
+
+    @staticmethod
     def _build_stock_quantity_html(*, item: BudgetItem) -> str:
         return NumberInput(attrs={"readonly": "readonly", "disabled": "disabled", "id": "stock-quantity-reference"}).render(
             name="stock_quantity_reference",
@@ -524,9 +545,20 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
             if action == "update_master":
                 self.update_master_record(item=item, form=form)
 
-            # Mantém o mesmo comportamento de create/delete: recarrega etapa atual
-            # para refletir imediatamente o reset das etapas 5 e 6.
-            return _step_redirect_response(request, budget, fallback_step=4)
+            if in_queue:
+                # A fila de edição usa o header HX-Redirect para avançar entre os itens.
+                return _step_redirect_response(request, budget, fallback_step=4)
+
+            content = self._render_updated_item_list_body(budget=budget, item=item)
+            if not content:
+                return _step_redirect_response(request, budget, fallback_step=4)
+
+            return HtmxResponseHelper.success(
+                "Item salvo com sucesso.",
+                close_modal=True,
+                update_summary=True,
+                content=content,
+            )
 
         logger.warning("budget_item_form_invalid", extra={"budget_id": budget_id, "item_id": item_id, "item_type": "service" if item.service_id else "product" if item.product_id else "kit" if item.kit_id else "unknown", "errors": form.errors.get_json_data()})
 

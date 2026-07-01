@@ -12,10 +12,14 @@ ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "gif"}
 
 
 def _is_local_product_item(item):
+    if getattr(item, "local_item_type", "") == "product":
+        return True
     return item.is_local and ((item.product_cost_price and item.product_cost_price.amount > 0) or (item.product_selling_price and item.product_selling_price.amount > 0) or (item.shipping and item.shipping.amount > 0))
 
 
 def _is_local_service_item(item):
+    if getattr(item, "local_item_type", "") == "service":
+        return True
     return item.is_local and ((item.service_cost_price and item.service_cost_price.amount > 0) or (item.service_selling_price and item.service_selling_price.amount > 0) or item.duration)
 
 
