@@ -179,11 +179,15 @@ class Budget(TimeStampedModel):
         is_new = self.pk is None
 
         old_status = None
+        old_budget_type = None
         if not is_new:
-            old_status = Budget.objects.filter(pk=self.pk).values_list("status", flat=True).first()
+            old_status, old_budget_type = Budget.objects.filter(pk=self.pk).values_list("status", "budget_type").first() or (None, None)
 
         with transaction.atomic():
             super().save(*args, **kwargs)
+
+            if old_budget_type is not None and old_budget_type != self.budget_type:
+                self.sync_items_benefit_type_to_budget_type()
 
             if old_status != BudgetStatus.APPROVED and self.status == BudgetStatus.APPROVED:
                 if self.vehicle_id and self.current_km is not None:
@@ -225,6 +229,18 @@ class Budget(TimeStampedModel):
     @property
     def courtesy_items_count(self) -> int:
         return self.items.filter(item_benefit_type="courtesy").count()
+
+    @staticmethod
+    def benefit_type_for_budget_type(budget_type: str) -> BudgetItemBenefitType:
+        if budget_type == BudgetType.WARRANTY:
+            return BudgetItemBenefitType.WARRANTY
+        if budget_type == BudgetType.COURTESY:
+            return BudgetItemBenefitType.COURTESY
+        return BudgetItemBenefitType.NORMAL
+
+    def sync_items_benefit_type_to_budget_type(self) -> int:
+        benefit_type = self.benefit_type_for_budget_type(str(self.budget_type))
+        return self.items.exclude(item_benefit_type=benefit_type).update(item_benefit_type=benefit_type)
 
     def _get_pricing_reference_date(self):
         return self.criado_em if self.criado_em else timezone.now()
