@@ -170,8 +170,8 @@ def _build_snapshot_service_rows(*, budget: Any, snapshot) -> list[dict[str, Any
             fallback_cost=fallback_cost,
             is_third_party=line.third_party,
         )
-        total_price = line.raw_total if line.has_kit_source else line.adjusted_total
-        unit_price = money_div(total_price, line.quantity) if line.has_kit_source else line.adjusted_unit_price
+        total_price = (line.raw_total if line.has_kit_source else line.adjusted_total) + line.shipping
+        unit_price = money_div(total_price, line.quantity) if line.quantity > 0 else zero_money()
         servicos.append(
             {
                 "id": line.entity_id,
@@ -361,13 +361,14 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                     is_third_party=service.is_third_party,
                 )
 
+                kit_service_total = (override.service_selling_price * total_quantity) + override.service_shipping
+
                 servico = {
                     "id": override.service_id,
                     "description": service.name,
                     "quantity": total_quantity,
-                    "unit_price": override.service_selling_price,
-                    "shipping": Money(0, "BRL"),
-                    "total_price": override.service_selling_price * total_quantity,
+                    "unit_price": money_div(kit_service_total, total_quantity) if total_quantity > 0 else zero_money(),
+                    "total_price": kit_service_total,
                     "service_cost_price": service_cost_price,
                     "service_mechanic_cost_price": service_mechanic_cost_price,
                     "profit_value": (override.service_selling_price * total_quantity) - service_mechanic_cost_price,
