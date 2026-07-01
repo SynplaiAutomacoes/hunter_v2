@@ -26,6 +26,7 @@ from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
 from apps.budget.models import Budget, BudgetHistory, BudgetItem, BudgetStatus, SignatureStatus, BudgetType, PricingMethod
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.budget.service import SuperSignError, send_budget_for_signature
+from apps.budget.views.shared import reset_steps_after_step_4
 from ...core.domain.services.editing_lock_service import get_lock_info
 from ...core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.presentation.forms import MultiStepFormMixin
@@ -795,11 +796,20 @@ class BudgetUpdateView(BudgetCreateView):
         if self.object and _is_budget_edit_locked(self.object):
             return _build_locked_budget_response(self.request, self.object)
 
+        previous_budget_type = ""
+        if self.object and self.object.pk:
+            previous_budget_type = str(Budget.objects.only("budget_type").get(pk=self.object.pk).budget_type)
+
         # Mantemos a lógica de salvar o workshop e colaborador
         form.instance.workshop = self.workshop
         form.instance.cost_estimator = self.request.user
-        self.object = form.save()
-        assert self.object is not None
+        with transaction.atomic():
+            self.object = form.save()
+            assert self.object is not None
+
+            if previous_budget_type and previous_budget_type != str(self.object.budget_type):
+                self.object.sync_items_benefit_type_to_budget_type()
+                reset_steps_after_step_4(self.object)
 
         # Aplicar status automático configurado para esta etapa (se houver)
         try:

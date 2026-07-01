@@ -19,6 +19,7 @@ class Service(TimeStampedModel):
     duration = models.DurationField(verbose_name="Duração")
 
     suggested_cost = MoneyField(verbose_name="Custo do tempo do serviço", max_digits=14, decimal_places=2, null=True, blank=True)
+    shipping = MoneyField(verbose_name="Frete", max_digits=14, decimal_places=2, null=True, blank=True)
 
     selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2)
     last_used_price = MoneyField(verbose_name="Ultimo Valor Utilizado", max_digits=14, decimal_places=2, null=True, blank=True)

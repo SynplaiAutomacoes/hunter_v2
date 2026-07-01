@@ -12,10 +12,14 @@ ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "gif"}
 
 
 def _is_local_product_item(item):
+    if getattr(item, "local_item_type", "") == "product":
+        return True
     return item.is_local and ((item.product_cost_price and item.product_cost_price.amount > 0) or (item.product_selling_price and item.product_selling_price.amount > 0) or (item.shipping and item.shipping.amount > 0))
 
 
 def _is_local_service_item(item):
+    if getattr(item, "local_item_type", "") == "service":
+        return True
     return item.is_local and ((item.service_cost_price and item.service_cost_price.amount > 0) or (item.service_selling_price and item.service_selling_price.amount > 0) or item.duration)
 
 
@@ -31,7 +35,7 @@ def _budget_item_type(item):
 
 def _empty_rows(step6=False):
     product_colspan = 8 if step6 else 10
-    service_colspan = 5 if step6 else 6
+    service_colspan = 6 if step6 else 7
     kit_colspan = 5 if step6 else 7
     return {
         "product": f'<tr><td colspan="{product_colspan}" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>',

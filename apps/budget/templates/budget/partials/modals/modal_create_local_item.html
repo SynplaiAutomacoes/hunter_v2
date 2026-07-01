@@ -23,11 +23,14 @@
 
 {% block modal_content %}
     <form hx-post="{% url 'budget:create_local_item' budget_id item_type %}"
-          hx-target="#modal-container"
+          hx-target="{{ modal_target|default:'#modal-container' }}"
           hx-swap="innerHTML"
           id="local-item-form"
           class="space-y-4">
         {% csrf_token %}
+        {% if modal_context %}
+            <input type="hidden" name="modal_context" value="{{ modal_context }}">
+        {% endif %}
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="local-item-fields-container">
             {% for field in form %}
@@ -53,7 +56,7 @@
         <div class="flex justify-end gap-3">
             <button type="button"
                     class="btn btn-ghost"
-                    onclick="document.getElementById('form_modal').close()">
+                    onclick="window.closeTopBudgetModal ? window.closeTopBudgetModal() : document.getElementById('form_modal').close()">
                 Cancelar
             </button>
 

@@ -180,7 +180,7 @@
 
     const servicePricingContext = {
         canCalculate: {{ service_pricing_context.can_calculate|yesno:"true,false" }},
-        minimumHourlyCost: parseFloat('{{ service_pricing_context.minimum_hourly_cost }}') || 0,
+        minimumHourlyCost: parseFloat('{{ service_pricing_context.mechanic_hourly_cost }}') || 0,
         hourlyCostValue: parseFloat('{{ service_pricing_context.hourly_cost_value }}') || 0,
     };
 
