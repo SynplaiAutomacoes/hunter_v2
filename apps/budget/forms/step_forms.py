@@ -3479,7 +3479,7 @@ class BudgetStep6Form(CoreModelForm):
                             </button>
 
                             <button type="button" class="btn btn-success col-span-4" data-allow-locked="1"
-                                onclick="openBudgetPdfModal({{ url: '{reverse("budget:visualizar_pdf_gestor", args=[budget.pk])}', showSignatureBtn: false }})">
+                                onclick="openBudgetPdfModal({{ url: '{reverse("budget:visualizar_pdf_gestor", args=[budget.pk])}', downloadUrl: '{reverse("budget:download_pdf_gestor", args=[budget.pk])}', showSignatureBtn: false }})">
                                 PDF Gestor
                             </button>
 

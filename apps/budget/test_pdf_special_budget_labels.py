@@ -59,6 +59,7 @@ class BudgetPdfSpecialBudgetLabelTests(SimpleTestCase):
             "total_profit_product_value": "R$ 0,00",
             "total_profit_service_value": "R$ 0,00",
             "total_services_mechanic_cost_value": "R$ 0,00",
+            "budget_rentability": 100,
             "soma_markup_display": "0,00",
             "observations": "",
             "fixed_observation": "",
