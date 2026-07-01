@@ -178,6 +178,7 @@ def _build_snapshot_service_rows(*, budget: Any, snapshot) -> list[dict[str, Any
                 "service_mechanic_cost_price": service_mechanic_cost_price,
                 "profit_value": total_price - service_mechanic_cost_price,
                 "duration_display": line.duration_display,
+                "shipping": line.shipping,
             }
         )
 
@@ -296,6 +297,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 "duration_display": line.duration_display,
                 "_duration_seconds": _duration_seconds(line.item.duration) * int(line.item.quantity or 0),
                 "item_benefit_type": line.item.item_benefit_type,
+                "shipping": line.item.service_shipping,
             }
 
             if servico["item_benefit_type"] != "normal":
@@ -368,6 +370,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                     "duration_display": format_duration_display(override.duration * total_quantity) if override.duration else "00h 00m",
                     "_duration_seconds": _duration_seconds(override.duration) * total_quantity if override.duration else 0,
                     "item_benefit_type": kit_item.item_benefit_type,
+                    "shipping": service.shipping or Money(0, "BRL"),
                 }
 
                 if servico["item_benefit_type"] != "normal":
