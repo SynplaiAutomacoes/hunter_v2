@@ -15,13 +15,14 @@ from apps.core.presentation.forms import CoreModelForm
 class ServiceForm(CoreModelForm):
     class Meta:
         model = Service
-        fields = ["name", "is_third_party", "duration", "selling_price", "suggested_cost", "description", "is_active"]
+        fields = ["name", "is_third_party", "duration", "selling_price", "suggested_cost", "shipping", "description", "is_active"]
         widgets = {
             "name": TextInput(attrs={"placeholder": "Ex: Troca de Óleo, Alinhamento..."}),
             "is_third_party": CheckboxInput(),
             "duration": DurationInput(),
             "selling_price": MoneyInput(),
             "suggested_cost": MoneyInput(),
+            "shipping": MoneyInput(),
             "description": TextareaInput(attrs={"class": "!bg-transparent"}),
             "is_active": CheckboxInput(),
         }
@@ -71,6 +72,7 @@ class ServiceForm(CoreModelForm):
                 # Linha 2: Valores e Duração
                 Field("duration", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("suggested_cost", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("shipping", wrapper_class="col-span-12 lg:col-span-4"),
                 Div(
                     Field("selling_price"),
                     HTML(
