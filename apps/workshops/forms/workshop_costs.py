@@ -3,6 +3,7 @@ from __future__ import annotations
 import calendar
 import datetime
 import json
+
 from typing import cast
 
 from django import forms
@@ -445,9 +446,6 @@ class WorkshopCostForm(CoreModelForm):
                     }}
 
                     function renderCalendar() {{
-                        if (panel.classList.contains('hidden')) {{
-                            return;
-                        }}
                         const year = parseInt(yearInput.value || calendarRoot.dataset.selectedYear || '0', 10);
                         const month = parseInt(monthInput.value || calendarRoot.dataset.selectedMonth || '0', 10);
                         if (!year || !month) {{
@@ -561,7 +559,14 @@ class WorkshopCostForm(CoreModelForm):
                         }});
                     }}
 
+                    if (!hiddenInput.value) {{
+                        const initialDates = Array.from(defaultWorkDays).sort().join(',');
+                        if (initialDates) {{
+                            hiddenInput.value = initialDates;
+                        }}
+                    }}
                     updateWorkDaysPerMonth(parseSelectedDates());
+                    renderCalendar();
                 }})();
             </script>
         """
@@ -632,26 +637,26 @@ class WorkshopCostForm(CoreModelForm):
     def _get_holiday_dates(self, *, state: str, month: int, year: int) -> list[datetime.date]:
         holiday_calendar = holidays.Brazil(state=state, years=year)
         month_holidays: list[datetime.date] = []
-        
+
         for holiday_date in holiday_calendar.keys():
             if holiday_date.year == year and holiday_date.month == month and holiday_date.weekday() < 5:
                 month_holidays.append(holiday_date)
-        
+
         good_friday_dates = [d for d in holiday_calendar.keys() if "Sexta" in str(holiday_calendar[d]) and d.year == year]
         if good_friday_dates:
             easter = good_friday_dates[0] + datetime.timedelta(days=2)
-            
+
             movable_holidays = [
                 easter - datetime.timedelta(days=48),
                 easter - datetime.timedelta(days=47),
                 easter - datetime.timedelta(days=46),
                 easter + datetime.timedelta(days=60),
             ]
-            
+
             for movable_date in movable_holidays:
                 if movable_date.year == year and movable_date.month == month and movable_date.weekday() < 5:
                     month_holidays.append(movable_date)
-        
+
         return sorted(set(month_holidays))
 
     def _get_work_day_dates_for_month(self, *, month: int, year: int, state: str) -> list[datetime.date]:
