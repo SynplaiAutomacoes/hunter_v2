@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from django.template.loader import render_to_string
 from django.test import SimpleTestCase
 from django.utils import timezone
+from djmoney.money import Money
 
 from apps.budget.models import BudgetType
 
@@ -54,11 +55,11 @@ class BudgetPdfSpecialBudgetLabelTests(SimpleTestCase):
             "total_servicos": "R$ 0,00",
             "total_geral": "R$ 0,00",
             "benefit_label": "Cortesia" if is_courtesy_budget else "Garantia" if is_warranty_budget else "",
-            "benefit_total": "R$ 0,00",
-            "total_a_pagar": "R$ 0,00",
-            "desconto": "R$ 0,00",
-            "discount_products": "R$ 0,00",
-            "discount_services": "R$ 0,00",
+            "benefit_total": Money("1.00", "BRL") if special_budget_label else Money("0.00", "BRL"),
+            "total_a_pagar": Money("0.00", "BRL"),
+            "desconto": Money("0.00", "BRL"),
+            "discount_products": Money("0.00", "BRL"),
+            "discount_services": Money("0.00", "BRL"),
             "total_profit_product_value": "R$ 0,00",
             "total_profit_service_value": "R$ 0,00",
             "total_services_mechanic_cost_value": "R$ 0,00",

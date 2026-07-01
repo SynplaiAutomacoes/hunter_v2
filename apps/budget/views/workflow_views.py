@@ -1278,6 +1278,11 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         display_products_value = budget.display_total_products_by_slider_without_shipping
         display_labor_value = Money(0, "BRL") if budget.is_warranty_budget else budget.display_total_services_by_slider - budget.total_third_party_services_selling
+        benefit_html = ""
+        if budget.benefit_summary_total_value.amount > 0:
+            benefit_html = f"""
+                <span id=\"step5-benefit-display\" hx-swap-oob=\"true\">- {budget.benefit_summary_total_value}</span>
+                """
         html = f"""
                 <span id="display-venda-pecas" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 whitespace-nowrap step5-accent-text" data-base-val="{display_products_value.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
                     {display_products_value}
@@ -1291,6 +1296,7 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 <span id="step5-discount-display" hx-swap-oob="true">
                     {budget.display_resolved_discount_value}
                 </span>
+                {benefit_html}
                 <span id="valor-final-display" hx-swap-oob="true">
                     {budget.display_total_budget_value}
                 </span>

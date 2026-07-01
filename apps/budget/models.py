@@ -657,7 +657,7 @@ class Budget(TimeStampedModel):
     def sync_discount_fields(self) -> None:
         self.invalidate_pricing_snapshot_cache()
         resolved_discount_value, resolved_discount_percentage = resolve_discount_fields(
-            total_base_value=self.display_total_base_value if self.is_warranty_budget else self.total_base_value,
+            total_base_value=self.summary_chargeable_base_value,
             discount_value=self.discount_value,
             discount_percentage=self.discount_percentage,
         )
@@ -740,43 +740,35 @@ class Budget(TimeStampedModel):
 
     @property
     def warranty_total_products_value(self) -> Money:
-        return self.total_costs_products_value
+        return self.benefit_summary_total_value
 
     @property
     def warranty_total_products_value_without_shipping(self) -> Money:
-        return self.total_costs_products_value
+        return self.benefit_summary_total_value
 
     @property
     def warranty_total_services_value(self) -> Money:
-        return self.total_costs_services_value
+        return Money(0, "BRL")
 
     @property
     def warranty_total_base_value(self) -> Money:
-        return self.warranty_total_products_value + self.warranty_total_services_value
+        return self.benefit_summary_total_value
 
     @property
     def display_total_products_by_slider(self) -> Money:
-        if self.is_fixed_budget:
-            return self.warranty_total_products_value
         return self.get_total_products_by_slider
 
     @property
     def display_total_products_by_slider_without_shipping(self) -> Money:
-        if self.is_fixed_budget:
-            return self.warranty_total_products_value_without_shipping
         return self.get_total_products_by_slider_without_shipping
 
     @property
     def display_total_services_by_slider(self) -> Money:
-        if self.is_fixed_budget:
-            return self.warranty_total_services_value
         return self.get_total_services_by_slider
 
     @property
     def display_total_base_value(self) -> Money:
-        if self.is_fixed_budget:
-            return self.warranty_total_base_value
-        return self.total_base_value
+        return self.summary_total_before_benefit_value
 
     @property
     def total_budget_value(self) -> Money:
@@ -792,84 +784,90 @@ class Budget(TimeStampedModel):
 
     @property
     def display_resolved_discount_value(self) -> Money:
-        if not self.is_fixed_budget:
-            return self.resolved_discount_value
+        return self.summary_discount_value
 
+    @property
+    def display_total_budget_value(self) -> Money:
+        return self.summary_amount_due_value
+
+    @property
+    def selected_items_total_products_without_shipping(self) -> Money:
+        total = Money(0, "BRL")
+        for item in self._iter_items():
+            total += item.summary_products_total_without_shipping
+        return total
+
+    @property
+    def selected_items_total_services_value(self) -> Money:
+        total = Money(0, "BRL")
+        for item in self._iter_items():
+            total += item.summary_services_total
+        return total
+
+    @property
+    def selected_items_total_shipping_value(self) -> Money:
+        total = Money(0, "BRL")
+        for item in self._iter_items():
+            total += item.summary_shipping_total
+        return total
+
+    @property
+    def selected_items_total_base_value(self) -> Money:
+        return self.selected_items_total_products_without_shipping + self.selected_items_total_services_value + self.selected_items_total_shipping_value
+
+    @property
+    def selected_items_total_budget_value(self) -> Money:
+        return self.summary_amount_due_value
+
+    @property
+    def has_benefit_items(self) -> bool:
+        return self.warranty_items_count > 0 or self.courtesy_items_count > 0
+
+    @property
+    def benefit_summary_label(self) -> str:
+        if self.warranty_items_count and self.courtesy_items_count:
+            return "Garantia/Cortesia"
+        if self.warranty_items_count:
+            return "Garantia"
+        if self.courtesy_items_count:
+            return "Cortesia"
+        return ""
+
+    @property
+    def benefit_summary_total_value(self) -> Money:
+        benefit_total = Money(0, "BRL")
+        for item in self._iter_items():
+            if item.is_benefit_item:
+                benefit_total += item.total_price
+        return benefit_total
+
+    @property
+    def summary_chargeable_base_value(self) -> Money:
+        amount = self.selected_items_total_base_value.amount - self.benefit_summary_total_value.amount
+        return Money(max(amount, Decimal("0.00")), "BRL")
+
+    @property
+    def summary_discount_value(self) -> Money:
         resolved_discount_value, _ = resolve_discount_fields(
-            total_base_value=self.display_total_base_value,
+            total_base_value=self.summary_chargeable_base_value,
             discount_value=self.discount_value,
             discount_percentage=self.discount_percentage,
         )
         return resolved_discount_value
 
     @property
-    def display_total_budget_value(self) -> Money:
-        return self.display_total_base_value - self.display_resolved_discount_value
-
-    @property
-    def selected_items_total_products_without_shipping(self) -> Money:
-        if self.is_fixed_budget:
-            return self.warranty_total_products_value_without_shipping
-        return self.total_products_value - self.total_products_shipping
-
-    @property
-    def selected_items_total_services_value(self) -> Money:
-        if self.is_fixed_budget:
-            return self.warranty_total_services_value
-        return self.total_services_value
-
-    @property
-    def selected_items_total_base_value(self) -> Money:
-        if self.is_fixed_budget:
-            return self.warranty_total_base_value
-        return self.total_products_value + self.total_services_value
-
-    @property
-    def selected_items_total_budget_value(self) -> Money:
-        resolved_discount_value, _ = resolve_discount_fields(
-            total_base_value=self.selected_items_total_base_value,
-            discount_value=self.discount_value,
-            discount_percentage=self.discount_percentage,
-        )
-        return self.selected_items_total_base_value - resolved_discount_value
-
-    @property
-    def benefit_summary_label(self) -> str:
-        if self.budget_type == BudgetType.WARRANTY:
-            return "Garantia"
-        if self.budget_type == BudgetType.COURTESY:
-            return "Cortesia"
-        return ""
-
-    @property
-    def benefit_summary_total_value(self) -> Money:
-        if not self.is_fixed_budget:
-            return Money(0, "BRL")
-
-        gross_total = Money(0, "BRL")
-        for item in self._iter_items():
-            gross_total += item.total_price
-        return gross_total
-
-    @property
     def summary_total_before_benefit_value(self) -> Money:
-        if self.is_fixed_budget:
-            return self.benefit_summary_total_value
-        return self.selected_items_total_budget_value
+        return self.selected_items_total_base_value
 
     @property
     def summary_amount_due_value(self) -> Money:
-        if self.is_fixed_budget:
-            return Money(0, "BRL")
-        return self.selected_items_total_budget_value
+        amount = self.summary_chargeable_base_value.amount - self.summary_discount_value.amount
+        return Money(max(amount, Decimal("0.00")), "BRL")
 
     @property
     def display_resolved_discount_percentage(self) -> Decimal:
-        if not self.is_fixed_budget:
-            return self.resolved_discount_percentage
-
         _, resolved_discount_percentage = resolve_discount_fields(
-            total_base_value=self.display_total_base_value,
+            total_base_value=self.summary_chargeable_base_value,
             discount_value=self.discount_value,
             discount_percentage=self.discount_percentage,
         )
@@ -1317,6 +1315,28 @@ class BudgetItem(TimeStampedModel):
     @property
     def effective_kit_services_count(self) -> int:
         return len(self.effective_kit_services)
+
+    @property
+    def is_benefit_item(self) -> bool:
+        return self.item_benefit_type != BudgetItemBenefitType.NORMAL
+
+    @property
+    def summary_products_total_without_shipping(self) -> Money:
+        if self.kit:
+            return self.get_kit_products_total() - self.get_kit_products_shipping_total()
+        return self.product_selling_price * self.quantity
+
+    @property
+    def summary_services_total(self) -> Money:
+        if self.kit:
+            return self.get_kit_services_total()
+        return self.service_selling_price * self.quantity
+
+    @property
+    def summary_shipping_total(self) -> Money:
+        if self.kit:
+            return self.get_kit_products_shipping_total()
+        return self.shipping + (self.service_shipping * self.quantity)
 
     @property
     def total_price(self):

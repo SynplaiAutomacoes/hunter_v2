@@ -221,7 +221,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
 
     total_produtos = budget.selected_items_total_products_without_shipping
     total_servicos = budget.selected_items_total_services_value
-    desconto = budget.selected_items_total_base_value - budget.selected_items_total_budget_value
+    desconto = budget.summary_discount_value
     total_geral = budget.summary_total_before_benefit_value
     benefit_label = budget.benefit_summary_label
     benefit_total = budget.benefit_summary_total_value
@@ -397,17 +397,8 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         servicos = _build_snapshot_service_rows(budget=budget, snapshot=snapshot)
         kits = []
 
-    def _is_chargeable(item: dict) -> bool:
-        return item.get("item_benefit_type", "normal") == "normal" and not item.get("is_customer_supplied", False)
-
-    if not is_warranty_or_courtesy:
-        chargeable_produtos_total = sum((p["total_price"] - p["shipping"]) for p in produtos if _is_chargeable(p))
-        chargeable_servicos_total = sum(s["total_price"] for s in servicos if _is_chargeable(s))
-        total_produtos = chargeable_produtos_total
-        total_servicos = chargeable_servicos_total
-    else:
-        total_produtos = sum(((p["total_price"] - p["shipping"]) for p in produtos), Money(0, "BRL"))
-        total_servicos = sum((s["total_price"] for s in servicos), Money(0, "BRL"))
+    total_produtos = sum(((p["total_price"] - p["shipping"]) for p in produtos), Money(0, "BRL"))
+    total_servicos = sum((s["total_price"] for s in servicos), Money(0, "BRL"))
     workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=budget.workshop)
     total_services_cost_original_value = sum((line["service_cost_price"] for line in servicos), Money(0, "BRL"))
     total_services_mechanic_cost_value = sum((line["service_mechanic_cost_price"] for line in servicos), Money(0, "BRL"))
