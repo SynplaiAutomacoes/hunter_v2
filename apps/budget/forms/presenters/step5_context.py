@@ -1,0 +1,117 @@
+# ruff: noqa: F403,F405
+from apps.budget.forms.steps.common import *
+from dataclasses import dataclass
+
+
+@dataclass
+class Step5PricingContext:
+    custo_pecas: Money
+    custo_frete_pecas: Money
+    custo_frete_servicos: Money
+    custo_servico_terceiros: Money
+    custo_hora_mecanico: Money
+    custo_total_mao_obra: Money
+    duracao_total: str
+    venda_servico_terceiros: Money
+    venda_pecas: Money
+    venda_mao_obra: Money
+    metodo_precificacao: str
+    lucro_operacional: Money
+    rentabilidade: Decimal
+    rentabilidade_class: str
+    rentabilidade_bg: str
+    status_texto: str
+    mlr: float
+    mlo: float
+    discount_amount: Decimal
+    discount_display: Money
+    step5_calculation_done: bool
+    step5_loading_hidden_class: str
+    step5_method_hidden_class: str
+    step5_should_block_next_button: str
+    step5_calculated_input_value: str
+
+
+def build_step5_context(budget) -> Step5PricingContext:
+    dados = {}
+    if budget.pk:
+        dados = budget.calculate_pricing_methods()
+
+    zerado = Money(0, "BRL")
+
+    custo_pecas = budget.total_costs_products_value
+    custo_frete_pecas = budget.total_products_shipping
+    custo_frete_servicos = budget.total_services_shipping
+    custo_servico_terceiros = budget.total_third_party_services_cost
+    custo_hora_mecanico = dados.get("custo_hora_mecanico") or zerado
+
+    duracao_total = budget.total_duration_display
+
+    def _parse_duracao_em_horas(duracao):
+        try:
+            h, m = duracao.replace("h", "").replace("m", "").split()
+            return Decimal(h) + (Decimal(m) / Decimal(60))
+        except Exception:
+            return Decimal("0")
+
+    duracao_em_horas = _parse_duracao_em_horas(duracao_total)
+    custo_total_mao_obra = custo_hora_mecanico * duracao_em_horas
+
+    venda_servico_terceiros = Money(0, "BRL") if budget.is_warranty_budget else budget.total_third_party_services_selling
+    venda_pecas = budget.display_total_products_by_slider_without_shipping
+    venda_mao_obra = Money(0, "BRL") if budget.is_warranty_budget else budget.display_total_services_by_slider - venda_servico_terceiros
+
+    metodo_precificacao = "Garantia" if budget.is_warranty_budget else (dados.get("method_name") or "")
+    lucro_operacional = zerado if budget.is_warranty_budget else (dados.get("lucro_operacional") or zerado)
+    rentabilidade = Decimal("0") if budget.is_warranty_budget else (dados.get("rentabilidade") or 0)
+    mlr = budget.get_mlr
+    mlo = budget.get_mlo
+
+    if rentabilidade >= 70:
+        status_texto = "Bom"
+        rentabilidade_class = "rentabilidade-bom"
+        rentabilidade_bg = "bg-rentabilidade-bom"
+    elif rentabilidade < 60:
+        status_texto = "Ruim"
+        rentabilidade_class = "rentabilidade-ruim"
+        rentabilidade_bg = "bg-rentabilidade-ruim"
+    else:
+        status_texto = "Médio"
+        rentabilidade_class = "rentabilidade-medio"
+        rentabilidade_bg = "bg-rentabilidade-medio"
+
+    discount_amount = budget.display_resolved_discount_value.amount if budget.display_resolved_discount_value else Decimal("0")
+    discount_display = budget.display_resolved_discount_value if discount_amount != Decimal("0") else Money(0, "BRL")
+    step5_calculation_done = bool(budget.pk and (budget.step5_calculation_viewed or budget.current_step > 5))
+    step5_loading_hidden_class = "hidden" if step5_calculation_done else ""
+    step5_method_hidden_class = "" if step5_calculation_done else "hidden"
+    step5_should_block_next_button = "true" if not step5_calculation_done else "false"
+    step5_calculated_input_value = "1" if step5_calculation_done else "0"
+
+    return Step5PricingContext(
+        custo_pecas=custo_pecas,
+        custo_frete_pecas=custo_frete_pecas,
+        custo_frete_servicos=custo_frete_servicos,
+        custo_servico_terceiros=custo_servico_terceiros,
+        custo_hora_mecanico=custo_hora_mecanico,
+        custo_total_mao_obra=custo_total_mao_obra,
+        duracao_total=duracao_total,
+        venda_servico_terceiros=venda_servico_terceiros,
+        venda_pecas=venda_pecas,
+        venda_mao_obra=venda_mao_obra,
+        metodo_precificacao=metodo_precificacao,
+        lucro_operacional=lucro_operacional,
+        rentabilidade=rentabilidade,
+        rentabilidade_class=rentabilidade_class,
+        rentabilidade_bg=rentabilidade_bg,
+        status_texto=status_texto,
+        mlr=mlr,
+        mlo=mlo,
+        discount_amount=discount_amount,
+        discount_display=discount_display,
+        step5_calculation_done=step5_calculation_done,
+        step5_loading_hidden_class=step5_loading_hidden_class,
+        step5_method_hidden_class=step5_method_hidden_class,
+        step5_should_block_next_button=step5_should_block_next_button,
+        step5_calculated_input_value=step5_calculated_input_value,
+    )
