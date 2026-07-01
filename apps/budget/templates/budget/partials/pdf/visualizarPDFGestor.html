@@ -169,7 +169,6 @@
                 Fornecido pelo cliente?
               </th>
               <th class="p-1 font-semibold text-center">Valor Unitário</th>
-              <th class="p-1 font-semibold text-center">Frete</th>
               <th class="p-1 font-semibold text-center">Total</th>
               <th class="p-1 font-semibold text-center">Custo</th>
               <th class="p-1 font-semibold text-center">Lucro</th>
@@ -184,7 +183,6 @@
                 {% if p.is_customer_supplied %}Sim{% else %}Não{% endif %}
               </td>
               <td class="p-1 text-center">{{ p.adjusted_unit_price }}</td>
-              <td class="p-1 text-center">{{ p.shipping }}</td>
               <td class="p-1 text-center font-medium">{{ p.total_price }}</td>
               <td class="p-1 text-center font-bold">{{ p.product_cost_price }}</td>
               <td class="p-1 text-center font-bold">{{ p.profit_value }}</td>
@@ -222,7 +220,6 @@
               <th class="p-1 font-semibold">Descrição</th>
               <th class="p-1 font-semibold text-center">Quantidade</th>
               <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">Valor de Venda</th>
-              <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">Frete</th>
               <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">Valor Total</th>
               <th class="p-1 px-2 font-semibold text-center whitespace-nowrap">Tempo</th>
               <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">Custo/Mecânico</th>
@@ -235,7 +232,6 @@
               <td class="p-1">{{ s.description }}{% if s.item_benefit_type == "warranty" %}<span class="benefit-badge benefit-badge-warranty">Garantia</span>{% elif s.item_benefit_type == "courtesy" %}<span class="benefit-badge benefit-badge-courtesy">Cortesia</span>{% endif %}</td>
               <td class="p-1 text-center">{{ s.quantity }}</td>
               <td class="p-1 px-2 text-right whitespace-nowrap">{{ s.unit_price }}</td>
-              <td class="p-1 px-2 text-right whitespace-nowrap">{{ s.shipping }}</td>
               <td class="p-1 px-2 text-right whitespace-nowrap">{{ s.total_price }}</td>
               <td class="p-1 px-2 text-center whitespace-nowrap">{{ s.duration_display }}</td>
               <td class="p-1 px-2 text-right font-bold whitespace-nowrap">{{ s.service_mechanic_cost_price }}</td>

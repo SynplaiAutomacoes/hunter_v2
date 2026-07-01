@@ -96,9 +96,10 @@ def _merge_selected_product_rows(produtos: list[dict]) -> list[dict]:
 
         quantity = int(existing.get("quantity") or 0)
         if quantity > 0:
-            unit_price = money_div(existing["total_price"], quantity)
+            unit_price = money_div(existing["total_price"] - existing["shipping"], quantity)
             existing["unit_price"] = unit_price
             existing["adjusted_unit_price"] = unit_price
+            existing["display_unit_price"] = money_div(existing["total_price"], quantity)
 
     return list(merged_rows.values())
 
@@ -123,6 +124,7 @@ def _merge_selected_service_rows(servicos: list[dict]) -> list[dict]:
         quantity = int(existing.get("quantity") or 0)
         if quantity > 0:
             existing["unit_price"] = money_div(existing["total_price"], quantity)
+            existing["display_unit_price"] = money_div(existing["total_price"], quantity)
 
     for row in merged_rows.values():
         row["duration_display"] = format_duration_display(timedelta(seconds=int(row.pop("_duration_seconds", 0) or 0)))
@@ -144,8 +146,9 @@ def _build_snapshot_product_rows(*, snapshot) -> list[dict[str, Any]]:
             "application": line.application or "-",
             "code": line.code or "-",
             "location": line.location or "-",
-            "unit_price": money_div(line.raw_total, line.quantity) if line.quantity > 0 else zero_money(),
-            "adjusted_unit_price": money_div(line.raw_total, line.quantity) if line.quantity > 0 else zero_money(),
+            "unit_price": line.unit_price,
+            "adjusted_unit_price": line.adjusted_unit_price,
+            "display_unit_price": money_div(line.raw_total, line.quantity) if line.quantity > 0 else zero_money(),
             "shipping": line.shipping,
             "total_price": line.total_price,
             "product_cost_price": line.cost_total,
@@ -171,20 +174,21 @@ def _build_snapshot_service_rows(*, budget: Any, snapshot) -> list[dict[str, Any
             is_third_party=line.third_party,
         )
         total_price = (line.raw_total if line.has_kit_source else line.adjusted_total) + line.shipping
-        unit_price = money_div(total_price, line.quantity) if line.quantity > 0 else zero_money()
+        unit_price_no_shipping = money_div(total_price - line.shipping, line.quantity) if line.quantity > 0 else zero_money()
+        display_unit_price = money_div(total_price, line.quantity) if line.quantity > 0 else zero_money()
         servicos.append(
             {
                 "id": line.entity_id,
                 "description": line.description,
                 "quantity": line.quantity,
-                "unit_price": unit_price,
+                "unit_price": unit_price_no_shipping,
+                "display_unit_price": display_unit_price,
                 "shipping": line.shipping,
                 "total_price": total_price,
                 "service_cost_price": fallback_cost,
                 "service_mechanic_cost_price": service_mechanic_cost_price,
                 "profit_value": total_price - service_mechanic_cost_price,
                 "duration_display": line.duration_display,
-                "shipping": line.shipping,
             }
         )
 
@@ -265,8 +269,9 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 "application": getattr(line.item.product, "application", "") or "-",
                 "code": getattr(line.item.product, "code", "") or "-",
                 "location": getattr(line.item.product, "location", "") or "-",
-                "unit_price": money_div(line.total_price, line.item.quantity) if line.item.quantity > 0 else zero_money(),
-                "adjusted_unit_price": money_div(line.total_price, line.item.quantity) if line.item.quantity > 0 else zero_money(),
+                "unit_price": line.unit_price,
+                "adjusted_unit_price": line.unit_price,
+                "display_unit_price": money_div(line.total_price, line.item.quantity) if line.item.quantity > 0 else zero_money(),
                 "shipping": line.item.shipping,
                 "total_price": line.total_price,
                 "product_cost_price": line.item.product_cost_price * line.item.quantity,
@@ -291,11 +296,13 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 fallback_cost=line.warranty_total_price,
                 is_third_party=is_third_party,
             )
+            item_service_shipping = getattr(line.item, "service_shipping", Money(0, "BRL"))
             servico = {
                 "id": line.item.service_id,
                 "description": line.item.description,
                 "quantity": line.item.quantity,
-                "unit_price": line.unit_price,
+                "unit_price": money_div(line.total_price - item_service_shipping, line.item.quantity) if line.item.quantity > 0 else zero_money(),
+                "display_unit_price": money_div(line.total_price, line.item.quantity) if line.item.quantity > 0 else zero_money(),
                 "shipping": getattr(line.item, "service_shipping", Money(0, "BRL")),
                 "total_price": line.total_price,
                 "service_cost_price": line.warranty_total_price,
@@ -304,7 +311,6 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 "duration_display": line.duration_display,
                 "_duration_seconds": _duration_seconds(line.item.duration) * int(line.item.quantity or 0),
                 "item_benefit_type": line.item.item_benefit_type,
-                "shipping": line.item.service_shipping,
             }
 
             if servico["item_benefit_type"] != "normal":
@@ -333,8 +339,9 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                     "application": getattr(product, "application", "") or "-",
                     "code": getattr(product, "code", "") or "-",
                     "location": getattr(product, "location", "") or "-",
-                    "unit_price": money_div(kit_product_total, total_quantity) if total_quantity > 0 else zero_money(),
-                    "adjusted_unit_price": money_div(kit_product_total, total_quantity) if total_quantity > 0 else zero_money(),
+                    "unit_price": override.product_selling_price,
+                    "adjusted_unit_price": override.product_selling_price,
+                    "display_unit_price": money_div(kit_product_total, total_quantity) if total_quantity > 0 else zero_money(),
                     "shipping": override.shipping,
                     "total_price": kit_product_total,
                     "product_cost_price": override.product_cost_price * total_quantity,
@@ -369,7 +376,8 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                     "id": override.service_id,
                     "description": service.name,
                     "quantity": total_quantity,
-                    "unit_price": money_div(kit_service_total, total_quantity) if total_quantity > 0 else zero_money(),
+                    "unit_price": override.service_selling_price,
+                    "display_unit_price": money_div(kit_service_total, total_quantity) if total_quantity > 0 else zero_money(),
                     "total_price": kit_service_total,
                     "service_cost_price": service_cost_price,
                     "service_mechanic_cost_price": service_mechanic_cost_price,
