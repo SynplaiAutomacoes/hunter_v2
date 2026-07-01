@@ -92,7 +92,7 @@ def _merge_selected_product_rows(produtos: list[dict]) -> list[dict]:
 
         quantity = int(existing.get("quantity") or 0)
         if quantity > 0:
-            unit_price = money_div(existing["total_price"] - existing["shipping"], quantity)
+            unit_price = money_div(existing["total_price"], quantity)
             existing["unit_price"] = unit_price
             existing["adjusted_unit_price"] = unit_price
 
@@ -139,8 +139,8 @@ def _build_snapshot_product_rows(*, snapshot) -> list[dict[str, Any]]:
             "application": line.application or "-",
             "code": line.code or "-",
             "location": line.location or "-",
-            "unit_price": line.unit_price,
-            "adjusted_unit_price": line.adjusted_unit_price,
+            "unit_price": money_div(line.raw_total, line.quantity) if line.quantity > 0 else zero_money(),
+            "adjusted_unit_price": money_div(line.raw_total, line.quantity) if line.quantity > 0 else zero_money(),
             "shipping": line.shipping,
             "total_price": line.total_price,
             "product_cost_price": line.cost_total,
@@ -258,8 +258,8 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 "application": getattr(line.item.product, "application", "") or "-",
                 "code": getattr(line.item.product, "code", "") or "-",
                 "location": getattr(line.item.product, "location", "") or "-",
-                "unit_price": line.unit_price,
-                "adjusted_unit_price": line.unit_price,
+                "unit_price": money_div(line.total_price, line.item.quantity) if line.item.quantity > 0 else zero_money(),
+                "adjusted_unit_price": money_div(line.total_price, line.item.quantity) if line.item.quantity > 0 else zero_money(),
                 "shipping": line.item.shipping,
                 "total_price": line.total_price,
                 "product_cost_price": line.item.product_cost_price * line.item.quantity,
@@ -314,6 +314,8 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 if total_quantity <= 0:
                     continue
 
+                kit_product_total = (override.product_selling_price * total_quantity) + override.shipping
+
                 produto = {
                     "id": override.product_id,
                     "description": product.name,
@@ -322,10 +324,10 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                     "application": getattr(product, "application", "") or "-",
                     "code": getattr(product, "code", "") or "-",
                     "location": getattr(product, "location", "") or "-",
-                    "unit_price": override.product_selling_price,
-                    "adjusted_unit_price": override.product_selling_price,
+                    "unit_price": money_div(kit_product_total, total_quantity) if total_quantity > 0 else zero_money(),
+                    "adjusted_unit_price": money_div(kit_product_total, total_quantity) if total_quantity > 0 else zero_money(),
                     "shipping": override.shipping,
-                    "total_price": (override.product_selling_price * total_quantity) + override.shipping,
+                    "total_price": kit_product_total,
                     "product_cost_price": override.product_cost_price * total_quantity,
                     "profit_value": (override.product_selling_price * total_quantity) - (override.product_cost_price * total_quantity),
                     "show_kit_duplicate_warning": False,
@@ -388,7 +390,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         servicos = _build_snapshot_service_rows(budget=budget, snapshot=snapshot)
         kits = []
 
-    total_produtos = sum(((p["total_price"] - p["shipping"]) for p in produtos), Money(0, "BRL"))
+    total_produtos = sum((p["total_price"] for p in produtos), Money(0, "BRL"))
     total_servicos = sum((s["total_price"] for s in servicos), Money(0, "BRL"))
     workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=budget.workshop)
     total_services_cost_original_value = sum((line["service_cost_price"] for line in servicos), Money(0, "BRL"))
