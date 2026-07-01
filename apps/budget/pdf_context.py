@@ -361,7 +361,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                     is_third_party=service.is_third_party,
                 )
 
-                kit_service_total = (override.service_selling_price * total_quantity) + override.service_shipping
+                kit_service_total = (override.service_selling_price * total_quantity) + (service.shipping or Money(0, "BRL"))
 
                 servico = {
                     "id": override.service_id,
