@@ -1035,7 +1035,7 @@ Nao implementado nesta fase: retencao/arquivamento e reprocessamento de erro. Am
 
 ## Plano de testes para Fase 3.17.1 - auditoria tecnica/fiscal geral
 
-Status: em execucao documental/tecnica em 2026-06-30. A Fase 3.17.0 foi validada documentalmente no checkpoint `424a3c2a`.
+Status: validada em 2026-07-02 no checkpoint `305dc22cf5d811f8c875812a178f68634583a986`. A Fase 3.17.0 foi validada documentalmente no checkpoint `424a3c2a`.
 
 Testes e verificacoes recomendados:
 
@@ -1065,3 +1065,19 @@ Resultado executado em 2026-06-30:
 - `uv run mypy .`: nao bloqueante, falhou no baseline amplo preexistente com 3284 erros em 266 arquivos, checando 688 fontes;
 - `git diff --check`: OK antes do checkpoint;
 - Ruff: nao aplicavel, pois a fase permaneceu documental e nenhum Python foi alterado.
+
+## Plano de testes para Fase 3.18.1 - saneamento tecnico pos-auditoria
+
+Status: planejado pela Fase 3.18.0.
+
+Validacoes obrigatorias se a fase futura tocar Python:
+
+- `uv run python manage.py makemigrations finance --check --dry-run`;
+- testes focados dos services, models, views ou permissoes tocados;
+- bateria fiscal direcionada cobrindo NFS-e recebida, lote, inbox, consulta, manifestacao, NFS-e manual, cancelamento e substituicao quando houver risco de regressao;
+- `uv run ruff check <arquivos_python_tocados>`;
+- `uv run mypy <subconjunto_fiscal_tocado>` quando viavel;
+- `uv run mypy .` global como nao bloqueante, apenas para medir baseline;
+- `git diff --check`.
+
+Regra de operacao: nao alterar comportamento fiscal, payload remoto, endpoint, permissao efetiva ou documento fiscal apenas para satisfazer tipo. Qualquer mudanca de regra deve sair da fase tecnica e exigir fase funcional/documental propria.

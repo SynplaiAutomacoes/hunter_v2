@@ -324,6 +324,17 @@
 - Validacoes executadas: `uv run python manage.py makemigrations finance --check --dry-run` OK, sem changes detected; bateria fiscal direcionada passou com 89 testes; `uv run mypy .` executado como nao bloqueante e falhou no baseline preexistente com 3284 erros em 266 arquivos; `git diff --check` OK.
 - OpenAPI Webmania mantido sem alteracao.
 - Nenhum conector real, consulta Webmania automatica, manifestacao automatica, criacao sem XML, `NfseItem`, `FiscalDocument(nfse)`, `FiscalEmissionAttempt`, CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendente, credito/debito pendente ou complementar tributaria foi iniciado.
+- Status posterior: Fase 3.17.1 validada e encerrada no checkpoint `305dc22cf5d811f8c875812a178f68634583a986`.
+
+## Fase 3.18.0 - priorizacao do proximo ciclo fiscal pos-auditoria
+
+- Fase 3.17.1 aprovada, validada e encerrada no checkpoint `305dc22cf5d811f8c875812a178f68634583a986`.
+- Registrado encerramento formal do bloco NFS-e recebida/entrada XML como consolidado e auditado.
+- Reavaliados NFS-e expandida, manifestacao da NFS-e manual, conectores reais de e-mail/ERP, pasta/Drive/SharePoint, webhook externo, consulta Webmania ampliada, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes, complementar tributaria e frentes tecnicas pos-auditoria.
+- Decisao recomendada: **Opcao A - Saneamento tecnico pos-auditoria**.
+- Justificativa: melhor relacao risco/valor por reduzir risco acumulado sem novo dominio fiscal, sem credenciais externas, sem payload remoto novo e sem inferencia tributaria fragil.
+- OpenAPI Webmania mantido sem alteracao.
+- Nenhum codigo funcional, migration, service, view, template ou teste foi alterado nesta fase documental.
 
 ## Fase 3.13.1 - inicio da consulta auxiliar de NFS-e recebida
 

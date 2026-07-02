@@ -475,3 +475,13 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Conectores reais de e-mail/ERP, OAuth, IMAP, Gmail API, Microsoft Graph, pasta monitorada, Drive, SharePoint, webhook externo e job agendado continuam adiados.
 - Consulta Webmania automatica, manifestacao automatica, criacao direta de `NfseReceivedDocument` pela inbox e documento recebido sem XML continuam proibidos.
 - NFS-e expandida ampla, manifestacao da NFS-e manual, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos 2-5, debitos 1-3/5-8 e complementar tributaria seguem nao iniciados.
+
+## Apos a Fase 3.18.0
+
+- Proximo ciclo recomendado: saneamento tecnico pos-auditoria, sem funcionalidade fiscal nova.
+- Frentes priorizadas: reducao incremental do risco de tipagem em escopo fiscal, revisao de permissoes fiscais, revisao de feature flags, consistencia documental/backlog, reforco de testes de regressao, revisao de payloads sensiveis, downloads/XML e cross-workshop.
+- Reducao do baseline `mypy` deve ser gradual e focada; nao tentar corrigir os 3284 erros de uma vez e nao alterar regra fiscal para satisfazer tipo.
+- NFS-e expandida so deve voltar como subfase documental/preparatoria pequena, nunca como fase ampla imediata.
+- Manifestacao da NFS-e manual permanece bloqueada ate confirmacao fiscal clara de papel valido.
+- Conectores reais e pasta/webhook externo continuam adiados ate fonte concreta, autenticacao, credenciais, segregacao por oficina e testes deterministicos.
+- CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria seguem dependentes de fase documental propria.

@@ -846,7 +846,7 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 
 ## ADR - Fase 3.17.1: auditoria sem correcao funcional imediata
 
-**Status:** em auditoria documental/tecnica em 2026-06-30.
+**Status:** validada em 2026-07-02 no checkpoint `305dc22cf5d811f8c875812a178f68634583a986`.
 
 **Contexto:** a Fase 3.17.0 foi validada documentalmente no checkpoint `424a3c2a` e decidiu executar auditoria geral antes de abrir novo dominio fiscal.
 
@@ -855,6 +855,20 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 **Justificativa:** o bloco NFS-e recebida consolidou varias fronteiras locais e remotas. A revisao das migrations 0070-0074, permissoes, flags, services, UX e testes nao exige correcao imediata; abrir nova funcionalidade aumentaria risco sem tratar o baseline acumulado.
 
 **Consequencias:** backlog residual passa a priorizar baseline `mypy`, retencao/reprocessamento da inbox e auditoria analitica, todos em fases proprias. Conectores externos, NFS-e expandida ampla, CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendentes, creditos/debitos e complementar tributaria permanecem adiados.
+
+**OpenAPI:** nenhuma alteracao.
+
+## ADR - Fase 3.18.0: priorizar saneamento tecnico pos-auditoria
+
+**Status:** em planejamento documental em 2026-07-02.
+
+**Contexto:** a Fase 3.17.1 encerrou a auditoria tecnica/fiscal geral no checkpoint `305dc22cf5d811f8c875812a178f68634583a986`, sem alteracao funcional e sem achados criticos/altos. O bloco NFS-e recebida/entrada XML esta encerrado, consolidado e auditado.
+
+**Decisao:** escolher **Opcao A - Saneamento tecnico pos-auditoria** como proximo ciclo fiscal.
+
+**Justificativa:** novos dominios fiscais e automacoes externas ainda dependem de fonte local segura, autenticacao, contrato claro, papel fiscal, payload minimo e testes deterministicos. Ja o saneamento tecnico reduz risco acumulado em tipagem, permissoes, flags, documentacao, testes e protecao de payload sem abrir comportamento fiscal novo.
+
+**Consequencias:** a proxima fase deve ser incremental, sem novo dominio fiscal, sem payload remoto novo, sem alteracao de comportamento fiscal e sem conectores externos. Reducao gradual do baseline `mypy`, revisao de permissoes/flags e reforco de regressao entram como frentes tecnicas, nao como novas capacidades de negocio.
 
 **OpenAPI:** nenhuma alteracao.
 

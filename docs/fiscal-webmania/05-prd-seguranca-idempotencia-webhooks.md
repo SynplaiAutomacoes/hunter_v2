@@ -922,7 +922,7 @@ Riscos residuais devem ser tratados por auditoria geral: crescimento de permisso
 
 ## Fase 3.17.1 - auditoria de seguranca, idempotencia e webhooks
 
-Status: em auditoria documental/tecnica em 2026-06-30. A Fase 3.17.0 foi validada documentalmente no checkpoint `424a3c2a`.
+Status: validada em 2026-07-02 no checkpoint `305dc22cf5d811f8c875812a178f68634583a986`. A Fase 3.17.0 foi validada documentalmente no checkpoint `424a3c2a`.
 
 Achados sem severidade critica/alta:
 
@@ -935,3 +935,11 @@ Achados sem severidade critica/alta:
 - webhooks/reconciliacoes existentes nao foram ampliados por esta auditoria.
 
 Risco residual medio: o baseline amplo de `mypy` continua nao bloqueante e pode ocultar falhas fora do escopo fiscal imediato. A mitigacao recomendada e manter testes direcionados fortes e abrir fase tecnica separada para reduzir o baseline gradualmente.
+
+## Fase 3.18.0 - seguranca recomendada para o proximo ciclo
+
+Status: em planejamento documental em 2026-07-02.
+
+Recomendacao: escolher saneamento tecnico pos-auditoria como proximo ciclo. O escopo deve reduzir risco acumulado sem novo comportamento fiscal, sem payload remoto novo, sem webhook novo e sem automacao externa.
+
+Controles a preservar: XML/hash imutaveis, payload/download por permissao, cross-workshop em toda consulta, idempotencia por tentativa/documento/evento, consulta Webmania apenas GET-only quando ja autorizada, e nenhuma criacao de documento recebido sem XML.

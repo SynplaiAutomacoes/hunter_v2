@@ -780,10 +780,16 @@ A proxima fase recomendada deve auditar consistencia de permissoes e labels ante
 
 ## Fase 3.17.1 - auditoria de UX, permissoes e workflows
 
-Status: em auditoria documental/tecnica em 2026-06-30. A Fase 3.17.0 foi validada documentalmente no checkpoint `424a3c2a`.
+Status: validada em 2026-07-02 no checkpoint `305dc22cf5d811f8c875812a178f68634583a986`. A Fase 3.17.0 foi validada documentalmente no checkpoint `424a3c2a`.
 
 Achado de UX: as telas existentes comunicam a diferenca entre importacao XML, consulta consultiva, manifestacao recebida, lote e inbox. A auditoria nao autorizou nova tela, novo botao funcional ou novo fluxo de usuario.
 
 Achado de permissoes: a granularidade atual continua adequada para o bloco recebido. Permissoes de lote nao autorizam inbox por si so; permissoes de inbox nao criam documento recebido diretamente; permissoes de consulta nao manifestam; permissoes de manifestacao nao substituem/cancelam/emitem.
 
 Decisao: manter qualquer melhoria de labels, painel analitico de auditoria, retencao ou reprocessamento como backlog futuro, para evitar acoplamento de UX com regra fiscal nova nesta fase.
+
+## Fase 3.18.0 - UX e permissoes para o proximo ciclo
+
+Status: em planejamento documental em 2026-07-02.
+
+Proximo ciclo recomendado: saneamento tecnico pos-auditoria. Permissoes e UX podem ser revisadas apenas para consistencia, nomenclatura, cobertura de testes e documentacao; nao devem liberar acao fiscal nova, botao de integracao externa, consulta automatica, manifestacao automatica ou novo dominio fiscal.

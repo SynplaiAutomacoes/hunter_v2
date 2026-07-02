@@ -1779,7 +1779,7 @@ OpenAPI: nenhuma alteracao. O schema atual permanece suficiente para a decisao d
 
 ## Fase 3.17.1 - Auditoria Tecnica/Fiscal Geral
 
-Status: **em auditoria documental/tecnica em 2026-06-30**. A Fase 3.17.0 foi validada documentalmente no checkpoint `424a3c2a`.
+Status: **validada em 2026-07-02** no checkpoint `305dc22cf5d811f8c875812a178f68634583a986`. A Fase 3.17.0 foi validada documentalmente no checkpoint `424a3c2a`.
 
 Escopo autorizado: auditoria tecnica/documental do modulo fiscal apos fechamento da NFS-e recebida. Nenhum fluxo funcional novo, conector, endpoint remoto novo, familia fiscal nova, migration corretiva ou teste novo deve ser criado salvo correcao pequena, segura e explicitamente necessaria; a auditoria inicial nao identificou correcao funcional obrigatoria.
 
@@ -1814,6 +1814,98 @@ Criterios de aceite:
 - `mypy .` executado como nao bloqueante se viavel;
 - `git diff --check` executado;
 - nenhum conector real, consulta automatica, manifestacao automatica, criacao sem XML, nova familia fiscal ou fase posterior iniciada.
+
+Validacoes executadas: `makemigrations finance --check --dry-run` OK; bateria fiscal direcionada passou com 89 testes; `git diff --check` OK; `mypy .` executado como nao bloqueante, falhando no baseline preexistente com 3284 erros em 266 arquivos.
+
+## Fase 3.18.0 - Priorizacao do Proximo Ciclo Fiscal Pos-Auditoria
+
+Status: **em planejamento documental em 2026-07-02**. A Fase 3.17.1 foi validada no checkpoint `305dc22cf5d811f8c875812a178f68634583a986`.
+
+Escopo autorizado: somente documentacao em `docs/fiscal-webmania/**` e OpenAPI apenas se houver correcao oficial confirmada. Nenhum codigo funcional, migration, service, view, template ou teste deve ser alterado nesta fase.
+
+### Estado consolidado
+
+O bloco NFS-e recebida/entrada XML esta encerrado, consolidado e auditado. Estao cobertos:
+
+- registro unitario por XML;
+- importacao em lote XML;
+- consulta/reconciliacao auxiliar GET-only;
+- manifestacao de NFS-e recebida;
+- inbox externa local/manual/assistida;
+- ampliacao operacional da inbox;
+- auditoria tecnica/fiscal geral.
+
+Permanecem fora de escopo e adiados: conectores reais de e-mail/ERP, pasta monitorada/Drive/SharePoint, webhook externo real, consulta Webmania como fonte de criacao, manifestacao automatica, manifestacao da NFS-e manual, NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
+
+### Matriz comparativa
+
+| Bloco candidato | Fonte local existe? | Contrato externo/API claro? | Reaproveita infraestrutura atual? | Risco fiscal/seguranca | Valor de negocio | Esforco estimado | Recomendacao |
+| --------------- | ------------------: | --------------------------: | --------------------------------: | ---------------------- | ---------------- | ---------------- | ------------ |
+| NFS-e expandida | Parcial | Parcial | Medio/alto | Alto por variacao municipal e convivencia legado/manual/recebida | Alto | Alto | Adiar implementacao; se retomar, fase documental pequena |
+| Manifestacao da NFS-e manual | Parcial | Endpoint claro, papel fiscal incerto | Alto tecnico | Alto por papel fiscal potencialmente invalido | Medio | Medio | Adiar ate confirmacao fiscal clara |
+| Conector real de e-mail para XML NFS-e | Parcial via inbox | Nao, fonte/autenticacao nao escolhidas | Alto | Alto por OAuth/IMAP, anexos e spoofing | Alto | Alto | Adiar ate fonte concreta e autenticacao definida |
+| Conector real de ERP para XML NFS-e | Parcial via inbox | Nao, ERP nao definido | Alto | Alto por contrato variavel e segregacao por oficina | Medio/alto | Alto | Adiar ate ERP especifico |
+| Pasta monitorada/Drive/SharePoint | Parcial via inbox | Parcial por provedor | Alto | Alto por permissao ampla, arquivos adulterados e credenciais | Medio | Alto | Adiar |
+| Webhook externo de XML | Parcial via inbox | Nao, assinatura/payload ausentes | Alto | Alto por spoofing/importacao silenciosa | Medio | Alto | Adiar; futuro webhook deve criar item pendente |
+| Consulta Webmania ampliada para NFS-e recebida | Sim | Sim para GET/status | Alto | Medio se virar fonte primaria indevida | Medio | Medio | Manter consultiva; nao criar documento |
+| CT-e | Nao | Sim em alto nivel | Baixo/medio | Alto por novo dominio transporte/carga | Baixo/medio | Alto | Adiar; exigir fase documental propria |
+| MDF-e | Nao | Sim em alto nivel | Baixo/medio | Alto por logistica, veiculo, condutor e carga | Baixo | Alto | Adiar; exigir fase documental propria |
+| NFCom | Nao | Sim em alto nivel | Medio tecnico, baixo dominio local | Alto por dominio comunicacao/telecom | Muito baixo | Alto | Adiar |
+| DC-e | Nao | Sim em alto nivel | Medio tecnico, baixo dominio local | Alto por dominio especifico e pouca demanda | Muito baixo | Alto | Adiar |
+| Eventos IBS/CBS 112120 | Nao suficiente | Parcial | Medio | Alto por ALC/ZFM/importacao fiscal por item | Baixo | Medio/alto | Adiar |
+| Eventos IBS/CBS 112140 | Nao suficiente | Parcial | Medio | Alto por pagamento antecipado/debito/nao fornecimento | Baixo/medio | Medio/alto | Adiar |
+| Eventos IBS/CBS 211xxx | Nao suficiente | Parcial e amplo | Medio | Alto por papel do destinatario/documentos externos | Baixo/medio | Alto | Adiar; exigir auditoria propria |
+| Creditos 2-5 | Parcial | Parcial por tipo | Medio | Alto por origem fiscal/monetaria insegura | Medio | Alto | Adiar ate fonte local segura |
+| Debitos 1-3 e 5-8 | Parcial | Parcial por tipo | Medio | Alto por escrituração indevida e origem frágil | Medio | Alto | Adiar ate fonte local segura |
+| Complementar tributaria | Nao suficiente | Parcial | Medio | Alto por correcao tributaria indevida | Medio/alto | Alto | Adiar ate validacao fiscal externa |
+| Saneamento tecnico pos-auditoria | Sim | N/A | Alto | Baixo; reduz risco acumulado | Alto | Medio | **Recomendar Opcao A** |
+| Reducao gradual do baseline mypy | Sim | N/A | Medio/alto | Baixo/medio por risco de ajuste indevido se amplo demais | Medio/alto | Medio/alto | Incluir dentro de fase tecnica incremental; nao como unica frente |
+| Revisao/organizacao de permissoes fiscais | Sim | N/A | Alto | Baixo se sem mudanca comportamental | Alto | Medio | Incluir no saneamento tecnico |
+| Revisao/organizacao de documentacao e backlog | Sim | N/A | Alto | Baixo | Alto | Baixo/medio | Incluir no saneamento tecnico |
+
+### Avaliacoes especificas
+
+NFS-e expandida nao deve voltar como fase ampla. Ha dados locais para subescopos, mas campos adicionais dependem de variacao municipal, compatibilidade com emissao manual, convivencia com NFS-e recebida, impacto em payload Webmania e regressao extensa. Se retomada, deve ser somente subfase documental/preparatoria.
+
+Manifestacao da NFS-e manual permanece adiada. O risco principal e papel fiscal invalido: nao ha confirmacao suficiente de que a oficina possa manifestar como tomador/intermediario documento emitido por ela propria.
+
+Conectores externos de e-mail, ERP, pasta/Drive/SharePoint e webhook externo permanecem adiados. A inbox local reduz risco operacional, mas nao substitui fonte concreta, autenticacao, credenciais seguras, segregacao por oficina, revisao humana, contrato claro e testes deterministicos.
+
+Consulta Webmania ampliada para NFS-e recebida pode continuar como apoio consultivo. Nao deve criar documento, substituir XML/hash, manifestar automaticamente nem virar fonte primaria de importacao.
+
+CT-e, MDF-e, NFCom e DC-e exigem novos modelos, nova UX, novo fluxo fiscal e dominio externo especifico. Nao ha fonte local operacional suficiente nem valor imediato que justifique implementacao sem fase documental propria.
+
+Eventos IBS/CBS `112120`, `112140` e `211xxx` continuam sem fonte local segura para payload minimo, papel fiscal e idempotencia. O risco de evento indevido permanece alto.
+
+Creditos 2-5 e debitos 1-3/5-8 continuam sem fonte local suficientemente segura para origem, autorizacao, vinculo fiscal e escrituração. Devem permanecer adiados ate subfase pequena com fonte concreta.
+
+Complementar tributaria segue adiada por exigir base tributaria historica, vinculo fiscal, payload seguro, idempotencia e validacao fiscal externa.
+
+Saneamento tecnico pos-auditoria tem melhor relacao risco/valor: reduz baseline acumulado sem abrir dominio fiscal, sem credenciais externas, sem chamada remota nova e sem inferencia tributaria fragil.
+
+### Decisao
+
+Escolher **Opcao A - Saneamento tecnico pos-auditoria**.
+
+Justificativa: a auditoria encerrou o bloco NFS-e recebida sem achados criticos/altos, mas confirmou risco acumulado em tipagem, permissoes, flags, documentacao, testes regressivos e convivencia de fluxos fiscais. Antes de novo dominio ou automacao externa, o ciclo mais seguro e uma fase tecnica incremental, sem comportamento fiscal novo.
+
+OpenAPI: nenhuma alteracao. O schema atual permanece suficiente para a decisao documental desta fase.
+
+### Escopo proposto da proxima fase - Fase 3.18.1 Saneamento Tecnico Pos-Auditoria
+
+- Objetivo: reduzir risco acumulado do modulo fiscal sem funcionalidade fiscal nova.
+- Escopo permitido: revisao de consistencia de permissoes fiscais, feature flags, nomes/documentacao, testes regressivos, payloads sensiveis, downloads/XML, cross-workshop e pontos tipados em services/modelos fiscais recentemente tocados.
+- Escopo proibido: novo dominio fiscal, conector externo, job/webhook novo, alteracao de payload remoto, alteracao de regra fiscal, criacao de documento sem XML, manifestacao automatica, consulta automatica, emissao/cancelamento/substituicao nova, CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendentes, creditos/debitos e complementar tributaria.
+- Areas impactadas previstas: `apps/finance` e `docs/fiscal-webmania`, com testes apenas quando houver ajuste tecnico em Python.
+- Modelagem: nenhuma entidade nova e nenhuma migration salvo correcao tecnica obrigatoria comprovada.
+- Permissoes: revisar consistencia e cobertura, sem ampliar capacidade funcional do usuario.
+- Feature flags: revisar nomes e guardas, sem ativar fluxo novo.
+- Services: pequenos ajustes de tipagem, organizacao ou protecao de payload; sem mudar contrato externo.
+- UX: apenas ajustes de consistencia textual ou protecao visual se encontrados; sem nova acao fiscal.
+- Testes: bateria fiscal direcionada, testes especificos dos arquivos tocados, `makemigrations --check`, Ruff focado, `git diff --check` e `mypy` focado quando viavel; `mypy .` global permanece nao bloqueante.
+- Riscos: alterar comportamento fiscal ao tentar satisfazer tipos; mexer em permissoes sem teste; ampliar escopo para refatoracao ampla.
+- Criterios de aceite: nenhuma funcionalidade nova; nenhum payload remoto alterado; regressao fiscal direcionada aprovada; documentacao atualizada; backlog residual mantido.
+- Commit sugerido: `chore: harden fiscal module after audit`.
 
 ## Fase 3.11.0 - Planejamento Tecnico da NFS-e Recebida/Importada de Terceiros
 

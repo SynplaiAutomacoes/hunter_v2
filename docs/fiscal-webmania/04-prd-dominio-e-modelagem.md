@@ -1047,10 +1047,18 @@ A proxima evolucao de menor risco nao deve abrir novo dominio fiscal amplo imedi
 
 ## Fase 3.17.1 - auditoria de dominio e modelagem
 
-Status: em auditoria documental/tecnica em 2026-06-30. A Fase 3.17.0 foi validada documentalmente no checkpoint `424a3c2a`.
+Status: validada em 2026-07-02 no checkpoint `305dc22cf5d811f8c875812a178f68634583a986`. A Fase 3.17.0 foi validada documentalmente no checkpoint `424a3c2a`.
 
 Achado de dominio: as fronteiras principais permanecem coerentes. `NfseItem` continua representando NFS-e emitida local/legada; `NfseReceivedDocument` representa NFS-e recebida por XML; `FiscalDocument` segue concentrado em NF-e/NFC-e e derivados ja migrados; `NfseReceivedImportBatch` e a unica fronteira de criacao fiscal em lote; `NfseExternalXmlInbox` permanece como entrada candidata e nao fiscal.
 
 Achado de migrations: `0070` estende `NfseManifestation` com origem alternativa por `received_document`, preservando origem unica por constraint e unicidade ativa separada por origem. `0071` adiciona consulta consultiva de recebida. `0072` cria lote XML. `0073` cria inbox local/manual. `0074` altera apenas permissoes da inbox. A auditoria nao identificou necessidade de migration corretiva.
 
 Decisao de dominio: nao criar abstracao fiscal ampla, backfill para `FiscalDocument(nfse)` ou nova familia fiscal nesta fase. Qualquer consolidacao futura deve ser planejada separadamente, com migracao e regressao proprias.
+
+## Fase 3.18.0 - dominio recomendado para o proximo ciclo
+
+Status: em planejamento documental em 2026-07-02.
+
+Decisao de dominio recomendada: priorizar saneamento tecnico pos-auditoria antes de novo dominio fiscal. A auditoria nao encontrou achado critico, mas confirmou risco acumulado em baseline `mypy`, permissoes, flags, documentacao, regressao fiscal e convivencia entre legado, manual, recebido, lote e inbox.
+
+NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria continuam exigindo modelagem propria antes de qualquer implementacao funcional. Conectores externos continuam exigindo fonte concreta, autenticacao e segregacao por oficina.
