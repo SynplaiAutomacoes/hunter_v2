@@ -1116,10 +1116,29 @@ Decisao de dominio: proxima fase recomendada deve ser saneamento tecnico/documen
 
 ## Fase 4.0.1 - saneamento de dominio NF-e/NFC-e
 
-Status: em implementacao em 2026-07-02, apos validacao da Fase 4.0.0 no checkpoint `aa8414ea199c4a09dca53c246fe5fd49e6aa3a92`.
+Status: validada em 2026-07-02 no checkpoint `613a73cb31de23e68883ac35ddbf396e3f08f030`, apos validacao da Fase 4.0.0 no checkpoint `aa8414ea199c4a09dca53c246fe5fd49e6aa3a92`.
 
 Dominio preservado: `NfeRequest`/`NfeItem` continuam representando NF-e normal legada; `FiscalDocument` continua representando NFC-e manual, derivados, credito/debito e espelhos quando aplicavel; `FiscalDocumentEvent` e `FiscalNumberInutilization` nao foram ampliados nesta fase.
 
 Correcao executada: alinhamento de exposicao de acoes legadas no detalhe de NF-e normal com a permissao de alteracao ja exigida pelos endpoints POST. Nao houve migration, novo modelo, novo relacionamento, backfill, alteracao de status fiscal ou mudanca de payload Webmania.
 
 Achados movidos para backlog: cancelamento NF-e normal em `FiscalDocumentEvent`/tentativa propria, inutilizacao NF-e normal em entidade equivalente a `FiscalNumberInutilization`, permissao dedicada para download/payload de NF-e normal e decisao sobre trilha de preview remoto.
+
+## Fase 4.0.2 - modelagem de permissoes dedicadas NF-e normal
+
+Status: em planejamento documental em 2026-07-02.
+
+Decisao de modelagem recomendada: criar permissoes dedicadas no escopo do modelo legado `NfeRequest`, sem criar novo modelo fiscal, migration destrutiva, evento, tentativa ou alteracao em `FiscalDocument`. A fase funcional futura deve tratar apenas autorizacao local e exposicao de UI/POST/download/payload.
+
+Permissoes propostas:
+
+| Permissao proposta | Acao protegida | Permissao atual | Risco atual | Recomendacao |
+| ------------------ | -------------- | --------------- | ----------- | ------------ |
+| `cancel_nferequest` | Cancelar NF-e normal legada | `change_nferequest` ou fallback `change_nfserequest` | Permissao de alteracao ampla permite acao fiscal sensivel | Criar com fallback legado temporario |
+| `invalidate_nferequest_numbering` | Inutilizar numeracao NF-e normal | `change_nferequest` ou fallback `change_nfserequest` | Cancelar, editar e inutilizar ficam no mesmo guarda-chuva | Criar com fallback legado temporario |
+| `download_nferequest_xml` | Baixar XML da NF-e normal | `view_nferequest` | Visualizacao simples permite obter XML fiscal | Criar com fallback temporario para `view_nferequest` |
+| `download_nferequest_pdf` | Baixar DANFE/PDF da NF-e normal | `view_nferequest` | Visualizacao simples permite obter PDF/DANFE | Criar com fallback temporario para `view_nferequest` |
+| `view_nferequest_payload` | Ver payload enviado da NF-e normal, se endpoint futuro existir | Nao exposto hoje | Exposicao futura sem permissao separada seria sensivel | Planejar permissao, sem endpoint nesta fase |
+| `view_nferequest_remote_response` | Ver resposta remota/log bruto da NF-e normal, se endpoint futuro existir | Nao exposto hoje | Resposta pode conter dados fiscais/remotos sensiveis | Planejar permissao, sem endpoint nesta fase |
+
+Separacao obrigatoria: permissoes dedicadas nao modernizam cancelamento ou inutilizacao para `FiscalDocumentEvent`, `FiscalEmissionAttempt` ou `FiscalNumberInutilization`. Essa modernizacao permanece frente futura separada.

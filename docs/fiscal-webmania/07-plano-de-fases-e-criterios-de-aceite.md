@@ -2164,7 +2164,7 @@ OpenAPI: nenhuma alteracao. O contrato local validado ja cobre os endpoints audi
 
 ## Fase 4.0.1 - Saneamento Tecnico NF-e/NFC-e
 
-Status: **em implementacao em 2026-07-02**. A Fase 4.0.0 foi validada e encerrada no checkpoint `aa8414ea199c4a09dca53c246fe5fd49e6aa3a92`, aprovando a Opcao B: saneamento tecnico NF-e/NFC-e antes de qualquer funcionalidade fiscal nova.
+Status: **validada em 2026-07-02** no checkpoint `613a73cb31de23e68883ac35ddbf396e3f08f030`. A Fase 4.0.0 foi validada e encerrada no checkpoint `aa8414ea199c4a09dca53c246fe5fd49e6aa3a92`, aprovando a Opcao B: saneamento tecnico NF-e/NFC-e antes de qualquer funcionalidade fiscal nova.
 
 Escopo: documentacao, revisao tecnica, teste de regressao e correcao pequena de permissao/UX em NF-e normal legada. Nao foram criados endpoint remoto, payload fiscal, migration, fluxo fiscal, regra fiscal nova ou dominio fiscal novo.
 
@@ -2191,6 +2191,61 @@ Escopo: documentacao, revisao tecnica, teste de regressao e correcao pequena de 
 - Correcao limitada a permissao/UX de exposicao de acoes legadas no detalhe NF-e.
 - Teste direcionado para a regressao de permissao.
 - Documentacao e backlog atualizados.
+
+## Fase 4.0.2 - Planejamento de Permissoes Dedicadas da NF-e Normal
+
+Status: **em planejamento documental em 2026-07-02**. A Fase 4.0.1 foi validada e encerrada no checkpoint `613a73cb31de23e68883ac35ddbf396e3f08f030`.
+
+Objetivo: planejar permissoes dedicadas para acoes sensiveis da NF-e normal, reduzindo dependencia de `change_nferequest`, `view_nferequest` e fallback legado `change_nfserequest`, sem implementar codigo, migration, view, template, service, teste, endpoint ou payload novo.
+
+### Matriz de permissoes propostas
+
+| Permissao proposta | Acao protegida | Permissao atual | Risco atual | Recomendacao |
+| ------------------ | -------------- | --------------- | ----------- | ------------ |
+| `cancel_nferequest` | Cancelamento NF-e normal | `change_nferequest` ou `change_nfserequest` | Permissao generica de alteracao libera acao fiscal sensivel | Implementar com fallback legado temporario |
+| `invalidate_nferequest_numbering` | Inutilizacao NF-e normal | `change_nferequest` ou `change_nfserequest` | Inutilizacao fica acoplada a editar/cancelar | Implementar com fallback legado temporario |
+| `download_nferequest_xml` | Download XML NF-e normal | `view_nferequest` | Visualizacao geral libera XML fiscal | Implementar com fallback temporario para `view_nferequest` |
+| `download_nferequest_pdf` | Download DANFE/PDF NF-e normal | `view_nferequest` | Visualizacao geral libera PDF/DANFE | Implementar com fallback temporario para `view_nferequest` |
+| `view_nferequest_payload` | Payload enviado NF-e normal | Sem endpoint exposto | Se surgir view futura, payload ficaria sem guarda proprio | Planejar permissao antes de qualquer endpoint |
+| `view_nferequest_remote_response` | Resposta remota/log NF-e normal | Sem endpoint exposto | Resposta remota pode conter dados sensiveis | Planejar permissao antes de qualquer endpoint |
+
+### Matriz de decisao
+
+| Area | Situacao atual | Risco | Opcao conservadora | Opcao recomendada |
+| ---- | -------------- | ----- | ------------------ | ----------------- |
+| Cancelamento NF-e normal | UI/POST exigem alteracao generica | Alto | Manter `change_nferequest` | `cancel_nferequest` com fallback |
+| Inutilizacao NF-e normal | UI/POST exigem alteracao generica | Alto | Manter `change_nferequest` | `invalidate_nferequest_numbering` com fallback |
+| Download XML | Download exige visualizacao generica | Medio/alto | Manter `view_nferequest` | `download_nferequest_xml` com fallback |
+| Download DANFE/PDF | Download exige visualizacao generica | Medio | Manter `view_nferequest` | `download_nferequest_pdf` com fallback |
+| Payload enviado | Nao exposto | Medio se exposto futuramente | Nao criar view | Reservar `view_nferequest_payload` |
+| Resposta remota | Parcialmente em dados legados/logs, sem view dedicada | Medio se exposto futuramente | Nao criar view | Reservar `view_nferequest_remote_response` |
+| Preview remoto NF-e | Chamada remota de preview sem tentativa propria | Medio | Manter apenas como UI atual | Tratar como artefato sensivel em testes/docs |
+| Acoes legadas com `change_nferequest` | Ainda autorizam acoes fiscais | Alto | Manter indefinidamente | Fallback temporario |
+| Fallback `change_nfserequest` | Compatibilidade historica | Alto | Remover de imediato | Fallback temporario com plano de retirada |
+
+### Decisao final
+
+Escolher **Opcao A - Implementar permissoes dedicadas com fallback legado temporario**.
+
+Justificativa tecnica/fiscal: permissoes dedicadas reduzem autorizacao ampla sobre acoes fiscais sensiveis sem quebrar operacao atual. A retirada imediata do fallback e arriscada porque grupos existentes podem depender de `change_nferequest`/`view_nferequest` e do fallback legado. A transicao deve ser testada, documentada e reversivel.
+
+### Proxima fase proposta - Fase 4.0.3
+
+Nome proposto: **Implementacao de Permissoes Dedicadas da NF-e Normal**.
+
+- Objetivo: criar permissoes dedicadas em `NfeRequest` e aplicar guards em UI/POST/downloads sem alterar payload remoto.
+- Permissoes a criar: `cancel_nferequest`, `invalidate_nferequest_numbering`, `download_nferequest_xml`, `download_nferequest_pdf`, `view_nferequest_payload`, `view_nferequest_remote_response`.
+- Migration: migration de alteracao de `Meta.permissions` do `NfeRequest`, sem alteracao de campos.
+- Views/templates: condicionar cancelamento, inutilizacao e downloads por permissao dedicada ou fallback temporario.
+- Fallback: manter `change_nferequest`/`change_nfserequest` para cancelamento/inutilizacao e `view_nferequest` para downloads apenas durante transicao.
+- Grupos: documentar grupos atuais e orientar concessao das novas permissoes antes de remover fallback.
+- UX: botoes aparecem somente quando a permissao aceita pela action tambem existe.
+- Testes: usuario com permissao dedicada, usuario apenas com fallback, usuario sem permissao, separacao cancelar/inutilizar, downloads XML/PDF, cross-workshop, ausencia de nova chamada Webmania e regressao NF-e/NFC-e.
+- Riscos: quebrar usuarios se fallback for removido cedo; manter fallback por tempo demais reduz ganho; criar permissao sem aplicar no POST criaria falsa seguranca.
+- Criterios de aceite: nenhuma mudanca de endpoint/payload/regra fiscal; migration sem campos; testes direcionados; Ruff; `makemigrations --check`; `git diff --check`.
+- Commit sugerido: `feat: add dedicated normal NFe permissions`.
+
+OpenAPI: nenhuma alteracao; fase local de autorizacao.
 
 ## Fase 3.11.0 - Planejamento Tecnico da NFS-e Recebida/Importada de Terceiros
 

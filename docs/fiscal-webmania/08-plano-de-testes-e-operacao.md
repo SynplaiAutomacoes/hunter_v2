@@ -1135,7 +1135,7 @@ Para a Fase 4.0.0, por ser documental, executar apenas `git diff --check -- docs
 
 ## Plano de testes para Fase 4.0.1 - saneamento NF-e/NFC-e
 
-Status: em implementacao em 2026-07-02.
+Status: validada em 2026-07-02 no checkpoint `613a73cb31de23e68883ac35ddbf396e3f08f030`.
 
 Validacoes obrigatorias porque Python foi tocado:
 
@@ -1160,3 +1160,31 @@ Resultado executado em 2026-07-02:
 - `uv run ruff check apps/finance/views/nfe.py apps/finance/tests.py`: OK;
 - `uv run mypy apps/finance/views/nfe.py apps/finance/tests.py`: nao bloqueante, falhou no baseline amplo com 1642 erros em 132 arquivos, checando 2 fontes;
 - `git diff --check`: OK.
+
+## Plano de testes para Fase 4.0.2 - planejamento de permissoes NF-e normal
+
+Status: em planejamento documental em 2026-07-02.
+
+Por ser fase exclusivamente documental, executar apenas:
+
+- `git diff --check -- docs/fiscal-webmania`;
+- `git status --short`.
+
+Testes planejados para a fase funcional futura:
+
+- usuario com `cancel_nferequest` ve botao e consegue POST de cancelamento;
+- usuario sem `cancel_nferequest` nao ve botao e nao consegue POST;
+- fallback legado de cancelamento funciona enquanto ativo;
+- usuario com `invalidate_nferequest_numbering` ve botao e consegue POST de inutilizacao;
+- usuario com permissao de cancelamento nao consegue inutilizar;
+- usuario com permissao de inutilizacao nao consegue cancelar;
+- download XML exige `download_nferequest_xml` ou fallback temporario;
+- download DANFE/PDF exige `download_nferequest_pdf` ou fallback temporario;
+- payload exige `view_nferequest_payload` se view futura for criada;
+- resposta remota exige `view_nferequest_remote_response` se view futura for criada;
+- cross-workshop permanece bloqueado;
+- permissoes genericas deixam de bastar quando fallback for removido em fase propria;
+- nenhuma chamada Webmania nova;
+- nenhum payload fiscal alterado;
+- nenhuma regra fiscal alterada;
+- regressao NF-e/NFC-e direcionada.

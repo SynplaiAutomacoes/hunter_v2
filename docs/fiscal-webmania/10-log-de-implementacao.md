@@ -666,6 +666,14 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 - Documentada matriz de saneamento, areas revisadas, riscos remanescentes e backlog para cancelamento/inutilizacao NF-e normal, download/payload NF-e normal e preview remoto.
 - OpenAPI validado mantido inalterado; nenhum endpoint remoto novo, payload fiscal novo, migration, modelo, service fiscal novo ou regra fiscal nova foi criado.
 
+## 2026-07-02 - Fase 4.0.2 - Planejamento de permissoes dedicadas NF-e normal
+
+- Fase 4.0.1 reconhecida como validada e encerrada no checkpoint `613a73cb31de23e68883ac35ddbf396e3f08f030`.
+- Planejadas permissoes dedicadas para cancelamento, inutilizacao, download XML, download DANFE/PDF, payload enviado e resposta remota da NF-e normal.
+- Decisao recomendada: Opcao A, implementar permissoes dedicadas com fallback legado temporario para evitar quebra operacional.
+- Separada a frente de permissoes da modernizacao futura de cancelamento/inutilizacao para evento/tentativa propria.
+- OpenAPI mantido inalterado; nenhuma alteracao funcional, migration, service, view, template, teste, endpoint remoto ou payload fiscal foi iniciada.
+
 ## 2026-06-23 - Fase 2.6.0 - Reavaliacao documental do roadmap
 
 - Fase 2.5.8 reconhecida como validada no checkpoint `df1a163e`.

@@ -846,7 +846,7 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 
 ## ADR - Fase 4.0.1: sanear NF-e/NFC-e sem funcionalidade nova
 
-**Status:** em implementacao em 2026-07-02.
+**Status:** validada em 2026-07-02 no checkpoint `613a73cb31de23e68883ac35ddbf396e3f08f030`.
 
 **Contexto:** a Fase 4.0.0 foi validada e encerrada no checkpoint `aa8414ea199c4a09dca53c246fe5fd49e6aa3a92`, aprovando saneamento tecnico NF-e/NFC-e antes de qualquer evolucao funcional.
 
@@ -855,6 +855,20 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 **Justificativa:** o risco imediato era a tela sugerir acoes fiscais legadas para quem so deveria visualizar, embora o POST ja estivesse protegido. Corrigir a exposicao reduz risco sem alterar regra fiscal, payload, endpoint ou modelagem.
 
 **Consequencias:** cancelamento/inutilizacao NF-e normal continuam legados e entram no backlog tecnico para modernizacao futura. Downloads/payloads de NF-e normal tambem precisam de decisao propria de permissao.
+
+**OpenAPI:** nenhuma alteracao.
+
+## ADR - Fase 4.0.2: planejar permissoes dedicadas para NF-e normal
+
+**Status:** em planejamento documental em 2026-07-02.
+
+**Contexto:** a Fase 4.0.1 foi validada e encerrada no checkpoint `613a73cb31de23e68883ac35ddbf396e3f08f030`. A UI da NF-e normal foi alinhada ao guard server-side, mas as acoes sensiveis continuam dependentes de permissoes genericas legadas.
+
+**Decisao:** escolher **Opcao A - implementar permissoes dedicadas com fallback legado temporario**.
+
+**Justificativa:** cancelamento, inutilizacao, XML, DANFE/PDF, payload e resposta remota exigem granularidade maior que `change_nferequest`/`view_nferequest`. O fallback temporario reduz risco de quebra operacional enquanto grupos sao migrados.
+
+**Consequencias:** a proxima fase funcional deve criar permissoes dedicadas em `NfeRequest` e aplicar UI/POST/downloads de forma consistente. A modernizacao de cancelamento/inutilizacao para evento/tentativa propria permanece separada e nao deve ser misturada com a fase de permissoes.
 
 **OpenAPI:** nenhuma alteracao.
 

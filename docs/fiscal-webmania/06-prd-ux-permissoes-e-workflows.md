@@ -828,10 +828,27 @@ Decisao de UX/permissoes: a proxima fase deve sanear permissoes e mensagens sem 
 
 ## Fase 4.0.1 - saneamento de UX e permissoes NF-e/NFC-e
 
-Status: em implementacao em 2026-07-02.
+Status: validada em 2026-07-02 no checkpoint `613a73cb31de23e68883ac35ddbf396e3f08f030`.
 
 Correcao executada: no detalhe da NF-e normal, os botoes/modais de cancelar e inutilizar deixaram de aparecer para usuario sem permissao de alteracao da NF-e legada. A validacao server-side ja exigia `change_nferequest` ou fallback `change_nfserequest`; a UX agora reflete a mesma barreira.
 
 Areas revisadas sem alteracao: NFC-e manual, cancelamento NFC-e, inutilizacao NFC-e, downloads/payloads modernos, CC-e, derivados e eventos IBS/CBS mantiveram permissoes especificas existentes.
 
 Backlog de UX/permissoes: criar decisao propria para permissao dedicada de cancelamento/inutilizacao/download/payload de NF-e normal, sem aproveitar esta fase para migration ou mudanca operacional ampla.
+
+## Fase 4.0.2 - UX e workflow para permissoes dedicadas NF-e normal
+
+Status: em planejamento documental em 2026-07-02.
+
+Decisao de UX: a fase funcional futura deve atualizar UI e POST/download juntos. Um botao fiscal so deve aparecer quando a mesma permissao exigida pela view estiver presente. Durante transicao, a UI pode aceitar permissao dedicada ou fallback legado; a retirada do fallback deve ser fase posterior.
+
+Permissoes planejadas para UX:
+
+- `cancel_nferequest`: exibir/enviar cancelamento NF-e normal.
+- `invalidate_nferequest_numbering`: exibir/enviar inutilizacao NF-e normal.
+- `download_nferequest_xml`: exibir/baixar XML NF-e normal.
+- `download_nferequest_pdf`: exibir/baixar DANFE/PDF NF-e normal.
+- `view_nferequest_payload`: reservar para eventual tela payload NF-e normal.
+- `view_nferequest_remote_response`: reservar para eventual tela de resposta remota NF-e normal.
+
+Regras de transicao: manter `change_nferequest` e `change_nfserequest` como fallback temporario para acoes fiscais; manter `view_nferequest` como fallback temporario para downloads; documentar grupos afetados; testar usuarios com permissao antiga, permissao nova e sem permissao.

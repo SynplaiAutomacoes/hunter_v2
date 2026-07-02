@@ -1254,8 +1254,26 @@ Decisao API: escolher **Opcao B - saneamento tecnico do bloco NF-e/NFC-e** como 
 
 ## Fase 4.0.1 - matriz API do saneamento NF-e/NFC-e
 
-Status: em implementacao em 2026-07-02. A Fase 4.0.0 foi validada e encerrada no checkpoint `aa8414ea199c4a09dca53c246fe5fd49e6aa3a92`.
+Status: validada em 2026-07-02 no checkpoint `613a73cb31de23e68883ac35ddbf396e3f08f030`. A Fase 4.0.0 foi validada e encerrada no checkpoint `aa8414ea199c4a09dca53c246fe5fd49e6aa3a92`.
 
 Nenhum endpoint remoto novo foi criado ou utilizado. A correcao executada limita somente a exposicao de acoes legadas da UI NF-e normal conforme a permissao ja exigida pelo POST. Nao houve alteracao em `/1/nfe/emissao/`, `/1/nfe/cancelar/`, `/1/nfe/inutilizar/`, `/1/nfe/consulta/`, `/1/nfe/cartacorrecao/`, derivados, eventos IBS/CBS, credito/debito ou NFC-e.
 
 OpenAPI: nenhuma alteracao aplicada; nao houve correcao oficial nova nem mudanca de payload fiscal.
+
+## Fase 4.0.2 - matriz API para permissoes dedicadas NF-e normal
+
+Status: em planejamento documental em 2026-07-02. A Fase 4.0.1 foi validada e encerrada no checkpoint `613a73cb31de23e68883ac35ddbf396e3f08f030`.
+
+Esta fase trata apenas de permissoes locais para NF-e normal legada. Nenhum endpoint Webmania sera criado, removido ou alterado. Cancelamento, inutilizacao, download de XML/DANFE, payload enviado, resposta remota e preview remoto continuam usando os contratos ja existentes quando houver fluxo implementado.
+
+| Area local | Endpoint remoto relacionado | Mudanca API? | Observacao |
+| ---------- | --------------------------- | ------------ | ---------- |
+| Cancelamento NF-e normal | `PUT /1/nfe/cancelar/` | Nao | Planejar permissao local dedicada; sem alterar body `{chave|uuid, motivo}`. |
+| Inutilizacao NF-e normal | `PUT /1/nfe/inutilizar/` | Nao | Planejar permissao local dedicada; sem alterar `sequencia`, `motivo`, `ambiente`, `serie`, `modelo=1`. |
+| Download XML NF-e normal | URL retornada pela Webmania | Nao | Planejar permissao local dedicada; sem novo endpoint Hunter ou Webmania nesta fase. |
+| Download DANFE/PDF NF-e normal | URL retornada pela Webmania | Nao | Planejar permissao local dedicada; sem alterar `download_webmania_document`. |
+| Payload enviado NF-e normal | `POST /1/nfe/emissao/` | Nao | Planejar permissao local futura se houver endpoint de visualizacao; nao expor payload agora. |
+| Resposta remota NF-e normal | Resposta de emissao/consulta/cancelamento/inutilizacao | Nao | Planejar permissao local futura para dados remotos sensiveis. |
+| Preview remoto NF-e | `POST /1/nfe/emissao/` com `previa_danfe=True` | Nao | Tratar como artefato sensivel; sem persistencia nova nesta fase. |
+
+OpenAPI: nenhuma alteracao aplicada. A fase e exclusivamente local/documental.

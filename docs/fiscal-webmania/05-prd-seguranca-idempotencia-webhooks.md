@@ -987,10 +987,32 @@ Decisao: escolher saneamento tecnico antes de nova funcionalidade. A fase seguin
 
 ## Fase 4.0.1 - saneamento de seguranca NF-e/NFC-e
 
-Status: em implementacao em 2026-07-02.
+Status: validada em 2026-07-02 no checkpoint `613a73cb31de23e68883ac35ddbf396e3f08f030`.
 
 Controle reforcado: a UI de detalhe da NF-e normal deixou de expor cancelamento e inutilizacao quando o usuario possui apenas visualizacao. A acao POST ja exigia `change_nferequest` ou fallback legado equivalente; a fase alinhou a superficie visual a essa barreira de permissao.
 
 Validado sem alteracao: idempotencia de emissao NF-e, reconciliacao GET-only, webhook ambiguo pendente, NFC-e manual com tentativa, cancelamento NFC-e e inutilizacao NFC-e. Nenhum POST remoto novo, payload fiscal novo, webhook novo ou reconciliacao nova foi criado.
 
 Backlog de seguranca: criar ou decidir permissao dedicada para download/payload de NF-e normal; modernizar cancelamento/inutilizacao NF-e normal somente em fase propria; revisar preview remoto como artefato sensivel se ele passar a ser persistido.
+
+## Fase 4.0.2 - decisao de seguranca para permissoes NF-e normal
+
+Status: em planejamento documental em 2026-07-02.
+
+Decisao recomendada: **Opcao A - implementar permissoes dedicadas com fallback legado temporario**.
+
+Justificativa: permissoes dedicadas reduzem risco fiscal real em cancelamento, inutilizacao, downloads e eventuais payloads, mas remover `change_nferequest`/`view_nferequest` imediatamente pode quebrar usuarios atuais. O fallback temporario permite migrar grupos e telas com teste deterministico antes da remocao em fase posterior.
+
+| Area | Situacao atual | Risco | Opcao conservadora | Opcao recomendada |
+| ---- | -------------- | ----- | ------------------ | ----------------- |
+| Cancelamento NF-e normal | `change_nferequest`/fallback libera POST e UI | Acao fiscal sensivel ligada a alteracao generica | Manter como esta | Criar `cancel_nferequest` com fallback temporario |
+| Inutilizacao NF-e normal | `change_nferequest`/fallback libera POST e UI | Inutilizacao pode ser concedida junto de edicao/cancelamento | Manter como esta | Criar `invalidate_nferequest_numbering` com fallback temporario |
+| Download XML | `view_nferequest` libera download | XML fiscal exposto por visualizacao geral | Manter visualizacao | Criar `download_nferequest_xml` com fallback temporario |
+| Download DANFE/PDF | `view_nferequest` libera download | PDF/DANFE exposto por visualizacao geral | Manter visualizacao | Criar `download_nferequest_pdf` com fallback temporario |
+| Payload enviado | Nao ha view dedicada hoje | Se criado sem permissao separada, exporia payload fiscal sensivel | Nao criar endpoint | Criar permissao planejada antes de qualquer view futura |
+| Resposta remota | Nao ha view dedicada hoje | Log/resposta remota pode conter dados sensiveis | Nao criar endpoint | Criar permissao planejada antes de qualquer view futura |
+| Preview remoto NF-e | Usa chamada remota sem persistencia propria | Artefato remoto sensivel sem trilha dedicada | Manter como UI restrita | Tratar em docs/testes como artefato sensivel |
+| Acoes legadas com `change_nferequest` | Ainda aceitas | Permissao ampla segue autorizando acao fiscal | Remover de imediato | Manter fallback temporario e registrar remocao futura |
+| Fallback `change_nfserequest` | Ainda aceito por compatibilidade historica | Permissao de NFS-e pode autorizar acao NF-e legado | Remover de imediato | Manter so durante transicao, com teste e prazo de retirada |
+
+Plano de transicao: criar permissoes dedicadas em migration futura; atualizar UI e POST/downloads para aceitar permissao dedicada ou fallback legado; mapear grupos atuais; documentar impacto operacional; testar usuario com permissao antiga, nova e sem permissao; depois abrir fase propria para remover fallback.

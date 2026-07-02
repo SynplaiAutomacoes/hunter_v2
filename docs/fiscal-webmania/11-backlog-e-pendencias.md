@@ -577,3 +577,32 @@ Backlog tecnico remanescente NF-e/NFC-e:
 - manter manifestacao NF-e, contingencia/offline NFC-e, relatorios Webmania e demais operacoes futuras bloqueadas ate fase documental.
 
 Nao iniciados: CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos/debitos pendentes, complementar tributaria e novos dominios fiscais.
+
+## Apos a Fase 4.0.2
+
+Decisao documental recomendada: implementar permissoes dedicadas da NF-e normal com fallback legado temporario.
+
+Backlog da proxima fase funcional:
+
+- criar `cancel_nferequest`;
+- criar `invalidate_nferequest_numbering`;
+- criar `download_nferequest_xml`;
+- criar `download_nferequest_pdf`;
+- criar/reservar `view_nferequest_payload`;
+- criar/reservar `view_nferequest_remote_response`;
+- aplicar permissoes dedicadas em UI e views de POST/download;
+- manter fallback temporario para `change_nferequest`, `change_nfserequest` e `view_nferequest`;
+- mapear grupos atuais e documentar transicao operacional;
+- testar usuario com permissao dedicada, usuario com fallback e usuario sem permissao;
+- testar separacao entre cancelar e inutilizar;
+- testar downloads XML/PDF e cross-workshop;
+- confirmar ausencia de endpoint Webmania novo e payload fiscal novo.
+
+Backlog que continua separado:
+
+- modernizar cancelamento NF-e normal para `FiscalDocumentEvent`/tentativa propria;
+- modernizar inutilizacao NF-e normal para entidade propria;
+- remover fallback legado em fase posterior, depois de migrar grupos;
+- criar view de payload/resposta remota somente se houver demanda e permissao dedicada aplicada.
+
+Continuam nao iniciados: manifestacao NF-e, contingencia/offline NFC-e, relatorios Webmania, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
