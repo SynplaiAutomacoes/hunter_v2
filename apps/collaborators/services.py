@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 from djmoney.money import Money
@@ -144,13 +144,31 @@ def _rebuild_payroll_commission_items(*, payroll: CollaboratorPayroll, commissio
 
 
 def get_or_create_collaborator_financial_group(*, collaborator: WorkshopCollaborator) -> FinancialGroup:
-    expense_group = FinancialGroup.objects.filter(workshop=collaborator.workshop, parent__isnull=True, name__iexact="Despesas").order_by("id").first()
-    if expense_group is None:
-        expense_group = FinancialGroup.objects.create(workshop=collaborator.workshop, name="Despesas")
+    with transaction.atomic():
+        Workshop.objects.select_for_update().get(pk=collaborator.workshop_id)
 
-    payroll_group = FinancialGroup.objects.filter(workshop=collaborator.workshop, parent=expense_group, name__iexact="Folha de Pagamento").order_by("id").first()
-    if payroll_group is None:
-        payroll_group = FinancialGroup.objects.create(workshop=collaborator.workshop, parent=expense_group, name="Folha de Pagamento")
+        expense_group = FinancialGroup.objects.filter(workshop=collaborator.workshop, parent__isnull=True, name__iexact="Despesas").order_by("id").first()
+        if expense_group is None:
+            expense_group = FinancialGroup.objects.create(workshop=collaborator.workshop, name="Despesas")
+
+        payroll_group = FinancialGroup.objects.filter(workshop=collaborator.workshop, parent=expense_group, name__iexact="Folha de Pagamento").order_by("id").first()
+
+        if payroll_group is None:
+            payroll_group = FinancialGroup.objects.filter(
+                workshop=collaborator.workshop,
+                parent__in=FinancialGroup.objects.filter(workshop=collaborator.workshop, parent__isnull=True, name__iexact="Despesas"),
+                name__iexact="Folha de Pagamento",
+            ).order_by("id").first()
+
+        if payroll_group is None:
+            try:
+                payroll_group = FinancialGroup.objects.create(workshop=collaborator.workshop, parent=expense_group, name="Folha de Pagamento")
+            except IntegrityError:
+                payroll_group = FinancialGroup.objects.filter(
+                    workshop=collaborator.workshop,
+                    parent__in=FinancialGroup.objects.filter(workshop=collaborator.workshop, parent__isnull=True, name__iexact="Despesas"),
+                    name__iexact="Folha de Pagamento",
+                ).order_by("id").first()
 
     return payroll_group
 
