@@ -946,8 +946,23 @@ Controles a preservar: XML/hash imutaveis, payload/download por permissao, cross
 
 ## Fase 3.18.1 - saneamento de seguranca
 
-Status: em implementacao controlada em 2026-07-02. A Fase 3.18.0 foi validada documentalmente no checkpoint `274df7f7`.
+Status: validada em 2026-07-02 no checkpoint `96665e2142a3f8163508f36784b31d5af32247cb`. A Fase 3.18.0 foi validada documentalmente no checkpoint `274df7f7`.
 
 Foco: permissoes fiscais, feature flags/capabilities, payloads sensiveis, XML/downloads/exportacao e cross-workshop. Correcoes sao permitidas somente se pequenas, testadas e sem alterar comportamento fiscal de negocio.
 
 Validacao esperada: reforcar regressao de payloads protegidos e escopo por oficina nos fluxos recentes, especialmente consulta recebida, manifestacao recebida, lote e inbox.
+
+## Fase 3.19.0 - seguranca no encerramento temporario
+
+Status: em encerramento documental em 2026-07-02.
+
+O ciclo fiscal funcional fica temporariamente encerrado com as seguintes garantias de seguranca e idempotencia preservadas:
+
+- payloads, XML, downloads e exportacoes sensiveis permanecem protegidos por permissoes especificas;
+- cross-workshop foi tratado nos fluxos recentes, incluindo payload de consulta e manifestacao de NFS-e recebida;
+- duplicidades por hash, UUID e identificador foram tratadas nos fluxos de NFS-e recebida, lote e inbox;
+- consulta Webmania de recebida continua GET-only, sem reenvio de POST e sem sobrescrita destrutiva;
+- manifestacao de recebida bloqueia estados ativos, sucedidos ou incertos para evitar duplicidade;
+- inbox local nao executa conector real, webhook externo, job agendado, consulta Webmania automatica ou manifestacao automatica.
+
+Qualquer retomada do ciclo fiscal deve registrar previamente riscos fiscais e de seguranca, escopo proibido, idempotencia esperada, protecao de payloads, segregacao por oficina e criterio de teste. Nenhuma frente futura deve iniciar diretamente por implementacao funcional.

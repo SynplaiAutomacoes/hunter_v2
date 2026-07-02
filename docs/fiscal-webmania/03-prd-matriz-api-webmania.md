@@ -1202,3 +1202,21 @@ O bloco NFS-e recebida agora cobre registro unitario por XML, manifestacao de re
 Decisao API preliminar: nao ha correcao oficial nova para `api/webmania_fiscal_openapi_validated.json`. Conectores externos de e-mail/ERP/pasta/webhook nao sao endpoints Webmania. CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS, creditos/debitos e complementar tributaria exigem fase documental propria antes de qualquer mudanca de contrato.
 
 OpenAPI: nenhuma alteracao aplicada.
+
+## Fase 3.18.1 - matriz API do saneamento tecnico pos-auditoria
+
+Status: validada em 2026-07-02 no checkpoint `96665e2142a3f8163508f36784b31d5af32247cb`.
+
+Nenhum endpoint Webmania foi adicionado, removido ou alterado. A fase reforcou documentacao e regressao tecnica sem comportamento fiscal novo, sem payload remoto novo e sem alteracao de producao.
+
+OpenAPI: nenhuma alteracao aplicada; `api/webmania_fiscal_openapi_validated.json` permanece suficiente.
+
+## Fase 3.19.0 - matriz API de encerramento temporario
+
+Status: em encerramento documental em 2026-07-02.
+
+Decisao API: encerrar temporariamente o ciclo fiscal funcional sem alterar o contrato Webmania validado. O OpenAPI atual permanece suficiente para os blocos implementados e para registrar que novos ciclos fiscais so podem comecar por fase documental propria.
+
+Pendencias futuras que exigem nova decisao de contrato antes de implementacao: conectores reais de e-mail/ERP, consulta Webmania automatica, manifestacao automatica, manifestacao da NFS-e manual, NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
+
+OpenAPI: nenhuma alteracao aplicada; nao houve correcao oficialmente confirmada nesta fase.

@@ -1065,8 +1065,25 @@ NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/d
 
 ## Fase 3.18.1 - saneamento tecnico de dominio
 
-Status: em implementacao controlada em 2026-07-02. A Fase 3.18.0 foi validada documentalmente no checkpoint `274df7f7`.
+Status: validada em 2026-07-02 no checkpoint `96665e2142a3f8163508f36784b31d5af32247cb`. A Fase 3.18.0 foi validada documentalmente no checkpoint `274df7f7`.
 
 Escopo de dominio: revisar fronteiras existentes sem criar entidade, migration ou dominio fiscal novo. A reducao de risco deve preservar `NfseReceivedDocument` como documento recebido por XML, `NfseReceivedImportBatch` como caminho de criacao em lote e `NfseExternalXmlInbox` como entrada candidata nao fiscal.
 
 Reducao de `mypy`: apenas incremental e focada em arquivos fiscais tocados; nao corrigir o baseline global de uma vez e nao alterar regra fiscal para satisfazer tipos.
+
+## Fase 3.19.0 - encerramento temporario do ciclo fiscal funcional
+
+Status: em encerramento documental em 2026-07-02. A Fase 3.18.1 foi validada no checkpoint `96665e2142a3f8163508f36784b31d5af32247cb`.
+
+Decisao de dominio: encerrar temporariamente o ciclo fiscal funcional atual. O modulo fiscal atingiu marco estavel para o escopo implementado apos preservar NF-e/NFC-e e NFS-e legadas, implementar NFS-e manual, manifestacao Padrao Nacional, NFS-e recebida por XML, consulta GET-only, manifestacao de recebida, lote XML, inbox local/manual/assistida, ampliacao operacional da inbox, auditoria geral e saneamento tecnico.
+
+Garantias de dominio consolidadas:
+
+- NFS-e recebida nasce apenas por XML.
+- Lote XML e o unico caminho da inbox para `NfseReceivedDocument`.
+- Consulta Webmania de recebida e GET-only e consultiva; nao substitui XML, hash ou dados extraidos.
+- Manifestacao de NFS-e recebida exige papel fiscal validado, Padrao Nacional confirmado e capability compativel.
+- Nao ha manifestacao automatica, consulta Webmania automatica ou criacao de documento recebido sem XML.
+- Nao ha `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt` nos fluxos locais de lote/inbox/recebida.
+
+Qualquer novo dominio fiscal deve comecar por fase documental propria. A fase documental deve explicitar objetivo, justificativa, fonte local ou externa, contrato Webmania/API quando houver, risco fiscal, risco de seguranca, impactos de modelagem, permissoes, feature flags, payloads, UX, testes, criterios de aceite e escopo proibido.

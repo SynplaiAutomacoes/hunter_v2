@@ -796,6 +796,14 @@ Proximo ciclo recomendado: saneamento tecnico pos-auditoria. Permissoes e UX pod
 
 ## Fase 3.18.1 - saneamento de UX, permissoes e workflows
 
-Status: em implementacao controlada em 2026-07-02. A Fase 3.18.0 foi validada documentalmente no checkpoint `274df7f7`.
+Status: validada em 2026-07-02 no checkpoint `96665e2142a3f8163508f36784b31d5af32247cb`. A Fase 3.18.0 foi validada documentalmente no checkpoint `274df7f7`.
 
 Saneamento permitido: labels, mensagens e testes de permissao/cross-workshop para fluxos existentes. Nao devem surgir botoes ou caminhos que importem, consultem, manifestem, emitam, cancelem, substituam ou exportem dados fiscais alem das permissoes ja existentes.
+
+## Fase 3.19.0 - UX e permissoes no encerramento temporario
+
+Status: em encerramento documental em 2026-07-02.
+
+O ciclo fiscal funcional fica temporariamente encerrado sem criar nova tela, botao, permissao ou workflow. O escopo consolidado ja possui UX minima para NFS-e manual, manifestacao, recebida por XML, consulta consultiva, lote XML e inbox local/manual/assistida.
+
+Permanece proibido iniciar por UX funcional qualquer frente futura de conector real, consulta Webmania automatica, manifestacao automatica, documento recebido sem XML, CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendente, credito/debito pendente ou complementar tributaria. A retomada deve comecar por decisao documental e so entao definir permissoes, feature flags, telas, payloads e testes.

@@ -492,3 +492,43 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Avaliar fase tecnica futura para isolar melhor checagens de tipo de services fiscais sem atravessar todo o grafo Django.
 - Manter retencao/arquivamento logico, reprocessamento controlado da inbox e painel analitico de auditoria como backlog operacional futuro.
 - Novas revisoes de permissoes fiscais devem continuar acompanhadas de testes de payload e cross-workshop.
+
+## Apos a Fase 3.19.0
+
+O ciclo fiscal funcional atual fica temporariamente encerrado. Qualquer retomada deve iniciar por fase documental de decisao, sem implementacao funcional direta.
+
+Backlog funcional futuro:
+
+- conector real de e-mail para XML NFS-e;
+- conector real de ERP para XML NFS-e;
+- pasta monitorada, Drive ou SharePoint;
+- webhook externo real;
+- consulta Webmania automatica;
+- consulta Webmania como fonte de criacao de documento;
+- manifestacao automatica;
+- manifestacao da NFS-e manual;
+- NFS-e expandida;
+- CT-e;
+- MDF-e;
+- NFCom;
+- DC-e;
+- eventos IBS/CBS `112120`, `112140` e `211xxx`;
+- creditos tipos 2-5;
+- debitos tipos 1-3 e 5-8;
+- complementar tributaria;
+- novos dominios fiscais somente com fase documental propria.
+
+Backlog tecnico futuro:
+
+- reducao gradual do baseline `mypy`;
+- reforco de testes de regressao;
+- revisao periodica de permissoes;
+- revisao periodica de payloads sensiveis;
+- revisao periodica de documentacao;
+- eventual extracao/refatoracao de services comuns;
+- melhor isolamento de checagens de tipo em services fiscais;
+- politica de retencao/arquivamento logico da inbox;
+- reprocessamento controlado de erro da inbox;
+- painel analitico de auditoria da inbox.
+
+Criterio de retomada: nova fase documental deve declarar objetivo, justificativa de negocio, fonte local ou externa, contrato Webmania/API se houver, risco fiscal, risco de seguranca, impacto em modelagem, permissoes, feature flags, payloads, UX, testes, criterios de aceite e escopo proibido.

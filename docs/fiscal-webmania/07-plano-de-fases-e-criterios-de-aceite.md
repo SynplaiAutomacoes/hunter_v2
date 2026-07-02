@@ -1909,7 +1909,7 @@ OpenAPI: nenhuma alteracao. O schema atual permanece suficiente para a decisao d
 
 ## Fase 3.18.1 - Saneamento Tecnico Pos-Auditoria
 
-Status: **em implementacao controlada em 2026-07-02**. A Fase 3.18.0 foi validada documentalmente no checkpoint `274df7f7`.
+Status: **validada em 2026-07-02** no checkpoint `96665e2142a3f8163508f36784b31d5af32247cb`. A Fase 3.18.0 foi validada documentalmente no checkpoint `274df7f7`.
 
 Escopo autorizado: saneamento tecnico seguro em `apps/finance` e `docs/fiscal-webmania`, sem funcionalidade fiscal nova, sem novo dominio fiscal, sem alterar payload remoto e sem alterar comportamento fiscal de negocio.
 
@@ -1922,7 +1922,7 @@ Reducao de `mypy`: incremental e focada em arquivos fiscais tocados. Nao tentar 
 | Area | Achado | Acao executada | Teste/validacao | Status |
 | ---- | ------ | -------------- | --------------- | ------ |
 | Checkpoint 3.18.0 | 3.18.0 aprovada pelo usuario ainda precisava de checkpoint documental | Criado checkpoint `274df7f7` antes da fase tecnica | `git log -1 --oneline`; working tree limpo antes da 3.18.1 | corrigido |
-| Documentacao | PRDs ainda marcavam 3.18.0 como planejamento e 3.18.1 apenas proposta | Atualizar status para 3.18.0 validada e 3.18.1 em implementacao | `git diff --check` | corrigido |
+| Documentacao | PRDs ainda marcavam 3.18.0 como planejamento e 3.18.1 apenas proposta | Atualizar status para 3.18.0 validada, 3.18.1 validada e 3.19.0 em encerramento | `git diff --check` | corrigido |
 | Permissoes fiscais | Necessario comprovar separacao entre consulta, manifestacao, payload e escopo por oficina | Reforcar testes sem alterar permissao efetiva | Testes direcionados da fase | corrigido |
 | Feature flags/capabilities | Flags recentes estao separadas por importacao, consulta, inbox e manifestacao/capability | Revisao sem mudanca funcional | Bateria fiscal direcionada | validado sem alteracao |
 | Payload/XML/exportacao | Exportacao ja evita XML bruto; payloads sensiveis exigem permissao propria | Revisao e reforco de regressao cross-workshop para payloads recentes | Testes direcionados da fase | corrigido |
@@ -1941,7 +1941,114 @@ Reducao de `mypy`: incremental e focada em arquivos fiscais tocados. Nao tentar 
 - `git diff --check` aprovado;
 - resultado de `mypy` focado registrado, mesmo nao bloqueante.
 
-Validacoes executadas nesta fase: `makemigrations finance --check --dry-run` OK; 12 testes focados de consulta/manifestacao recebida OK; bateria fiscal direcionada passou com 91 testes; `ruff check apps/finance/tests.py` OK; `mypy apps/finance/tests.py` nao bloqueante falhou no baseline com 1641 erros em 132 arquivos; `mypy .` nao bloqueante manteve 3284 erros em 266 arquivos.
+Validacoes executadas nesta fase: `makemigrations finance --check --dry-run` OK; 12 testes focados de consulta/manifestacao recebida OK; bateria fiscal direcionada passou com 91 testes; `ruff check apps/finance/tests.py` OK; `mypy apps/finance/tests.py` nao bloqueante falhou no baseline com 1641 erros em 132 arquivos; `mypy .` nao bloqueante manteve 3284 erros em 266 arquivos. A fase nao adicionou funcionalidade fiscal nova e nao alterou comportamento fiscal em producao.
+
+## Fase 3.19.0 - Encerramento Temporario do Ciclo Fiscal Funcional
+
+Status: **em encerramento documental em 2026-07-02**. A Fase 3.18.1 foi validada no checkpoint `96665e2142a3f8163508f36784b31d5af32247cb`.
+
+Escopo autorizado: somente documentacao em `docs/fiscal-webmania/**` e OpenAPI apenas se houver correcao oficialmente confirmada. Nenhum codigo funcional, migration, service, view, template ou teste deve ser alterado nesta fase.
+
+### Objetivo
+
+Encerrar temporariamente o ciclo fiscal funcional atual, registrando marco estavel apos fechamento do bloco NFS-e recebida, auditoria tecnica/fiscal geral, saneamento tecnico pos-auditoria, validacoes direcionadas e documentacao atualizada.
+
+### Escopo consolidado
+
+- NF-e/NFC-e ja existentes preservadas;
+- NFS-e legada preservada;
+- NFS-e manual implementada;
+- preview de emissao manual NFS-e;
+- emissao manual NFS-e;
+- cancelamento NFS-e;
+- substituicao NFS-e;
+- manifestacao NFS-e Padrao Nacional;
+- registro unitario de NFS-e recebida por XML;
+- consulta/reconciliacao auxiliar GET-only para NFS-e recebida;
+- manifestacao de NFS-e recebida;
+- importacao em lote XML de NFS-e recebida;
+- inbox externa local/manual/assistida de XML NFS-e;
+- ampliacao operacional da inbox XML;
+- auditoria tecnica/fiscal geral;
+- saneamento tecnico pos-auditoria.
+
+### Marco de estabilidade
+
+- NFS-e recebida nasce apenas por XML.
+- Lote XML e o unico caminho da inbox para `NfseReceivedDocument`.
+- Consulta Webmania de NFS-e recebida e GET-only e consultiva.
+- Consulta nao substitui XML, hash ou dados extraidos.
+- Manifestacao de NFS-e recebida exige papel fiscal validado.
+- Manifestacao de NFS-e recebida exige Padrao Nacional confirmado.
+- Nao ha manifestacao automatica.
+- Nao ha consulta Webmania automatica.
+- Nao ha criacao de documento recebido sem XML.
+- Nao ha `NfseItem` para NFS-e recebida.
+- Nao ha `FiscalDocument(nfse)` para NFS-e recebida.
+- Nao ha `FiscalEmissionAttempt` nos fluxos locais de lote/inbox.
+- Payloads, XML, downloads e exportacoes possuem protecao por permissao.
+- Cross-workshop foi tratado nos fluxos recentes.
+- Duplicidades por hash, UUID e identificador foram tratadas.
+- Documentacao esta atualizada.
+- Testes direcionados foram executados nas fases finais.
+
+### Pendencias fora do ciclo atual
+
+- conector real de e-mail para XML NFS-e;
+- conector real de ERP para XML NFS-e;
+- pasta monitorada, Drive ou SharePoint;
+- webhook externo real;
+- consulta Webmania automatica;
+- consulta Webmania como fonte de criacao de documento;
+- manifestacao automatica;
+- manifestacao da NFS-e manual;
+- NFS-e expandida;
+- CT-e;
+- MDF-e;
+- NFCom;
+- DC-e;
+- eventos IBS/CBS `112120`, `112140` e `211xxx`;
+- creditos tipos 2-5;
+- debitos tipos 1-3 e 5-8;
+- complementar tributaria;
+- reducao ampla do baseline `mypy`.
+
+### Criterio para reabrir ciclo fiscal
+
+Qualquer novo ciclo fiscal deve comecar por fase documental de decisao contendo objetivo, justificativa de negocio, fonte local ou externa, contrato Webmania/API se houver, risco fiscal, risco de seguranca, impacto em modelagem, impacto em permissoes, impacto em feature flags, impacto em payloads, impacto em UX, impacto em testes, criterios de aceite e escopo proibido.
+
+Nenhuma frente futura deve iniciar diretamente com implementacao funcional.
+
+### Opcoes futuras documentadas
+
+| Opcao | Candidata | Condicao minima |
+| ----- | --------- | --------------- |
+| A | Conector externo real de e-mail/ERP | Fonte concreta, autenticacao clara, segregacao por oficina, revisao humana via inbox, testes deterministicos e nenhum processamento fiscal automatico sem validacao. |
+| B | NFS-e expandida | Subescopo pequeno e fase documental propria. |
+| C | Manifestacao da NFS-e manual | Confirmacao fiscal clara de papel valido para manifestacao. |
+| D | IBS/CBS pendentes | Fonte fiscal local segura e escopo pequeno. |
+| E | Creditos/debitos pendentes | Origem fiscal segura, vinculo documental e idempotencia. |
+| F | Complementar tributaria | Validacao fiscal externa e fonte documental suficiente. |
+| G | Novo dominio fiscal | CT-e, MDF-e, NFCom e DC-e somente com fase documental propria, fonte local e contrato claro. |
+| H | Reducao tecnica incremental | Reducao de baseline `mypy`, revisao de permissoes, extracao de services comuns ou reforco de testes, sempre sem alterar regra fiscal. |
+
+### Registro de validacoes finais do ciclo
+
+- Fase 3.17.1: `makemigrations finance --check --dry-run` OK; bateria fiscal direcionada com 89 testes OK; `git diff --check` OK; `mypy .` nao bloqueante falhou no baseline preexistente com 3284 erros em 266 arquivos.
+- Fase 3.18.1: checkpoint `96665e2142a3f8163508f36784b31d5af32247cb`; `git status --short` limpo; sem funcionalidade nova; sem alteracao de comportamento fiscal em producao.
+- Saneamento tecnico 3.18.1: 12 testes focados OK; bateria fiscal direcionada com 91 testes OK; Ruff no Python tocado OK; `mypy` focado/global nao bloqueantes registrados.
+
+### Criterios de aceite
+
+- Fase 3.18.1 marcada como validada;
+- checkpoint `96665e2142a3f8163508f36784b31d5af32247cb` registrado;
+- Opcao A de encerramento temporario registrada;
+- escopo consolidado documentado;
+- pendencias futuras separadas entre funcional e tecnico;
+- criterio de reabertura documental registrado;
+- OpenAPI mantido inalterado por ausencia de correcao oficial;
+- nenhum codigo funcional, migration, service, view, template ou teste alterado;
+- `git diff --check -- docs/fiscal-webmania` aprovado.
 
 ## Fase 3.11.0 - Planejamento Tecnico da NFS-e Recebida/Importada de Terceiros
 

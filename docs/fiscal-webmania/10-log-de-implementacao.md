@@ -638,6 +638,16 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 - Validacoes: 10 testes especificos, 51 cruzados e 286 fiscais dirigidos passaram; migration, Ruff e diff aprovados.
 - Outros debitos, creditos 2-5, eventos pendentes e demais fases nao foram iniciados.
 
+## 2026-07-02 - Fase 3.19.0 - Encerramento temporario do ciclo fiscal funcional
+
+- Fase 3.18.1 reconhecida como validada e encerrada no checkpoint `96665e2142a3f8163508f36784b31d5af32247cb`.
+- Registrada a decisao pela Opcao A: encerramento temporario do ciclo fiscal funcional.
+- Consolidado o escopo implementado: NF-e/NFC-e existentes preservadas, NFS-e legada preservada, NFS-e manual com preview/emissao/cancelamento/substituicao, manifestacao NFS-e Padrao Nacional, NFS-e recebida por XML, consulta GET-only, manifestacao de recebida, lote XML, inbox externa local/manual/assistida, ampliacao operacional da inbox, auditoria tecnica/fiscal geral e saneamento tecnico pos-auditoria.
+- Registrado marco estavel: NFS-e recebida nasce apenas por XML; lote XML e unico caminho da inbox para documento recebido; consulta Webmania de recebida e consultiva; manifestacao de recebida exige papel fiscal validado e Padrao Nacional; nao ha consulta/manifestacao automatica nem criacao de documento sem XML.
+- Registradas pendencias futuras: conectores externos, NFS-e expandida, manifestacao NFS-e manual, IBS/CBS pendentes, creditos/debitos pendentes, complementar tributaria, novos dominios fiscais e reducao ampla do baseline `mypy`.
+- OpenAPI validado mantido inalterado; nenhuma correcao oficial nova foi aplicada.
+- Nenhum codigo funcional, migration, service, view, template, teste, conector externo, automacao Webmania, manifestacao automatica, CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendente, credito/debito pendente ou complementar tributaria foi iniciado.
+
 ## 2026-06-23 - Fase 2.6.0 - Reavaliacao documental do roadmap
 
 - Fase 2.5.8 reconhecida como validada no checkpoint `df1a163e`.

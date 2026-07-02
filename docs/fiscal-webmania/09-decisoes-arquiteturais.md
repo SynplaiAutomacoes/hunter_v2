@@ -874,7 +874,7 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 
 ## ADR - Fase 3.18.1: saneamento tecnico sem comportamento fiscal novo
 
-**Status:** em implementacao controlada em 2026-07-02.
+**Status:** validada em 2026-07-02 no checkpoint `96665e2142a3f8163508f36784b31d5af32247cb`.
 
 **Contexto:** a Fase 3.18.0 foi validada documentalmente no checkpoint `274df7f7`, recomendando saneamento tecnico apos a auditoria geral.
 
@@ -885,6 +885,22 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 **Consequencias:** qualquer ajuste funcional, novo conector, consulta automatica, manifestacao automatica, NFS-e expandida ou novo dominio fiscal continua exigindo fase propria.
 
 **OpenAPI:** nenhuma alteracao.
+
+## ADR - Fase 3.19.0: encerramento temporario do ciclo fiscal funcional
+
+**Status:** em encerramento documental em 2026-07-02.
+
+**Contexto:** a Fase 3.18.1 foi validada e encerrada no checkpoint `96665e2142a3f8163508f36784b31d5af32247cb`. O bloco NFS-e recebida foi concluido, auditado e saneado. O modulo fiscal preserva NF-e/NFC-e e NFS-e legadas, implementou NFS-e manual, manifestacao Padrao Nacional, NFS-e recebida por XML, consulta GET-only, manifestacao de recebida, lote XML, inbox local/manual/assistida, ampliacao operacional da inbox, auditoria geral e saneamento tecnico.
+
+**Decisao:** escolher **Opcao A - Encerramento temporario do ciclo fiscal funcional**.
+
+**Justificativa:** o escopo atual chegou a um marco estavel e testado. Continuar diretamente com novas funcionalidades fiscais aumentaria risco sem nova decisao de negocio, fonte fiscal, contrato/API e criterios de aceite. O encerramento cria uma fronteira clara entre o ciclo concluido e qualquer retomada futura.
+
+**Consequencias:** nenhum novo ciclo fiscal deve iniciar por implementacao funcional. A retomada exige fase documental com objetivo, justificativa, fonte local ou externa, contrato Webmania/API quando houver, risco fiscal, risco de seguranca, impactos de modelagem, permissoes, feature flags, payloads, UX, testes, criterios de aceite e escopo proibido.
+
+**Opcoes futuras candidatas:** conector externo real de e-mail/ERP; NFS-e expandida; manifestacao da NFS-e manual; IBS/CBS pendentes; creditos/debitos pendentes; complementar tributaria; CT-e/MDF-e/NFCom/DC-e; reducao tecnica incremental sem alterar regra fiscal.
+
+**OpenAPI:** nenhuma alteracao. O OpenAPI validado permanece suficiente.
 
 ## ADR - Fase 3.16.1: operacao em massa e relatorio local da inbox XML
 

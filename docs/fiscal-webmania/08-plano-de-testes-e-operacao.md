@@ -1092,3 +1092,17 @@ Resultado executado em 2026-07-02:
 - `uv run ruff check apps/finance/tests.py`: OK;
 - `uv run mypy apps/finance/tests.py`: nao bloqueante, falhou no baseline amplo com 1641 erros em 132 arquivos, checando 1 fonte;
 - `uv run mypy .`: nao bloqueante, falhou no baseline preexistente com 3284 erros em 266 arquivos, checando 688 fontes.
+
+## Registro final do ciclo fiscal funcional - Fase 3.19.0
+
+Status: em encerramento documental em 2026-07-02. A Fase 3.18.1 foi validada no checkpoint `96665e2142a3f8163508f36784b31d5af32247cb`.
+
+Resultados finais conhecidos:
+
+- Fase 3.17.1: `makemigrations finance --check --dry-run` OK; bateria fiscal direcionada com 89 testes OK; `git diff --check` OK; `mypy .` nao bloqueante falhou no baseline preexistente com 3284 erros em 266 arquivos.
+- Fase 3.18.1: `makemigrations finance --check --dry-run` OK; testes focados de consulta/manifestacao recebida com 12 testes OK; bateria fiscal direcionada com 91 testes OK; Ruff no Python tocado OK; `mypy` focado e global nao bloqueantes falharam no baseline; `git diff --check` OK.
+- Checkpoint da Fase 3.18.1: `96665e2142a3f8163508f36784b31d5af32247cb`.
+- `git status --short` apos o checkpoint anterior: limpo.
+- A Fase 3.18.1 nao adicionou funcionalidade fiscal nova nem alterou comportamento fiscal em producao.
+
+Para a Fase 3.19.0, por ser documental, a validacao exigida e `git diff --check -- docs/fiscal-webmania` e `git status --short`. Testes funcionais nao sao necessarios enquanto nenhum codigo for alterado.
