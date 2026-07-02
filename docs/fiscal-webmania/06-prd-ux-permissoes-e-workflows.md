@@ -807,3 +807,21 @@ Status: em encerramento documental em 2026-07-02.
 O ciclo fiscal funcional fica temporariamente encerrado sem criar nova tela, botao, permissao ou workflow. O escopo consolidado ja possui UX minima para NFS-e manual, manifestacao, recebida por XML, consulta consultiva, lote XML e inbox local/manual/assistida.
 
 Permanece proibido iniciar por UX funcional qualquer frente futura de conector real, consulta Webmania automatica, manifestacao automatica, documento recebido sem XML, CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendente, credito/debito pendente ou complementar tributaria. A retomada deve comecar por decisao documental e so entao definir permissoes, feature flags, telas, payloads e testes.
+
+## Fase 4.0.0 - auditoria de UX e permissoes NF-e/NFC-e
+
+Status: em auditoria documental/tecnica em 2026-07-02.
+
+UX existente:
+
+- NF-e normal possui lista, detalhe, wizard compartilhado com NFS-e, preview DANFE, emissao, reconciliacao, cancelamento, inutilizacao, CC-e, devolucao/estorno, complementar preco/quantidade, ajuste, eventos IBS/CBS e downloads.
+- NFC-e possui lista, emissao manual simples, cancelamento, inutilizacao, downloads e payload/inutilizacao protegidos.
+- Telas exibem confirmacoes antes de acoes fiscais sensiveis, especialmente cancelamento, inutilizacao, CC-e, eventos e derivados.
+
+Permissoes existentes:
+
+- NF-e normal ainda usa `view_nferequest` e `change_nferequest` com fallback temporario para `nfserequest` em partes do fluxo legado.
+- Operacoes modernas possuem permissoes especificas: `issue_nfe_correction`, `download_nfe_correction`, `issue_nfe_return`, `issue_nfe_reversal`, `issue_nfe_complementary_price_quantity`, `issue_nfe_adjustment`, `issue_nfce`, `view_nfce`, `download_nfce`, `view_nfce_payload`, `cancel_nfce`, permissoes de credito/debito, eventos IBS/CBS e inutilizacao NFC-e.
+- Lacunas: nao ha permissao propria para cancelamento NF-e normal, inutilizacao NF-e normal, payload NF-e normal ou manifestacao NF-e porque o fluxo e legado/ausente.
+
+Decisao de UX/permissoes: a proxima fase deve sanear permissoes e mensagens sem criar botoes novos nem nova acao fiscal. Foco em reduzir permissao ampla nos pontos legados e documentar bloqueios.

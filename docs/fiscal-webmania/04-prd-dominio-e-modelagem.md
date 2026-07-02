@@ -1087,3 +1087,29 @@ Garantias de dominio consolidadas:
 - Nao ha `NfseItem`, `FiscalDocument(nfse)` ou `FiscalEmissionAttempt` nos fluxos locais de lote/inbox/recebida.
 
 Qualquer novo dominio fiscal deve comecar por fase documental propria. A fase documental deve explicitar objetivo, justificativa, fonte local ou externa, contrato Webmania/API quando houver, risco fiscal, risco de seguranca, impactos de modelagem, permissoes, feature flags, payloads, UX, testes, criterios de aceite e escopo proibido.
+
+## Fase 4.0.0 - auditoria de dominio NF-e/NFC-e
+
+Status: em auditoria documental/tecnica em 2026-07-02.
+
+Modelagem existente:
+
+- `NfeRequest` e `NfeItem` continuam sendo o fluxo legado de NF-e normal emitida a partir de OS.
+- `FiscalDocument` representa documentos NF-e/NFC-e derivados e NFC-e manual; tambem pode espelhar NF-e legada por `legacy_nfe_item`.
+- `FiscalDocumentEvent` representa CC-e, cancelamentos, eventos IBS/CBS e cancelamentos de eventos.
+- `FiscalEmissionAttempt` representa idempotencia persistida para emissao NF-e, CC-e, derivados, NFC-e, eventos e tentativas incertas.
+- `FiscalNumberInutilization` representa inutilizacao NFC-e; a inutilizacao NF-e normal ainda fica em `NfeRequest`.
+- `TaxClassNfe` e seus cenarios guardam tributacao e configuracao IBS/CBS para classe fiscal NF-e/NFC-e.
+- `WebmaniaCompany` guarda serie/numeracao NF-e, flag/configuracao NFC-e, CSC e flags de credito/debito.
+
+Fronteiras auditadas: NF-e/NFC-e nao se misturam com `NfseReceivedDocument`; `FiscalDocument(document_type="nfce")` e usado para NFC-e manual; `FiscalDocument(document_type="nfe")` e usado para derivados/credito/debito/ajuste e espelho de NF-e legada; eventos nao alteram automaticamente o documento base quando sao apenas eventos IBS/CBS.
+
+Achados de modelagem:
+
+- NF-e normal ainda depende de `NfeRequest`/`NfeItem`, enquanto operacoes modernas usam `FiscalDocument`; isso e funcional, mas cria dois padroes de auditoria.
+- Cancelamento e inutilizacao NF-e normais permanecem mais legados que NFC-e, CC-e e derivados.
+- NFC-e manual possui modelagem mais consistente para emissao, cancelamento e inutilizacao.
+- Manifestacao do destinatario NF-e esta ausente.
+- Contingencia/offline NFC-e esta ausente.
+
+Decisao de dominio: proxima fase recomendada deve ser saneamento tecnico/documental do bloco NF-e/NFC-e, sem criar novo dominio fiscal e sem alterar comportamento fiscal em producao.

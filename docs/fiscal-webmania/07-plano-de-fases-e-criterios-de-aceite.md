@@ -2050,6 +2050,118 @@ Nenhuma frente futura deve iniciar diretamente com implementacao funcional.
 - nenhum codigo funcional, migration, service, view, template ou teste alterado;
 - `git diff --check -- docs/fiscal-webmania` aprovado.
 
+## Fase 4.0.0 - Auditoria e Mapeamento do Bloco NF-e/NFC-e
+
+Status: **em auditoria documental/tecnica em 2026-07-02**. O encerramento temporario anterior foi validado no checkpoint `722ac3bb0561caf3720a2a967e9234506f8d7f92`.
+
+Escopo autorizado: somente leitura/analise de codigo e documentacao, mais atualizacao de `docs/fiscal-webmania/**`. OpenAPI somente se houver correcao oficialmente confirmada. Nenhum codigo funcional, migration, service, view, template ou teste deve ser alterado.
+
+### Objetivo
+
+Auditar o estado atual do bloco NF-e/NFC-e antes de nova implementacao, respondendo quais fluxos existem, quais estao parciais ou ausentes, quais usam Webmania, quais tem testes, quais permissoes/payloads existem e qual e o proximo passo seguro.
+
+### Areas investigadas
+
+- models: `NfeRequest`, `NfeItem`, `FiscalDocument`, `FiscalDocumentEvent`, `FiscalEmissionAttempt`, `FiscalNumberInutilization`, `WebmaniaCompany`, `TaxClassNfe`;
+- migrations: `0010`, `0041` a `0059`, `0064` e relacionadas a operacoes NF-e/NFC-e;
+- services Webmania: `nfe_emission`, `nfe_consulta`, `nfe_events`, `nfe_returns`, `nfe_complementary`, `nfe_adjustment`, `nfce_emission`, `nfce_cancellation`, `nfce_inutilization`, `nfe_ibs_cbs_events`, `nfe_credit`, `nfe_debit`, cancelamentos de credito/debito, webhooks e downloads;
+- views/forms/urls/templates: `nfe.py`, `nfce.py`, wizard de emissao, rotas `nfe/*`, `nfce/*`, telas de detalhe/lista/formularios;
+- tests: classes Fase 1/2 NF-e/NFC-e, concorrencia, eventos, NFC-e, credito/debito e derivados;
+- docs/OpenAPI: PRDs fiscais e `api/webmania_fiscal_openapi_validated.json`.
+
+### Matriz de estado atual
+
+| Fluxo | NF-e | NFC-e | Codigo existe? | Teste existe? | Webmania envolvida? | Risco fiscal | Status | Observacao |
+| ----- | ---- | ----- | -------------- | ------------- | ------------------- | ------------ | ------ | ---------- |
+| Emissao normal | Implementada | Implementada manual simples | Sim | Sim | Sim, `POST /1/nfe/emissao/` | Alto | implementado | NF-e usa `NfeRequest/NfeItem`; NFC-e usa `FiscalDocument`. |
+| Preview/simulacao | Implementada | Ausente | Sim para NF-e | Parcial | Sim, `previa_danfe=True` | Medio/alto | parcial | Preview NF-e chama endpoint remoto e baixa DANFE; NFC-e nao possui preview proprio. |
+| Consulta/status | Implementada | Implementada | Sim | Sim | Sim, `GET /1/nfe/consulta/` | Medio | implementado | Reconciliacao GET-only sem POST. |
+| Cancelamento | Implementado legado | Implementado | Sim | Sim/parcial | Sim, `PUT /1/nfe/cancelar/` | Alto | parcial | NF-e normal usa caminho legado sem evento/tentativa propria; NFC-e usa `FiscalDocumentEvent`. |
+| Carta de correcao | Implementada | Nao aplicavel/ausente | Sim para NF-e | Sim | Sim, `POST /1/nfe/cartacorrecao/` | Medio | implementado NF-e | CC-e vinculada a `FiscalDocumentEvent`; nao ha CC-e NFC-e auditada. |
+| Inutilizacao | Implementada legado | Implementada | Sim | Sim/parcial | Sim, `PUT /1/nfe/inutilizar/` | Alto | parcial | NFC-e usa `FiscalNumberInutilization`; NF-e usa campos em `NfeRequest`. |
+| Download XML | Implementado | Implementado | Sim | Sim/parcial | Usa URL Webmania | Medio | implementado | Alguns links legados de inutilizacao NF-e aparecem como URL direta. |
+| Download DANFE/PDF | Implementado | Implementado | Sim | Sim/parcial | Usa URL Webmania | Medio | implementado | NF-e suporta DANFE, simples e etiqueta; NFC-e usa `danfe_url`. |
+| Webhooks | Implementado | Implementado | Sim | Sim | Webmania webhook | Alto | implementado | Fingerprint, anti-regressao e ambiguidade pendente. |
+| Reconciliacao | Implementada | Implementada | Sim | Sim | `GET /1/nfe/consulta/` | Medio | implementado | Comando reconcilia NF-e, NFC-e e tentativas incertas. |
+| Eventos fiscais | Implementados pontuais | Parcial/incerto | Sim | Sim | `POST /1/nfe/evento-ibs-cbs/` | Alto | parcial | `112110`, `112130`, `112150` e cancelamentos; demais adiados. |
+| Manifestacao destinatario | Ausente | Nao aplicavel/incerto | Nao | Nao | OpenAPI mapeia `/1/nfe/manifesta/` | Alto | ausente | Exige fase propria e papel fiscal seguro. |
+| Contingencia | Parcial legado | Ausente | Parcial | Parcial/nao | Sim, status remoto | Alto | parcial/ausente | Status `contingencia` existe; NFC-e offline nao implementada. |
+| NFC-e offline/contingencia | Nao aplicavel | Ausente | Nao | Nao | Nao | Alto | ausente | Explicitamente fora do escopo anterior. |
+| IBS/CBS relacionado | Implementado parcial | Parcial por classe/eventos | Sim | Sim | Sim | Alto | parcial | Classes NF-e/NFC-e e eventos pontuais; pendentes `112120`, `112140`, `211xxx`. |
+| Creditos/debitos relacionados | Parcial | Nao aplicavel/ausente | Sim para NF-e tipos 1/4 | Sim | Sim, `POST /1/nfe/emissao/` finalidades 5/6 | Alto | parcial | Credito tipo 1 e debito tipo 4 implementados; demais tipos adiados. |
+| Complementar tributaria | Ausente | Nao aplicavel | Nao | Nao | OpenAPI parcial | Alto | adiado | Complementar preco/quantidade existe, tributaria nao. |
+
+### Matriz API Webmania NF-e/NFC-e
+
+| Endpoint | Documento | Usado hoje? | Implementado? | Testado? | Risco | Observacao |
+| -------- | --------- | ----------- | ------------- | -------- | ----- | ---------- |
+| `POST /1/nfe/emissao/` | NF-e/NFC-e | Sim | Sim | Sim | Alto | Emissao normal, NFC-e manual, credito/debito; preview NF-e usa `previa_danfe`. |
+| `GET /1/nfe/consulta/` | NF-e/NFC-e | Sim | Sim | Sim | Medio | Reconciliacao de status e tentativas incertas. |
+| `PUT /1/nfe/cancelar/` | NF-e/NFC-e | Sim | Sim | Sim/parcial | Alto | NF-e normal legado; NFC-e moderno. |
+| `POST /1/nfe/cartacorrecao/` | NF-e | Sim | Sim | Sim | Medio | CC-e NF-e apenas. |
+| `PUT /1/nfe/inutilizar/` | NF-e/NFC-e | Sim | Sim | Sim/parcial | Alto | NFC-e moderno; NF-e legado. |
+| `POST /1/nfe/devolucao/` | NF-e | Sim | Sim | Sim | Alto | Devolucao/estorno. |
+| `POST /1/nfe/complementar/` | NF-e | Sim | Parcial | Sim | Alto | Preco/quantidade; tributaria adiada. |
+| `POST /1/nfe/ajuste/` | NF-e | Sim | Sim | Sim | Medio/alto | Ajuste sem IBS/CBS por decisao anterior. |
+| `POST /1/nfe/evento-ibs-cbs/` | NF-e/NFC-e | Sim | Parcial | Sim | Alto | Codigos pontuais. |
+| `PUT /1/nfe/evento-ibs-cbs/cancelar/` | NF-e/NFC-e | Sim | Parcial | Sim | Alto | Cancelamentos pontuais. |
+| `POST /1/nfe/manifesta/` | NF-e | Nao | Nao | Nao | Alto | Manifestacao destinatario ausente. |
+| `GET /1/nfe/sefaz/` | NF-e/NFC-e | Nao | Nao identificado | Nao | Medio | Status SEFAZ mapeado no OpenAPI. |
+| `GET /1/nfe/certificado/` | NF-e/NFC-e | Nao | Nao identificado | Nao | Medio | Certificado existe na configuracao, endpoint nao operacionalizado. |
+| `POST /1/nfe/relatorios/` | NF-e/NFC-e | Nao | Nao | Nao | Medio | Relatorio remoto ausente. |
+
+### Auditoria de modelagem e servicos
+
+NF-e normal usa `NfeRequest/NfeItem` e emite com `FiscalEmissionAttempt` persistido. Operacoes derivadas usam `FiscalDocument`, `FiscalDocumentLink`, `FiscalDocumentEvent` e tentativas por operacao. NFC-e manual usa `FiscalDocument` desde a origem e possui cancelamento/inutilizacao com modelos mais recentes.
+
+Servicos Webmania ja sanitizam payloads modernos, persistem tentativas antes de POST em emissao e derivados, usam `uncertain` em timeout e reconciliam por GET. O ponto mais fraco e o legado NF-e normal de cancelamento/inutilizacao, que ainda nao tem a mesma modelagem de evento/tentativa da NFC-e e derivados.
+
+### Auditoria de permissoes e UX
+
+Permissoes granulares existem para CC-e, derivados, ajuste, NFC-e, credito/debito, eventos IBS/CBS e inutilizacao NFC-e. NF-e normal ainda depende de `view_nferequest` e `change_nferequest` com fallback para `nfserequest` em caminhos legados. A UX de NF-e exibe muitas acoes no detalhe e usa confirmacoes; a UX de NFC-e e mais enxuta e separa emissao, cancelamento, inutilizacao, payload e downloads.
+
+### Auditoria de testes
+
+Ha cobertura extensa para NF-e/NFC-e: estabilizacao Fase 1, emissao concorrente, CC-e, devolucao/estorno, complementar, ajuste, NFC-e manual/cancelamento/inutilizacao, eventos IBS/CBS, creditos/debitos e cancelamentos. Lacunas: permissoes/payloads dos caminhos legados NF-e, cancelamento/inutilizacao NF-e com idempotencia moderna, manifestacao NF-e e contingencia/offline NFC-e.
+
+### Riscos fiscais
+
+- emissao duplicada em fluxos legados ou retries indevidos;
+- cancelamento NF-e normal indevido por permissao ampla;
+- inutilizacao NF-e indevida;
+- divergencia entre status remoto e local;
+- webhook ambiguo entre documentos/operacoes;
+- preview remoto tratado como simples UI sem trilha fiscal suficiente;
+- payload incorreto de produto, CFOP, NCM ou tributacao;
+- destinatario incorreto na emissao NF-e;
+- documento de outra oficina;
+- XML/DANFE exposto;
+- diferenca operacional entre NF-e normal legado e NFC-e manual moderna;
+- eventos IBS/CBS pendentes confundidos com os codigos ja implementados.
+
+### Decisao
+
+Escolher **Opcao B - Fazer saneamento tecnico do bloco NF-e/NFC-e**.
+
+Justificativa: NF-e/NFC-e possuem muitos fluxos implementados e testados, mas a auditoria identificou convivencia de padroes legado/moderno, permissoes amplas em NF-e normal, lacunas de payload/cross-workshop nos caminhos antigos e operacoes ausentes que sao sensiveis demais para iniciar sem saneamento.
+
+OpenAPI: nenhuma alteracao. O contrato local validado ja cobre os endpoints auditados e nao houve correcao oficialmente confirmada.
+
+### Proxima fase proposta - Fase 4.0.1 Saneamento Tecnico NF-e/NFC-e
+
+- Objetivo: reduzir risco tecnico/fiscal do bloco NF-e/NFC-e sem funcionalidade fiscal nova.
+- Escopo permitido: documentacao, testes de regressao, revisao de permissoes, payloads/downloads, cross-workshop, idempotencia e consistencia entre NF-e legado e NFC-e moderna.
+- Escopo proibido: emitir novo fluxo, cancelar novo fluxo, CC-e nova, inutilizacao nova, consulta nova, manifestacao NF-e, contingencia/offline NFC-e, eventos IBS/CBS novos, credito/debito novo, complementar tributaria, CT-e, MDF-e, NFCom, DC-e, migration nao justificada, service/view/template funcional novo.
+- Endpoints envolvidos: apenas endpoints ja usados, sem novo payload remoto.
+- Modelagem: preservar `NfeRequest/NfeItem` e `FiscalDocument`; qualquer migracao de legado para evento/tentativa deve exigir decisao propria se alterar comportamento.
+- Permissoes: revisar `change_nferequest`, `view_nferequest` e fallbacks; avaliar permissoes especificas para cancelamento, inutilizacao, payload e download NF-e normal.
+- Feature flags: nao criar flag nova salvo kill switch documentalmente justificado.
+- UX: ajustar mensagens/labels apenas se necessario; sem novos botoes fiscais.
+- Testes: focar cancelamento/inutilizacao NF-e, downloads/payload, cross-workshop, preview remoto e regressao de NFC-e.
+- Riscos: alterar comportamento fiscal de legado ao sanear permissao; quebrar fluxo usado em producao; confundir evento IBS/CBS com cancelamento NF-e/NFC-e.
+- Criterios de aceite: nenhuma funcionalidade nova; nenhum endpoint novo; nenhum payload remoto novo; testes direcionados aprovados se codigo for tocado; Ruff em Python tocado; `git diff --check`; `mypy` nao bloqueante se Python for tocado.
+- Commit sugerido: `chore: harden current NFe NFCe block`.
+
 ## Fase 3.11.0 - Planejamento Tecnico da NFS-e Recebida/Importada de Terceiros
 
 Status: **em planejamento documental em 2026-06-29**. A Fase 3.10.0 foi validada documentalmente no checkpoint `8d5c7192`.

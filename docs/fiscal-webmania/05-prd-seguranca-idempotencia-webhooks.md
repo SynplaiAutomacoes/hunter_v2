@@ -966,3 +966,21 @@ O ciclo fiscal funcional fica temporariamente encerrado com as seguintes garanti
 - inbox local nao executa conector real, webhook externo, job agendado, consulta Webmania automatica ou manifestacao automatica.
 
 Qualquer retomada do ciclo fiscal deve registrar previamente riscos fiscais e de seguranca, escopo proibido, idempotencia esperada, protecao de payloads, segregacao por oficina e criterio de teste. Nenhuma frente futura deve iniciar diretamente por implementacao funcional.
+
+## Fase 4.0.0 - auditoria de seguranca NF-e/NFC-e
+
+Status: em auditoria documental/tecnica em 2026-07-02.
+
+Achados de seguranca e idempotencia:
+
+- Emissao NF-e normal possui `FiscalEmissionAttempt` antes do POST, timeout `uncertain` e bloqueio de reenvio.
+- Preview NF-e usa chamada remota `POST /1/nfe/emissao/` com `previa_danfe=True` e nao representa documento fiscal, mas deve continuar tratado como payload remoto sensivel.
+- Cancelamento NF-e normal ainda usa caminho legado direto por `PUT /1/nfe/cancelar/`, sem entidade de evento/tentativa propria equivalente a NFC-e.
+- Inutilizacao NF-e normal ainda atualiza `NfeRequest`, enquanto NFC-e usa `FiscalNumberInutilization` com tentativa propria.
+- NFC-e manual, cancelamento NFC-e e inutilizacao NFC-e possuem tentativa persistida, `uncertain`, bloqueios de duplicidade e escopo por oficina.
+- Webhooks NF-e/NFC-e possuem fingerprint, anti-regressao e ambiguidade pendente.
+- Downloads e payloads modernos possuem permissoes especificas; alguns caminhos legados de NF-e usam permissao ampla `view/change_nferequest`.
+
+Riscos principais: emissao duplicada em caminhos legados, cancelamento indevido por permissao ampla, inutilizacao indevida, preview remoto sem trilha de tentativa, webhook ambiguo, divergencia de status remoto, XML/DANFE exposto, payload tributario incorreto, produto/CFOP/NCM/IBS/CBS incorretos e documento de outra oficina.
+
+Decisao: escolher saneamento tecnico antes de nova funcionalidade. A fase seguinte deve reforcar permissoes, documentacao, testes de payload/cross-workshop e consistencia dos caminhos legados, sem alterar payload remoto ou regra fiscal.

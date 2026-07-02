@@ -532,3 +532,28 @@ Backlog tecnico futuro:
 - painel analitico de auditoria da inbox.
 
 Criterio de retomada: nova fase documental deve declarar objetivo, justificativa de negocio, fonte local ou externa, contrato Webmania/API se houver, risco fiscal, risco de seguranca, impacto em modelagem, permissoes, feature flags, payloads, UX, testes, criterios de aceite e escopo proibido.
+
+## Apos a Fase 4.0.0
+
+Backlog funcional NF-e/NFC-e futuro:
+
+- manifestacao do destinatario NF-e;
+- contingencia/offline NFC-e;
+- relatorios Webmania NF-e/NFC-e;
+- consulta SEFAZ/certificado operacional, se houver demanda;
+- eventos IBS/CBS `112120`, `112140` e `211xxx`;
+- creditos tipos 2-5;
+- debitos tipos 1-3 e 5-8;
+- complementar tributaria;
+- complementar de adicao/importacao;
+- eventual saneamento funcional de cancelamento/inutilizacao NF-e somente apos fase propria.
+
+Backlog tecnico NF-e/NFC-e recomendado para a proxima fase:
+
+- reduzir permissao ampla em cancelamento, inutilizacao, reconciliacao e downloads NF-e normais;
+- documentar ou criar permissao propria para payload de NF-e normal, se houver exposicao futura;
+- revisar preview NF-e remoto como payload sensivel;
+- alinhar cancelamento/inutilizacao NF-e legados ao padrao de tentativa/evento ou registrar decisao de preservacao;
+- reforcar testes de cross-workshop e payload/download em caminhos legados;
+- revisar mensagens de UX para separar NF-e normal, NFC-e manual, derivados, eventos e credito/debito;
+- manter OpenAPI inalterado salvo correcao oficial confirmada.

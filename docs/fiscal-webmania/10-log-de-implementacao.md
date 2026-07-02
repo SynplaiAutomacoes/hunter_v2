@@ -648,6 +648,16 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 - OpenAPI validado mantido inalterado; nenhuma correcao oficial nova foi aplicada.
 - Nenhum codigo funcional, migration, service, view, template, teste, conector externo, automacao Webmania, manifestacao automatica, CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendente, credito/debito pendente ou complementar tributaria foi iniciado.
 
+## 2026-07-02 - Fase 4.0.0 - Auditoria e mapeamento NF-e/NFC-e
+
+- Novo ciclo iniciado somente por documentacao, apos checkpoint final `722ac3bb0561caf3720a2a967e9234506f8d7f92`.
+- Auditados models, migrations, services Webmania, views, forms, URLs, templates, testes, permissoes, feature flags, payloads, webhooks, downloads, documentos fiscais e OpenAPI local validado relacionados a NF-e/NFC-e.
+- Mapeado estado atual: NF-e normal implementada em fluxo legado com tentativa persistida na emissao; NFC-e manual implementada com `FiscalDocument`; CC-e, devolucao/estorno, complementar preco/quantidade, ajuste, eventos IBS/CBS pontuais, credito tipo 1 e debito tipo 4 existem; manifestacao NF-e, contingencia/offline NFC-e e relatorios Webmania nao existem.
+- Identificados riscos principais: cancelamento/inutilizacao NF-e legados, permissao ampla `change_nferequest`, preview remoto sem tentativa, exposicao de downloads legados, divergencia de status e lacunas de teste/payload nos caminhos antigos.
+- Decisao recomendada: Opcao B, saneamento tecnico NF-e/NFC-e antes de qualquer nova funcionalidade.
+- OpenAPI validado mantido inalterado.
+- Nenhum codigo funcional, migration, service, view, template ou teste foi alterado.
+
 ## 2026-06-23 - Fase 2.6.0 - Reavaliacao documental do roadmap
 
 - Fase 2.5.8 reconhecida como validada no checkpoint `df1a163e`.

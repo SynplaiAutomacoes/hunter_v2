@@ -1106,3 +1106,29 @@ Resultados finais conhecidos:
 - A Fase 3.18.1 nao adicionou funcionalidade fiscal nova nem alterou comportamento fiscal em producao.
 
 Para a Fase 3.19.0, por ser documental, a validacao exigida e `git diff --check -- docs/fiscal-webmania` e `git status --short`. Testes funcionais nao sao necessarios enquanto nenhum codigo for alterado.
+
+## Plano de testes para Fase 4.0.0 - auditoria NF-e/NFC-e
+
+Status: em auditoria documental/tecnica em 2026-07-02.
+
+Testes existentes mapeados:
+
+- NF-e normal e estabilizacao: `NfeProductExtractionTests`, `NfePermissionFallbackTests`, `NfeCancelServiceTests`, `FiscalPhaseOneStabilizationTests`, `FiscalPhaseOneConcurrentEmissionTests`.
+- IBS/CBS classe/emissao normal: `FiscalPhaseTwoIbsCbsTaxClassTests`, `FiscalPhaseTwoIbsCbsNormalEmissionTests`.
+- CC-e: `FiscalPhaseTwoCorrectionTests`, `FiscalPhaseTwoCorrectionConcurrentTests`.
+- Devolucao/estorno: `FiscalPhaseTwoReturnTests`, `FiscalPhaseTwoReturnIbsCbsTests`, `FiscalPhaseTwoReturnConcurrentTests`.
+- Complementar preco/quantidade: `FiscalPhaseTwoComplementaryPriceQuantityTests`, `FiscalPhaseTwoComplementaryTests`, `FiscalPhaseTwoComplementaryIbsCbsTests`, `FiscalPhaseTwoComplementaryConcurrentTests`.
+- Ajuste: `FiscalPhaseTwoAdjustmentTests`, `FiscalPhaseTwoAdjustmentConcurrentTests`.
+- NFC-e: `FiscalPhaseTwoNfceManualTests`, `FiscalPhaseTwoNfceManualConcurrentTests`, `FiscalPhaseTwoNfceCancellationTests`, `FiscalPhaseTwoNfceCancellationConcurrentTests`, `FiscalPhaseTwoNfceInutilizationTests`, `FiscalPhaseTwoNfceInutilizationConcurrentTests`.
+- Eventos IBS/CBS: classes `FiscalPhaseTwoIbsCbsEvent112110/112130/112150*` e cancelamentos correspondentes.
+- Credito/debito: `FiscalPhaseTwoCreditDebitBasisTests`, previews de credito/debito, emissao/cancelamento de credito tipo 1 e debito tipo 4, incluindo testes concorrentes.
+
+Lacunas de teste mapeadas:
+
+- payload/view propria de NF-e normal ainda nao tem matriz de permissao separada como os fluxos modernos;
+- cancelamento NF-e normal legado precisa regressao de idempotencia/permissao comparavel a NFC-e;
+- inutilizacao NF-e normal precisa cobertura equivalente a `FiscalNumberInutilization` da NFC-e, ou decisao de manter legado bloqueado;
+- manifestacao do destinatario NF-e nao possui testes porque esta ausente;
+- contingencia/offline NFC-e nao possui testes porque esta ausente.
+
+Para a Fase 4.0.0, por ser documental, executar apenas `git diff --check -- docs/fiscal-webmania` e `git status --short`. Testes funcionais nao sao necessarios enquanto nenhum codigo for alterado.

@@ -1220,3 +1220,34 @@ Decisao API: encerrar temporariamente o ciclo fiscal funcional sem alterar o con
 Pendencias futuras que exigem nova decisao de contrato antes de implementacao: conectores reais de e-mail/ERP, consulta Webmania automatica, manifestacao automatica, manifestacao da NFS-e manual, NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
 
 OpenAPI: nenhuma alteracao aplicada; nao houve correcao oficialmente confirmada nesta fase.
+
+## Fase 4.0.0 - matriz API NF-e/NFC-e auditada
+
+Status: em auditoria documental/tecnica em 2026-07-02. O ciclo fiscal anterior foi encerrado no checkpoint `722ac3bb0561caf3720a2a967e9234506f8d7f92`.
+
+O OpenAPI local validado ja mapeia a familia Webmania v1 NF-e/NFC-e. Nenhuma correcao oficial nova foi confirmada nesta fase; portanto `api/webmania_fiscal_openapi_validated.json` permanece inalterado.
+
+| Endpoint | Documento | Usado hoje? | Implementado? | Testado? | Risco | Observacao |
+| -------- | --------- | ----------- | ------------- | -------- | ----- | ---------- |
+| `POST /1/nfe/emissao/` | NF-e | Sim | Sim, NF-e normal por `NfeRequest` e derivados por `FiscalDocument` | Sim | Alto | NF-e normal usa `modelo=1`, `finalidade=1`, classe fiscal, tentativa persistida e bloqueio IBS/CBS-ready. Preview tambem usa o endpoint com `previa_danfe=True`. |
+| `POST /1/nfe/emissao/` | NFC-e | Sim | Sim, NFC-e manual simples por `FiscalDocument(document_type="nfce")` | Sim | Alto | Usa `modelo=2`, pagamento simples, CSC/configuracao por `WebmaniaCompany`, tentativa `nfce_emission` e reconciliacao. |
+| `GET /1/nfe/consulta/` | NF-e/NFC-e | Sim | Sim | Sim | Medio | Reconciliacao de NF-e, NFC-e, derivados e tentativas incertas; nao deve emitir nem reenviar POST. |
+| `PUT /1/nfe/cancelar/` | NF-e | Sim | Sim, legado em `NfeRequest` | Parcial | Alto | Cancelamento NF-e normal ainda usa caminho legado sem `FiscalDocumentEvent`/tentativa propria; permissao `change_nferequest`. |
+| `PUT /1/nfe/cancelar/` | NFC-e | Sim | Sim | Sim | Medio/alto | Cancelamento padrao de NFC-e usa `FiscalDocumentEvent`, tentativa `nfce_cancellation`, bloqueio de duplicidade e reconciliacao. |
+| `POST /1/nfe/cartacorrecao/` | NF-e | Sim | Sim | Sim | Medio | CC-e usa `FiscalDocumentEvent`, tentativa `cce`, limite de sequencia e download XML/DACCE. |
+| `PUT /1/nfe/inutilizar/` | NF-e | Sim | Parcial/legado | Parcial | Alto | Inutilizacao NF-e existe vinculada a `NfeRequest`/numero reservado, sem entidade propria equivalente a NFC-e. |
+| `PUT /1/nfe/inutilizar/` | NFC-e | Sim | Sim | Sim | Medio | Usa `FiscalNumberInutilization`, tentativa `nfce_inutilization`, bloqueio de faixa e XML/payload protegidos. |
+| Downloads por URLs de resposta | NF-e/NFC-e | Sim | Sim | Sim | Medio | XML/DANFE/DANFE simples/etiqueta sao baixados por `download_webmania_document`; alguns links legados de inutilizacao NF-e ainda expõem URL direta na tela. |
+| Webhook `modelo=nfe` | NF-e | Sim | Sim | Sim | Alto | Resolve NF-e normal, CC-e, derivados, eventos IBS/CBS, creditos/debitos; ambiguidade fica pendente. |
+| Webhook `modelo=nfce` | NFC-e | Sim | Sim | Sim | Medio | Resolve NFC-e manual e cancelamento por UUID/chave/tentativa; ambiguidade fica pendente. |
+| `POST /1/nfe/evento-ibs-cbs/` | NF-e/NFC-e | Sim, codigos pontuais | Parcial | Sim | Alto | Implementados `112110`, `112130`, `112150`; `112120`, `112140` e `211xxx` adiados. |
+| `PUT /1/nfe/evento-ibs-cbs/cancelar/` | NF-e/NFC-e | Sim, codigos pontuais | Parcial | Sim | Alto | Cancelamento pontual de eventos `112110`, `112130`, `112150`; sem cancelamento generico. |
+| `POST /1/nfe/devolucao/` | NF-e | Sim | Sim | Sim | Alto | Devolucao/estorno por snapshot da NF-e original; NFC-e nao foi auditada como origem primaria desse fluxo. |
+| `POST /1/nfe/complementar/` | NF-e | Sim | Sim, preco/quantidade | Sim | Alto | Somente complementar preco/quantidade; complementar tributaria adiada. |
+| `POST /1/nfe/ajuste/` | NF-e | Sim | Sim | Sim | Medio/alto | Ajuste preservado sem IBS/CBS por contrato inseguro. |
+| `POST /1/nfe/manifesta/` | NF-e | Nao | Ausente | Nao | Alto | Manifestacao do destinatario NF-e nao implementada; exige fase documental propria e papel fiscal seguro. |
+| `GET /1/nfe/sefaz/` | NF-e/NFC-e | Nao identificado no UI | Ausente/parcial | Nao | Medio | Endpoint mapeado no OpenAPI, sem fluxo operacional auditado. |
+| `GET /1/nfe/certificado/` | NF-e/NFC-e | Nao identificado no UI | Ausente/parcial | Nao | Medio | Endpoint mapeado; certificado e empresa Webmania existem por configuracao local. |
+| `POST /1/nfe/relatorios/` | NF-e/NFC-e | Nao | Ausente | Nao | Medio | Relatorios Webmania nao implementados; downloads locais usam URLs retornadas nos documentos. |
+
+Decisao API: escolher **Opcao B - saneamento tecnico do bloco NF-e/NFC-e** como proxima fase recomendada. O contrato remoto ja esta mapeado para os fluxos implementados; o risco mais seguro a reduzir agora esta em permissao, consistencia documental, NF-e legada de cancelamento/inutilizacao, preview remoto, downloads legados e cobertura explicita de payload/cross-workshop.

@@ -902,6 +902,20 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 
 **OpenAPI:** nenhuma alteracao. O OpenAPI validado permanece suficiente.
 
+## ADR - Fase 4.0.0: auditar NF-e/NFC-e antes de nova implementacao
+
+**Status:** em auditoria documental/tecnica em 2026-07-02.
+
+**Contexto:** o ciclo fiscal anterior foi encerrado no checkpoint `722ac3bb0561caf3720a2a967e9234506f8d7f92`. NF-e/NFC-e foram preservadas e expandidas em varias fases, mas ainda nao haviam sido auditadas como bloco funcional completo no novo ciclo.
+
+**Decisao:** executar auditoria documental/tecnica do bloco NF-e/NFC-e e escolher **Opcao B - Fazer saneamento tecnico do bloco NF-e/NFC-e** como proxima recomendacao.
+
+**Justificativa:** os fluxos principais existem em graus diferentes: NF-e normal e derivados, NFC-e manual/cancelamento/inutilizacao, CC-e, consulta/reconciliacao, downloads, webhooks, IBS/CBS pontual e credito/debito parcial. O risco maior nao e falta de contrato remoto, mas convivencia entre legado e padrao moderno, permissoes amplas, preview remoto, cancelamento/inutilizacao NF-e legados e lacunas de documentacao/teste granular.
+
+**Consequencias:** a proxima fase deve ser tecnica, sem funcionalidade fiscal nova, sem endpoint novo, sem novo payload remoto e sem alteracao de comportamento fiscal. Implementacao de manifestacao NF-e, contingencia/offline NFC-e, novos eventos IBS/CBS, creditos/debitos restantes ou complementar tributaria exige fase documental propria posterior.
+
+**OpenAPI:** nenhuma alteracao.
+
 ## ADR - Fase 3.16.1: operacao em massa e relatorio local da inbox XML
 
 **Status:** validada em 2026-06-30 no checkpoint `166eda86`.
