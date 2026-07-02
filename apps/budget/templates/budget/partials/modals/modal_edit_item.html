@@ -345,7 +345,7 @@
                         confirmLowerPriceInput.value = '';
                     }
 
-                    if (lastUsedPrice > 0 && sellingPrice > 0 && sellingPrice < lastUsedPrice && confirmLowerPriceInput?.value !== '1') {
+                    if (lastUsedPrice > 0 && sellingPrice >= 0 && sellingPrice < lastUsedPrice && confirmLowerPriceInput?.value !== '1') {
                         this.pendingLowerPriceButton = button;
                         setPriceHelpMessage('');
                         if (!openLowerPriceModal()) {
