@@ -2301,6 +2301,7 @@ class FiscalDocumentEvent(TimeStampedModel):
         permissions = [
             ("issue_nfe_correction", "Pode emitir carta de correcao NF-e"),
             ("download_nfe_correction", "Pode baixar XML/DACCE de carta de correcao NF-e"),
+            ("view_nfe_correction_payload", "Pode visualizar payload de carta de correcao NF-e"),
             ("issue_ibs_cbs_event", "Pode registrar evento IBS/CBS"),
             ("cancel_ibs_cbs_event", "Pode cancelar evento IBS/CBS"),
             ("view_ibs_cbs_event", "Pode visualizar evento IBS/CBS"),

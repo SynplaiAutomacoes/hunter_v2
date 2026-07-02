@@ -612,3 +612,9 @@ Backlog que continua separado:
 - criar view de payload/resposta remota somente se houver demanda e permissao dedicada aplicada.
 
 Continuam nao iniciados: manifestacao NF-e, contingencia/offline NFC-e, relatorios Webmania, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
+## Fase 4.2.0 - Backlog apos fechamento CC-e
+
+- Homologar CC-e em ambiente Webmania com caso real antes de liberar uso amplo em producao.
+- Refinar lista de termos proibidos com assessoria fiscal se houver falsos positivos/negativos; a implementacao atual e conservadora por seguranca.
+- Avaliar consulta operacional especifica de CC-e apenas se a Webmania documentar necessidade diferente do webhook/reconciliacao atual.
+- Permanecem fora de escopo: Fase 4.0.2, devolucao/estorno adicional, NFS-e, CT-e, MDF-e, NFCom, DC-e, credito/debito, complementar tributaria e eventos IBS/CBS pendentes.

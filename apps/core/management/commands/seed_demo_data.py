@@ -36,8 +36,8 @@ from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.monthly_costs import DEFAULT_MONTHLY_COSTS, MECHANIC_SALARY_MONTHLY_COST_NAME
 
-WORKSHOP_ID = 1
-DEFAULT_SEED = 20260309
+WORKSHOP_ID = 4
+DEFAULT_SEED = 28262369
 BRL = "BRL"
 PRICE_QUANTIZER = Decimal("0.01")
 MARGIN_QUANTIZER = Decimal("0.000001")

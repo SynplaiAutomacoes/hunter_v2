@@ -865,3 +865,10 @@ Decisao aplicada:
 - Estorno permanece na mesma acao visual, mas o servidor ignora produtos e usa payload proprio.
 - Foi adicionada confirmacao explicita de que a devolucao/estorno cria novo documento fiscal sem alterar a NF-e original.
 - Foi criada a permissao `view_nfe_return_payload` para consultar request/response sanitizados do documento derivado.
+## Fase 4.2.0 - UX e permissoes da CC-e
+
+- A acao "Emitir Carta de Correcao" aparece apenas para NF-e autorizada da oficina ativa, usuario com `issue_nfe_correction` e ausencia de CC-e ativa ou `uncertain`.
+- O formulario exige texto entre 15 e 1000 caracteres e confirmacao explicita de que a correcao respeita as restricoes legais.
+- A timeline do detalhe da NF-e mostra status, sequencia, XML/DACCE e link de payload quando o usuario possui `view_nfe_correction_payload`.
+- Permissoes usadas: `issue_nfe_correction`, `download_nfe_correction` e `view_nfe_correction_payload`; permissao de NF-e normal nao libera payload da CC-e.
+- O texto da UI continua alertando que CC-e nao pode alterar base de calculo, aliquota, preco, quantidade, remetente, destinatario, data, serie ou numero da NF-e.

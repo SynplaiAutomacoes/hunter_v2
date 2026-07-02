@@ -684,6 +684,15 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 - Validacoes executadas: `makemigrations finance --check --dry-run`, testes focados de devolucao/estorno, regressao fiscal direcionada, `ruff check` dos arquivos Python tocados e `git diff --check`. `mypy` foi executado como validacao complementar e permaneceu bloqueado por baseline/stubs preexistentes do projeto.
 - OpenAPI mantido inalterado; nenhuma etapa de NFS-e, CT-e, MDF-e, NFCom, DC-e, creditos/debitos, complementar tributaria ou eventos fiscais posteriores foi iniciada.
 
+## 2026-07-02 - Fase 4.2.0 - Finalizacao Prioritaria da Carta de Correcao NF-e
+
+- Fase 4.1.0 reconhecida como validada no checkpoint `af76387f`.
+- A Fase 4.0.2 permanece pausada e nao foi continuada.
+- Auditoria inicial: CC-e ja existia em `apps/finance/services/nfe_events.py`, `NfeCorrectionIssueView`, `NfeCorrectionDownloadView`, `FiscalDocumentEvent(event_type="cce")`, `FiscalEmissionAttempt(operation_type="cce")`, webhook e testes `FiscalPhaseTwoCorrection*`.
+- Lacunas corrigidas: validacao conservadora de termos fiscais proibidos, ocultacao da acao quando ha evento ativo/incerto, permissao `view_nfe_correction_payload`, rota protegida de payload/response e testes dedicados.
+- Endpoint mantido: `POST /1/nfe/cartacorrecao/`; OpenAPI local nao exigiu alteracao.
+- Devolucao/estorno nao foram reabertos indevidamente; NFS-e, CT-e, MDF-e, NFCom, DC-e, credito/debito, complementar tributaria, IBS/CBS pendentes e conectores nao foram iniciados.
+
 ## 2026-06-23 - Fase 2.6.0 - Reavaliacao documental do roadmap
 
 - Fase 2.5.8 reconhecida como validada no checkpoint `df1a163e`.

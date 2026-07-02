@@ -17,7 +17,7 @@ from .common import DirectorWorkshopAccessMixin
 from .emission import EmissionPreviewView, EmissionRequestCreateView, EmissionWorkOrderItemUpdateView, EmissionWorkOrderKitComponentUpdateView, NfeCreateRedirectView, NfseCreateRedirectView
 from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocumentsListView
 from .commissions import CommissionReportView
-from .nfe import NfeAdjustmentDownloadView, NfeAdjustmentIssueView, NfeComplementaryDownloadView, NfeComplementaryPriceQuantityIssueView, NfeCorrectionDownloadView, NfeCorrectionIssueView, NfeDocumentDownloadView, NfeIbsCbsEvent112110CancelView, NfeIbsCbsEvent112110IssueView, NfeIbsCbsEvent112130CancelView, NfeIbsCbsEvent112130IssueView, NfeIbsCbsEvent112150CancelView, NfeIbsCbsEvent112150IssueView, NfeIbsCbsEventDownloadView, NfeIbsCbsEventPayloadView, NfePreviewPdfView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestInvalidateView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView, NfeReturnDownloadView, NfeReturnIssueView, NfeReturnPayloadView
+from .nfe import NfeAdjustmentDownloadView, NfeAdjustmentIssueView, NfeComplementaryDownloadView, NfeComplementaryPriceQuantityIssueView, NfeCorrectionDownloadView, NfeCorrectionIssueView, NfeCorrectionPayloadView, NfeDocumentDownloadView, NfeIbsCbsEvent112110CancelView, NfeIbsCbsEvent112110IssueView, NfeIbsCbsEvent112130CancelView, NfeIbsCbsEvent112130IssueView, NfeIbsCbsEvent112150CancelView, NfeIbsCbsEvent112150IssueView, NfeIbsCbsEventDownloadView, NfeIbsCbsEventPayloadView, NfePreviewPdfView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestInvalidateView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView, NfeReturnDownloadView, NfeReturnIssueView, NfeReturnPayloadView
 from .nfce import NfceCancellationDownloadView, NfceCancellationView, NfceDocumentDownloadView, NfceDocumentListView, NfceDocumentPayloadView, NfceInutilizationDownloadView, NfceInutilizationPayloadView, NfceInutilizationView, NfceManualEmissionView
 from .nfse import NfseBatchReconcileView, NfseCancellationDownloadView, NfseCancellationPayloadView, NfseDocumentDownloadView, NfseManifestationDownloadView, NfseManifestationIssueView, NfseManifestationPayloadView, NfsePreviewPdfView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestReconcileView, NfseRequestUpdateView
 from .nfse_capabilities import NfseMunicipalCapabilityCreateView, NfseMunicipalCapabilityListView, NfseMunicipalCapabilityStatusView, NfseMunicipalCapabilityUpdateView
@@ -78,6 +78,7 @@ __all__ = [
     "NfeComplementaryPriceQuantityIssueView",
     "NfeCorrectionDownloadView",
     "NfeCorrectionIssueView",
+    "NfeCorrectionPayloadView",
     "NfeDocumentDownloadView",
     "NfeIbsCbsEvent112110CancelView",
     "NfeIbsCbsEvent112110IssueView",

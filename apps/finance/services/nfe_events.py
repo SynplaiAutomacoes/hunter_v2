@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import re
+import unicodedata
 from typing import Any
 
 import requests
@@ -45,6 +47,32 @@ logger = logging.getLogger(__name__)
 CCE_MAX_SEQUENCE = 20
 CCE_MIN_TEXT_LENGTH = 15
 CCE_MAX_TEXT_LENGTH = 1000
+CCE_PROHIBITED_TEXT_PATTERNS = (
+    r"\bvalor(?:es)?\b",
+    r"\bpreco\b",
+    r"\bprecos\b",
+    r"\bquantidade\b",
+    r"\bproduto\b",
+    r"\bprodutos\b",
+    r"\bdestinatario\b",
+    r"\btomador\b",
+    r"\bremetente\b",
+    r"\bdata\s+(?:de\s+)?emissao\b",
+    r"\bdata\s+(?:de\s+)?saida\b",
+    r"\bbase\s+de\s+calculo\b",
+    r"\baliquota\b",
+    r"\bimposto\b",
+    r"\bimpostos\b",
+    r"\bicms\b",
+    r"\bipi\b",
+    r"\bpis\b",
+    r"\bcofins\b",
+    r"\bissqn\b",
+    r"\bcfop\b",
+    r"\bncm\b",
+    r"\bserie\b",
+    r"\bnumero\b",
+)
 
 
 class NfeCorrectionError(NfeEmissionError):
@@ -73,7 +101,16 @@ def validate_correction_text(correction_text: str) -> str:
     normalized = str(correction_text or "").strip()
     if len(normalized) < CCE_MIN_TEXT_LENGTH or len(normalized) > CCE_MAX_TEXT_LENGTH:
         raise NfeCorrectionError("Informe uma correcao entre 15 e 1000 caracteres.")
+    normalized_search_text = _normalize_cce_search_text(normalized)
+    if any(re.search(pattern, normalized_search_text) for pattern in CCE_PROHIBITED_TEXT_PATTERNS):
+        raise NfeCorrectionError("A carta de correcao nao pode alterar valores, impostos, produtos, quantidades, destinatario, datas, serie, numero ou outros dados fiscais essenciais da NF-e.")
     return normalized
+
+
+def _normalize_cce_search_text(value: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", value)
+    without_accents = "".join(char for char in decomposed if not unicodedata.combining(char))
+    return re.sub(r"\s+", " ", without_accents.lower()).strip()
 
 
 def is_nfe_item_eligible_for_cce(item: NfeItem | None) -> bool:
@@ -82,6 +119,22 @@ def is_nfe_item_eligible_for_cce(item: NfeItem | None) -> bool:
     if str(getattr(item, "status", "")).strip().lower() != NfeItemStatus.aprovado:
         return False
     return bool(str(getattr(item, "access_key", "") or "").strip() or str(getattr(item, "uuid", "") or "").strip())
+
+
+def has_active_cce_event_for_nfe_item(*, item: NfeItem | None) -> bool:
+    if item is None:
+        return False
+    return FiscalDocumentEvent.objects.filter(
+        document__legacy_nfe_item=item,
+        document__workshop=item.workshop,
+        event_type=FiscalDocumentEventType.CCE,
+        status__in=[
+            FiscalDocumentEventStatus.STARTED,
+            FiscalDocumentEventStatus.SENT,
+            FiscalDocumentEventStatus.PROCESSING,
+            FiscalDocumentEventStatus.UNCERTAIN,
+        ],
+    ).exists()
 
 
 def ensure_fiscal_document_for_nfe_item(*, item: NfeItem) -> FiscalDocument:

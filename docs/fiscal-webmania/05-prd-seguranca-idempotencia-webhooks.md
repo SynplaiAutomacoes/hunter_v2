@@ -1027,3 +1027,11 @@ Auditoria real:
 Correcoes desta retomada:
 - `view_nfe_return_payload` foi separada de download, protegendo payload/response de devolucao/estorno por permissao propria.
 - Devolucao total/estorno deixam de depender de JSON parcial na UI, reduzindo input operacional desnecessario sem alterar a idempotencia persistida.
+
+## Fase 4.2.0 - Seguranca e idempotencia da CC-e
+
+- Idempotencia preservada por `FiscalEmissionAttempt(operation_type="cce")` e chave baseada em oficina, documento, operacao e sequencia do evento.
+- Estados `started`, `sent`, `processing` e `uncertain` bloqueiam nova CC-e para a mesma NF-e ate resolucao segura.
+- Timeout apos envio mantem evento/tentativa como `uncertain`; webhook/reconciliacao atualizam o evento, sem repetir `POST /1/nfe/cartacorrecao/`.
+- Payload e response da CC-e exigem `view_nfe_correction_payload`; XML/DACCE exigem `download_nfe_correction`; emissao exige `issue_nfe_correction`.
+- Validador textual conservador bloqueia termos obvios ligados a valor, imposto, produto, quantidade, destinatario/tomador, data, serie, numero e calculo fiscal essencial.

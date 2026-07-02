@@ -986,3 +986,10 @@ Consequencias:
 - Estorno continua usando payload proprio e permissao propria `issue_nfe_reversal`.
 - Download XML/DANFE continua separado de visualizacao de payload.
 - Modernizacao de cancelamento/inutilizacao NF-e normal e permissoes genericas permanecem fora desta fase.
+## ADR - Fase 4.2.0: fechamento operacional da CC-e
+
+- Status: aceita em 2026-07-02.
+- Contexto: CC-e ja existia desde a Fase 2.1, mas a retomada fiscal priorizou deixa-la pronta para homologacao/uso interno antes de continuar permissoes genericas NF-e ou novos dominios.
+- Decisao: manter `FiscalDocumentEvent(event_type="cce")`, `FiscalEmissionAttempt(operation_type="cce")` e endpoint `POST /1/nfe/cartacorrecao/`; adicionar apenas hardening operacional com validacao textual conservadora, payload/response por permissao dedicada e ocultacao da acao em estado ativo/incerto.
+- Consequencias: evita tratar CC-e como documento derivado, preserva a NF-e original imutavel e reduz risco de uso para alteracoes fiscais proibidas. A validacao textual e deliberadamente conservadora e pode exigir ajuste fiscal futuro por homologacao.
+- Nao decisoes: nao iniciar Fase 4.0.2, nao criar CC-e para NFC-e, nao alterar devolucao/estorno, NFS-e, credito/debito, complementar tributaria, eventos IBS/CBS pendentes ou familias novas.

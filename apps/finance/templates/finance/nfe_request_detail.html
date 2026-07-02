@@ -298,6 +298,9 @@
                                                     {% if event.dacce_url %}
                                                         <a href="{% url 'finance:nfe_correction_download' pk=nfe_request.pk event_pk=event.pk document='dacce' %}" class="btn btn-outline btn-xs">DACCE</a>
                                                     {% endif %}
+                                                    {% if can_view_cce_payload %}
+                                                        <a href="{% url 'finance:nfe_correction_payload' pk=nfe_request.pk event_pk=event.pk %}" class="btn btn-outline btn-xs">Payload</a>
+                                                    {% endif %}
                                                 </div>
                                             </td>
                                         </tr>

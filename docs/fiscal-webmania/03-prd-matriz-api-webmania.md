@@ -1292,3 +1292,11 @@ Lacuna corrigida nesta retomada:
 - Payload/response de devolucao/estorno passa a ter rota dedicada protegida por permissao.
 
 Contratos fora do escopo: nenhum endpoint novo foi adicionado; nao houve alteracao em NF-e normal, NFC-e, NFS-e, credito/debito, complementar tributaria, CT-e, MDF-e, NFCom ou DC-e.
+
+## Fase 4.2.0 - Revalidacao CC-e
+
+- Endpoint mantido: `POST /1/nfe/cartacorrecao/`.
+- Body operacional validado no Hunter: `chave` ou `uuid`, `correcao`, `ambiente`, `evento` e `url_notificacao` quando disponivel.
+- Resposta persistida no evento: `uuid`, `modelo`, `status`, `xml`, `dacce` e `log` sanitizado.
+- Nenhum endpoint novo foi criado. A fase apenas endurece o uso da CC-e existente com validacao textual conservadora, payload/response protegido e ocultacao de acao quando existe CC-e ativa ou `uncertain`.
+- Permanecem inalterados: emissao NF-e normal, devolucao/estorno, complementar, ajuste, NFC-e, NFS-e, credito/debito, eventos IBS/CBS e familias fiscais posteriores.

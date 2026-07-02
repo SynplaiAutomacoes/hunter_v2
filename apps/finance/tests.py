@@ -10677,6 +10677,17 @@ class FiscalPhaseTwoCorrectionTests(TestCase):
         with self.assertRaisesMessage(NfeCorrectionError, "15 e 1000"):
             emit_nfe_correction(nfe_item=item, correction_text="x" * 1001, requested_by=self.user)
 
+    def test_cce_blocks_obvious_prohibited_fiscal_changes_before_gateway(self) -> None:
+        from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction
+
+        item = self._create_nfe_item(suffix=55)
+        with patch("apps.finance.services.nfe_events.requests.post") as post_mock:
+            with self.assertRaisesMessage(NfeCorrectionError, "nao pode alterar valores"):
+                emit_nfe_correction(nfe_item=item, correction_text="Alterar valor total da nota fiscal e quantidade do produto.", requested_by=self.user)
+
+        post_mock.assert_not_called()
+        self.assertFalse(FiscalDocumentEvent.objects.exists())
+
     def test_cce_sequence_starts_at_one_and_blocks_above_twenty(self) -> None:
         from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction, ensure_fiscal_document_for_nfe_item
 
@@ -10915,6 +10926,26 @@ class FiscalPhaseTwoCorrectionTests(TestCase):
             with self.assertRaises(Http404):
                 NfeRequestDetailView.as_view()(request, pk=item.request_id)
 
+    def test_cce_detail_hides_issue_action_when_active_event_exists(self) -> None:
+        from apps.finance.services.nfe_events import ensure_fiscal_document_for_nfe_item
+        from apps.finance.views.nfe import NfeRequestDetailView
+
+        item = self._create_nfe_item(suffix=56)
+        document = ensure_fiscal_document_for_nfe_item(item=item)
+        FiscalDocumentEvent.objects.create(document=document, event_type=FiscalDocumentEventType.CCE, event_sequence=1, status=FiscalDocumentEventStatus.UNCERTAIN, correction_text="Correcao de informacoes complementares fiscais.")
+        request = RequestFactory().get("/")
+        request.user = self.user
+        SessionMiddleware(lambda inner_request: None).process_request(request)
+        request.session["active_workshop_id"] = self.workshop.pk
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            response = NfeRequestDetailView.as_view()(request, pk=item.request_id)
+
+        self.assertNotContains(response, "Emitir Carta de Correção")
+
     def test_cce_download_uses_specific_permission_and_protected_gateway(self) -> None:
         from apps.finance.views.nfe import NfeCorrectionDownloadView
 
@@ -10959,6 +10990,46 @@ class FiscalPhaseTwoCorrectionTests(TestCase):
         ):
             with self.assertRaises(Http404):
                 NfeCorrectionDownloadView.as_view()(request, pk=item.request_id, event_pk=event.pk, document="xml")
+
+    def test_cce_payload_view_uses_specific_permission_and_workshop_scope(self) -> None:
+        from django.core.exceptions import PermissionDenied
+        from django.http import Http404
+        from django.urls import resolve, reverse
+
+        from apps.finance.views.nfe import NfeCorrectionPayloadView
+
+        item = self._create_nfe_item(suffix=57)
+        event = self._emit_success(item)
+        payload_url = reverse("finance:nfe_correction_payload", kwargs={"pk": item.request_id, "event_pk": event.pk})
+        self.assertIs(resolve(payload_url).func.view_class, NfeCorrectionPayloadView)
+        request = RequestFactory().get(payload_url)
+        request.user = self.user
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            response = NfeCorrectionPayloadView.as_view()(request, pk=item.request_id, event_pk=event.pk)
+
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.content)
+        self.assertEqual(payload["request_payload"]["chave"], item.access_key)
+        self.assertEqual(payload["response_payload"]["log"]["authorization"], "[REDACTED]")
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=False),
+        ):
+            with self.assertRaises(PermissionDenied):
+                NfeCorrectionPayloadView.as_view()(request, pk=item.request_id, event_pk=event.pk)
+
+        other_workshop = create_workshop(suffix=58)
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=other_workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            with self.assertRaises(Http404):
+                NfeCorrectionPayloadView.as_view()(request, pk=item.request_id, event_pk=event.pk)
 
     def test_cce_issue_view_requires_explicit_legal_confirmation(self) -> None:
         from apps.finance.views.nfe import NfeCorrectionIssueView

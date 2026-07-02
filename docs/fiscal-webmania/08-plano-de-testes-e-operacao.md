@@ -1203,3 +1203,9 @@ Validacao esperada:
 - `uv run ruff check` nos arquivos Python tocados.
 - `uv run mypy` no subconjunto fiscal tocado; falha por baseline preexistente deve ser registrada como nao bloqueante.
 - `git diff --check`.
+## Fase 4.2.0 - Testes de fechamento da CC-e
+
+- Testes focados: `FiscalPhaseTwoCorrectionTests` e `FiscalPhaseTwoCorrectionConcurrentTests`.
+- Cobertura obrigatoria adicionada/confirmada: NF-e autorizada elegivel, status inelegiveis, texto curto/longo, texto fiscal perigoso, confirmacao explicita, permissao especifica, cross-workshop, payload protegido, download protegido, webhook idempotente, ambiguidade, timeout `uncertain` e concorrencia sem POST duplicado.
+- Regressao dirigida deve incluir NF-e normal, devolucao/estorno, NFC-e, NFS-e e fluxos fiscais ja validados, sem iniciar dominios posteriores.
+- `mypy` permanece validacao complementar nao bloqueante quando falhar por baseline/stubs preexistentes.

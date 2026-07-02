@@ -57,7 +57,7 @@ Escopo: codigo fonte atual do repositorio. Arquivos `__pycache__` nao foram cons
 | Download individual           |          Sim | `NfeDocumentDownloadView`, `NfseDocumentDownloadView` | Depende de URLs remotas                      |
 | Download em lote              |          Sim | `IssuedDocumentsArchiveDownloadView`                  | Apenas NF-e/NFS-e                            |
 | Inutilizacao NF-e             |          Sim | `NfeRequestInvalidateView`                            | Somente numeracao reservada                  |
-| Carta de correcao             |          Nao | Sem rota/service atual                                | Fase 2                                       |
+| Carta de correcao             |          Sim | `apps/finance/services/nfe_events.py`, `NfeCorrectionIssueView`, `FiscalDocumentEvent(event_type="cce")` | Fase 2.1 validada; Fase 4.2.0 endurece uso operacional |
 | Devolucao/complementar/ajuste |          Nao | Sem rota/service atual                                | Fase 2                                       |
 | Substituicao NFS-e            |          Nao | Sem rota/service atual                                | Fase 3                                       |
 

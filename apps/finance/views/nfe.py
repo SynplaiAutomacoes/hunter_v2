@@ -25,7 +25,8 @@ from apps.finance.services.nfe_consulta import NfeConsultaError, reconcile_nfe_i
 from apps.finance.services.nfe_adjustment import NfeAdjustmentError, create_and_emit_nfe_adjustment, validate_adjustment_tax_regime
 from apps.finance.services.nfe_complementary import NfeComplementaryError, create_and_emit_nfe_complementary_price_quantity_from_item, is_local_nfe_eligible_for_complementary
 from apps.finance.services.nfe_emission import NfeEmissionError, cancel_nfe_document, download_nfe_preview_document, emit_nfe_request, invalidate_nfe_number, sync_nfe_emission_response
-from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction, is_nfe_item_eligible_for_cce
+from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
+from apps.finance.services.nfe_events import NfeCorrectionError, emit_nfe_correction, has_active_cce_event_for_nfe_item, is_nfe_item_eligible_for_cce
 from apps.finance.services.nfe_ibs_cbs_events import IBS_CBS_EVENT_112110, IBS_CBS_EVENT_112130, IBS_CBS_EVENT_112150, NfeIbsCbsEventError, cancel_ibs_cbs_event_112110, cancel_ibs_cbs_event_112130, cancel_ibs_cbs_event_112150, emit_ibs_cbs_event_112110, emit_ibs_cbs_event_112130, emit_ibs_cbs_event_112150, is_document_eligible_for_ibs_cbs_event_112110, is_document_eligible_for_ibs_cbs_event_112130, is_document_eligible_for_ibs_cbs_event_112150
 from apps.finance.services.nfe_returns import NfeReturnError, create_and_emit_nfe_return_from_item, is_local_nfe_eligible_for_return
 from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
@@ -237,6 +238,17 @@ def _user_can_issue_cce(*, user, workshop, request) -> bool:
     )
 
 
+def _user_can_view_cce_payload(*, user, workshop, request) -> bool:
+    return has_workshop_perm(
+        user=user,
+        workshop=workshop,
+        app_label="finance",
+        model="fiscaldocumentevent",
+        codename="view_nfe_correction_payload",
+        request=request,
+    )
+
+
 def _user_can_change_legacy_nfe_request(*, user, workshop, request) -> bool:
     return has_workshop_perm(
         user=user,
@@ -349,7 +361,8 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         can_change_legacy_nfe_request = _user_can_change_legacy_nfe_request(user=self.request.user, workshop=self.workshop, request=self.request)
         can_cancel = bool(can_change_legacy_nfe_request and latest_item and str(getattr(latest_item, "status", "")).strip().lower() in {"aprovado", "contingencia"})
         can_invalidate = bool(can_change_legacy_nfe_request and _can_invalidate_nfe_request(nfe_request=self.object, latest_item=latest_item))
-        can_issue_cce = bool(latest_item and is_nfe_item_eligible_for_cce(latest_item) and _user_can_issue_cce(user=self.request.user, workshop=self.workshop, request=self.request))
+        can_issue_cce = bool(latest_item and is_nfe_item_eligible_for_cce(latest_item) and not has_active_cce_event_for_nfe_item(item=latest_item) and _user_can_issue_cce(user=self.request.user, workshop=self.workshop, request=self.request))
+        can_view_cce_payload = _user_can_view_cce_payload(user=self.request.user, workshop=self.workshop, request=self.request)
         can_issue_return = bool(latest_item and is_local_nfe_eligible_for_return(latest_item) and _user_can_issue_return(user=self.request.user, workshop=self.workshop, request=self.request))
         can_issue_reversal = bool(latest_item and is_local_nfe_eligible_for_return(latest_item) and _user_can_issue_reversal(user=self.request.user, workshop=self.workshop, request=self.request))
         can_view_return_payload = _user_can_view_return_payload(user=self.request.user, workshop=self.workshop, request=self.request)
@@ -394,6 +407,7 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
                 "latest_item_status_badge": _format_item_status_badge(getattr(latest_item, "status", "")),
                 "can_invalidate": can_invalidate,
                 "can_issue_cce": can_issue_cce,
+                "can_view_cce_payload": can_view_cce_payload,
                 "can_issue_return": can_issue_return,
                 "can_issue_reversal": can_issue_reversal,
                 "can_view_return_payload": can_view_return_payload,
@@ -943,6 +957,30 @@ class NfeCorrectionDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
         identifier = str(event.remote_uuid or event.document.access_key or event.pk or "documento").strip()
         safe_identifier = identifier.replace(" ", "-")
         return f'attachment; filename="nfe-cce-{document_kind}-{safe_identifier}.{extension}"'
+
+
+class NfeCorrectionPayloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "fiscaldocumentevent"
+    workshop_permission_codename = "view_nfe_correction_payload"
+
+    def get(self, request, *args, **kwargs):
+        nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+        event = get_object_or_404(
+            FiscalDocumentEvent.objects.select_related("document", "document__legacy_nfe_item"),
+            pk=kwargs.get("event_pk"),
+            document__workshop=self.workshop,
+            document__legacy_nfe_item__request=nfe_request,
+            event_type=FiscalDocumentEventType.CCE,
+        )
+        return JsonResponse(
+            {
+                "request_payload": sanitize_fiscal_payload(event.request_payload or {}),
+                "response_payload": sanitize_fiscal_payload(event.response_payload or {}),
+                "status": event.status,
+                "event_sequence": event.event_sequence,
+            }
+        )
 
 
 class NfeIbsCbsEventDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):

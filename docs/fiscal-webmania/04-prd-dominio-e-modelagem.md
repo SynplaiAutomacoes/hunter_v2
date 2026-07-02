@@ -1157,3 +1157,10 @@ Correcoes de dominio/UI nesta retomada:
 - Para devolucao total, o servidor envia lista parcial vazia, preservando o comportamento validado de nao repetir selecao desnecessaria quando IBS/CBS nao exige enriquecimento.
 - Para devolucao parcial, produtos continuam obrigatorios e validados por sequencial fiscal/quantidade.
 - Nova permissao `view_nfe_return_payload` protege payload e resposta do documento derivado.
+
+## Fase 4.2.0 - Modelo operacional da CC-e
+
+- A Carta de Correcao NF-e continua modelada como `FiscalDocumentEvent(event_type="cce")` vinculado ao `FiscalDocument` original projetado sob demanda a partir de `NfeItem`.
+- A CC-e nao cria `FiscalDocumentLink` e nao altera status, XML, DANFE, chave ou payload da NF-e original.
+- A tentativa remota continua em `FiscalEmissionAttempt(operation_type="cce")`, associada ao evento e ao documento original.
+- A fase adiciona somente fechamento operacional: validacao conservadora de texto proibido, visibilidade de payload/response por permissao propria e bloqueio de nova acao quando ha evento `started`, `sent`, `processing` ou `uncertain`.

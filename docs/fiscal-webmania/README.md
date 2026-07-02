@@ -21,7 +21,7 @@ Transformar a camada fiscal do Hunter V2 em um modulo completo, seguro e extensi
 
 ## Status atual
 
-Fase atual: Fase 4.1.0 - Retomada Prioritaria da Nota de Devolucao NF-e, em implementacao em 2026-07-02. A Fase 4.0.1 foi validada e encerrada no checkpoint `613a73cb31de23e68883ac35ddbf396e3f08f030`, corrigindo a exposicao de acoes legadas de cancelamento/inutilizacao na UI sem alterar endpoint, payload ou regra fiscal. A Fase 4.0.2 de permissoes dedicadas genericas da NF-e normal foi pausada por mudanca de prioridade e nao deve ser continuada nesta execucao.
+Fase atual: Fase 4.2.0 - Finalizacao Prioritaria da Carta de Correcao NF-e, em implementacao em 2026-07-02. A Fase 4.1.0 foi validada e encerrada no checkpoint `af76387f`, endurecendo devolucao/estorno NF-e sem reabrir outros dominios. A Fase 4.0.2 de permissoes dedicadas genericas da NF-e normal permanece pausada por mudanca de prioridade e nao deve ser continuada nesta execucao.
 
 Marco consolidado: NF-e/NFC-e existentes preservadas, NFS-e legada preservada, NFS-e manual com preview, emissao, cancelamento e substituicao, manifestacao NFS-e Padrao Nacional, NFS-e recebida por XML unitario, consulta/reconciliacao GET-only, manifestacao de recebida, lote XML, inbox externa local/manual/assistida, ampliacao operacional da inbox, auditoria tecnica/fiscal geral e saneamento tecnico pos-auditoria. Permanecem confirmadas as ausencias de conectores reais de e-mail/ERP, consulta Webmania automatica, manifestacao automatica, criacao direta de `NfseReceivedDocument` pela inbox, criacao de documento recebido sem XML, `NfseItem`, `FiscalDocument(nfse)`, `FiscalEmissionAttempt`, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
 
@@ -52,6 +52,13 @@ Fase 2.4.0 aprovada documentalmente. A Fase 2.4A+B foi validada para combinar co
 11. `10-log-de-implementacao.md`
 12. `11-backlog-e-pendencias.md`
 13. `api/webmania_fiscal_openapi_validated.json`
+
+## Fase 4.2.0 - Carta de Correcao NF-e
+
+- Escopo: finalizar a CC-e ja criada na Fase 2.1, mantendo endpoint `POST /1/nfe/cartacorrecao/`, modelagem `FiscalDocumentEvent(event_type="cce")`, tentativa `FiscalEmissionAttempt(operation_type="cce")`, webhook/reconciliacao sem novo POST e downloads XML/DACCE protegidos.
+- Auditoria do checkout: service `apps/finance/services/nfe_events.py`, views/URLs/templates em `apps/finance/views/nfe.py`, `apps/finance/urls.py` e `apps/finance/templates/finance/nfe_request_detail.html`, webhook em `apps/finance/services/webmania_webhooks.py` e testes `FiscalPhaseTwoCorrection*` ja cobrem o nucleo de CC-e.
+- Lacunas de fechamento: validar texto conservadoramente contra termos fiscais proibidos, ocultar acao quando houver CC-e ativa/incerta, adicionar permissao/rota de payload protegida e registrar testes/documentacao de homologacao.
+- Fora de escopo: Fase 4.0.2, devolucao/estorno, NFS-e, CT-e, MDF-e, NFCom, DC-e, creditos/debitos, complementar tributaria, IBS/CBS pendentes e conectores externos.
 
 ## Sequencia obrigatoria de leitura
 

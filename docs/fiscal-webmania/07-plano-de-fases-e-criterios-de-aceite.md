@@ -2437,3 +2437,11 @@ Regressao: importacao de NFS-e recebida, manifestacao NFS-e existente, emissao m
 | Creditos 2-5 | adiados | manter bloqueados ate fonte fiscal suficiente |
 | Debitos 1-3 e 5-8 | adiados | manter bloqueados ate fonte fiscal suficiente |
 | Complementar tributaria | adiada | exige auditoria propria de base tributaria |
+## Fase 4.2.0 - Finalizacao Prioritaria da Carta de Correcao NF-e
+
+- Status inicial: em implementacao apos Fase 4.1.0 validada no checkpoint `af76387f`.
+- Escopo: endurecer a CC-e ja implementada, sem reabrir devolucao/estorno e sem continuar a Fase 4.0.2.
+- Aceite funcional: `POST /1/nfe/cartacorrecao/` usa `chave` ou `uuid`, texto validado, sequencia, ambiente e notificacao; evento `FiscalDocumentEvent(event_type="cce")` recebe retorno, XML e DACCE sem alterar NF-e original.
+- Aceite de seguranca: permissao propria para emissao, download e payload; cross-workshop bloqueado; payload/response sanitizados; texto perigoso bloqueado antes do gateway.
+- Aceite de idempotencia: tentativa `cce`, concorrencia sem POST duplicado, `uncertain` bloqueia reenvio automatico e webhook/reconciliacao nao repetem emissao.
+- Fora de escopo: Fase 4.0.2, devolucao, NFS-e, CT-e, MDF-e, NFCom, DC-e, credito/debito, complementar tributaria, IBS/CBS pendentes e conectores.
