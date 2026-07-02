@@ -844,6 +844,20 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 
 **OpenAPI:** nenhuma alteracao.
 
+## ADR - Fase 4.0.1: sanear NF-e/NFC-e sem funcionalidade nova
+
+**Status:** em implementacao em 2026-07-02.
+
+**Contexto:** a Fase 4.0.0 foi validada e encerrada no checkpoint `aa8414ea199c4a09dca53c246fe5fd49e6aa3a92`, aprovando saneamento tecnico NF-e/NFC-e antes de qualquer evolucao funcional.
+
+**Decisao:** executar apenas correcao pequena e testada de permissao/UX, alinhando a exposicao de cancelamento/inutilizacao NF-e normal com a permissao server-side existente. Nao criar permissao nova nesta fase porque isso exigiria migration e decisao operacional propria.
+
+**Justificativa:** o risco imediato era a tela sugerir acoes fiscais legadas para quem so deveria visualizar, embora o POST ja estivesse protegido. Corrigir a exposicao reduz risco sem alterar regra fiscal, payload, endpoint ou modelagem.
+
+**Consequencias:** cancelamento/inutilizacao NF-e normal continuam legados e entram no backlog tecnico para modernizacao futura. Downloads/payloads de NF-e normal tambem precisam de decisao propria de permissao.
+
+**OpenAPI:** nenhuma alteracao.
+
 ## ADR - Fase 3.17.1: auditoria sem correcao funcional imediata
 
 **Status:** validada em 2026-07-02 no checkpoint `305dc22cf5d811f8c875812a178f68634583a986`.

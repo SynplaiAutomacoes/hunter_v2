@@ -825,3 +825,13 @@ Permissoes existentes:
 - Lacunas: nao ha permissao propria para cancelamento NF-e normal, inutilizacao NF-e normal, payload NF-e normal ou manifestacao NF-e porque o fluxo e legado/ausente.
 
 Decisao de UX/permissoes: a proxima fase deve sanear permissoes e mensagens sem criar botoes novos nem nova acao fiscal. Foco em reduzir permissao ampla nos pontos legados e documentar bloqueios.
+
+## Fase 4.0.1 - saneamento de UX e permissoes NF-e/NFC-e
+
+Status: em implementacao em 2026-07-02.
+
+Correcao executada: no detalhe da NF-e normal, os botoes/modais de cancelar e inutilizar deixaram de aparecer para usuario sem permissao de alteracao da NF-e legada. A validacao server-side ja exigia `change_nferequest` ou fallback `change_nfserequest`; a UX agora reflete a mesma barreira.
+
+Areas revisadas sem alteracao: NFC-e manual, cancelamento NFC-e, inutilizacao NFC-e, downloads/payloads modernos, CC-e, derivados e eventos IBS/CBS mantiveram permissoes especificas existentes.
+
+Backlog de UX/permissoes: criar decisao propria para permissao dedicada de cancelamento/inutilizacao/download/payload de NF-e normal, sem aproveitar esta fase para migration ou mudanca operacional ampla.

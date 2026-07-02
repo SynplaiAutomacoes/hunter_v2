@@ -2162,6 +2162,36 @@ OpenAPI: nenhuma alteracao. O contrato local validado ja cobre os endpoints audi
 - Criterios de aceite: nenhuma funcionalidade nova; nenhum endpoint novo; nenhum payload remoto novo; testes direcionados aprovados se codigo for tocado; Ruff em Python tocado; `git diff --check`; `mypy` nao bloqueante se Python for tocado.
 - Commit sugerido: `chore: harden current NFe NFCe block`.
 
+## Fase 4.0.1 - Saneamento Tecnico NF-e/NFC-e
+
+Status: **em implementacao em 2026-07-02**. A Fase 4.0.0 foi validada e encerrada no checkpoint `aa8414ea199c4a09dca53c246fe5fd49e6aa3a92`, aprovando a Opcao B: saneamento tecnico NF-e/NFC-e antes de qualquer funcionalidade fiscal nova.
+
+Escopo: documentacao, revisao tecnica, teste de regressao e correcao pequena de permissao/UX em NF-e normal legada. Nao foram criados endpoint remoto, payload fiscal, migration, fluxo fiscal, regra fiscal nova ou dominio fiscal novo.
+
+### Matriz de saneamento
+
+| Area | Achado | Acao executada | Teste/validacao | Status |
+| ---- | ------ | -------------- | --------------- | ------ |
+| Permissoes NF-e normal | Detalhe da NF-e calculava botoes de cancelamento/inutilizacao somente por estado fiscal, embora o POST ja exigisse `change_nferequest` ou fallback legado equivalente | UI passou a expor essas acoes somente quando a permissao de alteracao tambem existe | Teste `test_nfe_detail_hides_legacy_fiscal_actions_without_change_permission` | corrigido |
+| Cancelamento NF-e normal | Fluxo legado ainda nao usa `FiscalDocumentEvent`/tentativa moderna de cancelamento | Mantido sem alteracao funcional; migracao para padrao moderno exige fase propria | Backlog atualizado | backlog |
+| Inutilizacao NF-e normal | Fluxo legado persiste dados em `NfeRequest`, sem `FiscalNumberInutilization` | Mantido sem alteracao funcional; modernizacao exige fase propria | Backlog atualizado | backlog |
+| Downloads NF-e normal | Download XML/DANFE segue vinculado ao acesso legado de visualizacao da NF-e normal | Nao criada permissao nova nesta fase para evitar migration/alteracao operacional sem decisao propria | Backlog atualizado | backlog |
+| Payload NF-e normal | Nao ha endpoint de payload normal exposto; preview remoto nao e persistido como tentativa fiscal | Validado sem alteracao; documentado como risco se virar recurso futuro | Revisao documental | validado sem alteracao |
+| NFC-e manual | Fluxo moderno usa `FiscalDocument`, tentativa, permissao de download/payload e cross-workshop | Revisado sem alteracao | Testes existentes direcionados | validado sem alteracao |
+| Webhooks/reconciliacao | NF-e/NFC-e possuem tratamento de ambiguidade e reconciliacao GET-only nos fluxos existentes | Revisado sem alteracao | Testes existentes direcionados | validado sem alteracao |
+| OpenAPI | Nenhuma correcao oficial nova foi confirmada | OpenAPI mantido inalterado | `git diff` sem alteracao no JSON validado | validado sem alteracao |
+
+### Criterios de aceite da fase
+
+- Nenhuma funcionalidade fiscal nova.
+- Nenhum endpoint remoto novo.
+- Nenhum payload fiscal novo.
+- Nenhuma alteracao de contrato Webmania.
+- Nenhuma alteracao de regra fiscal de producao.
+- Correcao limitada a permissao/UX de exposicao de acoes legadas no detalhe NF-e.
+- Teste direcionado para a regressao de permissao.
+- Documentacao e backlog atualizados.
+
 ## Fase 3.11.0 - Planejamento Tecnico da NFS-e Recebida/Importada de Terceiros
 
 Status: **em planejamento documental em 2026-06-29**. A Fase 3.10.0 foi validada documentalmente no checkpoint `8d5c7192`.

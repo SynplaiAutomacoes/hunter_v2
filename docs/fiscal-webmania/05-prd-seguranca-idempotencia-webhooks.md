@@ -984,3 +984,13 @@ Achados de seguranca e idempotencia:
 Riscos principais: emissao duplicada em caminhos legados, cancelamento indevido por permissao ampla, inutilizacao indevida, preview remoto sem trilha de tentativa, webhook ambiguo, divergencia de status remoto, XML/DANFE exposto, payload tributario incorreto, produto/CFOP/NCM/IBS/CBS incorretos e documento de outra oficina.
 
 Decisao: escolher saneamento tecnico antes de nova funcionalidade. A fase seguinte deve reforcar permissoes, documentacao, testes de payload/cross-workshop e consistencia dos caminhos legados, sem alterar payload remoto ou regra fiscal.
+
+## Fase 4.0.1 - saneamento de seguranca NF-e/NFC-e
+
+Status: em implementacao em 2026-07-02.
+
+Controle reforcado: a UI de detalhe da NF-e normal deixou de expor cancelamento e inutilizacao quando o usuario possui apenas visualizacao. A acao POST ja exigia `change_nferequest` ou fallback legado equivalente; a fase alinhou a superficie visual a essa barreira de permissao.
+
+Validado sem alteracao: idempotencia de emissao NF-e, reconciliacao GET-only, webhook ambiguo pendente, NFC-e manual com tentativa, cancelamento NFC-e e inutilizacao NFC-e. Nenhum POST remoto novo, payload fiscal novo, webhook novo ou reconciliacao nova foi criado.
+
+Backlog de seguranca: criar ou decidir permissao dedicada para download/payload de NF-e normal; modernizar cancelamento/inutilizacao NF-e normal somente em fase propria; revisar preview remoto como artefato sensivel se ele passar a ser persistido.

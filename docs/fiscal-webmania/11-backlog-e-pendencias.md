@@ -557,3 +557,23 @@ Backlog tecnico NF-e/NFC-e recomendado para a proxima fase:
 - reforcar testes de cross-workshop e payload/download em caminhos legados;
 - revisar mensagens de UX para separar NF-e normal, NFC-e manual, derivados, eventos e credito/debito;
 - manter OpenAPI inalterado salvo correcao oficial confirmada.
+
+## Apos a Fase 4.0.1
+
+Saneamento executado:
+
+- UI de detalhe da NF-e normal alinhada a permissao server-side existente para cancelamento/inutilizacao legados.
+- Teste de regressao adicionado para ocultar acoes fiscais legadas quando falta `change_nferequest` ou fallback equivalente.
+
+Backlog tecnico remanescente NF-e/NFC-e:
+
+- criar fase propria para decidir permissao dedicada de cancelamento NF-e normal, sem reutilizar `change_nferequest` indefinidamente;
+- criar fase propria para decidir permissao dedicada de inutilizacao NF-e normal;
+- avaliar permissao dedicada para download XML/DANFE de NF-e normal;
+- manter payload NF-e normal sem endpoint exposto ate decisao propria;
+- modernizar cancelamento NF-e normal para `FiscalDocumentEvent`/tentativa somente se aprovado em fase propria;
+- modernizar inutilizacao NF-e normal para entidade equivalente a `FiscalNumberInutilization` somente se aprovado em fase propria;
+- revisar preview remoto NF-e como artefato sensivel se for persistido no futuro;
+- manter manifestacao NF-e, contingencia/offline NFC-e, relatorios Webmania e demais operacoes futuras bloqueadas ate fase documental.
+
+Nao iniciados: CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS `112120/112140/211xxx`, creditos/debitos pendentes, complementar tributaria e novos dominios fiscais.

@@ -4262,6 +4262,33 @@ class FiscalDocumentDetailFlowTests(TestCase):
         self.assertIn("nfe-danfe-12345.pdf", response["Content-Disposition"])
         self.assertEqual(response.content, b"pdf-content")
 
+    def test_nfe_detail_hides_legacy_fiscal_actions_without_change_permission(self) -> None:
+        nfe_request = NfeRequest.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            tax_class="REFNFE121B",
+            reserved_number=12345,
+            reserved_series=1,
+        )
+        NfeItem.objects.create(
+            workshop=self.workshop,
+            workorder=self.workorder,
+            request=nfe_request,
+            uuid="df6c6f40-f5f8-41ad-81a2-2bd87f0b8a12",
+            status="aprovado",
+            access_key="12345678901234567890123456789012345678901234",
+        )
+
+        def has_permission(*, codename: str, **kwargs: Any) -> bool:
+            return codename not in {"change_nferequest", "change_nfserequest"}
+
+        with patch("apps.finance.views.nfe.has_workshop_perm", side_effect=has_permission):
+            response = self.client.get(reverse("finance:nfe_detail", kwargs={"pk": nfe_request.pk}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Cancelar Nota Fiscal")
+        self.assertNotContains(response, "Inutilizar numeracao")
+
     def test_nfe_preview_pdf_view_returns_inline_pdf(self) -> None:
         nfe_request = NfeRequest.objects.create(workshop=self.workshop, workorder=self.workorder, tax_class="REFNFEPREVIEW")
 

@@ -1113,3 +1113,13 @@ Achados de modelagem:
 - Contingencia/offline NFC-e esta ausente.
 
 Decisao de dominio: proxima fase recomendada deve ser saneamento tecnico/documental do bloco NF-e/NFC-e, sem criar novo dominio fiscal e sem alterar comportamento fiscal em producao.
+
+## Fase 4.0.1 - saneamento de dominio NF-e/NFC-e
+
+Status: em implementacao em 2026-07-02, apos validacao da Fase 4.0.0 no checkpoint `aa8414ea199c4a09dca53c246fe5fd49e6aa3a92`.
+
+Dominio preservado: `NfeRequest`/`NfeItem` continuam representando NF-e normal legada; `FiscalDocument` continua representando NFC-e manual, derivados, credito/debito e espelhos quando aplicavel; `FiscalDocumentEvent` e `FiscalNumberInutilization` nao foram ampliados nesta fase.
+
+Correcao executada: alinhamento de exposicao de acoes legadas no detalhe de NF-e normal com a permissao de alteracao ja exigida pelos endpoints POST. Nao houve migration, novo modelo, novo relacionamento, backfill, alteracao de status fiscal ou mudanca de payload Webmania.
+
+Achados movidos para backlog: cancelamento NF-e normal em `FiscalDocumentEvent`/tentativa propria, inutilizacao NF-e normal em entidade equivalente a `FiscalNumberInutilization`, permissao dedicada para download/payload de NF-e normal e decisao sobre trilha de preview remoto.

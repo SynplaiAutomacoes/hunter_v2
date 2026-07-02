@@ -1132,3 +1132,31 @@ Lacunas de teste mapeadas:
 - contingencia/offline NFC-e nao possui testes porque esta ausente.
 
 Para a Fase 4.0.0, por ser documental, executar apenas `git diff --check -- docs/fiscal-webmania` e `git status --short`. Testes funcionais nao sao necessarios enquanto nenhum codigo for alterado.
+
+## Plano de testes para Fase 4.0.1 - saneamento NF-e/NFC-e
+
+Status: em implementacao em 2026-07-02.
+
+Validacoes obrigatorias porque Python foi tocado:
+
+- `uv run python manage.py makemigrations finance --check --dry-run`;
+- teste focado de detalhe NF-e/permissao em `FiscalDocumentDetailFlowTests`;
+- bateria fiscal direcionada NF-e/NFC-e se houver risco de regressao;
+- `uv run ruff check apps/finance/views/nfe.py apps/finance/tests.py`;
+- `uv run mypy apps/finance/views/nfe.py apps/finance/tests.py` como nao bloqueante se contaminado pelo baseline;
+- `git diff --check`;
+- remocao de `.codex-uv-cache` antes do checkpoint.
+
+Cobertura adicionada: regressao comprovando que a tela de detalhe da NF-e normal nao expõe cancelar/inutilizar quando falta permissao de alteracao, ainda que o documento esteja em estado elegivel.
+
+Testes futuros recomendados: permissao dedicada para download/payload de NF-e normal, idempotencia moderna de cancelamento/inutilizacao NF-e normal e cross-workshop nos caminhos legados, todos dependentes de fase propria se exigirem migration ou mudanca operacional.
+
+Resultado executado em 2026-07-02:
+
+- `uv run python manage.py makemigrations finance --check --dry-run`: OK, sem changes detected;
+- teste focado `FiscalDocumentDetailFlowTests.test_nfe_detail_hides_legacy_fiscal_actions_without_change_permission`: OK;
+- regressao direcionada NF-e/NFC-e com `NfePermissionFallbackTests`, dois testes de `FiscalDocumentDetailFlowTests` e `FiscalPhaseTwoNfceManualTests.test_nfce_webhook_reconciliation_download_permission_and_cross_workshop`: 4 testes OK;
+- alvo ampliado `FiscalDocumentDetailFlowTests` + `FiscalPhaseTwoNfceManualTests`: 22 testes OK e 1 falha preexistente/fora do escopo em texto de preview NFS-e (`Previa da NFS-e indisponivel` esperado contra tela atual `Previa da Nota Fiscal de Serviço indisponivel`); nao corrigido nesta fase por envolver NFS-e;
+- `uv run ruff check apps/finance/views/nfe.py apps/finance/tests.py`: OK;
+- `uv run mypy apps/finance/views/nfe.py apps/finance/tests.py`: nao bloqueante, falhou no baseline amplo com 1642 erros em 132 arquivos, checando 2 fontes;
+- `git diff --check`: OK.

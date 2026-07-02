@@ -219,6 +219,24 @@ def _user_can_issue_cce(*, user, workshop, request) -> bool:
     )
 
 
+def _user_can_change_legacy_nfe_request(*, user, workshop, request) -> bool:
+    return has_workshop_perm(
+        user=user,
+        workshop=workshop,
+        app_label="finance",
+        model="nferequest",
+        codename="change_nferequest",
+        request=request,
+    ) or has_workshop_perm(
+        user=user,
+        workshop=workshop,
+        app_label="finance",
+        model="nfserequest",
+        codename="change_nfserequest",
+        request=request,
+    )
+
+
 def _user_can_issue_return(*, user, workshop, request) -> bool:
     return has_workshop_perm(
         user=user,
@@ -299,8 +317,9 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         latest_item = self.object.items.order_by("-id").first()
-        can_cancel = bool(latest_item and str(getattr(latest_item, "status", "")).strip().lower() in {"aprovado", "contingencia"})
-        can_invalidate = _can_invalidate_nfe_request(nfe_request=self.object, latest_item=latest_item)
+        can_change_legacy_nfe_request = _user_can_change_legacy_nfe_request(user=self.request.user, workshop=self.workshop, request=self.request)
+        can_cancel = bool(can_change_legacy_nfe_request and latest_item and str(getattr(latest_item, "status", "")).strip().lower() in {"aprovado", "contingencia"})
+        can_invalidate = bool(can_change_legacy_nfe_request and _can_invalidate_nfe_request(nfe_request=self.object, latest_item=latest_item))
         can_issue_cce = bool(latest_item and is_nfe_item_eligible_for_cce(latest_item) and _user_can_issue_cce(user=self.request.user, workshop=self.workshop, request=self.request))
         can_issue_return = bool(latest_item and is_local_nfe_eligible_for_return(latest_item) and _user_can_issue_return(user=self.request.user, workshop=self.workshop, request=self.request))
         can_issue_reversal = bool(latest_item and is_local_nfe_eligible_for_return(latest_item) and _user_can_issue_reversal(user=self.request.user, workshop=self.workshop, request=self.request))

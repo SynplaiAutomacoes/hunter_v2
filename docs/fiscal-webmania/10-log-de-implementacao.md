@@ -658,6 +658,14 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 - OpenAPI validado mantido inalterado.
 - Nenhum codigo funcional, migration, service, view, template ou teste foi alterado.
 
+## 2026-07-02 - Fase 4.0.1 - Saneamento tecnico NF-e/NFC-e
+
+- Fase 4.0.0 reconhecida como validada e encerrada no checkpoint `aa8414ea199c4a09dca53c246fe5fd49e6aa3a92`.
+- Executada correcao pequena de permissao/UX no detalhe da NF-e normal: cancelamento e inutilizacao legados so aparecem quando o usuario tambem possui a permissao de alteracao ja exigida pelo POST.
+- Adicionado teste de regressao para usuario sem `change_nferequest`/fallback nao ver acoes fiscais legadas mesmo com item aprovado e numeracao reservada.
+- Documentada matriz de saneamento, areas revisadas, riscos remanescentes e backlog para cancelamento/inutilizacao NF-e normal, download/payload NF-e normal e preview remoto.
+- OpenAPI validado mantido inalterado; nenhum endpoint remoto novo, payload fiscal novo, migration, modelo, service fiscal novo ou regra fiscal nova foi criado.
+
 ## 2026-06-23 - Fase 2.6.0 - Reavaliacao documental do roadmap
 
 - Fase 2.5.8 reconhecida como validada no checkpoint `df1a163e`.

@@ -1251,3 +1251,11 @@ O OpenAPI local validado ja mapeia a familia Webmania v1 NF-e/NFC-e. Nenhuma cor
 | `POST /1/nfe/relatorios/` | NF-e/NFC-e | Nao | Ausente | Nao | Medio | Relatorios Webmania nao implementados; downloads locais usam URLs retornadas nos documentos. |
 
 Decisao API: escolher **Opcao B - saneamento tecnico do bloco NF-e/NFC-e** como proxima fase recomendada. O contrato remoto ja esta mapeado para os fluxos implementados; o risco mais seguro a reduzir agora esta em permissao, consistencia documental, NF-e legada de cancelamento/inutilizacao, preview remoto, downloads legados e cobertura explicita de payload/cross-workshop.
+
+## Fase 4.0.1 - matriz API do saneamento NF-e/NFC-e
+
+Status: em implementacao em 2026-07-02. A Fase 4.0.0 foi validada e encerrada no checkpoint `aa8414ea199c4a09dca53c246fe5fd49e6aa3a92`.
+
+Nenhum endpoint remoto novo foi criado ou utilizado. A correcao executada limita somente a exposicao de acoes legadas da UI NF-e normal conforme a permissao ja exigida pelo POST. Nao houve alteracao em `/1/nfe/emissao/`, `/1/nfe/cancelar/`, `/1/nfe/inutilizar/`, `/1/nfe/consulta/`, `/1/nfe/cartacorrecao/`, derivados, eventos IBS/CBS, credito/debito ou NFC-e.
+
+OpenAPI: nenhuma alteracao aplicada; nao houve correcao oficial nova nem mudanca de payload fiscal.
