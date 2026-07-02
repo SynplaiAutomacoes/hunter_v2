@@ -2,7 +2,7 @@ import re
 import logging
 import time
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from html import escape
 from typing import Any
 
@@ -2646,6 +2646,13 @@ class TransferSummaryForm(CoreModelForm):
 
 
 class QuickProductForm(CoreModelForm):
+    profit_margin = forms.DecimalField(
+        required=False,
+        max_digits=9,
+        decimal_places=6,
+        widget=PercentageInput(),
+    )
+
     class Meta:
         model = Product
         fields = ["code", "name", "unit", "group", "cost_price", "selling_price", "profit_margin", "ncm", "origin_cst", "purpose"]
@@ -2656,7 +2663,6 @@ class QuickProductForm(CoreModelForm):
             "group": SearchableSelectInput(),
             "cost_price": MoneyInput(),
             "selling_price": MoneyInput(),
-            "profit_margin": PercentageInput(),
             "ncm": TextInput(attrs={"placeholder": "Ex: 87089990"}),
             "origin_cst": SearchableSelectInput(),
             "purpose": SearchableSelectInput(),
@@ -2725,6 +2731,12 @@ class QuickProductForm(CoreModelForm):
                 },
             )
         )
+
+    def clean_profit_margin(self):
+        raw = self.cleaned_data.get("profit_margin")
+        if raw is None:
+            return Decimal("0.00")
+        return Decimal(raw).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     def clean_name(self):
         value = self.cleaned_data.get("name")
