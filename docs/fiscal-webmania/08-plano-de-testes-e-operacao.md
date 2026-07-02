@@ -1068,7 +1068,7 @@ Resultado executado em 2026-06-30:
 
 ## Plano de testes para Fase 3.18.1 - saneamento tecnico pos-auditoria
 
-Status: planejado pela Fase 3.18.0.
+Status: em execucao pela Fase 3.18.1. A Fase 3.18.0 foi validada documentalmente no checkpoint `274df7f7`.
 
 Validacoes obrigatorias se a fase futura tocar Python:
 
@@ -1081,3 +1081,14 @@ Validacoes obrigatorias se a fase futura tocar Python:
 - `git diff --check`.
 
 Regra de operacao: nao alterar comportamento fiscal, payload remoto, endpoint, permissao efetiva ou documento fiscal apenas para satisfazer tipo. Qualquer mudanca de regra deve sair da fase tecnica e exigir fase funcional/documental propria.
+
+Cobertura adicionada nesta fase: regressao de payload de consulta recebida e payload de manifestacao recebida contra acesso cross-workshop, preservando permissao separada e escopo por oficina.
+
+Resultado executado em 2026-07-02:
+
+- `uv run python manage.py makemigrations finance --check --dry-run`: OK, sem changes detected;
+- testes focados `FiscalPhaseThreeNfseReceivedConsultationTests` e `FiscalPhaseThreeNfseReceivedManifestationTests`: 12 testes OK;
+- bateria fiscal direcionada: 91 testes OK;
+- `uv run ruff check apps/finance/tests.py`: OK;
+- `uv run mypy apps/finance/tests.py`: nao bloqueante, falhou no baseline amplo com 1641 erros em 132 arquivos, checando 1 fonte;
+- `uv run mypy .`: nao bloqueante, falhou no baseline preexistente com 3284 erros em 266 arquivos, checando 688 fontes.

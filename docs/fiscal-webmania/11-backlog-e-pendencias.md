@@ -485,3 +485,10 @@ Estas dividas foram comprovadas no baseline anterior a Fase 1 e aceitas pelo usu
 - Manifestacao da NFS-e manual permanece bloqueada ate confirmacao fiscal clara de papel valido.
 - Conectores reais e pasta/webhook externo continuam adiados ate fonte concreta, autenticacao, credenciais, segregacao por oficina e testes deterministicos.
 - CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria seguem dependentes de fase documental propria.
+
+## Apos a Fase 3.18.1
+
+- Manter reducao do baseline `mypy` como backlog tecnico incremental; o subconjunto fiscal recente ainda e contaminado por imports e modelos legados.
+- Avaliar fase tecnica futura para isolar melhor checagens de tipo de services fiscais sem atravessar todo o grafo Django.
+- Manter retencao/arquivamento logico, reprocessamento controlado da inbox e painel analitico de auditoria como backlog operacional futuro.
+- Novas revisoes de permissoes fiscais devem continuar acompanhadas de testes de payload e cross-workshop.

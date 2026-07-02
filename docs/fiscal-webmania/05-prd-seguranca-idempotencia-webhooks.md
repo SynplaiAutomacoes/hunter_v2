@@ -938,8 +938,16 @@ Risco residual medio: o baseline amplo de `mypy` continua nao bloqueante e pode 
 
 ## Fase 3.18.0 - seguranca recomendada para o proximo ciclo
 
-Status: em planejamento documental em 2026-07-02.
+Status: validada documentalmente em 2026-07-02 no checkpoint `274df7f7`.
 
 Recomendacao: escolher saneamento tecnico pos-auditoria como proximo ciclo. O escopo deve reduzir risco acumulado sem novo comportamento fiscal, sem payload remoto novo, sem webhook novo e sem automacao externa.
 
 Controles a preservar: XML/hash imutaveis, payload/download por permissao, cross-workshop em toda consulta, idempotencia por tentativa/documento/evento, consulta Webmania apenas GET-only quando ja autorizada, e nenhuma criacao de documento recebido sem XML.
+
+## Fase 3.18.1 - saneamento de seguranca
+
+Status: em implementacao controlada em 2026-07-02. A Fase 3.18.0 foi validada documentalmente no checkpoint `274df7f7`.
+
+Foco: permissoes fiscais, feature flags/capabilities, payloads sensiveis, XML/downloads/exportacao e cross-workshop. Correcoes sao permitidas somente se pequenas, testadas e sem alterar comportamento fiscal de negocio.
+
+Validacao esperada: reforcar regressao de payloads protegidos e escopo por oficina nos fluxos recentes, especialmente consulta recebida, manifestacao recebida, lote e inbox.

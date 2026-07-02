@@ -16542,6 +16542,46 @@ class FiscalPhaseThreeNfseReceivedConsultationTests(TestCase):
         self.assertEqual(response.json()["request"]["method"], "GET")
         self.assertEqual(response.json()["response"]["uuid"], document.uuid)
 
+    def test_consultation_payload_view_blocks_cross_workshop_access(self) -> None:
+        from apps.finance.models.finance import NfseReceivedDocumentConsultation
+
+        other_user, other_workshop = create_director_user_with_workshop(suffix=86)
+        other_company = WebmaniaCompany.objects.create(
+            workshop=other_workshop,
+            webmania_company_id="NFSE-RECEIVED-CONSULT-OTHER",
+            cnpj="55.666.777/0001-80",
+            bearer_access_token="encrypted-token",
+            cidade="Sao Paulo",
+            uf="SP",
+            nfse_received_import_enabled=True,
+            nfse_received_consultation_enabled=True,
+        )
+        from apps.finance.services.nfse_received import import_nfse_received_xml
+
+        other_document = import_nfse_received_xml(
+            workshop=other_workshop,
+            company=other_company,
+            xml_bytes=self._xml(uuid="66000000-0000-0000-0000-000000002090", identifier="NFSE-REC-CONS-0090", taker_tax_id="55.666.777/0001-80"),
+            created_by=other_user,
+        )
+        other_consultation = NfseReceivedDocumentConsultation.objects.create(
+            workshop=other_workshop,
+            received_document=other_document,
+            identifier=other_document.uuid,
+            identifier_source="uuid",
+            request_metadata={"method": "GET"},
+            response_payload={"uuid": other_document.uuid, "secret": "other-workshop"},
+            consulted_by=other_user,
+        )
+
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+        with patch("apps.workshops.mixin.has_workshop_perm", return_value=True):
+            response = self.client.get(reverse("finance:nfse_received_document_consultation_payload", kwargs={"pk": other_document.pk, "consultation_pk": other_consultation.pk}))
+        self.assertEqual(response.status_code, 404)
+
 
 class FiscalPhaseThreeNfseReceivedManifestationTests(TestCase):
     def setUp(self) -> None:
@@ -16748,6 +16788,46 @@ class FiscalPhaseThreeNfseReceivedManifestationTests(TestCase):
         request.user = self.user
         with patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop), patch("apps.workshops.mixin.has_workshop_perm", return_value=False), self.assertRaises(PermissionDenied):
             NfseReceivedDocumentManifestationIssueView.as_view()(request, pk=document.pk)
+
+    def test_manifestation_payload_view_blocks_cross_workshop_access(self) -> None:
+        other_user, other_workshop = create_director_user_with_workshop(suffix=87)
+        other_company = WebmaniaCompany.objects.create(
+            workshop=other_workshop,
+            webmania_company_id="NFSE-RECEIVED-MANIFEST-OTHER",
+            cnpj="55.666.777/0001-80",
+            bearer_access_token="encrypted-token",
+            cidade="Sao Paulo",
+            uf="SP",
+            nfse_received_import_enabled=True,
+        )
+        from apps.finance.services.nfse_received import import_nfse_received_xml
+
+        other_document = import_nfse_received_xml(
+            workshop=other_workshop,
+            company=other_company,
+            xml_bytes=self._xml(uuid="66000000-0000-0000-0000-000000001090", identifier="NFSE-REC-MAN-0090", taker_tax_id="55.666.777/0001-80"),
+            created_by=other_user,
+        )
+        other_manifestation = NfseManifestation.objects.create(
+            workshop=other_workshop,
+            received_document=other_document,
+            manifestation_type=NfseManifestation.ManifestationType.CONFIRMATION,
+            manifestation_code=1,
+            manifestation_role=NfseManifestation.ManifestationRole.TAKER,
+            manifestor=1,
+            request_payload={"uuid": other_document.uuid, "secret": "other-workshop"},
+            response_payload={"status": "aprovado"},
+            status=FiscalEmissionAttemptStatus.SUCCEEDED,
+            created_by=other_user,
+        )
+
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["active_workshop_id"] = self.workshop.pk
+        session.save()
+        with patch("apps.workshops.mixin.has_workshop_perm", return_value=True):
+            response = self.client.get(reverse("finance:nfse_received_document_manifestation_payload", kwargs={"pk": other_document.pk, "manifestation_pk": other_manifestation.pk}))
+        self.assertEqual(response.status_code, 404)
 
 
 class FiscalPhaseThreeNfseManifestationTests(TestCase):

@@ -1057,8 +1057,16 @@ Decisao de dominio: nao criar abstracao fiscal ampla, backfill para `FiscalDocum
 
 ## Fase 3.18.0 - dominio recomendado para o proximo ciclo
 
-Status: em planejamento documental em 2026-07-02.
+Status: validada documentalmente em 2026-07-02 no checkpoint `274df7f7`.
 
 Decisao de dominio recomendada: priorizar saneamento tecnico pos-auditoria antes de novo dominio fiscal. A auditoria nao encontrou achado critico, mas confirmou risco acumulado em baseline `mypy`, permissoes, flags, documentacao, regressao fiscal e convivencia entre legado, manual, recebido, lote e inbox.
 
 NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria continuam exigindo modelagem propria antes de qualquer implementacao funcional. Conectores externos continuam exigindo fonte concreta, autenticacao e segregacao por oficina.
+
+## Fase 3.18.1 - saneamento tecnico de dominio
+
+Status: em implementacao controlada em 2026-07-02. A Fase 3.18.0 foi validada documentalmente no checkpoint `274df7f7`.
+
+Escopo de dominio: revisar fronteiras existentes sem criar entidade, migration ou dominio fiscal novo. A reducao de risco deve preservar `NfseReceivedDocument` como documento recebido por XML, `NfseReceivedImportBatch` como caminho de criacao em lote e `NfseExternalXmlInbox` como entrada candidata nao fiscal.
+
+Reducao de `mypy`: apenas incremental e focada em arquivos fiscais tocados; nao corrigir o baseline global de uma vez e nao alterar regra fiscal para satisfazer tipos.

@@ -860,7 +860,7 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 
 ## ADR - Fase 3.18.0: priorizar saneamento tecnico pos-auditoria
 
-**Status:** em planejamento documental em 2026-07-02.
+**Status:** validada documentalmente em 2026-07-02 no checkpoint `274df7f7`.
 
 **Contexto:** a Fase 3.17.1 encerrou a auditoria tecnica/fiscal geral no checkpoint `305dc22cf5d811f8c875812a178f68634583a986`, sem alteracao funcional e sem achados criticos/altos. O bloco NFS-e recebida/entrada XML esta encerrado, consolidado e auditado.
 
@@ -869,6 +869,20 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 **Justificativa:** novos dominios fiscais e automacoes externas ainda dependem de fonte local segura, autenticacao, contrato claro, papel fiscal, payload minimo e testes deterministicos. Ja o saneamento tecnico reduz risco acumulado em tipagem, permissoes, flags, documentacao, testes e protecao de payload sem abrir comportamento fiscal novo.
 
 **Consequencias:** a proxima fase deve ser incremental, sem novo dominio fiscal, sem payload remoto novo, sem alteracao de comportamento fiscal e sem conectores externos. Reducao gradual do baseline `mypy`, revisao de permissoes/flags e reforco de regressao entram como frentes tecnicas, nao como novas capacidades de negocio.
+
+**OpenAPI:** nenhuma alteracao.
+
+## ADR - Fase 3.18.1: saneamento tecnico sem comportamento fiscal novo
+
+**Status:** em implementacao controlada em 2026-07-02.
+
+**Contexto:** a Fase 3.18.0 foi validada documentalmente no checkpoint `274df7f7`, recomendando saneamento tecnico apos a auditoria geral.
+
+**Decisao:** executar saneamento por revisao, documentacao e reforco de testes de regressao, sem alterar regras fiscais, payload remoto, endpoints ou dominios.
+
+**Justificativa:** os fluxos recentes ja possuem guardas de permissao, flags e cross-workshop. A acao de menor risco e reforcar provas de seguranca e registrar backlog para o baseline `mypy`, em vez de fazer refatoracao ampla.
+
+**Consequencias:** qualquer ajuste funcional, novo conector, consulta automatica, manifestacao automatica, NFS-e expandida ou novo dominio fiscal continua exigindo fase propria.
 
 **OpenAPI:** nenhuma alteracao.
 

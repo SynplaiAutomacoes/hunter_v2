@@ -790,6 +790,12 @@ Decisao: manter qualquer melhoria de labels, painel analitico de auditoria, rete
 
 ## Fase 3.18.0 - UX e permissoes para o proximo ciclo
 
-Status: em planejamento documental em 2026-07-02.
+Status: validada documentalmente em 2026-07-02 no checkpoint `274df7f7`.
 
 Proximo ciclo recomendado: saneamento tecnico pos-auditoria. Permissoes e UX podem ser revisadas apenas para consistencia, nomenclatura, cobertura de testes e documentacao; nao devem liberar acao fiscal nova, botao de integracao externa, consulta automatica, manifestacao automatica ou novo dominio fiscal.
+
+## Fase 3.18.1 - saneamento de UX, permissoes e workflows
+
+Status: em implementacao controlada em 2026-07-02. A Fase 3.18.0 foi validada documentalmente no checkpoint `274df7f7`.
+
+Saneamento permitido: labels, mensagens e testes de permissao/cross-workshop para fluxos existentes. Nao devem surgir botoes ou caminhos que importem, consultem, manifestem, emitam, cancelem, substituam ou exportem dados fiscais alem das permissoes ja existentes.

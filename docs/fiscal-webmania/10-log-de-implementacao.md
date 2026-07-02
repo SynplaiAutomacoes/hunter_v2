@@ -335,6 +335,18 @@
 - Justificativa: melhor relacao risco/valor por reduzir risco acumulado sem novo dominio fiscal, sem credenciais externas, sem payload remoto novo e sem inferencia tributaria fragil.
 - OpenAPI Webmania mantido sem alteracao.
 - Nenhum codigo funcional, migration, service, view, template ou teste foi alterado nesta fase documental.
+- Status posterior: Fase 3.18.0 validada documentalmente e encerrada no checkpoint `274df7f7`.
+
+## Fase 3.18.1 - saneamento tecnico pos-auditoria
+
+- Fase 3.18.0 confirmada e encerrada no checkpoint `274df7f7`.
+- Atualizado status documental para 3.18.1 em implementacao controlada.
+- Areas revisadas: models fiscais recentes, services de NFS-e recebida/consulta/manifestacao/inbox, views/forms/URLs/templates de recebida/inbox, testes direcionados e PRDs.
+- Saneamento aplicado sem alterar comportamento fiscal: reforco de testes de payload cross-workshop para consulta de NFS-e recebida e manifestacao de NFS-e recebida.
+- `mypy` focado em arquivos fiscais recentes foi executado como nao bloqueante e permaneceu contaminado pelo baseline amplo: 1248 erros em 129 arquivos mesmo checando 3 fontes.
+- Validacoes finais executadas: `makemigrations finance --check --dry-run` OK; 12 testes focados OK; bateria fiscal direcionada passou com 91 testes; `ruff check apps/finance/tests.py` OK; `mypy apps/finance/tests.py` nao bloqueante falhou no baseline com 1641 erros em 132 arquivos; `mypy .` nao bloqueante manteve 3284 erros em 266 arquivos.
+- OpenAPI Webmania mantido sem alteracao.
+- Nenhum novo fluxo fiscal, conector externo, consulta Webmania automatica, manifestacao automatica, documento recebido sem XML, criacao direta pela inbox, NFS-e expandida, CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendente, credito/debito pendente ou complementar tributaria foi iniciado.
 
 ## Fase 3.13.1 - inicio da consulta auxiliar de NFS-e recebida
 

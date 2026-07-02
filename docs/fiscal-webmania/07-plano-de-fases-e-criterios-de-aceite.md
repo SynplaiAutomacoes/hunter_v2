@@ -1819,7 +1819,7 @@ Validacoes executadas: `makemigrations finance --check --dry-run` OK; bateria fi
 
 ## Fase 3.18.0 - Priorizacao do Proximo Ciclo Fiscal Pos-Auditoria
 
-Status: **em planejamento documental em 2026-07-02**. A Fase 3.17.1 foi validada no checkpoint `305dc22cf5d811f8c875812a178f68634583a986`.
+Status: **validada documentalmente em 2026-07-02** no checkpoint `274df7f7`. A Fase 3.17.1 foi validada no checkpoint `305dc22cf5d811f8c875812a178f68634583a986`.
 
 Escopo autorizado: somente documentacao em `docs/fiscal-webmania/**` e OpenAPI apenas se houver correcao oficial confirmada. Nenhum codigo funcional, migration, service, view, template ou teste deve ser alterado nesta fase.
 
@@ -1906,6 +1906,42 @@ OpenAPI: nenhuma alteracao. O schema atual permanece suficiente para a decisao d
 - Riscos: alterar comportamento fiscal ao tentar satisfazer tipos; mexer em permissoes sem teste; ampliar escopo para refatoracao ampla.
 - Criterios de aceite: nenhuma funcionalidade nova; nenhum payload remoto alterado; regressao fiscal direcionada aprovada; documentacao atualizada; backlog residual mantido.
 - Commit sugerido: `chore: harden fiscal module after audit`.
+
+## Fase 3.18.1 - Saneamento Tecnico Pos-Auditoria
+
+Status: **em implementacao controlada em 2026-07-02**. A Fase 3.18.0 foi validada documentalmente no checkpoint `274df7f7`.
+
+Escopo autorizado: saneamento tecnico seguro em `apps/finance` e `docs/fiscal-webmania`, sem funcionalidade fiscal nova, sem novo dominio fiscal, sem alterar payload remoto e sem alterar comportamento fiscal de negocio.
+
+Foco obrigatorio: consistencia, manutencao, permissoes fiscais, feature flags/capabilities, testes, documentacao, payloads sensiveis, downloads/XML, exportacao CSV e cross-workshop.
+
+Reducao de `mypy`: incremental e focada em arquivos fiscais tocados. Nao tentar corrigir os 3284 erros globais de uma vez e nao alterar regra fiscal para satisfazer tipo.
+
+### Matriz de saneamento
+
+| Area | Achado | Acao executada | Teste/validacao | Status |
+| ---- | ------ | -------------- | --------------- | ------ |
+| Checkpoint 3.18.0 | 3.18.0 aprovada pelo usuario ainda precisava de checkpoint documental | Criado checkpoint `274df7f7` antes da fase tecnica | `git log -1 --oneline`; working tree limpo antes da 3.18.1 | corrigido |
+| Documentacao | PRDs ainda marcavam 3.18.0 como planejamento e 3.18.1 apenas proposta | Atualizar status para 3.18.0 validada e 3.18.1 em implementacao | `git diff --check` | corrigido |
+| Permissoes fiscais | Necessario comprovar separacao entre consulta, manifestacao, payload e escopo por oficina | Reforcar testes sem alterar permissao efetiva | Testes direcionados da fase | corrigido |
+| Feature flags/capabilities | Flags recentes estao separadas por importacao, consulta, inbox e manifestacao/capability | Revisao sem mudanca funcional | Bateria fiscal direcionada | validado sem alteracao |
+| Payload/XML/exportacao | Exportacao ja evita XML bruto; payloads sensiveis exigem permissao propria | Revisao e reforco de regressao cross-workshop para payloads recentes | Testes direcionados da fase | corrigido |
+| Cross-workshop | Views recentes filtram por `workshop`; payloads de consulta/manifestacao exigem prova explicita | Adicionar regressao para bloqueio de payload de outra oficina | Testes direcionados da fase | corrigido |
+| `mypy` | Baseline global contamina ate subconjunto fiscal | Registrar resultado e manter backlog gradual | `mypy` focado nao bloqueante | backlog |
+
+### Criterios de aceite
+
+- nenhuma funcionalidade fiscal nova;
+- nenhum payload remoto alterado;
+- nenhum novo dominio fiscal;
+- nenhuma consulta Webmania automatica;
+- nenhuma manifestacao automatica;
+- testes direcionados aprovados;
+- Ruff nos Python tocados aprovado;
+- `git diff --check` aprovado;
+- resultado de `mypy` focado registrado, mesmo nao bloqueante.
+
+Validacoes executadas nesta fase: `makemigrations finance --check --dry-run` OK; 12 testes focados de consulta/manifestacao recebida OK; bateria fiscal direcionada passou com 91 testes; `ruff check apps/finance/tests.py` OK; `mypy apps/finance/tests.py` nao bloqueante falhou no baseline com 1641 erros em 132 arquivos; `mypy .` nao bloqueante manteve 3284 erros em 266 arquivos.
 
 ## Fase 3.11.0 - Planejamento Tecnico da NFS-e Recebida/Importada de Terceiros
 
