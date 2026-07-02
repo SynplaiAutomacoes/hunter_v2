@@ -482,6 +482,9 @@
                                                     {% if document.danfe_url %}
                                                         <a href="{% url 'finance:nfe_return_download' pk=nfe_request.pk document_pk=document.pk document='danfe' %}" class="btn btn-outline btn-xs">DANFE</a>
                                                     {% endif %}
+                                                    {% if can_view_return_payload %}
+                                                        <a href="{% url 'finance:nfe_return_payload' pk=nfe_request.pk document_pk=document.pk %}" class="btn btn-outline btn-xs">Payload</a>
+                                                    {% endif %}
                                                 </div>
                                             </td>
                                         </tr>
@@ -645,6 +648,13 @@
                             </select>
                         </div>
                         <div>
+                            <label for="nfe-return-scope" class="label"><span class="label-text">Tipo de devolução</span></label>
+                            <select id="nfe-return-scope" name="return_scope" class="select select-bordered w-full">
+                                <option value="total">Total</option>
+                                <option value="partial">Parcial</option>
+                            </select>
+                        </div>
+                        <div>
                             <label for="nfe-return-cfop" class="label"><span class="label-text">CFOP</span></label>
                             <input id="nfe-return-cfop" name="codigo_cfop" class="input input-bordered w-full" maxlength="10" required>
                         </div>
@@ -653,14 +663,19 @@
                             <input id="nfe-return-nature" name="natureza_operacao" class="input input-bordered w-full" maxlength="120" required>
                         </div>
                         <div class="md:col-span-2">
-                            <label for="nfe-return-products" class="label"><span class="label-text">Produtos em JSON</span></label>
-                            <textarea id="nfe-return-products" name="produtos_json" class="textarea textarea-bordered w-full font-mono text-xs" rows="6" required>[{"sequencial":1, "quantidade":"1"}]</textarea>
+                            <label for="nfe-return-products" class="label"><span class="label-text">Produtos para devolução parcial em JSON</span></label>
+                            <textarea id="nfe-return-products" name="produtos_json" class="textarea textarea-bordered w-full font-mono text-xs" rows="6" placeholder='[{"sequencial":1, "quantidade":"1"}]'></textarea>
+                            <p class="mt-1 text-xs text-base-content/60">Preencha somente para devolução parcial. Devolução total e estorno não exigem seleção parcial de itens.</p>
                         </div>
                         <div class="md:col-span-2">
                             <label for="nfe-return-info" class="label"><span class="label-text">Informações complementares</span></label>
                             <textarea id="nfe-return-info" name="informacoes_complementares" class="textarea textarea-bordered w-full" rows="3" maxlength="1000"></textarea>
                         </div>
                     </div>
+                    <label class="label cursor-pointer justify-start gap-3 mt-4">
+                        <input type="checkbox" name="confirm_return" class="checkbox checkbox-sm" required>
+                        <span class="label-text">Confirmo que a devolução/estorno cria um novo documento fiscal e não altera a NF-e original.</span>
+                    </label>
 
                     <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
                         <button type="button" class="btn-form-cancel" onclick="return_nfe_modal.close()">Cancelar</button>

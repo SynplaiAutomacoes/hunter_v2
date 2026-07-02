@@ -1277,3 +1277,18 @@ Esta fase trata apenas de permissoes locais para NF-e normal legada. Nenhum endp
 | Preview remoto NF-e | `POST /1/nfe/emissao/` com `previa_danfe=True` | Nao | Tratar como artefato sensivel; sem persistencia nova nesta fase. |
 
 OpenAPI: nenhuma alteracao aplicada. A fase e exclusivamente local/documental.
+## Fase 4.1.0 - retomada prioritaria da devolucao NF-e
+
+Endpoint mantido: `POST /1/nfe/devolucao/`.
+
+Estado encontrado no checkout:
+- Service operacional em `apps/finance/services/nfe_returns.py`.
+- Chamada remota por `requests.post(_build_return_url(), json=payload, ...)`.
+- Consulta/reconciliacao por `GET /1/nfe/consulta/`, sem novo POST.
+- Webhook resolve documento derivado por UUID/chave/tentativa e nao atualiza a NF-e original.
+
+Lacuna corrigida nesta retomada:
+- A UI do detalhe NF-e passa a diferenciar devolucao total, devolucao parcial e estorno. Devolucao total e estorno nao enviam selecao parcial desnecessaria; parcial continua enviando `produtos`/`quantidade` conforme contrato validado.
+- Payload/response de devolucao/estorno passa a ter rota dedicada protegida por permissao.
+
+Contratos fora do escopo: nenhum endpoint novo foi adicionado; nao houve alteracao em NF-e normal, NFC-e, NFS-e, credito/debito, complementar tributaria, CT-e, MDF-e, NFCom ou DC-e.

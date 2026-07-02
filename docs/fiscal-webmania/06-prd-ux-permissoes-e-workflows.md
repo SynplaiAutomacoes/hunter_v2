@@ -852,3 +852,16 @@ Permissoes planejadas para UX:
 - `view_nferequest_remote_response`: reservar para eventual tela de resposta remota NF-e normal.
 
 Regras de transicao: manter `change_nferequest` e `change_nfserequest` como fallback temporario para acoes fiscais; manter `view_nferequest` como fallback temporario para downloads; documentar grupos afetados; testar usuarios com permissao antiga, permissao nova e sem permissao.
+## Fase 4.1.0 - UX e permissoes da retomada de devolucao NF-e
+
+Estado encontrado:
+- O detalhe da NF-e ja oferecia acao "Devolucao/Estorno" quando o item local estava aprovado e o usuario possuia `issue_nfe_return` ou `issue_nfe_reversal`.
+- A listagem de documentos derivados ja exibia XML/DANFE protegidos por `download_nfe_return`.
+- Lacuna operacional: o modal exigia JSON de produtos para qualquer operacao, inclusive devolucao total e estorno.
+- Lacuna de seguranca/operacao: nao havia link/rota dedicada para payload de devolucao/estorno.
+
+Decisao aplicada:
+- A UI passa a pedir tipo de devolucao (`total` ou `partial`) e torna o JSON obrigatorio apenas para parcial.
+- Estorno permanece na mesma acao visual, mas o servidor ignora produtos e usa payload proprio.
+- Foi adicionada confirmacao explicita de que a devolucao/estorno cria novo documento fiscal sem alterar a NF-e original.
+- Foi criada a permissao `view_nfe_return_payload` para consultar request/response sanitizados do documento derivado.

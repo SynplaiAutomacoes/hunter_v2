@@ -971,3 +971,18 @@ Consequencia: a proxima fase funcional deve ser pequena e escolher explicitament
 **Consequencias:** a proxima fase deve ser preferencialmente documental/tecnica, sem implementacao funcional nova. Conectores externos, NFS-e expandida ampla, CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendentes, creditos/debitos e complementar tributaria permanecem adiados.
 
 **OpenAPI:** nenhuma alteracao.
+## ADR - Fase 4.1.0 - endurecimento operacional da devolucao NF-e
+
+Contexto: a fase 4.0.2 de permissoes genericas da NF-e normal foi pausada. A prioridade passou a ser tornar a devolucao/estorno NF-e operacional sem reescrever o fluxo ja validado.
+
+Decisao:
+- Reusar o nucleo existente de devolucao/estorno (`FiscalDocument`, `FiscalDocumentLink`, `FiscalEmissionAttempt`, `nfe_returns.py`).
+- Nao criar novo dominio fiscal nem novo endpoint remoto.
+- Corrigir a UI para diferenciar devolucao total, devolucao parcial e estorno, evitando exigir produtos parciais quando a operacao nao usa essa selecao.
+- Criar permissao dedicada `view_nfe_return_payload` em `FiscalDocument` para expor request/response sanitizados.
+
+Consequencias:
+- Devolucao parcial continua conservadora e baseada em sequencial fiscal/quantidade.
+- Estorno continua usando payload proprio e permissao propria `issue_nfe_reversal`.
+- Download XML/DANFE continua separado de visualizacao de payload.
+- Modernizacao de cancelamento/inutilizacao NF-e normal e permissoes genericas permanecem fora desta fase.

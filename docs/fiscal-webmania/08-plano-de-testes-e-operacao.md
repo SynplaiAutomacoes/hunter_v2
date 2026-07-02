@@ -1188,3 +1188,18 @@ Testes planejados para a fase funcional futura:
 - nenhum payload fiscal alterado;
 - nenhuma regra fiscal alterada;
 - regressao NF-e/NFC-e direcionada.
+## Testes da Fase 4.1.0 - retomada da devolucao NF-e
+
+Cobertura obrigatoria adicionada ou reaproveitada:
+- Devolucao total via view sem JSON parcial.
+- Devolucao parcial bloqueada sem produtos.
+- Estorno via view ignorando produtos parciais.
+- Payload/response de devolucao protegido por permissao dedicada e oficina ativa.
+- Regressao ja existente para payload parcial com sequenciais fiscais, saldo disponivel, timeout `uncertain`, webhook idempotente e reconciliacao sem novo POST.
+
+Validacao esperada:
+- `uv run python manage.py makemigrations finance --check --dry-run`.
+- Suites direcionadas `FiscalPhaseOneStabilizationTests`, `FiscalPhaseOneConcurrentEmissionTests`, `FiscalPhaseTwoReturnTests`, `FiscalPhaseTwoReturnIbsCbsTests`, `FiscalPhaseTwoReturnConcurrentTests` e regressao NF-e/NFC-e/NFS-e relevante conforme tempo de execucao.
+- `uv run ruff check` nos arquivos Python tocados.
+- `uv run mypy` no subconjunto fiscal tocado; falha por baseline preexistente deve ser registrada como nao bloqueante.
+- `git diff --check`.

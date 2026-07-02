@@ -1787,6 +1787,7 @@ class FiscalDocument(TimeStampedModel):
             ("issue_nfe_return", "Pode emitir NF-e de devolucao"),
             ("issue_nfe_reversal", "Pode emitir NF-e de estorno"),
             ("download_nfe_return", "Pode baixar XML/DANFE de NF-e de devolucao ou estorno"),
+            ("view_nfe_return_payload", "Pode visualizar payload de NF-e de devolucao ou estorno"),
             ("issue_nfe_complementary_price_quantity", "Pode emitir NF-e complementar de preco/quantidade"),
             ("view_nfe_complementary", "Pode visualizar NF-e complementar"),
             ("download_nfe_complementary", "Pode baixar XML/DANFE de NF-e complementar"),

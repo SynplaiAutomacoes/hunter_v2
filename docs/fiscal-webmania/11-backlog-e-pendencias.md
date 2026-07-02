@@ -591,6 +591,12 @@ Backlog da proxima fase funcional:
 - criar/reservar `view_nferequest_payload`;
 - criar/reservar `view_nferequest_remote_response`;
 - aplicar permissoes dedicadas em UI e views de POST/download;
+
+## Apos a retomada Fase 4.1.0
+
+- A fase 4.0.2 de permissoes dedicadas genericas da NF-e normal fica pausada ate nova autorizacao.
+- A Nota de Devolucao NF-e e prioridade operacional. Lacunas conhecidas antes da correcao: UI com produtos JSON obrigatorio para total/estorno e ausencia de payload protegido dedicado.
+- Permanecem fora desta retomada: cancelamento/inutilizacao modernos da NF-e normal, NFS-e, CT-e, MDF-e, NFCom, DC-e, creditos/debitos pendentes, complementar tributaria e eventos IBS/CBS fora da preservacao do fluxo de devolucao existente.
 - manter fallback temporario para `change_nferequest`, `change_nfserequest` e `view_nferequest`;
 - mapear grupos atuais e documentar transicao operacional;
 - testar usuario com permissao dedicada, usuario com fallback e usuario sem permissao;

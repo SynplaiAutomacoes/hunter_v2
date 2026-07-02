@@ -417,3 +417,17 @@ O caminho anterior executava `PUT /2/nfse/cancelar` diretamente em `emission.py`
 - A Fase 3.4P criou preview, permissoes preparatorias e feature flag; a Fase 3.4.1 adicionou `NfseSubstitution`, permissao `substitute_nfse`, tentativa `nfse_substitution` e estado local `substituido`.
 
 Conclusao atual: o POST consome exclusivamente preview aprovada. A substituta nasce como novo `NfseItem` somente com resposta/webhook aprovado e identidade segura; a original conserva seu XML e muda para `substituido` apenas nessa confirmacao.
+## Auditoria Fase 4.1.0 - Nota de Devolucao NF-e
+
+Arquivos e responsabilidades encontrados:
+- `apps/finance/services/nfe_returns.py`: contrato Webmania, payload, saldo, IBS/CBS por snapshot, draft, transmissao, consulta, reconciliacao e resolucao de webhook.
+- `apps/finance/views/nfe.py`: formulario modal no detalhe da NF-e, POST de emissao, download XML/DANFE e agora payload protegido.
+- `apps/finance/templates/finance/nfe_request_detail.html`: acao contextual, tabela de devolucoes/estornos e modal de emissao.
+- `apps/finance/management/commands/reconcile_webmania_documents.py`: reconciliacao de derivados `return`/`reversal` sem repetir POST.
+- `apps/finance/services/webmania_webhooks.py`: processamento de webhook para documento derivado.
+- `apps/finance/tests.py`: suites `FiscalPhaseTwoReturnTests`, `FiscalPhaseTwoReturnIbsCbsTests` e `FiscalPhaseTwoReturnConcurrentTests`.
+
+Estado:
+- Funcional no service e coberto para contrato, saldo, `uncertain`, webhook, reconciliacao e cross-workshop.
+- Parcial na UX antes desta retomada: total/estorno dependiam de textarea JSON de produtos embora o contrato local nao precisasse dele.
+- Parcial na seguranca antes desta retomada: payload/response nao tinha rota/permissao dedicada.

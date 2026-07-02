@@ -1142,3 +1142,18 @@ Permissoes propostas:
 | `view_nferequest_remote_response` | Ver resposta remota/log bruto da NF-e normal, se endpoint futuro existir | Nao exposto hoje | Resposta pode conter dados fiscais/remotos sensiveis | Planejar permissao, sem endpoint nesta fase |
 
 Separacao obrigatoria: permissoes dedicadas nao modernizam cancelamento ou inutilizacao para `FiscalDocumentEvent`, `FiscalEmissionAttempt` ou `FiscalNumberInutilization`. Essa modernizacao permanece frente futura separada.
+## Fase 4.1.0 - dominio da retomada de devolucao NF-e
+
+Auditoria real:
+- `FiscalDocument(purpose="return"|"reversal", origin="derived")` ja modela o documento derivado.
+- `FiscalDocumentLink(role="returns"|"reverses")` ja vincula documento derivado e original.
+- `FiscalEmissionAttempt(operation_type="return"|"reversal")` ja guarda a intencao/transmissao.
+- `calculate_available_return_quantities(...)` reserva saldo por documentos aprovados, processando, contingencia e `uncertain`.
+- NF-e externa minima permanece bloqueada para devolucao parcial sem XML/importacao validada.
+
+Correcoes de dominio/UI nesta retomada:
+- Formulario distingue `return_scope="total"` e `return_scope="partial"`.
+- Para estorno, o servidor ignora qualquer selecao parcial enviada e mantem payload proprio de estorno.
+- Para devolucao total, o servidor envia lista parcial vazia, preservando o comportamento validado de nao repetir selecao desnecessaria quando IBS/CBS nao exige enriquecimento.
+- Para devolucao parcial, produtos continuam obrigatorios e validados por sequencial fiscal/quantidade.
+- Nova permissao `view_nfe_return_payload` protege payload e resposta do documento derivado.

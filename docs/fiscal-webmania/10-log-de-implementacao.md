@@ -671,8 +671,18 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 - Fase 4.0.1 reconhecida como validada e encerrada no checkpoint `613a73cb31de23e68883ac35ddbf396e3f08f030`.
 - Planejadas permissoes dedicadas para cancelamento, inutilizacao, download XML, download DANFE/PDF, payload enviado e resposta remota da NF-e normal.
 - Decisao recomendada: Opcao A, implementar permissoes dedicadas com fallback legado temporario para evitar quebra operacional.
-- Separada a frente de permissoes da modernizacao futura de cancelamento/inutilizacao para evento/tentativa propria.
-- OpenAPI mantido inalterado; nenhuma alteracao funcional, migration, service, view, template, teste, endpoint remoto ou payload fiscal foi iniciada.
+
+## 2026-07-02 - Fase 4.1.0 - Retomada prioritaria da Nota de Devolucao NF-e
+
+- Direcao alterada: a fase 4.0.2 de permissoes dedicadas genericas da NF-e normal fica pausada e nao deve ser executada nesta retomada.
+- Escopo autorizado: auditar e endurecer apenas Nota de Devolucao/Estorno NF-e via `POST /1/nfe/devolucao/`, preservando NF-e normal, NFC-e, NFS-e, creditos/debitos, complementar tributaria, CT-e, MDF-e, NFCom e DC-e.
+- Auditoria inicial do checkout: `apps/finance/services/nfe_returns.py` ja implementa documento derivado `FiscalDocument`, `FiscalDocumentLink(role="returns"/"reverses")`, saldo parcial, snapshot IBS/CBS, idempotencia persistida por `FiscalEmissionAttempt`, timeout `uncertain`, webhook e reconciliacao sem novo POST. A UI existe no detalhe da NF-e, mas ainda expunha produtos como JSON obrigatorio mesmo para total/estorno e nao havia endpoint dedicado para payload/response de devolucao.
+- Lacunas a corrigir nesta fase: tornar devolucao total e estorno operacionais sem selecao parcial obrigatoria, preservar devolucao parcial com itens/quantidades, adicionar permissao/rota de payload protegido e registrar testes focados.
+- Implementado formulario com escopo total/parcial e confirmacao explicita, mantendo produtos obrigatorios apenas para devolucao parcial; estorno e devolucao total enviam lista parcial vazia.
+- Adicionada permissao `view_nfe_return_payload`, rota protegida de payload/response para documentos derivados de devolucao/estorno e teste de escopo por oficina.
+- Migration criada: `finance.0075_alter_fiscaldocument_options`, apenas para permissao de payload de devolucao/estorno.
+- Validacoes executadas: `makemigrations finance --check --dry-run`, testes focados de devolucao/estorno, regressao fiscal direcionada, `ruff check` dos arquivos Python tocados e `git diff --check`. `mypy` foi executado como validacao complementar e permaneceu bloqueado por baseline/stubs preexistentes do projeto.
+- OpenAPI mantido inalterado; nenhuma etapa de NFS-e, CT-e, MDF-e, NFCom, DC-e, creditos/debitos, complementar tributaria ou eventos fiscais posteriores foi iniciada.
 
 ## 2026-06-23 - Fase 2.6.0 - Reavaliacao documental do roadmap
 

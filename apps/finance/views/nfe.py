@@ -58,15 +58,22 @@ class NfeCorrectionForm(CoreForm):
 
 
 class NfeReturnForm(CoreForm):
+    RETURN_SCOPE_TOTAL = "total"
+    RETURN_SCOPE_PARTIAL = "partial"
+
     purpose = forms.ChoiceField(choices=((FiscalDocumentPurpose.RETURN, "Devolucao"), (FiscalDocumentPurpose.REVERSAL, "Estorno")))
+    return_scope = forms.ChoiceField(required=False, choices=((RETURN_SCOPE_TOTAL, "Total"), (RETURN_SCOPE_PARTIAL, "Parcial")))
     natureza_operacao = forms.CharField(max_length=120)
     codigo_cfop = forms.CharField(max_length=10)
-    produtos_json = forms.CharField(widget=forms.Textarea)
+    produtos_json = forms.CharField(required=False, widget=forms.Textarea)
     informacoes_complementares = forms.CharField(required=False, max_length=1000)
     informacoes_fisco = forms.CharField(required=False, max_length=1000)
+    confirm_return = forms.BooleanField(required=True)
 
     def clean_produtos_json(self):
         raw_value = str(self.cleaned_data.get("produtos_json") or "").strip()
+        if not raw_value:
+            return []
         try:
             products = json.loads(raw_value)
         except ValueError as exc:
@@ -74,6 +81,17 @@ class NfeReturnForm(CoreForm):
         if not isinstance(products, list):
             raise forms.ValidationError("Produtos devem ser uma lista JSON.")
         return products
+
+    def clean(self):
+        cleaned_data = super().clean()
+        purpose = str(cleaned_data.get("purpose") or "").strip()
+        return_scope = str(cleaned_data.get("return_scope") or self.RETURN_SCOPE_TOTAL).strip()
+        products = cleaned_data.get("produtos_json") or []
+        if purpose == FiscalDocumentPurpose.RETURN and return_scope == self.RETURN_SCOPE_PARTIAL and not products:
+            self.add_error("produtos_json", "Informe os produtos e quantidades para devolucao parcial.")
+        if purpose == FiscalDocumentPurpose.REVERSAL or return_scope == self.RETURN_SCOPE_TOTAL:
+            cleaned_data["produtos_json"] = []
+        return cleaned_data
 
 
 class NfeComplementaryPriceQuantityForm(CoreForm):
@@ -248,6 +266,17 @@ def _user_can_issue_return(*, user, workshop, request) -> bool:
     )
 
 
+def _user_can_view_return_payload(*, user, workshop, request) -> bool:
+    return has_workshop_perm(
+        user=user,
+        workshop=workshop,
+        app_label="finance",
+        model="fiscaldocument",
+        codename="view_nfe_return_payload",
+        request=request,
+    )
+
+
 def _user_can_issue_reversal(*, user, workshop, request) -> bool:
     return has_workshop_perm(
         user=user,
@@ -323,6 +352,7 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         can_issue_cce = bool(latest_item and is_nfe_item_eligible_for_cce(latest_item) and _user_can_issue_cce(user=self.request.user, workshop=self.workshop, request=self.request))
         can_issue_return = bool(latest_item and is_local_nfe_eligible_for_return(latest_item) and _user_can_issue_return(user=self.request.user, workshop=self.workshop, request=self.request))
         can_issue_reversal = bool(latest_item and is_local_nfe_eligible_for_return(latest_item) and _user_can_issue_reversal(user=self.request.user, workshop=self.workshop, request=self.request))
+        can_view_return_payload = _user_can_view_return_payload(user=self.request.user, workshop=self.workshop, request=self.request)
         can_issue_complementary_price_quantity = bool(latest_item and is_local_nfe_eligible_for_complementary(latest_item) and _user_can_issue_complementary_price_quantity(user=self.request.user, workshop=self.workshop, request=self.request))
         can_issue_adjustment = _user_can_issue_adjustment(user=self.request.user, workshop=self.workshop, request=self.request)
         fiscal_document = FiscalDocument.objects.filter(workshop=self.workshop, legacy_nfe_item=latest_item).first() if latest_item is not None else None
@@ -366,6 +396,7 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
                 "can_issue_cce": can_issue_cce,
                 "can_issue_return": can_issue_return,
                 "can_issue_reversal": can_issue_reversal,
+                "can_view_return_payload": can_view_return_payload,
                 "can_issue_complementary_price_quantity": can_issue_complementary_price_quantity,
                 "can_issue_adjustment": can_issue_adjustment,
                 "can_issue_ibs_cbs_event_112110": can_issue_ibs_cbs_event_112110,
@@ -1000,6 +1031,29 @@ class NfeReturnDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
         identifier = str(document.number or document.access_key or document.remote_uuid or document.pk or "documento").strip()
         safe_identifier = identifier.replace(" ", "-")
         return f'attachment; filename="nfe-{document.purpose}-{document_kind}-{safe_identifier}.{extension}"'
+
+
+class NfeReturnPayloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "fiscaldocument"
+    workshop_permission_codename = "view_nfe_return_payload"
+
+    def get(self, request, *args, **kwargs):
+        nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
+        document = get_object_or_404(
+            FiscalDocument.objects.filter(links_from__related_document__legacy_nfe_item__request=nfe_request).distinct(),
+            pk=kwargs.get("document_pk"),
+            workshop=self.workshop,
+            purpose__in=[FiscalDocumentPurpose.RETURN, FiscalDocumentPurpose.REVERSAL],
+        )
+        return JsonResponse(
+            {
+                "request_payload": document.request_payload or {},
+                "response_payload": document.response_payload or {},
+                "status": document.status,
+                "purpose": document.purpose,
+            }
+        )
 
 
 class NfeComplementaryDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):

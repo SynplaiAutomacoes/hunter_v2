@@ -11477,7 +11477,7 @@ class FiscalPhaseTwoReturnTests(TestCase):
         from apps.finance.views.nfe import NfeReturnIssueView
 
         item = self._create_nfe_item(suffix=72, quantity="1")
-        request = RequestFactory().post("/", data={"purpose": "return", "natureza_operacao": "Devolucao", "codigo_cfop": "1202", "produtos_json": '[{"codigo":"P1","quantidade":"1"}]'})
+        request = RequestFactory().post("/", data={"purpose": "return", "return_scope": "partial", "natureza_operacao": "Devolucao", "codigo_cfop": "1202", "produtos_json": '[{"codigo":"P1","quantidade":"1"}]', "confirm_return": "on"})
         request.user = self.user
 
         with (
@@ -11491,6 +11491,102 @@ class FiscalPhaseTwoReturnTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         emit_mock.assert_not_called()
+
+    def test_return_issue_view_allows_total_return_without_partial_products(self) -> None:
+        from apps.finance.views.nfe import NfeReturnIssueView
+
+        item = self._create_nfe_item(suffix=83, quantity="2")
+        request = RequestFactory().post("/", data={"purpose": "return", "return_scope": "total", "natureza_operacao": "Devolucao total", "codigo_cfop": "1202", "produtos_json": "", "confirm_return": "on"})
+        request.user = self.user
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfe.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfe.messages.success"),
+            patch("apps.finance.views.nfe.create_and_emit_nfe_return_from_item") as emit_mock,
+        ):
+            response = NfeReturnIssueView.as_view()(request, pk=item.request_id)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(emit_mock.call_args.kwargs["products"], [])
+
+    def test_return_issue_view_requires_products_for_partial_return(self) -> None:
+        from apps.finance.views.nfe import NfeReturnIssueView
+
+        item = self._create_nfe_item(suffix=84, quantity="2")
+        request = RequestFactory().post("/", data={"purpose": "return", "return_scope": "partial", "natureza_operacao": "Devolucao parcial", "codigo_cfop": "1202", "produtos_json": "", "confirm_return": "on"})
+        request.user = self.user
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfe.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfe.messages.error"),
+            patch("apps.finance.views.nfe.create_and_emit_nfe_return_from_item") as emit_mock,
+        ):
+            response = NfeReturnIssueView.as_view()(request, pk=item.request_id)
+
+        self.assertEqual(response.status_code, 302)
+        emit_mock.assert_not_called()
+
+    def test_reversal_issue_view_ignores_partial_products(self) -> None:
+        from apps.finance.views.nfe import NfeReturnIssueView
+
+        item = self._create_nfe_item(suffix=85, quantity="2")
+        request = RequestFactory().post("/", data={"purpose": "reversal", "return_scope": "partial", "natureza_operacao": "Estorno", "codigo_cfop": "1202", "produtos_json": '[{"sequencial":1,"quantidade":"1"}]', "confirm_return": "on"})
+        request.user = self.user
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfe.has_workshop_perm", return_value=True),
+            patch("apps.finance.views.nfe.messages.success"),
+            patch("apps.finance.views.nfe.create_and_emit_nfe_return_from_item") as emit_mock,
+        ):
+            response = NfeReturnIssueView.as_view()(request, pk=item.request_id)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(emit_mock.call_args.kwargs["products"], [])
+
+    def test_return_payload_view_requires_permission_and_workshop_scope(self) -> None:
+        from django.core.exceptions import PermissionDenied
+        from django.http import Http404
+        from django.urls import resolve, reverse
+
+        from apps.finance.views.nfe import NfeReturnPayloadView
+
+        item = self._create_nfe_item(suffix=86, quantity="1")
+        document = self._emit_return(item)
+        request = RequestFactory().get("/")
+        request.user = self.user
+        payload_url = reverse("finance:nfe_return_payload", args=[item.request_id, document.pk])
+        self.assertIs(resolve(payload_url).func.view_class, NfeReturnPayloadView)
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            response = NfeReturnPayloadView.as_view()(request, pk=item.request_id, document_pk=document.pk)
+        payload = json.loads(response.content)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["request_payload"]["chave"], item.access_key)
+        self.assertEqual(payload["response_payload"]["log"]["token"], "[REDACTED]")
+
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=False),
+        ):
+            with self.assertRaises(PermissionDenied):
+                NfeReturnPayloadView.as_view()(request, pk=item.request_id, document_pk=document.pk)
+
+        other_workshop = create_workshop(suffix=87)
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=other_workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            with self.assertRaises(Http404):
+                NfeReturnPayloadView.as_view()(request, pk=item.request_id, document_pk=document.pk)
 
     def test_reconciliation_command_consults_derived_return_without_emitting(self) -> None:
         item = self._create_nfe_item(suffix=73, quantity="1")

@@ -634,3 +634,21 @@ O objeto `rps` deve usar os mesmos campos municipais validados para emissao, mas
 ## Fase 3.4.1 implementada
 
 A acao remota fica disponivel somente na preview aprovada e exige confirmacao explicita, feature flag, capability municipal e `substitute_nfse`. O payload enviado e exatamente o snapshot aprovado. Resposta positiva exige UUID substituto e confirmacao de `nfse_substituida.uuid` no retorno sincrono; somente entao cria o novo `NfseItem` e marca a original como substituida.
+## Fase 4.1.0 - escopo da retomada da Nota de Devolucao NF-e
+
+Objetivo de produto: deixar a Nota de Devolucao/Estorno NF-e utilizavel com seguranca fiscal no detalhe da NF-e original, sem abrir outros blocos.
+
+Incluido:
+- Devolucao total.
+- Devolucao parcial com sequencial fiscal e quantidade.
+- Estorno pelo mesmo endpoint Webmania de devolucao.
+- Payload/response protegido para auditoria.
+- UX minima contextual no detalhe da NF-e.
+
+Fora do escopo:
+- Permissoes genericas da NF-e normal pausadas na Fase 4.0.2.
+- Cancelamento/inutilizacao modernos da NF-e normal.
+- NFS-e, CT-e, MDF-e, NFCom, DC-e.
+- Creditos/debitos pendentes.
+- Complementar tributaria.
+- Eventos IBS/CBS fora da preservacao do comportamento ja validado da devolucao.

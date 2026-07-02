@@ -1016,3 +1016,14 @@ Justificativa: permissoes dedicadas reduzem risco fiscal real em cancelamento, i
 | Fallback `change_nfserequest` | Ainda aceito por compatibilidade historica | Permissao de NFS-e pode autorizar acao NF-e legado | Remover de imediato | Manter so durante transicao, com teste e prazo de retirada |
 
 Plano de transicao: criar permissoes dedicadas em migration futura; atualizar UI e POST/downloads para aceitar permissao dedicada ou fallback legado; mapear grupos atuais; documentar impacto operacional; testar usuario com permissao antiga, nova e sem permissao; depois abrir fase propria para remover fallback.
+## Fase 4.1.0 - seguranca da devolucao NF-e
+
+Auditoria real:
+- Idempotencia da devolucao/estorno ja usa documento derivado persistido e chave `hash(workshop_id, derived_document_id, operation_type, request_generation)`.
+- Timeout marca tentativa e documento derivado como `uncertain`; retry automatico do mesmo derivado fica bloqueado.
+- Reconciliacao consulta o documento derivado por UUID/chave/tentativa e nao repete `POST /1/nfe/devolucao/`.
+- Webhook de devolucao/estorno atualiza somente `FiscalDocument` derivado; ambiguidade bloqueia atualizacao.
+
+Correcoes desta retomada:
+- `view_nfe_return_payload` foi separada de download, protegendo payload/response de devolucao/estorno por permissao propria.
+- Devolucao total/estorno deixam de depender de JSON parcial na UI, reduzindo input operacional desnecessario sem alterar a idempotencia persistida.

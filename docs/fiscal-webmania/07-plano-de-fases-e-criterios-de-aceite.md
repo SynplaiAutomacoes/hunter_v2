@@ -2234,6 +2234,22 @@ Justificativa tecnica/fiscal: permissoes dedicadas reduzem autorizacao ampla sob
 Nome proposto: **Implementacao de Permissoes Dedicadas da NF-e Normal**.
 
 - Objetivo: criar permissoes dedicadas em `NfeRequest` e aplicar guards em UI/POST/downloads sem alterar payload remoto.
+
+## Fase 4.1.0 - Retomada Prioritaria da Nota de Devolucao NF-e
+
+Status: **em implementacao em 2026-07-02**. A fase 4.0.2 fica pausada; permissoes dedicadas genericas da NF-e normal nao fazem parte desta execucao.
+
+Escopo autorizado:
+- Auditar e endurecer somente devolucao/estorno NF-e por `POST /1/nfe/devolucao/`.
+- Reusar `FiscalDocument(purpose="return"/"reversal")`, `FiscalDocumentLink(role="returns"/"reverses")` e `FiscalEmissionAttempt(operation_type="return"/"reversal")`.
+- Preservar o fluxo ja validado de saldo, snapshot IBS/CBS, timeout `uncertain`, webhook e reconciliacao.
+- Melhorar apenas lacunas reais de operacionalidade, permissao, payload protegido, UI minima e testes.
+
+Criterios de aceite:
+- Devolucao total e estorno nao exigem selecao parcial de produtos.
+- Devolucao parcial continua exigindo sequencial fiscal e quantidade positiva.
+- Payload/response da devolucao fica acessivel somente com permissao dedicada e oficina correta.
+- Nenhum comportamento de NF-e normal, NFC-e, NFS-e, credito/debito, complementar tributaria ou eventos fora do escopo e alterado.
 - Permissoes a criar: `cancel_nferequest`, `invalidate_nferequest_numbering`, `download_nferequest_xml`, `download_nferequest_pdf`, `view_nferequest_payload`, `view_nferequest_remote_response`.
 - Migration: migration de alteracao de `Meta.permissions` do `NfeRequest`, sem alteracao de campos.
 - Views/templates: condicionar cancelamento, inutilizacao e downloads por permissao dedicada ou fallback temporario.
