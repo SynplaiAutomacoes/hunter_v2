@@ -9,6 +9,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from django.conf import settings
 
 from apps.core.domain.contracts.storage import IStorageService, StorageConfigurationError, StorageObject, StorageServiceError
+from apps.core.observability import observe_dependency_call
 
 logger = logging.getLogger(__name__)
 
@@ -62,15 +63,24 @@ class S3StorageService(IStorageService):
             raise StorageServiceError("Chave invalida para upload no bucket.")
         safe_metadata = {str(k): _to_ascii(str(v)) for k, v in (metadata or {}).items()}
         try:
-            self.client.put_object(
-                Bucket=self.bucket,
-                Key=normalized_key,
-                Body=file,
-                ContentType=str(content_type or "application/octet-stream"),
-                Metadata=safe_metadata,
-            )
+            with observe_dependency_call(
+                logger=logger,
+                dependency_type="storage",
+                dependency_name="s3",
+                operation="upload_file",
+                log_context={"bucket": self.bucket, "key": normalized_key},
+            ) as dependency_call:
+                dependency_call.set_attribute("storage.bucket", self.bucket)
+                dependency_call.set_attribute("storage.key", normalized_key)
+                self.client.put_object(
+                    Bucket=self.bucket,
+                    Key=normalized_key,
+                    Body=file,
+                    ContentType=str(content_type or "application/octet-stream"),
+                    Metadata=safe_metadata,
+                )
+                dependency_call.success(extra={"bucket": self.bucket, "key": normalized_key, "content_type": str(content_type or "application/octet-stream")})
         except (BotoCoreError, ClientError) as exc:
-            logger.exception("s3_upload_failed", extra={"key": normalized_key, "bucket": self.bucket})
             raise StorageServiceError(f"Falha ao enviar arquivo para o bucket configurado: {exc}") from exc
 
     def read_file(self, key: str) -> StorageObject:
@@ -78,8 +88,18 @@ class S3StorageService(IStorageService):
         if not normalized_key:
             raise StorageServiceError("Chave invalida para leitura no bucket.")
         try:
-            response = self.client.get_object(Bucket=self.bucket, Key=normalized_key)
-            body = response["Body"].read()
+            with observe_dependency_call(
+                logger=logger,
+                dependency_type="storage",
+                dependency_name="s3",
+                operation="read_file",
+                log_context={"bucket": self.bucket, "key": normalized_key},
+            ) as dependency_call:
+                dependency_call.set_attribute("storage.bucket", self.bucket)
+                dependency_call.set_attribute("storage.key", normalized_key)
+                response = self.client.get_object(Bucket=self.bucket, Key=normalized_key)
+                body = response["Body"].read()
+                dependency_call.success(extra={"bucket": self.bucket, "key": normalized_key, "content_length": len(body)})
         except (BotoCoreError, ClientError, KeyError) as exc:
             raise StorageServiceError("Falha ao ler arquivo do bucket configurado.") from exc
         raw_metadata = response.get("Metadata") or {}
@@ -92,7 +112,17 @@ class S3StorageService(IStorageService):
         if not normalized_key:
             return
         try:
-            self.client.delete_object(Bucket=self.bucket, Key=normalized_key)
+            with observe_dependency_call(
+                logger=logger,
+                dependency_type="storage",
+                dependency_name="s3",
+                operation="delete_file",
+                log_context={"bucket": self.bucket, "key": normalized_key},
+            ) as dependency_call:
+                dependency_call.set_attribute("storage.bucket", self.bucket)
+                dependency_call.set_attribute("storage.key", normalized_key)
+                self.client.delete_object(Bucket=self.bucket, Key=normalized_key)
+                dependency_call.success(extra={"bucket": self.bucket, "key": normalized_key})
         except (BotoCoreError, ClientError) as exc:
             raise StorageServiceError("Falha ao remover arquivo do bucket configurado.") from exc
 
@@ -101,13 +131,25 @@ class S3StorageService(IStorageService):
         if not normalized_key:
             raise StorageServiceError("Chave invalida para gerar URL assinada.")
         try:
-            return str(
-                self.client.generate_presigned_url(
-                    "get_object",
-                    Params={"Bucket": self.bucket, "Key": normalized_key},
-                    ExpiresIn=expires_in,
+            with observe_dependency_call(
+                logger=logger,
+                dependency_type="storage",
+                dependency_name="s3",
+                operation="generate_presigned_url",
+                log_context={"bucket": self.bucket, "key": normalized_key},
+            ) as dependency_call:
+                dependency_call.set_attribute("storage.bucket", self.bucket)
+                dependency_call.set_attribute("storage.key", normalized_key)
+                dependency_call.set_attribute("app.expires_in", expires_in)
+                presigned_url = str(
+                    self.client.generate_presigned_url(
+                        "get_object",
+                        Params={"Bucket": self.bucket, "Key": normalized_key},
+                        ExpiresIn=expires_in,
+                    )
                 )
-            )
+                dependency_call.success(extra={"bucket": self.bucket, "key": normalized_key, "expires_in": expires_in})
+                return presigned_url
         except (BotoCoreError, ClientError) as exc:
             raise StorageServiceError("Falha ao gerar URL assinada para o bucket configurado.") from exc
 
