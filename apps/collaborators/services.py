@@ -129,8 +129,60 @@ def _is_workorder_commission_paid(*, workorder: WorkOrder) -> bool:
     return bool(parent_movement and parent_movement.is_paid)
 
 
+def _resolve_workorder_budget_type(*, workorder: WorkOrder) -> str:
+    budget = getattr(workorder, "budget", None)
+    budget_type = getattr(budget, "budget_type", "") if budget is not None else ""
+    return str(budget_type or workorder.budget_type or "").strip().lower()
+
+
 def _workorder_can_generate_commission(*, workorder: WorkOrder) -> bool:
-    return workorder.status == WorkOrderStatus.APPROVED and workorder.budget_type == "sale"
+    return workorder.status == WorkOrderStatus.APPROVED and _resolve_workorder_budget_type(workorder=workorder) == "sale"
+
+
+def _is_paid_payroll(*, payroll: CollaboratorPayroll | None) -> bool:
+    return bool(payroll and payroll.financial_movement and payroll.financial_movement.is_paid)
+
+
+def _sync_paid_payroll_commission_entries(*, payroll: CollaboratorPayroll, commission_entries: list[CollaboratorCommissionEntry]) -> None:
+    now = timezone.localdate()
+    commission_entry_ids = [entry.pk for entry in commission_entries]
+    stale_entries = payroll.commission_entries.exclude(pk__in=commission_entry_ids)
+    stale_entries.filter(status=CollaboratorCommissionEntry.Status.FORECAST).delete()
+
+    for entry in commission_entries:
+        update_fields: list[str] = []
+        if entry.payroll_id != payroll.pk:
+            entry.payroll = payroll
+            update_fields.append("payroll")
+        if entry.status != CollaboratorCommissionEntry.Status.PAID:
+            entry.status = CollaboratorCommissionEntry.Status.PAID
+            update_fields.append("status")
+        if entry.paid_at is None:
+            entry.paid_at = now
+            update_fields.append("paid_at")
+        if update_fields:
+            entry.save(update_fields=update_fields)
+
+    commission_total = Money(
+        _quantize(sum((Decimal(str(entry.commission_amount.amount or ZERO)) for entry in commission_entries), start=ZERO)),
+        "BRL",
+    )
+    total_amount = Money(
+        _quantize(Decimal(str(payroll.salary_amount.amount or ZERO)) + Decimal(str(payroll.transport_allowance_amount.amount or ZERO)) + Decimal(str(payroll.benefits_amount.amount or ZERO)) + Decimal(str(commission_total.amount or ZERO))),
+        "BRL",
+    )
+    update_fields = []
+    if payroll.commission_amount != commission_total:
+        payroll.commission_amount = commission_total
+        update_fields.append("commission_amount")
+    if payroll.total_amount != total_amount:
+        payroll.total_amount = total_amount
+        update_fields.append("total_amount")
+    if update_fields:
+        payroll.save(update_fields=update_fields)
+
+    _rebuild_payroll_commission_items(payroll=payroll, commission_entries=commission_entries)
+    _create_or_update_financial_movement(payroll=payroll)
 
 
 def remove_pending_workorder_commissions(*, workorder: WorkOrder) -> int:
@@ -159,6 +211,10 @@ def _rebuild_payroll_commission_items(*, payroll: CollaboratorPayroll, commissio
 
 
 def get_or_create_collaborator_financial_group(*, collaborator: WorkshopCollaborator) -> FinancialGroup:
+    payroll_group = FinancialGroup.objects.filter(workshop=collaborator.workshop, name__iexact="Folha de Pagamento").order_by("level", "id").first()
+    if payroll_group is not None:
+        return payroll_group
+
     expense_group = FinancialGroup.objects.filter(workshop=collaborator.workshop, parent__isnull=True, name__iexact="Despesas").order_by("id").first()
     if expense_group is None:
         expense_group = FinancialGroup.objects.create(workshop=collaborator.workshop, name="Despesas")
@@ -235,14 +291,6 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
 
 
 def _create_or_update_financial_movement(*, payroll: CollaboratorPayroll) -> FinancialMovement | None:
-    total_amount = Decimal(str(payroll.total_amount.amount or ZERO))
-    if total_amount <= ZERO:
-        if payroll.financial_movement_id:
-            payroll.financial_movement.delete()
-            payroll.financial_movement = None
-            payroll.save(update_fields=["financial_movement"])
-        return None
-
     movement = payroll.financial_movement or FinancialMovement()
     movement.workshop = payroll.workshop
     movement.user = payroll.collaborator.user
@@ -270,7 +318,7 @@ def recalculate_historical_commissions(*, workshop: Workshop | None = None, dry_
     touched_payroll_ids: set[int] = set()
 
     for entry in entry_queryset.order_by("id"):
-        if entry.workorder.budget_type != "sale":
+        if _resolve_workorder_budget_type(workorder=entry.workorder) != "sale":
             updated_entries += 1
             if entry.payroll_id is not None:
                 touched_payroll_ids.add(entry.payroll_id)
@@ -324,7 +372,10 @@ def recalculate_historical_commissions(*, workshop: Workshop | None = None, dry_
 def sync_collaborator_payroll(*, collaborator: WorkshopCollaborator, reference_date: date | None = None, lock_reference: bool = False) -> CollaboratorPayroll:
     resolved = _resolve_payroll_reference_date(collaborator=collaborator, reference_date=reference_date, lock_reference=lock_reference)
     existing_payroll = CollaboratorPayroll.objects.filter(collaborator=collaborator, reference_year=resolved.year, reference_month=resolved.month).select_related("financial_movement").first()
-    if existing_payroll and existing_payroll.financial_movement and existing_payroll.financial_movement.is_paid:
+    if _is_paid_payroll(payroll=existing_payroll):
+        assert existing_payroll is not None
+        commission_entries = sync_collaborator_commission_entries(collaborator=collaborator, reference_date=resolved, lock_reference=lock_reference)
+        _sync_paid_payroll_commission_entries(payroll=existing_payroll, commission_entries=commission_entries)
         return existing_payroll
 
     commission_entries = sync_collaborator_commission_entries(collaborator=collaborator, reference_date=resolved, lock_reference=lock_reference)

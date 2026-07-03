@@ -9,9 +9,9 @@
         @page { size: A4; margin: 6mm; }
         body { margin: 0; padding: 0; }
         .pdf-shell { width: 100%; box-sizing: border-box; }
-        .report-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        .report-table { width: 100%; border-collapse: collapse; }
         .report-table th { white-space: nowrap; line-height: 1.15; }
-        .report-table td { word-break: normal; overflow-wrap: anywhere; line-height: 1.2; }
+        .report-table td { word-break: normal; overflow-wrap: normal; line-height: 1.2; }
         .nowrap { white-space: nowrap; word-break: keep-all; overflow-wrap: normal; }
         @media print {
             body { background: white !important; }
@@ -46,10 +46,10 @@
                 <thead class="bg-gray-100 text-left uppercase text-[10px] tracking-[0.16em] text-gray-600">
                     <tr>
                         <th class="px-2 py-2 w-[8%]">O.S.</th>
-                        <th class="px-2 py-2 w-[21%]">Cliente</th>
+                        <th class="px-2 py-2 w-[20%]">Cliente</th>
                         <th class="px-2 py-2 w-[12%] nowrap">Entrega</th>
-                        <th class="px-2 py-2 w-[20%]">Veículo</th>
-                        <th class="px-2 py-2 w-[15%] text-right nowrap">Serviços</th>
+                        <th class="px-2 py-2 w-[22%]">Veículo</th>
+                        <th class="px-2 py-2 w-[14%] text-right nowrap">Serviços</th>
                         <th class="px-2 py-2 w-[8%] text-right nowrap">%</th>
                         <th class="px-2 py-2 w-[16%] text-right nowrap">Comissão</th>
                     </tr>

@@ -147,9 +147,9 @@
                                             <td>{{ row.collaborator_name }}</td>
                                             <td>{{ row.due_date|date:"d/m/Y" }}</td>
                                             <td>
-                                                <span class="inline-flex items-center gap-1 font-semibold {{ row.paid_indicator.class }}">
-                                                    <span class="material-icons text-base">{{ row.paid_indicator.icon }}</span>
-                                                    {{ row.paid_indicator.label }}
+                                                <span class="inline-flex items-center gap-1 whitespace-nowrap {{ row.paid_indicator.class }}" title="{{ row.status_label }}" aria-label="{{ row.status_label }}">
+                                                    <span class="material-icons text-base leading-none">{{ row.paid_indicator.icon }}</span>
+                                                    <span class="font-medium">{{ row.status_label }}</span>
                                                 </span>
                                             </td>
                                             <td>{{ row.salary_amount }}</td>
@@ -157,12 +157,13 @@
                                             <td>{{ row.benefits_amount }}</td>
                                             <td>{{ row.commission_amount }}</td>
                                             <td class="font-semibold">{{ row.total_amount }}</td>
-                                            <td>
+                                            <td class="text-right whitespace-nowrap">
                                                 <div class="flex justify-end gap-2">
-                                                    <button type="button" class="btn btn-ghost btn-xs" title="Editar folha" hx-get="{{ row.edit_url }}" hx-target="#payroll-edit-modal-container" hx-swap="innerHTML">
+                                                    <button type="button" class="btn btn-outline btn-primary btn-xs" title="Editar folha" aria-label="Editar folha" hx-get="{{ row.edit_url }}" hx-target="#payroll-edit-modal-container" hx-swap="innerHTML">
                                                         <span class="material-icons text-sm">edit</span>
+                                                        Editar
                                                     </button>
-                                                    <button type="button" class="btn btn-primary btn-xs" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{{ row.receipt_url }}', downloadUrl: '{{ row.receipt_url }}?download=1' } }))">
+                                                    <button type="button" class="btn btn-primary btn-xs" title="Abrir resumo da folha" aria-label="Abrir resumo da folha" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{{ row.receipt_url }}', downloadUrl: '{{ row.receipt_url }}?download=1' } }))">
                                                         Resumo
                                                     </button>
                                                 </div>
