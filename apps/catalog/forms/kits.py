@@ -2595,7 +2595,9 @@ class QuickProductEditForm(EquivalentProductsFormMixin, CoreModelForm):
                 **{
                     "x-data": """{
                         priceError: false,
+                        _calculatingMargin: false,
                         calculateMargin() {
+                            if (this._calculatingMargin) return;
                             const getRawValue = (fieldId) => {
                                 const el = document.getElementById(fieldId);
                                 return el ? parseFloat(el.value) || 0 : 0;
@@ -2617,12 +2619,16 @@ class QuickProductEditForm(EquivalentProductsFormMixin, CoreModelForm):
                                 margin = Math.round(margin * 100) / 100;
                                 if (marginEl) {
                                     marginEl.value = parseFloat(margin.toFixed(2)).toFixed(2).replace(".", ",");
+                                    this._calculatingMargin = true;
                                     marginEl.dispatchEvent(new Event('input', { bubbles: true }));
+                                    this._calculatingMargin = false;
                                 }
                             } else {
                                 if (marginEl) {
                                     marginEl.value = "0,00";
+                                    this._calculatingMargin = true;
                                     marginEl.dispatchEvent(new Event('input', { bubbles: true }));
+                                    this._calculatingMargin = false;
                                 }
                             }
                         }

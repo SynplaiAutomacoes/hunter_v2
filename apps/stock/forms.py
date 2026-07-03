@@ -2714,7 +2714,9 @@ class QuickProductForm(CoreModelForm):
                 **{
                     "x-data": """{
                         priceError: false,
+                        _calculatingMargin: false,
                         calculateMargin() {
+                            if (this._calculatingMargin) return;
                             const getVal = (id) => parseFloat(document.getElementById(id)?.value) || 0;
                             let cost = getVal("id_cost_price_0");
                             let sell = getVal("id_selling_price_0");
@@ -2723,7 +2725,9 @@ class QuickProductForm(CoreModelForm):
                             if (sell > 0) {
                                 let m = ((sell - cost) / sell) * 100;
                                 marginEl.value = m.toFixed(2).replace(".", ",");
+                                this._calculatingMargin = true;
                                 marginEl.dispatchEvent(new Event('input'));
+                                this._calculatingMargin = false;
                             }
                         }
                     }""",
