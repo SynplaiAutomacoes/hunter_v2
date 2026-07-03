@@ -36,6 +36,7 @@ dependencies = [
     "opentelemetry-instrumentation-logging>=0.53b0",
     "opentelemetry-instrumentation-django>=0.53b0",
     "opentelemetry-instrumentation-requests>=0.53b0",
+    "opentelemetry-instrumentation-psycopg>=0.53b0",
 ]
 
 [dependency-groups]

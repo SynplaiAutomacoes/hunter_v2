@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from decimal import Decimal
 from typing import Any
 
@@ -18,6 +17,7 @@ from django.views.generic import TemplateView
 
 from apps.core.domain.contracts.documents import DocumentRenderRequest
 from apps.core.infrastructure.pdf.renderer import render_template_request_to_pdf, build_pdf_http_response
+from apps.core.observability import observe_dependency_call
 from apps.core.presentation.favorites import FavoritePageLimitError, InvalidFavoritePageError, reorder_favorite_pages, toggle_favorite_page
 from apps.core.infrastructure.services.dashboard_query_service import (
     INDICATOR_LABELS,
@@ -93,15 +93,11 @@ class CEPLookupView(TemplateView):
         return self._fetch_cep_data(cep, defaults)
 
     def _fetch_cep_data(self, cep: str, defaults: dict[str, Any]) -> dict[str, Any]:
-        started_at = time.perf_counter()
         try:
             data = self._call_viacep(cep)
         except (requests.RequestException, ValueError):
             defaults["readonly"] = False
             return defaults
-        finally:
-            duration_ms = (time.perf_counter() - started_at) * 1000
-            external_calls_logger.warning("external_call service=viacep_lookup duration_ms=%.2f cep=%s", duration_ms, cep)
 
         if "erro" in data:
             defaults["readonly"] = False
@@ -116,9 +112,20 @@ class CEPLookupView(TemplateView):
 
     @staticmethod
     def _call_viacep(cep: str) -> dict[str, Any]:
-        response = requests.get(f"https://viacep.com.br/ws/{cep}/json/", timeout=1.5)
-        response.raise_for_status()
-        return response.json()
+        with observe_dependency_call(
+            logger=external_calls_logger,
+            dependency_type="http",
+            dependency_name="viacep",
+            operation="lookup_cep",
+            log_context={"cep": cep},
+        ) as dependency_call:
+            response = requests.get(f"https://viacep.com.br/ws/{cep}/json/", timeout=1.5)
+            dependency_call.set_http_status_code(response.status_code)
+            response.raise_for_status()
+            payload = response.json()
+            dependency_call.set_attribute("app.payload_type", type(payload).__name__)
+            dependency_call.success(extra={"cep": cep, "payload_type": type(payload).__name__})
+            return payload
 
 
 class FavoritePageToggleView(LoginRequiredMixin, View):
@@ -214,8 +221,7 @@ class DashboardFinancialReportView(View):
                 )
                 .annotate(
                     payment_total=ExpressionWrapper(
-                        F("first_installment_amount")
-                        + (F("installments_count") - 1) * F("remaining_installments_amount"),
+                        F("first_installment_amount") + (F("installments_count") - 1) * F("remaining_installments_amount"),
                         output_field=DecimalField(max_digits=14, decimal_places=2),
                     )
                 )

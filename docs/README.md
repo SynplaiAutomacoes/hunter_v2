@@ -17,6 +17,7 @@ Este arquivo centraliza a navegacao da documentacao tecnica interna do projeto.
 9. [Fiscal, NFe/NFSe e Webmania](09-fiscal-nfe-nfse-e-webmania.md)
 10. [Deploy, build e operacao](10-deploy-build-e-operacao.md)
 11. [Glossario](11-glossario.md)
+12. [Observabilidade e telemetria](12-observabilidade-e-telemetria.md)
 
 ## Mapa da documentacao
 
@@ -33,6 +34,7 @@ Este arquivo centraliza a navegacao da documentacao tecnica interna do projeto.
 | [09 - Fiscal, NFe/NFSe e Webmania](09-fiscal-nfe-nfse-e-webmania.md) | emissao, webhook, certificado e integracao |
 | [10 - Deploy, build e operacao](10-deploy-build-e-operacao.md) | Docker, Railway, startup e manutencao |
 | [11 - Glossario](11-glossario.md) | termos do dominio e nomenclatura recorrente |
+| [12 - Observabilidade e telemetria](12-observabilidade-e-telemetria.md) | arquitetura de logs, traces, metrics e dashboards |
 
 ## Atalhos por necessidade
 
@@ -46,5 +48,6 @@ Este arquivo centraliza a navegacao da documentacao tecnica interna do projeto.
 - Investigar financeiro: [Financeiro e DRE](08-financeiro-e-dre.md)
 - Investigar fiscal: [Fiscal, NFe/NFSe e Webmania](09-fiscal-nfe-nfse-e-webmania.md)
 - Investigar deploy: [Deploy, build e operacao](10-deploy-build-e-operacao.md)
+- Investigar performance e lag em producao: [Observabilidade e telemetria](12-observabilidade-e-telemetria.md)
 
 [Voltar ao README principal](../README.md) | [Ir para Visao geral do produto](01-visao-geral-do-produto.md)

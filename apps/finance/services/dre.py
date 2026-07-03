@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -9,10 +11,14 @@ from djmoney.money import Money
 from django.db.models import Q
 
 from apps.budget.service_costs import calculate_mechanic_service_cost
+from apps.core.observability import build_business_metric_attributes, record_business_operation
 from apps.finance.models import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.models.workshops import Workshop
+
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +74,8 @@ def build_dre_calculation(
 
     if not workshops or start_date is None or end_date is None or start_date > end_date:
         return _empty_result()
+
+    started_at = time.perf_counter()
 
     tipo_data = _normalize_tipo_data(tipo_data)
     include_workshop_ref = len(list(workshops)) > 1
@@ -294,6 +302,26 @@ def build_dre_calculation(
         {"label": "Receita Líquida", "amount": total_receita_bruta_de_vendas, "accent": "text-sky-700"},
         {"label": "Resultado Operacional", "amount": total_resultado_operacional, "accent": "text-amber-700"},
     ]
+
+    workshop_ids = [w.pk for w in workshops]
+    duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+    attributes = build_business_metric_attributes(
+        operation_name="build_dre_calculation",
+        operation_group="finance",
+        result="success",
+    )
+    record_business_operation(duration_ms=duration_ms, attributes=attributes)
+    logger.info(
+        "business_operation_completed",
+        extra={
+            "operation_name": "build_dre_calculation",
+            "operation_group": "finance",
+            "duration_ms": duration_ms,
+            "result": "success",
+            "workshop_ids": workshop_ids,
+            "tipo_data": tipo_data,
+        },
+    )
 
     return DreCalculationResult(rows=rows, summary_cards=summary_cards)
 

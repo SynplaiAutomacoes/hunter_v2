@@ -94,6 +94,8 @@ O projeto possui configuracao de logging no proprio Django e middleware opcional
 - `PERF_LOG_QUERIES`
 - `PERF_LOG_MIN_MS`
 
+Para a arquitetura alvo de observabilidade, incluindo metrics OTLP, traces correlacionados, padrao de labels e dashboards, consulte tambem [Observabilidade e telemetria](12-observabilidade-e-telemetria.md).
+
 ## Checklist operacional de subida
 
 Antes de considerar o ambiente saudavel, confira:
