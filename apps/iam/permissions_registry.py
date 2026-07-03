@@ -261,11 +261,12 @@ REGISTRY: dict[tuple[str, str], PermissionInfo] = {
         visible=True,
         description="Gerenciar dias trabalhados para apuração de custos operacionais.",
     ),
+    ("workshops", "workshopcostholiday"): PermissionInfo(visible=False, auto_grant=True),
 }
 
 
 def get_perm_info(app_label: str, model: str) -> PermissionInfo:
-    return REGISTRY.get((app_label, model), PermissionInfo())
+    return REGISTRY.get((app_label, model.lower()), PermissionInfo())
 
 
 def is_visible(app_label: str, model: str) -> bool:
