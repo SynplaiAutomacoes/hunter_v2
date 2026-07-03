@@ -115,21 +115,47 @@
 
     <section class="card border border-base-300 bg-base-100 shadow-sm">
         <div class="card-body gap-4 p-5">
-            <div>
+            <div class="flex items-center justify-between">
                 <h2 class="text-lg font-bold text-base-content">Selecionar clientes</h2>
+                <div class="tabs tabs-box" role="tablist">
+                    <button
+                        type="button"
+                        class="tab tab-sm"
+                        :class="{ 'tab-active': activeTab === 'manual' }"
+                        @click="activeTab = 'manual'"
+                        role="tab"
+                    >
+                        Manual
+                    </button>
+                    <button
+                        type="button"
+                        class="tab tab-sm"
+                        :class="{ 'tab-active': activeTab === 'segment' }"
+                        @click="activeTab = 'segment'"
+                        role="tab"
+                    >
+                        Segmentação
+                    </button>
+                </div>
             </div>
 
-            <div
-                id="customer-message-group-customer-picker"
-                hx-get="{{ customer_picker_url }}"
-                hx-trigger="load"
-                hx-target="this"
-                hx-swap="innerHTML"
-                hx-include="#customer-message-group-root [name='selected_customers'], #customer-message-group-root [name='customer_picker_selection']"
-            >
-                <div class="flex min-h-60 items-center justify-center rounded-box border border-dashed border-base-300 bg-base-200/40 p-6 text-sm text-base-content/60">
-                    Carregando clientes disponiveis...
+            <div x-show="activeTab === 'manual'" x-cloak>
+                <div
+                    id="customer-message-group-customer-picker"
+                    hx-get="{{ customer_picker_url }}"
+                    hx-trigger="load"
+                    hx-target="this"
+                    hx-swap="innerHTML"
+                    hx-include="#customer-message-group-root [name='selected_customers'], #customer-message-group-root [name='customer_picker_selection']"
+                >
+                    <div class="flex min-h-60 items-center justify-center rounded-box border border-dashed border-base-300 bg-base-200/40 p-6 text-sm text-base-content/60">
+                        Carregando clientes disponiveis...
+                    </div>
                 </div>
+            </div>
+
+            <div x-show="activeTab === 'segment'" x-cloak>
+                {% include 'messaging/partials/customer_message_group_segment_builder.html' %}
             </div>
         </div>
     </section>
@@ -155,12 +181,24 @@
                 selectedCustomers: [],
                 pickerSelectionIds: [],
                 messageTemplates: [],
+                activeTab: 'manual',
                 pickerTableId: config.pickerTableId,
                 selectedCustomersElementId: config.selectedCustomersElementId,
                 messageTemplatesElementId: config.messageTemplatesElementId,
                 init() {
                     this.selectedCustomers = this.parseJsonScript(this.selectedCustomersElementId);
                     this.messageTemplates = this.parseJsonScript(this.messageTemplatesElementId);
+                    const filterCriteriaEl = document.getElementById('customer-message-group-filter-criteria-data');
+                    if (filterCriteriaEl) {
+                        try {
+                            const data = JSON.parse(filterCriteriaEl.textContent || 'null');
+                            if (data && data.rules && data.rules.length > 0) {
+                                this.activeTab = 'segment';
+                            }
+                        } catch (e) {
+                            // ignore
+                        }
+                    }
                 },
                 parseJsonScript(elementId) {
                     const element = document.getElementById(elementId);

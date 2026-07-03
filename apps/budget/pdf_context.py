@@ -22,7 +22,10 @@ def is_visible_pdf_pricing_line(line: Any) -> bool:
     """Treat a zero-quantity or zero-priced budget line as removed from every PDF."""
     if line.quantity <= 0:
         return False
-    line_value = line.raw_total - line.shipping if line.kind == "product" else line.raw_total
+    if line.kind == "product":
+        line_value = line.raw_total - line.shipping
+    else:
+        line_value = line.raw_total + line.shipping
     return line_value.amount > _ZERO_DECIMAL
 
 
@@ -38,20 +41,21 @@ def _build_pdf_pages(produtos: list[dict], servicos: list[dict], kits: list[dict
     ]
 
 
-def calculate_markup_multiplier(*, total_budget_value: Money, total_costs_products_value: Money, total_costs_services_value: Money, total_products_shipping: Money = Money(0, "BRL")) -> Decimal:
-    total_cost_amount = total_costs_products_value.amount + total_costs_services_value.amount + total_products_shipping.amount
+def calculate_markup_multiplier(*, total_budget_value: Money, total_costs_products_value: Money, total_costs_services_value: Money, total_products_shipping: Money = Money(0, "BRL"), total_services_shipping: Money = Money(0, "BRL")) -> Decimal:
+    total_cost_amount = total_costs_products_value.amount + total_costs_services_value.amount + total_products_shipping.amount + total_services_shipping.amount
     if total_cost_amount <= _ZERO_DECIMAL:
         return _ZERO_DECIMAL
 
     return (total_budget_value.amount / total_cost_amount).quantize(_TWO_DECIMAL_PLACES, rounding=ROUND_HALF_UP)
 
 
-def _calculate_soma_markup(*, total_budget_value: Money, total_costs_products_value: Money, total_costs_services_value: Money, total_products_shipping: Money = Money(0, "BRL")) -> Decimal:
+def _calculate_soma_markup(*, total_budget_value: Money, total_costs_products_value: Money, total_costs_services_value: Money, total_products_shipping: Money = Money(0, "BRL"), total_services_shipping: Money = Money(0, "BRL")) -> Decimal:
     return calculate_markup_multiplier(
         total_budget_value=total_budget_value,
         total_costs_products_value=total_costs_products_value,
         total_costs_services_value=total_costs_services_value,
         total_products_shipping=total_products_shipping,
+        total_services_shipping=total_services_shipping,
     )
 
 
@@ -95,6 +99,7 @@ def _merge_selected_product_rows(produtos: list[dict]) -> list[dict]:
             unit_price = money_div(existing["total_price"] - existing["shipping"], quantity)
             existing["unit_price"] = unit_price
             existing["adjusted_unit_price"] = unit_price
+            existing["display_unit_price"] = money_div(existing["total_price"], quantity)
 
     return list(merged_rows.values())
 
@@ -109,6 +114,7 @@ def _merge_selected_service_rows(servicos: list[dict]) -> list[dict]:
             continue
 
         existing["quantity"] = int(existing.get("quantity") or 0) + int(row.get("quantity") or 0)
+        existing["shipping"] = existing.get("shipping", Money(0, "BRL")) + row.get("shipping", Money(0, "BRL"))
         existing["total_price"] = existing.get("total_price", Money(0, "BRL")) + row.get("total_price", Money(0, "BRL"))
         existing["service_cost_price"] = existing.get("service_cost_price", Money(0, "BRL")) + row.get("service_cost_price", Money(0, "BRL"))
         existing["service_mechanic_cost_price"] = existing.get("service_mechanic_cost_price", Money(0, "BRL")) + row.get("service_mechanic_cost_price", Money(0, "BRL"))
@@ -118,6 +124,7 @@ def _merge_selected_service_rows(servicos: list[dict]) -> list[dict]:
         quantity = int(existing.get("quantity") or 0)
         if quantity > 0:
             existing["unit_price"] = money_div(existing["total_price"], quantity)
+            existing["display_unit_price"] = money_div(existing["total_price"], quantity)
 
     for row in merged_rows.values():
         row["duration_display"] = format_duration_display(timedelta(seconds=int(row.pop("_duration_seconds", 0) or 0)))
@@ -141,6 +148,7 @@ def _build_snapshot_product_rows(*, snapshot) -> list[dict[str, Any]]:
             "location": line.location or "-",
             "unit_price": line.unit_price,
             "adjusted_unit_price": line.adjusted_unit_price,
+            "display_unit_price": money_div(line.raw_total, line.quantity) if line.quantity > 0 else zero_money(),
             "shipping": line.shipping,
             "total_price": line.total_price,
             "product_cost_price": line.cost_total,
@@ -166,14 +174,17 @@ def _build_snapshot_service_rows(*, budget: Any, snapshot) -> list[dict[str, Any
             fallback_cost=fallback_cost,
             is_third_party=line.third_party,
         )
-        total_price = line.raw_total if line.has_kit_source else line.adjusted_total
-        unit_price = money_div(total_price, line.quantity) if line.has_kit_source else line.adjusted_unit_price
+        total_price = (line.raw_total if line.has_kit_source else line.adjusted_total) + line.shipping
+        unit_price_no_shipping = money_div(total_price - line.shipping, line.quantity) if line.quantity > 0 else zero_money()
+        display_unit_price = money_div(total_price, line.quantity) if line.quantity > 0 else zero_money()
         servicos.append(
             {
                 "id": line.entity_id,
                 "description": line.description,
                 "quantity": line.quantity,
-                "unit_price": unit_price,
+                "unit_price": unit_price_no_shipping,
+                "display_unit_price": display_unit_price,
+                "shipping": line.shipping,
                 "total_price": total_price,
                 "service_cost_price": fallback_cost,
                 "service_mechanic_cost_price": service_mechanic_cost_price,
@@ -222,8 +233,10 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
 
     total_produtos = budget.selected_items_total_products_without_shipping
     total_servicos = budget.selected_items_total_services_value
-    desconto = budget.selected_items_total_base_value - budget.selected_items_total_budget_value
-    total_geral = budget.selected_items_total_budget_value
+    desconto = budget.summary_discount_value
+    total_geral = budget.summary_total_before_benefit_value
+    benefit_label = budget.benefit_summary_label
+    benefit_total = budget.benefit_summary_total_value
 
     discount_type = budget.discount_type or WorkOrderDiscountType.BOTH
 
@@ -265,6 +278,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 "location": getattr(line.item.product, "location", "") or "-",
                 "unit_price": line.unit_price,
                 "adjusted_unit_price": line.unit_price,
+                "display_unit_price": money_div(line.total_price, line.item.quantity) if line.item.quantity > 0 else zero_money(),
                 "shipping": line.item.shipping,
                 "total_price": line.total_price,
                 "product_cost_price": line.item.product_cost_price * line.item.quantity,
@@ -289,11 +303,14 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 fallback_cost=line.warranty_total_price,
                 is_third_party=is_third_party,
             )
+            item_service_shipping = getattr(line.item, "service_shipping", Money(0, "BRL"))
             servico = {
                 "id": line.item.service_id,
                 "description": line.item.description,
                 "quantity": line.item.quantity,
-                "unit_price": line.unit_price,
+                "unit_price": money_div(line.total_price - item_service_shipping, line.item.quantity) if line.item.quantity > 0 else zero_money(),
+                "display_unit_price": money_div(line.total_price, line.item.quantity) if line.item.quantity > 0 else zero_money(),
+                "shipping": getattr(line.item, "service_shipping", Money(0, "BRL")),
                 "total_price": line.total_price,
                 "service_cost_price": line.warranty_total_price,
                 "service_mechanic_cost_price": service_mechanic_cost_price,
@@ -319,6 +336,8 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                 if total_quantity <= 0:
                     continue
 
+                kit_product_total = (override.product_selling_price * total_quantity) + override.shipping
+
                 produto = {
                     "id": override.product_id,
                     "description": product.name,
@@ -329,8 +348,9 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                     "location": getattr(product, "location", "") or "-",
                     "unit_price": override.product_selling_price,
                     "adjusted_unit_price": override.product_selling_price,
+                    "display_unit_price": money_div(kit_product_total, total_quantity) if total_quantity > 0 else zero_money(),
                     "shipping": override.shipping,
-                    "total_price": (override.product_selling_price * total_quantity) + override.shipping,
+                    "total_price": kit_product_total,
                     "product_cost_price": override.product_cost_price * total_quantity,
                     "profit_value": (override.product_selling_price * total_quantity) - (override.product_cost_price * total_quantity),
                     "show_kit_duplicate_warning": False,
@@ -357,18 +377,22 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
                     is_third_party=service.is_third_party,
                 )
 
+                kit_service_total = (override.service_selling_price * total_quantity) + (service.shipping or Money(0, "BRL"))
+
                 servico = {
                     "id": override.service_id,
                     "description": service.name,
                     "quantity": total_quantity,
                     "unit_price": override.service_selling_price,
-                    "total_price": override.service_selling_price * total_quantity,
+                    "display_unit_price": money_div(kit_service_total, total_quantity) if total_quantity > 0 else zero_money(),
+                    "total_price": kit_service_total,
                     "service_cost_price": service_cost_price,
                     "service_mechanic_cost_price": service_mechanic_cost_price,
                     "profit_value": (override.service_selling_price * total_quantity) - service_mechanic_cost_price,
                     "duration_display": format_duration_display(override.duration * total_quantity) if override.duration else "00h 00m",
                     "_duration_seconds": _duration_seconds(override.duration) * total_quantity if override.duration else 0,
                     "item_benefit_type": kit_item.item_benefit_type,
+                    "shipping": service.shipping or Money(0, "BRL"),
                 }
 
                 if servico["item_benefit_type"] != "normal":
@@ -376,36 +400,29 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
 
                 servicos.append(servico)
 
-            kits.append({
-                "id": kit_item.kit_id,
-                "description": kit_item.description,
-                "quantity": kit_quantity,
-                "product_count": kit_item.effective_kit_products_count,
-                "service_count": kit_item.effective_kit_services_count,
-                "products_summary": line.products_summary,
-                "services_summary": line.services_summary,
-            })
+            kits.append(
+                {
+                    "id": kit_item.kit_id,
+                    "description": kit_item.description,
+                    "quantity": kit_quantity,
+                    "product_count": kit_item.effective_kit_products_count,
+                    "service_count": kit_item.effective_kit_services_count,
+                    "products_summary": line.products_summary,
+                    "services_summary": line.services_summary,
+                }
+            )
         produtos, servicos = _merge_selected_pdf_rows(produtos=produtos, servicos=servicos)
     else:
         produtos = _build_snapshot_product_rows(snapshot=snapshot)
         servicos = _build_snapshot_service_rows(budget=budget, snapshot=snapshot)
         kits = []
 
-    def _is_chargeable(item: dict) -> bool:
-        return item.get("item_benefit_type", "normal") == "normal" and not item.get("is_customer_supplied", False)
-
-    if not is_warranty_or_courtesy:
-        chargeable_produtos_total = sum(
-            (p["total_price"] - p["shipping"]) for p in produtos if _is_chargeable(p)
-        )
-        chargeable_servicos_total = sum(
-            s["total_price"] for s in servicos if _is_chargeable(s)
-        )
-        total_produtos = chargeable_produtos_total
-        total_servicos = chargeable_servicos_total
+    total_produtos = sum((p["total_price"] for p in produtos), Money(0, "BRL"))
+    total_servicos = sum((s["total_price"] for s in servicos), Money(0, "BRL"))
     workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=budget.workshop)
     total_services_cost_original_value = sum((line["service_cost_price"] for line in servicos), Money(0, "BRL"))
     total_services_mechanic_cost_value = sum((line["service_mechanic_cost_price"] for line in servicos), Money(0, "BRL"))
+    total_services_shipping_value = sum((line["shipping"] for line in servicos), Money(0, "BRL"))
     total_profit_service_value = sum((line["profit_value"] for line in servicos), Money(0, "BRL"))
     total_products_cost_value = sum((line["product_cost_price"] for line in produtos), Money(0, "BRL"))
     total_products_shipping_value = sum((line["shipping"] for line in produtos), Money(0, "BRL"))
@@ -415,6 +432,7 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         total_costs_products_value=total_products_cost_value,
         total_costs_services_value=total_services_mechanic_cost_value,
         total_products_shipping=total_products_shipping_value,
+        total_services_shipping=total_services_shipping_value,
     )
 
     return {
@@ -430,6 +448,8 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         "discount_services": discount_services,
         "discount_type": budget.discount_type or WorkOrderDiscountType.BOTH,
         "total_geral": total_geral,
+        "benefit_label": benefit_label,
+        "benefit_total": benefit_total,
         "soma_markup": soma_markup,
         "soma_markup_display": _format_decimal_multiplier(soma_markup),
         "observations": budget.observations if observacao is None else observacao,

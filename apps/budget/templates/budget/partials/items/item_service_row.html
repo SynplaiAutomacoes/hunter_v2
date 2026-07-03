@@ -44,7 +44,7 @@
     <td class="text-right">{{ service_mechanic_cost|default:item.service_cost_price }}</td>
     <td class="text-right">
         {% if step6 %}
-            {% if budget.is_warranty_budget %}R$ 0,00{% else %}{{ slider_price }}{% endif %}
+            {{ slider_price }}
         {% else %}
             {{ item.display_service_selling_price }}
         {% endif %}

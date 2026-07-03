@@ -657,7 +657,7 @@ class Budget(TimeStampedModel):
     def sync_discount_fields(self) -> None:
         self.invalidate_pricing_snapshot_cache()
         resolved_discount_value, resolved_discount_percentage = resolve_discount_fields(
-            total_base_value=self.display_total_base_value if self.is_warranty_budget else self.total_base_value,
+            total_base_value=self.total_base_value,
             discount_value=self.discount_value,
             discount_percentage=self.discount_percentage,
         )
@@ -740,42 +740,34 @@ class Budget(TimeStampedModel):
 
     @property
     def warranty_total_products_value(self) -> Money:
-        return self.total_costs_products_value + self.total_products_shipping
+        return self.benefit_summary_total_value
 
     @property
     def warranty_total_products_value_without_shipping(self) -> Money:
-        return self.total_costs_products_value
+        return self.benefit_summary_total_value
 
     @property
     def warranty_total_services_value(self) -> Money:
-        return self.total_costs_services_value + self.total_services_shipping
+        return Money(0, "BRL")
 
     @property
     def warranty_total_base_value(self) -> Money:
-        return self.warranty_total_products_value + self.warranty_total_services_value
+        return self.benefit_summary_total_value
 
     @property
     def display_total_products_by_slider(self) -> Money:
-        if self.is_warranty_budget:
-            return self.warranty_total_products_value
         return self.get_total_products_by_slider
 
     @property
     def display_total_products_by_slider_without_shipping(self) -> Money:
-        if self.is_warranty_budget:
-            return self.warranty_total_products_value_without_shipping
         return self.get_total_products_by_slider_without_shipping
 
     @property
     def display_total_services_by_slider(self) -> Money:
-        if self.is_warranty_budget:
-            return self.warranty_total_services_value
         return self.get_total_services_by_slider
 
     @property
     def display_total_base_value(self) -> Money:
-        if self.is_warranty_budget:
-            return self.warranty_total_base_value
         return self.total_base_value
 
     @property
@@ -792,37 +784,36 @@ class Budget(TimeStampedModel):
 
     @property
     def display_resolved_discount_value(self) -> Money:
-        if not self.is_warranty_budget:
-            return self.resolved_discount_value
-
-        resolved_discount_value, _ = resolve_discount_fields(
-            total_base_value=self.display_total_base_value,
-            discount_value=self.discount_value,
-            discount_percentage=self.discount_percentage,
-        )
-        return resolved_discount_value
+        return self.resolved_discount_value
 
     @property
     def display_total_budget_value(self) -> Money:
-        return self.display_total_base_value - self.display_resolved_discount_value
+        return self.total_budget_value
 
     @property
     def selected_items_total_products_without_shipping(self) -> Money:
-        if self.is_warranty_budget:
-            return self.warranty_total_products_value_without_shipping
-        return self.total_products_value - self.total_products_shipping
+        total = Money(0, "BRL")
+        for item in self._iter_items():
+            total += item.summary_products_total_without_shipping
+        return total
 
     @property
     def selected_items_total_services_value(self) -> Money:
-        if self.is_warranty_budget:
-            return self.warranty_total_services_value
-        return self.total_services_value
+        total = Money(0, "BRL")
+        for item in self._iter_items():
+            total += item.summary_services_total
+        return total
+
+    @property
+    def selected_items_total_shipping_value(self) -> Money:
+        total = Money(0, "BRL")
+        for item in self._iter_items():
+            total += item.summary_shipping_total
+        return total
 
     @property
     def selected_items_total_base_value(self) -> Money:
-        if self.is_warranty_budget:
-            return self.warranty_total_base_value
-        return self.total_products_value + self.total_services_value
+        return self.selected_items_total_products_without_shipping + self.selected_items_total_services_value + self.selected_items_total_shipping_value
 
     @property
     def selected_items_total_budget_value(self) -> Money:
@@ -834,16 +825,53 @@ class Budget(TimeStampedModel):
         return self.selected_items_total_base_value - resolved_discount_value
 
     @property
-    def display_resolved_discount_percentage(self) -> Decimal:
-        if not self.is_warranty_budget:
-            return self.resolved_discount_percentage
+    def has_benefit_items(self) -> bool:
+        return self.warranty_items_count > 0 or self.courtesy_items_count > 0
 
-        _, resolved_discount_percentage = resolve_discount_fields(
-            total_base_value=self.display_total_base_value,
+    @property
+    def benefit_summary_label(self) -> str:
+        if self.warranty_items_count and self.courtesy_items_count:
+            return "Garantia/Cortesia"
+        if self.warranty_items_count:
+            return "Garantia"
+        if self.courtesy_items_count:
+            return "Cortesia"
+        return ""
+
+    @property
+    def benefit_summary_total_value(self) -> Money:
+        benefit_total = Money(0, "BRL")
+        for item in self._iter_items():
+            if item.is_benefit_item:
+                benefit_total += item.total_price
+        return benefit_total
+
+    @property
+    def summary_chargeable_base_value(self) -> Money:
+        amount = self.selected_items_total_base_value.amount - self.benefit_summary_total_value.amount
+        return Money(max(amount, Decimal("0.00")), "BRL")
+
+    @property
+    def summary_discount_value(self) -> Money:
+        resolved_discount_value, _ = resolve_discount_fields(
+            total_base_value=self.summary_chargeable_base_value,
             discount_value=self.discount_value,
             discount_percentage=self.discount_percentage,
         )
-        return resolved_discount_percentage
+        return resolved_discount_value
+
+    @property
+    def summary_total_before_benefit_value(self) -> Money:
+        return self.selected_items_total_base_value
+
+    @property
+    def summary_amount_due_value(self) -> Money:
+        amount = self.summary_chargeable_base_value.amount - self.summary_discount_value.amount
+        return Money(max(amount, Decimal("0.00")), "BRL")
+
+    @property
+    def display_resolved_discount_percentage(self) -> Decimal:
+        return self.resolved_discount_percentage
 
     @property
     def has_local_items(self):
@@ -982,8 +1010,7 @@ class BudgetItem(TimeStampedModel):
     # Dados
     description = models.CharField(verbose_name="Descrição", max_length=100, default="")
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
-    is_local = models.BooleanField(verbose_name="Item Local", default=False,
-                                   help_text="Item criado apenas neste orçamento, não cadastrado no banco de dados")
+    is_local = models.BooleanField(verbose_name="Item Local", default=False, help_text="Item criado apenas neste orçamento, não cadastrado no banco de dados")
     local_item_type = models.CharField(
         verbose_name="Tipo do Item Local",
         max_length=20,
@@ -1004,8 +1031,7 @@ class BudgetItem(TimeStampedModel):
     service_shipping = MoneyField(verbose_name="Frete do Serviço", max_digits=14, decimal_places=2, default=0)
     duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
     kit_snapshot_frozen = models.BooleanField(verbose_name="Snapshot do kit congelado", default=False)
-    item_benefit_type = models.CharField(verbose_name="Tipo de Benefício", max_length=20,
-                                         choices=BudgetItemBenefitType.choices, default=BudgetItemBenefitType.NORMAL)
+    item_benefit_type = models.CharField(verbose_name="Tipo de Benefício", max_length=20, choices=BudgetItemBenefitType.choices, default=BudgetItemBenefitType.NORMAL)
 
     def save(self, *args, **kwargs):
         is_new = not self.pk
@@ -1291,6 +1317,28 @@ class BudgetItem(TimeStampedModel):
         return len(self.effective_kit_services)
 
     @property
+    def is_benefit_item(self) -> bool:
+        return self.item_benefit_type != BudgetItemBenefitType.NORMAL
+
+    @property
+    def summary_products_total_without_shipping(self) -> Money:
+        if self.kit:
+            return self.get_kit_products_total() - self.get_kit_products_shipping_total()
+        return self.product_selling_price * self.quantity
+
+    @property
+    def summary_services_total(self) -> Money:
+        if self.kit:
+            return self.get_kit_services_total()
+        return self.service_selling_price * self.quantity
+
+    @property
+    def summary_shipping_total(self) -> Money:
+        if self.kit:
+            return self.get_kit_products_shipping_total()
+        return self.shipping + (self.service_shipping * self.quantity)
+
+    @property
     def total_price(self):
         # Se for kit, calcular com base nos overrides
         if self.kit:
@@ -1300,46 +1348,24 @@ class BudgetItem(TimeStampedModel):
 
     @property
     def display_product_selling_price(self) -> Money:
-        if self.budget.is_warranty_budget:
-            return Money(0, "BRL")
         return self.product_selling_price
 
     @property
     def display_service_selling_price(self) -> Money:
-        if self.budget.is_warranty_budget:
-            return Money(0, "BRL")
         return self.service_selling_price
 
     @property
     def display_total_price(self) -> Money:
-        if not self.budget.is_warranty_budget:
-            return self.total_price
         if self.kit:
-            return self.get_kit_products_cost_total() + self.get_kit_products_shipping_total() + self.get_kit_services_cost_total()
-        if self.service_id or (self.is_local and not self.product_id):
-            return (self.service_cost_price * self.quantity) + (self.service_shipping * self.quantity)
-        if (self.product_id or self.is_local) and ((self.product_cost_price and self.product_cost_price.amount > 0) or (self.shipping and self.shipping.amount > 0)):
-            return (self.product_cost_price * self.quantity) + self.shipping
-        return self.service_cost_price * self.quantity
+            return self.get_kit_total_with_overrides()
+        return self.total_price
 
     @property
     def display_unit_price(self) -> Money:
-        if not self.budget.is_warranty_budget:
-            return self.unit_price
-        if self.quantity <= 0:
-            return Money(0, "BRL")
-        if self.kit:
-            return self.kit_unit_cost
-        if self.service_id or (self.is_local and not self.product_id):
-            return self.service_cost_price + self.service_shipping
-        if (self.product_id or self.is_local) and ((self.product_cost_price and self.product_cost_price.amount > 0) or (self.shipping and self.shipping.amount > 0)):
-            return self.product_cost_price
-        return self.service_cost_price
+        return self.unit_price
 
     @property
     def display_kit_unit_price(self) -> Money:
-        if self.budget.is_warranty_budget:
-            return Money(0, "BRL")
         return self.kit_unit_price
 
     def _get_kit_unit_cost_and_price(self) -> tuple[Money, Money]:
@@ -1684,6 +1710,7 @@ class BudgetHistory(TimeStampedModel):
     user = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, related_name="budget_history_entries", null=True, blank=True)
     action = models.CharField(verbose_name="Ação", max_length=30, choices=Action.choices)
     reason = models.TextField(verbose_name="Justificativa", blank=True)
+    snapshot = models.JSONField(verbose_name="Snapshot dos itens", default=dict, blank=True)
 
     class Meta:
         verbose_name = "Histórico do orçamento"

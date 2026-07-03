@@ -178,9 +178,16 @@ def build_dre_calculation(
         component_label="Custo Mão de Obra da Oficina",
         amount_resolver=lambda workorder: getattr(workorder, "dre_local_cost", _ZERO),
     )
+    detail_fretes_servicos = _build_workorder_cost_component_details(
+        workorders=delivered_workorders,
+        include_workshop_ref=include_workshop_ref,
+        budget_plan=cost_budget_plan,
+        component_label="Fretes",
+        amount_resolver=lambda workorder: workorder.total_services_shipping,
+    )
 
     total_custos_de_mercadorias_vendidas = _sum_detail_amounts(detail_taxas_maquininha) + _sum_detail_amounts(detail_custos_pecas) + _sum_detail_amounts(detail_fretes)
-    total_custos_de_servicos_vendidos = _sum_detail_amounts(detail_servicos_terceiros) + _sum_detail_amounts(detail_mao_de_obra)
+    total_custos_de_servicos_vendidos = _sum_detail_amounts(detail_servicos_terceiros) + _sum_detail_amounts(detail_mao_de_obra) + _sum_detail_amounts(detail_fretes_servicos)
     total_custos = total_custos_de_mercadorias_vendidas + total_custos_de_servicos_vendidos
 
     detail_custos_mercadorias_vendidas = _build_static_group_tree(
@@ -194,6 +201,7 @@ def build_dre_calculation(
         sections=[
             ("Serviços Terceiros", detail_servicos_terceiros),
             ("Custo Mão de Obra da Oficina", detail_mao_de_obra),
+            ("Fretes", detail_fretes_servicos),
         ]
     )
     # ------

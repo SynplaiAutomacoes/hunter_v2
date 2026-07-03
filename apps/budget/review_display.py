@@ -54,6 +54,7 @@ class _SelectedItemContribution:
     labor_raw_total: Money = field(default_factory=zero_money)
     labor_duration: timedelta = field(default_factory=timedelta)
     labor_quantity: int = 0
+    service_shipping: Money = field(default_factory=zero_money)
     third_party_raw_total: Money = field(default_factory=zero_money)
     third_party_cost_total: Money = field(default_factory=zero_money)
     allocated_product_base: Money = field(default_factory=zero_money)
@@ -98,6 +99,7 @@ def _build_direct_service_contribution(*, item: Any, sort_order: int) -> _Select
         item=item,
         sort_order=sort_order,
         is_direct_service=True,
+        service_shipping=item.service_shipping,
     )
 
     raw_total = item.service_selling_price * quantity
@@ -262,7 +264,8 @@ def build_budget_review_display(*, budget: Any) -> BudgetReviewDisplay:
 
         if contribution.is_direct_service:
             is_third_party = contribution.third_party_raw_total.amount > 0
-            total_price = contribution.third_party_raw_total if is_third_party else contribution.allocated_labor_total
+            labor_total = contribution.allocated_labor_total + contribution.service_shipping
+            total_price = contribution.third_party_raw_total + contribution.service_shipping if is_third_party else labor_total
             warranty_total_price = contribution.third_party_cost_total if is_third_party else contribution.allocated_labor_cost
             direct_services.append(
                 BudgetReviewDirectServiceLine(

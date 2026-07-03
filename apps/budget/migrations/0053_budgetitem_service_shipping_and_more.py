@@ -11,7 +11,8 @@ class Migration(migrations.Migration):
         ("budget", "0052_budgetitem_local_item_type"),
     ]
 
-    operations = [
+    database_operations: list = []
+    state_operations = [
         migrations.AddField(
             model_name="budgetitem",
             name="service_shipping",
@@ -31,5 +32,12 @@ class Migration(migrations.Migration):
                 editable=False,
                 max_length=3,
             ),
+        ),
+    ]
+
+    operations = [
+        migrations.SeparateDatabaseAndState(
+            database_operations=database_operations,
+            state_operations=state_operations,
         ),
     ]

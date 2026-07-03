@@ -9,15 +9,27 @@
     </div>
     <div class="border rounded-xl flex justify-between items-center p-3 rounded mb-2">
         <span>Total Frete</span>
-        <span>{{ budget.total_shipping }}</span>
+        <span>{{ budget.selected_items_total_shipping_value }}</span>
     </div>
     <div class="border rounded-xl flex justify-between items-center p-3 rounded mb-2">
         <span>Tempo Total</span>
         <span>{{ budget.total_duration_display }}</span>
     </div>
+    {% if budget.display_resolved_discount_value.amount > 0 %}
+    <div class="border rounded-xl flex justify-between items-center p-3 rounded mb-2 border-warning/30 bg-warning/10 text-base-content">
+        <span class="font-medium text-warning">Desconto</span>
+        <span class="font-medium text-warning">- {{ budget.display_resolved_discount_value }}</span>
+    </div>
+    {% endif %}
+    {% if budget.benefit_summary_total_value.amount > 0 %}
+    <div class="border rounded-xl flex justify-between items-center p-3 rounded mb-2 border-info/30 bg-info/10 text-base-content">
+        <span class="font-medium text-info">{{ budget.benefit_summary_label }}</span>
+        <span class="font-medium text-info">- {{ budget.benefit_summary_total_value }}</span>
+    </div>
+    {% endif %}
     <div class="border rounded-xl flex justify-between items-center p-3 rounded mb-2">
         <span class="font-bold">Total Geral</span>
-        <span class="font-bold">{{ budget.selected_items_total_budget_value }}</span>
+        <span class="font-bold">{{ budget.summary_total_before_benefit_value }}</span>
     </div>
     {% if budget.warranty_items_count %}
     <div class="flex items-center gap-2 text-sm p-3">

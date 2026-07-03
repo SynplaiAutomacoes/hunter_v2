@@ -322,7 +322,7 @@
                         </td>
                         <td class="p-1 text-center">{{ p.quantity }}</td>
                         <td class="p-1 text-center">{% if p.is_customer_supplied %}Sim{% else %}Não{% endif %}</td>
-                        <td class="p-1 text-right{% if p.item_benefit_type != "normal" or p.is_customer_supplied %} benefit-dimmed{% endif %}">{{ p.unit_price }}</td>
+                        <td class="p-1 text-right{% if p.item_benefit_type != "normal" or p.is_customer_supplied %} benefit-dimmed{% endif %}">{{ p.display_unit_price }}</td>
                         <td class="p-1 text-right font-medium{% if p.item_benefit_type != "normal" or p.is_customer_supplied %} benefit-dimmed{% endif %}">{{ p.total_price }}</td>
                     </tr>
                     {% empty %}
@@ -444,6 +444,12 @@
                             <span>- {{ discount_services }}</span>
                         </div>
                         {% endif %}
+                    {% endif %}
+                    {% if benefit_total.amount > 0 %}
+                    <div class="flex justify-between mb-1 text-red-600">
+                        <span>{{ benefit_label }}:</span>
+                        <span>- {{ benefit_total }}</span>
+                    </div>
                     {% endif %}
                     <div class="flex justify-between font-bold text-[16px] mt-2 pt-2 border-t border-gray-300">
                         <span>TOTAL GERAL:</span>
