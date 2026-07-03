@@ -57,9 +57,30 @@ class WorkshopRoleForm(CoreModelForm):
         perms = Permission.objects.select_related("content_type").order_by("content_type__app_label", "content_type__model", "codename")
 
         grouped = {}
+        seen_classes = set()
+        last_ct_id = None
+        skip_ct = False
+        perm_info = None
+
         for p in perms:
-            perm_info = get_perm_info(p.content_type.app_label, p.content_type.model)
-            if not perm_info.visible:
+            if p.content_type_id != last_ct_id:
+                last_ct_id = p.content_type_id
+                perm_info = get_perm_info(p.content_type.app_label, p.content_type.model)
+                if not perm_info.visible:
+                    skip_ct = True
+                    continue
+                model_class = p.content_type.model_class()
+                if model_class is not None:
+                    ct_key = (p.content_type.app_label, model_class)
+                else:
+                    ct_key = (p.content_type.app_label, p.content_type.model.lower())
+                if ct_key in seen_classes:
+                    skip_ct = True
+                    continue
+                seen_classes.add(ct_key)
+                skip_ct = False
+
+            if skip_ct or perm_info is None:
                 continue
 
             app_label = p.content_type.app_label

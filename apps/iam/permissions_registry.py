@@ -213,8 +213,7 @@ REGISTRY: dict[tuple[str, str], PermissionInfo] = {
     ),
     # ---- Origens ----
     ("sources", "source"): PermissionInfo(
-        visible=True,
-        description="Gerenciar origens de captação e cadastro de clientes.",
+        visible=False, auto_grant=True,
     ),
     # ---- Fornecedores ----
     ("suppliers", "supplier"): PermissionInfo(
