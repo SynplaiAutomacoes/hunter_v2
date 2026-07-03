@@ -46,7 +46,7 @@ ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 OTEL_SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "hunter-web")
 OTEL_SERVICE_NAMESPACE = os.getenv("OTEL_SERVICE_NAMESPACE", "synplai")
 OTEL_SERVICE_VERSION = os.getenv("OTEL_SERVICE_VERSION", "0.1.0")
-OTEL_METRIC_EXPORT_INTERVAL_MS = int(os.getenv("OTEL_METRIC_EXPORT_INTERVAL_MS", "60000"))
+OTEL_METRIC_EXPORT_INTERVAL_MS = int(os.getenv("OTEL_METRIC_EXPORT_INTERVAL_MS", "300000"))
 
 # Grafana Cloud OTLP (OpenTelemetry)
 # Endpoint lido automaticamente de OTEL_EXPORTER_OTLP_ENDPOINT (definido no ambiente)
