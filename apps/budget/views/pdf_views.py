@@ -13,7 +13,7 @@ from apps.budget.service import BUDGET_SIGNATURE_DOCUMENT_ID_KEY, BUDGET_SIGNATU
 from apps.checklist.models import Checklist
 from apps.checklist.services.files import ChecklistFileStorageError, read_checklist_pdf_file
 from apps.core.domain.contracts.documents import DocumentPayload
-from apps.core.infrastructure.pdf.playwright import render_pdf_from_html
+from apps.core.infrastructure.pdf import render_pdf_from_html
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.domain.contracts.signature import SignatureServiceError
 from apps.core.domain.contracts.documents import SignatureTokenError
