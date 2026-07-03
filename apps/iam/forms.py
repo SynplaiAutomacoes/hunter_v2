@@ -11,6 +11,7 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from apps.core.presentation.widgets import TextInput
 from apps.iam.models import WorkshopRole
 from apps.core.presentation.forms import CoreModelForm
+from apps.iam.permissions_registry import get_perm_info, is_auto_grant
 
 RESERVED_ROLE_NAMES = {"diretor", "gerente"}
 
@@ -37,6 +38,19 @@ class WorkshopRoleForm(CoreModelForm):
             raise forms.ValidationError("Este nome de cargo é reservado pelo sistema e não pode ser usado.")
         return name
 
+    def save(self, commit: bool = True):
+        instance = super().save(commit)
+        if commit:
+            auto_grant_ids = [
+                p.id
+                for p in Permission.objects.select_related("content_type").only(
+                    "id", "content_type__app_label", "content_type__model"
+                )
+                if is_auto_grant(p.content_type.app_label, p.content_type.model)
+            ]
+            instance.permissions.add(*auto_grant_ids)
+        return instance
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -44,15 +58,17 @@ class WorkshopRoleForm(CoreModelForm):
 
         grouped = {}
         for p in perms:
+            perm_info = get_perm_info(p.content_type.app_label, p.content_type.model)
+            if not perm_info.visible:
+                continue
+
             app_label = p.content_type.app_label
 
             try:
-                # Tenta pegar o verbose_name definido no apps.py
                 app_name = apps.get_app_config(app_label).verbose_name
             except LookupError:
                 app_name = app_label.capitalize()
 
-            # Pega o nome amigável do Modelo
             model_class = p.content_type.model_class()
             if model_class:
                 model_name = model_class._meta.verbose_name.capitalize()
@@ -60,11 +76,17 @@ class WorkshopRoleForm(CoreModelForm):
                 model_name = p.content_type.model.capitalize()
 
             if app_name not in grouped:
-                grouped[app_name] = {}
-            if model_name not in grouped[app_name]:
-                grouped[app_name][model_name] = []
+                grouped[app_name] = {"models": {}, "total_count": 0}
+            if model_name not in grouped[app_name]["models"]:
+                grouped[app_name]["models"][model_name] = {
+                    "perms": [],
+                    "description": perm_info.description,
+                    "total_count": 0,
+                }
 
-            grouped[app_name][model_name].append(p)
+            grouped[app_name]["models"][model_name]["perms"].append(p)
+            grouped[app_name]["models"][model_name]["total_count"] += 1
+            grouped[app_name]["total_count"] += 1
 
         self.grouped_permissions = grouped
 
