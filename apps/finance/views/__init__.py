@@ -4,7 +4,7 @@ from .financial_group import FinancialGroupCreateView, FinancialGroupDeleteView,
 from .common import DirectorWorkshopAccessMixin
 from .emission import EmissionPreviewView, EmissionRequestCreateView, EmissionWorkOrderItemUpdateView, EmissionWorkOrderKitComponentUpdateView, NfeCreateRedirectView, NfseCreateRedirectView
 from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocumentsListView
-from .commissions import CommissionReportPdfView, CommissionReportView, CommissionStatusUpdateView
+from .commissions import CommissionReportPdfView, CommissionReportView
 from .nfe import NfeDocumentDownloadView, NfePreviewPdfView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestInvalidateView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView
 from .nfse import NfseDocumentDownloadView, NfsePreviewPdfView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestReconcileView, NfseRequestUpdateView
 from .payroll import PayrollBulkPayView, PayrollEditModalView, PayrollListView
@@ -47,7 +47,6 @@ __all__ = [
     "IssuedDocumentsListView",
     "CommissionReportView",
     "CommissionReportPdfView",
-    "CommissionStatusUpdateView",
     "NfeCreateRedirectView",
     "NfeDocumentDownloadView",
     "NfePreviewPdfView",

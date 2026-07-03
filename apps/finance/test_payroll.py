@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 from datetime import date
+from types import SimpleNamespace
 
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from djmoney.money import Money
 
-from apps.collaborators.models import CollaboratorPayroll, WorkshopCollaborator
+from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
+from apps.collaborators.test_commissions import create_workorder
 from apps.finance.models.financial_movement import FinancialMovement
-from apps.finance.views.payroll import PayrollListView
+from apps.finance.views.payroll import PayrollEditModalView, PayrollListView
 from apps.workshops.models.workshops import Workshop
 
 
@@ -71,3 +73,55 @@ class PayrollListViewTests(TestCase):
             rows[0]["receipt_url"],
             reverse("collaborators:collaborator_payroll_receipt", kwargs={"pk": collaborator.pk, "payroll_id": payroll.pk}),
         )
+
+
+class PayrollEditModalViewTests(TestCase):
+    def test_commission_tab_formats_percentage_as_percent(self) -> None:
+        workshop = create_workshop(suffix=2)
+        collaborator = create_collaborator(workshop=workshop, suffix=2)
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Folha",
+            amount=Money(2120, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=False,
+        )
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            financial_movement=movement,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2000, "BRL"),
+            commission_amount=Money(120, "BRL"),
+            total_amount=Money(2120, "BRL"),
+        )
+        workorder = create_workorder(workshop=workshop, budget_type="sale")
+        CollaboratorCommissionEntry.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll=payroll,
+            workorder=workorder,
+            reference_year=2026,
+            reference_month=8,
+            percentage="0.060000",
+            base_amount=Money(2000, "BRL"),
+            commission_amount=Money(120, "BRL"),
+            status=CollaboratorCommissionEntry.Status.FORECAST,
+        )
+
+        request = RequestFactory().get(f"/finance/folha-pagamento/{payroll.pk}/edit/")
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollEditModalView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.get(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("6,00%", response.content.decode())
+        self.assertIn("Não Pago", response.content.decode())
