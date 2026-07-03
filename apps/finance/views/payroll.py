@@ -18,8 +18,8 @@ from django.http import HttpResponseRedirect
 
 from django.db import transaction
 
-from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
-from apps.collaborators.services import sync_collaborator_payroll
+from apps.collaborators.models import CollaboratorPayroll, WorkshopCollaborator
+from apps.collaborators.services import ensure_payroll_financial_movement, mark_payroll_as_paid, mark_payroll_commissions_as_paid, sync_collaborator_payroll, unmark_payroll_commissions_as_paid
 from apps.core.presentation.widgets import CalendarDateInput, MoneyInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
@@ -222,49 +222,19 @@ def _get_payroll_reference_date(*, payroll: CollaboratorPayroll) -> date:
 
 
 def _mark_payroll_commissions_as_paid(*, payroll: CollaboratorPayroll) -> None:
-    now = timezone.localdate()
-    CollaboratorCommissionEntry.objects.filter(
-        collaborator=payroll.collaborator,
-        reference_year=payroll.reference_year,
-        reference_month=payroll.reference_month,
-        status=CollaboratorCommissionEntry.Status.FORECAST,
-    ).update(
-        status=CollaboratorCommissionEntry.Status.PAID,
-        paid_at=now,
-    )
+    mark_payroll_commissions_as_paid(payroll=payroll, paid_at=timezone.localdate())
 
 
 def _unmark_payroll_commissions_as_paid(*, payroll: CollaboratorPayroll) -> None:
-    CollaboratorCommissionEntry.objects.filter(
-        collaborator=payroll.collaborator,
-        reference_year=payroll.reference_year,
-        reference_month=payroll.reference_month,
-        status=CollaboratorCommissionEntry.Status.PAID,
-    ).update(
-        status=CollaboratorCommissionEntry.Status.FORECAST,
-        paid_at=None,
-    )
+    unmark_payroll_commissions_as_paid(payroll=payroll)
 
 
 def _ensure_payroll_financial_movement(*, payroll: CollaboratorPayroll) -> CollaboratorPayroll:
-    refreshed_payroll = sync_collaborator_payroll(
-        collaborator=payroll.collaborator,
-        reference_date=_get_payroll_reference_date(payroll=payroll),
-        lock_reference=True,
-    )
-    refreshed_payroll.refresh_from_db()
-    if refreshed_payroll.financial_movement is None:
-        raise ValueError(f"Nao foi possivel criar a movimentacao financeira da folha {refreshed_payroll.pk}.")
-    return refreshed_payroll
+    return ensure_payroll_financial_movement(payroll=payroll)
 
 
 def _mark_payroll_as_paid(*, payroll: CollaboratorPayroll) -> CollaboratorPayroll:
-    refreshed_payroll = _ensure_payroll_financial_movement(payroll=payroll)
-    if not refreshed_payroll.financial_movement.is_paid:
-        refreshed_payroll.financial_movement.is_paid = True
-        refreshed_payroll.financial_movement.save(update_fields=["is_paid"])
-    _mark_payroll_commissions_as_paid(payroll=refreshed_payroll)
-    return refreshed_payroll
+    return mark_payroll_as_paid(payroll=payroll, paid_at=timezone.localdate())
 
 
 class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):

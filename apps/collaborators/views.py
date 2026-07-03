@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from datetime import date
 
 from django.contrib import messages
 from django.contrib.auth import get_user_model
@@ -17,7 +16,7 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView, V
 
 from apps.collaborators.forms import CollaboratorBenefitFormSet, WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorPayroll, WorkshopCollaborator, WorkshopMember
-from apps.collaborators.services import calculate_transport_allowance_total, freeze_existing_pricing_history, get_reference_work_days, sync_collaborator_payroll, sync_current_month_salary_costs
+from apps.collaborators.services import calculate_transport_allowance_total, freeze_existing_pricing_history, get_reference_work_days, mark_payroll_as_paid, sync_collaborator_payroll, sync_current_month_salary_costs
 from apps.core.presentation.navigation import COLLABORATOR_CREATE_FAVORITE_PAGE
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.presentation.tables import TableActionDefaults
@@ -342,9 +341,7 @@ class CollaboratorPayrollMarkPaidView(LoginRequiredMixin, WorkshopScopedMixin, V
         payroll = get_object_or_404(CollaboratorPayroll.objects.select_related("financial_movement"), pk=payroll_id, collaborator=collaborator)
 
         if payroll.financial_movement is not None:
-            payroll.financial_movement.is_paid = True
-            payroll.financial_movement.save(update_fields=["is_paid"])
-            sync_collaborator_payroll(collaborator=collaborator, reference_date=date(payroll.reference_year, payroll.reference_month, 1))
+            mark_payroll_as_paid(payroll=payroll)
 
         query_params = self.request.POST.copy()
         query_params.pop("csrfmiddlewaretoken", None)

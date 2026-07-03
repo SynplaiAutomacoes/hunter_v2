@@ -389,6 +389,54 @@ def _create_or_update_financial_movement(*, payroll: CollaboratorPayroll) -> Fin
     return movement
 
 
+def mark_payroll_commissions_as_paid(*, payroll: CollaboratorPayroll, paid_at: date | None = None) -> int:
+    resolved_paid_at = paid_at or timezone.localdate()
+    updated_count = CollaboratorCommissionEntry.objects.filter(
+        collaborator=payroll.collaborator,
+        reference_year=payroll.reference_year,
+        reference_month=payroll.reference_month,
+        status=CollaboratorCommissionEntry.Status.FORECAST,
+    ).update(
+        status=CollaboratorCommissionEntry.Status.PAID,
+        paid_at=resolved_paid_at,
+    )
+    return int(updated_count)
+
+
+def unmark_payroll_commissions_as_paid(*, payroll: CollaboratorPayroll) -> int:
+    updated_count = CollaboratorCommissionEntry.objects.filter(
+        collaborator=payroll.collaborator,
+        reference_year=payroll.reference_year,
+        reference_month=payroll.reference_month,
+        status=CollaboratorCommissionEntry.Status.PAID,
+    ).update(
+        status=CollaboratorCommissionEntry.Status.FORECAST,
+        paid_at=None,
+    )
+    return int(updated_count)
+
+
+def ensure_payroll_financial_movement(*, payroll: CollaboratorPayroll) -> CollaboratorPayroll:
+    refreshed_payroll = sync_collaborator_payroll(
+        collaborator=payroll.collaborator,
+        reference_date=date(payroll.reference_year, payroll.reference_month, 1),
+        lock_reference=True,
+    )
+    refreshed_payroll.refresh_from_db()
+    if refreshed_payroll.financial_movement is None:
+        raise ValueError(f"Nao foi possivel criar a movimentacao financeira da folha {refreshed_payroll.pk}.")
+    return refreshed_payroll
+
+
+def mark_payroll_as_paid(*, payroll: CollaboratorPayroll, paid_at: date | None = None) -> CollaboratorPayroll:
+    refreshed_payroll = ensure_payroll_financial_movement(payroll=payroll)
+    if not refreshed_payroll.financial_movement.is_paid:
+        refreshed_payroll.financial_movement.is_paid = True
+        refreshed_payroll.financial_movement.save(update_fields=["is_paid"])
+    mark_payroll_commissions_as_paid(payroll=refreshed_payroll, paid_at=paid_at)
+    return refreshed_payroll
+
+
 @transaction.atomic
 def recalculate_historical_commissions(*, workshop: Workshop | None = None, dry_run: bool = False) -> dict[str, int]:
     entry_queryset = CollaboratorCommissionEntry.objects.select_related("workorder", "payroll")

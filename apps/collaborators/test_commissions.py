@@ -478,3 +478,55 @@ class CommissionAndPayrollCommandTests(TestCase):
         self.assertIn("1 movimentacao(oes) financeira(s) criada(s).", stdout.getvalue())
         payroll.refresh_from_db()
         self.assertIsNotNone(payroll.financial_movement)
+
+    def test_reconcile_legacy_paid_commissions_dry_run_and_apply(self) -> None:
+        workshop = create_workshop(suffix=9)
+        collaborator = create_collaborator(workshop=workshop, suffix=9)
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2000, "BRL"),
+            commission_amount=Money(100, "BRL"),
+            total_amount=Money(2100, "BRL"),
+        )
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Folha legado",
+            amount=Money(2100, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=False,
+        )
+        payroll.financial_movement = movement
+        payroll.save(update_fields=["financial_movement"])
+        workorder = create_workorder(workshop=workshop, budget_type="sale")
+        entry = CollaboratorCommissionEntry.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            workorder=workorder,
+            payroll=payroll,
+            reference_year=2026,
+            reference_month=8,
+            percentage=Decimal("0.100000"),
+            base_amount=Money(1000, "BRL"),
+            commission_amount=Money(100, "BRL"),
+            status=CollaboratorCommissionEntry.Status.PAID,
+            paid_at=date(2026, 8, 6),
+        )
+
+        stdout = StringIO()
+        call_command("reconcile_legacy_paid_commissions", "--dry-run", "--payroll-id", str(payroll.pk), stdout=stdout)
+        self.assertIn("Folhas encontradas: 1", stdout.getvalue())
+        self.assertIn(f"Comissoes afetadas (1): [{entry.pk}]", stdout.getvalue())
+        movement.refresh_from_db()
+        self.assertFalse(movement.is_paid)
+
+        stdout = StringIO()
+        call_command("reconcile_legacy_paid_commissions", "--payroll-id", str(payroll.pk), stdout=stdout)
+        self.assertIn("1 folha(s) reconciliada(s) como paga(s).", stdout.getvalue())
+        movement.refresh_from_db()
+        self.assertTrue(movement.is_paid)
