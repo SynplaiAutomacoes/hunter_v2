@@ -19,6 +19,7 @@ from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.price_tracking import build_product_price_warning, build_service_price_warning, record_service_last_used_price
 from apps.catalog.product_issues import annotate_product_issues
+from apps.stock.services import get_stock_quantity
 from apps.core.presentation.widgets import NumberInput
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.budget.utils import HtmxResponseHelper
@@ -493,9 +494,15 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     @staticmethod
     def _build_stock_quantity_html(*, item: BudgetItem) -> str:
+        stock_quantity = getattr(item, "stock_quantity", None)
+        if stock_quantity is None and item.product_id:
+            stock_quantity = get_stock_quantity(
+                workshop_id=item.workshop_id,
+                product_id=item.product_id,
+            )
         return NumberInput(attrs={"readonly": "readonly", "disabled": "disabled", "id": "stock-quantity-reference"}).render(
             name="stock_quantity_reference",
-            value=item.stock_quantity or 0,
+            value=stock_quantity or 0,
         )
 
     def get(self, request, budget_id, item_id):

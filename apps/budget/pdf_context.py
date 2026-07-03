@@ -154,6 +154,7 @@ def _build_snapshot_product_rows(*, snapshot) -> list[dict[str, Any]]:
             "product_cost_price": line.cost_total,
             "profit_value": line.profit_value,
             "show_kit_duplicate_warning": line.show_kit_duplicate_warning,
+            "item_benefit_type": getattr(line, "item_benefit_type", "normal"),
         }
         for line in snapshot.product_lines
         if is_visible_pdf_pricing_line(line)
@@ -189,6 +190,7 @@ def _build_snapshot_service_rows(*, budget: Any, snapshot) -> list[dict[str, Any
                 "service_mechanic_cost_price": service_mechanic_cost_price,
                 "profit_value": total_price - service_mechanic_cost_price,
                 "duration_display": line.duration_display,
+                "item_benefit_type": getattr(line, "item_benefit_type", "normal"),
             }
         )
 
@@ -212,6 +214,11 @@ def build_workshop_logo_data_uri(*, workshop) -> str:
 
 def build_budget_pdf_context(*, budget, request=None, observacao: str | None = None, presentation: str = "expanded") -> dict:
     snapshot = budget.pricing_snapshot
+
+    try:
+        rentability = budget.rentability
+    except Exception:
+        rentability = Decimal("0")
 
     is_courtesy_budget = budget.budget_type == "courtesy"
     is_warranty_budget = not is_courtesy_budget and (budget.is_warranty_budget or budget.budget_type == "warranty")
@@ -455,5 +462,6 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         "special_budget_label": special_budget_label,
         "warranty_message": warranty_message,
         "workshop_logo_data_uri": workshop_logo_data_uri,
+        "budget_rentability": rentability,
         "request": request,
     }

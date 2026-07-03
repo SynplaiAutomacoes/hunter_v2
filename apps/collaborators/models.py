@@ -211,7 +211,12 @@ class CollaboratorPayroll(TimeStampedModel):
 
     @property
     def status_label(self) -> str:
-        return str(self.Status(self.status).label)
+        labels = {
+            self.Status.FORECAST: "Não Pago",
+            self.Status.PARTIAL: "Parcial",
+            self.Status.PAID: "Pago",
+        }
+        return labels.get(self.status, str(self.Status(self.status).label))
 
 
 class CollaboratorPayrollItem(TimeStampedModel):

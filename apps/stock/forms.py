@@ -2,7 +2,7 @@ import re
 import logging
 import time
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from html import escape
 from typing import Any
 
@@ -2646,6 +2646,13 @@ class TransferSummaryForm(CoreModelForm):
 
 
 class QuickProductForm(CoreModelForm):
+    profit_margin = forms.DecimalField(
+        required=False,
+        max_digits=9,
+        decimal_places=6,
+        widget=PercentageInput(),
+    )
+
     class Meta:
         model = Product
         fields = ["code", "name", "unit", "group", "cost_price", "selling_price", "profit_margin", "ncm", "origin_cst", "purpose"]
@@ -2656,7 +2663,6 @@ class QuickProductForm(CoreModelForm):
             "group": SearchableSelectInput(),
             "cost_price": MoneyInput(),
             "selling_price": MoneyInput(),
-            "profit_margin": PercentageInput(),
             "ncm": TextInput(attrs={"placeholder": "Ex: 87089990"}),
             "origin_cst": SearchableSelectInput(),
             "purpose": SearchableSelectInput(),
@@ -2726,9 +2732,33 @@ class QuickProductForm(CoreModelForm):
             )
         )
 
+    def clean_profit_margin(self):
+        raw = self.cleaned_data.get("profit_margin")
+        if raw is None:
+            return Decimal("0.00")
+        return Decimal(raw).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
     def clean_name(self):
         value = self.cleaned_data.get("name")
-        return sentence_case(value) if value else value
+        name = sentence_case(value) if value else value
+        if name and self.workshop:
+            qs = Product.objects.filter(workshop=self.workshop, name__iexact=name)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise forms.ValidationError("Já existe um produto com este nome.")
+        return name
+
+    def clean_code(self):
+        code = self.cleaned_data.get("code")
+        if code and self.workshop:
+            qs = Product.objects.filter(workshop=self.workshop, code__iexact=code)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise forms.ValidationError("Já existe um produto cadastrado com este código.")
+        return code
+
 
 
 class QuickSupplierForm(AddressFormMixin, CoreModelForm):

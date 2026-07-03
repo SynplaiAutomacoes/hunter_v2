@@ -19,7 +19,6 @@ from django.views.generic import TemplateView
 from djmoney.money import Money
 
 from apps.collaborators.models import CollaboratorCommissionEntry, WorkshopCollaborator
-from apps.collaborators.services import sync_collaborator_payroll
 from apps.core.domain.contracts.documents import DocumentRenderRequest
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response, render_template_request_to_pdf
 from apps.core.infrastructure.search import build_text_search_query
@@ -65,7 +64,10 @@ def build_paid_status_indicator(*, is_paid: bool) -> dict[str, str]:
 class CommissionStatusForm(forms.ModelForm):
     status = forms.ChoiceField(
         label="Status de pagamento",
-        choices=CollaboratorCommissionEntry.Status.choices,
+        choices=(
+            (CollaboratorCommissionEntry.Status.FORECAST, "Não Pago"),
+            (CollaboratorCommissionEntry.Status.PAID, "Pago"),
+        ),
         widget=forms.Select(attrs={"class": "select select-bordered w-full"}),
     )
 
@@ -83,7 +85,7 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
     ENTRIES_PER_PAGE = 20
     STATUS_CHOICES = (
         ("", "Todos"),
-        (CollaboratorCommissionEntry.Status.FORECAST, "Previsto"),
+        (CollaboratorCommissionEntry.Status.FORECAST, "Não Pago"),
         (CollaboratorCommissionEntry.Status.PAID, "Pago"),
     )
 
@@ -115,6 +117,14 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
             return ""
         return selected_status
 
+    @classmethod
+    def get_status_label(cls, status: str) -> str | None:
+        labels = {
+            CollaboratorCommissionEntry.Status.FORECAST: "Não Pago",
+            CollaboratorCommissionEntry.Status.PAID: "Pago",
+        }
+        return labels.get(status)
+
     def _get_filter_params(self) -> dict[str, Any]:
         today = timezone.localdate()
         start_date = self._parse_date_param(self.request.GET.get("data_inicial"))
@@ -136,8 +146,14 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
         queryset = (
             CollaboratorCommissionEntry.objects.filter(
                 workshop=self.workshop,
-                workorder__status=WorkOrderStatus.APPROVED,
-                workorder__budget_type="sale",
+            )
+            .filter(
+                Q(status=CollaboratorCommissionEntry.Status.PAID)
+                | Q(
+                    status=CollaboratorCommissionEntry.Status.FORECAST,
+                    workorder__status=WorkOrderStatus.APPROVED,
+                    workorder__budget_type="sale",
+                )
             )
             .select_related("collaborator", "workorder", "workorder__budget", "workorder__budget__customer")
             .order_by("-criado_em", "-id")
@@ -190,7 +206,7 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
 
         return [
             {
-                "title": "Comissões previstas",
+                "title": "Comissões não pagas",
                 "value": format_money(self._money_total(forecast_entries, "commission_amount")),
                 "support": f"{len(forecast_entries)} lançamento(s)",
             },
@@ -200,7 +216,7 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
                 "support": f"{len(paid_entries)} lançamento(s)",
             },
             {
-                "title": "O.S. concluídas",
+                "title": "O.S. com comissão",
                 "value": str(workorder_count),
                 "support": "com comissão apurada",
             },
@@ -228,7 +244,7 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
                     "base_amount": entry.workorder.total_services_value,
                     "commission_amount": entry.commission_amount,
                     "status": entry.status,
-                    "status_label": entry.get_status_display(),
+                    "status_label": "Pago" if entry.status == CollaboratorCommissionEntry.Status.PAID else "Não Pago",
                     "paid_indicator": build_paid_status_indicator(is_paid=entry.status == CollaboratorCommissionEntry.Status.PAID),
                     "edit_url": reverse("finance:commission_status_edit", kwargs={"pk": entry.pk}),
                 }
@@ -310,8 +326,14 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
         queryset = (
             CollaboratorCommissionEntry.objects.filter(
                 workshop=self.workshop,
-                workorder__status=WorkOrderStatus.APPROVED,
-                workorder__budget_type="sale",
+            )
+            .filter(
+                Q(status=CollaboratorCommissionEntry.Status.PAID)
+                | Q(
+                    status=CollaboratorCommissionEntry.Status.FORECAST,
+                    workorder__status=WorkOrderStatus.APPROVED,
+                    workorder__budget_type="sale",
+                )
             )
             .select_related(
                 "collaborator",
@@ -383,6 +405,7 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
         start_date = self._parse_date_param(request.GET.get("data_inicial"))
         end_date = self._parse_date_param(request.GET.get("data_final"))
         collaborator_id = self._get_selected_collaborator_id()
+        selected_status = self._get_selected_status()
 
         entries = list(self._get_queryset())
         collaborators_data = self._build_collaborators_data(entries)
@@ -402,6 +425,7 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "workshop": self.workshop,
             "periodo_label": self._build_periodo_label(start_date, end_date),
             "collaborator_filter": collaborator_filter,
+            "status_filter": CommissionReportView.get_status_label(selected_status),
             "collaborators_data": collaborators_data,
             "total_geral": total_geral,
         }
@@ -433,18 +457,11 @@ class CommissionStatusUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
         commission = self._get_object()
-        previous_status = commission.status
         form = CommissionStatusForm(request.POST, instance=commission)
         if form.is_valid():
             commission = form.save(commit=False)
             commission.paid_at = timezone.localdate() if commission.status == CollaboratorCommissionEntry.Status.PAID else None
             commission.save(update_fields=["status", "paid_at"])
-            if previous_status != commission.status:
-                sync_collaborator_payroll(
-                    collaborator=commission.collaborator,
-                    reference_date=date(commission.reference_year, commission.reference_month, 1),
-                    lock_reference=True,
-                )
             response = HttpResponse()
             response["HX-Refresh"] = "true"
             response["HX-Trigger"] = '{"showToast": {"message": "Comissão atualizada com sucesso.", "type": "success"}}'

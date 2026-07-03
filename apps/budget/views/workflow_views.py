@@ -1196,7 +1196,7 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 messages.error(request, error_message)
                 return JsonResponse({"success": False, "error": error_message}, status=400)
             except Exception as e:
-                print(f"E: {e}")
+                logger.exception("Erro ao aprovar orçamento #%s (workshop %s): %s", budget_id, self.workshop.id, e)
                 error_message = "Erro interno ao processar aprovação do orçamento."
                 messages.error(request, error_message)
                 return JsonResponse({"success": False, "error": error_message}, status=500)

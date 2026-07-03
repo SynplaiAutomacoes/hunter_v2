@@ -80,7 +80,7 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     workshop_permission_model = "financialmovement"
     workshop_permission_codename = "view_financialmovement"
     PER_PAGE = 20
-    STATUS_CHOICES = (("", "Todos"), (CollaboratorPayroll.Status.FORECAST, "Não pago"), (CollaboratorPayroll.Status.PAID, "Pago"))
+    STATUS_CHOICES = (("", "Todos"), (CollaboratorPayroll.Status.FORECAST, "Não Pago"), (CollaboratorPayroll.Status.PAID, "Pago"))
 
     @staticmethod
     def _parse_date_param(raw_value: str | None) -> date | None:
@@ -217,6 +217,10 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         return context
 
 
+def _get_payroll_reference_date(*, payroll: CollaboratorPayroll) -> date:
+    return date(payroll.reference_year, payroll.reference_month, 1)
+
+
 def _mark_payroll_commissions_as_paid(*, payroll: CollaboratorPayroll) -> None:
     now = timezone.localdate()
     CollaboratorCommissionEntry.objects.filter(
@@ -242,6 +246,27 @@ def _unmark_payroll_commissions_as_paid(*, payroll: CollaboratorPayroll) -> None
     )
 
 
+def _ensure_payroll_financial_movement(*, payroll: CollaboratorPayroll) -> CollaboratorPayroll:
+    refreshed_payroll = sync_collaborator_payroll(
+        collaborator=payroll.collaborator,
+        reference_date=_get_payroll_reference_date(payroll=payroll),
+        lock_reference=True,
+    )
+    refreshed_payroll.refresh_from_db()
+    if refreshed_payroll.financial_movement is None:
+        raise ValueError(f"Nao foi possivel criar a movimentacao financeira da folha {refreshed_payroll.pk}.")
+    return refreshed_payroll
+
+
+def _mark_payroll_as_paid(*, payroll: CollaboratorPayroll) -> CollaboratorPayroll:
+    refreshed_payroll = _ensure_payroll_financial_movement(payroll=payroll)
+    if not refreshed_payroll.financial_movement.is_paid:
+        refreshed_payroll.financial_movement.is_paid = True
+        refreshed_payroll.financial_movement.save(update_fields=["is_paid"])
+    _mark_payroll_commissions_as_paid(payroll=refreshed_payroll)
+    return refreshed_payroll
+
+
 class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = CollaboratorPayroll
     workshop_permission_app_label = "finance"
@@ -259,23 +284,21 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
         payroll = self._get_payroll()
         if payroll.financial_movement is None:
-            sync_collaborator_payroll(collaborator=payroll.collaborator, reference_date=date(payroll.reference_year, payroll.reference_month, 1), lock_reference=True)
-            payroll.refresh_from_db()
+            payroll = _ensure_payroll_financial_movement(payroll=payroll)
         form = PayrollPaymentForm(instance=payroll.financial_movement, workshop=self.workshop, payroll=payroll)
         return render(request, self.template_name, {"payroll": payroll, "form": form})
 
     def post(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
         payroll = self._get_payroll()
         if payroll.financial_movement is None:
-            sync_collaborator_payroll(collaborator=payroll.collaborator, reference_date=date(payroll.reference_year, payroll.reference_month, 1), lock_reference=True)
-            payroll.refresh_from_db()
+            payroll = _ensure_payroll_financial_movement(payroll=payroll)
         form = PayrollPaymentForm(request.POST, instance=payroll.financial_movement, workshop=self.workshop, payroll=payroll)
         if form.is_valid():
             movement = form.save()
-            sync_collaborator_payroll(collaborator=payroll.collaborator, reference_date=date(payroll.reference_year, payroll.reference_month, 1), lock_reference=True)
             if movement.is_paid:
-                _mark_payroll_commissions_as_paid(payroll=payroll)
+                _mark_payroll_as_paid(payroll=payroll)
             else:
+                sync_collaborator_payroll(collaborator=payroll.collaborator, reference_date=_get_payroll_reference_date(payroll=payroll), lock_reference=True)
                 _unmark_payroll_commissions_as_paid(payroll=payroll)
             response = HttpResponse()
             response["HX-Refresh"] = "true"
@@ -313,10 +336,7 @@ class PayrollBulkPayView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         with transaction.atomic():
             for payroll in payrolls:
-                if payroll.financial_movement and not payroll.financial_movement.is_paid:
-                    payroll.financial_movement.is_paid = True
-                    payroll.financial_movement.save(update_fields=["is_paid"])
-                _mark_payroll_commissions_as_paid(payroll=payroll)
+                _mark_payroll_as_paid(payroll=payroll)
 
         if request.headers.get("HX-Request"):
             response = HttpResponse()

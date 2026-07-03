@@ -41,7 +41,7 @@
 
                     <div class="flex flex-col gap-2 sm:flex-row">
                         <button type="submit" class="btn btn-primary">Buscar</button>
-                        <button type="button" class="btn btn-primary" @click="$refs.commissionFilterModal.showModal()">
+                        <button type="button" class="btn btn-outline btn-primary" @click="$refs.commissionFilterModal.showModal()">
                             <span class="material-icons text-[18px]">filter_list</span>
                             Filtro
                         </button>
@@ -70,7 +70,7 @@
                                 </select>
                             </div>
                             <div>
-                                <label for="commission-status">Status</label>
+                                <label for="commission-status">Pago</label>
                                 <select id="commission-status" name="status" class="select select-bordered w-full">
                                     {% for value, label in status_choices %}
                                         <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
@@ -114,13 +114,14 @@
         <div class="card border border-base-300 bg-base-100 shadow-xl">
             <div class="card-body gap-4 p-5 md:p-6">
                 <div>
-                    <h2 class="text-lg font-semibold text-base-content">Comissões por ordem de serviço</h2>
-                    <p class="text-sm text-base-content/65">As linhas abaixo entram na apuração quando a O.S. é concluída.</p>
-                </div>
+                        <h2 class="text-lg font-semibold text-base-content">Comissões por ordem de serviço</h2>
+                        <p class="text-sm text-base-content/65">As linhas abaixo entram na apuração quando a O.S. é concluída.</p>
+                    </div>
 
                 {% if commission_rows %}
-                    <div class="overflow-x-auto">
-                        <table class="table table-sm md:table-md">
+                    <div class="overflow-hidden rounded-xl border border-base-300 bg-base-100">
+                        <div class="overflow-x-auto">
+                            <table class="table table-sm md:table-md">
                             <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
                                 <tr>
                                     <th>Colaborador</th>
@@ -132,12 +133,13 @@
                                     <th>Valor Total dos Serviços</th>
                                     <th>%</th>
                                     <th>Comissão</th>
-                                    <th>Status</th>
+                                    <th>Pago</th>
+                                    <th class="text-right">Ações</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for row in commission_rows %}
-                                    <tr>
+                                    <tr class="bg-base-100">
                                         <td>{{ row.collaborator_name }}</td>
                                         <td><a href="{{ row.workorder_url }}" class="link link-primary">#{{ row.workorder_id }}</a></td>
                                         <td>{{ row.customer_name }}</td>
@@ -148,15 +150,23 @@
                                         <td>{{ row.percentage }}</td>
                                         <td class="font-semibold">{{ row.commission_amount }}</td>
                                         <td>
-                                            <span class="inline-flex items-center gap-1 font-semibold {{ row.paid_indicator.class }}">
-                                                <span class="material-icons text-base">{{ row.paid_indicator.icon }}</span>
-                                                {{ row.paid_indicator.label }}
+                                            <span class="inline-flex items-center gap-1 whitespace-nowrap {{ row.paid_indicator.class }}" title="{{ row.status_label }}" aria-label="{{ row.status_label }}">
+                                                <span class="material-icons text-base leading-none">{{ row.paid_indicator.icon }}</span>
+                                                <span class="font-medium">{{ row.status_label }}</span>
                                             </span>
+                                        </td>
+                                        <td>
+                                            <div class="flex justify-end gap-2">
+                                                <button type="button" class="btn btn-ghost btn-xs" title="Editar comissão" hx-get="{{ row.edit_url }}" hx-target="#commission-edit-modal-container" hx-swap="innerHTML">
+                                                    <span class="material-icons text-sm">edit</span>
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 {% endfor %}
                             </tbody>
                         </table>
+                    </div>
                     </div>
 
                     {% if is_paginated %}
@@ -179,6 +189,8 @@
                 {% endif %}
             </div>
         </div>
+
+        <div id="commission-edit-modal-container"></div>
 
         <dialog
             id="pdfModal"
