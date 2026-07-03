@@ -180,7 +180,7 @@
 
     const servicePricingContext = {
         canCalculate: {{ service_pricing_context.can_calculate|yesno:"true,false" }},
-        minimumHourlyCost: parseFloat('{{ service_pricing_context.minimum_hourly_cost }}') || 0,
+        minimumHourlyCost: parseFloat('{{ service_pricing_context.mechanic_hourly_cost }}') || 0,
         hourlyCostValue: parseFloat('{{ service_pricing_context.hourly_cost_value }}') || 0,
     };
 
@@ -210,6 +210,15 @@
     function getFieldValue(row, fieldName) {
         const input = getFieldInput(row, fieldName);
         return input ? input.value : '';
+    }
+
+    function getMoneyFieldAmount(row, fieldName) {
+        const displayInput = getFieldInput(row, fieldName);
+        if (!displayInput) return '';
+        const container = displayInput.closest('[x-data]');
+        if (!container) return displayInput.value;
+        const amountInput = container.querySelector('[x-ref="amount"]');
+        return amountInput ? amountInput.value : displayInput.value;
     }
 
     function formatDecimalToInput(value) {
@@ -262,14 +271,30 @@
         const cost = servicePricingContext.minimumHourlyCost * durationHours;
         const price = servicePricingContext.hourlyCostValue * durationHours;
 
-        if (costInput) costInput.value = formatDecimalToInput(cost);
-        if (priceInput) priceInput.value = formatDecimalToInput(price);
+        if (costInput) {
+            costInput.value = formatDecimalToInput(cost);
+            const container = costInput.closest('[x-data]');
+            if (container) {
+                const amountInput = container.querySelector('[x-ref="amount"]');
+                if (amountInput) amountInput.value = cost.toFixed(2);
+            }
+        }
+        if (priceInput) {
+            priceInput.value = formatDecimalToInput(price);
+            const container = priceInput.closest('[x-data]');
+            if (container) {
+                const amountInput = container.querySelector('[x-ref="amount"]');
+                if (amountInput) amountInput.value = price.toFixed(2);
+            }
+        }
     }
 
     function calculateProductRowTotal(row) {
         const qty = parseInt(getFieldValue(row, 'quantity'), 10) || 0;
-        const price = {% if item.budget.is_warranty_budget %}parseCurrency(getFieldValue(row, 'cost')){% else %}parseCurrency(getFieldValue(row, 'price')){% endif %};
-        const shipping = parseCurrency(getFieldValue(row, 'shipping'));
+        const priceRaw = {% if item.budget.is_warranty_budget %}getMoneyFieldAmount(row, 'cost'){% else %}getMoneyFieldAmount(row, 'price'){% endif %};
+        const price = parseFloat(priceRaw) || 0;
+        const shippingRaw = getMoneyFieldAmount(row, 'shipping');
+        const shipping = parseFloat(shippingRaw) || 0;
         const total = qty > 0 ? (price * qty) + shipping : 0;
         const totalElement = row.querySelector('.product-total');
         if (totalElement) totalElement.textContent = formatCurrency(total);
@@ -278,7 +303,8 @@
 
     function calculateServiceRowTotal(row) {
         const qty = parseInt(getFieldValue(row, 'quantity'), 10) || 0;
-        const price = {% if item.budget.is_warranty_budget %}parseCurrency(getFieldValue(row, 'cost')){% else %}parseCurrency(getFieldValue(row, 'price')){% endif %};
+        const priceRaw = {% if item.budget.is_warranty_budget %}getMoneyFieldAmount(row, 'cost'){% else %}getMoneyFieldAmount(row, 'price'){% endif %};
+        const price = parseFloat(priceRaw) || 0;
         const total = price * qty;
         const totalElement = row.querySelector('.service-total');
         if (totalElement) totalElement.textContent = formatCurrency(total);
@@ -304,9 +330,9 @@
             products.push({
                 id: row.dataset.productId,
                 quantity: isNaN(qty) ? 0 : qty,
-                cost: parseCurrency(getFieldValue(row, 'cost')),
-                price: parseCurrency(getFieldValue(row, 'price')),
-                shipping: parseCurrency(getFieldValue(row, 'shipping'))
+                cost: parseFloat(getMoneyFieldAmount(row, 'cost')) || 0,
+                price: parseFloat(getMoneyFieldAmount(row, 'price')) || 0,
+                shipping: parseFloat(getMoneyFieldAmount(row, 'shipping')) || 0
             });
         });
 
@@ -315,8 +341,8 @@
             services.push({
                 id: row.dataset.serviceId,
                 quantity: isNaN(qty) ? 0 : qty,
-                cost: parseCurrency(getFieldValue(row, 'cost')),
-                price: parseCurrency(getFieldValue(row, 'price')),
+                cost: parseFloat(getMoneyFieldAmount(row, 'cost')) || 0,
+                price: parseFloat(getMoneyFieldAmount(row, 'price')) || 0,
                 duration: normalizeDurationForApi(getFieldValue(row, 'duration'))
             });
         });
@@ -371,12 +397,14 @@
             ['quantity', {% if not item.budget.is_warranty_budget %}'price', {% endif %}'shipping'].forEach(fieldName => {
                 const input = getFieldInput(row, fieldName);
                 if (!input) return;
-                input.addEventListener('input', updateProductTotals);
+                input.addEventListener('input', () => requestAnimationFrame(updateProductTotals));
+                input.addEventListener('change', updateProductTotals);
             });
 
             const costInput = getFieldInput(row, 'cost');
             if (costInput) {
-                costInput.addEventListener('input', updateProductTotals);
+                costInput.addEventListener('input', () => requestAnimationFrame(updateProductTotals));
+                costInput.addEventListener('change', updateProductTotals);
             }
         });
 
@@ -384,7 +412,8 @@
             ['quantity', {% if not item.budget.is_warranty_budget %}'price', {% endif %}'cost'].forEach(fieldName => {
                 const input = getFieldInput(row, fieldName);
                 if (!input) return;
-                input.addEventListener('input', updateServiceTotals);
+                input.addEventListener('input', () => requestAnimationFrame(updateServiceTotals));
+                input.addEventListener('change', updateServiceTotals);
             });
 
             const durationInput = getFieldInput(row, 'duration');

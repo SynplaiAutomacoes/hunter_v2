@@ -662,7 +662,7 @@
                     const trimmedDigits = safeDigits.slice(-maxTotalDigits);
                     const percentValue = Number((parseInt(trimmedDigits, 10) / (10 ** this.decimalPlaces)).toFixed(this.decimalPlaces));
                     const clamped = percent.clamp(percentValue, this.minPercent, this.maxPercent);
-                    this.$refs.value.value = percent.percentToFractionDotDecimal(clamped);
+                    this.$refs.value.value = percent.percentToFractionDotDecimal(clamped, this.decimalPlaces + 2);
                     this.$refs.display.value = this.formatPercentValue(clamped);
                     emitFormattedChange(this.$refs.value, {
                         value: this.$refs.value.value,
@@ -679,7 +679,7 @@
                         }
 
                         const clamped = percent.clamp(Number(p), this.minPercent, this.maxPercent);
-                        this.$refs.value.value = percent.percentToFractionDotDecimal(clamped);
+                        this.$refs.value.value = percent.percentToFractionDotDecimal(clamped, this.decimalPlaces + 2);
                         this.$refs.display.value = this.formatPercentValue(clamped);
                         return;
                     }
@@ -690,7 +690,7 @@
                         return;
                     }
                     const clamped = percent.clamp(Number(p), this.minPercent, this.maxPercent);
-                    this.$refs.value.value = percent.percentToFractionDotDecimal(clamped);
+                    this.$refs.value.value = percent.percentToFractionDotDecimal(clamped, this.decimalPlaces + 2);
                     this.$refs.display.value = this.formatPercentValue(clamped);
                 },
                 handleInput(e) {
@@ -716,7 +716,7 @@
                     const n = Number(normalized);
                     if (Number.isNaN(n)) return;
 
-                    this.$refs.value.value = percent.percentToFractionDotDecimal(n);
+                    this.$refs.value.value = percent.percentToFractionDotDecimal(n, this.decimalPlaces + 2);
                     emitFormattedChange(this.$refs.value, {
                         value: this.$refs.value.value,
                         displayValue: typed,
@@ -746,7 +746,7 @@
                         }
                         const percentValue = percent.fractionToPercentValue(this.$refs.value.value) || 0;
                         const clamped = percent.clamp(Number(percentValue), this.minPercent, this.maxPercent);
-                        this.$refs.value.value = percent.percentToFractionDotDecimal(clamped);
+                        this.$refs.value.value = percent.percentToFractionDotDecimal(clamped, this.decimalPlaces + 2);
                         this.$refs.display.value = this.formatPercentValue(clamped);
                         emitFormattedChange(this.$refs.value, {
                             value: this.$refs.value.value,
@@ -767,7 +767,7 @@
                         this.maxPercent
                     );
 
-                    this.$refs.value.value = percent.percentToFractionDotDecimal(clamped);
+                    this.$refs.value.value = percent.percentToFractionDotDecimal(clamped, this.decimalPlaces + 2);
                     this.$refs.display.value = this.formatPercentValue(clamped);
                     emitFormattedChange(this.$refs.value, {
                         value: this.$refs.value.value,

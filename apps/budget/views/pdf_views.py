@@ -3,6 +3,7 @@ import logging
 from django.core.exceptions import ObjectDoesNotExist
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, render
+from django.template.loader import render_to_string
 from django.views.decorators.clickjacking import xframe_options_exempt
 
 from apps.budget.documents.provider import render_budget_pdf_document
@@ -12,6 +13,7 @@ from apps.budget.service import BUDGET_SIGNATURE_DOCUMENT_ID_KEY, BUDGET_SIGNATU
 from apps.checklist.models import Checklist
 from apps.checklist.services.files import ChecklistFileStorageError, read_checklist_pdf_file
 from apps.core.domain.contracts.documents import DocumentPayload
+from apps.core.infrastructure.pdf.playwright import render_pdf_from_html
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.domain.contracts.signature import SignatureServiceError
 from apps.core.domain.contracts.documents import SignatureTokenError
@@ -41,6 +43,17 @@ def visualizar_pdf_gestor(request, pk):
     context = build_budget_pdf_context(budget=budget, request=request, presentation="selected_items")
 
     return render(request, "budget/partials/pdf/visualizarPDFGestor.html", context)
+
+
+@xframe_options_exempt
+def download_pdf_gestor(request, pk):
+    workshop = get_active_workshop_or_404(request)
+    budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle", "workshop"), pk=pk, workshop=workshop)
+    context = build_budget_pdf_context(budget=budget, request=request, presentation="selected_items")
+    html = render_to_string("budget/partials/pdf/visualizarPDFGestor.html", context)
+    pdf_bytes = render_pdf_from_html(html)
+    document = DocumentPayload(content=pdf_bytes, filename=f"orcamento_{budget.id}_gestor.pdf")
+    return build_pdf_http_response(document=document, download=True)
 
 
 @xframe_options_exempt

@@ -197,7 +197,7 @@ class WorkshopCostHolidaysView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def get(self, request, *args, **kwargs):
         from datetime import timedelta
-        
+
         state = request.GET.get("state", "SP")
         try:
             month = int(request.GET.get("month", 0))
@@ -210,22 +210,22 @@ class WorkshopCostHolidaysView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         holiday_calendar = holidays.Brazil(state=state, years=year)
         holiday_dates = []
-        
+
         for holiday_date in holiday_calendar.keys():
             if holiday_date.year == year and holiday_date.month == month and holiday_date.weekday() < 5:
                 holiday_dates.append(holiday_date.isoformat())
-        
+
         good_friday_dates = [d for d in holiday_calendar.keys() if "Sexta" in str(holiday_calendar[d]) and d.year == year]
         if good_friday_dates:
             easter = good_friday_dates[0] + timedelta(days=2)
-            
+
             movable_holidays = [
                 easter - timedelta(days=48),
                 easter - timedelta(days=47),
                 easter - timedelta(days=46),
                 easter + timedelta(days=60),
             ]
-            
+
             for movable_date in movable_holidays:
                 if movable_date.year == year and movable_date.month == month and movable_date.weekday() < 5:
                     holiday_dates.append(movable_date.isoformat())

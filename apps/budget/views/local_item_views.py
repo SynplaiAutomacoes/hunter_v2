@@ -24,6 +24,8 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def get(self, request, budget_id, item_type):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        modal_context = request.GET.get("modal_context", "parent")
+        modal_target = "#child-modal-container" if modal_context == "child" else "#modal-container"
 
         default_benefit = "warranty" if budget.budget_type == "warranty" else ("courtesy" if budget.budget_type == "courtesy" else "normal")
         if item_type == "product":
@@ -40,6 +42,8 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "budget_id": budget_id,
             "item_type": item_type,
             "title": title,
+            "modal_context": modal_context,
+            "modal_target": modal_target,
         }
         return render(request, "budget/partials/modals/modal_create_local_item.html", context)
 
@@ -50,6 +54,8 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if _is_budget_edit_locked(budget):
             return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
 
+        modal_context = request.POST.get("modal_context", "parent")
+        modal_target = "#child-modal-container" if modal_context == "child" else "#modal-container"
         default_benefit = "warranty" if budget.budget_type == "warranty" else ("courtesy" if budget.budget_type == "courtesy" else "normal")
         if item_type == "product":
             form = LocalProductForm(request.POST, is_warranty_budget=budget.is_warranty_budget, item_benefit_type=default_benefit)
@@ -63,6 +69,7 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
             item.workshop = self.workshop
             item.budget = budget
             item.is_local = True
+            item.local_item_type = item_type
             item.save()
 
             # Reset etapas 5 e 6 após modificar a etapa 4
@@ -74,11 +81,13 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             rows = _render_budget_items_rows(budget, step6=False)
             target_selector = "#product-list-body" if item_type == "product" else "#service-list-body"
+            additional_triggers = {"closeParentBudgetModal": True} if modal_context == "child" else None
 
             response = HtmxResponseHelper.success(
                 f"{'Produto' if item_type == 'product' else 'Serviço'} local criado com sucesso!",
                 close_modal=True,
                 update_summary=True,
+                additional_triggers=additional_triggers,
                 content=rows[item_type],
             )
             response["HX-Retarget"] = target_selector
@@ -90,6 +99,8 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "budget_id": budget_id,
             "item_type": item_type,
             "title": f"Incluir Novo {'Produto' if item_type == 'product' else 'Serviço'} Local",
+            "modal_context": modal_context,
+            "modal_target": modal_target,
         }
         return render(request, "budget/partials/modals/modal_create_local_item.html", context)
 
@@ -167,6 +178,7 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     # Vincular ao budget item
                     item.product = product
                     item.is_local = False
+                    item.local_item_type = ""
                     item.save()
 
                     # Retornar a linha atualizada com OOB swap
@@ -191,6 +203,7 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     # Vincular ao budget item
                     item.service = service
                     item.is_local = False
+                    item.local_item_type = ""
                     item.save()
 
                     # Retornar a linha atualizada

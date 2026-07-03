@@ -53,6 +53,7 @@ urlpatterns = [
     path("visualizar-pdf-assinatura/<int:pk>", views.visualizar_pdf_assinatura, name="visualizar_pdf_assinatura"),
     path("visualizar-pdf-checklist/<int:pk>", views.visualizar_pdf_checklist, name="visualizar_pdf_checklist"),
     path("visualizar-pdf-gestor/<int:pk>", views.visualizar_pdf_gestor, name="visualizar_pdf_gestor"),
+    path("download-pdf-gestor/<int:pk>", views.download_pdf_gestor, name="download_pdf_gestor"),
     path("visualizar-pdf-mecanico/<int:pk>", views.visualizar_pdf_mecanico, name="visualizar_pdf_mecanico"),
     # 10. Webhook SuperSign
     path("supersign/webhook/ping/", views.SuperSignWebhookView.as_view(), name="supersign_webhook_ping"),

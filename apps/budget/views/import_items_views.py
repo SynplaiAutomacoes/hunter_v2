@@ -69,8 +69,8 @@ class BudgetImportItemsSelectModalView(LoginRequiredMixin, WorkshopScopedMixin, 
         reference_budget = _get_budget_for_workshop(self.workshop, reference_budget_id)
 
         items = reference_budget.items.select_related("product", "service", "kit").all()
-        products = [item for item in items if item.product_id is not None or (item.is_local and not item.service_id and not item.kit_id)]
-        services = [item for item in items if item.service_id is not None]
+        products = [item for item in items if item.product_id is not None or item.local_item_type == "product" or (item.is_local and not item.local_item_type and not item.service_id and not item.kit_id)]
+        services = [item for item in items if item.service_id is not None or item.local_item_type == "service"]
         kits = [item for item in items if item.kit_id is not None]
 
         context = {
@@ -109,6 +109,7 @@ class BudgetImportItemsProcessView(LoginRequiredMixin, WorkshopScopedMixin, View
                     service=source_item.service,
                     kit=None,
                     is_local=source_item.is_local,
+                    local_item_type=source_item.local_item_type,
                     is_customer_supplied=source_item.is_customer_supplied,
                     description=source_item.description,
                     product_cost_price=source_item.product_cost_price,
