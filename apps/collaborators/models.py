@@ -268,3 +268,8 @@ class CollaboratorCommissionEntry(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"Comissão {self.collaborator.name} - OS #{self.workorder.pk}"
+
+    @property
+    def percentage_display(self) -> str:
+        percentage_value = (Decimal(str(self.percentage or 0)) * Decimal("100")).quantize(Decimal("0.01"))
+        return f"{str(percentage_value).replace('.', ',')}%"

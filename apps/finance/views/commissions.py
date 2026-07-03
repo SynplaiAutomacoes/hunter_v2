@@ -4,12 +4,10 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from django import forms
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import HttpResponse
-from django.shortcuts import render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.utils import timezone
@@ -59,21 +57,6 @@ def build_paid_status_indicator(*, is_paid: bool) -> dict[str, str]:
         "class": "text-success" if is_paid else "text-error",
         "label": "Sim" if is_paid else "Não",
     }
-
-
-class CommissionStatusForm(forms.ModelForm):
-    status = forms.ChoiceField(
-        label="Status de pagamento",
-        choices=(
-            (CollaboratorCommissionEntry.Status.FORECAST, "Não Pago"),
-            (CollaboratorCommissionEntry.Status.PAID, "Pago"),
-        ),
-        widget=forms.Select(attrs={"class": "select select-bordered w-full"}),
-    )
-
-    class Meta:
-        model = CollaboratorCommissionEntry
-        fields = ["status"]
 
 
 class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
@@ -246,7 +229,6 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
                     "status": entry.status,
                     "status_label": "Pago" if entry.status == CollaboratorCommissionEntry.Status.PAID else "Não Pago",
                     "paid_indicator": build_paid_status_indicator(is_paid=entry.status == CollaboratorCommissionEntry.Status.PAID),
-                    "edit_url": reverse("finance:commission_status_edit", kwargs={"pk": entry.pk}),
                 }
             )
         return rows
@@ -438,34 +420,3 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
             )
         )
         return build_pdf_http_response(document=document, download=request.GET.get("download") == "1")
-
-
-class CommissionStatusUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
-    model = CollaboratorCommissionEntry
-    workshop_permission_app_label = "finance"
-    workshop_permission_model = "financialmovement"
-    workshop_permission_codename = "change_financialmovement"
-    template_name = "finance/commissions/partials/status_edit_modal.html"
-
-    def _get_object(self) -> CollaboratorCommissionEntry:
-        return CollaboratorCommissionEntry.objects.select_related("collaborator", "workorder").get(pk=self.kwargs["pk"], workshop=self.workshop)
-
-    def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
-        commission = self._get_object()
-        form = CommissionStatusForm(instance=commission)
-        return render(request, self.template_name, {"commission": commission, "form": form})
-
-    def post(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
-        commission = self._get_object()
-        form = CommissionStatusForm(request.POST, instance=commission)
-        if form.is_valid():
-            commission = form.save(commit=False)
-            commission.paid_at = timezone.localdate() if commission.status == CollaboratorCommissionEntry.Status.PAID else None
-            commission.save(update_fields=["status", "paid_at"])
-            response = HttpResponse()
-            response["HX-Refresh"] = "true"
-            response["HX-Trigger"] = '{"showToast": {"message": "Comissão atualizada com sucesso.", "type": "success"}}'
-            return response
-        response = render(request, self.template_name, {"commission": commission, "form": form}, status=400)
-        response["HX-Trigger"] = '{"showToast": {"message": "Revise os dados da comissão.", "type": "error"}}'
-        return response

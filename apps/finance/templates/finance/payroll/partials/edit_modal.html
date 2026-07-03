@@ -77,9 +77,9 @@
                                         <td>#{{ commission.workorder.get_id }}</td>
                                         <td>{{ commission.reference_month|stringformat:'02d' }}/{{ commission.reference_year|unlocalize }}</td>
                                         <td>{{ commission.base_amount }}</td>
-                                        <td>{{ commission.percentage|floatformat:4 }}</td>
+                                        <td>{{ commission.percentage_display }}</td>
                                         <td class="font-semibold">{{ commission.commission_amount }}</td>
-                                        <td>{{ commission.get_status_display }}</td>
+                                        <td>{% if commission.status == "PAID" %}Pago{% else %}Não Pago{% endif %}</td>
                                     </tr>
                                 {% empty %}
                                     <tr><td colspan="6" class="py-6 text-center text-base-content/60">Nenhuma comissão vinculada.</td></tr>

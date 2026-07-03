@@ -134,7 +134,6 @@
                                     <th>%</th>
                                     <th>Comissão</th>
                                     <th>Pago</th>
-                                    <th class="text-right">Ações</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -154,13 +153,6 @@
                                                 <span class="material-icons text-base leading-none">{{ row.paid_indicator.icon }}</span>
                                                 <span class="font-medium">{{ row.status_label }}</span>
                                             </span>
-                                        </td>
-                                        <td>
-                                            <div class="flex justify-end gap-2">
-                                                <button type="button" class="btn btn-ghost btn-xs" title="Editar comissão" hx-get="{{ row.edit_url }}" hx-target="#commission-edit-modal-container" hx-swap="innerHTML">
-                                                    <span class="material-icons text-sm">edit</span>
-                                                </button>
-                                            </div>
                                         </td>
                                     </tr>
                                 {% endfor %}
@@ -189,9 +181,6 @@
                 {% endif %}
             </div>
         </div>
-
-        <div id="commission-edit-modal-container"></div>
-
         <dialog
             id="pdfModal"
             class="modal"

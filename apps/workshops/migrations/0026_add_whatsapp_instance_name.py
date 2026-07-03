@@ -4,15 +4,24 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('workshops', '0025_alter_workshop_pdf_observation'),
+        ("workshops", "0025_alter_workshop_pdf_observation"),
     ]
 
     operations = [
-        migrations.AddField(
-            model_name='workshop',
-            name='whatsapp_instance_name',
-            field=models.CharField(blank=True, default='', max_length=64, verbose_name='Nome da instância WhatsApp'),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunSQL(
+                    sql='ALTER TABLE "workshops_workshop" ADD COLUMN IF NOT EXISTS "whatsapp_instance_name" varchar(64) NOT NULL DEFAULT \'\';',
+                    reverse_sql='ALTER TABLE "workshops_workshop" DROP COLUMN IF EXISTS "whatsapp_instance_name";',
+                ),
+            ],
+            state_operations=[
+                migrations.AddField(
+                    model_name="workshop",
+                    name="whatsapp_instance_name",
+                    field=models.CharField(blank=True, default="", max_length=64, verbose_name="Nome da instância WhatsApp"),
+                ),
+            ],
         ),
     ]

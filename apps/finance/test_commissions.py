@@ -9,43 +9,8 @@ from djmoney.money import Money
 
 from apps.collaborators.models import CollaboratorCommissionEntry
 from apps.collaborators.test_commissions import create_collaborator, create_workorder, create_workshop
-from apps.finance.views.commissions import CommissionReportPdfView, CommissionReportView, CommissionStatusUpdateView
+from apps.finance.views.commissions import CommissionReportPdfView, CommissionReportView
 from apps.workorder.models import WorkOrderStatus
-
-
-class CommissionStatusUpdateViewTests(TestCase):
-    def test_post_updates_commission_status_without_reverting_to_forecast(self) -> None:
-        workshop = create_workshop(suffix=91)
-        collaborator = create_collaborator(workshop=workshop, suffix=91)
-        workorder = create_workorder(workshop=workshop, budget_type="sale")
-        commission = CollaboratorCommissionEntry.objects.create(
-            workshop=workshop,
-            collaborator=collaborator,
-            workorder=workorder,
-            reference_year=2026,
-            reference_month=8,
-            percentage=Decimal("0.100000"),
-            base_amount=Money(1000, "BRL"),
-            commission_amount=Money(100, "BRL"),
-            status=CollaboratorCommissionEntry.Status.FORECAST,
-            paid_at=None,
-        )
-
-        request = RequestFactory().post(
-            f"/finance/comissoes/{commission.pk}/status/",
-            {"status": CollaboratorCommissionEntry.Status.PAID},
-        )
-        view = CommissionStatusUpdateView()
-        view.request = request
-        view.kwargs = {"pk": commission.pk}
-        view.workshop = workshop
-
-        response = view.post(request)
-        commission.refresh_from_db()
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(commission.status, CollaboratorCommissionEntry.Status.PAID)
-        self.assertEqual(commission.paid_at, timezone.localdate())
 
 
 class CommissionReportVisibilityTests(TestCase):
@@ -76,6 +41,7 @@ class CommissionReportVisibilityTests(TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["status"], CollaboratorCommissionEntry.Status.PAID)
         self.assertEqual(rows[0]["workorder_id"], paid_entry.workorder.budget_id)
+        self.assertNotIn("edit_url", rows[0])
 
     def test_forecast_commission_hidden_when_workorder_reopened(self) -> None:
         workshop = create_workshop(suffix=93)
