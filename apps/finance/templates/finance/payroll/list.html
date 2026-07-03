@@ -2,24 +2,54 @@
 {% load l10n %}
 
 {% block crud_content %}
-    <div class="space-y-6">
+    <div class="space-y-6" x-data>
         <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
                 <h1 class="text-3xl font-bold text-base-content">Folha de Pagamento</h1>
                 <p class="text-base-content/70">Acompanhe a folha consolidada por colaborador.</p>
             </div>
             <div class="flex items-center gap-2">
-                <button type="button" class="btn btn-success" id="btn-pagar-selecionados" disabled
-                        hx-post="{% url 'finance:payroll_bulk_pay' %}"
-                        hx-include="#payroll-table .payroll-checkbox:checked"
-                        hx-confirm="Tem certeza que deseja marcar todas as folhas selecionadas como pagas? As comissões vinculadas também serão marcadas como pagas."
-                        hx-target="#payroll-section"
-                        hx-swap="outerHTML">
+                <button type="button" class="btn btn-success" id="btn-pagar-selecionados" disabled @click="$refs.payrollBulkPayModal.showModal()">
                     <span class="material-icons">payments</span>
                     Pagar selecionados
                 </button>
             </div>
         </div>
+
+        <dialog id="payroll-bulk-pay-modal" class="modal" x-ref="payrollBulkPayModal" @click="if ($event.target === $el) $el.close()">
+            <div class="modal-box w-11/12 max-w-lg border border-base-300 bg-base-100 shadow-2xl">
+                <div class="flex items-start gap-3">
+                    <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-success/10 text-success">
+                        <span class="material-icons">payments</span>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold text-base-content">Confirmar pagamento em lote</h3>
+                        <p class="mt-2 text-sm leading-6 text-base-content/70">As folhas selecionadas serão marcadas como pagas, e as comissões vinculadas também serão marcadas como pagas.</p>
+                    </div>
+                </div>
+
+                <div class="mt-5 rounded-xl border border-base-300 bg-base-200/40 px-4 py-3 text-sm text-base-content/80">
+                    Revise os itens selecionados antes de continuar. Esta ação atualiza todos os registros marcados de uma só vez.
+                </div>
+
+                <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                    <button type="button" class="btn-form-cancel" @click="$refs.payrollBulkPayModal.close()">Cancelar</button>
+                    <button
+                        type="button"
+                        class="btn btn-success"
+                        hx-post="{% url 'finance:payroll_bulk_pay' %}"
+                        hx-include="#payroll-table .payroll-checkbox:checked"
+                        hx-target="#payroll-section"
+                        hx-swap="outerHTML"
+                        @click="$refs.payrollBulkPayModal.close()"
+                    >
+                        <span class="material-icons text-[18px]">check_circle</span>
+                        Confirmar pagamento
+                    </button>
+                </div>
+            </div>
+            <button type="button" class="modal-backdrop" @click="$refs.payrollBulkPayModal.close()">close</button>
+        </dialog>
 
         <form method="get" action="{% url 'finance:payroll_list' %}" class="card border border-base-300 bg-base-100 shadow-xl" x-data>
             <div class="card-body gap-4 p-5 md:p-6">

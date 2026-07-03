@@ -185,6 +185,21 @@ def _sync_paid_payroll_commission_entries(*, payroll: CollaboratorPayroll, commi
     _create_or_update_financial_movement(payroll=payroll)
 
 
+def _get_effective_commission_entries(
+    *,
+    collaborator: WorkshopCollaborator,
+    resolved: date,
+    synced_entries: list[CollaboratorCommissionEntry],
+) -> list[CollaboratorCommissionEntry]:
+    synced_entry_ids = [entry.pk for entry in synced_entries]
+    queryset = CollaboratorCommissionEntry.objects.filter(
+        collaborator=collaborator,
+        reference_year=resolved.year,
+        reference_month=resolved.month,
+    ).filter(Q(status=CollaboratorCommissionEntry.Status.PAID) | Q(pk__in=synced_entry_ids))
+    return list(queryset.select_related("workorder").order_by("id"))
+
+
 def remove_pending_workorder_commissions(*, workorder: WorkOrder) -> int:
     deleted_count, _ = CollaboratorCommissionEntry.objects.filter(
         workorder=workorder,
@@ -293,20 +308,60 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
         status = CollaboratorCommissionEntry.Status.FORECAST
         paid_at = None
 
-        entry, _ = CollaboratorCommissionEntry.objects.update_or_create(
+        entry = CollaboratorCommissionEntry.objects.filter(
             collaborator=collaborator,
             workorder=workorder,
-            defaults={
-                "workshop": collaborator.workshop,
-                "reference_year": resolved.year,
-                "reference_month": resolved.month,
-                "percentage": percentage,
-                "base_amount": Money(base_amount, "BRL"),
-                "commission_amount": Money(commission_amount, "BRL"),
-                "status": status,
-                "paid_at": paid_at,
-            },
-        )
+        ).first()
+        if entry is None:
+            entry = CollaboratorCommissionEntry.objects.create(
+                workshop=collaborator.workshop,
+                collaborator=collaborator,
+                workorder=workorder,
+                reference_year=resolved.year,
+                reference_month=resolved.month,
+                percentage=percentage,
+                base_amount=Money(base_amount, "BRL"),
+                commission_amount=Money(commission_amount, "BRL"),
+                status=status,
+                paid_at=paid_at,
+            )
+        elif entry.status == CollaboratorCommissionEntry.Status.PAID:
+            update_fields: list[str] = []
+            if entry.workshop_id != collaborator.workshop_id:
+                entry.workshop = collaborator.workshop
+                update_fields.append("workshop")
+            if entry.reference_year != resolved.year:
+                entry.reference_year = resolved.year
+                update_fields.append("reference_year")
+            if entry.reference_month != resolved.month:
+                entry.reference_month = resolved.month
+                update_fields.append("reference_month")
+            if entry.percentage != percentage:
+                entry.percentage = percentage
+                update_fields.append("percentage")
+            if update_fields:
+                entry.save(update_fields=update_fields)
+        else:
+            entry.workshop = collaborator.workshop
+            entry.reference_year = resolved.year
+            entry.reference_month = resolved.month
+            entry.percentage = percentage
+            entry.base_amount = Money(base_amount, "BRL")
+            entry.commission_amount = Money(commission_amount, "BRL")
+            entry.status = status
+            entry.paid_at = paid_at
+            entry.save(
+                update_fields=[
+                    "workshop",
+                    "reference_year",
+                    "reference_month",
+                    "percentage",
+                    "base_amount",
+                    "commission_amount",
+                    "status",
+                    "paid_at",
+                ]
+            )
         synced_entries.append(entry)
 
     stale_entries = CollaboratorCommissionEntry.objects.filter(collaborator=collaborator, reference_year=resolved.year, reference_month=resolved.month)
@@ -400,11 +455,13 @@ def sync_collaborator_payroll(*, collaborator: WorkshopCollaborator, reference_d
     existing_payroll = CollaboratorPayroll.objects.filter(collaborator=collaborator, reference_year=resolved.year, reference_month=resolved.month).select_related("financial_movement").first()
     if _is_paid_payroll(payroll=existing_payroll):
         assert existing_payroll is not None
-        commission_entries = sync_collaborator_commission_entries(collaborator=collaborator, reference_date=resolved, lock_reference=lock_reference)
+        synced_entries = sync_collaborator_commission_entries(collaborator=collaborator, reference_date=resolved, lock_reference=lock_reference)
+        commission_entries = _get_effective_commission_entries(collaborator=collaborator, resolved=resolved, synced_entries=synced_entries)
         _sync_paid_payroll_commission_entries(payroll=existing_payroll, commission_entries=commission_entries)
         return existing_payroll
 
-    commission_entries = sync_collaborator_commission_entries(collaborator=collaborator, reference_date=resolved, lock_reference=lock_reference)
+    synced_entries = sync_collaborator_commission_entries(collaborator=collaborator, reference_date=resolved, lock_reference=lock_reference)
+    commission_entries = _get_effective_commission_entries(collaborator=collaborator, resolved=resolved, synced_entries=synced_entries)
 
     salary_amount = Money(_quantize(collaborator.salary_amount), "BRL")
     transport_amount = calculate_transport_allowance_total(collaborator=collaborator, reference_date=resolved)

@@ -83,7 +83,7 @@
                 <div class="rounded-md border border-gray-200 bg-white p-3">
                     <p class="text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-500">Pagamento</p>
                     <p class="mt-2 text-[13px] font-semibold">{{ payroll.due_date|date:"d/m/Y" }}</p>
-                    <p class="mt-1 text-[11px] text-gray-600">Status: {% if payroll.status == "PAID" %}Pago{% else %}Não pago{% endif %}</p>
+                    <p class="mt-1 text-[11px] text-gray-600">Pago: {% if payroll.status == "PAID" %}Pago{% else %}Não Pago{% endif %}</p>
                 </div>
                 <div class="rounded-md border border-gray-200 bg-white p-3">
                     <p class="text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-500">VT e benefícios</p>

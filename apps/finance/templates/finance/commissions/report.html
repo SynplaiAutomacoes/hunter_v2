@@ -70,7 +70,7 @@
                                 </select>
                             </div>
                             <div>
-                                <label for="commission-status">Status</label>
+                                <label for="commission-status">Pago</label>
                                 <select id="commission-status" name="status" class="select select-bordered w-full">
                                     {% for value, label in status_choices %}
                                         <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
@@ -133,7 +133,7 @@
                                     <th>Valor Total dos Serviços</th>
                                     <th>%</th>
                                     <th>Comissão</th>
-                                    <th>Status</th>
+                                    <th>Pago</th>
                                     <th class="text-right">Ações</th>
                                 </tr>
                             </thead>

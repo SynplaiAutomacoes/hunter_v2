@@ -80,7 +80,7 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     workshop_permission_model = "financialmovement"
     workshop_permission_codename = "view_financialmovement"
     PER_PAGE = 20
-    STATUS_CHOICES = (("", "Todos"), (CollaboratorPayroll.Status.FORECAST, "Não pago"), (CollaboratorPayroll.Status.PAID, "Pago"))
+    STATUS_CHOICES = (("", "Todos"), (CollaboratorPayroll.Status.FORECAST, "Não Pago"), (CollaboratorPayroll.Status.PAID, "Pago"))
 
     @staticmethod
     def _parse_date_param(raw_value: str | None) -> date | None:
