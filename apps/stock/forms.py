@@ -2740,7 +2740,25 @@ class QuickProductForm(CoreModelForm):
 
     def clean_name(self):
         value = self.cleaned_data.get("name")
-        return sentence_case(value) if value else value
+        name = sentence_case(value) if value else value
+        if name and self.workshop:
+            qs = Product.objects.filter(workshop=self.workshop, name__iexact=name)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise forms.ValidationError("Já existe um produto com este nome.")
+        return name
+
+    def clean_code(self):
+        code = self.cleaned_data.get("code")
+        if code and self.workshop:
+            qs = Product.objects.filter(workshop=self.workshop, code__iexact=code)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise forms.ValidationError("Já existe um produto cadastrado com este código.")
+        return code
+
 
 
 class QuickSupplierForm(AddressFormMixin, CoreModelForm):
