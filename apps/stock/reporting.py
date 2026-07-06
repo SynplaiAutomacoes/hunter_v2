@@ -237,6 +237,17 @@ def build_stock_report_summary(items: Sequence[StockProduct]) -> dict[str, objec
     }
 
 
+def build_stock_report_aggregate_summary(*, item_count: int, total_quantity: int, stock_total_cost: Money) -> dict[str, object]:
+    return {
+        "item_count": item_count,
+        "item_count_display": _format_integer(item_count),
+        "total_quantity": total_quantity,
+        "total_quantity_display": _format_integer(total_quantity),
+        "stock_total_cost": stock_total_cost,
+        "stock_total_cost_display": money_br(stock_total_cost),
+    }
+
+
 def build_stock_report_pdf_rows(*, items: Sequence[StockProduct], selected_columns: Sequence[StockReportColumnDefinition]) -> list[dict[str, object]]:
     return [
         {

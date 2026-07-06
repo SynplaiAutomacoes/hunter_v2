@@ -3,17 +3,16 @@ import logging
 from django.core.exceptions import ObjectDoesNotExist
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, render
-from django.template.loader import render_to_string
 from django.views.decorators.clickjacking import xframe_options_exempt
 
 from apps.budget.documents.provider import render_budget_pdf_document
-from apps.budget.models import Budget
+from apps.budget.models import Budget, BudgetPdfRenderJob
+from apps.budget.pdf_jobs import get_or_queue_budget_pdf_job
 from apps.budget.pdf_context import build_budget_pdf_context, build_workshop_logo_data_uri
 from apps.budget.service import BUDGET_SIGNATURE_DOCUMENT_ID_KEY, BUDGET_SIGNATURE_TOKEN_SALT, can_use_signed_budget_pdf, should_default_to_signed_budget_pdf
 from apps.checklist.models import Checklist
 from apps.checklist.services.files import ChecklistFileStorageError, read_checklist_pdf_file
 from apps.core.domain.contracts.documents import DocumentPayload
-from apps.core.infrastructure.pdf import render_pdf_from_html
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.domain.contracts.signature import SignatureServiceError
 from apps.core.domain.contracts.documents import SignatureTokenError
@@ -25,6 +24,54 @@ logger = logging.getLogger(__name__)
 
 SIGNED_PDF_VARIANT = "signed"
 BASE_PDF_VARIANT = "base"
+
+
+def _build_budget_pdf_processing_response(*, request, title: str, message: str, error_message: str = "") -> HttpResponse:
+    response = render(
+        request,
+        "budget/pdf/pdf_generation_pending.html",
+        {
+            "title": title,
+            "message": message,
+            "error_message": error_message,
+            "refresh_seconds": 3,
+        },
+    )
+    response.status_code = 202
+    return response
+
+
+def _build_budget_pdf_file_response_from_job(*, budget: Budget, download: bool, use_signed_name: bool, job: BudgetPdfRenderJob) -> HttpResponse:
+    with job.output_file.open("rb") as output_file:
+        return _build_budget_pdf_file_response(
+            budget=budget,
+            download=download,
+            use_signed_name=use_signed_name,
+            pdf_bytes=output_file.read(),
+        )
+
+
+def _serve_background_budget_pdf(*, request, budget: Budget, variant: str, download: bool, use_signed_name: bool, title: str, message: str) -> HttpResponse:
+    job = get_or_queue_budget_pdf_job(
+        budget=budget,
+        variant=variant,
+        requested_by=request.user if getattr(request.user, "is_authenticated", False) else None,
+    )
+    if job.status == BudgetPdfRenderJob.Status.COMPLETED and job.output_file:
+        return _build_budget_pdf_file_response_from_job(
+            budget=budget,
+            download=download,
+            use_signed_name=use_signed_name,
+            job=job,
+        )
+
+    error_message = job.error_message if job.status == BudgetPdfRenderJob.Status.FAILED else ""
+    return _build_budget_pdf_processing_response(
+        request=request,
+        title=title,
+        message=message,
+        error_message=error_message,
+    )
 
 
 @xframe_options_exempt
@@ -49,11 +96,15 @@ def visualizar_pdf_gestor(request, pk):
 def download_pdf_gestor(request, pk):
     workshop = get_active_workshop_or_404(request)
     budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle", "workshop"), pk=pk, workshop=workshop)
-    context = build_budget_pdf_context(budget=budget, request=request, presentation="selected_items")
-    html = render_to_string("budget/partials/pdf/visualizarPDFGestor.html", context)
-    pdf_bytes = render_pdf_from_html(html)
-    document = DocumentPayload(content=pdf_bytes, filename=f"orcamento_{budget.id}_gestor.pdf")
-    return build_pdf_http_response(document=document, download=True)
+    return _serve_background_budget_pdf(
+        request=request,
+        budget=budget,
+        variant=BudgetPdfRenderJob.Variant.MANAGER,
+        download=True,
+        use_signed_name=False,
+        title="Gerando PDF do gestor",
+        message="O PDF do gestor foi enviado para processamento em background.",
+    )
 
 
 @xframe_options_exempt
@@ -239,14 +290,12 @@ def visualizar_pdf_assinatura(request, pk):
         except SignatureServiceError:
             logger.warning("budget_signed_pdf_load_failed", extra={"budget_id": budget.id, "document_id": budget.signature_document_id, "envelope_id": budget.signature_external_id})
 
-    try:
-        document = render_budget_pdf_document(
-            budget=budget,
-            request=request,
-            filename=f"orcamento_{budget.id}_base.pdf",
-        )
-    except Exception:
-        logger.exception("budget_pdf_base_generation_failed", extra={"budget_id": budget.id, "pdf_type": "view"})
-        return HttpResponse("Erro ao gerar PDF", status=500)
-
-    return build_pdf_http_response(document=document, download=should_download)
+    return _serve_background_budget_pdf(
+        request=request,
+        budget=budget,
+        variant=BudgetPdfRenderJob.Variant.BASE,
+        download=should_download,
+        use_signed_name=False,
+        title="Gerando PDF do orçamento",
+        message="O PDF do orçamento foi enviado para processamento em background.",
+    )

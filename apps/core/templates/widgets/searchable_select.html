@@ -6,9 +6,47 @@
         search: '',
         allowedValues: null,
         dynamicOptions: [],
+        sourceUrl: '{{ widget.attrs.data-source-url|default_if_none:""|escapejs }}',
+        minSearchLength: Number('{{ widget.attrs.data-min-search-length|default_if_none:"0"|escapejs }}' || 0),
+        fetchToken: 0,
         init() {
             this.updateLabelFromValue();
             this.$watch('value', () => this.updateLabelFromValue());
+        },
+        async fetchRemoteOptions(query = '') {
+            if (!this.sourceUrl) {
+                return;
+            }
+
+            if (query && query.length < this.minSearchLength) {
+                this.dynamicOptions = [];
+                return;
+            }
+
+            const token = ++this.fetchToken;
+            try {
+                const url = new URL(this.sourceUrl, window.location.origin);
+                if (query) {
+                    url.searchParams.set('q', query);
+                }
+
+                const response = await fetch(url.toString(), {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                });
+                if (!response.ok || token !== this.fetchToken) {
+                    return;
+                }
+
+                const payload = await response.json();
+                if (token !== this.fetchToken) {
+                    return;
+                }
+                this.setOptions(Array.isArray(payload) ? payload : []);
+            } catch (error) {
+                if (token === this.fetchToken) {
+                    this.dynamicOptions = [];
+                }
+            }
         },
         normalizeOptions(options) {
             const seen = new Set();
@@ -123,6 +161,7 @@
         openDropdown() {
             this.search = '';
             this.open = true;
+            this.fetchRemoteOptions('');
         },
         closeDropdown() {
             this.open = false;
@@ -164,7 +203,7 @@
             :value="open ? search : label"
             @focus="openDropdown()"
             @click="if (!open) openDropdown()"
-            @input="search = $event.target.value; open = true"
+            @input="search = $event.target.value; open = true; fetchRemoteOptions(search)"
             @keydown.escape.stop="closeDropdown()"
             placeholder="Digite para buscar..."
             class="input-theme {{ widget.attrs.class }} w-full pr-10"

@@ -51,6 +51,17 @@ def _with_selected_choice(choices: list[tuple[str, str]], selected_value: object
     return [*choices, (normalized_selected_value, normalized_selected_value)]
 
 
+def _selected_instance_queryset(*, model: type[Customer] | type[Vehicle] | type[Budget] | type[WorkOrder], selected_id: object, workshop: Workshop | None = None):
+    normalized_selected_id = str(selected_id or "").strip()
+    if not normalized_selected_id:
+        return model.objects.none()
+
+    queryset = model.objects.filter(pk=normalized_selected_id)
+    if workshop is not None:
+        queryset = queryset.filter(workshop=workshop)
+    return queryset
+
+
 def _guest_vehicle_brand_form_choices() -> list[tuple[str, str]]:
     return [
         ("", "Selecione"),
@@ -240,21 +251,16 @@ class AppointmentForm(CoreModelForm):
             raise TypeError("Campos de budget/workorder invalidos no AppointmentForm")
 
         if self.workshop:
-            customer_field.queryset = Customer.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
-            budget_field.queryset = Budget.objects.filter(workshop=self.workshop).select_related("customer", "vehicle").order_by("-criado_em")
-            workorder_field.queryset = WorkOrder.objects.filter(workshop=self.workshop).select_related("budget", "budget__customer", "budget__vehicle").order_by("-criado_em")
+            customer_field.queryset = Customer.objects.none()
 
-            def _budget_label_from_instance(budget):
-                return f"Orçamento #{budget.pk}"
+            def _budget_label_from_instance(obj):
+                return f"Orçamento #{obj.pk}"
 
-            def _workorder_label_from_instance(workorder):
-                return f"O.S. #{workorder.get_id}"
+            def _workorder_label_from_instance(obj):
+                return f"O.S. #{obj.get_id}"
 
             budget_field.label_from_instance = _budget_label_from_instance
             workorder_field.label_from_instance = _workorder_label_from_instance
-
-            budget_field.widget = SearchableSelectInput(choices=list(budget_field.choices))
-            workorder_field.widget = SearchableSelectInput(choices=list(workorder_field.choices))
 
         customer_field.widget.attrs.update({":disabled": "!isCustomerRegistered"})
         vehicle_field.widget.attrs.update({":disabled": "!isCustomerRegistered || !customerId"})
@@ -273,10 +279,16 @@ class AppointmentForm(CoreModelForm):
         self.initial["is_customer_registered"] = is_customer_registered
 
         guest_field_names = [
-            "guest_customer_name", "guest_customer_cpf", "guest_customer_phone",
-            "guest_vehicle_plate", "guest_vehicle_brand", "guest_vehicle_model",
-            "guest_vehicle_year_fabrication", "guest_vehicle_year_model",
-            "guest_vehicle_engine", "guest_vehicle_fuel",
+            "guest_customer_name",
+            "guest_customer_cpf",
+            "guest_customer_phone",
+            "guest_vehicle_plate",
+            "guest_vehicle_brand",
+            "guest_vehicle_model",
+            "guest_vehicle_year_fabrication",
+            "guest_vehicle_year_model",
+            "guest_vehicle_engine",
+            "guest_vehicle_fuel",
         ]
         for field_name in guest_field_names:
             self.fields[field_name].required = True
@@ -309,10 +321,38 @@ class AppointmentForm(CoreModelForm):
         if not selected_vehicle_id and self.initial.get("vehicle"):
             selected_vehicle_id = str(self.initial.get("vehicle"))
 
+        selected_budget_id = ""
+        selected_workorder_id = ""
+        if self.is_bound:
+            selected_budget_id = (self.data.get("budget") or "").strip()
+            selected_workorder_id = (self.data.get("workorder") or "").strip()
+        elif self.instance and self.instance.pk:
+            selected_budget_id = str(self.instance.budget_id or "")
+            selected_workorder_id = str(self.instance.workorder_id or "")
+
+        if not selected_budget_id and self.initial.get("budget"):
+            selected_budget_id = str(self.initial.get("budget"))
+        if not selected_workorder_id and self.initial.get("workorder"):
+            selected_workorder_id = str(self.initial.get("workorder"))
+
+        if is_customer_registered:
+            customer_field.queryset = _selected_instance_queryset(model=Customer, selected_id=selected_customer_id, workshop=self.workshop)
+
         if is_customer_registered and selected_customer_id and self.workshop:
             vehicle_field.queryset = Vehicle.objects.filter(workshop=self.workshop, customer_id=selected_customer_id).order_by("plate")
         else:
             vehicle_field.queryset = Vehicle.objects.none()
+
+        if is_customer_registered and selected_vehicle_id and self.workshop:
+            budget_field.queryset = Budget.objects.filter(workshop=self.workshop, vehicle_id=selected_vehicle_id).select_related("customer", "vehicle").order_by("-criado_em")
+            workorder_field.queryset = WorkOrder.objects.filter(workshop=self.workshop, budget__vehicle_id=selected_vehicle_id).select_related("budget", "budget__customer", "budget__vehicle").order_by("-criado_em")
+        else:
+            budget_field.queryset = Budget.objects.none()
+            workorder_field.queryset = WorkOrder.objects.none()
+
+        customer_field.widget = SearchableSelectInput(choices=tuple(customer_field.choices), attrs={"data-source-url": reverse("scheduling:get_customers")})
+        budget_field.widget = SearchableSelectInput(choices=tuple(budget_field.choices))
+        workorder_field.widget = SearchableSelectInput(choices=tuple(workorder_field.choices))
 
         selected_registered_vehicle: Vehicle | None = None
         if is_customer_registered and selected_vehicle_id and self.workshop:
@@ -632,9 +672,9 @@ class AppointmentForm(CoreModelForm):
                         vehicleData.clear();
                         optionsUl.querySelectorAll('li[data-value]').forEach(li => li.remove());
 
-                        if (!customerId) {
-                            return;
-                        }
+                            if (!customerId) {
+                                return;
+                            }
 
                         try {
                             const response = await fetch(`/scheduling/get-vehicles/?customer=${encodeURIComponent(customerId)}`);
@@ -666,6 +706,59 @@ class AppointmentForm(CoreModelForm):
                         } catch (error) {
                             console.error('Erro ao carregar veiculos:', error);
                         }
+                    }
+
+                    async function updateRelatedSelectList({ inputSelector, url, selectedValue = null, emptyErrorMessage }) {
+                        const hiddenInput = document.querySelector(inputSelector);
+                        if (!hiddenInput) return;
+
+                        if (!url) {
+                            setSearchableSelection(hiddenInput, '', '', []);
+                            return;
+                        }
+
+                        try {
+                            const options = normalizeOptions(await fetchOptions(url), selectedValue || '');
+                            const selectedOption = options.find((option) => String(option.id) === String(selectedValue || ''));
+                            setSearchableSelection(
+                                hiddenInput,
+                                selectedValue || '',
+                                selectedOption ? selectedOption.label : String(selectedValue || ''),
+                                options,
+                                { silent: true }
+                            );
+                        } catch (error) {
+                            console.warn(emptyErrorMessage, error);
+                            setSearchableSelection(hiddenInput, '', '', []);
+                        }
+                    }
+
+                    async function updateBudgetList(vehicleId, selectedBudgetId = null) {
+                        if (!vehicleId) {
+                            setSearchableSelection(document.getElementById('id_budget'), '', '', []);
+                            return;
+                        }
+
+                        await updateRelatedSelectList({
+                            inputSelector: '#id_budget',
+                            url: `/scheduling/get-budgets/?vehicle=${encodeURIComponent(vehicleId)}`,
+                            selectedValue: selectedBudgetId,
+                            emptyErrorMessage: 'Erro ao carregar orçamentos do veículo:',
+                        });
+                    }
+
+                    async function updateWorkorderList(vehicleId, selectedWorkorderId = null) {
+                        if (!vehicleId) {
+                            setSearchableSelection(document.getElementById('id_workorder'), '', '', []);
+                            return;
+                        }
+
+                        await updateRelatedSelectList({
+                            inputSelector: '#id_workorder',
+                            url: `/scheduling/get-workorders/?vehicle=${encodeURIComponent(vehicleId)}`,
+                            selectedValue: selectedWorkorderId,
+                            emptyErrorMessage: 'Erro ao carregar ordens de serviço do veículo:',
+                        });
                     }
 
                     async function updateGuestVehicleFields(plateValue) {
@@ -742,8 +835,10 @@ class AppointmentForm(CoreModelForm):
 
                         customerData.select(option);
                         syncAppointmentContextFromInput('customer', customerId);
-                        updateVehicleList(customer.id);
-                    }
+                            updateVehicleList(customer.id);
+                            updateBudgetList('');
+                            updateWorkorderList('');
+                        }
 
                     if (!window.__appointmentCustomerSavedBound) {
                         window.__appointmentCustomerSavedBound = true;
@@ -777,6 +872,21 @@ class AppointmentForm(CoreModelForm):
 
                             syncAppointmentContextFromInput('customer', customerId);
                             updateVehicleList(customerId, vehicle.id);
+                            updateBudgetList(vehicle.id);
+                            updateWorkorderList(vehicle.id);
+                        });
+                    }
+
+                    if (window.Alpine) {
+                        queueMicrotask(() => {
+                            const shell = document.querySelector('[data-appointment-form-shell]');
+                            const shellData = getAlpineContext(shell);
+                            if (!shellData || !shellData.vehicleId) {
+                                return;
+                            }
+
+                            updateBudgetList(shellData.vehicleId, document.getElementById('id_budget') ? document.getElementById('id_budget').value : '');
+                            updateWorkorderList(shellData.vehicleId, document.getElementById('id_workorder') ? document.getElementById('id_workorder').value : '');
                         });
                     }
                 </script>
@@ -880,15 +990,21 @@ class AppointmentForm(CoreModelForm):
                                 customerId = '';
                                 vehicleId = '';
                                 updateVehicleList('');
+                                updateBudgetList('');
+                                updateWorkorderList('');
                                 clearRegisteredVehicleDetails();
                             }
                         } else if ($event.target && $event.target.name === 'customer') {
                             customerId = $event.target.value || '';
                             vehicleId = '';
                             updateVehicleList(customerId);
+                            updateBudgetList('');
+                            updateWorkorderList('');
                             clearRegisteredVehicleDetails();
                         } else if ($event.target && $event.target.name === 'vehicle') {
                             vehicleId = $event.target.value || '';
+                            updateBudgetList(vehicleId);
+                            updateWorkorderList(vehicleId);
                             if (isCustomerRegistered) {
                                 updateRegisteredVehicleDetails(vehicleId);
                             }
@@ -985,10 +1101,16 @@ class AppointmentForm(CoreModelForm):
         cleaned_data["guest_vehicle_fuel"] = guest_vehicle_fuel
 
         guest_field_names = [
-            "guest_customer_name", "guest_customer_cpf", "guest_customer_phone",
-            "guest_vehicle_plate", "guest_vehicle_brand", "guest_vehicle_model",
-            "guest_vehicle_year_fabrication", "guest_vehicle_year_model",
-            "guest_vehicle_engine", "guest_vehicle_fuel",
+            "guest_customer_name",
+            "guest_customer_cpf",
+            "guest_customer_phone",
+            "guest_vehicle_plate",
+            "guest_vehicle_brand",
+            "guest_vehicle_model",
+            "guest_vehicle_year_fabrication",
+            "guest_vehicle_year_model",
+            "guest_vehicle_engine",
+            "guest_vehicle_fuel",
         ]
         if is_customer_registered:
             for field_name in guest_field_names:
@@ -1073,8 +1195,11 @@ class AppointmentCalendarFilterForm(CoreForm):
         if not isinstance(customer_field, forms.ModelChoiceField) or not isinstance(vehicle_field, forms.ModelChoiceField):
             raise TypeError("Campos de cliente/veiculo invalidos no AppointmentCalendarFilterForm")
 
-        if self.workshop:
-            customer_field.queryset = Customer.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
+        customer_field.queryset = _selected_instance_queryset(
+            model=Customer,
+            selected_id=(self.data.get("customer") if self.is_bound else self.initial.get("customer")),
+            workshop=self.workshop,
+        )
 
         vehicle_field.widget.attrs.update({":disabled": "!customerId"})
 
@@ -1088,6 +1213,9 @@ class AppointmentCalendarFilterForm(CoreForm):
             vehicle_field.queryset = Vehicle.objects.filter(workshop=self.workshop, customer_id=selected_customer_id).order_by("plate")
         else:
             vehicle_field.queryset = Vehicle.objects.none()
+
+        customer_field.widget = SearchableSelectInput(choices=tuple(customer_field.choices), attrs={"id": "appointment-filter-customer", "data-source-url": reverse("scheduling:get_customers")})
+        vehicle_field.widget = SearchableSelectInput(choices=tuple(vehicle_field.choices), attrs={"id": "appointment-filter-vehicle"})
 
 
 class AppointmentMoveForm(CoreForm):

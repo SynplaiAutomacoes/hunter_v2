@@ -7,6 +7,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
+from django.db.models import Exists, OuterRef
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse_lazy
@@ -17,9 +18,11 @@ from djmoney.money import Money
 
 from apps.catalog.fipe_service import get_brand_options, get_cached_fuel_options_for_model, get_model_options, get_vehicle_model_metadata, register_catalog_access_and_maybe_sync
 from apps.catalog.forms.kits import KitForm, QuickProductEditForm, QuickServiceEditForm
+from apps.budget.models import BudgetItem, BudgetKitItemOverride
 from apps.catalog.models.kits import Kit, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
+from apps.workorder.models import WorkOrderItem, WorkOrderKitItemOverride
 from apps.catalog.util import build_product_kits_assignment_context, calculate_catalog_service_prices, get_current_workshop_cost, recalculate_kit_totals
 from apps.core.presentation.navigation import KIT_CREATE_FAVORITE_PAGE
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
@@ -84,11 +87,13 @@ def api_fipe_fuels(request):
     except Exception:  # noqa: BLE001
         metadata = {"fuels": [], "year_start": None, "year_end": None}
 
-    return JsonResponse({
-        "fuels": [{"id": option, "label": option} for option in metadata["fuels"]],
-        "year_start": metadata["year_start"],
-        "year_end": metadata["year_end"],
-    })
+    return JsonResponse(
+        {
+            "fuels": [{"id": option, "label": option} for option in metadata["fuels"]],
+            "year_start": metadata["year_start"],
+            "year_end": metadata["year_end"],
+        }
+    )
 
 
 class FipeCatalogAccessMixin:
@@ -105,6 +110,9 @@ class KitListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseM
 
     def get_queryset(self):
         queryset = super().get_queryset()
+        queryset = queryset.annotate(
+            has_usage=Exists(BudgetItem.objects.filter(kit=OuterRef("pk")).only("pk")) | Exists(WorkOrderItem.objects.filter(kit=OuterRef("pk")).only("pk")) | Exists(BudgetKitItemOverride.objects.filter(kit=OuterRef("pk")).only("pk")) | Exists(WorkOrderKitItemOverride.objects.filter(kit=OuterRef("pk")).only("pk")),
+        )
         queryset = apply_is_active_filter(queryset, params=self.request.GET)
         queryset = apply_query_param_filters(
             queryset,
@@ -134,7 +142,7 @@ class KitListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseM
 
         context["actions"] = [
             TableActionDefaults.edit("catalog:kits_update"),
-            TableActionDefaults.delete("catalog:kits_delete", visible=lambda obj: not obj.is_used),
+            TableActionDefaults.delete("catalog:kits_delete", visible=lambda obj: not getattr(obj, "has_usage", False)),
         ]
 
         return context

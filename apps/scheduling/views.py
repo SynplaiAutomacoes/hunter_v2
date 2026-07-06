@@ -17,6 +17,7 @@ from django.views.generic import CreateView, DeleteView, TemplateView, UpdateVie
 
 from apps.budget.models import Budget
 from apps.core.infrastructure.search import apply_text_search
+from apps.customer.models import Customer
 from apps.customer.models import Vehicle
 from apps.customer.vehicle_engine import normalize_vehicle_engine_choice
 from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice
@@ -485,6 +486,21 @@ class VehicleByCustomerListView(LoginRequiredMixin, WorkshopScopedMixin, View):
             vehicles = Vehicle.objects.filter(workshop=self.workshop, customer_id=customer_id).order_by("plate")
 
         data = [{"id": vehicle.pk, "label": str(vehicle)} for vehicle in vehicles]
+        return JsonResponse(data, safe=False)
+
+
+class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Appointment
+    workshop_permission_codename = "view_appointment"
+
+    def get(self, request):
+        search = (request.GET.get("q") or "").strip()
+
+        customers = Customer.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
+        if search:
+            customers = apply_text_search(customers, search_value=search, lookups=("name", "cpf_or_cnpj", "email"))
+
+        data = [{"id": customer.pk, "label": customer.name} for customer in customers[:30]]
         return JsonResponse(data, safe=False)
 
 
