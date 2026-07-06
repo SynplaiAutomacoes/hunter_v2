@@ -144,7 +144,7 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
             kit_items.append(item)
 
     pricing_snapshot = workorder.pricing_snapshot
-    workorder.product_issue_summary
+    _ = workorder.product_issue_summary
 
     summary_service_items = list(service_items)
 

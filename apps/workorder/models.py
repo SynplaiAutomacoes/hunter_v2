@@ -192,14 +192,25 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def pricing_snapshot(self) -> PricingSnapshot:
-        return self._build_pricing_snapshot()
+        cached_snapshot = getattr(self, "_pricing_snapshot_cache", None)
+        if cached_snapshot is None:
+            cached_snapshot = self._build_pricing_snapshot()
+            setattr(self, "_pricing_snapshot_cache", cached_snapshot)
+        return cached_snapshot
 
     def invalidate_pricing_snapshot_cache(self) -> None:
-        pass
+        if hasattr(self, "_pricing_snapshot_cache"):
+            delattr(self, "_pricing_snapshot_cache")
+        if hasattr(self, "_product_issue_summary_cache"):
+            delattr(self, "_product_issue_summary_cache")
 
     @property
     def product_issue_summary(self) -> ProductIssueSummary:
-        return annotate_product_issues(workshop=self.workshop, items=self.pricing_snapshot.product_lines)
+        cached_summary = getattr(self, "_product_issue_summary_cache", None)
+        if cached_summary is None:
+            cached_summary = annotate_product_issues(workshop=self.workshop, items=self.pricing_snapshot.product_lines)
+            setattr(self, "_product_issue_summary_cache", cached_summary)
+        return cached_summary
 
     @property
     def has_stock_issues(self) -> bool:
