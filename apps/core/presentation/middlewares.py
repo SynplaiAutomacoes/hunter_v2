@@ -100,35 +100,75 @@ class RequireFirstWorkshopMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
+    @classmethod
+    def _get_current_route(cls, request) -> str:
+        cached_route = getattr(request, "_require_first_workshop_route", None)
+        if cached_route is not None:
+            return cached_route
+
+        match = resolve(request.path_info)
+        current_route = f"{match.namespace}:{match.url_name}" if match.namespace else match.url_name
+        setattr(request, "_require_first_workshop_route", current_route)
+        return current_route
+
+    @staticmethod
+    def _get_cached_access_flag(request, *, cache_key: str, account_id: int | None) -> bool | None:
+        cached = request.session.get(cache_key)
+        if not isinstance(cached, dict):
+            return None
+        if cached.get("account_id") != account_id:
+            return None
+        return bool(cached.get("value"))
+
+    @staticmethod
+    def _set_cached_access_flag(request, *, cache_key: str, account_id: int | None, value: bool) -> None:
+        request.session[cache_key] = {"account_id": account_id, "value": bool(value)}
+
+    def _account_owner_has_workshop(self, request) -> bool:
+        account_id = getattr(request.user, "account_id", None)
+        cached = self._get_cached_access_flag(request, cache_key="require_first_workshop_owner_access", account_id=account_id)
+        if cached is not None:
+            return cached
+
+        from apps.workshops.models.workshops import Workshop
+
+        has_workshop = Workshop.objects.filter(account_id=account_id, is_active=True).exists()
+        self._set_cached_access_flag(request, cache_key="require_first_workshop_owner_access", account_id=account_id, value=has_workshop)
+        return has_workshop
+
+    def _member_has_workshop(self, request) -> bool:
+        account_id = getattr(request.user, "account_id", None)
+        cached = self._get_cached_access_flag(request, cache_key="require_first_workshop_member_access", account_id=account_id)
+        if cached is not None:
+            return cached
+
+        from apps.collaborators.models import WorkshopMember
+
+        has_workshop = WorkshopMember.objects.filter(
+            user=request.user,
+            is_active=True,
+            workshop__account_id=account_id,
+            workshop__is_active=True,
+        ).exists()
+        self._set_cached_access_flag(request, cache_key="require_first_workshop_member_access", account_id=account_id, value=has_workshop)
+        return has_workshop
+
     def __call__(self, request):
         if request.user.is_authenticated:
             if request.path.startswith("/admin/"):
                 return self.get_response(request)
 
-            match = resolve(request.path_info)
-            current = f"{match.namespace}:{match.url_name}" if match.namespace else match.url_name
+            current = self._get_current_route(request)
 
             if current not in self.allowed_routes:
                 if not getattr(request.user, "account_id", None):
                     return redirect(reverse("accounts:logout"))
 
                 if request.user.is_account_owner:
-                    from apps.workshops.models.workshops import Workshop
-
-                    if not Workshop.objects.filter(
-                        account_id=request.user.account_id,
-                        is_active=True,
-                    ).exists():
+                    if not self._account_owner_has_workshop(request):
                         return redirect(reverse("workshops:create"))
                 else:
-                    from apps.collaborators.models import WorkshopMember
-
-                    if not WorkshopMember.objects.filter(
-                        user=request.user,
-                        is_active=True,
-                        workshop__account_id=request.user.account_id,
-                        workshop__is_active=True,
-                    ).exists():
+                    if not self._member_has_workshop(request):
                         return redirect(reverse("accounts:logout"))
 
         return self.get_response(request)

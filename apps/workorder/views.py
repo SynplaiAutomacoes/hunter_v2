@@ -500,6 +500,7 @@ class WorkOrderListView(LoginRequiredMixin, WorkOrderStatusReportDataMixin, Work
     template_name = "workorder/workorder_list.html"
     context_object_name = "workorder"
     htmx_template_name = "workorder/partials/workorder_table.html"
+    paginate_by = 20
 
     def get_queryset(self):
         return self._get_filtered_workorder_queryset()

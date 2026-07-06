@@ -1,6 +1,6 @@
 from typing import Any
 
-from django.db.models import Prefetch
+from django.db.models import Count, Prefetch
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse, JsonResponse
@@ -105,7 +105,7 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
     htmx_template_name = "customer/partials/customer_table.html"
 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        queryset = super().get_queryset().annotate(vehicle_count=Count("vehicles"))
 
         search_query = self.request.GET.get("q", "").strip()
 
@@ -306,6 +306,9 @@ class CustomerHistoryListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
     template_name = "history/customer-history_list.html"
     context_object_name = "customer"
     htmx_template_name = "history/partial/customer-history_table.html"
+
+    def get_queryset(self):
+        return super().get_queryset().annotate(vehicle_count=Count("vehicles"))
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

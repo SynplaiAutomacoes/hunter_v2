@@ -982,8 +982,7 @@ class BudgetItem(TimeStampedModel):
     # Dados
     description = models.CharField(verbose_name="Descrição", max_length=100, default="")
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
-    is_local = models.BooleanField(verbose_name="Item Local", default=False,
-                                   help_text="Item criado apenas neste orçamento, não cadastrado no banco de dados")
+    is_local = models.BooleanField(verbose_name="Item Local", default=False, help_text="Item criado apenas neste orçamento, não cadastrado no banco de dados")
     local_item_type = models.CharField(
         verbose_name="Tipo do Item Local",
         max_length=20,
@@ -1004,8 +1003,7 @@ class BudgetItem(TimeStampedModel):
     service_shipping = MoneyField(verbose_name="Frete do Serviço", max_digits=14, decimal_places=2, default=0)
     duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
     kit_snapshot_frozen = models.BooleanField(verbose_name="Snapshot do kit congelado", default=False)
-    item_benefit_type = models.CharField(verbose_name="Tipo de Benefício", max_length=20,
-                                         choices=BudgetItemBenefitType.choices, default=BudgetItemBenefitType.NORMAL)
+    item_benefit_type = models.CharField(verbose_name="Tipo de Benefício", max_length=20, choices=BudgetItemBenefitType.choices, default=BudgetItemBenefitType.NORMAL)
 
     def save(self, *args, **kwargs):
         is_new = not self.pk
@@ -1692,3 +1690,37 @@ class BudgetHistory(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.get_action_display()} - Orçamento #{self.budget.pk}"
+
+
+class BudgetPdfRenderJob(TimeStampedModel):
+    class Variant(models.TextChoices):
+        BASE = "base", "PDF base"
+        MANAGER = "manager", "PDF gestor"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pendente"
+        PROCESSING = "processing", "Processando"
+        COMPLETED = "completed", "Concluído"
+        FAILED = "failed", "Falhou"
+
+    budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="pdf_render_jobs")
+    variant = models.CharField(max_length=20, choices=Variant.choices)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    requested_by = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, related_name="budget_pdf_render_jobs", null=True, blank=True)
+    budget_updated_at = models.DateTimeField(null=True, blank=True)
+    output_file = models.FileField(upload_to="generated/budget_pdfs/", blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(blank=True, default="")
+
+    class Meta(TimeStampedModel.Meta):
+        verbose_name = "Fila de renderização de PDF do orçamento"
+        verbose_name_plural = "Filas de renderização de PDFs do orçamento"
+        constraints = [
+            models.UniqueConstraint(fields=("budget", "variant"), name="unique_budget_pdf_render_job_per_variant"),
+        ]
+        indexes = [
+            models.Index(fields=("status", "variant"), name="budget_pdf_job_sv_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"PDF {self.variant} do orçamento #{self.budget_id} ({self.status})"

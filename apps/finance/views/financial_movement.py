@@ -121,12 +121,7 @@ def _apply_paid_status_filter_to_queryset(queryset: QuerySet[FinancialMovement],
     if not paid_status:
         return queryset
     is_paid_lookup = paid_status == "paid"
-    matched_ids = list(
-        queryset
-        .exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False)
-        .filter(is_paid=is_paid_lookup)
-        .values_list("pk", flat=True)
-    )
+    matched_ids = list(queryset.exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False).filter(is_paid=is_paid_lookup).values_list("pk", flat=True))
     for movement in queryset.filter(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False):
         if (is_paid_lookup and movement.is_paid) or (not is_paid_lookup and not movement.is_paid):
             matched_ids.append(movement.pk)
@@ -227,8 +222,7 @@ def get_financial_movement_visible_page(*, request: HttpRequest, workshop: Any) 
     ordered_queryset, _, _, _ = _apply_sort(filtered_queryset, columns=fields, sort=sort, sort_attr=sort_attr, sort_desc=sort_desc, sort_is_valid=sort_is_valid)
     ordered_queryset = _ensure_stable_ordering(ordered_queryset)
 
-    has_active_filters = any(str(value).strip() != "" for param_name in ("data_inicial", "data_final", "source") for value in request.GET.getlist(param_name))
-    per_page = max(ordered_queryset.count(), 1) if has_active_filters else 10
+    per_page = 10
     page_obj, _ = _paginate(ordered_queryset, per_page=per_page, page_number=request.GET.get("page", "1"))
     return page_obj
 
@@ -344,18 +338,20 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
                 payment_amount = getattr(payment, "total_paid", None) or Money(0, "BRL")
                 payment_movement = per_payment_movements.get(payment.pk) or movement
                 payment_method = getattr(payment, "payment_method", None)
-                rows.append({
-                    "paid_status": "Sim" if payment_movement.is_paid else "Não",
-                    "reconciliation_status": "Conciliado" if payment_movement.is_reconciled else "Aguardando Conciliação",
-                    "direction": FinancialMovement.MovementDirection.CREDIT,
-                    "direction_label": "Crédito",
-                    "due_date": payment.due_date or movement.due_date,
-                    "agent": payment_movement.report_agent_display,
-                    "description": _resolve_workorder_description(workorder),
-                    "budget_plan": payment_movement.report_budget_plan_display,
-                    "payment_type": getattr(payment_method, "description", "-") or "-",
-                    "amount": payment_amount,
-                })
+                rows.append(
+                    {
+                        "paid_status": "Sim" if payment_movement.is_paid else "Não",
+                        "reconciliation_status": "Conciliado" if payment_movement.is_reconciled else "Aguardando Conciliação",
+                        "direction": FinancialMovement.MovementDirection.CREDIT,
+                        "direction_label": "Crédito",
+                        "due_date": payment.due_date or movement.due_date,
+                        "agent": payment_movement.report_agent_display,
+                        "description": _resolve_workorder_description(workorder),
+                        "budget_plan": payment_movement.report_budget_plan_display,
+                        "payment_type": getattr(payment_method, "description", "-") or "-",
+                        "amount": payment_amount,
+                    }
+                )
                 continue
 
             payments = list(workorder.payments.all())
@@ -520,12 +516,7 @@ def financial_movement_pdf(request: HttpRequest) -> HttpResponse:
 
     filter_params = _parse_report_filter_params(request)
 
-    queryset = (
-        FinancialMovement.objects.filter(workshop=workshop)
-        .filter(due_date__isnull=False)
-        .filter(Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT))
-        .exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder_payment__isnull=False)
-    )
+    queryset = FinancialMovement.objects.filter(workshop=workshop).filter(due_date__isnull=False).filter(Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT)).exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder_payment__isnull=False)
 
     queryset = _apply_report_filters_to_queryset(queryset, params=filter_params)
 
@@ -542,11 +533,7 @@ def financial_movement_pdf(request: HttpRequest) -> HttpResponse:
     ).prefetch_related("workorder__payments", "workorder__payments__payment_method")
     movements = list(queryset)
 
-    workorder_ids_with_parent = {
-        m.workorder_id for m in movements
-        if m.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT
-        and m.workorder_id is not None
-    }
+    workorder_ids_with_parent = {m.workorder_id for m in movements if m.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT and m.workorder_id is not None}
 
     fallback = FinancialMovement.objects.filter(
         workshop=workshop,
@@ -557,10 +544,17 @@ def financial_movement_pdf(request: HttpRequest) -> HttpResponse:
 
     fallback = _apply_report_filters_to_queryset(fallback, params=filter_params)
     fallback = fallback.select_related(
-        "source", "collaborator", "supplier", "payment_method",
-        "budget_plan", "bank_account", "workorder",
-        "workorder__budget", "workorder__budget__customer",
-        "workorder_payment", "workorder_payment__payment_method",
+        "source",
+        "collaborator",
+        "supplier",
+        "payment_method",
+        "budget_plan",
+        "bank_account",
+        "workorder",
+        "workorder__budget",
+        "workorder__budget__customer",
+        "workorder_payment",
+        "workorder_payment__payment_method",
     ).order_by("-pk")
     movements.extend(list(fallback))
 
