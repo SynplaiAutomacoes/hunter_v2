@@ -340,7 +340,8 @@
 
                     const url = button.dataset.url;
                     const action = button.dataset.action;
-                    const rawSellingPrice = sellingPriceAmountInput?.value
+                    const currentSellingPriceInput = document.getElementById('id_product_selling_price_0') || document.getElementById('id_service_selling_price_0');
+                    const rawSellingPrice = currentSellingPriceInput?.value
                         || document.getElementById('id_product_selling_price_0_display')?.value
                         || document.getElementById('id_service_selling_price_0_display')?.value
                         || '0';
