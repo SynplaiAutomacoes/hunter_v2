@@ -9,7 +9,7 @@ from django.utils import timezone
 from apps.budget.documents.provider import render_budget_pdf_document
 from apps.budget.models import Budget, BudgetPdfRenderJob
 from apps.budget.pdf_context import build_budget_pdf_context
-from apps.core.infrastructure.pdf.playwright import render_pdf_from_html
+from apps.core.infrastructure.pdf.pdf_engine import render_pdf_from_html
 
 
 PDF_MANAGER_TEMPLATE = "budget/partials/pdf/visualizarPDFGestor.html"
