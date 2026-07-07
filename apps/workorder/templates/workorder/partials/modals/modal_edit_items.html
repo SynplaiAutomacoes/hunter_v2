@@ -40,7 +40,16 @@
                         <tbody>
                             {% for item in product_items %}
                                 <tr>
-                                    <td>{{ item.description }}</td>
+                                    <td>
+                                        <div class="flex items-center gap-2 min-w-0">
+                                            <span>{{ item.description }}</span>
+                                            {% if item.item_benefit_type == "warranty" %}
+                                                <span class="badge badge-error badge-xs gap-1 shrink-0">Garantia</span>
+                                            {% elif item.item_benefit_type == "courtesy" %}
+                                                <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
+                                            {% endif %}
+                                        </div>
+                                    </td>
                                     <td class="whitespace-normal break-words">{{ item.product.application|default:"-" }}</td>
                                     <td class="text-center">{{ item.quantity }}</td>
                                     <td>{{ item.product_cost_price }}</td>
@@ -110,7 +119,16 @@
                         <tbody>
                             {% for item in service_items %}
                                 <tr>
-                                    <td>{{ item.description }}</td>
+                                    <td>
+                                        <div class="flex items-center gap-2 min-w-0">
+                                            <span>{{ item.description }}</span>
+                                            {% if item.item_benefit_type == "warranty" %}
+                                                <span class="badge badge-error badge-xs gap-1 shrink-0">Garantia</span>
+                                            {% elif item.item_benefit_type == "courtesy" %}
+                                                <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
+                                            {% endif %}
+                                        </div>
+                                    </td>
                                     <td class="text-center">{{ item.quantity }}</td>
                                     <td>{{ item.service_cost_price }}</td>
                                     <td>{{ item.service_selling_price }}</td>
@@ -178,7 +196,16 @@
                         <tbody>
                             {% for item in kit_items %}
                                 <tr>
-                                    <td>{{ item.kit.name }}</td>
+                                    <td>
+                                        <div class="flex items-center gap-2 min-w-0">
+                                            <span>{{ item.kit.name }}</span>
+                                            {% if item.item_benefit_type == "warranty" %}
+                                                <span class="badge badge-error badge-xs gap-1 shrink-0">Garantia</span>
+                                            {% elif item.item_benefit_type == "courtesy" %}
+                                                <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
+                                            {% endif %}
+                                        </div>
+                                    </td>
                                     <td class="text-center">{{ item.quantity }}</td>
                                     <td class="text-center">{{ item.effective_kit_products_count }}</td>
                                     <td class="text-center">{{ item.effective_kit_services_count }}</td>

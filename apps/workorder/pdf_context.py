@@ -10,7 +10,7 @@ from apps.budget.pdf_context import build_workshop_logo_data_uri, is_visible_pdf
 from apps.budget.pricing import money_from_decimal, zero_money
 from apps.finance.services.pricing import distribute_total_proportionally
 from apps.customer.models import Customer, Vehicle
-from apps.workorder.models import WorkOrder, WorkOrderStatus, WorkOrderDiscountType
+from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderStatus, WorkOrderDiscountType
 from apps.workshops.models.workshops import Workshop
 
 
@@ -72,6 +72,20 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
         for p in workorder.iter_payments()
     ]
 
+    item_benefit_map: dict[int, str] = {}
+    for _wo_item in WorkOrderItem.objects.filter(workorder=workorder).only("id", "product_id", "service_id", "item_benefit_type"):
+        item_benefit_map[_wo_item.id] = _wo_item.item_benefit_type
+        eid = _wo_item.product_id or _wo_item.service_id
+        if eid and eid not in item_benefit_map:
+            item_benefit_map[eid] = _wo_item.item_benefit_type
+
+    def _benefit_type(line) -> str:
+        if line.source_item_id is not None and line.source_item_id in item_benefit_map:
+            return item_benefit_map[line.source_item_id]
+        if line.entity_id is not None and line.entity_id in item_benefit_map:
+            return item_benefit_map[line.entity_id]
+        return "normal"
+
     produtos = [
         {
             "id": line.entity_id,
@@ -88,6 +102,7 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
             "product_cost_price": line.cost_total,
             "profit_value": line.profit_value,
             "show_kit_duplicate_warning": line.show_kit_duplicate_warning,
+            "item_benefit_type": _benefit_type(line),
         }
         for line in snapshot.product_lines
         if is_visible_pdf_pricing_line(line)
@@ -103,6 +118,7 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
             "service_cost_price": line.cost_total,
             "profit_value": line.profit_value,
             "duration_display": line.duration_display,
+            "item_benefit_type": _benefit_type(line),
         }
         for line in snapshot.service_lines
         if is_visible_pdf_pricing_line(line)
