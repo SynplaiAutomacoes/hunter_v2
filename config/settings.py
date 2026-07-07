@@ -41,10 +41,17 @@ PERF_LOGGING_ENABLED = os.getenv("PERF_LOGGING_ENABLED", "0").lower() in ("1", "
 PERF_LOG_QUERIES = os.getenv("PERF_LOG_QUERIES", "0").lower() in ("1", "true", "yes")
 PERF_LOG_MIN_MS = int(os.getenv("PERF_LOG_MIN_MS", "300"))
 
-FIPE_SYNC_EVERY_ACCESS = os.getenv("FIPE_SYNC_EVERY_ACCESS", "0").lower() in ("1", "true", "yes") # 0. Desligado, 1. Ligado
+# Environment (required for structured logging)
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+
+# Grafana Cloud OTLP (OpenTelemetry)
+# Endpoint lido automaticamente de OTEL_EXPORTER_OTLP_ENDPOINT (definido no ambiente)
+OTLP_AUTH_HEADER = os.getenv("OTLP_AUTH_HEADER", "")  # "Basic base64..."
+
+FIPE_SYNC_EVERY_ACCESS = os.getenv("FIPE_SYNC_EVERY_ACCESS", "0").lower() in ("1", "true", "yes")  # 0. Desligado, 1. Ligado
 FIPE_SYNC_ACCESS_INTERVAL = int(os.getenv("FIPE_SYNC_ACCESS_INTERVAL", "500"))
 FIPE_FUEL_CACHE_TTL_HOURS = int(os.getenv("FIPE_FUEL_CACHE_TTL_HOURS", "168"))
-FIPE_DEV_MODE = os.getenv("FIPE_DEV_MODE", "0").lower() in ("1", "true", "yes") #  0. Dev, 1. Prod
+FIPE_DEV_MODE = os.getenv("FIPE_DEV_MODE", "0").lower() in ("1", "true", "yes")  #  0. Dev, 1. Prod
 FIPE_API_TOKEN = os.getenv("FIPE_API_TOKEN", os.getenv("token_vehicle_api", ""))
 
 WEBMANIA_BASE_URL = "https://api.webmania.com.br/2/"
@@ -127,6 +134,8 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # Local (must be first)
+    "apps.core.presentation.middlewares.RequestIdMiddleware",
     # Django
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -140,8 +149,8 @@ MIDDLEWARE = [
     "simple_history.middleware.HistoryRequestMiddleware",
     "django_htmx.middleware.HtmxMiddleware",
     # Local
-    "apps.core.middlewares.RequestPerformanceLoggingMiddleware",
-    "apps.core.middlewares.RequireFirstWorkshopMiddleware",
+    "apps.core.presentation.middlewares.RequestPerformanceLoggingMiddleware",
+    "apps.core.presentation.middlewares.RequireFirstWorkshopMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -158,7 +167,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 # Local
                 "apps.workshops.context_processors.active_workshops",
-                "apps.core.context_processors.navbar",
+                "apps.core.presentation.context_processors.navbar",
             ],
             "builtins": [
                 "crispy_forms.templatetags.crispy_forms_tags",
@@ -188,6 +197,22 @@ DATABASES = {
         "HOST": os.getenv("DB_HOST", "localhost"),
         "PORT": os.getenv("DB_PORT", "5432"),
     }
+}
+
+# Cache
+# https://docs.djangoproject.com/en/5.2/topics/cache/
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "default-cache",
+        "TIMEOUT": 300,
+    },
+    "fipe": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "fipe-cache",
+        "TIMEOUT": 86400,
+    },
 }
 
 
@@ -263,47 +288,85 @@ LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
-        "standard": {
-            "format": "%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        "json": {
+            "()": "apps.core.json_formatter.JsonFormatter",
+        },
+    },
+    "filters": {
+        "context": {
+            "()": "apps.core.logging_filters.ContextFilter",
+        },
+        "otel_attrs": {
+            "()": "apps.core.otel_logging.OtelAttrsFilter",
         },
     },
     "handlers": {
-        "console": {"class": "logging.StreamHandler", "formatter": "standard", "stream": sys.stdout},
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "json",
+            "stream": sys.stdout,
+        },
     },
     "loggers": {
         "apps.budget.views.item_views": {
             "handlers": ["console"],
             "level": DJANGO_LOG_LEVEL,
             "propagate": False,
+            "filters": ["context", "otel_attrs"],
         },
         "apps.budget.views.kit_views": {
             "handlers": ["console"],
             "level": DJANGO_LOG_LEVEL,
             "propagate": False,
+            "filters": ["context", "otel_attrs"],
         },
         "apps.catalog.views.kits": {
             "handlers": ["console"],
             "level": DJANGO_LOG_LEVEL,
             "propagate": False,
+            "filters": ["context", "otel_attrs"],
         },
         "apps.catalog.forms.kits": {
             "handlers": ["console"],
             "level": DJANGO_LOG_LEVEL,
             "propagate": False,
+            "filters": ["context", "otel_attrs"],
         },
         "apps.accounts.views": {
             "handlers": ["console"],
             "level": DJANGO_LOG_LEVEL,
             "propagate": False,
+            "filters": ["context", "otel_attrs"],
+        },
+        "urllib3.connectionpool": {
+            "handlers": ["console"],
+            "level": 100,
+            "propagate": False,
+            "filters": ["context", "otel_attrs"],
         },
         "django.request": {
             "handlers": ["console"],
             "level": "ERROR",
             "propagate": False,
+            "filters": ["context", "otel_attrs"],
         },
     },
     "root": {
         "handlers": ["console"],
         "level": DJANGO_ROOT_LOG_LEVEL,
+        "filters": ["context", "otel_attrs"],
     },
 }
+
+# OpenTelemetry (logs + traces)
+# Só ativa se ambas as configs estiverem presentes (endpoint + auth)
+_otel_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+_otel_run = os.getenv("RUN_MAIN") == "true" or not os.getenv("RUN_MAIN")
+if OTLP_AUTH_HEADER and _otel_endpoint and _otel_run:
+    from apps.core.otel_logging import setup_otel  # noqa: PLC0415
+
+    setup_otel(
+        service_name=ENVIRONMENT,
+        environment=ENVIRONMENT,
+        auth_header=OTLP_AUTH_HEADER,
+    )

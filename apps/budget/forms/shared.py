@@ -4,6 +4,7 @@ from django.template.loader import render_to_string
 
 from apps.catalog.product_issues import annotate_product_issues
 from apps.budget.review_display import build_budget_review_display
+from apps.budget.service_costs import calculate_mechanic_service_cost
 
 MAX_BUDGET_IMAGES = 10
 MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
@@ -11,10 +12,14 @@ ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "gif"}
 
 
 def _is_local_product_item(item):
+    if getattr(item, "local_item_type", "") == "product":
+        return True
     return item.is_local and ((item.product_cost_price and item.product_cost_price.amount > 0) or (item.product_selling_price and item.product_selling_price.amount > 0) or (item.shipping and item.shipping.amount > 0))
 
 
 def _is_local_service_item(item):
+    if getattr(item, "local_item_type", "") == "service":
+        return True
     return item.is_local and ((item.service_cost_price and item.service_cost_price.amount > 0) or (item.service_selling_price and item.service_selling_price.amount > 0) or item.duration)
 
 
@@ -30,7 +35,7 @@ def _budget_item_type(item):
 
 def _empty_rows(step6=False):
     product_colspan = 8 if step6 else 10
-    service_colspan = 5 if step6 else 6
+    service_colspan = 6 if step6 else 7
     kit_colspan = 5 if step6 else 7
     return {
         "product": f'<tr><td colspan="{product_colspan}" class="text-center text-gray-400 py-4">Nenhum produto adicionado</td></tr>',
@@ -130,6 +135,7 @@ def _render_budget_items_rows(budget, step6=False):
                         "slider_price": line.unit_price,
                         "slider_total_price": (line.warranty_total_price if budget_for_render.is_warranty_budget else line.total_price),
                         "duration_display": line.duration_display,
+                        "service_mechanic_cost": calculate_mechanic_service_cost(budget=budget_for_render, duration=line.item.duration, fallback_cost=line.item.service_cost_price),
                     },
                 )
 
@@ -154,6 +160,7 @@ def _render_budget_items_rows(budget, step6=False):
                 if item_type == "product":
                     rows["product"] += render_to_string("budget/partials/items/item_product_row.html", context)
                 elif item_type == "service":
+                    context["service_mechanic_cost"] = calculate_mechanic_service_cost(budget=budget_for_render, duration=item.duration, fallback_cost=item.service_cost_price)
                     rows["service"] += render_to_string("budget/partials/items/item_service_row.html", context)
                 elif item_type == "kit":
                     rows["kit"] += render_to_string("budget/partials/items/item_kit_row.html", context)

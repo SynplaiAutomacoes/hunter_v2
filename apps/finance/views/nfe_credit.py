@@ -7,7 +7,7 @@ from django.shortcuts import get_object_or_404, redirect
 from django.views import View
 
 from apps.finance.models.finance import FiscalCreditProductPreview, FiscalDocument, FiscalDocumentEvent, FiscalDocumentEventType, FiscalDocumentPurpose, FiscalProductPreviewStatus
-from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
+from apps.core.infrastructure.services.webmania.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
 from apps.finance.services.fiscal_referenced_basis import is_credit_debit_basis_enabled
 from apps.finance.services.nfe_credit import NfeCreditError, create_and_emit_nfe_credit_type_one

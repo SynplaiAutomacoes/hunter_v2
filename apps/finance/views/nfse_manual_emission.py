@@ -11,13 +11,13 @@ from django.shortcuts import get_object_or_404, redirect
 from django.views import View
 from django.views.generic import DetailView, ListView
 
-from apps.core.forms import CoreForm
+from apps.core.presentation.forms import CoreForm
 from apps.finance.models.finance import FiscalEmissionAttemptStatus, NfseCancellation, NfseManualEmission, NfseManualEmissionPreview
 from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
 from apps.finance.services.nfse_cancellation import NfseCancellationError, cancel_nfse_item, is_nfse_item_eligible_for_cancellation
 from apps.finance.services.nfse_manual_emission import NfseManualEmissionError, emit_nfse_manual_from_preview, is_nfse_manual_emission_eligible, reconcile_nfse_manual_emission
 from apps.finance.services.nfse_substitution_preview import is_nfse_item_eligible_for_substitution_preview
-from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
+from apps.core.infrastructure.services.webmania.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import has_workshop_perm
 

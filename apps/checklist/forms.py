@@ -5,10 +5,10 @@ from django.template.loader import render_to_string
 from django.urls import reverse
 
 from .models import Checklist, ChecklistItem
-from apps.core.widgets import TextInput, SearchableSelectInput
+from apps.core.presentation.widgets import TextInput, SearchableSelectInput
 from ..workshops.models.workshops import Workshop
 from apps.core.text_normalization import sentence_case
-from apps.core.forms import CoreModelForm
+from apps.core.presentation.forms import CoreModelForm
 
 
 class ChecklistForm(CoreModelForm):

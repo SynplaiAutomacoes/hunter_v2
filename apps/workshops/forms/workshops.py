@@ -11,9 +11,10 @@ from django.urls import reverse
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
-from apps.core.forms import CoreForm, CoreModelForm
-from apps.core.webmania.util import is_webmania_homolog_environment
-from apps.core.widgets import (
+from apps.core.presentation.forms import CoreForm, CoreModelForm
+from apps.core.infrastructure.providers import get_fiscal_service
+from apps.core.domain.contracts.fiscal import FiscalServiceError
+from apps.core.presentation.widgets import (
     CEPInput,
     CheckboxInput,
     CPForCNPJInput,
@@ -34,7 +35,7 @@ from apps.finance.forms.webmania import (
     WEBMANIA_UNIDADE_EMPRESA_CHOICES,
 )
 from apps.finance.models.finance import WebmaniaCompany, WebmaniaCompanyTaxType
-from apps.finance.services.webmania_secrets import encrypt_secret
+from apps.core.infrastructure.services.webmania.webmania_secrets import encrypt_secret
 from apps.workshops.models.workshops import Workshop
 
 User = get_user_model()
@@ -98,7 +99,7 @@ class BaseWebmaniaCompanySectionForm(CoreModelForm):
     def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
         self.workshop = workshop
         super().__init__(*args, **kwargs)
-        self.show_homolog_fields = is_webmania_homolog_environment()
+        self.show_homolog_fields = get_fiscal_service().is_homolog_environment()
         if not self.show_homolog_fields:
             for field_name in WEBMANIA_HOMOLOG_ONLY_FIELDS:
                 self.fields.pop(field_name, None)
@@ -454,6 +455,27 @@ class WorkshopOptionalsSectionForm(BaseWebmaniaCompanySectionForm):
             "deduzir_desconto_ipi": CheckboxInput(),
             "email_automatico_nfse": CheckboxInput(),
         }
+
+
+class WorkshopPdfObservationSectionForm(CoreModelForm):
+    class Meta:
+        model = Workshop
+        fields = ["pdf_observation"]
+        widgets = {
+            "pdf_observation": TextareaInput(
+                attrs={
+                    "rows": 5,
+                    "placeholder": "Texto fixo que aparece em todos os PDFs de orcamento.",
+                }
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        field = self.fields.get("pdf_observation")
+        if field is not None:
+            field.label = "Observacao fixa do PDF"
+            field.help_text = "Exibida no PDF abaixo das observacoes do orcamento."
 
 
 class WorkshopCertificateSectionForm(CoreForm):

@@ -114,13 +114,17 @@ def build_step5_pricing_panel_data(*, workorder: WorkOrder, selected_slider: int
     pricing_data = workorder.calculate_pricing_methods() or {}
     zero_money = Money(0, "BRL")
 
+    total_base_value = workorder.get_total_products_by_slider + workorder.get_total_services_by_slider
+    total_budget_value = workorder.total_budget_value
+    resolved_discount_value = total_base_value - total_budget_value
+
     sale_third_party_services = sum((line.adjusted_total for line in snapshot.service_lines if line.third_party), zero_money)
     sale_labor = sum((line.adjusted_total for line in snapshot.service_lines if not line.third_party), zero_money)
     total_cost_value = workorder.total_costs_products_value + workorder.total_products_shipping + workorder.total_third_party_services_cost + workorder.total_labor_cost_value
-    operational_profit = snapshot.total_base_value - total_cost_value
+    operational_profit = total_base_value - total_cost_value
 
-    if snapshot.total_base_value.amount > 0:
-        profitability = ((operational_profit.amount / snapshot.total_base_value.amount) * Decimal("100")).quantize(Decimal("0.01"))
+    if total_base_value.amount > 0:
+        profitability = ((operational_profit.amount / total_base_value.amount) * Decimal("100")).quantize(Decimal("0.01"))
     else:
         profitability = Decimal("0.00")
 
@@ -137,9 +141,8 @@ def build_step5_pricing_panel_data(*, workorder: WorkOrder, selected_slider: int
         profitability_class = "rentabilidade-medio"
         profitability_bg = "bg-rentabilidade-medio"
 
-    discount_value = getattr(workorder, "discount_value", None) or zero_money
-    discount_display = discount_value if getattr(discount_value, "amount", Decimal("0")) != Decimal("0") else zero_money
-    discount_percentage_display = resolve_discount_percentage_display(total_base_value=snapshot.total_base_value, discount_value=discount_display)
+    discount_display = resolved_discount_value if resolved_discount_value.amount > 0 else zero_money
+    discount_percentage_display = resolve_discount_percentage_display(total_base_value=total_base_value, discount_value=resolved_discount_value)
     products_cost_base = workorder.total_costs_products_value + workorder.total_products_shipping
     services_cost_base = workorder.total_third_party_services_cost + workorder.total_labor_cost_value
     mlr = (snapshot.total_products_by_slider.amount / products_cost_base.amount).quantize(Decimal("0.01")) if products_cost_base.amount > 0 else Decimal("0.00")
@@ -164,8 +167,8 @@ def build_step5_pricing_panel_data(*, workorder: WorkOrder, selected_slider: int
         mlo=mlo,
         discount_display=discount_display,
         discount_percentage_display=discount_percentage_display,
-        total_base_value=snapshot.total_base_value,
-        total_budget_value=snapshot.total_budget_value,
+        total_base_value=total_base_value,
+        total_budget_value=total_budget_value,
     )
 
 
@@ -285,7 +288,7 @@ def build_step5_pricing_panel_layout(*, prefix: str, panel_data: Step5PricingPan
                         HTML(
                             f"""<div class="text-center text-base-content mt-6">
                                     <p class="text-2xl font-bold">Valor do Orçamento</p>
-                                    <p class="text-3xl font-black step5-accent-text">{panel_data.total_base_value}</p>
+                                    <p class="text-3xl font-black step5-accent-text">{panel_data.total_budget_value}</p>
                                 </div>"""
                         )
                     ),
@@ -300,8 +303,8 @@ def build_step5_pricing_panel_layout(*, prefix: str, panel_data: Step5PricingPan
                         HTML(
                             f"""
                             <div class="flex justify-between mb-1">
-                                <span class="text-sm font-bold">Peça: <span id="{prefix}-val-peca">0</span>%</span>
-                                <span class="text-sm font-bold">Mão de Obra: <span id="{prefix}-val-mo">0</span>%</span>
+                                <span class="text-sm font-bold">Mão de Obra: <span id="{prefix}-val-peca">0</span>%</span>
+                                <span class="text-sm font-bold">Peça: <span id="{prefix}-val-mo">0</span>%</span>
                             </div>
                             """
                         ),
@@ -450,7 +453,7 @@ def build_step5_summary_layout(*, prefix: str, panel_data: Step5PricingPanelData
                         HTML(
                             f"""<div class="text-center text-base-content mt-6">
                                     <p class="text-2xl font-bold">Valor do Orçamento</p>
-                                    <p class="text-3xl font-black step5-accent-text">{panel_data.total_base_value}</p>
+                                    <p class="text-3xl font-black step5-accent-text">{panel_data.total_budget_value}</p>
                                 </div>"""
                         )
                     ),
@@ -466,8 +469,8 @@ def build_step5_summary_layout(*, prefix: str, panel_data: Step5PricingPanelData
                         HTML(
                             f"""
                             <div class="flex justify-between mb-1">
-                                <span class="text-sm font-bold">Peça: <span id="{prefix}-val-peca">0</span>%</span>
-                                <span class="text-sm font-bold">Mão de Obra: <span id="{prefix}-val-mo">0</span>%</span>
+                                <span class="text-sm font-bold">Mão de Obra: <span id="{prefix}-val-peca">0</span>%</span>
+                                <span class="text-sm font-bold">Peça: <span id="{prefix}-val-mo">0</span>%</span>
                             </div>
                             """
                         ),

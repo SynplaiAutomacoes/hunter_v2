@@ -11,7 +11,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView
 
 from apps.budget.pdf_context import build_workshop_logo_data_uri
-from apps.core.documents.http import build_pdf_http_response
+from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.templatetags.table_tags import TableColumn
 from apps.finance.documents.provider import build_dre_excel_document, render_dre_pdf_document
 from apps.finance.forms.dre import DreForm

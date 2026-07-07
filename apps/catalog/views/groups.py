@@ -6,10 +6,10 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from apps.catalog.forms.groups import CatalogGroupForm
 from apps.catalog.models.groups import CatalogGroup
-from apps.core.navigation import CATALOG_GROUP_CREATE_FAVORITE_PAGE
-from apps.core.tables import TableActionDefaults
+from apps.core.presentation.navigation import CATALOG_GROUP_CREATE_FAVORITE_PAGE
+from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
+from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.workshops.mixin import WorkshopScopedMixin
 
 

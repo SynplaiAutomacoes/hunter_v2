@@ -20,6 +20,9 @@ def _collect_required_products(workorder: WorkOrder) -> tuple[dict[int, int], di
         if line.entity_id is None or line.quantity <= 0:
             continue
 
+        if getattr(line, "is_customer_supplied", False):
+            continue
+
         required_quantities[line.entity_id] = required_quantities.get(line.entity_id, 0) + line.quantity
         product_names[line.entity_id] = line.description
 

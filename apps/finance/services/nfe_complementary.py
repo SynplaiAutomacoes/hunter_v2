@@ -27,13 +27,13 @@ from apps.finance.models.finance import (
     NfeItem,
     NfeItemStatus,
 )
-from apps.finance.services.emission import build_webmania_webhook_url
+from apps.core.infrastructure.services.webmania.emission import build_webmania_webhook_url
 from apps.finance.services.fiscal_attempts import FiscalEmissionAttemptBlocked, begin_emission_attempt, build_fiscal_document_operation_idempotency_key, build_payload_hash, mark_attempt_failed, mark_attempt_sent, mark_attempt_succeeded, mark_attempt_uncertain, sanitize_fiscal_payload
 from apps.finance.services.ibs_cbs import IbsCbsConfigurationError, build_ibs_cbs_payload_from_values
 from apps.finance.services.nfe_events import ensure_fiscal_document_for_nfe_item
 from apps.finance.services.nfe_returns import validate_access_key
-from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting, should_use_global_webmania_auth
-from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+from apps.core.infrastructure.services.webmania.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting, should_use_global_webmania_auth
+from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
 
 
 logger = logging.getLogger(__name__)

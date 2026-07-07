@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import JsonResponse
 from django.shortcuts import render
 from django.urls import reverse_lazy
 from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 from djmoney.money import Money
+import holidays
 
-from apps.core.tables import TableActionDefaults
+from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.workshops.forms.workshop_costs import WorkshopCostForm
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshop_costs import WorkshopCost
@@ -107,7 +110,7 @@ class WorkshopCostCopyView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):
             field_name = f"cost_item_{item.monthly_cost_id}"
             initial[field_name] = item.amount
 
-        initial["holiday_dates"] = ",".join(holiday.date.isoformat() for holiday in original_instance.holidays.order_by("date"))
+        initial["work_day_dates"] = ",".join(work_day.date.isoformat() for work_day in original_instance.work_days.order_by("date"))
 
         # Calculados (Readonly)
         initial["total_value"] = original_instance.total_value
@@ -187,3 +190,44 @@ class WorkshopCostSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, Li
 
     def get_queryset(self):
         return super().get_queryset().order_by("-year", "-month")
+
+
+class WorkshopCostHolidaysView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_codename = "view_workshopcost"
+
+    def get(self, request, *args, **kwargs):
+        from datetime import timedelta
+
+        state = request.GET.get("state", "SP")
+        try:
+            month = int(request.GET.get("month", 0))
+            year = int(request.GET.get("year", 0))
+        except (TypeError, ValueError):
+            return JsonResponse({"holidays": []})
+
+        if not month or not year or month < 1 or month > 12:
+            return JsonResponse({"holidays": []})
+
+        holiday_calendar = holidays.Brazil(state=state, years=year)
+        holiday_dates = []
+
+        for holiday_date in holiday_calendar.keys():
+            if holiday_date.year == year and holiday_date.month == month and holiday_date.weekday() < 5:
+                holiday_dates.append(holiday_date.isoformat())
+
+        good_friday_dates = [d for d in holiday_calendar.keys() if "Sexta" in str(holiday_calendar[d]) and d.year == year]
+        if good_friday_dates:
+            easter = good_friday_dates[0] + timedelta(days=2)
+
+            movable_holidays = [
+                easter - timedelta(days=48),
+                easter - timedelta(days=47),
+                easter - timedelta(days=46),
+                easter + timedelta(days=60),
+            ]
+
+            for movable_date in movable_holidays:
+                if movable_date.year == year and movable_date.month == month and movable_date.weekday() < 5:
+                    holiday_dates.append(movable_date.isoformat())
+
+        return JsonResponse({"holidays": sorted(set(holiday_dates))})

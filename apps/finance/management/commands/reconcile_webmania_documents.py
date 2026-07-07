@@ -2,24 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.core.management.base import BaseCommand, CommandParser
-
-from apps.finance.models.finance import FiscalDocument, FiscalDocumentComplementaryType, FiscalDocumentEvent, FiscalDocumentEventStatus, FiscalDocumentEventType, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionOperationType, NfeItem, NfseBatch, NfseCancellation, NfseItem, NfseManifestation, NfseSubstitution
-from apps.finance.services.nfe_adjustment import NfeAdjustmentError, reconcile_nfe_adjustment_document
-from apps.finance.services.nfe_complementary import NfeComplementaryError, reconcile_nfe_complementary_document
-from apps.finance.services.nfe_credit import NfeCreditError, reconcile_nfe_credit_document
-from apps.finance.services.nfe_credit_cancellation import NfeCreditCancellationError, reconcile_nfe_credit_cancellation
-from apps.finance.services.nfe_debit import NfeDebitError, reconcile_nfe_debit_document
-from apps.finance.services.nfe_debit_cancellation import NfeDebitCancellationError, reconcile_nfe_debit_cancellation
-from apps.finance.services.nfe_consulta import NfeConsultaError, reconcile_nfe_item
-from apps.finance.services.nfe_returns import NfeReturnError, reconcile_nfe_return_document
-from apps.finance.services.nfce_cancellation import NfceCancellationError, reconcile_nfce_cancellation_event
-from apps.finance.services.nfce_emission import NfceEmissionError, reconcile_nfce_document
-from apps.finance.services.nfse_consulta import NfseConsultaError, reconcile_nfse_batch, reconcile_nfse_item
-from apps.finance.services.nfse_cancellation import NfseCancellationError, reconcile_nfse_cancellation
-from apps.finance.services.nfse_manifestation import NfseManifestationError, reconcile_nfse_manifestation
-from apps.finance.services.nfse_substitution import NfseSubstitutionError, reconcile_nfse_substitution
-from apps.finance.services.webmania_webhooks import process_pending_webhook_events
+from apps.finance.models.finance import NfeItem
+from apps.core.infrastructure.providers import get_fiscal_service
+from apps.core.domain.contracts.fiscal import FiscalServiceError
+from apps.core.infrastructure.services.webmania.webmania_webhooks import process_pending_webhook_events
 
 
 class Command(BaseCommand):
@@ -45,11 +31,12 @@ class Command(BaseCommand):
         reconciled_nfse = 0
         reconciled_nfse_batches = 0
         failed = 0
+        service = get_fiscal_service()
         pending_items = NfeItem.objects.filter(status__in=["processando", "contingencia"]).select_related("workshop", "request").order_by("pk")[:limit]
         for pending_nfe_item in pending_items:
             try:
-                reconcile_nfe_item(item=pending_nfe_item)
-            except NfeConsultaError:
+                service.reconcile_nfe_item(item=item)
+            except FiscalServiceError:
                 failed += 1
             else:
                 reconciled_nfe += 1

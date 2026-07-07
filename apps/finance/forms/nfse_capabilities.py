@@ -4,7 +4,7 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 from django.urls import reverse
 
-from apps.core.forms import CoreModelForm
+from apps.core.presentation.forms import CoreModelForm
 from apps.finance.models.finance import NfseMunicipalCapability, WebmaniaCompany
 
 

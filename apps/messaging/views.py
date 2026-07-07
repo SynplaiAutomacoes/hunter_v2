@@ -11,11 +11,11 @@ from django.http import HttpResponse, HttpResponseRedirect
 from django.urls import reverse, reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
-from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
-from apps.core.search import apply_text_search
-from apps.core.tables import TableActionDefaults
+from apps.core.infrastructure.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
+from apps.core.infrastructure.search import apply_text_search
+from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.customer.models import Customer
 from apps.messaging.forms import CustomerMessageGroupForm, MessageTemplateForm, QuickMessageTemplateForm
 from apps.messaging.models import CustomerMessageGroup, CustomerMessageGroupMembership, MessageTemplate

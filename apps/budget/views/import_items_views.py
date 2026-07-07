@@ -1,15 +1,16 @@
 import json
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views import View
 from apps.budget.models import Budget, BudgetItem
 from apps.workshops.mixin import WorkshopScopedMixin
-from .shared import _get_budget_for_workshop
-from apps.core.widgets import SearchableSelectInput
+from .shared import _get_budget_for_workshop, _is_budget_edit_locked, LOCKED_BUDGET_EDIT_MESSAGE, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
+from apps.core.presentation.widgets import SearchableSelectInput
 from django import forms
 from django.urls import reverse
-from apps.core.forms import CoreForm
+from apps.core.presentation.forms import CoreForm
+from ...core.utils import clean_id
 
 
 class ImportItemsSearchForm(CoreForm):
@@ -42,7 +43,7 @@ class BudgetImportItemsSearchModalView(LoginRequiredMixin, WorkshopScopedMixin, 
     workshop_permission_codename = "change_budget"
 
     def get(self, request, pk):
-        budget = _get_budget_for_workshop(self.workshop, pk)
+        budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
         available_budgets = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle").order_by("-id")[:50]
 
         form = ImportItemsSearchForm(available_budgets=available_budgets)
@@ -59,7 +60,7 @@ class BudgetImportItemsSelectModalView(LoginRequiredMixin, WorkshopScopedMixin, 
     workshop_permission_codename = "change_budget"
 
     def post(self, request, pk):
-        budget = _get_budget_for_workshop(self.workshop, pk)
+        budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
         reference_budget_id = request.POST.get("reference_budget_id")
 
         if not reference_budget_id:
@@ -68,8 +69,8 @@ class BudgetImportItemsSelectModalView(LoginRequiredMixin, WorkshopScopedMixin, 
         reference_budget = _get_budget_for_workshop(self.workshop, reference_budget_id)
 
         items = reference_budget.items.select_related("product", "service", "kit").all()
-        products = [item for item in items if item.product_id is not None or (item.is_local and not item.service_id and not item.kit_id)]
-        services = [item for item in items if item.service_id is not None]
+        products = [item for item in items if item.product_id is not None or item.local_item_type == "product" or (item.is_local and not item.local_item_type and not item.service_id and not item.kit_id)]
+        services = [item for item in items if item.service_id is not None or item.local_item_type == "service"]
         kits = [item for item in items if item.kit_id is not None]
 
         context = {
@@ -87,9 +88,13 @@ class BudgetImportItemsProcessView(LoginRequiredMixin, WorkshopScopedMixin, View
     workshop_permission_codename = "change_budget"
 
     def post(self, request, pk):
-        budget = _get_budget_for_workshop(self.workshop, pk)
+        budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
+        if _is_budget_edit_locked(budget):
+            return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
 
-        selected_item_ids = request.POST.getlist("selected_items")
+        selected_item_ids = [int(clean_id(item)) for item in request.POST.getlist("selected_items") if clean_id(item)]
 
         if not selected_item_ids:
             return HttpResponse(status=204)
@@ -104,6 +109,7 @@ class BudgetImportItemsProcessView(LoginRequiredMixin, WorkshopScopedMixin, View
                     service=source_item.service,
                     kit=None,
                     is_local=source_item.is_local,
+                    local_item_type=source_item.local_item_type,
                     is_customer_supplied=source_item.is_customer_supplied,
                     description=source_item.description,
                     product_cost_price=source_item.product_cost_price,

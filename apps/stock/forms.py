@@ -2,7 +2,7 @@ import re
 import logging
 import time
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from html import escape
 from typing import Any
 
@@ -22,22 +22,22 @@ from django.urls import reverse
 from django.utils import timezone
 from djmoney.forms import MoneyField
 from djmoney.money import Money
-from pynfe.processamento import ComunicacaoSefaz
 
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.catalog.price_tracking import build_product_price_warning, record_product_last_purchase_price, record_product_last_used_price
-from apps.core.forms import address_layout, AddressFormMixin, CoreForm, CoreModelForm
-from apps.core.search import apply_text_search
+from apps.core.presentation.forms import address_layout, AddressFormMixin, CoreForm, CoreModelForm
+from apps.core.infrastructure.search import apply_text_search
+from apps.core.presentation.widgets import TextInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput, TextareaInput, SearchableSelectInput
 from apps.core.utils import alert_confirm_layout
-from apps.core.widgets import TextInput, NumberInput, MoneyInput, CalendarDateInput, PercentageInput, CPForCNPJInput, CheckboxInput, PhoneInput, EmailInput, TextareaInput, SearchableSelectInput
 from apps.finance.models.payment_method import PaymentMethod
 
-from apps.stock.financial_entries import ADDITIONAL_CHARGE_ENTRY_TYPE, PAYMENT_ENTRY_TYPE, calculate_import_totals, get_entry_amount, get_entry_reason, normalize_entry_type
+from apps.stock.financial_entries import ADDITIONAL_CHARGE_ENTRY_TYPE, PAYMENT_ENTRY_TYPE, calculate_import_totals, get_entry_amount, get_entry_reason, normalize_entry_type, sync_payment_entries_with_financial_movements
 from apps.stock.models import StockPaymentMethod, StockImport, StockProduct, StockMovement, SefazZipCache
 from apps.stock.models import StockTransfer
 from apps.core.text_normalization import name_case, sentence_case
 
+from apps.core.infrastructure.providers.sefaz_provider import get_sefaz_service
 from apps.stock.utils import NFParser, extract_nf_number_from_access_key, parse_sefaz_distribution_doc_metadata
 from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
@@ -48,6 +48,7 @@ from apps.workshops.util.workshops import has_workshop_perm
 external_calls_logger = logging.getLogger("performance.external")
 
 MONEY_QUANTIZER = Decimal("0.01")
+NF_WITHOUT_ITEMS_MESSAGE = "A NF-e foi localizada, mas o XML retornado não contém os itens da nota. Sem esses itens não é possível vincular produtos no estoque. Importe o XML completo da NF-e ou tente novamente quando a SEFAZ disponibilizar o documento completo."
 
 
 def _parse_decimal_value(value: Any) -> Decimal | None:
@@ -79,6 +80,10 @@ def _money_from_value(value: Any) -> Money | None:
 
 def _format_money_display(value: Money | None) -> str:
     return str(value) if value is not None else "--"
+
+
+def _has_importable_nf_items(nf_data: dict[str, Any] | None) -> bool:
+    return bool(nf_data and nf_data.get("items"))
 
 
 # Stock
@@ -151,6 +156,15 @@ class ImportStep1Form(CoreModelForm):
 
         if commit:
             obj.save()
+            synced_entries, payments_updated = sync_payment_entries_with_financial_movements(
+                stock_import=obj,
+                entries=list(obj.payments_data or []),
+                user=self.request.user,
+                replace_existing=True,
+            )
+            if payments_updated:
+                obj.payments_data = synced_entries
+                obj.save(update_fields=["payments_data"])
         return obj
 
     def clean(self):
@@ -181,11 +195,13 @@ class ImportStep1Form(CoreModelForm):
             else:
                 try:
                     with workshop_certificate_temp_path(self.workshop) as certificate_path:
-                        comunicacao = ComunicacaoSefaz(self.workshop.uf.upper(), certificate_path, self.workshop.certificate_password)
-                        cnpj_clean = re.sub(r"\D", "", self.workshop.cnpj)
-
-                        xml_response = comunicacao.consulta_distribuicao(cnpj=cnpj_clean, chave=nf_key)
-                        content = xml_response.content
+                        content = get_sefaz_service().consultar_distribuicao(
+                            certificado_path=certificate_path,
+                            certificado_senha=self.workshop.certificate_password,
+                            uf=self.workshop.uf.upper(),
+                            cnpj=re.sub(r"\D", "", self.workshop.cnpj),
+                            chave=nf_key,
+                        )
 
                     if b"<cStat>215</cStat>" in content:
                         self.add_error("access_key", "Rejeição da SEFAZ por falha no esquema. Verifique se o CNPJ do certificado é o destinatário da nota.")
@@ -199,7 +215,7 @@ class ImportStep1Form(CoreModelForm):
                         self.add_error("access_key", "CNPJ-Base consultado difere do CNPJ-Base do Certificado Digital.")
                         return cleaned_data
 
-                    nf_data = NFParser.parse_nfe_xml_to_dict(self.workshop, xml_response.content)
+                    nf_data = NFParser.parse_nfe_xml_to_dict(self.workshop, content)
                 except Exception:
                     self.add_error("access_key", "Erro ao buscar chave na SEFAZ ou chave inválida.")
 
@@ -210,6 +226,11 @@ class ImportStep1Form(CoreModelForm):
             nf_number = nf_data.get("nf_number") or extract_nf_number_from_access_key(nf_data.get("nf_key"))
             if nf_number:
                 nf_data["nf_number"] = nf_number
+
+            if not _has_importable_nf_items(nf_data):
+                field_name = "xml_file" if method == "XML" else "access_key" if method == "KEY" else "method"
+                self.add_error(field_name, NF_WITHOUT_ITEMS_MESSAGE)
+                return cleaned_data
 
             if StockImport.objects.filter(workshop=self.workshop, nf_key=nf_data["nf_key"]).exclude(pk=self.instance.pk).exists():
                 self.add_error("method", f"A NF com chave {nf_data['nf_key']} já existe.")
@@ -295,6 +316,20 @@ class ImportStepItemsForm(CoreModelForm):
         quick_create_url = reverse("stock:product_quick_create")
         link_manual_url = reverse("stock:link_product_manual")
         item_editor_url = reverse("stock:manual_link_item_editor")
+        empty_import_alert = ""
+
+        if not self.import_items:
+            empty_import_alert = f"""
+            <div class="alert alert-warning mb-4 col-span-12">
+                <span class="material-icons">warning</span>
+                <div>
+                    <h3 class="font-bold text-sm">Itens da NF-e não carregados</h3>
+                    <div class="text-xs">{NF_WITHOUT_ITEMS_MESSAGE}</div>
+                </div>
+            </div>
+            """
+            rows_xml = """<tr><td colspan="4" class="text-center py-8 text-sm opacity-60">Nenhum item importado.</td></tr>"""
+            rows_system = """<tr><td colspan="5" class="text-center py-8 text-sm opacity-60">Nenhum item disponível para vincular.</td></tr>"""
 
         for idx, item in enumerate(self.import_items):
             ref_xml = item.get("ref", "")
@@ -360,6 +395,7 @@ class ImportStepItemsForm(CoreModelForm):
                     """
 
         return f"""<div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            {empty_import_alert}
             <div class="col-span-12 lg:col-span-5">
                 <h3 class="text-2xl font-bold mb-4 flex items-center gap-2">Itens Importados</h3>
                 <div class="rounded-xl border border-base-300 overflow-x-auto">
@@ -400,6 +436,10 @@ class ImportStepItemsForm(CoreModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
+        if not self.instance.items_data:
+            self.add_error(None, NF_WITHOUT_ITEMS_MESSAGE)
+            return cleaned_data
+
         for item in self.instance.items_data:
             if not item.get("linked_product_id"):
                 self.add_error(None, "Existem itens pendentes de vínculo.")
@@ -480,6 +520,8 @@ class ImportStepPaymentForm(CoreModelForm):
                         const btnAdd = document.querySelector('button[hx-post*="add_payment_session"]');
                         const warningDiv = document.getElementById('payment-warning-js');
                         const warningMessage = warningDiv ? warningDiv.querySelector('.payment-warning-message') : null;
+                        const successDiv = document.getElementById('payment-success-js');
+                        const successMessage = successDiv ? successDiv.querySelector('.payment-success-message') : null;
                         const pendingValue = parseFloat('{pending_amount_js}') || 0;
                         const todayValue = '{today_iso}';
 
@@ -495,6 +537,12 @@ class ImportStepPaymentForm(CoreModelForm):
                             if (warningMessage) warningMessage.textContent = message || '';
                         }};
 
+                        const showSuccess = (show, message) => {{
+                            if (!successDiv) return;
+                            successDiv.classList.toggle('hidden', !show);
+                            if (successMessage) successMessage.textContent = message || '';
+                        }};
+
                         const updateDueDate = (force) => {{
                             if (dueDateInput && paymentMethodInput.value && (force || !dueDateInput.value)) {{
                                 dueDateInput.value = todayValue;
@@ -507,7 +555,8 @@ class ImportStepPaymentForm(CoreModelForm):
                             if (pendingValue <= 0) {{
                                 btnAdd.disabled = true;
                                 btnAdd.classList.add('btn-disabled', 'opacity-50');
-                                toggleWarning(true, 'A importação não possui saldo pendente para um novo pagamento.');
+                                showSuccess(true, 'Importação completamente paga.');
+                                toggleWarning(false, '');
                                 return;
                             }}
 
@@ -516,10 +565,12 @@ class ImportStepPaymentForm(CoreModelForm):
                                 btnAdd.classList.add('btn-disabled', 'opacity-50');
                                 const excess = (totalProposed - pendingValue).toLocaleString('pt-BR', {{minimumFractionDigits: 2}});
                                 toggleWarning(true, `O valor a ser pago não pode exceder o saldo disponível de R$ {"{"}pendingValue.toLocaleString('pt-BR', {{minimumFractionDigits: 2}}){"}"}. Excesso de R$ ${{excess}}.`);
+                                showSuccess(false, '');
                             }} else {{
                                 btnAdd.disabled = false;
                                 btnAdd.classList.remove('btn-disabled', 'opacity-50');
                                 toggleWarning(false, '');
+                                showSuccess(false, '');
                             }}
                         }};
 
@@ -565,6 +616,17 @@ class ImportStepPaymentForm(CoreModelForm):
                             </div>
                         </div>
                     </div>
+                    <div id="payment-success-js" class="hidden col-span-12 mb-4">
+                        <div class="alert alert-success shadow-lg border-2 border-success">
+                            <span class="material-icons">check_circle</span>
+                            <div>
+                                <h3 class="font-bold text-sm">Importação Paga</h3>
+                                <div class="text-xs payment-success-message">
+                                    Importação completamente paga.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 """),
                 #
                 Div(Field("total_nf_display", wrapper_class="col-span-12 lg:col-span-4"), Field("total_allocated_display", wrapper_class="col-span-12 lg:col-span-4"), Field("pending_display", wrapper_class="col-span-12 lg:col-span-4"), css_class="grid grid-cols-12 gap-4 mb-2 pb-4 border-b-2 border-base-50"),
@@ -604,10 +666,7 @@ class ImportStepPaymentForm(CoreModelForm):
         cleaned_data = super().clean()
         totals = calculate_import_totals(items=self.import_items, entries=self.import_payments)
         if totals.pending_value > 0:
-            self.add_error(
-                None,
-                f"Não é possível avançar. Existem R$ {totals.pending_value:.2f} pendentes. Pague o valor total antes de continuar."
-            )
+            self.add_error(None, f"Não é possível avançar. Existem R$ {totals.pending_value:.2f} pendentes. Pague o valor total antes de continuar.")
         return cleaned_data
 
     def _generate_payments_table_html(self):
@@ -836,7 +895,8 @@ class ImportStepSummaryForm(CoreModelForm):
             record_product_last_purchase_price(product=product, price=purchase_price)
             record_product_last_used_price(product=product, price=selling_price)
 
-        for pay in instance.payments_data:
+        payments_data = list(instance.payments_data or [])
+        for pay in payments_data:
             if normalize_entry_type(pay) != PAYMENT_ENTRY_TYPE:
                 continue
 
@@ -858,8 +918,16 @@ class ImportStepSummaryForm(CoreModelForm):
             payment_method_obj = get_object_or_404(PaymentMethod, id=method_id, workshop=workshop)
             StockPaymentMethod.objects.create(workshop=workshop, payment_method=payment_method_obj, installments_count=installments, first_installment_amount=Money(first_amount, "BRL"), remaining_installments_amount=Money(remaining_amount, "BRL"), nf_number=resolved_nf_number or "MANUAL", due_date=payment_due_date)
 
+        payments_data, payments_updated = sync_payment_entries_with_financial_movements(
+            stock_import=instance,
+            entries=payments_data,
+            user=self.request.user,
+        )
+
         instance.status = StockImport.ImportStatus.COMPLETED
         if commit:
+            if payments_updated:
+                instance.payments_data = payments_data
             instance.save()
         return instance
 
@@ -948,11 +1016,16 @@ class ImportSefazListForm(CoreModelForm):
             nsu = self.workshop.last_nsu_sefaz
 
             with workshop_certificate_temp_path(self.workshop) as certificate_path:
-                comunicacao = ComunicacaoSefaz(self.workshop.uf.upper(), certificate_path, self.workshop.certificate_password)
-                xml_resp = comunicacao.consulta_distribuicao(cnpj=cnpj, nsu=nsu)
+                xml_content = get_sefaz_service().consultar_distribuicao(
+                    certificado_path=certificate_path,
+                    certificado_senha=self.workshop.certificate_password,
+                    uf=self.workshop.uf.upper(),
+                    cnpj=cnpj,
+                    nsu=nsu,
+                )
 
             # Parsing do retorno da SEFAZ (simplificado do seu exemplo)
-            tree = fromstring(xml_resp.content)
+            tree = fromstring(xml_content)
             ns = {"ns": "http://www.portalfiscal.inf.br/nfe"}
             cached_count = 0
 
@@ -999,12 +1072,20 @@ class ImportSefazListForm(CoreModelForm):
         if key:
             try:
                 with workshop_certificate_temp_path(self.workshop) as certificate_path:
-                    comunicacao = ComunicacaoSefaz(self.workshop.uf, certificate_path, self.workshop.certificate_password)
-                    xml_completo = comunicacao.consulta_distribuicao(cnpj=re.sub(r"\D", "", self.workshop.cnpj), chave=key)
+                    xml_completo = get_sefaz_service().consultar_distribuicao(
+                        certificado_path=certificate_path,
+                        certificado_senha=self.workshop.certificate_password,
+                        uf=self.workshop.uf,
+                        cnpj=re.sub(r"\D", "", self.workshop.cnpj),
+                        chave=key,
+                    )
 
-                nf_data = NFParser.parse_nfe_xml_to_dict(self.workshop, xml_completo.content)
+                nf_data = NFParser.parse_nfe_xml_to_dict(self.workshop, xml_completo)
 
                 if nf_data:
+                    if not _has_importable_nf_items(nf_data):
+                        raise forms.ValidationError(NF_WITHOUT_ITEMS_MESSAGE)
+
                     resolved_nf_number = nf_data.get("nf_number") or extract_nf_number_from_access_key(nf_data.get("nf_key"))
                     instance.nf_number = resolved_nf_number
                     instance.nf_key = nf_data["nf_key"]
@@ -1019,11 +1100,22 @@ class ImportSefazListForm(CoreModelForm):
                         issuer_name=instance.supplier_name,
                         issuer_cnpj=instance.supplier_cnpj,
                     )
+            except forms.ValidationError:
+                raise
             except Exception as e:
                 raise forms.ValidationError(f"Erro ao baixar nota completa: {e}")
 
         if commit:
             instance.save()
+            synced_entries, payments_updated = sync_payment_entries_with_financial_movements(
+                stock_import=instance,
+                entries=list(instance.payments_data or []),
+                user=self.request.user,
+                replace_existing=True,
+            )
+            if payments_updated:
+                instance.payments_data = synced_entries
+                instance.save(update_fields=["payments_data"])
         return instance
 
     def clean(self):
@@ -2554,6 +2646,13 @@ class TransferSummaryForm(CoreModelForm):
 
 
 class QuickProductForm(CoreModelForm):
+    profit_margin = forms.DecimalField(
+        required=False,
+        max_digits=9,
+        decimal_places=6,
+        widget=PercentageInput(),
+    )
+
     class Meta:
         model = Product
         fields = ["code", "name", "unit", "group", "cost_price", "selling_price", "profit_margin", "ncm", "origin_cst", "purpose"]
@@ -2564,7 +2663,6 @@ class QuickProductForm(CoreModelForm):
             "group": SearchableSelectInput(),
             "cost_price": MoneyInput(),
             "selling_price": MoneyInput(),
-            "profit_margin": PercentageInput(),
             "ncm": TextInput(attrs={"placeholder": "Ex: 87089990"}),
             "origin_cst": SearchableSelectInput(),
             "purpose": SearchableSelectInput(),
@@ -2634,9 +2732,33 @@ class QuickProductForm(CoreModelForm):
             )
         )
 
+    def clean_profit_margin(self):
+        raw = self.cleaned_data.get("profit_margin")
+        if raw is None:
+            return Decimal("0.00")
+        return Decimal(raw).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
     def clean_name(self):
         value = self.cleaned_data.get("name")
-        return sentence_case(value) if value else value
+        name = sentence_case(value) if value else value
+        if name and self.workshop:
+            qs = Product.objects.filter(workshop=self.workshop, name__iexact=name)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise forms.ValidationError("Já existe um produto com este nome.")
+        return name
+
+    def clean_code(self):
+        code = self.cleaned_data.get("code")
+        if code and self.workshop:
+            qs = Product.objects.filter(workshop=self.workshop, code__iexact=code)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise forms.ValidationError("Já existe um produto cadastrado com este código.")
+        return code
+
 
 
 class QuickSupplierForm(AddressFormMixin, CoreModelForm):

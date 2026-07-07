@@ -11,9 +11,9 @@ from django.utils import timezone
 from apps.finance.models.finance import FiscalEmissionAttempt, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, FiscalProductPreviewStatus, NfseItem, NfseItemStatus, NfseManualEmission, NfseSubstitution, NfseSubstitutionPreview, WebmaniaCompany
 from apps.finance.services.fiscal_attempts import FiscalEmissionAttemptBlocked, begin_emission_attempt, build_payload_hash, mark_attempt_failed, mark_attempt_sent, mark_attempt_succeeded, mark_attempt_uncertain, sanitize_fiscal_payload
 from apps.finance.services.nfse_capabilities import NfseCapabilityError, validate_nfse_substitution_capability
-from apps.finance.services.nfse_consulta import NfseConsultaError, consult_nfse_uuid
-from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting
-from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+from apps.core.infrastructure.services.webmania.nfse_consulta import NfseConsultaError, consult_nfse_uuid
+from apps.core.infrastructure.services.webmania.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting
+from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
 
 
 class NfseSubstitutionError(Exception):

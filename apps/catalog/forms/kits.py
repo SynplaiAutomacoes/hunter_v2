@@ -4,7 +4,7 @@ from html import escape
 import json
 import logging
 from datetime import timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, cast
 
 from django import forms
@@ -17,17 +17,17 @@ from djmoney.money import Money
 from apps.catalog.forms.equivalent_products import EquivalentProductsFormMixin
 from apps.catalog.fipe_service import get_brand_options
 from apps.catalog.kit_applications import normalize_vehicle_text
-from apps.catalog.models import FipeVehicleType
+from apps.catalog.models import FipeVehicleModel, FipeVehicleType
 from apps.catalog.models.kits import Kit, KitApplication, KitProduct, KitService
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.util import calculate_catalog_service_prices, get_current_workshop_cost
 from apps.core.text_normalization import sentence_case
-from apps.core.widgets import CheckboxInput, TextInput, TextareaInput, MoneyInput, PercentageInput, ImageInput, DurationInput, SearchableSelectInput
+from apps.core.presentation.widgets import CheckboxInput, TextInput, TextareaInput, MoneyInput, PercentageInput, ImageInput, DurationInput, SearchableSelectInput
 from apps.customer.vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
 from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
 from apps.workshops.models.workshops import Workshop
-from apps.core.forms import CoreModelForm
+from apps.core.presentation.forms import CoreModelForm
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +126,47 @@ class KitForm(CoreModelForm):
             "year_start": str(application.get("year_start", "")).strip(),
             "year_end": str(application.get("year_end", "")).strip(),
         }
+
+    @staticmethod
+    def _ensure_application_option(options: list[dict[str, str]], value: str) -> list[dict[str, str]]:
+        normalized_value = str(value or "").strip()
+        if not normalized_value:
+            return options
+
+        if any(str(option.get("id", "")).strip() == normalized_value for option in options):
+            return options
+
+        return [*options, {"id": normalized_value, "label": normalized_value}]
+
+    @staticmethod
+    def _build_application_model_options(initial_applications: list[dict[str, str]]) -> dict[str, list[dict[str, str]]]:
+        brands = sorted({str(application.get("brand", "")).strip() for application in initial_applications if str(application.get("brand", "")).strip()})
+        options_by_brand: dict[str, list[dict[str, str]]] = {brand: [] for brand in brands}
+
+        if brands:
+            for model in FipeVehicleModel.objects.filter(vehicle_type=FipeVehicleType.CARROS, is_active=True, brand__vehicle_type=FipeVehicleType.CARROS, brand__is_active=True, brand__name__in=brands).select_related("brand").order_by("brand__name", "name"):
+                options_by_brand.setdefault(model.brand.name, []).append({"id": model.name, "label": model.name})
+
+        for application in initial_applications:
+            brand = str(application.get("brand", "")).strip()
+            model = str(application.get("model", "")).strip()
+            if not brand:
+                continue
+            options_by_brand[brand] = KitForm._ensure_application_option(options_by_brand.get(brand, []), model)
+
+        return options_by_brand
+
+    @staticmethod
+    def _build_application_widget_state(application: dict[str, str], *, model_options: list[dict[str, str]] | None = None) -> dict[str, object]:
+        state: dict[str, object] = {**application}
+        model = str(application.get("model", "")).strip()
+        fuel = str(application.get("fuel", "")).strip()
+
+        state["modelOptions"] = KitForm._ensure_application_option(list(model_options or []), model)
+        state["fuelOptions"] = [{"id": fuel, "label": fuel}] if fuel else []
+        state["engineLocked"] = bool(str(application.get("engine", "")).strip())
+        state["fuelLocked"] = bool(fuel)
+        return state
 
     @staticmethod
     def _build_application_select_options_html(*, target_expression: str, choices: list[tuple[str, str]]) -> str:
@@ -421,11 +462,26 @@ class KitForm(CoreModelForm):
                     }
                 )
 
+        initial_applications = self._build_initial_applications()
+        application_model_options = self._build_application_model_options(initial_applications)
         products_json = json.dumps(initial_products)
         services_json = json.dumps(initial_services)
-        applications_json = json.dumps(self._build_initial_applications())
-        brand_options_json = json.dumps([{"id": option.value, "label": option.label} for option in get_brand_options(vehicle_type=FipeVehicleType.CARROS)])
+        applications_json = json.dumps([self._build_application_widget_state(application, model_options=application_model_options.get(str(application.get("brand", "")).strip(), [])) for application in initial_applications])
+        brand_options = get_brand_options(vehicle_type=FipeVehicleType.CARROS)
+        brand_option_items = [{"id": option.value, "label": option.label} for option in brand_options]
+        existing_brand_values = {str(option["id"]) for option in brand_option_items}
+        for application in initial_applications:
+            brand = str(application.get("brand", "")).strip()
+            if brand and brand not in existing_brand_values:
+                brand_option_items.append({"id": brand, "label": brand})
+                existing_brand_values.add(brand)
+        brand_options_json = json.dumps(brand_option_items)
+        brand_options_html = "\n".join(
+            f'<option value="{escape(str(option["id"]), quote=True)}">{escape(str(option["label"]))}</option>'
+            for option in brand_option_items
+        )
         engine_options_json = json.dumps([{"id": value, "label": label} for value, label in vehicle_engine_form_choices() if value])
+        fuel_options_json = json.dumps([{"id": value, "label": label} for value, label in vehicle_fuel_form_choices() if value])
 
         return Layout(
             Div(
@@ -456,43 +512,44 @@ class KitForm(CoreModelForm):
                                             <div class="grid grid-cols-1 lg:grid-cols-12 gap-3 items-start">
                                                 <div class="lg:col-span-2">
                                                     <label class="label p-0 mb-1">
-                                                        <span class="label-text">Marca</span>
+                                                        <span class="label-text">Marca <span class="text-error" aria-hidden="true">*</span></span>
                                                     </label>
                                                     <select name="kit_application_brand" class="input-theme w-full" x-model="application.brand" @change="onApplicationBrandChange(index)">
                                                         <option value="">Selecione...</option>
-                                                        <template x-for="option in brandOptions" :key="`brand-${{option.id}}`">
-                                                            <option :value="option.id" x-text="option.label"></option>
-                                                        </template>
+                                                        {brand_options_html}
                                                     </select>
                                                 </div>
                                                 <div class="lg:col-span-3">
                                                     <label class="label p-0 mb-1">
-                                                        <span class="label-text">Modelo</span>
+                                                        <span class="label-text">Modelo <span class="text-error" aria-hidden="true">*</span></span>
                                                     </label>
-                                                    <select name="kit_application_model" class="input-theme w-full" x-model="application.model" @change="onApplicationModelChange(index)" :disabled="!application.brand || application.loadingModels">
-                                                        <option value="" x-text="application.loadingModels ? 'Carregando...' : 'Selecione...' "></option>
-                                                        <template x-for="option in application.modelOptions" :key="`model-${{index}}-${{option.id}}`">
-                                                            <option :value="option.id" x-text="option.label"></option>
-                                                        </template>
-                                                    </select>
+                                                    <select
+                                                        name="kit_application_model"
+                                                        class="input-theme w-full"
+                                                        x-model="application.model"
+                                                        x-html="buildApplicationModelOptionsHtml(application)"
+                                                        x-effect="syncSelectElementValue($el, application.model)"
+                                                        @change="onApplicationModelChange(index)"
+                                                        :disabled="!application.brand || application.loadingModels"
+                                                    ></select>
                                                 </div>
                                                 <div class="lg:col-span-1">
                                                     <label class="label p-0 mb-1">
-                                                        <span class="label-text">Ano inicial</span>
+                                                        <span class="label-text">Ano inicial <span class="text-error" aria-hidden="true">*</span></span>
                                                     </label>
-                                                    <input type="number" name="kit_application_year_start" class="input-theme w-full" min="1900" max="2100" x-model="application.year_start" placeholder="2015" />
+                                                    <input type="number" name="kit_application_year_start" class="input-theme w-full [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0" min="1900" max="2100" x-model="application.year_start" placeholder="2015" />
                                                 </div>
                                                 <div class="lg:col-span-1">
                                                     <label class="label p-0 mb-1">
-                                                        <span class="label-text">Ano final</span>
+                                                        <span class="label-text">Ano final <span class="text-error" aria-hidden="true">*</span></span>
                                                     </label>
-                                                    <input type="number" name="kit_application_year_end" class="input-theme w-full" min="1900" max="2100" x-model="application.year_end" placeholder="2021" />
+                                                    <input type="number" name="kit_application_year_end" class="input-theme w-full [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-outer-spin-button]:m-0" min="1900" max="2100" x-model="application.year_end" placeholder="2021" />
                                                 </div>
                                                 <div class="lg:col-span-2">
                                                     <label class="label p-0 mb-1">
                                                         <span class="label-text">Motor</span>
                                                     </label>
-                                                    <input type="hidden" name="kit_application_engine" :value="application.engine">
+                                                    <input type="hidden" :name="application.engineLocked ? 'kit_application_engine' : null" :value="application.engine">
                                                     <input
                                                         x-show="application.engineLocked"
                                                         type="text"
@@ -500,23 +557,39 @@ class KitForm(CoreModelForm):
                                                         :value="application.engine || ''"
                                                         disabled
                                                     />
-                                                    <select x-show="!application.engineLocked" class="input-theme w-full" x-model="application.engine" :disabled="!application.model">
+                                                    <select x-show="!application.engineLocked" :name="application.engineLocked ? null : 'kit_application_engine'" class="input-theme w-full" x-model="application.engine" :disabled="!application.model">
                                                         <option value="">Selecione...</option>
                                                         <template x-for="option in application.engineOptions" :key="`engine-${{index}}-${{option.id}}`">
                                                             <option :value="option.id" x-text="option.label"></option>
                                                         </template>
                                                     </select>
+                                                    <p x-show="!application.engineLocked && application.model && !application.engine" style="display: none;" class="mt-1 flex items-start gap-1 text-xs text-warning">
+                                                        <span class="material-icons text-sm leading-none">warning</span>
+                                                        <span>Motor não identificado pela FIPE. Selecione manualmente.</span>
+                                                    </p>
                                                 </div>
                                                 <div class="lg:col-span-2">
                                                     <label class="label p-0 mb-1">
                                                         <span class="label-text">Combustível</span>
                                                     </label>
-                                                    <select name="kit_application_fuel" class="input-theme w-full" x-model="application.fuel" :disabled="!application.model || application.loadingFuels">
+                                                    <input type="hidden" :name="application.fuelLocked ? 'kit_application_fuel' : null" :value="application.fuel">
+                                                    <input
+                                                        x-show="application.fuelLocked"
+                                                        type="text"
+                                                        class="input-theme w-full"
+                                                        :value="application.fuel || ''"
+                                                        disabled
+                                                    />
+                                                    <select x-show="!application.fuelLocked" :name="application.fuelLocked ? null : 'kit_application_fuel'" class="input-theme w-full" x-model="application.fuel" :disabled="!application.model || application.loadingFuels">
                                                         <option value="" x-text="application.loadingFuels ? 'Carregando...' : 'Selecione...' "></option>
                                                         <template x-for="option in application.fuelOptions" :key="`fuel-${{index}}-${{option.id}}`">
                                                             <option :value="option.id" x-text="option.label"></option>
                                                         </template>
                                                     </select>
+                                                    <p x-show="!application.fuelLocked && application.model && !application.fuel && !application.loadingFuels" style="display: none;" class="mt-1 flex items-start gap-1 text-xs text-warning">
+                                                        <span class="material-icons text-sm leading-none">warning</span>
+                                                        <span>Combustível não identificado pela FIPE. Selecione manualmente.</span>
+                                                    </p>
                                                 </div>
                                                 <div class="lg:col-span-1 flex justify-end lg:pt-7">
                                                     <button type="button" class="btn btn-ghost btn-sm text-error" @click="removeApplication(index)">
@@ -969,6 +1042,7 @@ class KitForm(CoreModelForm):
                                     applications: {applications_json},
                                     brandOptions: {brand_options_json},
                                     baseEngineOptions: {engine_options_json},
+                                    baseFuelOptions: {fuel_options_json},
                                     modalSelectedProducts: [],
                                     modalSelectedServices: [],
                                     serviceEditForm: {{
@@ -994,17 +1068,20 @@ class KitForm(CoreModelForm):
                                         this.initializeApplications();
                                     }},
                                     normalizeApplicationState(application = {{}}) {{
+                                        const model = application.model || '';
+                                        const fuel = application.fuel || '';
                                         return {{
                                             brand: application.brand || '',
-                                            model: application.model || '',
+                                            model: model,
                                             engine: application.engine || '',
-                                            fuel: application.fuel || '',
+                                            fuel: fuel,
                                             year_start: application.year_start || '',
                                             year_end: application.year_end || '',
-                                            modelOptions: Array.isArray(application.modelOptions) ? application.modelOptions : [],
+                                            modelOptions: this.ensureSelectedOption(application.modelOptions, model),
                                             engineOptions: this.buildEngineOptions(application.engine || ''),
-                                            fuelOptions: Array.isArray(application.fuelOptions) ? application.fuelOptions : [],
+                                            fuelOptions: this.ensureSelectedOption(application.fuelOptions, fuel),
                                             engineLocked: !!application.engineLocked,
+                                            fuelLocked: !!application.fuelLocked,
                                             loadingModels: false,
                                             loadingFuels: false,
                                         }};
@@ -1027,6 +1104,36 @@ class KitForm(CoreModelForm):
                                         const selectedOption = (application.modelOptions || []).find((option) => String(option.id) === String(application.model));
                                         if (selectedOption && selectedOption.label) return selectedOption.label;
                                         return application.model;
+                                    }},
+                                    escapeSelectOptionValue(value) {{
+                                        return String(value ?? '').replace(/[&<>"']/g, (character) => ({{
+                                            '&': '&amp;',
+                                            '<': '&lt;',
+                                            '>': '&gt;',
+                                            '"': '&quot;',
+                                            "'": '&#39;',
+                                        }}[character]));
+                                    }},
+                                    buildApplicationModelOptionsHtml(application) {{
+                                        const selectedModel = application && application.model != null ? String(application.model).trim() : '';
+                                        const placeholderLabel = application && application.loadingModels ? 'Carregando...' : 'Selecione...';
+                                        const options = this.ensureSelectedOption(application ? application.modelOptions : [], selectedModel);
+                                        const placeholderSelected = selectedModel ? '' : ' selected';
+                                        const optionHtml = options.map((option) => {{
+                                            const optionValue = String(option.id).trim();
+                                            const selected = optionValue === selectedModel ? ' selected' : '';
+                                            return `<option value="${{this.escapeSelectOptionValue(optionValue)}}"${{selected}}>${{this.escapeSelectOptionValue(option.label)}}</option>`;
+                                        }});
+                                        return [`<option value=""${{placeholderSelected}}>${{this.escapeSelectOptionValue(placeholderLabel)}}</option>`, ...optionHtml].join('');
+                                    }},
+                                    syncSelectElementValue(selectElement, selectedValue) {{
+                                        this.$nextTick(() => {{
+                                            if (!selectElement) return;
+                                            const normalizedSelectedValue = selectedValue != null ? String(selectedValue).trim() : '';
+                                            if (selectElement.value !== normalizedSelectedValue) {{
+                                                selectElement.value = normalizedSelectedValue;
+                                            }}
+                                        }});
                                     }},
                                     syncApplicationEngineFromModel(index) {{
                                         const application = this.applications[index];
@@ -1051,13 +1158,27 @@ class KitForm(CoreModelForm):
                                         if (!response.ok) {{
                                             throw new Error('Falha ao carregar opções da FIPE.');
                                         }}
-                                        const payload = await response.json();
-                                        return Array.isArray(payload) ? payload : [];
+                                        return await response.json();
+                                    }},
+                                    normalizeCatalogOptions(options) {{
+                                        if (!Array.isArray(options)) return [];
+                                        return options
+                                            .map((option) => ({{
+                                                id: option && option.id != null ? String(option.id).trim() : '',
+                                                label: option && option.label != null ? String(option.label).trim() : '',
+                                            }}))
+                                            .filter((option) => option.id || option.label)
+                                            .map((option) => ({{
+                                                id: option.id || option.label,
+                                                label: option.label || option.id,
+                                            }}));
                                     }},
                                     ensureSelectedOption(options, selectedValue) {{
-                                        if (!selectedValue) return options;
-                                        const hasOption = options.some((option) => String(option.id) === String(selectedValue));
-                                        return hasOption ? options : [...options, {{ id: selectedValue, label: selectedValue }}];
+                                        const normalizedOptions = this.normalizeCatalogOptions(options);
+                                        const normalizedSelectedValue = selectedValue != null ? String(selectedValue).trim() : '';
+                                        if (!normalizedSelectedValue) return normalizedOptions;
+                                        const hasOption = normalizedOptions.some((option) => String(option.id) === normalizedSelectedValue);
+                                        return hasOption ? normalizedOptions : [...normalizedOptions, {{ id: normalizedSelectedValue, label: normalizedSelectedValue }}];
                                     }},
                                     async hydrateApplication(index) {{
                                         const application = this.applications[index];
@@ -1081,25 +1202,40 @@ class KitForm(CoreModelForm):
                                             application.engine = '';
                                             application.engineLocked = false;
                                             application.fuel = '';
+                                            application.fuelLocked = false;
                                             return;
                                         }}
 
                                         application.loadingModels = true;
+                                        const selectedModel = preserveModel ? application.model : '';
+                                        const selectedEngine = preserveModel ? application.engine : '';
+                                        const selectedFuel = preserveFuel ? application.fuel : '';
                                         try {{
                                             let options = await this.fetchCatalogOptions(`/catalog/fipe/models/?brand=${{encodeURIComponent(application.brand)}}`);
-                                            options = this.ensureSelectedOption(options, preserveModel ? application.model : '');
+                                            options = this.ensureSelectedOption(options, selectedModel);
                                             application.modelOptions = options;
-                                            if (!preserveModel) {{
+                                            if (preserveModel) {{
+                                                application.model = selectedModel;
+                                                application.engine = selectedEngine;
+                                                application.engineLocked = !!selectedEngine;
+                                                this.$nextTick(() => {{
+                                                    application.model = selectedModel;
+                                                }});
+                                            }} else {{
                                                 application.model = '';
-                                            }}
-                                            if (!preserveModel) {{
                                                 application.engine = '';
                                                 application.engineLocked = false;
                                             }}
                                             if (!preserveFuel) {{
                                                 application.fuel = '';
+                                                application.fuelLocked = false;
+                                            }} else {{
+                                                application.fuel = selectedFuel;
+                                                application.fuelLocked = !!selectedFuel;
                                             }}
-                                            this.syncApplicationEngineFromModel(index);
+                                            if (!preserveModel || !selectedEngine) {{
+                                                this.syncApplicationEngineFromModel(index);
+                                            }}
                                             application.fuelOptions = [];
                                         }} catch (error) {{
                                             console.error('Erro ao carregar modelos da FIPE:', error);
@@ -1115,16 +1251,43 @@ class KitForm(CoreModelForm):
                                         if (!application.brand || !application.model) {{
                                             application.fuelOptions = [];
                                             application.fuel = '';
+                                            application.fuelLocked = false;
                                             return;
                                         }}
 
                                         application.loadingFuels = true;
                                         try {{
-                                            let options = await this.fetchCatalogOptions(`/catalog/fipe/fuels/?brand=${{encodeURIComponent(application.brand)}}&model=${{encodeURIComponent(application.model)}}`);
-                                            options = this.ensureSelectedOption(options, preserveFuel ? application.fuel : '');
-                                            application.fuelOptions = options;
-                                            if (!preserveFuel) {{
+                                            const selectedFuel = preserveFuel ? application.fuel : '';
+                                            const payload = await this.fetchCatalogOptions(`/catalog/fipe/fuels/?brand=${{encodeURIComponent(application.brand)}}&model=${{encodeURIComponent(application.model)}}`);
+                                            const rawFuelOptions = Array.isArray(payload.fuels) ? payload.fuels : [];
+                                            let options;
+                                            if (rawFuelOptions.length === 0 && !preserveFuel) {{
+                                                options = Array.isArray(this.baseFuelOptions) ? [...this.baseFuelOptions] : [];
                                                 application.fuel = '';
+                                                application.fuelLocked = false;
+                                            }} else if (rawFuelOptions.length === 0 && preserveFuel) {{
+                                                options = this.ensureSelectedOption([], selectedFuel);
+                                                application.fuel = selectedFuel;
+                                                application.fuelLocked = !!selectedFuel;
+                                            }} else {{
+                                                options = this.ensureSelectedOption(rawFuelOptions, preserveFuel ? selectedFuel : '');
+                                                if (!preserveFuel) {{
+                                                    if (options.length === 1) {{
+                                                        application.fuel = options[0].id;
+                                                        application.fuelLocked = true;
+                                                    }} else {{
+                                                        application.fuel = '';
+                                                        application.fuelLocked = false;
+                                                    }}
+                                                }} else {{
+                                                    application.fuel = selectedFuel;
+                                                    application.fuelLocked = !!selectedFuel;
+                                                }}
+                                            }}
+                                            application.fuelOptions = options;
+                                            if (!preserveFuel && payload.year_start != null && payload.year_end != null) {{
+                                                application.year_start = String(payload.year_start);
+                                                application.year_end = String(payload.year_end);
                                             }}
                                         }} catch (error) {{
                                             console.error('Erro ao carregar combustíveis da FIPE:', error);
@@ -1994,16 +2157,18 @@ class KitForm(CoreModelForm):
             "year_end": "ano final",
         }
 
-        for application in raw_applications:
+        for app_index, application in enumerate(raw_applications, start=1):
+            app_label = f"Aplicação {app_index}"
+
             normalized_engine = normalize_vehicle_engine_choice(application.get("engine", ""))
             normalized_fuel = normalize_vehicle_fuel_choice(application.get("fuel", ""))
 
             if application.get("engine") and not normalized_engine:
-                self.add_error(None, "Selecione um motor válido em todas as aplicações do kit.")
+                self.add_error(None, f"{app_label}: Selecione um motor válido.")
                 continue
 
             if application.get("fuel") and not normalized_fuel:
-                self.add_error(None, "Selecione um combustível válido em todas as aplicações do kit.")
+                self.add_error(None, f"{app_label}: Selecione um combustível válido.")
                 continue
 
             normalized_application = {
@@ -2014,22 +2179,22 @@ class KitForm(CoreModelForm):
 
             missing_fields = [label for field_name, label in required_application_fields.items() if not str(normalized_application.get(field_name, "")).strip()]
             if missing_fields:
-                self.add_error(None, "Preencha marca, modelo, motor, combustível, ano inicial e ano final em todas as aplicações do kit.")
+                self.add_error(None, f"{app_label}: Preencha {', '.join(missing_fields)}.")
                 continue
 
             try:
                 year_start = int(str(normalized_application.get("year_start", "")).strip())
                 year_end = int(str(normalized_application.get("year_end", "")).strip())
             except (TypeError, ValueError):
-                self.add_error(None, "Informe anos válidos em todas as aplicações do kit.")
+                self.add_error(None, f"{app_label}: Informe anos válidos.")
                 continue
 
             if year_start > year_end:
-                self.add_error(None, "O ano inicial da aplicação não pode ser maior que o ano final.")
+                self.add_error(None, f"{app_label}: O ano inicial não pode ser maior que o ano final.")
                 continue
 
             if year_start < 1900 or year_end > 2100:
-                self.add_error(None, "Os anos de aplicação do kit devem estar entre 1900 e 2100.")
+                self.add_error(None, f"{app_label}: Os anos devem estar entre 1900 e 2100.")
                 continue
 
             normalized_key = (
@@ -2042,7 +2207,7 @@ class KitForm(CoreModelForm):
             )
 
             if normalized_key in seen_applications:
-                self.add_error(None, "Existem aplicações repetidas no kit.")
+                self.add_error(None, f"{app_label}: Aplicação repetida no kit.")
                 continue
 
             seen_applications.add(normalized_key)
@@ -2295,6 +2460,7 @@ class KitForm(CoreModelForm):
 
 class QuickProductEditForm(EquivalentProductsFormMixin, CoreModelForm):
     equivalent_search = forms.CharField(required=False, label="Produtos Equivalentes")
+    profit_margin = forms.DecimalField(required=False, max_digits=16, decimal_places=12, widget=PercentageInput(attrs={"readonly": True}))
 
     class Meta:
         model = Product
@@ -2448,8 +2614,9 @@ class QuickProductEditForm(EquivalentProductsFormMixin, CoreModelForm):
 
                             if (sell > 0) {
                                 let margin = ((sell - cost) / sell) * 100;
+                                margin = Math.round(margin * 100) / 100;
                                 if (marginEl) {
-                                    marginEl.value = margin.toFixed(2).replace(".", ",");
+                                    marginEl.value = parseFloat(margin.toFixed(2)).toFixed(2).replace(".", ",");
                                     marginEl.dispatchEvent(new Event('input', { bubbles: true }));
                                 }
                             } else {
@@ -2476,6 +2643,31 @@ class QuickProductEditForm(EquivalentProductsFormMixin, CoreModelForm):
                 raise forms.ValidationError("Já existe um produto cadastrado com este código.")
 
         return code
+
+    @staticmethod
+    def _normalize_profit_margin(raw_margin: Decimal | None) -> Decimal:
+        if raw_margin is None:
+            return Decimal("0.00")
+
+        normalized_margin = Decimal(raw_margin)
+        if normalized_margin > Decimal("1"):
+            return normalized_margin.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return (normalized_margin * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    def clean_profit_margin(self) -> Decimal:
+        cost_price = self.cleaned_data.get("cost_price")
+        selling_price = self.cleaned_data.get("selling_price")
+
+        if cost_price is not None and selling_price is not None:
+            cost_amount = Decimal(getattr(cost_price, "amount", cost_price) or 0)
+            selling_amount = Decimal(getattr(selling_price, "amount", selling_price) or 0)
+            if selling_amount <= 0:
+                return Decimal("0.00")
+
+            margin_percent = ((selling_amount - cost_amount) / selling_amount) * Decimal("100")
+            return margin_percent.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        return self._normalize_profit_margin(self.cleaned_data.get("profit_margin"))
 
     def clean(self):
         cleaned_data = super().clean()

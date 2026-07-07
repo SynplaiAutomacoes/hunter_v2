@@ -37,6 +37,7 @@ urlpatterns = [
     path("update_slider/<int:budget_id>/", views.UpdateSliderView.as_view(), name="update_slider"),
     path("mark-step5-calculation-viewed/<int:budget_id>/", views.MarkStep5CalculationViewedView.as_view(), name="mark_step5_calculation_viewed"),
     path("update-budget-discount/<int:budget_id>/", views.UpdateBudgetDiscountView.as_view(), name="update_budget_discount"),
+    path("autosave-review-date/<int:budget_id>/", views.BudgetReviewDateAutosaveView.as_view(), name="autosave_review_date"),
     path("update-status/<int:budget_id>/<str:status>", views.UpdateBudgetStatusView.as_view(), name="update_budget_status"),  # sem barra final por compatibilidade
     path("save-observation/", views.SaveObservationView.as_view(), name="save_observation"),
     # 07. Assinatura do orcamento (envio e acesso por token)
@@ -52,6 +53,7 @@ urlpatterns = [
     path("visualizar-pdf-assinatura/<int:pk>", views.visualizar_pdf_assinatura, name="visualizar_pdf_assinatura"),
     path("visualizar-pdf-checklist/<int:pk>", views.visualizar_pdf_checklist, name="visualizar_pdf_checklist"),
     path("visualizar-pdf-gestor/<int:pk>", views.visualizar_pdf_gestor, name="visualizar_pdf_gestor"),
+    path("download-pdf-gestor/<int:pk>", views.download_pdf_gestor, name="download_pdf_gestor"),
     path("visualizar-pdf-mecanico/<int:pk>", views.visualizar_pdf_mecanico, name="visualizar_pdf_mecanico"),
     # 10. Webhook SuperSign
     path("supersign/webhook/ping/", views.SuperSignWebhookView.as_view(), name="supersign_webhook_ping"),

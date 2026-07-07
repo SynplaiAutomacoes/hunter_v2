@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404, redirect
 from django.views import View
 from django.views.generic import CreateView, ListView, UpdateView
 
-from apps.core.tables import TableActionDefaults
+from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.finance.forms.nfse_capabilities import NfseMunicipalCapabilityForm
 from apps.finance.models.finance import NfseMunicipalCapability, WebmaniaCompany

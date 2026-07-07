@@ -122,6 +122,9 @@ def has_workshop_perm(*, user: User, workshop: Workshop, app_label: str, model: 
     if getattr(workshop, "account_id", None) != getattr(user, "account_id", None):
         return False
 
+    if user.is_superuser:
+        return True
+
     if getattr(user, "is_account_owner", False):
         return True
 

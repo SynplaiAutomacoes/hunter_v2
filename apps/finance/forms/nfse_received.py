@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from django import forms
 
-from apps.core.forms import CoreForm
+from apps.core.presentation.forms import CoreForm
 from apps.finance.models.finance import WebmaniaCompany
 from apps.finance.services.nfse_received_batch import MAX_NFSE_RECEIVED_BATCH_FILE_SIZE, MAX_NFSE_RECEIVED_BATCH_FILES, MAX_NFSE_RECEIVED_BATCH_TOTAL_SIZE
 

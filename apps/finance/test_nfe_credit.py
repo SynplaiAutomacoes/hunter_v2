@@ -33,7 +33,7 @@ from apps.finance.models.finance import (
     WebmaniaWebhookEvent,
 )
 from apps.finance.services.nfe_credit import NfeCreditError, create_and_emit_nfe_credit_type_one, reconcile_nfe_credit_document
-from apps.finance.services.webmania_webhooks import process_webhook_event
+from apps.core.infrastructure.services.webmania.webmania_webhooks import process_webhook_event
 from apps.finance.views.nfe_credit import NfeCreditIssueView, NfeCreditPayloadView
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 from apps.workshops.models.workshops import Workshop

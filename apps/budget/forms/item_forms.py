@@ -1,15 +1,17 @@
 from django import forms
+from django.forms import RadioSelect
 from django.urls import reverse
 from djmoney.forms import MoneyField
+from djmoney.money import Money
 
-from apps.budget.models import BudgetItem
+from apps.budget.models import BudgetItem, BudgetItemBenefitType
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
-from apps.core.widgets import CheckboxInput, DurationInput, MoneyInput, NumberInput, TextInput, SearchableSelectInput
+from apps.core.presentation.widgets import CheckboxInput, DurationInput, MoneyInput, NumberInput, TextInput, SearchableSelectInput
 
 from .shared import _budget_item_type
-from apps.core.forms import CoreForm, CoreModelForm
+from apps.core.presentation.forms import CoreForm, CoreModelForm
 
 
 class BudgetItemEditForm(CoreModelForm):
@@ -17,7 +19,7 @@ class BudgetItemEditForm(CoreModelForm):
 
     class Meta:
         model = BudgetItem
-        fields = ["description", "quantity", "is_customer_supplied", "product_selling_price", "product_cost_price", "shipping", "service_selling_price", "service_cost_price", "duration", "ncm"]
+        fields = ["description", "quantity", "is_customer_supplied", "product_selling_price", "product_cost_price", "shipping", "service_selling_price", "service_cost_price", "service_shipping", "duration", "ncm", "item_benefit_type"]
 
         widgets = {
             "description": TextInput(),
@@ -28,17 +30,27 @@ class BudgetItemEditForm(CoreModelForm):
             "shipping": MoneyInput(),
             "service_selling_price": MoneyInput(),
             "service_cost_price": MoneyInput(),
+            "service_shipping": MoneyInput(),
             "duration": DurationInput(),
+            "item_benefit_type": RadioSelect(),
         }
 
     def __init__(self, *args, budget_id=None, **kwargs):
         super().__init__(*args, **kwargs)
         item = self.instance
-        is_warranty_budget = bool(getattr(getattr(item, "budget", None), "is_warranty_budget", False))
+        budget = getattr(item, "budget", None)
+        is_fixed_budget = budget.is_fixed_budget if budget else False
+
+        # Se budget for warranty/courtesy, o campo item_benefit_type é readonly
+        if is_fixed_budget:
+            self.fields["item_benefit_type"].disabled = True
+
+        if "service_shipping" in self.fields:
+            self.fields["service_shipping"].required = False
 
         # Se for kit, remover todos os campos de edição (kits usam modal próprio)
         if item.kit:
-            fields_to_remove = ["service_selling_price", "service_cost_price", "duration", "product_selling_price", "product_cost_price", "shipping", "is_customer_supplied"]
+            fields_to_remove = ["service_selling_price", "service_cost_price", "service_shipping", "duration", "product_selling_price", "product_cost_price", "shipping", "is_customer_supplied"]
             for field in fields_to_remove:
                 if field in self.fields:
                     self.fields.pop(field)
@@ -49,9 +61,8 @@ class BudgetItemEditForm(CoreModelForm):
         if item_type == "product":
             self.fields.pop("service_selling_price")
             self.fields.pop("service_cost_price")
+            self.fields.pop("service_shipping")
             self.fields.pop("duration")
-            if is_warranty_budget and "product_selling_price" in self.fields:
-                self.fields.pop("product_selling_price")
             if item.product is None:
                 self.fields.pop("ncm")
             else:
@@ -63,8 +74,6 @@ class BudgetItemEditForm(CoreModelForm):
             self.fields.pop("shipping")
             self.fields.pop("is_customer_supplied")
             self.fields.pop("ncm")
-            if is_warranty_budget and "service_selling_price" in self.fields:
-                self.fields.pop("service_selling_price")
 
             if budget_id:
                 self.fields["duration"].widget.attrs.update(
@@ -80,6 +89,19 @@ class BudgetItemEditForm(CoreModelForm):
         else:
             self.fields.pop("is_customer_supplied")
             self.fields.pop("ncm")
+
+    def clean_item_benefit_type(self):
+        value = self.cleaned_data.get("item_benefit_type")
+        item = self.instance
+        budget_type = getattr(getattr(item, "budget", None), "budget_type", "sale")
+        if budget_type == "warranty" and value != BudgetItemBenefitType.WARRANTY:
+            raise forms.ValidationError("Itens em orçamento de garantia devem ser do tipo 'Garantia'.")
+        if budget_type == "courtesy" and value != BudgetItemBenefitType.COURTESY:
+            raise forms.ValidationError("Itens em orçamento de cortesia devem ser do tipo 'Cortesia'.")
+        return value
+
+    def clean_service_shipping(self):
+        return self.cleaned_data.get("service_shipping") or Money(0, "BRL")
 
 
 class BudgetKitProductEditRowForm(CoreForm):
@@ -99,49 +121,70 @@ class BudgetKitServiceEditRowForm(CoreForm):
 class LocalProductForm(CoreModelForm):
     class Meta:
         model = BudgetItem
-        fields = ["description", "quantity", "product_cost_price", "product_selling_price", "shipping"]
+        fields = ["description", "quantity", "product_cost_price", "product_selling_price", "shipping", "item_benefit_type"]
         widgets = {
             "description": TextInput(attrs={"placeholder": "Ex: Parafuso XPTO"}),
             "quantity": NumberInput(),
             "product_cost_price": MoneyInput(),
             "product_selling_price": MoneyInput(),
             "shipping": MoneyInput(),
+            "item_benefit_type": RadioSelect(),
         }
 
-    def __init__(self, *args, is_warranty_budget=False, **kwargs):
+    def __init__(self, *args, is_warranty_budget=False, item_benefit_type="normal", **kwargs):
         super().__init__(*args, **kwargs)
+        self._is_warranty_budget = is_warranty_budget
+        self._expected_benefit_type = item_benefit_type
         self.fields["description"].label = "Descrição"
         self.fields["quantity"].label = "Quantidade"
         self.fields["product_cost_price"].label = "Custo"
         self.fields["shipping"].label = "Frete"
+
+        # Disable item_benefit_type if budget is fixed
         if is_warranty_budget:
-            self.fields.pop("product_selling_price")
-        else:
-            self.fields["product_selling_price"].label = "Valor de Venda"
+            self.fields["item_benefit_type"].disabled = True
+
+        self.fields["product_selling_price"].label = "Valor de Venda"
+
+    def clean_item_benefit_type(self):
+        value = self.cleaned_data.get("item_benefit_type")
+        if self._is_warranty_budget and value != "warranty":
+            raise forms.ValidationError("Itens em orçamento de garantia devem ser do tipo 'Garantia'.")
+        if self._expected_benefit_type == "courtesy" and value != "courtesy":
+            raise forms.ValidationError("Itens em orçamento de cortesia devem ser do tipo 'Cortesia'.")
+        return value
 
 
 class LocalServiceForm(CoreModelForm):
     class Meta:
         model = BudgetItem
-        fields = ["description", "quantity", "service_cost_price", "service_selling_price", "duration"]
+        fields = ["description", "quantity", "service_cost_price", "service_selling_price", "service_shipping", "duration", "item_benefit_type"]
         widgets = {
             "description": TextInput(attrs={"placeholder": "Ex: Serviço Especial Ferrari"}),
             "quantity": NumberInput(),
             "service_cost_price": MoneyInput(),
             "service_selling_price": MoneyInput(),
+            "service_shipping": MoneyInput(),
             "duration": DurationInput(),
+            "item_benefit_type": RadioSelect(),
         }
 
-    def __init__(self, *args, budget_id=None, is_warranty_budget=False, **kwargs):
+    def __init__(self, *args, budget_id=None, is_warranty_budget=False, item_benefit_type="normal", **kwargs):
         super().__init__(*args, **kwargs)
+        self._is_warranty_budget = is_warranty_budget
+        self._expected_benefit_type = item_benefit_type
         self.fields["description"].label = "Descrição"
         self.fields["quantity"].label = "Quantidade"
         self.fields["service_cost_price"].label = "Custo"
+        self.fields["service_shipping"].label = "Frete"
+        self.fields["service_shipping"].required = False
         self.fields["duration"].label = "Duração"
+
+        # Disable item_benefit_type if budget is fixed
         if is_warranty_budget:
-            self.fields.pop("service_selling_price")
-        else:
-            self.fields["service_selling_price"].label = "Valor de Venda"
+            self.fields["item_benefit_type"].disabled = True
+
+        self.fields["service_selling_price"].label = "Valor de Venda"
 
         # Adicionar cálculo automático
         if budget_id and not self.instance.pk:
@@ -155,6 +198,17 @@ class LocalServiceForm(CoreModelForm):
                     "hx-indicator": "#calculation-indicator",
                 }
             )
+
+    def clean_item_benefit_type(self):
+        value = self.cleaned_data.get("item_benefit_type")
+        if self._is_warranty_budget and value != "warranty":
+            raise forms.ValidationError("Itens em orçamento de garantia devem ser do tipo 'Garantia'.")
+        if self._expected_benefit_type == "courtesy" and value != "courtesy":
+            raise forms.ValidationError("Itens em orçamento de cortesia devem ser do tipo 'Cortesia'.")
+        return value
+
+    def clean_service_shipping(self):
+        return self.cleaned_data.get("service_shipping") or Money(0, "BRL")
 
 
 class QuickProductForm(CoreModelForm):

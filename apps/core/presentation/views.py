@@ -1,0 +1,394 @@
+from __future__ import annotations
+
+import json
+import logging
+import time
+from decimal import Decimal
+from typing import Any
+
+import requests
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import DecimalField, ExpressionWrapper, F, Sum
+from django.http import HttpResponse, JsonResponse
+from django.urls import reverse
+from django.template.response import TemplateResponse
+from django.utils import timezone
+from django.views import View
+from django.views.generic import TemplateView
+
+from apps.core.domain.contracts.documents import DocumentRenderRequest
+from apps.core.infrastructure.pdf.renderer import render_template_request_to_pdf, build_pdf_http_response
+from apps.core.presentation.favorites import FavoritePageLimitError, InvalidFavoritePageError, reorder_favorite_pages, toggle_favorite_page
+from apps.core.infrastructure.services.dashboard_query_service import (
+    INDICATOR_LABELS,
+    DashboardQueryService,
+    build_financial_indicator_report_data,
+    get_financial_indicator_data,
+)
+from apps.core.presentation.mixins import HtmxTemplateResponseMixin
+from apps.core.utils import clean_id
+from apps.workshops.util.workshops import get_active_workshop_or_404
+from apps.workorder.models import WorkOrderPaymentMethod, WorkOrderStatus
+
+external_calls_logger = logging.getLogger("performance.external")
+logger = logging.getLogger(__name__)
+
+MESES_PT: list[str] = [
+    "",
+    "Janeiro",
+    "Fevereiro",
+    "Março",
+    "Abril",
+    "Maio",
+    "Junho",
+    "Julho",
+    "Agosto",
+    "Setembro",
+    "Outubro",
+    "Novembro",
+    "Dezembro",
+]
+
+
+class DashboardView(HtmxTemplateResponseMixin, TemplateView):
+    template_name = "partials/dashboard.html"
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context: dict[str, Any] = super().get_context_data(**kwargs)
+        context.update(self._get_dashboard_context())
+        return context
+
+    def _get_dashboard_context(self) -> dict[str, Any]:
+        workshop = get_active_workshop_or_404(request=self.request)
+        hoje = timezone.localdate()
+        mes_param = self.request.GET.get("mes")
+        ano_param = self.request.GET.get("ano")
+
+        selected_month = int(mes_param) if mes_param and mes_param.isdigit() else hoje.month
+        selected_year = hoje.year
+        if ano_param:
+            try:
+                selected_year = int(ano_param.replace(",", "").replace(".", ""))
+            except ValueError:
+                pass
+
+        service = DashboardQueryService()
+        metrics = service.compute(workshop=workshop, selected_month=selected_month, selected_year=selected_year)
+        return metrics.as_context()
+
+
+class CEPLookupView(TemplateView):
+    template_name = "partials/address_fields.html"
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context: dict[str, Any] = super().get_context_data(**kwargs)
+        context["updates"] = self._lookup_cep()
+        return context
+
+    def _lookup_cep(self) -> dict[str, Any]:
+        cep = self.request.GET.get("cep", "").replace("-", "").replace(".", "")
+        defaults = {"id_logradouro": "", "id_bairro": "", "id_cidade": "", "readonly": True}
+        if len(cep) != 8:
+            return defaults
+        return self._fetch_cep_data(cep, defaults)
+
+    def _fetch_cep_data(self, cep: str, defaults: dict[str, Any]) -> dict[str, Any]:
+        started_at = time.perf_counter()
+        try:
+            data = self._call_viacep(cep)
+        except (requests.RequestException, ValueError):
+            defaults["readonly"] = False
+            return defaults
+        finally:
+            duration_ms = (time.perf_counter() - started_at) * 1000
+            external_calls_logger.warning("external_call service=viacep_lookup duration_ms=%.2f cep=%s", duration_ms, cep)
+
+        if "erro" in data:
+            defaults["readonly"] = False
+            return defaults
+
+        return {
+            "id_logradouro": data.get("logradouro", ""),
+            "id_bairro": data.get("bairro", ""),
+            "id_cidade": data.get("localidade", ""),
+            "readonly": False,
+        }
+
+    @staticmethod
+    def _call_viacep(cep: str) -> dict[str, Any]:
+        response = requests.get(f"https://viacep.com.br/ws/{cep}/json/", timeout=1.5)
+        response.raise_for_status()
+        return response.json()
+
+
+class FavoritePageToggleView(LoginRequiredMixin, View):
+    def post(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        url = request.POST.get("url", "")
+        try:
+            toggle_favorite_page(request=request, user=request.user, url=url)
+        except FavoritePageLimitError as exc:
+            return self._limit_reached_response(exc)
+        except InvalidFavoritePageError as exc:
+            return self._invalid_favorite_response(exc)
+        return self._success_response()
+
+    @staticmethod
+    def _limit_reached_response(exc: FavoritePageLimitError) -> HttpResponse:
+        response = HttpResponse(status=204)
+        response["HX-Trigger"] = json.dumps(
+            {
+                "favoritePagesLimitReached": {
+                    "title": "Limite de favoritos atingido",
+                    "message": str(exc),
+                }
+            }
+        )
+        return response
+
+    @staticmethod
+    def _invalid_favorite_response(exc: InvalidFavoritePageError) -> HttpResponse:
+        response = HttpResponse(status=400)
+        response["HX-Trigger"] = json.dumps({"showToast": {"message": str(exc), "type": "warning"}})
+        return response
+
+    @staticmethod
+    def _success_response() -> HttpResponse:
+        response = HttpResponse(status=204)
+        response["HX-Refresh"] = "true"
+        return response
+
+
+class FavoritePageReorderView(LoginRequiredMixin, View):
+    def post(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        raw_ids = request.POST.getlist("favorite_ids")
+        try:
+            favorite_ids = [int(favorite_id) for favorite_id in raw_ids]
+            reorder_favorite_pages(user=request.user, ordered_favorite_ids=favorite_ids)
+        except (TypeError, ValueError, InvalidFavoritePageError):
+            return self._error_response()
+        return HttpResponse(status=204)
+
+    @staticmethod
+    def _error_response() -> HttpResponse:
+        response = HttpResponse(status=400)
+        response["HX-Trigger"] = json.dumps({"showToast": {"message": "Não foi possível reordenar os favoritos agora.", "type": "error"}})
+        return response
+
+
+class DashboardFinancialReportView(View):
+    @staticmethod
+    def _build_report_context(*, request: Any) -> dict[str, Any] | None:
+        workshop = get_active_workshop_or_404(request=request)
+        indicador = request.GET.get("indicador", "")
+        mes = int(request.GET.get("mes", timezone.localdate().month))
+        ano_bruto = clean_id(request.GET.get("ano", timezone.localdate().year))
+        ano = int(ano_bruto) if ano_bruto else timezone.localdate().year
+
+        if indicador not in INDICATOR_LABELS:
+            return None
+
+        items, is_budget_report, total_value = get_financial_indicator_data(workshop, indicador, mes, ano)
+        report_data = build_financial_indicator_report_data(
+            indicator=indicador,
+            month=mes,
+            year=ano,
+            items=items,
+            is_budget_report=is_budget_report,
+        )
+
+        report_querystring = f"indicador={indicador}&mes={mes}&ano={ano}"
+
+        valor_pago_esse_mes = Decimal("0.00")
+        sinal_pago_mes_anterior = Decimal("0.00")
+        warranty_count = 0
+        courtesy_count = 0
+
+        if indicador == "carros_mes":
+            result = (
+                WorkOrderPaymentMethod.objects.filter(
+                    workorder__workshop=workshop,
+                    workorder__budget_type="sale",
+                    workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+                    due_date__month=mes,
+                    due_date__year=ano,
+                )
+                .annotate(
+                    payment_total=ExpressionWrapper(
+                        F("first_installment_amount")
+                        + (F("installments_count") - 1) * F("remaining_installments_amount"),
+                        output_field=DecimalField(max_digits=14, decimal_places=2),
+                    )
+                )
+                .aggregate(total=Sum("payment_total"))
+            )
+            valor_pago_esse_mes = result["total"] or Decimal("0.00")
+            sinal_pago_mes_anterior = report_data.total_value - valor_pago_esse_mes
+        elif indicador == "garantia_cortesia_mes":
+            warranty_count = sum(1 for item in items if item.budget_type == "warranty")
+            courtesy_count = sum(1 for item in items if item.budget_type == "courtesy")
+
+        return {
+            "indicator": indicador,
+            "report_title": report_data.report_title,
+            "workshop": workshop,
+            "periodo_label": report_data.periodo_label,
+            "total_value": report_data.total_value,
+            "total_value_legacy": total_value,
+            "items_label": report_data.items_label,
+            "items": items,
+            "is_budget_report": report_data.is_budget_report,
+            "report_rows": report_data.rows,
+            "workorder_groups": report_data.workorder_groups,
+            "summary_count": report_data.summary_count,
+            "record_count": report_data.record_count,
+            "value_column_label": report_data.value_column_label,
+            "is_grouped_report": bool(report_data.workorder_groups),
+            "download_url": f"{reverse('core:dashboard_financial_report')}?download=1&{report_querystring}",
+            "report_querystring": report_querystring,
+            "valor_pago_esse_mes": valor_pago_esse_mes,
+            "sinal_pago_mes_anterior": sinal_pago_mes_anterior,
+            "warranty_count": warranty_count,
+            "courtesy_count": courtesy_count,
+        }
+
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        context = self._build_report_context(request=request)
+        if context is None:
+            return HttpResponse("Indicador inválido", status=400)
+
+        document = render_template_request_to_pdf(
+            DocumentRenderRequest(
+                template_name="core/pdf/financial_indicator_report.html",
+                context=context,
+                filename=f"relatorio_financeiro_{context['indicator']}_{request.GET.get('mes', timezone.localdate().month)}_{request.GET.get('ano', timezone.localdate().year)}.pdf",
+            )
+        )
+        return build_pdf_http_response(document=document)
+
+    @staticmethod
+    def _resolve_items_label(is_budget_report: bool) -> str:
+        if is_budget_report:
+            return "Orçamentos considerados no cálculo"
+        return "Ordens de Serviço consideradas no cálculo"
+
+
+class DashboardFinancialReportModalView(View):
+    template_name = "core/partials/dashboard_financial_report_modal_content.html"
+
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> TemplateResponse | HttpResponse:
+        context = DashboardFinancialReportView._build_report_context(request=request)
+        if context is None:
+            return HttpResponse("Indicador inválido", status=400)
+
+        context["pdf_download_url"] = context["download_url"]
+        return TemplateResponse(request, self.template_name, context)
+
+
+def permission_denied(request: Any, exception: BaseException | None = None) -> TemplateResponse:
+    return TemplateResponse(request, "403.html", status=403)
+
+
+class BaseLockView(LoginRequiredMixin, View):
+    def get_object_type_and_id(self):
+        obj_type = self.request.GET.get("type") or self.request.POST.get("type", "")
+        obj_id = self.request.GET.get("id") or self.request.POST.get("id", "")
+        return obj_type, obj_id
+
+    def get_model_class(self, obj_type: str):
+        from django.apps import apps
+
+        try:
+            app_label, model_name = obj_type.split(".", 1)
+            return apps.get_model(app_label, model_name)
+        except (ValueError, LookupError):
+            return None
+
+    def get_session_key(self):
+        return self.request.session.session_key or ""
+
+
+class AcquireLockView(BaseLockView):
+    def post(self, request):
+        from apps.core.domain.services.editing_lock_service import acquire_lock
+
+        obj_type, obj_id = self.get_object_type_and_id()
+        if not obj_type or not obj_id:
+            return JsonResponse({"ok": False, "error": "Parâmetros type e id são obrigatórios."}, status=400)
+
+        model_class = self.get_model_class(obj_type)
+        if model_class is None:
+            return JsonResponse({"ok": False, "error": f"Tipo inválido: {obj_type}"}, status=400)
+
+        obj = model_class.objects.filter(pk=obj_id).first()
+        if obj is None:
+            return JsonResponse({"ok": False, "error": "Objeto não encontrado."}, status=404)
+
+        success, lock_info = acquire_lock(obj, request.user, self.get_session_key())
+        if success:
+            return JsonResponse({"ok": success})
+        return JsonResponse({"ok": success, "lock_info": lock_info}, status=409)
+
+
+class ReleaseLockView(BaseLockView):
+    def post(self, request):
+        from apps.core.domain.services.editing_lock_service import release_lock
+
+        obj_type, obj_id = self.get_object_type_and_id()
+        if not obj_type or not obj_id:
+            return JsonResponse({"ok": False, "error": "Parâmetros type e id são obrigatórios."}, status=400)
+
+        model_class = self.get_model_class(obj_type)
+        if model_class is None:
+            return JsonResponse({"ok": False, "error": f"Tipo inválido: {obj_type}"}, status=400)
+
+        obj = model_class.objects.filter(pk=obj_id).first()
+        if obj is None:
+            return JsonResponse({"ok": False, "error": "Objeto não encontrado."}, status=404)
+
+        release_lock(obj, self.get_session_key())
+        return JsonResponse({"ok": True})
+
+
+class RefreshLockView(BaseLockView):
+    def post(self, request):
+        from apps.core.domain.services.editing_lock_service import refresh_lock
+
+        obj_type, obj_id = self.get_object_type_and_id()
+        if not obj_type or not obj_id:
+            return JsonResponse({"ok": False, "error": "Parâmetros type e id são obrigatórios."}, status=400)
+
+        model_class = self.get_model_class(obj_type)
+        if model_class is None:
+            return JsonResponse({"ok": False, "error": f"Tipo inválido: {obj_type}"}, status=400)
+
+        obj = model_class.objects.filter(pk=obj_id).first()
+        if obj is None:
+            return JsonResponse({"ok": False, "error": "Objeto não encontrado."}, status=404)
+
+        success = refresh_lock(obj, self.get_session_key())
+        if success:
+            return JsonResponse({"ok": success})
+        return JsonResponse({"ok": success}, status=404)
+
+
+class CheckLockView(BaseLockView):
+    def get(self, request):
+        from apps.core.domain.services.editing_lock_service import get_lock_info
+
+        obj_type = request.GET.get("type", "")
+        obj_id = request.GET.get("id", "")
+        if not obj_type or not obj_id:
+            return JsonResponse({"ok": False, "error": "Parâmetros type e id são obrigatórios."}, status=400)
+
+        model_class = self.get_model_class(obj_type)
+        if model_class is None:
+            return JsonResponse({"ok": False, "error": f"Tipo inválido: {obj_type}"}, status=400)
+
+        obj = model_class.objects.filter(pk=obj_id).first()
+        if obj is None:
+            return JsonResponse({"ok": False, "error": "Objeto não encontrado."}, status=404)
+
+        lock_info = get_lock_info(obj)
+        if lock_info and lock_info["locked_by_session"] != self.get_session_key():
+            return JsonResponse({"ok": True, "locked": True, "lock_info": lock_info})
+        return JsonResponse({"ok": True, "locked": False})

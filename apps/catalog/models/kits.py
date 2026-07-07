@@ -11,7 +11,7 @@ from djmoney.money import Money
 from apps.catalog.kit_applications import KitApplicationsTableValue, build_kit_application_label, build_kit_applications_summary, build_kit_application_preview_lines, build_kit_applications_table_value, build_powertrain_display
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
-from apps.core.models import TimeStampedModel
+from apps.core.infrastructure.models import TimeStampedModel
 from apps.core.text_normalization import sentence_case
 from apps.workshops.models.workshops import Workshop
 

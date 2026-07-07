@@ -20,12 +20,12 @@ from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.products import Product
 from apps.catalog.util import build_product_kits_assignment_context
 from apps.core.utils import clean_id
-from apps.core.navigation import PRODUCT_CREATE_FAVORITE_PAGE
-from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
-from apps.core.search import apply_text_search, build_text_search_query
-from apps.core.tables import TableActionDefaults
+from apps.core.presentation.navigation import PRODUCT_CREATE_FAVORITE_PAGE
+from apps.core.infrastructure.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
+from apps.core.infrastructure.search import apply_text_search, build_text_search_query
+from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
+from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.stock.models import StockMovement, StockProduct
 from apps.workorder.models import WorkOrderItem
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -183,7 +183,7 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         for item in budget_items:
             history_dict[item.budget.id] = {
                 "type": "budget",
-                "id": item.budget.id,
+                "id": clean_id(item.budget.id),
                 "obj": item.budget,
                 "date": item.budget.criado_em,
                 "quantity": item.quantity,
@@ -197,14 +197,14 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         for item in workorder_items:
             history_dict[item.workorder.budget.id] = {
                 "type": "workorder",
-                "id": item.workorder.id,
+                "id": clean_id(item.workorder.id),
                 "obj": item.workorder,
                 "date": item.workorder.criado_em,
                 "quantity": item.quantity,
                 "status": item.workorder.get_status_display(),
                 "label": f"OS #{item.workorder.id}",
                 "sub_label": "Ordem de Serviço",
-                "url": reverse_lazy("workorder:workorder_detail", kwargs={"pk": item.workorder.id}),
+                "url": reverse_lazy("workorder:workorder_detail", kwargs={"pk": clean_id(item.workorder.id)}),
             }
 
         history_list = sorted(history_dict.values(), key=lambda x: x["date"], reverse=True)
@@ -302,7 +302,7 @@ class StockFieldsUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request, *args, **kwargs):
         product_id = request.POST.get("product_id")
 
-        stock_obj = get_object_or_404(StockProduct, product_id=product_id, workshop=self.workshop)
+        stock_obj = get_object_or_404(StockProduct, product_id=clean_id(product_id), workshop=self.workshop)
 
         allowed_fields = ["minimum_quantity", "restock_quantity"]
 

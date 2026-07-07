@@ -3,18 +3,21 @@ import logging
 from django.core.exceptions import ObjectDoesNotExist
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, render
+from django.template.loader import render_to_string
 from django.views.decorators.clickjacking import xframe_options_exempt
 
 from apps.budget.documents.provider import render_budget_pdf_document
-from apps.budget.models import Budget, SignatureStatus
+from apps.budget.models import Budget
 from apps.budget.pdf_context import build_budget_pdf_context, build_workshop_logo_data_uri
-from apps.budget.service import BUDGET_SIGNATURE_DOCUMENT_ID_KEY, BUDGET_SIGNATURE_TOKEN_SALT
+from apps.budget.service import BUDGET_SIGNATURE_DOCUMENT_ID_KEY, BUDGET_SIGNATURE_TOKEN_SALT, can_use_signed_budget_pdf, should_default_to_signed_budget_pdf
 from apps.checklist.models import Checklist
 from apps.checklist.services.files import ChecklistFileStorageError, read_checklist_pdf_file
-from apps.core.documents.contract import DocumentPayload
-from apps.core.documents.http import build_pdf_http_response
-from apps.core.documents.services import SignatureDeliveryServiceError, download_signed_document_content
-from apps.core.documents.signature import SignatureTokenError, parse_document_signature_token
+from apps.core.domain.contracts.documents import DocumentPayload
+from apps.core.infrastructure.pdf.playwright import render_pdf_from_html
+from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
+from apps.core.domain.contracts.signature import SignatureServiceError
+from apps.core.domain.contracts.documents import SignatureTokenError
+from apps.core.infrastructure.providers import get_signature_service
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 
@@ -27,8 +30,8 @@ BASE_PDF_VARIANT = "base"
 @xframe_options_exempt
 def visualizar_pdf(request, pk):
     workshop = get_active_workshop_or_404(request)
-    budget = get_object_or_404(Budget, pk=pk, workshop=workshop)
-    context = build_budget_pdf_context(budget=budget, observacao=budget.pdf_observation, request=request, zero_warranty_prices=True, presentation="selected_items")
+    budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle", "workshop"), pk=pk, workshop=workshop)
+    context = build_budget_pdf_context(budget=budget, request=request, presentation="selected_items")
 
     return render(request, "budget/partials/pdf/visualizarPDF.html", context)
 
@@ -36,17 +39,28 @@ def visualizar_pdf(request, pk):
 @xframe_options_exempt
 def visualizar_pdf_gestor(request, pk):
     workshop = get_active_workshop_or_404(request)
-    budget = get_object_or_404(Budget, pk=pk, workshop=workshop)
-    context = build_budget_pdf_context(budget=budget, observacao=budget.pdf_observation, request=request)
+    budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle", "workshop"), pk=pk, workshop=workshop)
+    context = build_budget_pdf_context(budget=budget, request=request, presentation="selected_items")
 
     return render(request, "budget/partials/pdf/visualizarPDFGestor.html", context)
 
 
 @xframe_options_exempt
+def download_pdf_gestor(request, pk):
+    workshop = get_active_workshop_or_404(request)
+    budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle", "workshop"), pk=pk, workshop=workshop)
+    context = build_budget_pdf_context(budget=budget, request=request, presentation="selected_items")
+    html = render_to_string("budget/partials/pdf/visualizarPDFGestor.html", context)
+    pdf_bytes = render_pdf_from_html(html)
+    document = DocumentPayload(content=pdf_bytes, filename=f"orcamento_{budget.id}_gestor.pdf")
+    return build_pdf_http_response(document=document, download=True)
+
+
+@xframe_options_exempt
 def visualizar_pdf_mecanico(request, pk):
     workshop = get_active_workshop_or_404(request)
-    budget = get_object_or_404(Budget, pk=pk, workshop=workshop)
-    context = build_budget_pdf_context(budget=budget, observacao=budget.pdf_observation, request=request)
+    budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle", "workshop"), pk=pk, workshop=workshop)
+    context = build_budget_pdf_context(budget=budget, request=request, presentation="selected_items")
 
     return render(request, "budget/partials/pdf/visualizarPDFMecanico.html", context)
 
@@ -140,7 +154,7 @@ def visualizar_pdf_checklist(request, pk):
 
 def _get_budget_from_signature_token(token):
     try:
-        payload = parse_document_signature_token(
+        payload = get_signature_service().parse_signature_token(
             token=token,
             token_salt=BUDGET_SIGNATURE_TOKEN_SALT,
             document_id_key=BUDGET_SIGNATURE_DOCUMENT_ID_KEY,
@@ -148,12 +162,12 @@ def _get_budget_from_signature_token(token):
     except SignatureTokenError:
         raise Http404("Arquivo não encotrado")
 
-    budget = get_object_or_404(Budget.objects.select_related("workshop", "customer", "vehicle"), pk=payload.document_id)
+    budget = get_object_or_404(Budget.objects.select_related("workshop", "customer", "vehicle"), pk=payload["document_id"])
 
     if not budget.signature_token_active:
         raise Http404("Arquivo não encotrado")
 
-    if budget.signature_token_version != payload.version:
+    if budget.signature_token_version != payload["version"]:
         raise Http404("Arquivo não encotrado")
 
     return budget
@@ -161,7 +175,7 @@ def _get_budget_from_signature_token(token):
 
 def signature_preview(request, token):
     budget = _get_budget_from_signature_token(token)
-    context = build_budget_pdf_context(budget=budget, observacao=budget.pdf_observation, request=request, zero_warranty_prices=True, presentation="selected_items")
+    context = build_budget_pdf_context(budget=budget, request=request, presentation="selected_items")
 
     return render(request, "budget/partials/pdf/visualizarPDF.html", context)
 
@@ -176,7 +190,7 @@ def signature_file(request, token):
             filename=f"orcamento_{budget.id}.pdf",
         )
     except Exception:
-        logger.exception("Falha ao gerar PDF via Playwright para assinatura", extra={"budget_id": budget.id})
+        logger.exception("budget_pdf_playwright_failed", extra={"budget_id": budget.id, "pdf_type": "signature"})
         return HttpResponse("Erro ao gerar arquivo de assinatura", status=500)
 
     return build_pdf_http_response(document=document, download=False)
@@ -191,17 +205,13 @@ def _build_budget_pdf_file_response(*, budget: Budget, download: bool, use_signe
     return build_pdf_http_response(document=document, download=download)
 
 
-def _get_requested_pdf_variant(request) -> str:
+def _get_requested_pdf_variant(request) -> str | None:
     requested_variant = str(request.GET.get("variant") or "").strip().lower()
     if requested_variant == BASE_PDF_VARIANT:
         return BASE_PDF_VARIANT
     if requested_variant == SIGNED_PDF_VARIANT:
         return SIGNED_PDF_VARIANT
-    return SIGNED_PDF_VARIANT
-
-
-def _can_use_signed_budget_pdf(budget: Budget) -> bool:
-    return bool(budget.signature_document_id or budget.signature_external_id) and budget.signature_request_status in {SignatureStatus.SENT, SignatureStatus.APPROVED}
+    return None
 
 
 @xframe_options_exempt
@@ -211,9 +221,12 @@ def visualizar_pdf_assinatura(request, pk):
     should_download = request.GET.get("download") == "1"
     requested_variant = _get_requested_pdf_variant(request)
 
-    if requested_variant == SIGNED_PDF_VARIANT and _can_use_signed_budget_pdf(budget):
+    if requested_variant is None:
+        requested_variant = SIGNED_PDF_VARIANT if should_default_to_signed_budget_pdf(budget=budget) else BASE_PDF_VARIANT
+
+    if requested_variant == SIGNED_PDF_VARIANT and can_use_signed_budget_pdf(budget=budget):
         try:
-            signed_pdf = download_signed_document_content(
+            signed_pdf = get_signature_service().download_signed_document(
                 document_id=budget.signature_document_id,
                 envelope_id=budget.signature_external_id,
             )
@@ -223,15 +236,8 @@ def visualizar_pdf_assinatura(request, pk):
                 use_signed_name=True,
                 pdf_bytes=signed_pdf,
             )
-        except SignatureDeliveryServiceError:
-            logger.warning(
-                "Falha ao carregar PDF assinado; retornando PDF base",
-                extra={
-                    "budget_id": budget.id,
-                    "document_id": budget.signature_document_id,
-                    "envelope_id": budget.signature_external_id,
-                },
-            )
+        except SignatureServiceError:
+            logger.warning("budget_signed_pdf_load_failed", extra={"budget_id": budget.id, "document_id": budget.signature_document_id, "envelope_id": budget.signature_external_id})
 
     try:
         document = render_budget_pdf_document(
@@ -240,7 +246,7 @@ def visualizar_pdf_assinatura(request, pk):
             filename=f"orcamento_{budget.id}_base.pdf",
         )
     except Exception:
-        logger.exception("Falha ao gerar PDF base para visualizacao", extra={"budget_id": budget.id})
+        logger.exception("budget_pdf_base_generation_failed", extra={"budget_id": budget.id, "pdf_type": "view"})
         return HttpResponse("Erro ao gerar PDF", status=500)
 
     return build_pdf_http_response(document=document, download=should_download)

@@ -17,16 +17,16 @@ from apps.finance.models.finance import (
     TaxClassNfse,
     TaxClassSyncState,
 )
-from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
-from apps.finance.services.ibs_cbs import IbsCbsConfigurationError, build_ibs_cbs_payload_from_values, build_tax_class_ibs_cbs_payload
-from apps.finance.services.webmania_auth import (
+from apps.core.infrastructure.services.webmania.webmania_auth import (
     WebmaniaAuthError,
     build_webmania_headers,
     redact_webmania_headers,
     sanitize_webmania_setting,
     should_use_global_webmania_auth,
 )
-from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
+from apps.finance.services.ibs_cbs import IbsCbsConfigurationError, build_ibs_cbs_payload_from_values, build_tax_class_ibs_cbs_payload
 from apps.workshops.models.workshops import Workshop
 
 
@@ -702,10 +702,6 @@ def _mark_initial_sync_done(*, workshop: Workshop) -> None:
     TaxClassSyncState.objects.update_or_create(workshop=workshop, defaults={"synced_once": True})
 
 
-def _has_initial_sync_done(*, workshop: Workshop) -> bool:
-    return TaxClassSyncState.objects.filter(workshop=workshop, synced_once=True).exists()
-
-
 def _merge_tax_class_payloads(*, sent_payload: dict[str, Any], response_payload: dict[str, Any]) -> dict[str, Any]:
     merged_payload = dict(sent_payload)
     merged_payload.update(response_payload)
@@ -714,22 +710,15 @@ def _merge_tax_class_payloads(*, sent_payload: dict[str, Any], response_payload:
 
 def list_tax_classes(*, workshop: Workshop, force_refresh: bool = False) -> list[dict[str, Any]]:
     if force_refresh:
-        remote_tax_classes = _list_tax_classes_remote(workshop=workshop)
-        _replace_local_tax_classes(workshop=workshop, tax_classes=remote_tax_classes)
-        _mark_initial_sync_done(workshop=workshop)
-        return _list_local_tax_classes(workshop=workshop)
+        return sync_tax_classes(workshop=workshop)
 
-    local_tax_classes = _list_local_tax_classes(workshop=workshop)
-    if local_tax_classes:
-        return local_tax_classes
+    return _list_local_tax_classes(workshop=workshop)
 
-    if _has_initial_sync_done(workshop=workshop):
-        return []
 
+def sync_tax_classes(*, workshop: Workshop) -> list[dict[str, Any]]:
     remote_tax_classes = _list_tax_classes_remote(workshop=workshop)
     _replace_local_tax_classes(workshop=workshop, tax_classes=remote_tax_classes)
     _mark_initial_sync_done(workshop=workshop)
-
     return _list_local_tax_classes(workshop=workshop)
 
 

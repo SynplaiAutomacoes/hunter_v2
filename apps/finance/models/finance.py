@@ -6,11 +6,16 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
-from apps.core.models import TimeStampedModel
-from apps.finance.services.webmania_status import normalize_nfe_request_status, normalize_nfse_request_status
-
+from apps.core.infrastructure.models import TimeStampedModel
 
 logger = logging.getLogger(__name__)
+
+
+DISCOUNT_TYPE_CHOICES: list[tuple[str, str]] = [
+    ("products", "Apenas Produtos"),
+    ("services", "Apenas Serviços"),
+    ("both", "Produtos e Serviços"),
+]
 
 
 def _default_pricing_slider_from_workorder(*, workorder_id: int | None, workorder: object | None) -> int | None:
@@ -269,11 +274,11 @@ class TaxClassNfe(TimeStampedModel):
 
     def __str__(self) -> str:
         workshop_id = getattr(self, "workshop_id", "-")
-        return f"Nota Fiscal {self.reference} ({workshop_id})"
+        return f"Nota Fiscal de Produto {self.reference} ({workshop_id})"
 
 
 class TaxClassNfeIcmsScenario(models.Model):
-    tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe de Nota Fiscal", on_delete=models.CASCADE, related_name="icms_scenarios")
+    tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe de Nota Fiscal de Produto", on_delete=models.CASCADE, related_name="icms_scenarios")
     position = models.PositiveIntegerField(verbose_name="Posição", default=0)
     tipo_tributacao = models.CharField(verbose_name="Tipo tributação", max_length=30, blank=True, default="")
     cenario = models.CharField(verbose_name="Cenário", max_length=30, blank=True, default="")
@@ -292,7 +297,7 @@ class TaxClassNfeIcmsScenario(models.Model):
 
 
 class TaxClassNfeIpiScenario(models.Model):
-    tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe de Nota Fiscal", on_delete=models.CASCADE, related_name="ipi_scenarios")
+    tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe de Nota Fiscal de Produto", on_delete=models.CASCADE, related_name="ipi_scenarios")
     position = models.PositiveIntegerField(verbose_name="Posição", default=0)
     cenario = models.CharField(verbose_name="Cenário", max_length=30, blank=True, default="")
     tipo_pessoa = models.CharField(verbose_name="Tipo pessoa", max_length=20, blank=True, default="")
@@ -308,7 +313,7 @@ class TaxClassNfeIpiScenario(models.Model):
 
 
 class TaxClassNfePisScenario(models.Model):
-    tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe de Nota Fiscal", on_delete=models.CASCADE, related_name="pis_scenarios")
+    tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe de Nota Fiscal de Produto", on_delete=models.CASCADE, related_name="pis_scenarios")
     position = models.PositiveIntegerField(verbose_name="Posição", default=0)
     cenario = models.CharField(verbose_name="Cenário", max_length=30, blank=True, default="")
     tipo_pessoa = models.CharField(verbose_name="Tipo pessoa", max_length=20, blank=True, default="")
@@ -323,7 +328,7 @@ class TaxClassNfePisScenario(models.Model):
 
 
 class TaxClassNfeCofinsScenario(models.Model):
-    tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe de Nota Fiscal", on_delete=models.CASCADE, related_name="cofins_scenarios")
+    tax_class = models.ForeignKey(TaxClassNfe, verbose_name="Classe de Nota Fiscal de Produto", on_delete=models.CASCADE, related_name="cofins_scenarios")
     position = models.PositiveIntegerField(verbose_name="Posição", default=0)
     cenario = models.CharField(verbose_name="Cenário", max_length=30, blank=True, default="")
     tipo_pessoa = models.CharField(verbose_name="Tipo pessoa", max_length=20, blank=True, default="")
@@ -401,7 +406,7 @@ class TaxClassSyncState(TimeStampedModel):
 
 
 class TaxClassPresetKind(models.TextChoices):
-    NFE = "nfe", "Nota Fiscal"
+    NFE = "nfe", "Nota Fiscal de Produto"
     NFSE = "nfse", "Nota Fiscal de Serviço"
 
 
@@ -470,9 +475,9 @@ class WebmaniaCompany(TimeStampedModel):
     cidade = models.CharField(verbose_name="Cidade", max_length=120, blank=True, default="")
     uf = models.CharField(verbose_name="UF", max_length=2, blank=True, default="")
 
-    nfe_serie = models.PositiveIntegerField(verbose_name="Série da Nota Fiscal", null=True, blank=True)
-    nfe_numero = models.PositiveIntegerField(verbose_name="Próximo número da Nota Fiscal", null=True, blank=True)
-    nfe_numero_dev = models.PositiveIntegerField(verbose_name="Próximo número da Nota Fiscal homologação", null=True, blank=True)
+    nfe_serie = models.PositiveIntegerField(verbose_name="Série da Nota Fiscal de Produto", null=True, blank=True)
+    nfe_numero = models.PositiveIntegerField(verbose_name="Próximo número da Nota Fiscal de Produto", null=True, blank=True)
+    nfe_numero_dev = models.PositiveIntegerField(verbose_name="Próximo número da Nota Fiscal de Produto homologação", null=True, blank=True)
     cnae_issqn = models.CharField(verbose_name="CNAE ISSQN", max_length=10, blank=True, default="")
 
     nfce_enabled = models.BooleanField(verbose_name="NFC-e habilitada", default=False)
@@ -555,6 +560,14 @@ class NfseRequest(TimeStampedModel):
         validators=[MinValueValidator(-100), MaxValueValidator(100)],
         help_text="Copia o slider do orcamento na criacao e permanece independente para a emissao.",
     )
+    discount_type_override = models.CharField(
+        verbose_name="Tipo de Desconto (Emissao)",
+        max_length=10,
+        choices=DISCOUNT_TYPE_CHOICES,
+        blank=True,
+        default="",
+        help_text="Sobrescreve o tipo de desconto da OS apenas para esta emissao. Vazio usa o da OS.",
+    )
     service_description = models.TextField(verbose_name="Discriminação do Serviço", blank=True, default="")
     additional_information = models.TextField(verbose_name="Informações complementares", blank=True, default="")
     tax_class = models.CharField(verbose_name="Classe de Imposto", max_length=30, default="REF000000")
@@ -610,6 +623,8 @@ class NfseRequest(TimeStampedModel):
         if not request_status:
             return False
 
+        from apps.core.infrastructure.services.webmania.webmania_status import normalize_nfse_request_status
+
         normalized_status = normalize_nfse_request_status(request_status)
         status_mapping = {
             "processing": NfseRequestStatus.PROCESSING,
@@ -654,6 +669,14 @@ class NfeRequest(TimeStampedModel):
         blank=True,
         validators=[MinValueValidator(-100), MaxValueValidator(100)],
         help_text="Copia o slider do orcamento na criacao e permanece independente para a emissao.",
+    )
+    discount_type_override = models.CharField(
+        verbose_name="Tipo de Desconto (Emissao)",
+        max_length=10,
+        choices=DISCOUNT_TYPE_CHOICES,
+        blank=True,
+        default="",
+        help_text="Sobrescreve o tipo de desconto da OS apenas para esta emissao. Vazio usa o da OS.",
     )
     additional_information = models.TextField(verbose_name="Informações complementares", blank=True, default="")
     tax_class = models.CharField(verbose_name="Classe de Imposto", max_length=30, default="REF000000")
@@ -706,6 +729,8 @@ class NfeRequest(TimeStampedModel):
     def update_status_based_on_request(self, request_status: str | None) -> bool:
         if not request_status:
             return False
+
+        from apps.core.infrastructure.services.webmania.webmania_status import normalize_nfe_request_status
 
         normalized_status = normalize_nfe_request_status(request_status)
         status_mapping = {

@@ -10,13 +10,12 @@ from django.urls import reverse
 from apps.catalog.models import FipeModelFuelCache, FipeVehicleBrand, FipeVehicleModel, FipeVehicleType
 from .models import Customer, Vehicle
 from apps.core.text_normalization import name_case, plate_case, sentence_case
-from apps.core.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SearchableSelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, NumberInput, PlateInput
+from apps.core.presentation.widgets import CPForCNPJInput, CalendarDateInput, TextInput, SearchableSelectInput, RGInput, PhoneInput, EmailInput, CheckboxInput, NumberInput, PlateInput
 from .cpf_cnpj_validator import is_valid_cpf, is_valid_cnpj
 from .vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
 from .vehicle_fuel import normalize_vehicle_fuel_choice
-from ..core.forms import AddressFormMixin, address_layout
 from ..workshops.models.workshops import Workshop
-from apps.core.forms import CoreModelForm
+from apps.core.presentation.forms import CoreModelForm, AddressFormMixin, address_layout
 
 
 def _set_normalized_initial_choice(form: forms.BaseForm, field_name: str, current_value: object, normalizer: Callable[[object], str]) -> None:
@@ -784,7 +783,14 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                     },
                     getFieldValue(container, fieldName) {
                         const input = this.getField(container, fieldName);
-                        return input ? String(input.value || '').trim() : '';
+                        if (!input) {
+                            return '';
+                        }
+                        const currentValue = String(input.value || '').trim();
+                        if (currentValue) {
+                            return currentValue;
+                        }
+                        return String(input.defaultValue || input.getAttribute('value') || '').trim();
                     },
                     getWidgetContainer(input) {
                         return input && input.type === 'hidden' ? input.closest('[x-data]') : null;
@@ -942,7 +948,7 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                             return;
                         }
                         this.setSearchableSelection(modelInput, preserveModel, preserveModel, options, { silent });
-                        await this.loadFuelsFor(container, { brand, model: preserveModel, preserveFuel, silent });
+                        await this.loadFuelsFor(container, { brand, model: preserveModel, preserveFuel, silent, showWarning: !silent });
                         this.syncEngine(container, preserveEngine, { silent, modelName: preserveModel });
                     },
                     async loadFuels(container, { preserveFuel = '', silent = false } = {}) {
@@ -950,7 +956,7 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                         const model = this.getFieldValue(container, 'model');
                         await this.loadFuelsFor(container, { brand, model, preserveFuel, silent });
                     },
-                    async loadFuelsFor(container, { brand = '', model = '', preserveFuel = '', silent = false } = {}) {
+                    async loadFuelsFor(container, { brand = '', model = '', preserveFuel = '', silent = false, showWarning = true } = {}) {
                         const fuelInput = this.getField(container, 'fuel');
                         const requestId = this.nextRequestId(container, 'fuel');
 
@@ -969,7 +975,7 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                         if (!this.isLatestRequest(container, 'fuel', requestId)) {
                             return;
                         }
-                        if (fuelPayload.warning) {
+                        if (showWarning && fuelPayload.warning) {
                             this.showToast(fuelPayload.warning);
                         }
                         this.setSearchableSelection(fuelInput, preserveFuel, preserveFuel, options, { silent });
@@ -997,6 +1003,7 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                             preserveModel: model,
                             preserveFuel: fuel,
                             preserveEngine: engine,
+                            silent: true,
                         });
                     },
                     fillTextFields(container, fieldsMap) {

@@ -15,7 +15,7 @@ from django.views import View
 from django.views.generic import DetailView, FormView, ListView
 
 from apps.finance.forms.nfse_received import NfseExternalXmlInboxDiscardForm, NfseExternalXmlInboxUploadForm, NfseReceivedDocumentBatchUploadForm, NfseReceivedDocumentUploadForm
-from apps.core.forms import CoreForm
+from apps.core.presentation.forms import CoreForm
 from apps.finance.models.finance import FiscalEmissionAttemptStatus, NfseExternalXmlInbox, NfseExternalXmlInboxItem, NfseManifestation, NfseReceivedDocument, NfseReceivedDocumentConsultation, NfseReceivedImportBatch
 from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
 from apps.finance.services.nfse_manifestation import NfseManifestationError, is_nfse_received_document_eligible_for_manifestation, manifest_nfse_received_document, nfse_received_document_manifestation_block_reason
@@ -23,7 +23,7 @@ from apps.finance.services.nfse_external_xml_inbox import NfseExternalXmlInboxBu
 from apps.finance.services.nfse_received_batch import NfseReceivedBatchFile, NfseReceivedBatchImportError, import_nfse_received_xml_batch
 from apps.finance.services.nfse_received_consultation import NfseReceivedConsultationError, consult_nfse_received_document, is_nfse_received_document_eligible_for_consultation, nfse_received_document_consultation_block_reason
 from apps.finance.services.nfse_received import NfseReceivedImportError, import_nfse_received_xml
-from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
+from apps.core.infrastructure.services.webmania.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import has_workshop_perm
 

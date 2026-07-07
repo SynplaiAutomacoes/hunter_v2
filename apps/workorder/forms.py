@@ -1,3 +1,4 @@
+import json
 from decimal import Decimal
 from typing import Any, Protocol, cast
 
@@ -10,15 +11,15 @@ from django.utils import timezone
 from djmoney.forms import MoneyField
 from djmoney.money import Money
 
-from apps.budget.pricing import resolve_discount_fields
+from apps.budget.pricing import money_from_decimal, resolve_discount_fields
 from apps.collaborators.models import WorkshopCollaborator
 from apps.budget.forms.widgets import MultipleFileInput
-from apps.core.utils import alert_confirm_layout
 from apps.core.text_normalization import sentence_case
-from apps.core.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, TextInput
+from apps.core.presentation.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, RadioButtonGroupInput, SearchableSelectInput, TextInput
+from apps.core.utils import alert_confirm_layout
 from apps.finance.models.payment_method import PaymentMethod
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderSignatureStatus
-from apps.core.forms import CoreForm, CoreModelForm
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderSignatureStatus
+from apps.core.presentation.forms import CoreForm, CoreModelForm
 
 
 MONEY_ZERO = Decimal("0.00")
@@ -28,12 +29,16 @@ class _BoundDataProtocol(Protocol):
     def copy(self) -> Any: ...
 
 
+def _quantize_money_amount(value: Decimal) -> Decimal:
+    return money_from_decimal(value).amount
+
+
 def _format_brl_amount(value: Decimal) -> str:
     return f"{value:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
 
 
 class WorkOrderCollaboratorForm(CoreModelForm):
-    collaborators = forms.ModelMultipleChoiceField(label="Colaboradores da O.S.", queryset=WorkshopCollaborator.objects.none(), required=False, widget=forms.SelectMultiple(attrs={"class": "select select-bordered min-h-40 w-full"}))
+    collaborators: forms.ModelMultipleChoiceField = forms.ModelMultipleChoiceField(label="Colaboradores da O.S.", queryset=WorkshopCollaborator.objects.none(), required=False)
 
     class Meta:
         model = WorkOrder
@@ -42,12 +47,26 @@ class WorkOrderCollaboratorForm(CoreModelForm):
     def __init__(self, *args, workorder: WorkOrder | None = None, **kwargs) -> None:
         self.workorder = workorder or kwargs.get("instance")
         super().__init__(*args, **kwargs)
+        if self.is_bound and "collaborators_list" in self.data and hasattr(self.data, "copy"):
+            bound_data = self.data.copy()
+            bound_data.setlist("collaborators", [collaborator_id for collaborator_id in bound_data.getlist("collaborators_list") if collaborator_id.strip()])
+            self.data = bound_data
+
         workshop = getattr(self.workorder, "workshop", None)
         queryset = WorkshopCollaborator.objects.none()
         if workshop is not None:
             queryset = WorkshopCollaborator.objects.filter(workshop=workshop, is_active=True).order_by("name")
         self.fields["collaborators"].queryset = queryset
         self.fields["collaborators"].help_text = "Selecione os colaboradores responsaveis por esta O.S. A comissao prevista sera calculada a partir desta vinculacao."
+
+    @property
+    def initial_collaborators_json(self) -> str:
+        initial_collaborators = []
+        if self.workorder and self.workorder.pk:
+            initial_collaborators = [{"id": str(collaborator.id), "name": collaborator.name, "is_new": False} for collaborator in self.workorder.collaborators.all()]
+        if not initial_collaborators:
+            initial_collaborators = [{"id": "", "is_new": True}]
+        return json.dumps(initial_collaborators)
 
 
 class WorkOrderPaymentForm(CoreModelForm):
@@ -64,6 +83,12 @@ class WorkOrderPaymentForm(CoreModelForm):
         decimal_places=6,
         max_digits=7,
         widget=PercentageInput(decimal_places=2, behavior="digit_stream"),
+    )
+    discount_type = forms.ChoiceField(
+        label="Selecione o Desconto",
+        choices=WorkOrderDiscountType.choices,
+        required=False,
+        widget=RadioButtonGroupInput,
     )
 
     class Meta:
@@ -93,9 +118,9 @@ class WorkOrderPaymentForm(CoreModelForm):
         self.fields["first_installment_amount"].required = not self.is_first_payment
         self.fields["due_date"].required = False
 
-        total_os = self.workorder.total_budget_value.amount if self.workorder else MONEY_ZERO
+        total_os = _quantize_money_amount(self.workorder.total_budget_value.amount) if self.workorder else MONEY_ZERO
         paid_amount = self._get_paid_amount() if self.workorder else MONEY_ZERO
-        pending_amount = total_os - paid_amount
+        pending_amount = _quantize_money_amount(total_os - paid_amount)
         payment_is_fully_paid = pending_amount <= MONEY_ZERO
         pending_amount_display = pending_amount if pending_amount > MONEY_ZERO else MONEY_ZERO
         base_total = self.workorder.total_base_value if self.workorder else Money(MONEY_ZERO, "BRL")
@@ -105,7 +130,13 @@ class WorkOrderPaymentForm(CoreModelForm):
         blocked_value_attrs = {"readonly": True, "class": "cursor-not-allowed opacity-75"}
         fully_paid_value_attrs = {**blocked_value_attrs, "disabled": True, "title": "OS paga por completo"}
 
-        if payment_is_fully_paid:
+        no_payment_required = bool(self.workorder and self.workorder.budget_type in ("warranty", "courtesy"))
+
+        if no_payment_required:
+            for field_name in ["entry_amount", "first_installment_amount", "payment_method", "due_date"]:
+                self.fields[field_name].disabled = True
+                self.fields[field_name].widget.attrs.update(fully_paid_value_attrs)
+        elif payment_is_fully_paid:
             for field_name in ["entry_amount", "first_installment_amount", "payment_method", "due_date"]:
                 self.fields[field_name].disabled = True
                 self.fields[field_name].widget.attrs.update(fully_paid_value_attrs)
@@ -146,8 +177,10 @@ class WorkOrderPaymentForm(CoreModelForm):
 
         self.fields["discount_value"].widget.attrs.update({"class": "font-semibold text-lg"})
         self.fields["discount_percentage"].widget.attrs.update({"class": "font-semibold text-lg"})
+        self.fields["discount_type"].widget.attrs.update({"class": "discount-type-radio"})
         self.initial["discount_value"] = discount_value
         self.initial["discount_percentage"] = discount_percentage
+        self.initial["discount_type"] = self.workorder.discount_type if self.workorder else WorkOrderDiscountType.BOTH
 
         if not self.is_bound and not self.initial.get("due_date"):
             self.initial["due_date"] = ""
@@ -155,7 +188,8 @@ class WorkOrderPaymentForm(CoreModelForm):
         pending_amount_js = format(pending_amount, "f")
         today_iso = timezone.localdate().isoformat()
         is_first_payment_js = "true" if self.is_first_payment else "false"
-        payment_success_container_class = "col-span-12 mb-4" if payment_is_fully_paid else "hidden col-span-12 mb-4"
+        no_payment_required = bool(self.workorder and self.workorder.budget_type in ("warranty", "courtesy"))
+        payment_success_container_class = "col-span-12 mb-4" if (payment_is_fully_paid or no_payment_required) else "hidden col-span-12 mb-4"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -166,8 +200,8 @@ class WorkOrderPaymentForm(CoreModelForm):
                     <div class="alert alert-success shadow-lg border-2 border-success">
                         <span class="material-icons">check_circle</span>
                         <div>
-                            <h3 class="font-bold text-sm">Ordem de Serviço completamente paga</h3>
-                            <div class="text-xs">A ordem de serviço foi paga completamente.</div>
+                            <h3 class="font-bold text-sm">{'Ordem de Serviço não exige pagamento' if no_payment_required else 'Ordem de Serviço completamente paga'}</h3>
+                            <div class="text-xs">{'Ordens de serviço do tipo Garantia ou Cortesia não exigem pagamento.' if no_payment_required else 'A ordem de serviço foi paga completamente.'}</div>
                         </div>
                     </div>
                 </div>
@@ -175,13 +209,13 @@ class WorkOrderPaymentForm(CoreModelForm):
             Div(
                 HTML(
                     """
-                    <div class="grid grid-cols-1 gap-3 mb-5 xl:grid-cols-2">
+                    <div class="grid grid-cols-1 gap-3 mb-5 xl:grid-cols-3">
                     """
                 ),
                 Div(
                     HTML(
                         """
-                        <div class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
+                        <div id="discount-value-card-body" class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
                             <div class="mb-3 flex items-center justify-between gap-3">
                                 <div>
                                     <p class="text-sm font-bold text-base-content">Desconto em valor</p>
@@ -192,13 +226,30 @@ class WorkOrderPaymentForm(CoreModelForm):
                         """
                     ),
                     Field("discount_value", wrapper_class="mb-0"),
-                    HTML('<p class="mt-2 text-xs text-base-content/55">O percentual acompanha automaticamente.</p></div>'),
+                    HTML("</div>"),
                     css_class="h-full",
                 ),
                 Div(
                     HTML(
                         """
                         <div class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
+                            <div class="mb-3 flex items-center justify-between gap-3">
+                                <div>
+                                    <p class="text-sm font-bold text-base-content">Tipo de Desconto</p>
+                                    <p class="text-xs text-base-content/60">Selecione onde o desconto sera aplicado.</p>
+                                </div>
+                                <span class="material-icons text-base-content/40">filter_alt</span>
+                            </div>
+                        """
+                    ),
+                    Field("discount_type", wrapper_class="mb-0"),
+                    HTML("</div>"),
+                    css_class="h-full",
+                ),
+                Div(
+                    HTML(
+                        """
+                        <div id="discount-percentage-card-body" class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
                             <div class="mb-3 flex items-center justify-between gap-3">
                                 <div>
                                     <p class="text-sm font-bold text-base-content">Desconto em percentual</p>
@@ -209,7 +260,7 @@ class WorkOrderPaymentForm(CoreModelForm):
                         """
                     ),
                     Field("discount_percentage", wrapper_class="mb-0"),
-                    HTML('<p class="mt-2 text-xs text-base-content/55">O valor em reais acompanha instantaneamente.</p></div>'),
+                    HTML("</div>"),
                     css_class="h-full",
                 ),
                 HTML("</div>"),
@@ -283,6 +334,12 @@ class WorkOrderPaymentForm(CoreModelForm):
                         const pendingValueHidden = document.getElementById('id_pending_value_0');
                         const pendingValueDisplay = document.getElementById('id_pending_value_0_display');
                         const discountPersistUrl = '{reverse("workorder:update_discount", args=[self.workorder.pk]) if self.workorder else ""}';
+                        const discountValueCardBody = document.getElementById('discount-value-card-body');
+                        const discountPercentageCardBody = document.getElementById('discount-percentage-card-body');
+                        const discountTypeValue = () => {{
+                            const checked = document.querySelector('input[name="discount_type"]:checked');
+                            return checked ? checked.value : 'both';
+                        }};
                         let discountTimeout = null;
                         let discountRequestController = null;
                         let discountRequestId = 0;
@@ -329,31 +386,45 @@ class WorkOrderPaymentForm(CoreModelForm):
                             totalDisplay.textContent = `R$ ${{formatMoney(totalValue)}}`;
                             percentageChip.textContent = `${{formatPercentageDisplay(fraction)}}%`;
                         }};
-                        const syncFromPercentage = () => {{
-                            if (!discountMoneyDisplay || !discountMoneyHidden || !discountPercentageHidden) {{
-                                return;
-                            }}
-                            const baseTotal = getBaseTotal();
-                            const fraction = clamp(parseDotDecimal(discountPercentageHidden.value), 0, 1);
-                            const amount = baseTotal > 0 ? clamp(roundCurrency(baseTotal * fraction), 0, baseTotal) : 0;
-                            discountMoneyHidden.value = amount.toFixed(2);
-                            discountMoneyDisplay.value = formatMoney(amount);
-                            updateDiscountSummary(amount, fraction);
-                        }};
-                        const syncFromValue = (updateSourceDisplay = true) => {{
-                            if (!discountMoneyHidden || !discountPercentageHidden || !discountPercentageDisplay) {{
+                        const updateFromMoneyField = () => {{
+                            if (!discountMoneyHidden || !discountMoneyDisplay || !discountPercentageHidden || !discountPercentageDisplay) {{
                                 return;
                             }}
                             const baseTotal = getBaseTotal();
                             const amount = clamp(roundCurrency(parseDotDecimal(discountMoneyHidden.value)), 0, baseTotal);
-                            const fraction = baseTotal > 0 ? clamp(amount / baseTotal, 0, 1) : 0;
+                            const hasAmount = amount > 0;
                             discountMoneyHidden.value = amount.toFixed(2);
-                            if (discountMoneyDisplay && updateSourceDisplay) {{
-                                discountMoneyDisplay.value = formatMoney(amount);
+                            discountMoneyDisplay.value = formatMoney(amount);
+                            if (hasAmount) {{
+                                discountPercentageHidden.value = '0';
+                                discountPercentageDisplay.value = formatPercentageDisplay(0);
+                                discountPercentageDisplay.disabled = true;
+                            }} else {{
+                                discountPercentageHidden.value = '0';
+                                discountPercentageDisplay.value = formatPercentageDisplay(0);
+                                discountPercentageDisplay.disabled = false;
                             }}
+                            updateDiscountSummary(amount, 0);
+                        }};
+                        const updateFromPercentageField = () => {{
+                            if (!discountMoneyHidden || !discountMoneyDisplay || !discountPercentageHidden || !discountPercentageDisplay) {{
+                                return;
+                            }}
+                            const baseTotal = getBaseTotal();
+                            const fraction = clamp(parseDotDecimal(discountPercentageHidden.value), 0, 1);
+                            const hasFraction = fraction > 0;
                             discountPercentageHidden.value = formatFraction(fraction);
                             discountPercentageDisplay.value = formatPercentageDisplay(fraction);
-                            updateDiscountSummary(amount, fraction);
+                            if (hasFraction) {{
+                                discountMoneyHidden.value = '0.00';
+                                discountMoneyDisplay.value = formatMoney(0);
+                                discountMoneyDisplay.disabled = true;
+                            }} else {{
+                                discountMoneyHidden.value = '0.00';
+                                discountMoneyDisplay.value = formatMoney(0);
+                                discountMoneyDisplay.disabled = false;
+                            }}
+                            updateDiscountSummary(0, fraction);
                         }};
                         const setDiscountStatus = (status, message = '') => {{
                             if (!discountSaveStatus) {{
@@ -388,6 +459,7 @@ class WorkOrderPaymentForm(CoreModelForm):
                             const payload = new URLSearchParams();
                             payload.set('discount_value_0', discountMoneyHidden.value);
                             payload.set('discount_percentage', discountPercentageHidden.value);
+                            payload.set('discount_type', discountTypeValue());
 
                             fetch(discountPersistUrl, {{
                                 method: 'POST',
@@ -500,13 +572,13 @@ class WorkOrderPaymentForm(CoreModelForm):
                         if (discountMoneyDisplay && discountMoneyDisplay.dataset.discountSyncBound !== 'true') {{
                             const handleMoneyInput = () => {{
                                 window.setTimeout(() => {{
-                                    syncFromValue(false);
+                                    updateFromMoneyField();
                                     persistDiscount();
                                 }}, 0);
                             }};
                             const handleMoneyBlur = () => {{
                                 window.setTimeout(() => {{
-                                    syncFromValue(false);
+                                    updateFromMoneyField();
                                     persistDiscountNow();
                                 }}, 0);
                             }};
@@ -518,13 +590,13 @@ class WorkOrderPaymentForm(CoreModelForm):
                         if (discountPercentageDisplay && discountPercentageDisplay.dataset.discountSyncBound !== 'true') {{
                             const handlePercentageInput = () => {{
                                 window.setTimeout(() => {{
-                                    syncFromPercentage();
+                                    updateFromPercentageField();
                                     persistDiscount();
                                 }}, 0);
                             }};
                             const handlePercentageBlur = () => {{
                                 window.setTimeout(() => {{
-                                    syncFromPercentage();
+                                    updateFromPercentageField();
                                     persistDiscountNow();
                                 }}, 0);
                             }};
@@ -536,11 +608,26 @@ class WorkOrderPaymentForm(CoreModelForm):
                             discountPercentageDisplay.dataset.discountSyncBound = 'true';
                         }}
 
-                        if (discountPercentageHidden && parseDotDecimal(discountPercentageHidden.value) > 0) {{
-                            syncFromPercentage();
+                        const pctVal = parseDotDecimal(discountPercentageHidden?.value);
+                        const moneyVal = parseDotDecimal(discountMoneyHidden?.value);
+                        if (moneyVal > 0) {{
+                            discountMoneyDisplay.disabled = false;
+                            discountPercentageDisplay.disabled = true;
+                            updateDiscountSummary(moneyVal, 0);
+                        }} else if (pctVal > 0) {{
+                            discountPercentageDisplay.disabled = false;
+                            discountMoneyDisplay.disabled = true;
+                            updateDiscountSummary(0, pctVal);
                         }} else {{
-                            syncFromValue();
+                            if (discountMoneyDisplay) discountMoneyDisplay.disabled = false;
+                            if (discountPercentageDisplay) discountPercentageDisplay.disabled = false;
+                            updateDiscountSummary(0, 0);
                         }}
+                        document.addEventListener('change', function(e) {{
+                            if (e.target && e.target.name === 'discount_type') {{
+                                persistDiscountNow();
+                            }}
+                        }});
 
                         updateDueDate(false);
                         updatePaymentPlan();
@@ -555,7 +642,7 @@ class WorkOrderPaymentForm(CoreModelForm):
     def _get_paid_amount(self) -> Decimal:
         if not self.workorder:
             return MONEY_ZERO
-        return sum((payment.total_paid.amount for payment in self.workorder.payments.all()), start=MONEY_ZERO)
+        return _quantize_money_amount(sum((payment.total_paid.amount for payment in self.workorder.payments.all()), start=MONEY_ZERO))
 
     def clean_discount_value(self) -> Money:
         discount_value = self.cleaned_data.get("discount_value")
@@ -582,6 +669,9 @@ class WorkOrderPaymentForm(CoreModelForm):
         if not self.workorder:
             return cleaned_data
 
+        if self.workorder.budget_type in ("warranty", "courtesy"):
+            raise ValidationError("Ordens de serviço do tipo Garantia ou Cortesia não aceitam planos de pagamento.")
+
         payment_method = cleaned_data.get("payment_method")
         entry_amount = cleaned_data.get("entry_amount")
         first_amount = cleaned_data.get("first_installment_amount")
@@ -607,9 +697,9 @@ class WorkOrderPaymentForm(CoreModelForm):
             due_date = timezone.localdate()
             cleaned_data["due_date"] = due_date
 
-        total_os = self.workorder.total_budget_value.amount
+        total_os = _quantize_money_amount(self.workorder.total_budget_value.amount)
         paid_amount = self._get_paid_amount()
-        pending_amount = total_os - paid_amount
+        pending_amount = _quantize_money_amount(total_os - paid_amount)
 
         if pending_amount <= MONEY_ZERO:
             raise ValidationError("A ordem de serviço não possui saldo pendente para um novo plano de pagamento.")

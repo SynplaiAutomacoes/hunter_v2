@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Iterable
 
-from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, money_from_decimal, zero_money
+from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, money_from_decimal, resolve_discount_fields, zero_money
 from apps.workorder.models import WorkOrder
 
 
@@ -33,43 +33,25 @@ class SliderAllocation:
     services_target: Decimal
 
 
-def _normalize_buckets_to_total(*, products_base: Decimal, services_base: Decimal, total_base: Decimal) -> tuple[Decimal, Decimal]:
-    base_sum = products_base + services_base
-    if total_base <= 0:
-        return Decimal("0.00"), Decimal("0.00")
-
-    if base_sum <= 0:
-        return total_base, Decimal("0.00")
-
-    if base_sum == total_base:
-        return _quantize_money(products_base), _quantize_money(services_base)
-
-    products_scaled = _quantize_money((products_base / base_sum) * total_base)
-    services_scaled = _quantize_money(total_base - products_scaled)
-    residual = _quantize_money(total_base - (products_scaled + services_scaled))
-    if residual:
-        services_scaled = _quantize_money(services_scaled + residual)
-    return products_scaled, services_scaled
-
-
 def compute_slider_allocation(*, products_base: Decimal, services_base: Decimal, slider: int) -> tuple[Decimal, Decimal]:
     slider_value = max(-100, min(100, int(slider)))
+    total_base = _quantize_money(products_base + services_base)
+
     if slider_value == 0:
         return _quantize_money(products_base), _quantize_money(services_base)
 
-    if slider_value < 0:
-        transfer = services_base * (Decimal(abs(slider_value)) / _HUNDRED)
+    if slider_value > 0:
+        transfer = services_base * (Decimal(slider_value) / _HUNDRED)
         products_target = products_base + transfer
         services_target = services_base - transfer
     else:
-        transfer = products_base * (Decimal(slider_value) / _HUNDRED)
+        transfer = products_base * (Decimal(abs(slider_value)) / _HUNDRED)
         products_target = products_base - transfer
         services_target = services_base + transfer
 
     products_target = _quantize_money(products_target)
     services_target = _quantize_money(services_target)
 
-    total_base = _quantize_money(products_base + services_base)
     residual = _quantize_money(total_base - (products_target + services_target))
     if residual:
         services_target = _quantize_money(services_target + residual)
@@ -106,26 +88,26 @@ def build_emission_pricing_snapshot_for_workorder(
     persisted_slider: int | None = None,
     slider_override: int | None = None,
 ) -> PricingSnapshot:
-    slider_value = resolve_slider_value_for_workorder(
-        workorder=workorder,
-        persisted_slider=persisted_slider,
-        slider_override=slider_override,
-    )
+    budget = getattr(workorder, "budget", None)
+    budget_slider = max(-100, min(100, int(getattr(budget, "slider", 0) or 0)))
+    nfe_slider = slider_override if slider_override is not None else persisted_slider
+
     base_snapshot = build_pricing_snapshot(
         items=list(workorder._iter_items()),
-        slider=0,
+        slider=budget_slider,
         discount_value=workorder.discount_value,
+        discount_percentage=workorder.discount_percentage,
         labor_cost_value=workorder.total_labor_cost_value,
     )
 
-    if slider_value == 0:
+    if nfe_slider is None:
         return base_snapshot
 
     adjusted_snapshot = deepcopy(base_snapshot)
     products_target, services_target = compute_slider_allocation(
-        products_base=_to_decimal_money(base_snapshot.total_products_value),
-        services_base=_to_decimal_money(base_snapshot.total_services_value),
-        slider=slider_value,
+        products_base=_to_decimal_money(base_snapshot.total_products_by_slider),
+        services_base=_to_decimal_money(base_snapshot.total_services_by_slider),
+        slider=nfe_slider,
     )
 
     product_line_totals = distribute_total_proportionally(
@@ -148,7 +130,12 @@ def build_emission_pricing_snapshot_for_workorder(
     adjusted_snapshot.total_third_party_services_selling = sum((line.adjusted_total for line in adjusted_snapshot.service_lines if line.third_party), zero_money())
     adjusted_snapshot.total_labor_by_slider = sum((line.adjusted_total for line in adjusted_snapshot.service_lines if not line.third_party), zero_money())
     adjusted_snapshot.total_base_value = money_from_decimal(products_target + services_target)
-    adjusted_snapshot.total_budget_value = adjusted_snapshot.total_base_value - workorder.discount_value
+    resolved_discount, _ = resolve_discount_fields(
+        total_base_value=adjusted_snapshot.total_base_value,
+        discount_value=workorder.discount_value,
+        discount_percentage=workorder.discount_percentage,
+    )
+    adjusted_snapshot.total_budget_value = adjusted_snapshot.total_base_value - resolved_discount
 
     return adjusted_snapshot
 
@@ -170,30 +157,19 @@ def build_slider_allocation_for_workorder(
         slider_override=slider_override,
     )
 
-    total_base = _to_decimal_money(snapshot.total_budget_value)
-    products_source = _to_decimal_money(snapshot.total_products_value)
-    services_source = _to_decimal_money(snapshot.total_services_value)
-    products_target_source = _to_decimal_money(snapshot.total_products_by_slider)
-    services_target_source = _to_decimal_money(snapshot.total_services_by_slider)
-
-    products_base, services_base = _normalize_buckets_to_total(
-        products_base=products_source,
-        services_base=services_source,
-        total_base=total_base,
-    )
-    products_target, services_target = _normalize_buckets_to_total(
-        products_base=products_target_source,
-        services_base=services_target_source,
-        total_base=total_base,
-    )
+    products_base = _quantize_money(_to_decimal_money(snapshot.total_products_value))
+    services_base = _quantize_money(_to_decimal_money(snapshot.total_services_value))
+    products_target = _quantize_money(_to_decimal_money(snapshot.total_products_by_slider))
+    services_target = _quantize_money(_to_decimal_money(snapshot.total_services_by_slider))
+    total_base = _quantize_money(products_target + services_target)
 
     return SliderAllocation(
         slider=slider_value,
-        products_base=_quantize_money(products_base),
-        services_base=_quantize_money(services_base),
-        total_base=_quantize_money(total_base),
-        products_target=_quantize_money(products_target),
-        services_target=_quantize_money(services_target),
+        products_base=products_base,
+        services_base=services_base,
+        total_base=total_base,
+        products_target=products_target,
+        services_target=services_target,
     )
 
 

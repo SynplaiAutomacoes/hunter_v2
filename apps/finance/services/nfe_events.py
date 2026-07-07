@@ -25,7 +25,7 @@ from apps.finance.models.finance import (
     NfeItem,
     NfeItemStatus,
 )
-from apps.finance.services.emission import build_webmania_webhook_url
+from apps.core.infrastructure.services.webmania.emission import build_webmania_webhook_url
 from apps.finance.services.fiscal_attempts import (
     FiscalEmissionAttemptBlocked,
     begin_emission_attempt,
@@ -37,9 +37,9 @@ from apps.finance.services.fiscal_attempts import (
     mark_attempt_uncertain,
     sanitize_fiscal_payload,
 )
-from apps.finance.services.nfe_emission import NfeEmissionError
-from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting, should_use_global_webmania_auth
-from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+from apps.core.infrastructure.services.webmania.nfe_emission import NfeEmissionError
+from apps.core.infrastructure.services.webmania.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting, should_use_global_webmania_auth
+from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
 
 
 logger = logging.getLogger(__name__)
@@ -290,7 +290,7 @@ def mark_cce_event_uncertain(*, event: FiscalDocumentEvent, error_message: str) 
 def _replay_pending_cce_webhooks_for_uuid(*, event_uuid: str) -> None:
     if not event_uuid:
         return
-    from apps.finance.services.webmania_webhooks import process_pending_webhook_events
+    from apps.core.infrastructure.services.webmania.webmania_webhooks import process_pending_webhook_events
 
     process_pending_webhook_events(model="cce", event_uuid=event_uuid)
 

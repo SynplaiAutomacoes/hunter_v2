@@ -8,6 +8,9 @@ class AccountOwnerRequiredMixin(LoginRequiredMixin):
     """Restringe acesso ao dono da conta (tenant)."""
 
     def dispatch(self, request, *args, **kwargs):
+        if request.user.is_superuser:
+            return super().dispatch(request, *args, **kwargs)
+
         if not getattr(request.user, "account_id", None):
             raise PermissionDenied
 

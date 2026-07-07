@@ -34,8 +34,8 @@ from apps.finance.models.finance import (
     WebmaniaWebhookEvent,
 )
 from apps.finance.services.nfe_debit import NfeDebitError, create_and_emit_nfe_debit_type_four, reconcile_nfe_debit_document, set_nfe_debit_emission_enabled
-from apps.finance.services.webmania_documents import DownloadedWebmaniaDocument
-from apps.finance.services.webmania_webhooks import process_webhook_event
+from apps.core.infrastructure.services.webmania.webmania_documents import DownloadedWebmaniaDocument
+from apps.core.infrastructure.services.webmania.webmania_webhooks import process_webhook_event
 from apps.finance.views.nfe_debit import NfeDebitDownloadView, NfeDebitIssueView, NfeDebitPayloadView
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 from apps.workshops.models.workshops import Workshop
@@ -265,8 +265,8 @@ class FiscalPhaseTwoDebitTypeFourTests(DebitFixtureMixin, TestCase):
         other_document = FiscalDocument.objects.create(
             workshop=other_preview.workshop,
             account=other_preview.workshop.account,
-            purpose=FiscalDocumentPurpose.CREDIT,
-            fiscal_purpose_type="1",
+            purpose=FiscalDocumentPurpose.NORMAL,
+            fiscal_purpose_type="",
             remote_uuid=debit_document.remote_uuid,
             status=FiscalDocumentStatus.APPROVED,
         )

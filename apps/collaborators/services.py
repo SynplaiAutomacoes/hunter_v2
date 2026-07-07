@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 from djmoney.money import Money
@@ -144,13 +144,31 @@ def _rebuild_payroll_commission_items(*, payroll: CollaboratorPayroll, commissio
 
 
 def get_or_create_collaborator_financial_group(*, collaborator: WorkshopCollaborator) -> FinancialGroup:
-    expense_group = FinancialGroup.objects.filter(workshop=collaborator.workshop, parent__isnull=True, name__iexact="Despesas").order_by("id").first()
-    if expense_group is None:
-        expense_group = FinancialGroup.objects.create(workshop=collaborator.workshop, name="Despesas")
+    with transaction.atomic():
+        Workshop.objects.select_for_update().get(pk=collaborator.workshop_id)
 
-    payroll_group = FinancialGroup.objects.filter(workshop=collaborator.workshop, parent=expense_group, name__iexact="Folha de Pagamento").order_by("id").first()
-    if payroll_group is None:
-        payroll_group = FinancialGroup.objects.create(workshop=collaborator.workshop, parent=expense_group, name="Folha de Pagamento")
+        expense_group = FinancialGroup.objects.filter(workshop=collaborator.workshop, parent__isnull=True, name__iexact="Despesas").order_by("id").first()
+        if expense_group is None:
+            expense_group = FinancialGroup.objects.create(workshop=collaborator.workshop, name="Despesas")
+
+        payroll_group = FinancialGroup.objects.filter(workshop=collaborator.workshop, parent=expense_group, name__iexact="Folha de Pagamento").order_by("id").first()
+
+        if payroll_group is None:
+            payroll_group = FinancialGroup.objects.filter(
+                workshop=collaborator.workshop,
+                parent__in=FinancialGroup.objects.filter(workshop=collaborator.workshop, parent__isnull=True, name__iexact="Despesas"),
+                name__iexact="Folha de Pagamento",
+            ).order_by("id").first()
+
+        if payroll_group is None:
+            try:
+                payroll_group = FinancialGroup.objects.create(workshop=collaborator.workshop, parent=expense_group, name="Folha de Pagamento")
+            except IntegrityError:
+                payroll_group = FinancialGroup.objects.filter(
+                    workshop=collaborator.workshop,
+                    parent__in=FinancialGroup.objects.filter(workshop=collaborator.workshop, parent__isnull=True, name__iexact="Despesas"),
+                    name__iexact="Folha de Pagamento",
+                ).order_by("id").first()
 
     return payroll_group
 
@@ -167,6 +185,7 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
             workshop=collaborator.workshop,
             collaborators=collaborator,
             status=WorkOrderStatus.APPROVED,
+            budget_type="sale",
         )
         .prefetch_related("payments")
         .order_by("id")
@@ -247,6 +266,14 @@ def recalculate_historical_commissions(*, workshop: Workshop | None = None, dry_
     touched_payroll_ids: set[int] = set()
 
     for entry in entry_queryset.order_by("id"):
+        if entry.workorder.budget_type != "sale":
+            updated_entries += 1
+            if entry.payroll_id is not None:
+                touched_payroll_ids.add(entry.payroll_id)
+            if not dry_run:
+                entry.delete()
+            continue
+
         base_amount = Money(_quantize(Decimal(str(entry.workorder.total_services_value.amount or ZERO))), "BRL")
         commission_amount = Money(_quantize(Decimal(str(base_amount.amount or ZERO)) * Decimal(str(entry.percentage or ZERO))), "BRL")
         should_update_entry = entry.base_amount != base_amount or entry.commission_amount != commission_amount

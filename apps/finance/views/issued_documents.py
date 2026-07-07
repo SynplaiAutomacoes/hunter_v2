@@ -17,9 +17,10 @@ from django.urls import reverse
 from django.views import View
 from django.views.generic import TemplateView
 
-from apps.core.views import HtmxTemplateResponseMixin
+from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.finance.models.finance import NfeItem, NfeRequest, NfseItem, NfseRequest
-from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
+from apps.core.infrastructure.providers import get_fiscal_service
+from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.finance.views.navigation import append_query_params, build_issued_documents_origin_params
 from apps.workshops.mixin import WorkshopScopedMixin
 
@@ -27,7 +28,7 @@ from apps.workshops.mixin import WorkshopScopedMixin
 class IssuedDocumentsFilterMixin:
     NOTE_TYPE_CHOICES: tuple[tuple[str, str], ...] = (
         ("all", "Todas"),
-        ("nfe", "Nota Fiscal Produto"),
+        ("nfe", "Nota Fiscal de Produto"),
         ("nfse", "Nota Fiscal Serviço"),
     )
 
@@ -134,12 +135,8 @@ class IssuedDocumentsFilterMixin:
                 search_filters.append(Q(workorder__budget_id=search_int))
                 search_filters.append(Q(reserved_number=search_int))
             qs = qs.filter(reduce(lambda a, b: a | b, search_filters)).distinct()
-            
-        return (
-            qs.select_related("workorder", "workorder__budget", "workorder__budget__customer")
-            .prefetch_related(Prefetch("items", queryset=NfeItem.objects.order_by("-id"), to_attr="prefetched_items"))
-            .order_by("-criado_em", "-pk")
-        )
+
+        return qs.select_related("workorder", "workorder__budget", "workorder__budget__customer").prefetch_related(Prefetch("items", queryset=NfeItem.objects.order_by("-id"), to_attr="prefetched_items")).order_by("-criado_em", "-pk")
 
     def _build_nfse_queryset(self, *, start_date: date | None, end_date: date | None, search_raw: str = ""):
         qs = NfseRequest.objects.filter(workshop=self.workshop)
@@ -156,12 +153,8 @@ class IssuedDocumentsFilterMixin:
                 search_filters.append(Q(workorder_id=search_int))
                 search_filters.append(Q(reserved_rps_number=search_int))
             qs = qs.filter(reduce(lambda a, b: a | b, search_filters)).distinct()
-            
-        return (
-            qs.select_related("workorder", "workorder__budget", "workorder__budget__customer")
-            .prefetch_related(Prefetch("items", queryset=NfseItem.objects.order_by("-id"), to_attr="prefetched_items"))
-            .order_by("-criado_em", "-pk")
-        )
+
+        return qs.select_related("workorder", "workorder__budget", "workorder__budget__customer").prefetch_related(Prefetch("items", queryset=NfseItem.objects.order_by("-id"), to_attr="prefetched_items")).order_by("-criado_em", "-pk")
 
     def _get_filtered_requests(self, *, state: dict[str, Any]) -> tuple[list[NfeRequest], list[NfseRequest]]:
         if not state["is_valid"]:
@@ -212,7 +205,7 @@ class IssuedDocumentsFilterMixin:
 
         return {
             "note_type": "nfe",
-            "note_type_label": "Nota Fiscal Produto",
+            "note_type_label": "Nota Fiscal de Produto",
             "note_type_badge_class": "badge-soft badge-info",
             "request_id": request_obj.pk,
             "number": request_obj.number_display,
@@ -244,7 +237,7 @@ class IssuedDocumentsFilterMixin:
             "request_id": request_obj.pk,
             "number": note_number or request_obj.rps_number_display,
             "reference": " / ".join(reference_parts) if reference_parts else "-",
-            "workorder_id": getattr(request_obj, "workorder_id", None),
+            "workorder_id": request_obj.workorder.get_id,
             "customer_name": request_obj.customer_name,
             "created_at": request_obj.criado_em,
             "status_badge": request_obj.nfse_request_status_badge,
@@ -412,7 +405,7 @@ class IssuedDocumentsArchiveDownloadView(LoginRequiredMixin, WorkshopScopedMixin
             with zipfile.ZipFile(archive_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive_file:
                 for entry, downloaded in downloaded_entries:
                     archive_file.writestr(entry["archive_name"], downloaded.content)
-        except WebmaniaDocumentDownloadError as exc:
+        except FiscalServiceError as exc:
             return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
 
         archive_filename = self._build_archive_filename(state=state, document_group=document_group)
@@ -428,7 +421,7 @@ class IssuedDocumentsArchiveDownloadView(LoginRequiredMixin, WorkshopScopedMixin
     def _download_document_entries(self, *, entries: list[dict[str, str]]) -> list[tuple[dict[str, str], Any]]:
         if len(entries) == 1:
             entry = entries[0]
-            return [(entry, download_webmania_document(workshop=self.workshop, url=entry["url"]))]
+            return [(entry, get_fiscal_service().download_document(workshop=self.workshop, url=entry["url"]))]
 
         downloaded_entries: list[tuple[dict[str, str], Any]] = []
         max_workers = min(8, len(entries))

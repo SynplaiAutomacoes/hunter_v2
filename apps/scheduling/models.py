@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from phonenumber_field.modelfields import PhoneNumberField
 
-from apps.core.models import TimeStampedModel
+from apps.core.infrastructure.models import TimeStampedModel
 from apps.customer.vehicle_engine import VehicleEngine, normalize_vehicle_engine_choice
 from apps.customer.vehicle_fuel import VehicleFuel, normalize_vehicle_fuel_choice
 
@@ -120,6 +120,7 @@ class Appointment(TimeStampedModel):
         raw_guest_vehicle_fuel = str(self.guest_vehicle_fuel or "").strip()
         normalized_guest_vehicle_fuel = normalize_vehicle_fuel_choice(raw_guest_vehicle_fuel)
         self._normalize_guest_fields()
+        guest_validation_done = bool(getattr(self, "_guest_validation_done", False))
         errors: dict[str, list[str]] = {}
 
         workshop_id = self.__dict__.get("workshop_id")
@@ -135,7 +136,7 @@ class Appointment(TimeStampedModel):
         if self.ends_at and self.starts_at and self.ends_at <= self.starts_at:
             errors.setdefault("ends_at", []).append("A data de saida deve ser maior que a data de entrada.")
 
-        if not customer_id:
+        if not customer_id and not guest_validation_done:
             if not self.guest_customer_name.strip():
                 errors.setdefault("guest_customer_name", []).append("Informe o nome do cliente quando ele nao estiver cadastrado.")
             if len(_digits_only(self.guest_customer_cpf)) != 11:

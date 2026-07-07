@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-from apps.stock.models import StockProduct
+from apps.stock.services import get_stock_quantities
 
 
 def normalize_ncm(value: str | None) -> str:
@@ -128,13 +128,10 @@ def annotate_product_issues(*, workshop: Any, items: Iterable[Any]) -> ProductIs
     product_ids = {_product_id_from_item(item) for item in items_list}
     product_ids.discard(None)
 
-    stock_by_product_id = {
-        product_id: current_quantity
-        for product_id, current_quantity in StockProduct.objects.filter(
-            workshop=workshop,
-            product_id__in=product_ids,
-        ).values_list("product_id", "current_quantity")
-    }
+    stock_by_product_id = get_stock_quantities(
+        workshop=workshop,
+        product_ids=product_ids,
+    )
 
     issues: list[ProductIssue] = []
     for item in items_list:
@@ -143,7 +140,11 @@ def annotate_product_issues(*, workshop: Any, items: Iterable[Any]) -> ProductIs
         quantity = int(getattr(item, "quantity", 0) or 0)
 
         stock_quantity = stock_by_product_id.get(product_id, 0) if product_id is not None else None
-        excess_quantity = max(quantity - max(stock_quantity or 0, 0), 0) if stock_quantity is not None else 0
+        is_customer_supplied = bool(getattr(item, "is_customer_supplied", False))
+        excess_quantity = (
+            0 if is_customer_supplied else
+            max(quantity - max(stock_quantity or 0, 0), 0) if stock_quantity is not None else 0
+        )
         invalid_ncm = has_invalid_ncm(product)
         warning_messages: tuple[str, ...] = ()
         warning_tooltip = ""

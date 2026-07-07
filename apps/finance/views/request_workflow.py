@@ -7,7 +7,7 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.generic import CreateView
 
-from apps.core.forms import MultiStepFormMixin
+from apps.core.presentation.forms import MultiStepFormMixin
 from apps.finance.services.tax_classes import TaxClassServiceError, list_tax_classes
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import get_active_workshop_or_404
@@ -123,7 +123,7 @@ class SharedEmissionRequestCreateBaseView(LoginRequiredMixin, WorkshopScopedMixi
 
     def get_tax_class_choices(self) -> list[tuple[str, str]]:
         try:
-            tax_classes = list_tax_classes(workshop=self.workshop, force_refresh=True)
+            tax_classes = list_tax_classes(workshop=self.workshop)
         except TaxClassServiceError as exc:
             if self.tax_class_warning_message:
                 messages.warning(self.request, self.tax_class_warning_message.format(error=exc))

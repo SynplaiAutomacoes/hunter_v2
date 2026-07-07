@@ -1,11 +1,15 @@
 import json
+import logging
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 
+logger = logging.getLogger(__name__)
+
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.conf import settings
+from django import forms
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Prefetch
@@ -22,55 +26,74 @@ from djmoney.money import Money
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
 from apps.budget.documents.provider import build_budget_status_report_pdf_render_request, render_budget_status_report_pdf_document
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
-from apps.budget.models import Budget, BudgetHistory, BudgetItem, BudgetStatus, SignatureStatus, BudgetType
+from apps.budget.models import Budget, BudgetHistory, BudgetItem, BudgetStatus, SignatureStatus, BudgetType, PricingMethod
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.budget.service import SuperSignError, send_budget_for_signature
-from apps.core.documents.http import build_pdf_http_response
-from apps.core.forms import MultiStepFormMixin
-from apps.core.navigation import BUDGET_CREATE_FAVORITE_PAGE
-from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
-from apps.core.tables import TableActionDefaults
+from apps.budget.views.shared import reset_steps_after_step_4
+from ...core.domain.services.editing_lock_service import get_lock_info
+from ...core.infrastructure.pdf.renderer import build_pdf_http_response
+from apps.core.presentation.forms import MultiStepFormMixin
+from apps.core.presentation.navigation import BUDGET_CREATE_FAVORITE_PAGE
+from apps.core.infrastructure.query_filters import QueryParamFilter, apply_query_param_filters
+from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
+from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.core.text_normalization import sentence_case
 from apps.scheduling.models import Appointment
 from apps.workorder.discount_sync import sync_budget_discount_to_workorder
-from apps.workorder.models import WorkOrderStatus
+from apps.workorder.models import WorkOrderDiscountType, WorkOrderStatus
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
-from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _get_budget_for_workshop, _is_budget_edit_locked, logger
+from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _get_budget_for_workshop, _is_budget_edit_locked, logger, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
+from ...core.utils import clean_id
 
 
 def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, str, str | None]:
     is_resend = False
+    previous_external_id: str | None = None
 
     if budget.has_signature_blockers:
+        logger.info("budget_signature_blocked", extra={"budget_id": budget.pk, "blockers": budget.signature_blockers_display})
         return "error", budget.signature_blockers_display, None
 
     if not budget.service_expected_completion_at:
+        logger.info("budget_signature_missing_completion_date", extra={"budget_id": budget.pk})
         return "error", "Não é possível enviar para assinatura antes de definir a data prevista de término do serviço.", None
 
     with transaction.atomic():
         locked_budget = Budget.objects.select_for_update().get(pk=budget.pk)
 
         if locked_budget.signature_request_status == SignatureStatus.SENDING:
+            logger.info("budget_signature_already_sending", extra={"budget_id": budget.pk})
             return "info", "O envio do orçamento ainda está em processamento.", None
 
         is_resend = locked_budget.signature_request_status == SignatureStatus.SENT and bool(locked_budget.signature_external_id)
+        previous_external_id = locked_budget.signature_external_id if is_resend else None
 
         locked_budget.mark_signature_sending()
+        logger.info("budget_signature_sending_status_set", extra={"budget_id": budget.pk, "is_resend": is_resend, "previous_external_id": previous_external_id})
 
     try:
         result = send_budget_for_signature(budget=budget, request=request)
     except SuperSignError:
         budget.mark_signature_failed()
-        logger.exception("Falha ao enviar orcamento para assinatura", extra={"budget_id": budget.pk})
+        logger.exception("budget_signature_send_failed", extra={"budget_id": budget.pk, "workshop_id": getattr(request, "workshop_id", None), "is_resend": is_resend})
         return "error", "Falha ao enviar orçamento para assinatura. Tente novamente em instantes.", None
 
     budget.mark_signature_sent(result.envelope_id, document_id=result.document_id)
+    logger.info(
+        "budget_signature_sent_ok",
+        extra={
+            "budget_id": budget.pk,
+            "envelope_id": result.envelope_id,
+            "document_id": result.document_id,
+            "is_resend": is_resend,
+            "previous_external_id": previous_external_id,
+        },
+    )
     success_message = "Documento reenviado para assinatura do cliente." if is_resend else "Orçamento enviado para assinatura do cliente."
     return "success", success_message, reverse("budget:budget_list")
 
@@ -114,6 +137,46 @@ BUDGET_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
         allowed_values=frozenset(str(choice.value) for choice in BudgetType),
     ),
 )
+
+
+class BudgetReviewDateAutosaveView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "change_budget"
+    allowed_fields = frozenset({"customer_agreed_departure_at", "service_expected_completion_at"})
+    date_field = forms.DateTimeField(
+        required=False,
+        input_formats=[
+            "%Y-%m-%dT%H:%M",
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%d %H:%M",
+            "%Y-%m-%d %H:%M:%S",
+        ],
+    )
+
+    def post(self, request: HttpRequest, budget_id: int) -> JsonResponse:
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
+        if _is_budget_edit_locked(budget):
+            return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
+
+        field_name = request.POST.get("field", "")
+        if field_name not in self.allowed_fields:
+            return JsonResponse({"ok": False, "error": "Campo de data invalido."}, status=400)
+
+        try:
+            parsed_value = self.date_field.clean(request.POST.get("value", ""))
+        except forms.ValidationError:
+            return JsonResponse({"ok": False, "error": "Informe uma data e hora validas."}, status=400)
+
+        setattr(budget, field_name, parsed_value)
+
+        if budget.customer_agreed_departure_at and budget.service_expected_completion_at and budget.customer_agreed_departure_at < budget.service_expected_completion_at:
+            return JsonResponse({"ok": False, "error": Budget.STEP6_DATE_ORDER_ERROR_MESSAGE}, status=400)
+
+        budget.save(update_fields=[field_name])
+        return JsonResponse({"ok": True})
+
 
 BUDGET_STATUS_CHOICES = tuple((status.value, str(status.label)) for status in BudgetStatus)
 BUDGET_TYPE_CHOICES = tuple((choice.value, str(choice.label)) for choice in BudgetType)
@@ -301,7 +364,7 @@ class BudgetStatusReportDataMixin:
 
         queryset = queryset.distinct()
 
-        return queryset.order_by("-entry_date", "-pk")
+        return queryset.order_by("-pk", "-entry_date")
 
     def _get_selection_report_items(self) -> list[Budget]:
         cached = getattr(self, "_selection_report_items_cache", None)
@@ -468,7 +531,7 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
 
         appointment = Appointment.objects.select_related("workorder").filter(pk=appointment_id, workshop=self.workshop).first()
         if appointment is None:
-            logger.warning("Agendamento de origem nao encontrado para sincronizar orcamento", extra={"appointment_id": appointment_id, "budget_id": budget.pk})
+            logger.warning("budget_sync_appointment_not_found", extra={"appointment_id": appointment_id, "budget_id": budget.pk, "workshop_id": self.workshop.pk})
             return
 
         appointment_customer_id = getattr(appointment, "customer_id", None)
@@ -477,15 +540,15 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
 
         if appointment_customer_id and budget.customer_id and appointment_customer_id != budget.customer_id:
             logger.info(
-                "Sincronizacao automatica ignorada por cliente divergente",
-                extra={"appointment_id": appointment.pk, "budget_id": budget.pk},
+                "budget_sync_ignored_customer_mismatch",
+                extra={"appointment_id": appointment.pk, "budget_id": budget.pk, "appointment_customer_id": appointment_customer_id, "budget_customer_id": budget.customer_id},
             )
             return
 
         if appointment_vehicle_id and budget.vehicle_id and appointment_vehicle_id != budget.vehicle_id:
             logger.info(
-                "Sincronizacao automatica ignorada por veiculo divergente",
-                extra={"appointment_id": appointment.pk, "budget_id": budget.pk},
+                "budget_sync_ignored_vehicle_mismatch",
+                extra={"appointment_id": appointment.pk, "budget_id": budget.pk, "appointment_vehicle_id": appointment_vehicle_id, "budget_vehicle_id": budget.vehicle_id},
             )
             return
 
@@ -530,6 +593,15 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         kwargs["request"] = self.request
         kwargs["workshop"] = self.workshop
         kwargs["instance"] = self.get_object()
+
+        obj = kwargs["instance"]
+        if not obj and self.get_current_step() == 6:
+            last_observation = (Budget.objects.filter(workshop=self.workshop).exclude(observations="").order_by("-criado_em").values_list("observations", flat=True).first()) or ""
+            if last_observation:
+                initial = kwargs.get("initial") or {}
+                initial["observations"] = last_observation
+                kwargs["initial"] = initial
+
         return kwargs
 
     def _render_htmx_step_response(self, *, step: int, push_url: str, triggers: dict | None = None):
@@ -587,7 +659,8 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
 
         if self.object.current_step > 5 and not self.object.step5_calculation_viewed:
             self.object.step5_calculation_viewed = True
-            self.object.save(update_fields=["step5_calculation_viewed"])
+            self._sync_pricing_method()
+            self.object.save(update_fields=["step5_calculation_viewed", "pricing_method"])
             return
 
         step5_calculated = self.request.POST.get("step5_calculated")
@@ -595,7 +668,18 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
             return
 
         self.object.step5_calculation_viewed = True
-        self.object.save(update_fields=["step5_calculation_viewed"])
+        self._sync_pricing_method()
+        self.object.save(update_fields=["step5_calculation_viewed", "pricing_method"])
+
+    def _sync_pricing_method(self):
+        if not self.object:
+            return
+        pricing_data = self.object.calculate_pricing_methods()
+        method_name = pricing_data.get("method_name", "")
+        if method_name == "Hunter":
+            self.object.pricing_method = PricingMethod.HUNTER
+        elif method_name == "Tradicional":
+            self.object.pricing_method = PricingMethod.TRADITIONAL
 
     def form_valid(self, form):
         form.instance.workshop = self.workshop
@@ -612,7 +696,7 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         try:
             self.apply_step_status(budget=self.object, current_step=self.get_current_step(), actor=self.request.user)
         except Exception:
-            logger.exception("Falha ao aplicar status automatico no create do budget", extra={"budget_id": self.object.pk})
+            logger.exception("budget_auto_status_failed", extra={"budget_id": self.object.pk, "step": self.get_current_step(), "user_id": self.request.user.pk, "action": "create"})
 
         self._sync_step5_calculation_viewed_from_post(current_step)
         block_step5_response = self._block_step5_advance_if_needed(current_step)
@@ -700,23 +784,41 @@ class BudgetUpdateView(BudgetCreateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["is_update"] = True
+        if self.object:
+            lock_info = get_lock_info(self.object)
+            context["concurrent_lock_info"] = lock_info
+            if lock_info and lock_info.get("locked_by_session") != self.request.session.session_key:
+                context["concurrent_locked_by_other"] = True
+            else:
+                context["concurrent_locked_by_other"] = False
         return context
 
     def form_valid(self, form):
+        if self.object and not _check_concurrent_budget_lock(self.request, self.object):
+            return _build_concurrent_budget_lock_response(self.request, self.object)
         if self.object and _is_budget_edit_locked(self.object):
             return _build_locked_budget_response(self.request, self.object)
+
+        previous_budget_type = ""
+        if self.object and self.object.pk:
+            previous_budget_type = str(Budget.objects.only("budget_type").get(pk=self.object.pk).budget_type)
 
         # Mantemos a lógica de salvar o workshop e colaborador
         form.instance.workshop = self.workshop
         form.instance.cost_estimator = self.request.user
-        self.object = form.save()
-        assert self.object is not None
+        with transaction.atomic():
+            self.object = form.save()
+            assert self.object is not None
+
+            if previous_budget_type and previous_budget_type != str(self.object.budget_type):
+                self.object.sync_items_benefit_type_to_budget_type()
+                reset_steps_after_step_4(self.object)
 
         # Aplicar status automático configurado para esta etapa (se houver)
         try:
             self.apply_step_status(budget=self.object, current_step=self.get_current_step(), actor=self.request.user, isUpdate=True)
         except Exception:
-            logger.exception("Falha ao aplicar status automatico no update do budget", extra={"budget_id": self.object.pk})
+            logger.exception("budget_auto_status_failed", extra={"budget_id": self.object.pk, "step": self.get_current_step(), "user_id": self.request.user.pk, "action": "update"})
 
         current_step = self.get_current_step()
         self._sync_step5_calculation_viewed_from_post(current_step)
@@ -789,24 +891,32 @@ class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
 
         try:
             raw_discount_value = request.POST.get("discount_value_0", "0").replace(",", ".") or "0"
             raw_discount_percentage = request.POST.get("discount_percentage", "0").replace(",", ".") or "0"
+            raw_discount_type = request.POST.get("discount_type", "")
 
             budget.discount_value = Money(Decimal(raw_discount_value), "BRL")
             budget.discount_percentage = Decimal(raw_discount_percentage)
-            budget.save(update_fields=["discount_value", "discount_percentage"])
+            update_fields = ["discount_value", "discount_percentage"]
+            if raw_discount_type in WorkOrderDiscountType.values:
+                budget.discount_type = raw_discount_type
+                update_fields.append("discount_type")
+            budget.save(update_fields=update_fields)
             sync_budget_discount_to_workorder(budget=budget)
         except (ValueError, TypeError, InvalidOperation):
             logger.warning(
-                "Valor de desconto invalido recebido",
+                "budget_discount_invalid_value",
                 extra={
                     "budget_id": budget_id,
                     "raw_discount": request.POST.get("discount_value_0"),
                     "raw_discount_percentage": request.POST.get("discount_percentage"),
+                    "raw_discount_type": request.POST.get("discount_type"),
                 },
             )
 
@@ -819,6 +929,8 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id, status):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         has_active_workorder = budget.workorders.exclude(status=WorkOrderStatus.CANCELLED).exists()
 
         # Mapa de status
@@ -854,7 +966,7 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 messages.error(request, error_message)
                 return JsonResponse({"success": False, "error": error_message}, status=400)
             except Exception as e:
-                print(f"E: {e}")
+                logger.exception("Erro ao aprovar orçamento #%s (workshop %s): %s", budget_id, self.workshop.id, e)
                 error_message = "Erro interno ao processar aprovação do orçamento."
                 messages.error(request, error_message)
                 return JsonResponse({"success": False, "error": error_message}, status=500)
@@ -891,6 +1003,8 @@ class SendBudgetSignatureView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
 
         if not budget.service_expected_completion_at:
             return JsonResponse(
@@ -914,6 +1028,8 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
 
@@ -922,12 +1038,14 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
             budget.slider = int(slider_value)
             budget.save(update_fields=["slider"])
 
+        display_products_value = budget.display_total_products_by_slider_without_shipping
+        display_labor_value = Money(0, "BRL") if budget.is_warranty_budget else budget.display_total_services_by_slider - budget.total_third_party_services_selling
         html = f"""
-                <span id="display-venda-pecas" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 whitespace-nowrap step5-accent-text" data-base-val="{0 if budget.is_warranty_budget else budget.get_total_products_by_slider.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
-                    {Money(0, "BRL") if budget.is_warranty_budget else budget.get_total_products_by_slider}
+                <span id="display-venda-pecas" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 whitespace-nowrap step5-accent-text" data-base-val="{display_products_value.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
+                    {display_products_value}
                 </span>
-                <span id="display-venda-mo" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 step5-accent-text" data-base-val="{0 if budget.is_warranty_budget else budget.get_total_labor_by_slider.amount}" data-cost-val="{budget.total_labor_cost_value.amount}">
-                    {Money(0, "BRL") if budget.is_warranty_budget else budget.get_total_labor_by_slider}
+                <span id="display-venda-mo" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 step5-accent-text" data-base-val="{display_labor_value.amount}" data-cost-val="{budget.total_labor_cost_value.amount}">
+                    {display_labor_value}
                 </span>
                 <span id="step5-subtotal-display" hx-swap-oob="true" data-base-total="{budget.display_total_base_value.amount}">
                     {budget.display_total_base_value}
@@ -948,6 +1066,8 @@ class MarkStep5CalculationViewedView(LoginRequiredMixin, WorkshopScopedMixin, Vi
 
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
 
@@ -959,7 +1079,7 @@ class MarkStep5CalculationViewedView(LoginRequiredMixin, WorkshopScopedMixin, Vi
 
 class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = Budget
-    workshop_permission_codename = "add_budget"
+    workshop_permission_codename = "change_budget"
 
     def post(self, request):
         try:
@@ -967,13 +1087,15 @@ class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
             budget_id = int(data.get("budget_id"))
             observation = sentence_case(str(data.get("observation", "")).strip())
             budget = _get_budget_for_workshop(self.workshop, budget_id)
+            if not _check_concurrent_budget_lock(request, budget):
+                return _build_concurrent_budget_lock_response(request, budget)
             if _is_budget_edit_locked(budget):
                 return JsonResponse({"success": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
 
-            budget.pdf_observation = observation
-            budget.save(update_fields=["pdf_observation"])
-            return JsonResponse({"success": True})
-        except (TypeError, ValueError, json.JSONDecodeError, AttributeError, Http404):
+            budget.observations = observation
+            budget.save(update_fields=["observations"])
+            return JsonResponse({"success": True, "observation": budget.observations})
+        except (TypeError, ValueError, json.JSONDecodeError, AttributeError):
             return JsonResponse({"success": False}, status=400)
 
 
@@ -982,14 +1104,14 @@ class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "change_budget"
 
     def get(self, request, pk):
-        budget = _get_budget_for_workshop(self.workshop, pk)
+        budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
         context = {
             "budget": budget,
         }
         return render(request, "budget/partials/budget_reference_modal.html", context)
 
     def post(self, request, pk):
-        current_budget = _get_budget_for_workshop(self.workshop, pk)
+        current_budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
         relate = request.POST.get("relate_budget") == "yes"
 
         try:
@@ -1006,7 +1128,7 @@ class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     problem_description=current_budget.problem_description,
                     technical_diagnosis=current_budget.technical_diagnosis,
                     notes=current_budget.notes,
-                    pdf_observation=current_budget.pdf_observation,
+                    observations=current_budget.observations,
                     fuel_level=current_budget.fuel_level,
                     defect=current_budget.defect,
                     discount_value=current_budget.discount_value,
@@ -1030,7 +1152,7 @@ class BudgetLinkModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "change_budget"
 
     def get(self, request, pk):
-        budget = _get_budget_for_workshop(self.workshop, pk)
+        budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
         query = str(request.GET.get("q") or "").strip()
         page_number = request.GET.get("page", "1")
         results_page = self._build_results_page(budget=budget, query=query, page_number=page_number)
@@ -1042,7 +1164,7 @@ class BudgetLinkModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return render(request, "budget/partials/budget_link_modal.html", context)
 
     def _build_results_page(self, *, budget: Budget, query: str, page_number: str):
-        queryset = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle", "reference_budget").order_by("-entry_date", "-pk")
+        queryset = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle", "reference_budget").order_by("-pk", "-entry_date")
 
         if budget.vehicle_id is not None:
             queryset = queryset.filter(vehicle_id=budget.vehicle_id)
@@ -1062,11 +1184,11 @@ class BudgetLinkSearchView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "change_budget"
 
     def get(self, request, pk):
-        budget = _get_budget_for_workshop(self.workshop, pk)
+        budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
         query = str(request.GET.get("q") or "").strip()
         page_number = request.GET.get("page", "1")
 
-        queryset = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle", "reference_budget").order_by("-entry_date", "-pk")
+        queryset = Budget.objects.filter(workshop=self.workshop).exclude(pk=budget.pk).select_related("customer", "vehicle", "reference_budget").order_by("-pk", "-entry_date")
 
         if budget.vehicle_id is not None:
             queryset = queryset.filter(vehicle_id=budget.vehicle_id)
@@ -1091,7 +1213,9 @@ class BudgetLinkProcessView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "change_budget"
 
     def post(self, request, pk):
-        budget = _get_budget_for_workshop(self.workshop, pk)
+        budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         reference_budget_id_raw = str(request.POST.get("reference_budget_id") or "").strip()
 
         if not reference_budget_id_raw:
@@ -1131,7 +1255,7 @@ class BudgetUnlinkModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "change_budget"
 
     def get(self, request, pk):
-        budget = _get_budget_for_workshop(self.workshop, pk)
+        budget = _get_budget_for_workshop(self.workshop, clean_id(pk))
         return render(request, "budget/partials/budget_unlink_confirm_modal.html", {"budget": budget})
 
 
@@ -1140,8 +1264,12 @@ class BudgetUnlinkProcessView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "change_budget"
 
     def post(self, request, pk):
+        budget_for_check = _get_budget_for_workshop(self.workshop, clean_id(pk))
+        if not _check_concurrent_budget_lock(request, budget_for_check):
+            return _build_concurrent_budget_lock_response(request, budget_for_check)
+
         with transaction.atomic():
-            budget = Budget.objects.select_for_update().filter(pk=pk, workshop=self.workshop).first()
+            budget = Budget.objects.select_for_update().filter(pk=clean_id(pk), workshop=self.workshop).first()
             if budget is None:
                 return JsonResponse({"success": False, "error": "Orçamento não encontrado."}, status=404)
 

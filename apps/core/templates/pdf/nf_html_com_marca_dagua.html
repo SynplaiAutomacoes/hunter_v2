@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NFS-e {{ nfse_preview.numero }}</title>
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { margin: 0; background: #ddd; font-family: Arial, Helvetica, sans-serif; color: #111; }
+  .sheet { width: 210mm; height: 297mm; margin: 0 auto; background: #fff; padding: 4mm; }
+  .nf { width: 100%; height: 100%; border: 1px solid #000; position: relative; display: flex; flex-direction: column; font-size: 9px; line-height: 1.15; }
+
+  .watermark {
+    position: absolute; left: 50%; top: 50%;
+    transform: translate(-50%, -50%) rotate(-35deg);
+    font-size: 64px; font-weight: 800; letter-spacing: 3px;
+    color: rgba(0,0,0,0.10); white-space: nowrap; pointer-events: none;
+    z-index: 50; font-family: Arial, Helvetica, sans-serif;
+  }
+  .nf > *:not(.watermark) { position: relative; z-index: 1; }
+
+  .header { display: flex; border-bottom: 1px solid #000; min-height: 0; }
+  .h-left { width: 80px; text-align: center; padding: 3px; border-right: 1px solid #000; flex-shrink: 0; }
+  .h-left img { width: 50px; display: block; margin: 2px auto; }
+  .h-left .h-small { font-size: 7px; font-weight: 500; }
+  .h-center { flex: 1; text-align: center; padding: 2px 4px; }
+  .h-center .t1 { font-size: 15px; font-weight: 700; margin-top: 2px; }
+  .h-center .t2 { font-size: 11px; font-weight: 700; margin-top: 1px; }
+  .h-center .t3 { font-size: 12px; font-weight: 700; margin-top: 3px; }
+  .h-center .rps-line { font-size: 8px; font-weight: 500; margin-top: 1px; }
+  .h-right { width: 145px; border-left: 1px solid #000; flex-shrink: 0; display: flex; flex-direction: column; }
+  .h-right .box { flex: 1; text-align: center; border-bottom: 1px solid #000; display: flex; flex-direction: column; justify-content: center; padding: 1px 3px; }
+  .h-right .box:last-child { border-bottom: none; }
+  .h-right .box .lbl { font-size: 7px; font-weight: 500; }
+  .h-right .box .val { font-size: 11px; font-weight: 700; line-height: 1.1; }
+
+  .ident { text-align: center; padding: 3px; border-bottom: 1px solid #000; font-size: 9px; }
+
+  .sec-title { text-align: center; font-weight: 700; font-size: 10px; padding: 2px; border-bottom: 1px solid #000; }
+
+  .info-block { padding: 2px 5px; border-bottom: 1px solid #000; }
+  .info-block .line { margin: 1.5px 0; }
+  .info-block .lbl { font-weight: 400; }
+  .info-block .val { font-weight: 700; }
+
+  .inter { padding: 2px 5px; border-bottom: 1px solid #000; text-align: center; font-size: 9px; }
+  .inter span { margin: 0 6px; }
+
+  .disc-area { flex: 1; border-bottom: 1px solid #000; display: flex; flex-direction: column; min-height: 0; }
+  .disc-area .disc-content { flex: 1; padding: 3px 5px; font-family: "Courier New", monospace; font-size: 9px; line-height: 1.15; white-space: pre-wrap; overflow: hidden; }
+
+  .total-row { text-align: center; font-weight: 700; font-size: 11px; padding: 3px; border-top: 1px solid #000; border-bottom: 1px solid #000; }
+
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  td { border-right: 1px solid #000; border-bottom: 1px solid #000; padding: 1px 3px; text-align: center; font-size: 8px; vertical-align: middle; }
+  td:last-child { border-right: none; }
+  td b { display: block; font-weight: 700; font-size: 9px; margin-top: 1px; }
+
+  .service-row { padding: 2px 5px; border-bottom: 1px solid #000; font-size: 8px; text-align: left; }
+  .service-row b { font-size: 9px; }
+
+  .info-bottom .info-text { padding: 2px 5px; font-size: 8px; }
+
+  @media print { body { background: #fff; } .sheet { margin: 0; padding: 3.2mm; } }
+</style>
+</head>
+<body>
+<div class="sheet">
+<div class="nf">
+  <div class="watermark">SEM VALOR FISCAL</div>
+
+  <div class="header">
+    <div class="h-left">
+      <img src="https://upload.wikimedia.org/wikipedia/commons/9/90/Bras%C3%A3o_da_cidade_de_S%C3%A3o_Paulo.svg" alt="Brasão SP">
+      <div class="h-small">NFS-e</div>
+    </div>
+    <div class="h-center">
+      <div class="t1">PREFEITURA DO MUNICÍPIO DE SÃO PAULO</div>
+      <div class="t2">SECRETARIA MUNICIPAL DA FAZENDA</div>
+      <div class="t3">NOTA FISCAL ELETRÔNICA DE SERVIÇOS - NFS-e</div>
+      <div class="rps-line">{{ nfse_preview.rps }}</div>
+    </div>
+    <div class="h-right">
+      <div class="box">
+        <div class="lbl">Número da Nota</div>
+        <div class="val">{{ nfse_preview.numero }}</div>
+      </div>
+      <div class="box">
+        <div class="lbl">Data e Hora de Emissão</div>
+        <div class="val">{{ nfse_preview.emissao }}</div>
+      </div>
+      <div class="box">
+        <div class="lbl">Código de Verificação</div>
+        <div class="val">{{ nfse_preview.codigo }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ident">Identificador Nacional: {{ nfse_preview.identificador }}</div>
+
+  <div class="sec-title">PRESTADOR DE SERVIÇOS</div>
+  <div class="info-block">
+    <div class="line"><span class="lbl">CPF/CNPJ:</span> <span class="val">{{ nfse_preview.prestador.cnpj }}</span> <span class="lbl" style="margin-left:30px">Inscrição Municipal:</span> <span class="val">{{ nfse_preview.prestador.im }}</span></div>
+    <div class="line"><span class="lbl">Nome/Razão Social:</span> <span class="val">{{ nfse_preview.prestador.nome }}</span></div>
+    <div class="line"><span class="lbl">Endereço:</span> <span class="val">{{ nfse_preview.prestador.endereco }}</span></div>
+    <div class="line"><span class="lbl">Município:</span> <span class="val">{{ nfse_preview.prestador.municipio }}</span> <span class="lbl" style="margin-left:40px">UF:</span> <span class="val">{{ nfse_preview.prestador.uf }}</span></div>
+  </div>
+
+  <div class="sec-title">TOMADOR DE SERVIÇOS</div>
+  <div class="info-block">
+    <div class="line"><span class="lbl">Nome/Razão Social:</span> <span class="val">{{ nfse_preview.tomador.nome }}</span></div>
+    <div class="line"><span class="lbl">CPF/CNPJ:</span> <span class="val">{{ nfse_preview.tomador.cnpj }}</span> <span class="lbl" style="margin-left:30px">Inscrição Municipal:</span> <span class="val">{{ nfse_preview.tomador.im }}</span></div>
+    <div class="line"><span class="lbl">Endereço:</span> <span class="val">{{ nfse_preview.tomador.endereco }}</span></div>
+    <div class="line"><span class="lbl">Município:</span> <span class="val">{{ nfse_preview.tomador.municipio }}</span> <span class="lbl" style="margin-left:40px">UF:</span> <span class="val">{{ nfse_preview.tomador.uf }}</span> <span class="lbl" style="margin-left:30px">E-mail:</span> <span class="val">{{ nfse_preview.tomador.email }}</span></div>
+  </div>
+
+  <div class="sec-title">INTERMEDIÁRIO DE SERVIÇOS</div>
+  <div class="inter"><span>CPF/CNPJ: ----</span><span>Nome/Razão Social: ----</span></div>
+
+  <div class="sec-title">DISCRIMINAÇÃO DE SERVIÇOS</div>
+  <div class="disc-area">
+    <div class="disc-content">{{ nfse_preview.descricao }}</div>
+  </div>
+
+  <div class="total-row">VALOR TOTAL DO SERVIÇO = {{ nfse_preview.total }}</div>
+
+  <table>
+    <tr>
+      <td>Contribuição Previdenciária - Retida (R$)<b>{{ nfse_preview.valor_inss }}</b></td>
+      <td>IRRF (R$)<b>{{ nfse_preview.valor_irrf }}</b></td>
+      <td>COFINS (R$)<b>{{ nfse_preview.valor_cofins }}</b></td>
+      <td>PIS/PASEP (R$)<b>{{ nfse_preview.valor_pis }}</b></td>
+      <td>IPI (R$)<b>{{ nfse_preview.valor_ipi }}</b></td>
+    </tr>
+  </table>
+
+  <table>
+    <tr>
+      <td>Contribuições Sociais - Retidas (R$)<b>{{ nfse_preview.valor_csll }}</b></td>
+      <td>Descrição Contribuições Sociais - Retidas<b>{{ nfse_preview.descricao_csll }}</b></td>
+    </tr>
+  </table>
+
+  <div class="service-row">
+    <span>Código do Serviço</span><br>
+    <b>{{ nfse_preview.codigo_servico }} - {{ nfse_preview.descricao_servico }}</b>
+  </div>
+
+  <table>
+    <tr>
+      <td>Valor Total das Deduções (R$)<b>{{ nfse_preview.valor_deducoes }}</b></td>
+      <td>Base de Cálculo (R$)<b>{{ nfse_preview.base_calculo }}</b></td>
+      <td>Alíquota (%)<b>{{ nfse_preview.aliquota_iss }}</b></td>
+      <td>Valor do ISS (R$)<b>{{ nfse_preview.valor_iss }}</b></td>
+      <td>Crédito Programa da NFP (R$)<b>{{ nfse_preview.credito_nfp }}</b></td>
+    </tr>
+  </table>
+
+  <table>
+    <tr>
+      <td>Município de Prestação do Serviço<b>{{ nfse_preview.municipio_prestacao }}</b></td>
+      <td>Número Inscrição da Obra<b>{{ nfse_preview.numero_inscricao_obra }}</b></td>
+      <td>Valor Aproximado dos Tributos / Fonte<b>{{ nfse_preview.tributos }}</b></td>
+    </tr>
+  </table>
+
+  <div class="sec-title">OUTRAS INFORMAÇÕES</div>
+  <div class="info-bottom">
+    <div class="info-text">{{ nfse_preview.outras_informacoes }}</div>
+  </div>
+</div>
+</div>
+</body>
+</html>

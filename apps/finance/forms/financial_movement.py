@@ -7,14 +7,14 @@ from django.db.models import Q
 from django.template.loader import render_to_string
 
 from apps.collaborators.models import WorkshopCollaborator
-from apps.core.widgets import SearchableSelectInput, TextInput, TextareaInput, CalendarDateInput, MoneyInput, NumberInput
+from apps.core.presentation.widgets import SearchableSelectInput, TextInput, TextareaInput, CalendarDateInput, MoneyInput, NumberInput
 from apps.finance.models import PaymentMethod, FinancialGroup
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.services.financial_movement import generate_card_fee_movement
 from apps.suppliers.models import Supplier
 from apps.core.text_normalization import sentence_case
-from apps.core.forms import CoreModelForm
+from apps.core.presentation.forms import CoreModelForm
 from apps.workorder.models import WorkOrderPaymentMethod
 
 
@@ -689,11 +689,17 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
 
         details_context = self._build_entity_details_context()
 
+        source_info_html = ""
+        if self.instance.pk and self.instance.source_id and not self.instance.supplier_id and not self.instance.collaborator_id:
+            source_name = str(getattr(self.instance.source, "name", "") or "")
+            source_info_html = f'<div class="alert bg-base-200 border border-base-300 shadow-sm mb-10"><span class="material-icons text-sm text-base-content/50">info</span><div class="flex flex-col"><span class="text-xs font-bold uppercase opacity-50">Origem automática</span><span class="text-sm font-semibold">{source_name}</span><span class="text-xs opacity-60">Esta movimentação foi gerada automaticamente. Selecione um fornecedor ou colaborador acima para substituir a origem.</span></div></div>'
+
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
             HTML('<section x-show="activeTab === \'initial\'" x-cloak class="space-y-4">') if self.instance.workorder_id is None else HTML(""),
             HTML('<h3 class="text-base font-semibold text-base-content flex items-center gap-2 mb-3"><span class="material-icons text-sm">groups</span> Dados Iniciais</h3>') if self.instance.workorder_id is None else HTML(""),
+            HTML(source_info_html) if self.instance.workorder_id is None else HTML(""),
             Div(
                 Div("supplier", css_class="col-span-12 lg:col-span-6"),
                 Div("collaborator", css_class="col-span-12 lg:col-span-6"),
@@ -767,6 +773,9 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
         if collaborator_id and self.workshop:
             collaborator = WorkshopCollaborator.objects.filter(id=collaborator_id, workshop=self.workshop).first()
             return {"template": "finance/partials/collaborator_resume.html", "context": {"entity": collaborator, "type": "collaborator"}}
+
+        if self.instance.pk and self.instance.source_id:
+            return {"template": "finance/partials/source_resume.html", "context": {"entity": self.instance.source, "type": "source"}}
 
         return {
             "template": "finance/partials/financial_movement/report_edit_entity_placeholder.html",

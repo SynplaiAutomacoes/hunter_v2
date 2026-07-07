@@ -18,20 +18,15 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView
 
 from apps.collaborators.models import WorkshopMember
-from apps.core.query_filters import apply_is_active_filter
-from apps.core.tables import TableActionDefaults
+from apps.core.infrastructure.query_filters import apply_is_active_filter
+from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
-from apps.core.webmania.util import to_public_integration_message, is_webmania_homolog_environment, latest_sync_error, get_webmania_context_meta, has_webmania_change_perm, save_company_sync_metadata, sync_workshop_from_company
+from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.core.infrastructure.services.webmania.webmania import to_public_integration_message, latest_sync_error, has_webmania_change_perm
+from apps.core.infrastructure.providers import get_fiscal_service
+from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.finance.models.finance import WebmaniaCompany
-from apps.finance.services.webmania_b2b import (
-    WebmaniaB2BServiceError,
-    get_b2b_requests,
-    provision_webmania_company_for_workshop,
-    sync_b2b_companies_to_database,
-    update_webmania_company,
-)
-from apps.finance.services.webmania_secrets import decrypt_secret
+from apps.core.infrastructure.services.webmania.webmania_secrets import decrypt_secret
 from apps.finance.views.common import DirectorWorkshopAccessMixin
 from apps.iam.utils import get_or_create_director_role
 from apps.workshops.forms.workshops import (
@@ -43,6 +38,7 @@ from apps.workshops.forms.workshops import (
     WorkshopForm,
     WorkshopLogoForm,
     WorkshopOptionalsSectionForm,
+    WorkshopPdfObservationSectionForm,
 )
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.services.files import (
@@ -106,10 +102,10 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
         context = super().get_context_data(**kwargs)
         u_acc_id = getattr(self.request.user, "account_id", None)
 
-        context.update(get_webmania_context_meta(u_acc_id))
+        context.update(get_fiscal_service().get_context_meta(u_acc_id))
 
         ref_w = self._reference_workshop_for_permission()
-        context.update({"can_sync_webmania_companies": has_webmania_change_perm(self.request.user, ref_w, self.request) and is_webmania_homolog_environment(), "is_webmania_homolog_environment": is_webmania_homolog_environment()})
+        context.update({"can_sync_webmania_companies": has_webmania_change_perm(self.request.user, ref_w, self.request) and get_fiscal_service().is_homolog_environment(), "is_webmania_homolog_environment": get_fiscal_service().is_homolog_environment()})
         return context
 
     def dispatch(self, request, *args, **kwargs):
@@ -117,6 +113,9 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
         user_account = getattr(user, "account", None)
         if user_account is None:
             raise PermissionDenied
+
+        if user.is_superuser:
+            return super().dispatch(request, *args, **kwargs)
 
         if getattr(user_account, "owner_id", None) != getattr(user, "id", None):
             raise PermissionDenied
@@ -141,7 +140,7 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
                 workshop.account = user_account
                 workshop.save()
 
-                provision_webmania_company_for_workshop(workshop=workshop)
+                get_fiscal_service().provision_webmania_company_for_workshop(workshop=workshop)
 
                 director_role = get_or_create_director_role(account=user_account)
                 WorkshopMember.objects.get_or_create(
@@ -162,7 +161,7 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
                     getattr(user_account, "id", None),
                     getattr(user, "id", None),
                 )
-        except WebmaniaB2BServiceError as exc:
+        except FiscalServiceError as exc:
             logger.exception(
                 "workshop_create_failed_integration user_id=%s account_id=%s",
                 getattr(user, "id", None),
@@ -184,6 +183,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
     TAB_CERTIFICADO = "certificado"
     TAB_OPCIONAIS = "opcionais"
     TAB_CREDENCIAIS = "credenciais"
+    TAB_PDF_OBSERVATION = "pdf_observation"
     TAB_LOGO_AUTOUPLOAD = "logo_autoupload"
     TABS = {
         TAB_EMPRESA,
@@ -192,6 +192,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         TAB_CERTIFICADO,
         TAB_OPCIONAIS,
         TAB_CREDENCIAIS,
+        TAB_PDF_OBSERVATION,
     }
 
     NF_SUBTAB_NFE = "nfe"
@@ -255,6 +256,7 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             self.TAB_NOTA_FISCAL: WorkshopFiscalSectionForm(instance=self.company, workshop=self.object),
             self.TAB_CERTIFICADO: WorkshopCertificateSectionForm(instance=self.object),
             self.TAB_OPCIONAIS: WorkshopOptionalsSectionForm(instance=self.company, workshop=self.object),
+            self.TAB_PDF_OBSERVATION: WorkshopPdfObservationSectionForm(instance=self.object),
         }
 
         if data is None and files is None:
@@ -270,6 +272,8 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             form_map[self.TAB_CERTIFICADO] = WorkshopCertificateSectionForm(data=data, files=files, instance=self.object)
         elif active_tab == self.TAB_OPCIONAIS:
             form_map[self.TAB_OPCIONAIS] = WorkshopOptionalsSectionForm(data=data, files=files, instance=self.company, workshop=self.object)
+        elif active_tab == self.TAB_PDF_OBSERVATION:
+            form_map[self.TAB_PDF_OBSERVATION] = WorkshopPdfObservationSectionForm(data=data, files=files, instance=self.object)
 
         return form_map
 
@@ -336,6 +340,14 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
 
     def _build_context(self, *, forms_map: dict[str, forms.BaseForm], active_tab: str, active_nf_subtab: str) -> dict[str, object]:
         can_change_webmania_company = self._can_change_webmania_company()
+        can_change_workshop = has_workshop_perm(
+            user=self.request.user,
+            workshop=self.object,
+            app_label=Workshop._meta.app_label,
+            model=str(Workshop._meta.model_name),
+            codename="change_workshop",
+            request=self.request,
+        )
         return {
             "object": self.object,
             "workshop": self.object,
@@ -347,11 +359,13 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             "fiscal_form": forms_map[self.TAB_NOTA_FISCAL],
             "certificate_form": forms_map[self.TAB_CERTIFICADO],
             "optionals_form": forms_map[self.TAB_OPCIONAIS],
+            "pdf_observation_form": forms_map[self.TAB_PDF_OBSERVATION],
             "credential_preview_fields": self._credential_preview_fields(),
             "certificate_status": self._certificate_status(),
             "has_certificate_file": self.object.has_certificate_file,
             "has_certificate_password": bool(str(self.object.certificate_password or "").strip()),
             "can_change_webmania_company": can_change_webmania_company,
+            "can_change_workshop": can_change_workshop,
             "logo_form": WorkshopLogoForm(instance=self.object, preview_url=self._logo_preview_url()),
         }
 
@@ -400,10 +414,10 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
 
         try:
             if payload:
-                update_webmania_company(company=self.company, payload=payload)
-        except WebmaniaB2BServiceError as exc:
+                get_fiscal_service().update_webmania_company(company=self.company, payload=payload)
+        except FiscalServiceError as exc:
             public_message = to_public_integration_message(str(exc))
-            save_company_sync_metadata(self.company, error=str(exc))
+            get_fiscal_service().save_sync_metadata(company=self.company, error=str(exc))
             logger.warning(
                 "workshop_update_tab_sync_failed workshop_id=%s tab=%s error=%s user_id=%s",
                 getattr(self.object, "pk", None),
@@ -419,8 +433,8 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
 
         with transaction.atomic():
             self.company = form.save(commit=True)
-            save_company_sync_metadata(self.company, error="")
-            sync_workshop_from_company(self.object, self.company, sync_name=sync_name, sync_address=sync_address)
+            get_fiscal_service().save_sync_metadata(company=self.company, error="")
+            get_fiscal_service().sync_workshop_from_company(self.object, self.company, sync_name=sync_name, sync_address=sync_address)
 
         if not payload:
             messages.success(self.request, "Dados locais atualizados com sucesso.")
@@ -460,8 +474,8 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
                 uploaded_file=form.cleaned_data.get("pfx_certificate"),
                 certificate_password=str(form.cleaned_data.get("certificate_password") or ""),
             )
-        except (WebmaniaB2BServiceError, WorkshopFileStorageError, WorkshopFileSyncError) as exc:
-            public_message = to_public_integration_message(str(exc)) if isinstance(exc, WebmaniaB2BServiceError) else str(exc)
+        except (FiscalServiceError, WorkshopFileStorageError, WorkshopFileSyncError) as exc:
+            public_message = to_public_integration_message(str(exc)) if isinstance(exc, FiscalServiceError) else str(exc)
             self._save_company_sync_metadata(error=public_message)
             logger.warning(
                 "workshop_certificate_sync_failed workshop_id=%s error=%s user_id=%s",
@@ -480,6 +494,27 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
         logger.info(
             "workshop_certificate_sync_succeeded workshop_id=%s user_id=%s",
             getattr(self.object, "pk", None),
+            getattr(self.request.user, "id", None),
+        )
+        return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
+
+    def _save_workshop_tab_form(self, *, form: forms.ModelForm, tab: str, nf_subtab: str, success_message: str):
+        if not form.changed_data:
+            logger.info(
+                "workshop_update_tab_no_changes workshop_id=%s tab=%s user_id=%s",
+                getattr(self.object, "pk", None),
+                tab,
+                getattr(self.request.user, "id", None),
+            )
+            messages.info(self.request, "Nenhuma alteracao detectada.")
+            return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
+
+        form.save()
+        messages.success(self.request, success_message)
+        logger.info(
+            "workshop_update_tab_save_succeeded workshop_id=%s tab=%s user_id=%s",
+            getattr(self.object, "pk", None),
+            tab,
             getattr(self.request.user, "id", None),
         )
         return redirect(self._build_update_url(tab=tab, nf_subtab=nf_subtab))
@@ -518,8 +553,8 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
                         return JsonResponse({"ok": True, "message": "Nenhuma alteracao na logo."})
                     upload_usecase.upload_logo(workshop=self.object, company=self.company, uploaded_file=uploaded_logo)
                     return JsonResponse({"ok": True, "message": "Logo da oficina atualizada."})
-            except (WebmaniaB2BServiceError, WorkshopFileStorageError, WorkshopFileSyncError) as exc:
-                message = to_public_integration_message(str(exc)) if isinstance(exc, WebmaniaB2BServiceError) else str(exc)
+            except (FiscalServiceError, WorkshopFileStorageError, WorkshopFileSyncError) as exc:
+                message = to_public_integration_message(str(exc)) if isinstance(exc, FiscalServiceError) else str(exc)
                 return JsonResponse({"ok": False, "message": message}, status=400)
 
             return JsonResponse({"ok": True, "message": "Nenhuma alteracao na logo."})
@@ -544,7 +579,21 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             self.TAB_CERTIFICADO,
             self.TAB_OPCIONAIS,
         }
+        restricted_workshop_tabs = {
+            self.TAB_PDF_OBSERVATION,
+        }
+
         if active_tab in restricted_webmania_tabs and not self._can_change_webmania_company():
+            raise PermissionDenied
+
+        if active_tab in restricted_workshop_tabs and not has_workshop_perm(
+            user=request.user,
+            workshop=self.object,
+            app_label=Workshop._meta.app_label,
+            model=str(Workshop._meta.model_name),
+            codename="change_workshop",
+            request=request,
+        ):
             raise PermissionDenied
 
         if active_tab == self.TAB_EMPRESA:
@@ -567,6 +616,15 @@ class WorkshopUpdateView(LoginRequiredMixin, View):
             optionals_form = cast(WorkshopOptionalsSectionForm, forms_map[self.TAB_OPCIONAIS])
             if optionals_form.is_valid():
                 return self._save_company_tab_form(form=optionals_form, tab=active_tab, nf_subtab=active_nf_subtab)
+        elif active_tab == self.TAB_PDF_OBSERVATION:
+            pdf_observation_form = cast(WorkshopPdfObservationSectionForm, forms_map[self.TAB_PDF_OBSERVATION])
+            if pdf_observation_form.is_valid():
+                return self._save_workshop_tab_form(
+                    form=pdf_observation_form,
+                    tab=active_tab,
+                    nf_subtab=active_nf_subtab,
+                    success_message="Observacao do PDF atualizada com sucesso.",
+                )
         elif active_tab == self.TAB_CREDENCIAIS:
             messages.info(request, "As credenciais dessa aba sao apenas para visualizacao.")
             return redirect(self._build_update_url(tab=active_tab, nf_subtab=active_nf_subtab))
@@ -758,8 +816,8 @@ class WorkshopListView(LoginRequiredMixin, HtmxTemplateResponseMixin, ListView):
                 "webmania_company_count": len(account_companies),
                 "webmania_last_sync_at": latest_sync_at,
                 "webmania_last_sync_error": to_public_integration_message(latest_sync_error(account_companies)) if latest_sync_error(account_companies) else "",
-                "can_sync_webmania_companies": can_sync_webmania_companies and is_webmania_homolog_environment(),
-                "is_webmania_homolog_environment": is_webmania_homolog_environment(),
+                "can_sync_webmania_companies": can_sync_webmania_companies and get_fiscal_service().is_homolog_environment(),
+                "is_webmania_homolog_environment": get_fiscal_service().is_homolog_environment(),
             }
         )
 
@@ -832,17 +890,17 @@ class WorkshopWebmaniaSyncView(LoginRequiredMixin, View):
         return super().dispatch(request, *args, **kwargs)
 
     def post(self, request, *args, **kwargs):
-        if not is_webmania_homolog_environment():
+        if not get_fiscal_service().is_homolog_environment():
             messages.error(request, "A sincronizacao manual esta disponivel apenas em ambiente de homologacao.")
             return self._redirect_after_sync(request)
 
         try:
-            synced_companies = sync_b2b_companies_to_database(
+            synced_companies = get_fiscal_service().sync_b2b_companies_to_database(
                 workshop=self.workshop,
                 actor_user=request.user,
                 force_global_auth=True,
             )
-        except WebmaniaB2BServiceError as exc:
+        except FiscalServiceError as exc:
             messages.error(request, to_public_integration_message(str(exc)))
         else:
             self._set_active_workshop_from_synced_companies(request=request, synced_companies=synced_companies)
@@ -916,8 +974,8 @@ class WorkshopEmissionHistoryView(LoginRequiredMixin, DirectorWorkshopAccessMixi
             year = self._normalize_year(self.request.GET.get("ano"))
 
         try:
-            request_payload = get_b2b_requests(month=month, year=year, workshop=self.workshop)
-        except WebmaniaB2BServiceError as exc:
+            request_payload = get_fiscal_service().get_b2b_requests(month=month, year=year, workshop=self.workshop)
+        except FiscalServiceError as exc:
             messages.error(self.request, to_public_integration_message(str(exc)))
             total_notas_processadas = 0
             request_rows: list[dict[str, str]] = []

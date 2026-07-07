@@ -34,8 +34,8 @@ from apps.finance.services.fiscal_attempts import (
     sanitize_fiscal_payload,
 )
 from apps.finance.services.nfe_debit import _build_consulta_url, _build_headers, is_nfe_debit_emission_enabled
-from apps.finance.services.webmania_auth import sanitize_webmania_setting
-from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+from apps.core.infrastructure.services.webmania.webmania_auth import sanitize_webmania_setting
+from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
 
 
 logger = logging.getLogger(__name__)

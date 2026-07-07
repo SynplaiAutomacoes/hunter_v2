@@ -7,9 +7,9 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.urls import reverse
 
-from apps.core.documents.services import SignatureDeliveryServiceError, ensure_signature_webhook
-from apps.core.documents.signature import build_absolute_app_url
-
+from apps.core.domain.contracts.signature import SignatureServiceError
+from apps.core.infrastructure.providers import get_signature_service
+from apps.core.infrastructure.services import build_absolute_app_url
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +34,8 @@ class Command(BaseCommand):
 
         webhook_url = build_absolute_app_url(path=reverse("budget:supersign_webhook"))
         try:
-            webhook = ensure_signature_webhook(webhook_url=webhook_url)
-        except SignatureDeliveryServiceError as exc:
+            webhook = get_signature_service().ensure_webhook(webhook_url=webhook_url)
+        except SignatureServiceError as exc:
             message = f"SuperSign webhook nao sincronizado: {webhook_url}. Motivo: {exc}"
             logger.warning(message)
             if strict:

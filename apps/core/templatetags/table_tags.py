@@ -28,7 +28,7 @@ from django.template import Library
 from django.urls import NoReverseMatch, reverse
 from django.utils.http import urlencode
 
-from apps.core.search import build_accent_insensitive_lookup
+from apps.core.infrastructure.search import build_accent_insensitive_lookup
 from apps.core.text_normalization import normalize_search_text
 
 register = Library()

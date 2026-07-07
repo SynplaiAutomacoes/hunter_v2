@@ -16,7 +16,7 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, TemplateView, UpdateView
 
 from apps.budget.models import Budget
-from apps.core.search import apply_text_search
+from apps.core.infrastructure.search import apply_text_search
 from apps.customer.models import Vehicle
 from apps.customer.vehicle_engine import normalize_vehicle_engine_choice
 from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice
@@ -108,8 +108,10 @@ def _parse_request_date(raw_value: str | None) -> date | None:
     return parse_date(value)
 
 
-def _serialize_calendar_datetime(value: datetime) -> str:
-    return timezone.localtime(value, timezone.get_current_timezone()).isoformat()
+def _serialize_calendar_datetime(value: datetime, tz=None) -> str:
+    if tz is None:
+        tz = timezone.get_current_timezone()
+    return timezone.localtime(value, tz).isoformat()
 
 
 class AppointmentCalendarView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
@@ -168,6 +170,7 @@ class AppointmentEventsView(LoginRequiredMixin, WorkshopScopedMixin, View):
             queryset = queryset.filter(status=status_filter)
 
         events = []
+        current_tz = timezone.get_current_timezone()
         for appointment in queryset:
             customer_name = appointment.display_customer_name
             title = f"{appointment.title} - {customer_name}" if customer_name else appointment.title
@@ -175,8 +178,8 @@ class AppointmentEventsView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 {
                     "id": str(appointment.pk),
                     "title": title,
-                    "start": _serialize_calendar_datetime(appointment.starts_at),
-                    "end": _serialize_calendar_datetime(appointment.ends_at),
+                    "start": _serialize_calendar_datetime(appointment.starts_at, current_tz),
+                    "end": _serialize_calendar_datetime(appointment.ends_at, current_tz),
                     "color": appointment.block_color,
                     "extendedProps": {
                         "customer_name": customer_name,
@@ -523,7 +526,7 @@ class BudgetByVehicleListView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if vehicle_id:
             budgets = Budget.objects.filter(workshop=self.workshop, vehicle_id=vehicle_id).select_related("customer", "vehicle").order_by("-criado_em")
 
-        data = [{"id": budget.pk, "label": f"#{budget.pk} - {budget.customer or '-'} - {budget.vehicle or '-'}"} for budget in budgets]
+        data = [{"id": budget.pk, "label": f"Orçamento #{budget.pk}"} for budget in budgets]
         return JsonResponse(data, safe=False)
 
 
@@ -538,5 +541,5 @@ class WorkOrderByVehicleListView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if vehicle_id:
             workorders = WorkOrder.objects.filter(workshop=self.workshop, budget__vehicle_id=vehicle_id).select_related("budget", "budget__customer", "budget__vehicle").order_by("-criado_em")
 
-        data = [{"id": workorder.pk, "label": f"#{workorder.pk} - {workorder.budget.customer if workorder.budget else '-'} - {workorder.budget.vehicle if workorder.budget else '-'}"} for workorder in workorders]
+        data = [{"id": workorder.pk, "label": f"O.S. #{workorder.get_id}"} for workorder in workorders]
         return JsonResponse(data, safe=False)

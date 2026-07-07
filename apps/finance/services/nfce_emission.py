@@ -12,12 +12,12 @@ from django.http import HttpRequest
 
 from apps.catalog.models.products import Product
 from apps.finance.models.finance import FiscalDocument, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalEmissionAttemptStatus, FiscalEmissionDocumentKind, FiscalEmissionOperationType, WebmaniaCompany
-from apps.finance.services.emission import build_webmania_webhook_url
+from apps.core.infrastructure.services.webmania.emission import build_webmania_webhook_url
 from apps.finance.services.fiscal_attempts import FiscalEmissionAttemptBlocked, begin_emission_attempt, build_fiscal_document_operation_idempotency_key, build_payload_hash, mark_attempt_failed, mark_attempt_sent, mark_attempt_succeeded, mark_attempt_uncertain, sanitize_fiscal_payload
 from apps.finance.services.ibs_cbs import IbsCbsConfigurationError, require_ready_tax_class_for_normal_emission
-from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting, should_use_global_webmania_auth
-from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
-from apps.finance.services.webmania_secrets import decrypt_secret
+from apps.core.infrastructure.services.webmania.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting, should_use_global_webmania_auth
+from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+from apps.core.infrastructure.services.webmania.webmania_secrets import decrypt_secret
 
 
 logger = logging.getLogger(__name__)

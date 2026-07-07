@@ -18,18 +18,17 @@ from apps.budget.models import Budget, BudgetHistory, BudgetImage, BudgetImageTy
 from apps.budget.pricing import resolve_discount_fields
 from apps.checklist.models import Checklist
 from apps.collaborators.models import WorkshopCollaborator
-from apps.core.utils import alert_confirm_layout
 from apps.core.text_normalization import sentence_case
-from apps.core.widgets import CalendarDateInput, MoneyInput, NumberInput, PercentageInput, SearchableSelectInput, TextInput, TextareaInput
+from apps.core.presentation.widgets import CalendarDateInput, MoneyInput, NumberInput, PercentageInput, RadioButtonGroupInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.customer.models import Customer, Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
-from apps.workorder.models import WorkOrderStatus
+from apps.workorder.models import WorkOrderStatus, WorkOrderDiscountType
 from apps.workshops.util.workshops import has_workshop_perm
 
 from .shared import MAX_BUDGET_IMAGES, _get_budget_with_prefetched_items, _render_budget_items_rows, _validate_uploaded_files, _validate_uploaded_images
 from .widgets import MultipleFileField, MultipleFileInput
-from apps.core.forms import CoreModelForm
-
+from apps.core.presentation.forms import CoreModelForm
+from ...core.utils import alert_confirm_layout
 
 SLOT_IMAGE_TYPES = [
     BudgetImageType.PRINCIPAL,
@@ -1878,8 +1877,9 @@ class BudgetStep4Form(CoreModelForm):
                                             </th>
                                             <th class="w-[24%] text-left">DESCRIÇÃO</th>
                                             <th class="w-[8%] text-center">QTD.</th>
-                                            <th class="w-[12%] text-right">CUSTO</th>
+                                            <th class="w-[12%] text-right">CUSTO/MECÂNICO</th>
                                             <th class="w-[14%] text-right">VALOR VENDA</th>
+                                            <th class="w-[10%] text-right">FRETE</th>
                                             <th class="w-[10%] text-center">TEMPO</th>
                                             <th class="w-[14%] text-right">TOTAL</th>
                                             <th class="w-[12%] text-center budget-step4-actions">AÇÕES</th>
@@ -1949,10 +1949,8 @@ class BudgetStep4Form(CoreModelForm):
                         ),
                         css_class="mb-6",
                     ),
-                    css_class="col-span-12 xl:col-span-7",
+                    css_class="col-span-12 xl:col-span-8",
                 ),
-                #
-                Div(css_class="hidden xl:block xl:col-span-1"),
                 #
                 # Coluna Direita
                 Div(
@@ -2076,10 +2074,11 @@ class BudgetStep5Form(CoreModelForm):
 
     class Meta:
         model = Budget
-        fields = ["discount_percentage", "discount_value", "slider"]
+        fields = ["discount_percentage", "discount_value", "discount_type", "slider"]
         widgets = {
             "discount_percentage": PercentageInput(decimal_places=2, behavior="digit_stream"),
             "discount_value": MoneyInput(),
+            "discount_type": RadioButtonGroupInput,
         }
 
     def __init__(self, *args, **kwargs):
@@ -2091,6 +2090,7 @@ class BudgetStep5Form(CoreModelForm):
         self.fields["slider"].help_text = ""
         self.fields["discount_percentage"].required = False
         self.fields["discount_value"].required = False
+        self.fields["discount_type"].required = False
         self.fields["slider"].widget.attrs.update({"hx-post": reverse("budget:update_slider", args=[self.instance.pk]), "hx-trigger": "change", "hx-swap": "none"})
 
         budget = _get_budget_with_prefetched_items(self.instance)
@@ -2105,6 +2105,7 @@ class BudgetStep5Form(CoreModelForm):
         # Custos baseados sempre nos itens do orçamento
         custo_pecas = budget.total_costs_products_value
         custo_frete_pecas = budget.total_products_shipping
+        custo_frete_servicos = budget.total_services_shipping
         custo_servico_terceiros = budget.total_third_party_services_cost
         custo_hora_mecanico = dados.get("custo_hora_mecanico") or zerado
 
@@ -2122,8 +2123,8 @@ class BudgetStep5Form(CoreModelForm):
 
         # Valores de venda baseados sempre nos itens do orçamento
         venda_servico_terceiros = Money(0, "BRL") if budget.is_warranty_budget else budget.total_third_party_services_selling
-        venda_pecas = Money(0, "BRL") if budget.is_warranty_budget else budget.get_total_products_by_slider
-        venda_mao_obra = Money(0, "BRL") if budget.is_warranty_budget else budget.get_total_labor_by_slider
+        venda_pecas = budget.display_total_products_by_slider_without_shipping
+        venda_mao_obra = Money(0, "BRL") if budget.is_warranty_budget else budget.display_total_services_by_slider - venda_servico_terceiros
 
         # Extra
         metodo_precificacao = "Garantia" if budget.is_warranty_budget else (dados.get("method_name") or "")
@@ -2149,6 +2150,7 @@ class BudgetStep5Form(CoreModelForm):
         discount_display = budget.display_resolved_discount_value if discount_amount != Decimal("0") else Money(0, "BRL")
         self.initial["discount_percentage"] = budget.display_resolved_discount_percentage
         self.initial["discount_value"] = budget.display_resolved_discount_value
+        self.initial["discount_type"] = budget.discount_type or WorkOrderDiscountType.BOTH
         step5_calculation_done = bool(budget.pk and (budget.step5_calculation_viewed or budget.current_step > 5))
         step5_loading_hidden_class = "hidden" if step5_calculation_done else ""
         step5_method_hidden_class = "" if step5_calculation_done else "hidden"
@@ -2355,6 +2357,11 @@ class BudgetStep5Form(CoreModelForm):
                             updateSummary(elements, amount);
                         }}
 
+                        function getDiscountTypeValue() {{
+                            const checked = document.querySelector('input[name="discount_type"]:checked');
+                            return checked ? checked.value : 'both';
+                        }}
+
                         function persistDiscount(elements) {{
                             clearTimeout(timeout);
                             timeout = setTimeout(() => {{
@@ -2362,6 +2369,7 @@ class BudgetStep5Form(CoreModelForm):
                                     values: {{
                                         "discount_value_0": elements.hiddenMoney.value,
                                         "discount_percentage": elements.hiddenPercentage.value,
+                                        "discount_type": getDiscountTypeValue(),
                                     }},
                                     swap: 'none',
                                 }});
@@ -2402,6 +2410,16 @@ class BudgetStep5Form(CoreModelForm):
 
                             syncFromValue(elements);
                         }}
+
+                        document.addEventListener('change', function(e) {{
+                            if (e.target && e.target.name === 'discount_type') {{
+                                const elements = getDiscountElements();
+                                if (elements) {{
+                                    clearTimeout(timeout);
+                                    persistDiscount(elements);
+                                }}
+                            }}
+                        }});
 
                         document.addEventListener('DOMContentLoaded', bindDiscountSync);
                         document.body.addEventListener('htmx:afterSettle', bindDiscountSync);
@@ -2595,6 +2613,11 @@ class BudgetStep5Form(CoreModelForm):
                                     </div>
 
                                     <div class="grid grid-cols-12 border border-base-300 bg-base-100">
+                                        <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Frete de Serviços</span>
+                                        <span class="col-span-4 p-2 border-l border-base-300">{custo_frete_servicos}</span>
+                                    </div>
+
+                                    <div class="grid grid-cols-12 border border-base-300 bg-base-100">
                                         <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Valor de Venda de Serviço de Terceiros</span>
                                         <span class="col-span-4 p-2 border-l border-base-300">{venda_servico_terceiros}</span>
                                     </div>
@@ -2603,8 +2626,6 @@ class BudgetStep5Form(CoreModelForm):
                                         <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo de Serviço de Terceiros</span>
                                         <span class="col-span-4 p-2 border-l border-base-300">{custo_servico_terceiros}</span>
                                     </div>
-
-                                    <div class="grid grid-cols-12"></div>
 
                                     <div class="grid grid-cols-12 border border-base-300 bg-base-100">
                                         <span class="col-span-8 p-2 bg-base-200/70 text-base-content/80">Custo da Hora do Mecânico</span>
@@ -2691,11 +2712,55 @@ class BudgetStep5Form(CoreModelForm):
                         # Desconto
                         Div(
                             HTML('<h4 class="font-bold text-lg mb-2">Desconto</h4>'),
+                            HTML("""
+                            <div class="grid grid-cols-1 gap-3 mb-5 xl:grid-cols-3">
+                            """),
                             Div(
-                                Field("discount_percentage", wrapper_class="col-span-12 lg:col-span-6"),
-                                Field("discount_value", wrapper_class="col-span-12 lg:col-span-6"),
-                                css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
+                                HTML("""
+                                <div id="discount-value-card-body" class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
+                                    <div class="mb-3 flex items-center justify-between gap-3">
+                                        <div>
+                                            <p class="text-sm font-bold text-base-content">Desconto em valor</p>
+                                            <p class="text-xs text-base-content/60">Use quando a negociação foi fechada em valor exato.</p>
+                                        </div>
+                                        <span class="material-icons text-base-content/40">payments</span>
+                                    </div>
+                                """),
+                                Field("discount_value", wrapper_class="mb-0"),
+                                HTML("</div>"),
+                                css_class="h-full",
                             ),
+                            Div(
+                                HTML("""
+                                <div class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
+                                    <div class="mb-3 flex items-center justify-between gap-3">
+                                        <div>
+                                            <p class="text-sm font-bold text-base-content">Tipo de Desconto</p>
+                                            <p class="text-xs text-base-content/60">Selecione onde o desconto sera aplicado.</p>
+                                        </div>
+                                        <span class="material-icons text-base-content/40">filter_alt</span>
+                                    </div>
+                                """),
+                                Field("discount_type", wrapper_class="mb-0"),
+                                HTML("</div>"),
+                                css_class="h-full",
+                            ),
+                            Div(
+                                HTML("""
+                                <div id="discount-percentage-card-body" class="h-full rounded-[1.5rem] border border-base-300 bg-base-100/90 p-4 shadow-sm">
+                                    <div class="mb-3 flex items-center justify-between gap-3">
+                                        <div>
+                                            <p class="text-sm font-bold text-base-content">Desconto em percentual</p>
+                                            <p class="text-xs text-base-content/60">Ideal para manter a mesma política comercial em diferentes totais.</p>
+                                        </div>
+                                        <span class="material-icons text-base-content/40">percent</span>
+                                    </div>
+                                """),
+                                Field("discount_percentage", wrapper_class="mb-0"),
+                                HTML("</div>"),
+                                css_class="h-full",
+                            ),
+                            HTML("</div>"),
                             css_class="mb-8 p-4 bg-base-200/50 rounded-lg",
                         ),
                         # Valor Final
@@ -2794,6 +2859,17 @@ class BudgetStep6Form(CoreModelForm):
         customer_agreed_departure_at_field.error_messages["required"] = Budget.CUSTOMER_AGREED_DEPARTURE_REQUIRED_MESSAGE
         service_expected_completion_at_field.error_messages["required"] = Budget.SERVICE_EXPECTED_COMPLETION_REQUIRED_MESSAGE
 
+        if self.instance and self.instance.pk:
+            autosave_url = reverse("budget:autosave_review_date", args=[self.instance.pk])
+            for field_name in ("customer_agreed_departure_at", "service_expected_completion_at"):
+                self.fields[field_name].widget.attrs.update(
+                    {
+                        "data-budget-review-date-autosave": "1",
+                        "data-autosave-field": field_name,
+                        "data-autosave-url": autosave_url,
+                    }
+                )
+
         budget = _get_budget_with_prefetched_items(self.instance)
 
         status_data = budget.budget_status_badge
@@ -2840,12 +2916,15 @@ class BudgetStep6Form(CoreModelForm):
         signature_blocked_json = "true" if signature_blockers else "false"
         signature_blocked_reason_json = escape(json.dumps(signature_blockers_display))
         can_toggle_signed_pdf = budget.signature_request_status in {SignatureStatus.SENT, SignatureStatus.APPROVED} and bool(budget.signature_external_id or budget.signature_document_id)
-        signed_pdf_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?variant=signed"
-        base_pdf_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?variant=base"
-        signed_pdf_download_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?download=1&variant=signed"
-        base_pdf_download_url = f"{reverse('budget:visualizar_pdf_assinatura', args=[budget.pk])}?download=1&variant=base"
+        default_pdf_url = reverse("budget:visualizar_pdf_assinatura", args=[budget.pk])
+        default_pdf_download_url = f"{default_pdf_url}?download=1"
+        signed_pdf_url = f"{default_pdf_url}?variant=signed"
+        base_pdf_url = f"{default_pdf_url}?variant=base"
+        signed_pdf_download_url = f"{default_pdf_url}?download=1&variant=signed"
+        base_pdf_download_url = f"{default_pdf_url}?download=1&variant=base"
 
-        saved_observation = budget.pdf_observation or ""
+        saved_observation = budget.observations or ""
+        saved_observation_html = escape(saved_observation)
 
         cancellation_reason_html = ""
         if budget.cancellation_reason:
@@ -2864,7 +2943,7 @@ class BudgetStep6Form(CoreModelForm):
             history_rows = "".join(
                 (
                     "<div class='rounded-lg border border-base-300 bg-base-100 p-3'>"
-                    f"<p class='text-sm font-medium text-base-content'>{entry.criado_em.strftime('%d/%m/%Y %H:%M')} - Orçamento reaberto"
+                    f"<p class='text-sm font-medium text-base-content'>{timezone.localtime(entry.criado_em).strftime('%d/%m/%Y %H:%M')} - Orçamento reaberto"
                     f"{f' por {escape(entry.user.get_full_name() or entry.user.username)}' if entry.user else ''}</p>"
                     f"<p class='mt-1 whitespace-pre-line text-sm text-base-content/80'>{escape(entry.reason)}</p>"
                     "</div>"
@@ -2913,10 +2992,30 @@ class BudgetStep6Form(CoreModelForm):
             # =========================
             HTML("""
             <script>
-                function saveObservation(budgetId) {
-                    const observation = document.getElementById('budget-observation').value;
+                window.budgetPdfCacheVersion = Date.now().toString();
 
-                    fetch('/budget/save-observation/', {
+                function withBudgetPdfCache(url) {
+                    if (!url) return '';
+                    const separator = url.includes('?') ? '&' : '?';
+                    return `${url}${separator}_pdfv=${encodeURIComponent(window.budgetPdfCacheVersion)}`;
+                }
+
+                function openBudgetPdfModal(detail) {
+                    const normalizedDetail = { ...(detail || {}) };
+                    normalizedDetail.url = withBudgetPdfCache(normalizedDetail.url || '');
+                    normalizedDetail.downloadUrl = withBudgetPdfCache(normalizedDetail.downloadUrl || '');
+                    normalizedDetail.signedPdfUrl = withBudgetPdfCache(normalizedDetail.signedPdfUrl || '');
+                    normalizedDetail.basePdfUrl = withBudgetPdfCache(normalizedDetail.basePdfUrl || '');
+                    normalizedDetail.signedDownloadUrl = withBudgetPdfCache(normalizedDetail.signedDownloadUrl || '');
+                    normalizedDetail.baseDownloadUrl = withBudgetPdfCache(normalizedDetail.baseDownloadUrl || '');
+                    window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: normalizedDetail }));
+                }
+
+                async function saveObservation(budgetId) {
+                    const observationEl = document.getElementById('budget-observation');
+                    const observation = observationEl ? observationEl.value : '';
+
+                    const response = await fetch('/budget/save-observation/', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -2927,6 +3026,34 @@ class BudgetStep6Form(CoreModelForm):
                             observation: observation,
                         })
                     });
+                    const payload = await response.json().catch(() => ({}));
+
+                    if (!response.ok || payload.success === false) {
+                        document.body.dispatchEvent(new CustomEvent('showToast', {
+                            detail: {
+                                type: 'error',
+                                message: payload.error || 'Falha ao salvar a observação.',
+                            },
+                        }));
+                        return;
+                    }
+
+                    if (observationEl && typeof payload.observation === 'string') {
+                        observationEl.value = payload.observation;
+                    }
+
+                    window.budgetPdfCacheVersion = Date.now().toString();
+                    const pdfModalFrame = document.querySelector('#pdfModal iframe');
+                    if (pdfModalFrame) {
+                        pdfModalFrame.src = 'about:blank';
+                    }
+
+                    document.body.dispatchEvent(new CustomEvent('showToast', {
+                        detail: {
+                            type: 'success',
+                            message: 'Observação salva.',
+                        },
+                    }));
                 }
 
                 function showBlockedStep6Action(message) {
@@ -3256,6 +3383,10 @@ class BudgetStep6Form(CoreModelForm):
                                             <th class="w-[16%] whitespace-nowrap text-right">
                                                 VALOR
                                             </th>
+
+                                            <th class="w-[10%] whitespace-nowrap text-right">
+                                                FRETE
+                                            </th>
                                             
                                             <th class="w-[10%] whitespace-nowrap text-center">
                                                 TEMPO
@@ -3343,44 +3474,44 @@ class BudgetStep6Form(CoreModelForm):
                         HTML(f"""
                         <div class="grid grid-cols-12 gap-3 text-center mb-8">
                             <button type="button" class="btn btn-success col-span-4" data-allow-locked="1"
-                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{signed_pdf_url}', downloadUrl: '{signed_pdf_download_url}', showSignatureBtn: true, signatureButtonLabel: '{signature_button_label}', isSignatureResend: {"true" if is_signature_resend else "false"}, signatureBlocked: {signature_blocked_json}, signatureBlockedReason: {signature_blocked_reason_json}, showPdfVariantToggle: {"true" if can_toggle_signed_pdf else "false"}, pdfVariant: 'signed', signedPdfUrl: '{signed_pdf_url}', basePdfUrl: '{base_pdf_url}', signedDownloadUrl: '{signed_pdf_download_url}', baseDownloadUrl: '{base_pdf_download_url}' }} }}))">
+                                onclick="openBudgetPdfModal({{ url: '{default_pdf_url}', downloadUrl: '{default_pdf_download_url}', showSignatureBtn: true, signatureButtonLabel: '{signature_button_label}', isSignatureResend: {"true" if is_signature_resend else "false"}, signatureBlocked: {signature_blocked_json}, signatureBlockedReason: {signature_blocked_reason_json}, showPdfVariantToggle: {"true" if can_toggle_signed_pdf else "false"}, pdfVariant: '', signedPdfUrl: '{signed_pdf_url}', basePdfUrl: '{base_pdf_url}', signedDownloadUrl: '{signed_pdf_download_url}', baseDownloadUrl: '{base_pdf_download_url}' }})">
                                 PDF Cliente
                             </button>
 
                             <button type="button" class="btn btn-success col-span-4" data-allow-locked="1"
-                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf_gestor", args=[budget.pk])}', showSignatureBtn: false }} }}))">
+                                onclick="openBudgetPdfModal({{ url: '{reverse("budget:visualizar_pdf_gestor", args=[budget.pk])}', downloadUrl: '{reverse("budget:download_pdf_gestor", args=[budget.pk])}', showSignatureBtn: false }})">
                                 PDF Gestor
                             </button>
 
                             <button type="button" class="btn btn-success col-span-4" data-allow-locked="1"
-                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {{ detail: {{ url: '{reverse("budget:visualizar_pdf_mecanico", args=[budget.pk])}', showSignatureBtn: false }} }}))">
+                                onclick="openBudgetPdfModal({{ url: '{reverse("budget:visualizar_pdf_mecanico", args=[budget.pk])}', showSignatureBtn: false }})">
                                 PDF Mecânico
                             </button>
                         </div>
                         """),
                         css_class="p-4 bg-base-200/50 rounded-lg",
                     ),
-                    # -------- OBSERVAÇÃO --------
+                    # -------- OBSERVAÇÕES DO ORÇAMENTO --------
                     Div(
                         HTML('<h4 class="font-bold text-lg mb-2 border-b">Observação</h4>'),
                         HTML(f"""
-                        <div class="flex flex-col gap-3 mb-8">
-                            <textarea
-                                class="textarea textarea-bordered w-full"
-                                rows="4"
-                                id="budget-observation"
-                                placeholder="Digite uma observação para o PDF..."
-                            >{saved_observation}</textarea>
+                                                <div class="flex flex-col gap-3 mb-8">
+                                                    <textarea
+                                                        class="textarea textarea-bordered w-full"
+                                                        rows="4"
+                                                        id="budget-observation"
+                                                        placeholder="Digite uma observação para o PDF..."
+                                                    >{saved_observation_html}</textarea>
 
-                            <div class="flex justify-end items-center">
-                                <button type="button"
-                                        class="btn btn-sm btn-primary"
-                                        onclick="saveObservation({budget.pk})">
-                                    Salvar observação
-                                </button>
-                            </div>
-                        </div>
-                        """),
+                                                    <div class="flex justify-end items-center">
+                                                        <button type="button"
+                                                                class="btn btn-sm btn-primary"
+                                                                onclick="saveObservation({budget.pk})">
+                                                            Salvar observação
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                """),
                         css_class="p-4 bg-base-200/50 rounded-lg",
                     ),
                     # -------- APROVAÇÃO --------
@@ -3408,7 +3539,7 @@ class BudgetStep6Form(CoreModelForm):
                                 Reprovar
                             </button>
 
-                            {f"<button type='button' class='btn btn-outline col-span-12' data-allow-locked='1' onclick='updateBudgetStatus({budget.pk}, &#39;reopen&#39;, {str(bool(self.request and self.workshop and has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label='budget', model='budget', codename='add_budget', request=self.request))).lower()})'>Reabrir Orçamento</button>" if budget.is_status_locked else ""}
+                            {f"<button type='button' class='btn btn-warning col-span-12' data-allow-locked='1' onclick='updateBudgetStatus({budget.pk}, &#39;reopen&#39;, {str(bool(self.request and self.workshop and has_workshop_perm(user=self.request.user, workshop=self.workshop, app_label='budget', model='budget', codename='add_budget', request=self.request))).lower()})'>Reabrir Orçamento</button>" if budget.is_status_locked else ""}
 
                             {f"<div id='reopen-budget-form' class='col-span-12 mt-2 space-y-3 rounded-xl border border-warning/40 bg-warning/10 p-4 hidden' data-allow-locked='1'><p class='text-sm text-base-content/80' data-allow-locked='1'>Informe a justificativa da reabertura antes de concluir esta ação.</p><textarea id='reopen-reason-input' class='textarea textarea-bordered w-full' rows='4' placeholder='Explique por que este orçamento deve ser reaberto...' data-allow-locked='1'></textarea><div class='flex flex-wrap gap-3' data-allow-locked='1'><button type='button' class='btn btn-warning' data-allow-locked='1' onclick='confirmReopenBudgetStatus({budget.pk})'>Confirmar reabertura</button><button type='button' class='btn btn-ghost' data-allow-locked='1' onclick='cancelReopenBudgetStatus()'>Fechar</button></div></div>" if budget.is_status_locked else ""}
                         </div>
@@ -3445,7 +3576,7 @@ class BudgetStep6Form(CoreModelForm):
                                 :data-is-resend="isSignatureResend ? 'true' : 'false'"
                                 :data-blocked="signatureBlocked ? 'true' : 'false'"
                                 :data-blocked-reason="signatureBlockedReason"
-                                :class="signatureBlocked ? 'opacity-60 cursor-not-allowed' : 'btn-primary'"
+                                :class="signatureBlocked ? 'btn-neutral opacity-60 pointer-events-none' : 'btn-primary'"
                                 :aria-disabled="signatureBlocked ? 'true' : 'false'"
                                 :title="signatureBlockedReason"
                                 onclick="if (this.dataset.blocked === 'true') { showBlockedStep6Action(this.dataset.blockedReason); return; } sendBudgetForSignature(this)">
@@ -3616,6 +3747,19 @@ class BudgetStep6Form(CoreModelForm):
 
                   </div>
                 </dialog>
+            """),
+            HTML("""
+                <script>
+                    (function() {
+                        if (window.location.search.includes('reopen=1')) {
+                            const btn = document.querySelector('[onclick*="reopen"]');
+                            if (btn) {
+                                btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                btn.click();
+                            }
+                        }
+                    })();
+                </script>
             """),
         )
 

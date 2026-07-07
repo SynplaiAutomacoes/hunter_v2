@@ -11,13 +11,13 @@ from django.utils import timezone
 from djmoney.models.fields import MoneyField
 from djmoney.money import Money
 
-from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot
+from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, money_from_decimal
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.price_tracking import record_product_last_used_price
 from apps.catalog.product_issues import ProductIssueSummary, annotate_product_issues
-from apps.core.models import TimeStampedModel
+from apps.core.infrastructure.models import TimeStampedModel
 from apps.finance.models.payment_method import PaymentMethod
 
 
@@ -49,6 +49,12 @@ class WorkOrderSignatureStatus(models.TextChoices):
     APPROVED = "approved", "Aprovado"
 
 
+class WorkOrderDiscountType(models.TextChoices):
+    PRODUCTS = "products", "Apenas Produtos"
+    SERVICES = "services", "Apenas Serviços"
+    BOTH = "both", "Produtos e Serviços"
+
+
 class WorkOrder(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="workorders")
     budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="workorders", help_text="Orçamento Aprovado vinculado à esta O.S.")
@@ -56,6 +62,7 @@ class WorkOrder(TimeStampedModel):
     status = models.CharField(verbose_name="Status", max_length=20, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
     discount_value = MoneyField(verbose_name="Desconto da O.S. (R$)", max_digits=14, decimal_places=2, default=0.00)
     discount_percentage = models.DecimalField(verbose_name="Desconto da O.S. (%)", max_digits=7, decimal_places=6, default=Decimal("0.00"), validators=[MinValueValidator(0), MaxValueValidator(1)])
+    discount_type = models.CharField(verbose_name="Tipo de Desconto", max_length=10, choices=WorkOrderDiscountType.choices, default=WorkOrderDiscountType.BOTH)
     signature_token_version = models.PositiveIntegerField(verbose_name="ID do PDF da Ordem de Serviço", default=1)
     signature_token_active = models.BooleanField(verbose_name="Token de Assinatura Ativo", default=True)
     signature_request_status = models.CharField(max_length=30, choices=WorkOrderSignatureStatus.choices, default=WorkOrderSignatureStatus.NOT_SENT)
@@ -69,10 +76,13 @@ class WorkOrder(TimeStampedModel):
     reopen_reason = models.TextField(verbose_name="Justificativa da reabertura", blank=True)
     km_final = models.PositiveIntegerField(verbose_name="KM Final", null=True, blank=True)
     budget_type = models.CharField(verbose_name="Tipo", max_length=50, choices=[("sale", "Venda"), ("warranty", "Garantia"), ("courtesy", "Cortesia")], default="sale")
+    pricing_method = models.CharField(verbose_name="Método de Precificação", max_length=20, choices=[("hunter", "Hunter"), ("traditional", "Tradicional")], null=True, blank=True)
 
     def save(self, *args, **kwargs):
         if self.budget_id:
             self.budget_type = self.budget.budget_type
+            if not self.pricing_method and self.budget.pricing_method:
+                self.pricing_method = self.budget.pricing_method
         super().save(*args, **kwargs)
 
     @property
@@ -170,28 +180,21 @@ class WorkOrder(TimeStampedModel):
         duracao_em_horas = Decimal(self._raw_labor_duration().total_seconds()) / Decimal(3600)
         return self.mechanic_hour_cost_value * duracao_em_horas
 
+    def _build_pricing_snapshot(self, labor_selling_value_override: Money | None = None) -> PricingSnapshot:
+        return build_pricing_snapshot(
+            items=list(self._iter_items()),
+            slider=int(getattr(self.budget, "slider", 0) or 0),
+            discount_value=self.discount_value,
+            discount_percentage=self.discount_percentage,
+            labor_cost_value=self.total_labor_cost_value,
+            labor_selling_value_override=labor_selling_value_override,
+        )
+
     @property
     def pricing_snapshot(self) -> PricingSnapshot:
         cached_snapshot = getattr(self, "_pricing_snapshot_cache", None)
         if cached_snapshot is None:
-            cached_snapshot = build_pricing_snapshot(
-                items=list(self._iter_items()),
-                slider=int(getattr(self.budget, "slider", 0) or 0),
-                discount_value=self.discount_value,
-                labor_cost_value=self.total_labor_cost_value,
-            )
-            setattr(self, "_pricing_snapshot_cache", cached_snapshot)
-
-            pricing_method_data = self.calculate_pricing_methods()
-            labor_selling_value_override = pricing_method_data.get("venda_mao_obra") if pricing_method_data.get("method_name") == "Tradicional" else None
-            if isinstance(labor_selling_value_override, Money):
-                cached_snapshot = build_pricing_snapshot(
-                    items=list(self._iter_items()),
-                    slider=int(getattr(self.budget, "slider", 0) or 0),
-                    discount_value=self.discount_value,
-                    labor_cost_value=self.total_labor_cost_value,
-                    labor_selling_value_override=labor_selling_value_override,
-                )
+            cached_snapshot = self._build_pricing_snapshot()
             setattr(self, "_pricing_snapshot_cache", cached_snapshot)
         return cached_snapshot
 
@@ -220,12 +223,13 @@ class WorkOrder(TimeStampedModel):
     @property
     def paid_value(self) -> Money:
         paid_amount = sum((payment.total_paid.amount for payment in self.iter_payments()), start=Decimal("0.00"))
-        return Money(paid_amount, "BRL")
+        return money_from_decimal(paid_amount)
 
     @property
     def pending_payment_value(self) -> Money:
-        pending_amount = max(Decimal("0.00"), self.total_budget_value.amount - self.paid_value.amount)
-        return Money(pending_amount, "BRL")
+        total_amount = money_from_decimal(self.total_budget_value.amount).amount
+        pending_amount = max(Decimal("0.00"), total_amount - self.paid_value.amount)
+        return money_from_decimal(pending_amount)
 
     @property
     def is_fully_paid(self) -> bool:
@@ -233,6 +237,8 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def payment_block_reason(self) -> str | None:
+        if self.budget_type in ("warranty", "courtesy"):
+            return None
         if self.is_fully_paid:
             return None
         return "Receba o pagamento integral da ordem de serviço antes de enviar para assinatura ou entregar o veículo."
@@ -310,7 +316,7 @@ class WorkOrder(TimeStampedModel):
 
     def mark_signature_approved(self) -> None:
         self.signature_request_status = WorkOrderSignatureStatus.APPROVED
-        if not self.is_fully_paid:
+        if not self.is_fully_paid and self.budget_type not in ("warranty", "courtesy"):
             self.save(update_fields=["signature_request_status"])
             return
         self.status = WorkOrderStatus.APPROVED
@@ -360,12 +366,29 @@ class WorkOrder(TimeStampedModel):
 
         self.save(update_fields=["status", "delivered_at", "reopen_reason"])
 
-    def apply_discount(self, value: Money, percentage: Decimal) -> None:
+    def apply_discount(self, value: Money, percentage: Decimal, discount_type: str | None = None) -> None:
         self.discount_value = value
         self.discount_percentage = percentage
+        update_fields = ["discount_value", "discount_percentage"]
+        if discount_type is not None:
+            self.discount_type = discount_type
+            update_fields.append("discount_type")
 
-        self.save(update_fields=["discount_value", "discount_percentage"])
+        self.save(update_fields=update_fields)
         self.invalidate_pricing_snapshot_cache()
+
+    def set_km_final(self, km_final: int) -> None:
+        self.km_final = km_final
+        self.save(update_fields=["km_final"])
+
+    def set_unsigned_delivery_reason(self, reason: str) -> None:
+        self.unsigned_delivery_reason = reason
+        self.save(update_fields=["unsigned_delivery_reason"])
+
+    def complete_delivery(self, *, km_final: int, unsigned_delivery_reason: str = "") -> None:
+        self.km_final = km_final
+        self.unsigned_delivery_reason = unsigned_delivery_reason
+        self.save(update_fields=["km_final", "unsigned_delivery_reason"])
 
     @property
     def total_products_shipping(self) -> Money:
@@ -421,119 +444,197 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def total_duration_display(self) -> str:
-        total_td = self.total_duration
-        if not total_td:
-            return "00h 00m"
+        return self._format_duration_display(self.total_duration)
 
-        ts = int(total_td.total_seconds())
-        return f"{ts // 3600:02d}h {(ts % 3600) // 60:02d}m"
+    def _extract_snapshot_values(self, snapshot: PricingSnapshot | None = None) -> dict[str, Any]:
+        if snapshot is not None:
+            return {
+                "total_duration": snapshot.total_duration,
+                "total_duration_display": snapshot.total_duration,
+                "total_costs_products_value": snapshot.total_costs_products_value,
+                "total_products_shipping": snapshot.total_products_shipping,
+                "total_third_party_services_cost": snapshot.total_third_party_services_cost,
+                "total_products_value": snapshot.total_products_value,
+                "total_third_party_services_selling": snapshot.total_third_party_services_selling,
+                "total_services_value": snapshot.total_services_value,
+            }
+        return {
+            "total_duration": self.total_duration,
+            "total_duration_display": self.total_duration,
+            "total_costs_products_value": self.total_costs_products_value,
+            "total_products_shipping": self.total_products_shipping,
+            "total_third_party_services_cost": self.total_third_party_services_cost,
+            "total_products_value": self.total_products_value,
+            "total_third_party_services_selling": self.total_third_party_services_selling,
+            "total_services_value": self.total_services_value,
+        }
 
-    def calculate_pricing_methods(self):
-        fallback_data = self._build_pricing_fallback_data()
+    def calculate_pricing_methods(self, snapshot: PricingSnapshot | None = None):
+        v = self._extract_snapshot_values(snapshot)
+        duracao_total_td = v["total_duration"]
+        duracao_total = Decimal(duracao_total_td.total_seconds()) / Decimal(3600)
+        duracao_display = self._format_duration_display(duracao_total_td)
+
         pricing_context = self.budget.get_frozen_pricing_context()
         salario_mecanicos = pricing_context.productive_salary_total
-        mlr = pricing_context.profitability_multiplier
-        duracao_total = Decimal(self.total_duration.total_seconds()) / Decimal(3600)
         horas_uteis_mes = pricing_context.working_hours_per_month
 
         if not horas_uteis_mes or horas_uteis_mes == 0:
-            return fallback_data
+            return self._fallback_pricing_data(v, duracao_display)
 
-        custo_pecas = self.total_costs_products_value
-        custo_frete_pecas = self.total_products_shipping
-        custo_servico_terceiro = self.total_third_party_services_cost
+        custo_pecas = v["total_costs_products_value"]
+        custo_frete_pecas = v["total_products_shipping"]
+        custo_servico_terceiro = v["total_third_party_services_cost"]
         custo_hora_mecanico = salario_mecanicos / horas_uteis_mes
         custo_total_mao_obra = duracao_total * custo_hora_mecanico
 
-        venda_pecas = self.total_products_value - custo_frete_pecas
-        venda_servico_terceiro = self.total_third_party_services_selling
+        venda_pecas = v["total_products_value"] - custo_frete_pecas
+        venda_servico_terceiro = v["total_third_party_services_selling"]
 
         divisor_mlo = (custo_pecas + custo_frete_pecas + custo_servico_terceiro + custo_total_mao_obra).amount
         soma_base_orcamento = venda_pecas + custo_frete_pecas + venda_servico_terceiro
         subtracao_base_lucro = custo_pecas + custo_frete_pecas + custo_total_mao_obra + custo_servico_terceiro
 
-        valor_hora_vendida_trad = pricing_context.hourly_cost_value
-        venda_mao_obra_trad = valor_hora_vendida_trad * duracao_total
-        valor_orcamento_trad = soma_base_orcamento + venda_mao_obra_trad
-        lucro_operacional_trad = valor_orcamento_trad - subtracao_base_lucro
-        if valor_orcamento_trad.amount > 0:
-            rentabilidade_trad = ((lucro_operacional_trad.amount / valor_orcamento_trad.amount) * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
-        else:
-            rentabilidade_trad = Decimal("0.00")
+        trad_data = self._build_tradicional_method_data(
+            pricing_context=pricing_context,
+            duracao_total=duracao_total,
+            duracao_display=duracao_display,
+            custo_pecas=custo_pecas,
+            custo_frete_pecas=custo_frete_pecas,
+            custo_servico_terceiro=custo_servico_terceiro,
+            custo_hora_mecanico=custo_hora_mecanico,
+            custo_total_mao_obra=custo_total_mao_obra,
+            venda_pecas=venda_pecas,
+            venda_servico_terceiro=venda_servico_terceiro,
+            soma_base_orcamento=soma_base_orcamento,
+            subtracao_base_lucro=subtracao_base_lucro,
+            divisor_mlo=divisor_mlo,
+        )
 
-        venda_mao_obra_hun = self.total_services_value - venda_servico_terceiro
-        valor_orcamento_hun = soma_base_orcamento + venda_mao_obra_hun
-        mlo = valor_orcamento_hun.amount / divisor_mlo if divisor_mlo > 0 else 0
-        lucro_operacional_hun = valor_orcamento_hun - subtracao_base_lucro
-        if valor_orcamento_hun.amount > 0:
-            rentabilidade_hun = ((lucro_operacional_hun.amount / valor_orcamento_hun.amount) * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
-        else:
-            rentabilidade_hun = Decimal("0.00")
+        hun_data = self._build_hunter_method_data(
+            duracao_display=duracao_display,
+            custo_pecas=custo_pecas,
+            custo_frete_pecas=custo_frete_pecas,
+            custo_servico_terceiro=custo_servico_terceiro,
+            custo_hora_mecanico=custo_hora_mecanico,
+            custo_total_mao_obra=custo_total_mao_obra,
+            venda_pecas=venda_pecas,
+            venda_servico_terceiro=venda_servico_terceiro,
+            venda_mao_obra_hun=v["total_services_value"] - venda_servico_terceiro,
+            soma_base_orcamento=soma_base_orcamento,
+            subtracao_base_lucro=subtracao_base_lucro,
+            divisor_mlo=divisor_mlo,
+        )
 
-        data_trad = {
+        return trad_data if trad_data["rentabilidade"] > hun_data["rentabilidade"] else hun_data
+
+    def _build_tradicional_method_data(
+        self,
+        *,
+        pricing_context,
+        duracao_total,
+        duracao_display,
+        custo_pecas,
+        custo_frete_pecas,
+        custo_servico_terceiro,
+        custo_hora_mecanico,
+        custo_total_mao_obra,
+        venda_pecas,
+        venda_servico_terceiro,
+        soma_base_orcamento,
+        subtracao_base_lucro,
+        divisor_mlo,
+    ) -> dict[str, Any]:
+        valor_hora_vendida = pricing_context.hourly_cost_value
+        venda_mao_obra = valor_hora_vendida * duracao_total
+        valor_orcamento = soma_base_orcamento + venda_mao_obra
+        lucro_operacional = valor_orcamento - subtracao_base_lucro
+        rentabilidade = self._calc_rentabilidade(valor_orcamento, lucro_operacional)
+        mlo = self._calc_mlo(divisor_mlo, valor_orcamento)
+        return {
             "method_name": "Tradicional",
             "custo_pecas": custo_pecas,
             "custo_frete_pecas": custo_frete_pecas,
             "custo_servico_terceiro": custo_servico_terceiro,
             "custo_hora_mecanico": custo_hora_mecanico,
             "custo_total_mao_obra": custo_total_mao_obra,
-            "duracao_total": self.total_duration_display,
-            "lucro_operacional": lucro_operacional_trad,
-            "mlr": mlr,
+            "duracao_total": duracao_display,
+            "lucro_operacional": lucro_operacional,
+            "mlr": pricing_context.profitability_multiplier,
             "mlo": mlo,
             "venda_pecas": venda_pecas,
             "venda_servico_terceiro": venda_servico_terceiro,
-            "venda_mao_obra": venda_mao_obra_trad,
-            "rentabilidade": rentabilidade_trad,
-            "valor_orcamento": valor_orcamento_trad,
+            "venda_mao_obra": venda_mao_obra,
+            "rentabilidade": rentabilidade,
+            "valor_orcamento": valor_orcamento,
         }
 
-        data_hun = {
+    def _build_hunter_method_data(
+        self,
+        *,
+        duracao_display,
+        custo_pecas,
+        custo_frete_pecas,
+        custo_servico_terceiro,
+        custo_hora_mecanico,
+        custo_total_mao_obra,
+        venda_pecas,
+        venda_servico_terceiro,
+        venda_mao_obra_hun,
+        soma_base_orcamento,
+        subtracao_base_lucro,
+        divisor_mlo,
+    ) -> dict[str, Any]:
+        valor_orcamento = soma_base_orcamento + venda_mao_obra_hun
+        lucro_operacional = valor_orcamento - subtracao_base_lucro
+        rentabilidade = self._calc_rentabilidade(valor_orcamento, lucro_operacional)
+        mlo = self._calc_mlo(divisor_mlo, valor_orcamento)
+        return {
             "method_name": "Hunter",
             "custo_pecas": custo_pecas,
             "custo_frete_pecas": custo_frete_pecas,
             "custo_servico_terceiro": custo_servico_terceiro,
             "custo_hora_mecanico": custo_hora_mecanico,
             "custo_total_mao_obra": custo_total_mao_obra,
-            "duracao_total": self.total_duration_display,
-            "lucro_operacional": lucro_operacional_hun,
-            "mlr": mlr,
+            "duracao_total": duracao_display,
+            "lucro_operacional": lucro_operacional,
+            "mlr": Decimal("0.00"),
             "venda_pecas": venda_pecas,
             "venda_servico_terceiro": venda_servico_terceiro,
             "venda_mao_obra": venda_mao_obra_hun,
-            "rentabilidade": rentabilidade_hun,
+            "rentabilidade": rentabilidade,
             "mlo": mlo,
-            "valor_orcamento": valor_orcamento_hun,
+            "valor_orcamento": valor_orcamento,
         }
 
-        return data_trad if rentabilidade_trad > rentabilidade_hun else data_hun
-
-    def _build_pricing_fallback_data(self) -> dict[str, Any]:
-        custo_pecas = self.total_costs_products_value
-        custo_frete_pecas = self.total_products_shipping
-        custo_servico_terceiro = self.total_third_party_services_cost
-        custo_hora_mecanico = Money(0, "BRL")
-        custo_total_mao_obra = Money(0, "BRL")
-
-        venda_pecas = self.total_products_value - custo_frete_pecas
-        venda_servico_terceiro = self.total_third_party_services_selling
-        venda_mao_obra = self.total_services_value - venda_servico_terceiro
-        valor_orcamento = self.total_products_value + self.total_services_value
-        lucro_operacional = valor_orcamento - (custo_pecas + custo_frete_pecas + custo_total_mao_obra + custo_servico_terceiro)
-
+    def _calc_rentabilidade(self, valor_orcamento: Money, lucro_operacional: Money) -> Decimal:
         if valor_orcamento.amount > 0:
-            rentabilidade = ((lucro_operacional.amount / valor_orcamento.amount) * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
-        else:
-            rentabilidade = Decimal("0.00")
+            return ((lucro_operacional.amount / valor_orcamento.amount) * 100).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        return Decimal("0.00")
 
+    def _calc_mlo(self, divisor_mlo: Decimal, valor_orcamento: Money) -> Decimal:
+        if divisor_mlo > 0:
+            return (valor_orcamento.amount / divisor_mlo).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        return Decimal("0.00")
+
+    def _fallback_pricing_data(self, v: dict[str, Any], duracao_display: str) -> dict[str, Any]:
+        custo_pecas = v["total_costs_products_value"]
+        custo_frete_pecas = v["total_products_shipping"]
+        custo_servico_terceiro = v["total_third_party_services_cost"]
+        venda_pecas = v["total_products_value"] - custo_frete_pecas
+        venda_servico_terceiro = v["total_third_party_services_selling"]
+        venda_mao_obra = v["total_services_value"] - venda_servico_terceiro
+        valor_orcamento = v["total_products_value"] + v["total_services_value"]
+        lucro_operacional = valor_orcamento - (custo_pecas + custo_frete_pecas + custo_servico_terceiro)
+        rentabilidade = self._calc_rentabilidade(valor_orcamento, lucro_operacional)
         return {
             "method_name": "Base",
             "custo_pecas": custo_pecas,
             "custo_frete_pecas": custo_frete_pecas,
             "custo_servico_terceiro": custo_servico_terceiro,
-            "custo_hora_mecanico": custo_hora_mecanico,
-            "custo_total_mao_obra": custo_total_mao_obra,
-            "duracao_total": self.total_duration_display,
+            "custo_hora_mecanico": Money(0, "BRL"),
+            "custo_total_mao_obra": Money(0, "BRL"),
+            "duracao_total": duracao_display,
             "lucro_operacional": lucro_operacional,
             "mlr": Decimal("0.00"),
             "venda_pecas": venda_pecas,
@@ -544,6 +645,13 @@ class WorkOrder(TimeStampedModel):
             "valor_orcamento": valor_orcamento,
         }
 
+    @staticmethod
+    def _format_duration_display(duration: timedelta) -> str:
+        if not duration:
+            return "00h 00m"
+        ts = int(duration.total_seconds())
+        return f"{ts // 3600:02d}h {(ts % 3600) // 60:02d}m"
+
     @property
     def total_base_value(self) -> Money:
         return self.pricing_snapshot.total_base_value
@@ -552,7 +660,17 @@ class WorkOrder(TimeStampedModel):
     def total_budget_value(self) -> Money:
         return self.pricing_snapshot.total_budget_value
 
+    @property
+    def resolved_discount_value(self) -> Money:
+        return self.pricing_snapshot.resolved_discount_value
+
     def sync_from_budget(self) -> None:
+        """Sync work order items from the linked budget, freezing all prices.
+
+        Deletes all existing items and recreates them from budget items,
+        copying frozen prices, descriptions, overrides, and quantities.
+        After sync, all kit items are marked as kit_snapshot_frozen = True.
+        """
         from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
 
         budget_items = list(
@@ -617,9 +735,14 @@ class WorkOrder(TimeStampedModel):
             if overrides_to_create:
                 WorkOrderKitItemOverride.objects.bulk_create(overrides_to_create)
 
+            kit_item_ids = [item.id for item in workorder_items if item.kit_id]
+            if kit_item_ids:
+                WorkOrderItem.objects.filter(id__in=kit_item_ids).update(kit_snapshot_frozen=True)
+
             self.discount_value = self.budget.resolved_discount_value
             self.discount_percentage = self.budget.resolved_discount_percentage
-            self.save(update_fields=["discount_value", "discount_percentage"])
+            self.discount_type = self.budget.discount_type
+            self.save(update_fields=["discount_value", "discount_percentage", "discount_type"])
 
             collaborator_ids = list(self.budget.collaborators.values_list("id", flat=True))
             if not collaborator_ids and self.budget.collaborator_id:
@@ -656,7 +779,7 @@ class WorkOrderPaymentMethod(TimeStampedModel):
 
     @property
     def total_paid(self) -> Money:
-        return Money(self.first_installment_amount.amount + ((self.installments_count - 1) * self.remaining_installments_amount.amount), "BRL")
+        return money_from_decimal(self.first_installment_amount.amount + ((self.installments_count - 1) * self.remaining_installments_amount.amount))
 
     def __str__(self):
         return f"Plano de Pagamento #{self.id} - {self.payment_method}"
@@ -677,6 +800,21 @@ class WorkOrderAttachment(TimeStampedModel):
 
 
 class WorkOrderItem(TimeStampedModel):
+    """An item (product, service, or kit) within a WorkOrder.
+
+    --- Freeze (congelamento) rule ---
+    On creation, all relevant catalog data is COPIED (frozen) into this item:
+    - Product: cost_price, selling_price, description
+    - Service: cost_price, selling_price, duration, description
+    - Kit: ensure_kit_snapshot() creates WorkOrderKitItemOverride records for
+      EVERY kit component, freezing each product and service individually.
+
+    After creation, changes to the catalog do NOT affect this item.
+    The only ways to update frozen data are:
+    1. Manual editing via WorkOrderKitEditView
+    2. Re-sync from the linked budget via sync_from_budget()
+    """
+
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="workorder_items")
     workorder = models.ForeignKey(WorkOrder, on_delete=models.CASCADE, related_name="items")
 
@@ -694,6 +832,112 @@ class WorkOrderItem(TimeStampedModel):
     service_cost_price = MoneyField(verbose_name="Custo", max_digits=14, decimal_places=2, default=0)
     service_selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2, default=0)
     duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
+    kit_snapshot_frozen = models.BooleanField(verbose_name="Kit snapshot frozen", default=False)
+
+    def _clear_kit_snapshot_caches(self) -> None:
+        for cache_name in ("_kit_override_maps_cache", "_kit_unit_totals_cache"):
+            if hasattr(self, cache_name):
+                delattr(self, cache_name)
+
+    def ensure_kit_snapshot(self) -> None:
+        """Freeze all kit components by creating WorkOrderKitItemOverride records.
+
+        Iterates every product and service in the kit and creates/updates
+        an override record with the current catalog prices. Once created,
+        the snapshot is marked as frozen so this method is idempotent.
+
+        Called automatically on first save() and defensively from any method
+        that reads kit overrides (_get_kit_override_maps, _iter_frozen_kit_*).
+        """
+        if not self.pk or not self.kit_id or self.kit_snapshot_frozen:
+            return
+
+        existing_overrides = list(self.kit_overrides.select_related("product", "service").all())
+        product_overrides = {ov.product_id: ov for ov in existing_overrides if ov.product_id}
+        service_overrides = {ov.service_id: ov for ov in existing_overrides if ov.service_id}
+
+        with transaction.atomic():
+            for kit_product in self.kit.kit_products.select_related("product").all():
+                override = product_overrides.get(kit_product.product_id)
+                WorkOrderKitItemOverride.objects.update_or_create(
+                    workshop=self.workshop,
+                    workorder_item=self,
+                    product=kit_product.product,
+                    defaults={
+                        "quantity": override.quantity if override else kit_product.quantity,
+                        "product_cost_price": override.product_cost_price if override else kit_product.product.cost_price,
+                        "product_selling_price": override.product_selling_price if override else kit_product.product.selling_price,
+                        "shipping": override.shipping if override else Money(0, "BRL"),
+                    },
+                )
+
+            for kit_service in self.kit.kit_services.select_related("service").all():
+                override = service_overrides.get(kit_service.service_id)
+                default_cost = kit_service.resolved_cost_price
+                default_sell = kit_service.resolved_selling_price
+                WorkOrderKitItemOverride.objects.update_or_create(
+                    workshop=self.workshop,
+                    workorder_item=self,
+                    service=kit_service.service,
+                    defaults={
+                        "quantity": override.quantity if override else kit_service.quantity,
+                        "service_cost_price": override.service_cost_price if override else default_cost,
+                        "service_selling_price": override.service_selling_price if override else default_sell,
+                        "duration": override.duration if override else (kit_service.duration or timedelta()),
+                    },
+                )
+
+            WorkOrderItem.objects.filter(pk=self.pk, kit_snapshot_frozen=False).update(kit_snapshot_frozen=True)
+
+        self.kit_snapshot_frozen = True
+        self._clear_kit_snapshot_caches()
+        self.refresh_kit_snapshot_totals()
+
+    def refresh_kit_snapshot_totals(self) -> None:
+        """Recalculate aggregate price fields from current override records.
+
+        Updates product_selling_price, product_cost_price, service_selling_price,
+        service_cost_price, and duration on this item to match the sum of its
+        frozen override records. Called after ensure_kit_snapshot().
+        """
+        if not self.pk or not self.kit_id:
+            return
+
+        self._clear_kit_snapshot_caches()
+
+        product_cost_total = Money(0, "BRL")
+        product_selling_total = Money(0, "BRL")
+        service_cost_total = Money(0, "BRL")
+        service_selling_total = Money(0, "BRL")
+        total_duration = timedelta()
+
+        for override in self._iter_frozen_kit_product_overrides():
+            if override.quantity <= 0:
+                continue
+            product_cost_total += override.product_cost_price * override.quantity
+            product_selling_total += override.product_selling_price * override.quantity
+
+        for override in self._iter_frozen_kit_service_overrides():
+            if override.quantity <= 0:
+                continue
+            service_cost_total += override.service_cost_price * override.quantity
+            service_selling_total += override.service_selling_price * override.quantity
+            if override.duration:
+                total_duration += override.duration * override.quantity
+
+        WorkOrderItem.objects.filter(pk=self.pk).update(
+            product_cost_price=product_cost_total,
+            product_selling_price=product_selling_total,
+            service_cost_price=service_cost_total,
+            service_selling_price=service_selling_total,
+            duration=total_duration,
+        )
+
+        self.product_cost_price = product_cost_total
+        self.product_selling_price = product_selling_total
+        self.service_cost_price = service_cost_total
+        self.service_selling_price = service_selling_total
+        self.duration = total_duration
 
     def save(self, *args, **kwargs):
         if not self.pk:
@@ -719,6 +963,9 @@ class WorkOrderItem(TimeStampedModel):
                 self.description = self.kit.name
 
         super().save(*args, **kwargs)
+
+        if self.kit_id and not self.kit_snapshot_frozen:
+            self.ensure_kit_snapshot()
 
         self.workorder.invalidate_pricing_snapshot_cache()
 
@@ -746,10 +993,32 @@ class WorkOrderItem(TimeStampedModel):
 
         return f"{hours:02d}h {minutes:02d}m"
 
+    def _iter_frozen_kit_product_overrides(self):
+        """Yield non-zero-quantity product overrides, creating snapshot if needed."""
+        if not self.kit_id:
+            return
+        self.ensure_kit_snapshot()
+        for override in self.kit_overrides.filter(product__isnull=False).select_related("product").all():
+            if override.quantity > 0:
+                yield override
+
+    def _iter_frozen_kit_service_overrides(self):
+        """Yield non-zero-quantity service overrides, creating snapshot if needed."""
+        if not self.kit_id:
+            return
+        self.ensure_kit_snapshot()
+        for override in self.kit_overrides.filter(service__isnull=False).select_related("service").all():
+            if override.quantity > 0:
+                yield override
+
     def _get_kit_override_maps(self) -> tuple[dict[int, "WorkOrderKitItemOverride"], dict[int, "WorkOrderKitItemOverride"]]:
+        """Return (product_overrides, service_overrides) dicts keyed by component ID."""
         cache = getattr(self, "_kit_override_maps_cache", None)
         if cache is not None:
             return cache
+
+        if self.kit_id:
+            self.ensure_kit_snapshot()
 
         product_overrides: dict[int, "WorkOrderKitItemOverride"] = {}
         service_overrides: dict[int, "WorkOrderKitItemOverride"] = {}
@@ -789,16 +1058,10 @@ class WorkOrderItem(TimeStampedModel):
         if not self.kit:
             return []
 
-        product_overrides, _ = self._get_kit_override_maps()
         products: list[dict[str, Any]] = []
 
-        for kit_product in self._iter_kit_products():
-            override = product_overrides.get(kit_product.product_id)
-            quantity = override.quantity if override else kit_product.quantity
-            if quantity <= 0:
-                continue
-
-            products.append({"id": kit_product.product_id, "name": kit_product.product.name, "quantity": quantity})
+        for override in self._iter_frozen_kit_product_overrides():
+            products.append({"id": override.product_id, "name": override.product.name, "quantity": override.quantity})
 
         return products
 
@@ -807,16 +1070,10 @@ class WorkOrderItem(TimeStampedModel):
         if not self.kit:
             return []
 
-        _, service_overrides = self._get_kit_override_maps()
         services: list[dict[str, Any]] = []
 
-        for kit_service in self._iter_kit_services():
-            override = service_overrides.get(kit_service.service_id)
-            quantity = override.quantity if override else kit_service.quantity
-            if quantity <= 0:
-                continue
-
-            services.append({"id": kit_service.service_id, "name": kit_service.service.name, "quantity": quantity})
+        for override in self._iter_frozen_kit_service_overrides():
+            services.append({"id": override.service_id, "name": override.service.name, "quantity": override.quantity})
 
         return services
 
@@ -837,185 +1094,75 @@ class WorkOrderItem(TimeStampedModel):
     def get_kit_total_with_overrides(self):
         if not self.kit:
             return Money(0, "BRL")
-
-        total_produtos = Money(0, "BRL")
-        total_servicos = Money(0, "BRL")
-        product_overrides, service_overrides = self._get_kit_override_maps()
-
-        for kit_product in self._iter_kit_products():
-            override = product_overrides.get(kit_product.product_id)
-            if override:
-                if override.quantity <= 0:
-                    produto_subtotal = Money(0, "BRL")
-                else:
-                    produto_subtotal = (override.product_selling_price * override.quantity) + override.shipping
-            elif kit_product.quantity > 0:
-                produto_subtotal = (kit_product.product.selling_price * kit_product.quantity) + Money(0, "BRL")
-            else:
-                produto_subtotal = Money(0, "BRL")
-            total_produtos += produto_subtotal
-
-        for kit_service in self._iter_kit_services():
-            override = service_overrides.get(kit_service.service_id)
-            if override:
-                if override.quantity <= 0:
-                    servico_subtotal = Money(0, "BRL")
-                else:
-                    servico_subtotal = override.service_selling_price * override.quantity
-            elif kit_service.quantity > 0:
-                servico_subtotal = kit_service.resolved_selling_price * kit_service.quantity
-            else:
-                servico_subtotal = Money(0, "BRL")
-            total_servicos += servico_subtotal
-
-        total_kit = total_produtos + total_servicos
-
-        return total_kit * self.quantity
+        return (self.get_kit_products_total() + self.get_kit_services_total()) * self.quantity
 
     def get_kit_products_total(self):
         if not self.kit:
             return Money(0, "BRL")
-
-        total_produtos = Money(0, "BRL")
-        product_overrides, _ = self._get_kit_override_maps()
-        for kit_product in self._iter_kit_products():
-            override = product_overrides.get(kit_product.product_id)
-            if override:
-                if override.quantity <= 0:
-                    produto_subtotal = Money(0, "BRL")
-                else:
-                    produto_subtotal = (override.product_selling_price * override.quantity) + override.shipping
-            elif kit_product.quantity > 0:
-                produto_subtotal = (kit_product.product.selling_price * kit_product.quantity) + Money(0, "BRL")
-            else:
-                produto_subtotal = Money(0, "BRL")
-            total_produtos += produto_subtotal
-
-        return total_produtos * self.quantity
+        return sum(
+            (ov.product_selling_price * ov.quantity) + ov.shipping
+            for ov in self._iter_frozen_kit_product_overrides()
+        ) * self.quantity
 
     def get_kit_services_total(self):
         if not self.kit:
             return Money(0, "BRL")
-
-        total_servicos = Money(0, "BRL")
-        _, service_overrides = self._get_kit_override_maps()
-        for kit_service in self._iter_kit_services():
-            override = service_overrides.get(kit_service.service_id)
-            if override:
-                if override.quantity <= 0:
-                    servico_subtotal = Money(0, "BRL")
-                else:
-                    servico_subtotal = override.service_selling_price * override.quantity
-            elif kit_service.quantity > 0:
-                servico_subtotal = kit_service.resolved_selling_price * kit_service.quantity
-            else:
-                servico_subtotal = Money(0, "BRL")
-            total_servicos += servico_subtotal
-
-        return total_servicos * self.quantity
+        return sum(
+            ov.service_selling_price * ov.quantity
+            for ov in self._iter_frozen_kit_service_overrides()
+        ) * self.quantity
 
     def get_kit_services_duration(self):
         if not self.kit:
             return timedelta(0)
-
-        total_duration = timedelta(0)
-        _, service_overrides = self._get_kit_override_maps()
-        for kit_service in self._iter_kit_services():
-            override = service_overrides.get(kit_service.service_id)
-            if override:
-                if override.quantity > 0 and override.duration:
-                    total_duration += override.duration * override.quantity
-            elif kit_service.quantity > 0 and kit_service.service.duration:
-                total_duration += kit_service.service.duration * kit_service.quantity
-
-        return total_duration * self.quantity
+        return sum(
+            (ov.duration * ov.quantity)
+            for ov in self._iter_frozen_kit_service_overrides()
+            if ov.duration
+        ) * self.quantity
 
     def get_kit_products_shipping_total(self):
         if not self.kit:
             return Money(0, "BRL")
-
-        total_shipping = Money(0, "BRL")
-        product_overrides, _ = self._get_kit_override_maps()
-        for kit_product in self._iter_kit_products():
-            override = product_overrides.get(kit_product.product_id)
-            if override and override.quantity > 0:
-                total_shipping += override.shipping
-
-        return total_shipping * self.quantity
+        return sum(
+            ov.shipping
+            for ov in self._iter_frozen_kit_product_overrides()
+            if ov.quantity > 0
+        ) * self.quantity
 
     def get_kit_products_cost_total(self):
         if not self.kit:
             return Money(0, "BRL")
-
-        total_cost = Money(0, "BRL")
-        product_overrides, _ = self._get_kit_override_maps()
-        for kit_product in self._iter_kit_products():
-            override = product_overrides.get(kit_product.product_id)
-            if override:
-                if override.quantity <= 0:
-                    continue
-                total_cost += override.product_cost_price * override.quantity
-            elif kit_product.quantity > 0:
-                total_cost += kit_product.product.cost_price * kit_product.quantity
-
-        return total_cost * self.quantity
+        return sum(
+            ov.product_cost_price * ov.quantity
+            for ov in self._iter_frozen_kit_product_overrides()
+        ) * self.quantity
 
     def get_kit_services_cost_total(self):
         if not self.kit:
             return Money(0, "BRL")
-
-        total_cost = Money(0, "BRL")
-        _, service_overrides = self._get_kit_override_maps()
-        for kit_service in self._iter_kit_services():
-            override = service_overrides.get(kit_service.service_id)
-            if override:
-                if override.quantity <= 0:
-                    continue
-                total_cost += override.service_cost_price * override.quantity
-            elif kit_service.quantity > 0 and kit_service.service.suggested_cost:
-                total_cost += kit_service.service.suggested_cost * kit_service.quantity
-
-        return total_cost * self.quantity
+        return sum(
+            ov.service_cost_price * ov.quantity
+            for ov in self._iter_frozen_kit_service_overrides()
+        ) * self.quantity
 
     def get_kit_third_party_services_cost_total(self):
         if not self.kit:
             return Money(0, "BRL")
-
-        total_cost = Money(0, "BRL")
-        _, service_overrides = self._get_kit_override_maps()
-        for kit_service in self._iter_kit_services():
-            if not kit_service.service.is_third_party:
-                continue
-
-            override = service_overrides.get(kit_service.service_id)
-            if override:
-                if override.quantity <= 0:
-                    continue
-                total_cost += override.service_cost_price * override.quantity
-            elif kit_service.quantity > 0 and kit_service.service.suggested_cost:
-                total_cost += kit_service.service.suggested_cost * kit_service.quantity
-
-        return total_cost * self.quantity
+        return sum(
+            ov.service_cost_price * ov.quantity
+            for ov in self._iter_frozen_kit_service_overrides()
+            if ov.service and ov.service.is_third_party
+        ) * self.quantity
 
     def get_kit_third_party_services_selling_total(self):
         if not self.kit:
             return Money(0, "BRL")
-
-        total_selling = Money(0, "BRL")
-        _, service_overrides = self._get_kit_override_maps()
-        for kit_service in self._iter_kit_services():
-            if not kit_service.service.is_third_party:
-                continue
-
-            override = service_overrides.get(kit_service.service_id)
-            if override:
-                if override.quantity <= 0:
-                    continue
-                total_selling += override.service_selling_price * override.quantity
-            elif kit_service.quantity > 0:
-                total_selling += kit_service.resolved_selling_price * kit_service.quantity
-
-        return total_selling * self.quantity
+        return sum(
+            ov.service_selling_price * ov.quantity
+            for ov in self._iter_frozen_kit_service_overrides()
+            if ov.service and ov.service.is_third_party
+        ) * self.quantity
 
     class Meta:
         verbose_name = "Item da O.S."

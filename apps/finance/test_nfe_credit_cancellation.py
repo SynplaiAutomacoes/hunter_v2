@@ -28,7 +28,7 @@ from apps.finance.models.finance import (
 )
 from apps.finance.services.nfe_credit import create_and_emit_nfe_credit_type_one
 from apps.finance.services.nfe_credit_cancellation import NfeCreditCancellationError, cancel_nfe_credit_document, reconcile_nfe_credit_cancellation
-from apps.finance.services.webmania_webhooks import process_webhook_event
+from apps.core.infrastructure.services.webmania.webmania_webhooks import process_webhook_event
 from apps.finance.test_nfe_credit import CreditFixtureMixin, _response
 from apps.finance.views.nfe_credit import NfeCreditCancellationDownloadView, NfeCreditCancellationPayloadView, NfeCreditCancellationView
 

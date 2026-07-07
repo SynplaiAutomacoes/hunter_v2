@@ -1,15 +1,15 @@
 <div id="budget-summary-content">
     <div class="border rounded-xl flex justify-between items-center p-3 rounded mb-2">
         <span>Total Produtos</span>
-        <span>{{ budget.display_total_products_by_slider_without_shipping }}</span>
+        <span>{{ budget.selected_items_total_products_without_shipping }}</span>
     </div>
     <div class="border rounded-xl flex justify-between items-center p-3 rounded mb-2">
         <span>Total Serviços</span>
-        <span>{{ budget.display_total_services_by_slider }}</span>
+        <span>{{ budget.selected_items_total_services_value }}</span>
     </div>
     <div class="border rounded-xl flex justify-between items-center p-3 rounded mb-2">
         <span>Total Frete</span>
-        <span>{{ budget.total_products_shipping }}</span>
+        <span>{{ budget.total_shipping }}</span>
     </div>
     <div class="border rounded-xl flex justify-between items-center p-3 rounded mb-2">
         <span>Tempo Total</span>
@@ -17,6 +17,18 @@
     </div>
     <div class="border rounded-xl flex justify-between items-center p-3 rounded mb-2">
         <span class="font-bold">Total Geral</span>
-        <span class="font-bold">{{ budget.display_total_budget_value }}</span>
+        <span class="font-bold">{{ budget.selected_items_total_budget_value }}</span>
     </div>
+    {% if budget.warranty_items_count %}
+    <div class="flex items-center gap-2 text-sm p-3">
+        <span class="badge badge-error badge-xs">{{ budget.warranty_items_count }}</span>
+        <span>item(ns) em Garantia</span>
+    </div>
+    {% endif %}
+    {% if budget.courtesy_items_count %}
+    <div class="flex items-center gap-2 text-sm p-3">
+        <span class="badge badge-info badge-xs">{{ budget.courtesy_items_count }}</span>
+        <span>item(ns) em Cortesia</span>
+    </div>
+    {% endif %}
 </div>

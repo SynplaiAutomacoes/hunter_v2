@@ -7,11 +7,18 @@ from typing import Any
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
 from django.db.models import Q
+from django.http import HttpResponse
 from django.urls import reverse
+from django.utils.decorators import method_decorator
+from django.views import View
+from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import TemplateView
+from djmoney.money import Money
 
 from apps.collaborators.models import CollaboratorCommissionEntry, WorkshopCollaborator
-from apps.core.search import build_text_search_query
+from apps.core.domain.contracts.documents import DocumentRenderRequest
+from apps.core.infrastructure.pdf.renderer import build_pdf_http_response, render_template_request_to_pdf
+from apps.core.infrastructure.search import build_text_search_query
 from apps.finance.forms.emission_ui import format_money
 from apps.workorder.models import WorkOrderStatus
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -20,6 +27,8 @@ from apps.workshops.mixin import WorkshopScopedMixin
 class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     model = CollaboratorCommissionEntry
     template_name = "finance/commissions/report.html"
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "financialmovement"
     workshop_permission_codename = "view_financialmovement"
     ENTRIES_PER_PAGE = 20
     STATUS_CHOICES = (
@@ -68,7 +77,15 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
         return WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
 
     def _get_queryset(self):
-        queryset = CollaboratorCommissionEntry.objects.filter(workshop=self.workshop, workorder__status=WorkOrderStatus.APPROVED).select_related("collaborator", "workorder", "workorder__budget", "workorder__budget__customer").order_by("-criado_em", "-id")
+        queryset = (
+            CollaboratorCommissionEntry.objects.filter(
+                workshop=self.workshop,
+                workorder__status=WorkOrderStatus.APPROVED,
+                workorder__budget_type="sale",
+            )
+            .select_related("collaborator", "workorder", "workorder__budget", "workorder__budget__customer")
+            .order_by("-criado_em", "-id")
+        )
         filter_params = self._get_filter_params()
 
         if filter_params["start_date"] is not None:
@@ -185,3 +202,145 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
         context["prev_url"] = self._build_pagination_url(page_number=page_obj.previous_page_number()) if page_obj.has_previous() else None
         context["next_url"] = self._build_pagination_url(page_number=page_obj.next_page_number()) if page_obj.has_next() else None
         return context
+
+
+@method_decorator(xframe_options_exempt, name="dispatch")
+class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "financialmovement"
+    workshop_permission_codename = "view_financialmovement"
+
+    @staticmethod
+    def _parse_date_param(raw_value: str | None) -> date | None:
+        value = str(raw_value or "").strip()
+        if not value:
+            return None
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            return None
+
+    def _get_selected_collaborator_id(self) -> int | None:
+        raw_value = str(self.request.GET.get("collaborator") or "").strip()
+        if not raw_value:
+            return None
+        try:
+            return int(raw_value)
+        except (TypeError, ValueError):
+            return None
+
+    def _get_selected_status(self) -> str:
+        selected_status = str(self.request.GET.get("status") or "").strip()
+        allowed_statuses = {CollaboratorCommissionEntry.Status.FORECAST, CollaboratorCommissionEntry.Status.PAID}
+        if selected_status not in allowed_statuses:
+            return ""
+        return selected_status
+
+    def _get_queryset(self):
+        queryset = (
+            CollaboratorCommissionEntry.objects.filter(
+                workshop=self.workshop,
+                workorder__status=WorkOrderStatus.APPROVED,
+                workorder__budget_type="sale",
+            )
+            .select_related(
+                "collaborator",
+                "workorder",
+                "workorder__budget",
+                "workorder__budget__customer",
+                "workorder__budget__vehicle",
+            )
+            .order_by("collaborator__name", "-workorder__delivered_at")
+        )
+
+        start_date = self._parse_date_param(self.request.GET.get("data_inicial"))
+        end_date = self._parse_date_param(self.request.GET.get("data_final"))
+        collaborator_id = self._get_selected_collaborator_id()
+        status = self._get_selected_status()
+
+        if start_date is not None:
+            queryset = queryset.filter(criado_em__date__gte=start_date)
+        if end_date is not None:
+            queryset = queryset.filter(criado_em__date__lte=end_date)
+        if collaborator_id is not None:
+            queryset = queryset.filter(collaborator_id=collaborator_id)
+        if status:
+            queryset = queryset.filter(status=status)
+
+        return queryset
+
+    def _build_periodo_label(self, start_date: date | None, end_date: date | None) -> str:
+        if start_date and end_date:
+            return f"{start_date.strftime('%d/%m/%Y')} a {end_date.strftime('%d/%m/%Y')}"
+        if start_date:
+            return f"A partir de {start_date.strftime('%d/%m/%Y')}"
+        if end_date:
+            return f"Até {end_date.strftime('%d/%m/%Y')}"
+        return "Todos os períodos"
+
+    def _build_collaborators_data(self, entries: list[CollaboratorCommissionEntry]) -> list[dict[str, Any]]:
+        collaborators_map: dict[int, dict[str, Any]] = {}
+
+        for entry in entries:
+            collab_id = entry.collaborator_id
+            if collab_id not in collaborators_map:
+                collaborators_map[collab_id] = {
+                    "name": entry.collaborator.name,
+                    "percentage": (entry.percentage * Decimal("100")).quantize(Decimal("0.01")),
+                    "entries": [],
+                    "total_commission": Money(0, "BRL"),
+                }
+
+            customer = getattr(getattr(entry.workorder, "budget", None), "customer", None)
+            vehicle = getattr(getattr(entry.workorder, "budget", None), "vehicle", None)
+
+            collaborators_map[collab_id]["entries"].append(
+                {
+                    "workorder_id": entry.workorder.get_id,
+                    "customer": customer.name if customer else "-",
+                    "vehicle": str(vehicle) if vehicle else "-",
+                    "delivered_at": entry.workorder.delivered_at,
+                    "base_amount": entry.workorder.total_services_value,
+                    "percentage": (entry.percentage * Decimal("100")).quantize(Decimal("0.01")),
+                    "commission_amount": entry.commission_amount,
+                }
+            )
+            collaborators_map[collab_id]["total_commission"] += entry.commission_amount
+
+        return list(collaborators_map.values())
+
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        start_date = self._parse_date_param(request.GET.get("data_inicial"))
+        end_date = self._parse_date_param(request.GET.get("data_final"))
+        collaborator_id = self._get_selected_collaborator_id()
+
+        entries = list(self._get_queryset())
+        collaborators_data = self._build_collaborators_data(entries)
+
+        total_geral = Money(0, "BRL")
+        for collab_data in collaborators_data:
+            total_geral += collab_data["total_commission"]
+
+        collaborator_filter = None
+        if collaborator_id:
+            try:
+                collaborator_filter = WorkshopCollaborator.objects.get(pk=collaborator_id).name
+            except WorkshopCollaborator.DoesNotExist:
+                pass
+
+        context = {
+            "workshop": self.workshop,
+            "periodo_label": self._build_periodo_label(start_date, end_date),
+            "collaborator_filter": collaborator_filter,
+            "collaborators_data": collaborators_data,
+            "total_geral": total_geral,
+        }
+
+        document = render_template_request_to_pdf(
+            DocumentRenderRequest(
+                template_name="finance/commissions/pdf/commission_report.html",
+                context=context,
+                filename=f"relatorio_comissoes_{self.workshop.pk}.pdf",
+            )
+        )
+        return build_pdf_http_response(document=document, download=request.GET.get("download") == "1")

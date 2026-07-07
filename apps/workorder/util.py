@@ -1,22 +1,26 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
+from types import SimpleNamespace
 
 from django.db import transaction
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.fields import DurationField
-from apps.core.documents.contract import DocumentPayload
-from apps.core.documents.http import build_pdf_http_response
-from apps.core.documents.signature import SignatureTokenError, parse_document_signature_token
+from apps.finance.services.pricing import distribute_total_proportionally
+from apps.core.domain.contracts.documents import DocumentPayload
+from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
+from apps.core.domain.contracts.documents import SignatureTokenError
+from apps.core.infrastructure.providers import get_signature_service
 from apps.workorder.forms import WorkOrderAttachmentForm, WorkOrderCustomerApprovalForm, WorkOrderPaymentForm, WorkOrderReopenForm, WorkOrderStatusReasonForm
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderHistory, WorkOrderItem, WorkOrderSignatureStatus, WorkOrderDiscountType
 from apps.workorder.service import (
     WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
     WORKORDER_SIGNATURE_TOKEN_SALT,
@@ -140,16 +144,56 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
             kit_items.append(item)
 
     pricing_snapshot = workorder.pricing_snapshot
-    workorder.product_issue_summary
+    _ = workorder.product_issue_summary
+
+    summary_service_items = list(service_items)
+
+    for kit_item in kit_items:
+        for override in kit_item._iter_frozen_kit_service_overrides():
+            qty = override.quantity * kit_item.quantity
+            summary_service_items.append(
+                SimpleNamespace(
+                    service=override.service,
+                    total_price=override.service_selling_price * qty,
+                )
+            )
+
+    resolved_discount_value = pricing_snapshot.resolved_discount_value
+    discount_type = workorder.discount_type or WorkOrderDiscountType.BOTH
+    if resolved_discount_value.amount <= 0:
+        discount_products = Money(0, "BRL")
+        discount_services = Money(0, "BRL")
+    elif discount_type == "products":
+        discount_products = resolved_discount_value
+        discount_services = Money(0, "BRL")
+    elif discount_type == "services":
+        discount_products = Money(0, "BRL")
+        discount_services = resolved_discount_value
+    else:
+        products_decimal = Decimal(str(pricing_snapshot.total_products_by_slider.amount))
+        services_decimal = Decimal(str(pricing_snapshot.total_services_by_slider.amount))
+        if products_decimal <= 0 and services_decimal <= 0:
+            discount_products = Money(0, "BRL")
+            discount_services = Money(0, "BRL")
+        else:
+            allocated = distribute_total_proportionally(
+                base_values=[products_decimal, services_decimal],
+                target_total=Decimal(str(resolved_discount_value.amount)),
+            )
+            discount_products = Money(allocated[0], "BRL")
+            discount_services = Money(allocated[1], "BRL")
 
     return {
         "workorder": workorder,
         "product_items": product_items,
         "service_items": service_items,
         "summary_product_items": pricing_snapshot.product_lines,
-        "summary_service_items": pricing_snapshot.service_lines,
+        "summary_service_items": summary_service_items,
         "kit_items": kit_items,
         "active_tab": _normalize_active_tab(active_tab),
+        "discount_products": discount_products,
+        "discount_services": discount_services,
+        "discount_type": workorder.discount_type or "both",
     }
 
 
@@ -242,36 +286,49 @@ def _build_workorder_pdf_file_response(*, workorder: WorkOrder, download: bool, 
 
 def trigger_workorder_signature_send_if_needed(*, workorder: WorkOrder) -> tuple[str, str]:
     if workorder.has_signature_blockers:
+        logger.info("workorder_signature_blocked", extra={"workorder_id": workorder.pk, "blockers": workorder.signature_blockers_display})
         return "error", workorder.signature_blockers_display
 
     if not workorder.budget.service_expected_completion_at:
+        logger.info("workorder_signature_missing_completion_date", extra={"workorder_id": workorder.pk})
         return "error", "Não é possível enviar para assinatura antes de definir a data prevista de término do serviço."
 
     with transaction.atomic():
         locked_workorder = WorkOrder.objects.select_for_update().get(pk=workorder.pk)
 
         if locked_workorder.signature_request_status == WorkOrderSignatureStatus.SENT and locked_workorder.signature_external_id:
+            logger.info("workorder_signature_already_sent", extra={"workorder_id": workorder.pk, "external_id": locked_workorder.signature_external_id})
             return "info", "Ordem de serviço já enviada para assinatura do cliente."
 
         if locked_workorder.signature_request_status == WorkOrderSignatureStatus.SENDING:
+            logger.info("workorder_signature_already_sending", extra={"workorder_id": workorder.pk})
             return "info", "O envio da ordem de serviço ainda está em processamento."
 
         locked_workorder.mark_signature_sending()
+        logger.info("workorder_signature_sending_status_set", extra={"workorder_id": workorder.pk})
 
     try:
         result = send_workorder_for_signature(workorder=workorder)
     except WorkOrderSignatureError:
         workorder.mark_signature_failed()
-        logger.exception("Falha ao enviar ordem de servico para assinatura", extra={"workorder_id": workorder.pk})
+        logger.exception("workorder_signature_send_failed", extra={"workorder_id": workorder.pk})
         return "error", "Falha ao enviar ordem de serviço para assinatura. Tente novamente em instantes."
 
     workorder.mark_signature_sent(result.envelope_id, document_id=result.document_id)
+    logger.info(
+        "workorder_signature_sent_ok",
+        extra={
+            "workorder_id": workorder.pk,
+            "envelope_id": result.envelope_id,
+            "document_id": result.document_id,
+        },
+    )
     return "success", "Ordem de serviço enviada para assinatura do cliente."
 
 
 def _get_workorder_from_signature_token(token: str) -> WorkOrder:
     try:
-        payload = parse_document_signature_token(
+        payload = get_signature_service().parse_signature_token(
             token=token,
             token_salt=WORKORDER_SIGNATURE_TOKEN_SALT,
             document_id_key=WORKORDER_SIGNATURE_DOCUMENT_ID_KEY,
@@ -281,13 +338,13 @@ def _get_workorder_from_signature_token(token: str) -> WorkOrder:
 
     workorder = get_object_or_404(
         WorkOrder.objects.select_related("workshop", "budget", "budget__customer", "budget__vehicle"),
-        pk=payload.document_id,
+        pk=payload["document_id"],
     )
 
     if not workorder.signature_token_active:
         raise Http404("Arquivo não encotrado")
 
-    if workorder.signature_token_version != payload.version:
+    if workorder.signature_token_version != payload["version"]:
         raise Http404("Arquivo não encotrado")
 
     return workorder
@@ -302,3 +359,28 @@ def _calculate_service_prices(duration: timedelta, workshop_cost) -> tuple[Money
         return min_hourly * duration_hours, hourly_val * duration_hours
 
     return Money(0, "BRL"), Money(0, "BRL")
+
+
+CONCURRENT_LOCK_MESSAGE = "Outro usuário está editando esta O.S. neste momento. Tente novamente em instantes."
+
+
+def _check_concurrent_edit_lock(request, workorder: WorkOrder, check_session: bool = True) -> bool:
+    from apps.core.domain.services.editing_lock_service import get_lock_info
+
+    lock_info = get_lock_info(workorder)
+    if lock_info is None:
+        return True
+    if check_session and lock_info.get("locked_by_session") == request.session.session_key:
+        return True
+    return False
+
+
+def _build_concurrent_lock_response(request, workorder: WorkOrder, *, status_code: int = 409) -> HttpResponse:
+    from apps.core.domain.services.editing_lock_service import get_lock_info
+
+    lock_info = get_lock_info(workorder)
+    user_name = lock_info["locked_by"] if lock_info else "outro usuário"
+    message = f"Outro usuário ({user_name}) está editando esta O.S. neste momento. Tente novamente em instantes."
+    response = JsonResponse({"ok": False, "error": message}, status=status_code)
+    response["HX-Trigger"] = json.dumps({"showToast": {"message": message, "type": "warning"}})
+    return response

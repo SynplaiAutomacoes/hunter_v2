@@ -9,17 +9,17 @@ from django.views.generic import CreateView, DeleteView, DetailView, ListView, T
 
 from apps.catalog.models import FipeModelFuelCache, FipeVehicleBrand, FipeVehicleModel, FipeVehicleType
 from apps.budget.models import Budget
-from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
-from apps.core.search import apply_text_search
+from apps.core.infrastructure.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
+from apps.core.infrastructure.search import apply_text_search
 from apps.workshops.mixin import WorkshopScopedMixin
-from apps.core.navigation import CREATE_CLIENT_FAVORITE_PAGE
-from apps.core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, BaseModalFormView, PageFavoriteMixin
+from apps.core.presentation.navigation import CREATE_CLIENT_FAVORITE_PAGE
+from apps.core.presentation.mixins import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, BaseModalFormView, PageFavoriteMixin
 from apps.workorder.models import WorkOrder
 from .forms import QuickCustomerForm, QuickVehicleForm
 from .util import fetch_vehicle_data, build_vehicle_saved_trigger, build_customer_saved_trigger
 from .vehicle_engine import normalize_vehicle_engine_choice
 from .vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
-from ..core.tables import TableActionDefaults
+from ..core.presentation import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
 from .forms import CustomerForm, VehicleFormSet
 from .models import Customer, Vehicle
@@ -54,7 +54,7 @@ def _build_customer_history_vehicle_label(vehicle: Vehicle | None) -> str:
 
 
 def _build_customer_budget_history_entry(budget: Budget) -> dict[str, Any]:
-    pdf_url = f"{reverse('budget:visualizar_pdf_assinatura', kwargs={'pk': budget.pk})}?variant=signed"
+    pdf_url = reverse("budget:visualizar_pdf_assinatura", kwargs={"pk": budget.pk})
     return {
         "date": budget.criado_em,
         "type_label": "Orçamento",
@@ -64,12 +64,12 @@ def _build_customer_budget_history_entry(budget: Budget) -> dict[str, Any]:
         "status_badge": budget.budget_status_badge,
         "pdf_title": f"Orçamento #{budget.pk}",
         "pdf_url": pdf_url,
-        "pdf_download_url": f"{pdf_url}&download=1",
+        "pdf_download_url": f"{pdf_url}?download=1",
     }
 
 
 def _build_customer_workorder_history_entry(workorder: WorkOrder) -> dict[str, Any]:
-    pdf_url = f"{reverse('workorder:visualizar_pdf', kwargs={'pk': workorder.pk})}?variant=signed"
+    pdf_url = reverse("workorder:visualizar_pdf", kwargs={"pk": workorder.pk})
     return {
         "date": workorder.criado_em,
         "type_label": "OS",
@@ -79,7 +79,7 @@ def _build_customer_workorder_history_entry(workorder: WorkOrder) -> dict[str, A
         "status_badge": workorder.workorder_status_badge,
         "pdf_title": f"OS #{workorder.get_id}",
         "pdf_url": pdf_url,
-        "pdf_download_url": f"{pdf_url}&download=1",
+        "pdf_download_url": f"{pdf_url}?download=1",
     }
 
 

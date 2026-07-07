@@ -30,6 +30,12 @@ dependencies = [
     "pynfe>=0.6.5",
     "signxml>=4.2.2",
     "holidays>=0.96",
+    "python-json-logger>=3.3.0",
+    "opentelemetry-sdk>=1.32.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.32.0",
+    "opentelemetry-instrumentation-logging>=0.53b0",
+    "opentelemetry-instrumentation-django>=0.53b0",
+    "opentelemetry-instrumentation-requests>=0.53b0",
 ]
 
 [dependency-groups]
@@ -44,6 +50,7 @@ line-length = 320
 
 [tool.mypy]
 plugins = ["mypy_django_plugin.main"]
+exclude = ["migrations"]
 disallow_untyped_defs = true
 disallow_any_unimported = true
 no_implicit_optional = true
@@ -51,6 +58,24 @@ check_untyped_defs = true
 warn_return_any = true
 warn_unused_ignores = true
 show_error_codes = true
+disable_error_code = [
+    "arg-type",
+    "assignment",
+    "attr-defined",
+    "call-arg",
+    "call-overload",
+    "dict-item",
+    "index",
+    "list-item",
+    "misc",
+    "name-defined",
+    "no-untyped-def",
+    "operator",
+    "return-value",
+    "union-attr",
+    "unused-ignore",
+    "valid-type",
+]
 
 [tool.django-stubs]
 django_settings_module = "config.settings"

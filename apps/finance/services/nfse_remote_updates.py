@@ -6,7 +6,7 @@ from typing import Any
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from apps.finance.services.webmania_status import normalize_nfse_batch_status, normalize_nfse_item_status
+from apps.core.infrastructure.services.webmania.webmania_status import normalize_nfse_batch_status, normalize_nfse_item_status
 
 
 _ITEM_STATUS_RANK = {

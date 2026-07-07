@@ -6,10 +6,10 @@ from django.urls import reverse
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
-from apps.core.widgets import CheckboxInput, TextInput
+from apps.core.presentation.widgets import CheckboxInput, TextInput
 from apps.workshops.models.monthly_costs import MonthlyCost
 from apps.workshops.models.workshops import Workshop
-from apps.core.forms import CoreModelForm
+from apps.core.presentation.forms import CoreModelForm
 
 
 class MonthlyCostForm(CoreModelForm):

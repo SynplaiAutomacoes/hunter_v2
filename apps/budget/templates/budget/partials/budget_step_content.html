@@ -91,6 +91,75 @@
         form.addEventListener('htmx:afterRequest', stopLoading);
         form.addEventListener('htmx:responseError', stopLoading);
 
+        form.querySelectorAll('[data-budget-review-date-autosave="1"]').forEach(function (input) {
+            if (input.dataset.autosaveBound === '1') {
+                return;
+            }
+
+            input.dataset.autosaveBound = '1';
+            input.dataset.autosaveLastValue = input.value || '';
+
+            input.addEventListener('blur', function () {
+                const fieldName = input.dataset.autosaveField;
+                const autosaveUrl = input.dataset.autosaveUrl;
+                const currentValue = input.value || '';
+
+                if (!fieldName || !autosaveUrl || currentValue === input.dataset.autosaveLastValue) {
+                    return;
+                }
+
+                const csrfInput = form.querySelector('input[name="csrfmiddlewaretoken"]');
+                const payload = new FormData();
+                payload.append('field', fieldName);
+                payload.append('value', currentValue);
+                if (csrfInput) {
+                    payload.append('csrfmiddlewaretoken', csrfInput.value);
+                }
+
+                input.disabled = true;
+
+                fetch(autosaveUrl, {
+                    method: 'POST',
+                    body: payload,
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    credentials: 'same-origin',
+                })
+                    .then(function (response) {
+                        return response.json().then(function (data) {
+                            if (!response.ok || !data.ok) {
+                                throw new Error(data && data.error ? data.error : 'Nao foi possivel salvar a data.');
+                            }
+                            return data;
+                        });
+                    })
+                    .then(function () {
+                        input.dataset.autosaveLastValue = currentValue;
+                        const departureInput = form.querySelector('[name="customer_agreed_departure_at"]');
+                        const expectedInput = form.querySelector('[name="service_expected_completion_at"]');
+                        const shouldRefreshStep = departureInput && expectedInput && departureInput.value && expectedInput.value;
+                        if (shouldRefreshStep && window.htmx) {
+                            window.htmx.ajax('GET', window.location.href, {
+                                target: '#step-container',
+                                swap: 'innerHTML',
+                            });
+                        }
+                    })
+                    .catch(function (error) {
+                        document.body.dispatchEvent(new CustomEvent('showToast', {
+                            detail: {
+                                message: error && error.message ? error.message : 'Nao foi possivel salvar a data.',
+                                type: 'error',
+                            },
+                        }));
+                    })
+                    .finally(function () {
+                        input.disabled = false;
+                    });
+            });
+        });
+
         if (document.body.dataset.redirectAfterToastBound !== '1') {
             document.body.dataset.redirectAfterToastBound = '1';
             document.body.addEventListener('redirectAfterToast', function (event) {

@@ -3,7 +3,7 @@ from __future__ import annotations
 from django.db import models
 from djmoney.models.fields import MoneyField
 
-from apps.core.models import TimeStampedModel
+from apps.core.infrastructure.models import TimeStampedModel
 from apps.workshops.models.workshops import Workshop
 
 
@@ -19,8 +19,10 @@ class Service(TimeStampedModel):
     duration = models.DurationField(verbose_name="Duração")
 
     suggested_cost = MoneyField(verbose_name="Custo do tempo do serviço", max_digits=14, decimal_places=2, null=True, blank=True)
+    shipping = MoneyField(verbose_name="Frete", max_digits=14, decimal_places=2, null=True, blank=True)
 
     selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2)
+    last_used_price = MoneyField(verbose_name="Ultimo Valor Utilizado", max_digits=14, decimal_places=2, null=True, blank=True)
 
     is_third_party = models.BooleanField(verbose_name="Serviço de Terceiro", default=False)
     is_active = models.BooleanField(verbose_name="Ativo", default=True)

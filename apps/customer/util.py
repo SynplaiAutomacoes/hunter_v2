@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import time
 
 import requests
 
@@ -65,18 +66,14 @@ def fetch_vehicle_data(plate):
     url = f"https://wdapi2.com.br/consulta/{plate}/{token}"
 
     try:
-        logger.info("Plate API request started", extra={"plate": plate, "url": _mask_plate_api_url(url)})
+        started_at = time.monotonic()
+        logger.info("vehicle_api_request_started", extra={"plate": plate})
         response = requests.get(url, timeout=10)
-        logger.info("Plate API request finished", extra={"plate": plate, "status_code": response.status_code})
+        elapsed_ms = round((time.monotonic() - started_at) * 1000, 2)
+        logger.info("vehicle_api_request_finished", extra={"plate": plate, "status_code": response.status_code, "duration_ms": elapsed_ms})
         response.raise_for_status()
         data = response.json()
-        logger.info(
-            "Plate API response payload | plate=%s payload_type=%s payload_preview=%s",
-            plate,
-            type(data).__name__,
-            _build_payload_preview(data),
-            extra={"plate": plate, "payload_type": type(data).__name__, "payload_preview": _build_payload_preview(data)},
-        )
+        logger.info("vehicle_api_response_received", extra={"plate": plate, "payload_type": type(data).__name__, "duration_ms": elapsed_ms})
 
         payload = data.get("data") if isinstance(data, dict) else None
         payload_data = payload if isinstance(payload, dict) else {}
@@ -95,7 +92,7 @@ def fetch_vehicle_data(plate):
         if not raw_engine:
             model_name = _first_present(vehicle_data.get("modelo"), root_data.get("modelo"), root_data.get("MODELO"))
             if model_name:
-                engine_match = re.search(r'(?<!\d)(\d[.,]\d)(?!\d)', str(model_name))
+                engine_match = re.search(r"(?<!\d)(\d[.,]\d)(?!\d)", str(model_name))
                 if engine_match:
                     raw_engine = engine_match.group(1).replace(",", ".")
         raw_fuel = _first_present(vehicle_data.get("combustivel"), root_data.get("combustivel"), extra_data.get("combustivel"))
@@ -125,7 +122,7 @@ def fetch_vehicle_data(plate):
         vehicle_info["fuel"] = normalize_vehicle_fuel_choice(vehicle_info.get("fuel"))
         return vehicle_info
     except (requests.RequestException, ValueError):
-        logger.exception("Plate API request failed", extra={"plate": plate, "url": _mask_plate_api_url(url)})
+        logger.exception("vehicle_api_request_failed", extra={"plate": plate})
         return None
 
 

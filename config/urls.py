@@ -21,7 +21,7 @@ from django.conf.urls.static import static
 from django.urls import path, include
 from django.views.generic import RedirectView
 
-from apps.core.views import permission_denied
+from apps.core.presentation.views import permission_denied
 
 handler403 = permission_denied
 

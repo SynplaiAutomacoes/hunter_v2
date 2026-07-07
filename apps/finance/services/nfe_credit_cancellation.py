@@ -35,8 +35,8 @@ from apps.finance.services.fiscal_attempts import (
 )
 from apps.finance.services.fiscal_referenced_basis import is_credit_debit_basis_enabled
 from apps.finance.services.nfe_credit import _build_consulta_url, _build_headers
-from apps.finance.services.webmania_auth import sanitize_webmania_setting
-from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+from apps.core.infrastructure.services.webmania.webmania_auth import sanitize_webmania_setting
+from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
 
 
 logger = logging.getLogger(__name__)

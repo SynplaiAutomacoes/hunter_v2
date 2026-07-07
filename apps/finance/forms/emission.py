@@ -11,9 +11,9 @@ from django.urls import reverse
 from djmoney.forms import MoneyField
 from djmoney.money import Money
 
-from apps.core.forms import CoreForm
+from apps.core.presentation.forms import CoreForm
 from apps.core.text_normalization import sentence_case
-from apps.core.widgets import DurationInput, MoneyInput, NumberInput, TextareaInput, SearchableSelectInput
+from apps.core.presentation.widgets import DurationInput, MoneyInput, NumberInput, TextareaInput, SearchableSelectInput
 from apps.finance.forms.emission_ui import (
     build_slider_widget_attrs,
     build_step5_pricing_panel_data,
@@ -22,14 +22,14 @@ from apps.finance.forms.emission_ui import (
     clamp_slider_value,
     format_money,
 )
-from apps.finance.services.emission import build_default_service_description_for_workorder
-from apps.finance.services.nfe_emission import build_nfe_preview_rows, build_nfe_preview_warning_messages
+from apps.core.infrastructure.services.webmania.emission import build_default_service_description_for_workorder, compute_service_discount_for_nfse
+from apps.core.infrastructure.services.webmania.nfe_emission import build_nfe_preview_rows, build_nfe_preview_warning_messages, compute_product_discount_for_nfe
 from apps.finance.services.pricing import build_emission_pricing_snapshot_for_workorder, build_nfse_service_preview_rows, build_slider_allocation_for_workorder
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 
 
-EMISSION_NOTE_TYPE_CHOICES: list[tuple[str, str]] = [("nfe", "Nota Fiscal"), ("nfse", "Nota Fiscal de Serviço")]
-EMISSION_NOTE_MODE_CHOICES: list[tuple[str, str]] = [("nfe", "Nota Fiscal"), ("nfse", "Nota Fiscal de Serviço"), ("both", "Ambas")]
+EMISSION_NOTE_TYPE_CHOICES: list[tuple[str, str]] = [("nfe", "Nota Fiscal de Produto"), ("nfse", "Nota Fiscal de Serviço")]
+EMISSION_NOTE_MODE_CHOICES: list[tuple[str, str]] = [("nfe", "Nota Fiscal de Produto"), ("nfse", "Nota Fiscal de Serviço"), ("both", "Ambas")]
 
 
 def _build_modal_action_button(*, label: str, icon: str, url: str) -> str:
@@ -180,7 +180,7 @@ def _build_summary_warning_html(*, workorder: WorkOrder, selected_slider: int) -
     warnings: list[str] = []
 
     if allocation.products_target <= 0 or not snapshot.product_lines:
-        warnings.append("Com a configuracao atual do slider, nao ha saldo de produtos para emitir Nota Fiscal.")
+        warnings.append("Com a configuracao atual do slider, nao ha saldo de produtos para emitir Nota Fiscal de Produto.")
     if allocation.services_target <= 0 or not snapshot.service_lines:
         warnings.append("Com a configuracao atual do slider, nao ha saldo de servicos para emitir Nota Fiscal de Serviço.")
 
@@ -272,17 +272,26 @@ def _build_summary_preview_html(*, workorder: WorkOrder, selected_slider: int) -
     """
 
 
-def _build_nfe_preview_html(*, workorder: WorkOrder, selected_slider: int) -> tuple[str, str]:
+def _build_nfe_preview_html(*, workorder: WorkOrder, selected_slider: int, discount_type_override: str = "") -> tuple[str, str]:
     warnings: list[str] = []
-    total_products_formatted = format_money(0)
-    total_services_formatted = format_money(0)
     rows, allocation = build_nfe_preview_rows(workorder=workorder, slider_override=selected_slider)
-    total_products_formatted = format_money(allocation.products_target)
-    total_services_formatted = format_money(allocation.services_target)
+
+    product_discount = compute_product_discount_for_nfe(
+        workorder=workorder,
+        products_target=allocation.products_target,
+        services_target=allocation.services_target,
+        discount_type_override=discount_type_override,
+    )
+    service_discount = compute_service_discount_for_nfse(
+        workorder=workorder,
+        discount_type_override=discount_type_override,
+    )
+    products_net = allocation.products_target - product_discount
+    services_net = allocation.services_target - service_discount
 
     warnings.extend(build_nfe_preview_warning_messages(workorder=workorder, slider_override=selected_slider))
     if allocation.products_target <= 0:
-        warnings.append("A configuracao atual do slider nao deixa saldo de produtos para emitir Nota Fiscal.")
+        warnings.append("A configuracao atual do slider nao deixa saldo de produtos para emitir Nota Fiscal de Produto.")
 
     warning_html = "".join(f"<div class='alert alert-warning'>{escape(message)}</div>" for message in warnings)
 
@@ -309,14 +318,8 @@ def _build_nfe_preview_html(*, workorder: WorkOrder, selected_slider: int) -> tu
     preview_html = f"""
         <div class="space-y-4">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="rounded-xl border border-base-300 bg-base-200/50 p-4">
-                    <p class="text-xs uppercase tracking-wide text-base-content/60">Total da Nota Fiscal</p>
-                    <p class="text-2xl font-black text-base-content">{total_products_formatted}</p>
-                </div>
-                <div class="rounded-xl border border-base-300 bg-base-200/50 p-4">
-                    <p class="text-xs uppercase tracking-wide text-base-content/60">Saldo da Nota Fiscal de Serviço</p>
-                    <p class="text-2xl font-black text-base-content">{total_services_formatted}</p>
-                </div>
+                {_build_value_card("Produtos", format_money(allocation.products_target), format_money(product_discount), format_money(products_net))}
+                {_build_value_card("Serviços", format_money(allocation.services_target), format_money(service_discount), format_money(services_net))}
             </div>
             <div class="overflow-x-auto rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm">
                 <table class="table table-zebra">
@@ -337,11 +340,47 @@ def _build_nfe_preview_html(*, workorder: WorkOrder, selected_slider: int) -> tu
     return warning_html, preview_html
 
 
-def _build_nfse_preview_html(*, workorder: WorkOrder, selected_slider: int) -> tuple[str, str]:
+def _build_value_card(label: str, subtotal: str, discount: str, total: str) -> str:
+    discount_display = f"- {discount}" if discount and discount != "R$ 0,00" else discount
+    return f"""
+    <div class="rounded-xl border border-base-300 bg-base-200/50 p-4">
+        <p class="text-xs uppercase tracking-wide text-base-content/60 mb-2">{escape(label)}</p>
+        <div class="space-y-1 text-sm">
+            <div class="flex justify-between">
+                <span class="text-base-content/70">Subtotal</span>
+                <span class="font-semibold">{subtotal}</span>
+            </div>
+            <div class="flex justify-between">
+                <span class="text-base-content/70">Desconto</span>
+                <span class="font-semibold text-error">{discount_display}</span>
+            </div>
+            <div class="flex justify-between border-t border-base-300 pt-1 font-black text-base">
+                <span>Total</span>
+                <span>{total}</span>
+            </div>
+        </div>
+    </div>
+    """
+
+
+def _build_nfse_preview_html(*, workorder: WorkOrder, selected_slider: int, discount_type_override: str = "") -> tuple[str, str]:
     allocation = build_slider_allocation_for_workorder(workorder=workorder, slider_override=selected_slider)
     warning_html = ""
     if allocation.services_target <= 0:
         warning_html = "<div class='alert alert-warning'>A configuracao atual do slider nao deixa saldo de servicos para emitir Nota Fiscal de Serviço.</div>"
+
+    product_discount = compute_product_discount_for_nfe(
+        workorder=workorder,
+        products_target=allocation.products_target,
+        services_target=allocation.services_target,
+        discount_type_override=discount_type_override,
+    )
+    service_discount = compute_service_discount_for_nfse(
+        workorder=workorder,
+        discount_type_override=discount_type_override,
+    )
+    products_net = allocation.products_target - product_discount
+    services_net = allocation.services_target - service_discount
 
     rows = build_nfse_service_preview_rows(workorder=workorder, slider_override=selected_slider)
     rows_html = "".join(
@@ -366,14 +405,8 @@ def _build_nfse_preview_html(*, workorder: WorkOrder, selected_slider: int) -> t
     preview_html = f"""
         <div class="space-y-4">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="rounded-xl border border-base-300 bg-base-200/50 p-4">
-                    <p class="text-xs uppercase tracking-wide text-base-content/60">Total da Nota Fiscal de Serviço</p>
-                    <p class="text-2xl font-black text-base-content">{format_money(allocation.services_target)}</p>
-                </div>
-                <div class="rounded-xl border border-base-300 bg-base-200/50 p-4">
-                    <p class="text-xs uppercase tracking-wide text-base-content/60">Saldo da Nota Fiscal</p>
-                    <p class="text-2xl font-black text-base-content">{format_money(allocation.products_target)}</p>
-                </div>
+                {_build_value_card("Serviços", format_money(allocation.services_target), format_money(service_discount), format_money(services_net))}
+                {_build_value_card("Produtos", format_money(allocation.products_target), format_money(product_discount), format_money(products_net))}
             </div>
             <div class="overflow-x-auto rounded-2xl border border-base-300 bg-base-100 p-4 shadow-sm">
                 <table class="table table-zebra">
@@ -757,7 +790,7 @@ class EmissionStep5Form(CoreForm):
                     <div class="rounded-2xl border border-base-300 bg-base-200/60 p-5 text-base-content/80">
                         <p class="font-semibold mb-2">Como funciona:</p>
                         <ul class="list-disc ml-5 space-y-1 text-sm">
-                            <li><strong>Nota Fiscal</strong>: abre a etapa de configuracao fiscal dos produtos.</li>
+                            <li><strong>Nota Fiscal de Produto</strong>: abre a etapa de configuracao fiscal dos produtos.</li>
                             <li><strong>Nota Fiscal de Serviço</strong>: abre a etapa de configuracao fiscal dos servicos.</li>
                             <li><strong>Ambas</strong>: abre as duas etapas e faz a emissão em sequencia na ultima tela.</li>
                         </ul>
@@ -803,6 +836,7 @@ class EmissionNfeConfigForm(CoreForm):
         workorder = kwargs.pop("workorder", None)
         tax_class_choices = list(kwargs.pop("tax_class_choices", []))
         selected_slider = int(kwargs.pop("selected_slider", 0) or 0)
+        discount_type_override = str(kwargs.pop("discount_type_override", "") or "")
         super().__init__(*args, **kwargs)
 
         dropdown_choices = [("", "Selecione a classe de imposto")]
@@ -810,11 +844,11 @@ class EmissionNfeConfigForm(CoreForm):
         tax_class_field = self.fields["tax_class"]
         tax_class_field.choices = dropdown_choices
         tax_class_field.widget = SearchableSelectInput(choices=dropdown_choices)
-        tax_class_field.help_text = "Classe fiscal que sera aplicada aos produtos emitidos na Nota Fiscal."
+        tax_class_field.help_text = "Classe fiscal que sera aplicada aos produtos emitidos na Nota Fiscal de Produto."
         self._valid_tax_class_refs = {value for value, _ in tax_class_choices if value}
 
         additional_information_field = self.fields["additional_information"]
-        additional_information_field.help_text = "Enviada como informacao complementar junto com a Nota Fiscal."
+        additional_information_field.help_text = "Enviada como informacao complementar junto com a Nota Fiscal de Produto."
 
         current_tax_class = str((self.data.get("tax_class") if self.is_bound else self.initial.get("tax_class", "")) or "").strip()
         if self._valid_tax_class_refs and current_tax_class not in self._valid_tax_class_refs and not self.is_bound:
@@ -823,14 +857,14 @@ class EmissionNfeConfigForm(CoreForm):
         warning_html = ""
         preview_html = ""
         if workorder is not None:
-            warning_html, preview_html = _build_nfe_preview_html(workorder=workorder, selected_slider=selected_slider)
+            warning_html, preview_html = _build_nfe_preview_html(workorder=workorder, selected_slider=selected_slider, discount_type_override=discount_type_override)
 
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
-                HTML("<h2 class='text-2xl font-bold'>Nota Fiscal</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Confira os produtos que serao enviados na Nota Fiscal e selecione a classe de imposto.</p>"),
+                HTML("<h2 class='text-2xl font-bold'>Nota Fiscal de Produto</h2>"),
+                HTML("<p class='text-base-content/70 mb-6'>Confira os produtos que serão enviados na Nota Fiscal de Produto e selecione a classe de imposto.</p>"),
                 Field("tax_class"),
                 Field("additional_information"),
                 HTML(warning_html),
@@ -859,6 +893,7 @@ class EmissionNfseConfigForm(CoreForm):
         workorder = kwargs.pop("workorder", None)
         tax_class_choices = list(kwargs.pop("tax_class_choices", []))
         selected_slider = int(kwargs.pop("selected_slider", 0) or 0)
+        discount_type_override = str(kwargs.pop("discount_type_override", "") or "")
         super().__init__(*args, **kwargs)
 
         dropdown_choices = [("", "Selecione a classe de imposto")]
@@ -885,14 +920,14 @@ class EmissionNfseConfigForm(CoreForm):
         warning_html = ""
         preview_html = ""
         if workorder is not None:
-            warning_html, preview_html = _build_nfse_preview_html(workorder=workorder, selected_slider=selected_slider)
+            warning_html, preview_html = _build_nfse_preview_html(workorder=workorder, selected_slider=selected_slider, discount_type_override=discount_type_override)
 
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
             Div(
                 HTML("<h2 class='text-2xl font-bold'>Nota Fiscal de Serviço</h2>"),
-                HTML("<p class='text-base-content/70 mb-6'>Confira os servicos que compoem a Nota Fiscal de Serviço, escolha a classe fiscal e revise a descricao.</p>"),
+                HTML("<p class='text-base-content/70 mb-6'>Confira os serviços que compõem a Nota Fiscal de Serviço, escolha a classe fiscal e revise a descrição.</p>"),
                 Div(
                     Field("tax_class", wrapper_class="col-span-12 lg:col-span-4"),
                     Field("service_description", wrapper_class="col-span-12 lg:col-span-8"),

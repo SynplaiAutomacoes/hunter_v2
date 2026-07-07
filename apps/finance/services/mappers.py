@@ -1,7 +1,6 @@
 import logging
 
-from apps.finance.services.nfse_remote_updates import parse_nfse_remote_updated_at
-from apps.finance.services.webmania_status import normalize_nfse_batch_status, normalize_nfse_item_status
+from apps.core.infrastructure.services.webmania.webmania_status import normalize_nfse_batch_status, normalize_nfse_item_status
 
 
 logger = logging.getLogger(__name__)

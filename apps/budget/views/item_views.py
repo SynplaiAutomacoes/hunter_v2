@@ -11,20 +11,25 @@ from django.views.generic import TemplateView
 from djmoney.money import Money
 
 from apps.budget.forms import BudgetItemEditForm, BudgetStep3Form
+from apps.budget.forms.shared import _budget_item_type, _render_budget_items_rows
 from apps.budget.models import Budget, BudgetItem
 from apps.catalog.kit_applications import build_vehicle_context_label, evaluate_kit_vehicle_compatibility, vehicle_has_complete_application_context
 from apps.catalog.models.kits import Kit
 from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
-from apps.catalog.price_tracking import build_product_price_warning
+from apps.catalog.price_tracking import build_product_price_warning, build_service_price_warning, record_service_last_used_price
 from apps.catalog.product_issues import annotate_product_issues
-from apps.core.widgets import NumberInput
+from apps.stock.services import get_stock_quantity
+from apps.core.presentation.widgets import NumberInput
 from apps.workshops.mixin import WorkshopScopedMixin
+from apps.budget.utils import HtmxResponseHelper
 
 from .shared import (
     LOCKED_BUDGET_EDIT_MESSAGE,
     _build_locked_budget_response,
     _calculate_service_prices,
+    _check_concurrent_budget_lock,
+    _build_concurrent_budget_lock_response,
     _get_budget_for_workshop,
     _get_budget_item_for_workshop,
     _get_budget_workshop_cost,
@@ -36,7 +41,6 @@ from .shared import (
     reset_steps_after_step_4,
     sync_linked_workorder_from_budget,
 )
-
 
 THOUSAND_SEPARATED_INT_PATTERN = re.compile(r"^\d{1,3}(?:[\s.,]\d{3})+$")
 
@@ -67,6 +71,8 @@ def _normalize_selected_item_ids(raw_ids: list[str]) -> tuple[list[int], list[st
 
 
 def _is_local_product_item(item: BudgetItem) -> bool:
+    if item.local_item_type == "product":
+        return True
     has_product_cost = bool(item.product_cost_price and item.product_cost_price.amount > 0)
     has_product_sale = bool(item.product_selling_price and item.product_selling_price.amount > 0)
     has_shipping = bool(item.shipping and item.shipping.amount > 0)
@@ -78,6 +84,8 @@ def _is_product_budget_item(item: BudgetItem) -> bool:
 
 
 def _is_local_service_item(item: BudgetItem) -> bool:
+    if item.local_item_type == "service":
+        return True
     has_service_cost = bool(item.service_cost_price and item.service_cost_price.amount > 0)
     has_service_sale = bool(item.service_selling_price and item.service_selling_price.amount > 0)
     has_duration = bool(item.duration)
@@ -258,6 +266,8 @@ class AddItemToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, *args, **kwargs):
         budget = _get_budget_for_workshop(self.workshop, kwargs["budget_id"])
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return _build_locked_budget_response(request, budget, fallback_step=4)
 
@@ -292,6 +302,8 @@ class RemoveItemFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, *args, **kwargs):
         budget = _get_budget_for_workshop(self.workshop, kwargs["budget_id"])
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return _build_locked_budget_response(request, budget, fallback_step=4)
 
@@ -316,6 +328,8 @@ class RemoveBudgetItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id, item_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return _build_locked_budget_response(request, budget, fallback_step=4)
 
@@ -336,6 +350,8 @@ class RemoveProductItemsBatchFromBudgetView(LoginRequiredMixin, WorkshopScopedMi
 
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return _build_locked_budget_response(request, budget, fallback_step=4)
 
@@ -343,30 +359,17 @@ class RemoveProductItemsBatchFromBudgetView(LoginRequiredMixin, WorkshopScopedMi
         selected_ids, invalid_ids = _normalize_selected_item_ids(raw_selected_ids)
 
         if invalid_ids:
-            logger.warning(
-                "IDs invalidos enviados para remocao em lote de pecas",
-                extra={
-                    "budget_id": budget_id,
-                    "invalid_count": len(invalid_ids),
-                    "invalid_ids": invalid_ids[:10],
-                },
-            )
+            logger.warning("budget_items_batch_remove_invalid_ids", extra={"budget_id": budget_id, "item_type": "product", "invalid_count": len(invalid_ids), "invalid_ids": invalid_ids[:10]})
 
         if not selected_ids:
-            logger.warning(
-                "Tentativa de remocao em lote de pecas sem selecao",
-                extra={"budget_id": budget_id},
-            )
+            logger.warning("budget_items_batch_remove_no_selection", extra={"budget_id": budget_id, "item_type": "product"})
             return _step_redirect_response(request, budget, fallback_step=4)
 
         budget_items = list(BudgetItem.objects.filter(workshop=self.workshop, budget=budget, id__in=selected_ids))
         deletable_ids = [item.pk for item in budget_items if _is_product_budget_item(item)]
 
         if not deletable_ids:
-            logger.warning(
-                "Tentativa de remocao em lote de pecas sem itens elegiveis",
-                extra={"budget_id": budget_id, "selected_count": len(selected_ids)},
-            )
+            logger.warning("budget_items_batch_remove_no_eligible_items", extra={"budget_id": budget_id, "item_type": "product", "selected_count": len(selected_ids)})
             return _step_redirect_response(request, budget, fallback_step=4)
 
         BudgetItem.objects.filter(workshop=self.workshop, budget=budget, id__in=deletable_ids).delete()
@@ -384,6 +387,8 @@ class RemoveServiceItemsBatchFromBudgetView(LoginRequiredMixin, WorkshopScopedMi
 
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return _build_locked_budget_response(request, budget, fallback_step=4)
 
@@ -391,30 +396,17 @@ class RemoveServiceItemsBatchFromBudgetView(LoginRequiredMixin, WorkshopScopedMi
         selected_ids, invalid_ids = _normalize_selected_item_ids(raw_selected_ids)
 
         if invalid_ids:
-            logger.warning(
-                "IDs invalidos enviados para remocao em lote de servicos",
-                extra={
-                    "budget_id": budget_id,
-                    "invalid_count": len(invalid_ids),
-                    "invalid_ids": invalid_ids[:10],
-                },
-            )
+            logger.warning("budget_items_batch_remove_invalid_ids", extra={"budget_id": budget_id, "item_type": "service", "invalid_count": len(invalid_ids), "invalid_ids": invalid_ids[:10]})
 
         if not selected_ids:
-            logger.warning(
-                "Tentativa de remocao em lote de servicos sem selecao",
-                extra={"budget_id": budget_id},
-            )
+            logger.warning("budget_items_batch_remove_no_selection", extra={"budget_id": budget_id, "item_type": "service"})
             return _step_redirect_response(request, budget, fallback_step=4)
 
         budget_items = list(BudgetItem.objects.filter(workshop=self.workshop, budget=budget, id__in=selected_ids))
         deletable_ids = [item.pk for item in budget_items if _is_service_budget_item(item)]
 
         if not deletable_ids:
-            logger.warning(
-                "Tentativa de remocao em lote de servicos sem itens elegiveis",
-                extra={"budget_id": budget_id, "selected_count": len(selected_ids)},
-            )
+            logger.warning("budget_items_batch_remove_no_eligible_items", extra={"budget_id": budget_id, "item_type": "service", "selected_count": len(selected_ids)})
             return _step_redirect_response(request, budget, fallback_step=4)
 
         BudgetItem.objects.filter(workshop=self.workshop, budget=budget, id__in=deletable_ids).delete()
@@ -432,6 +424,8 @@ class RemoveKitItemsBatchFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin,
 
     def post(self, request, budget_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return _build_locked_budget_response(request, budget, fallback_step=4)
 
@@ -439,30 +433,17 @@ class RemoveKitItemsBatchFromBudgetView(LoginRequiredMixin, WorkshopScopedMixin,
         selected_ids, invalid_ids = _normalize_selected_item_ids(raw_selected_ids)
 
         if invalid_ids:
-            logger.warning(
-                "IDs invalidos enviados para remocao em lote de kits",
-                extra={
-                    "budget_id": budget_id,
-                    "invalid_count": len(invalid_ids),
-                    "invalid_ids": invalid_ids[:10],
-                },
-            )
+            logger.warning("budget_items_batch_remove_invalid_ids", extra={"budget_id": budget_id, "item_type": "kit", "invalid_count": len(invalid_ids), "invalid_ids": invalid_ids[:10]})
 
         if not selected_ids:
-            logger.warning(
-                "Tentativa de remocao em lote de kits sem selecao",
-                extra={"budget_id": budget_id},
-            )
+            logger.warning("budget_items_batch_remove_no_selection", extra={"budget_id": budget_id, "item_type": "kit"})
             return _step_redirect_response(request, budget, fallback_step=4)
 
         budget_items = list(BudgetItem.objects.filter(workshop=self.workshop, budget=budget, id__in=selected_ids))
         deletable_ids = [item.pk for item in budget_items if _is_kit_budget_item(item)]
 
         if not deletable_ids:
-            logger.warning(
-                "Tentativa de remocao em lote de kits sem itens elegiveis",
-                extra={"budget_id": budget_id, "selected_count": len(selected_ids)},
-            )
+            logger.warning("budget_items_batch_remove_no_eligible_items", extra={"budget_id": budget_id, "item_type": "kit", "selected_count": len(selected_ids)})
             return _step_redirect_response(request, budget, fallback_step=4)
 
         BudgetItem.objects.filter(workshop=self.workshop, budget=budget, id__in=deletable_ids).delete()
@@ -497,10 +478,31 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         )
 
     @staticmethod
+    def _render_updated_item_list_body(*, budget: Budget, item: BudgetItem) -> str:
+        item_type = _budget_item_type(item)
+        target_by_item_type = {
+            "product": "product-list-body",
+            "service": "service-list-body",
+            "kit": "kit-list-body",
+        }
+        target_id = target_by_item_type.get(item_type)
+        if target_id is None:
+            return ""
+
+        rows = _render_budget_items_rows(budget, step6=False)
+        return f'<tbody id="{target_id}" hx-swap-oob="innerHTML">{rows[item_type]}</tbody>'
+
+    @staticmethod
     def _build_stock_quantity_html(*, item: BudgetItem) -> str:
+        stock_quantity = getattr(item, "stock_quantity", None)
+        if stock_quantity is None and item.product_id:
+            stock_quantity = get_stock_quantity(
+                workshop_id=item.workshop_id,
+                product_id=item.product_id,
+            )
         return NumberInput(attrs={"readonly": "readonly", "disabled": "disabled", "id": "stock-quantity-reference"}).render(
             name="stock_quantity_reference",
-            value=item.stock_quantity or 0,
+            value=stock_quantity or 0,
         )
 
     def get(self, request, budget_id, item_id):
@@ -512,6 +514,8 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id, item_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return _build_locked_budget_response(request, budget, fallback_step=4)
 
@@ -525,20 +529,28 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 if price_warning and request.POST.get("confirm_lower_price") != "1":
                     form.add_error("product_selling_price", price_warning.message)
                     annotate_product_issues(workshop=self.workshop, items=[item])
-                    return self._render_edit_modal(request, form=form, item=item, budget_id=budget_id, in_queue=in_queue)
+                    modal_resp = self._render_edit_modal(request, form=form, item=item, budget_id=budget_id, in_queue=in_queue)
+                    return HtmxResponseHelper.warning(
+                        message=price_warning.message,
+                        content=modal_resp.content.decode(modal_resp.charset or "utf-8"),
+                    )
+            elif action in {"save_only", "update_master"} and item.service:
+                price_warning = build_service_price_warning(
+                    service=item.service,
+                    attempted_price=form.cleaned_data.get("service_selling_price"),
+                )
+                if price_warning and request.POST.get("confirm_lower_price") != "1":
+                    form.add_error("service_selling_price", price_warning.message)
+                    modal_resp = self._render_edit_modal(request, form=form, item=item, budget_id=budget_id, in_queue=in_queue)
+                    return HtmxResponseHelper.warning(
+                        message=price_warning.message,
+                        content=modal_resp.content.decode(modal_resp.charset or "utf-8"),
+                    )
             try:
                 item = form.save()
                 self._sync_product_ncm(item=item, form=form)
             except Exception:
-                logger.exception(
-                    "Falha ao salvar item do orcamento",
-                    extra={
-                        "budget_id": budget_id,
-                        "item_id": item_id,
-                        "item_type": "service" if item.service_id else "product" if item.product_id else "kit" if item.kit_id else "unknown",
-                        "action": action,
-                    },
-                )
+                logger.exception("budget_item_save_failed", extra={"budget_id": budget_id, "item_id": item_id, "item_type": "service" if item.service_id else "product" if item.product_id else "kit" if item.kit_id else "unknown", "action": action})
                 raise
 
             # Reset etapas 5 e 6 após modificar a etapa 4
@@ -548,22 +560,31 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
             if action == "update_master":
                 self.update_master_record(item=item, form=form)
 
-            # Mantém o mesmo comportamento de create/delete: recarrega etapa atual
-            # para refletir imediatamente o reset das etapas 5 e 6.
-            return _step_redirect_response(request, budget, fallback_step=4)
+            if in_queue:
+                # A fila de edição usa o header HX-Redirect para avançar entre os itens.
+                return _step_redirect_response(request, budget, fallback_step=4)
 
-        logger.warning(
-            "Formulario invalido ao salvar item do orcamento",
-            extra={
-                "budget_id": budget_id,
-                "item_id": item_id,
-                "item_type": "service" if item.service_id else "product" if item.product_id else "kit" if item.kit_id else "unknown",
-                "errors": form.errors.get_json_data(),
-            },
-        )
+            content = self._render_updated_item_list_body(budget=budget, item=item)
+            if not content:
+                return _step_redirect_response(request, budget, fallback_step=4)
+
+            return HtmxResponseHelper.success(
+                "Item salvo com sucesso.",
+                close_modal=True,
+                update_summary=True,
+                content=content,
+            )
+
+        logger.warning("budget_item_form_invalid", extra={"budget_id": budget_id, "item_id": item_id, "item_type": "service" if item.service_id else "product" if item.product_id else "kit" if item.kit_id else "unknown", "errors": form.errors.get_json_data()})
 
         annotate_product_issues(workshop=self.workshop, items=[item])
-        return self._render_edit_modal(request, form=form, item=item, budget_id=budget_id, in_queue=in_queue)
+        modal_resp = self._render_edit_modal(request, form=form, item=item, budget_id=budget_id, in_queue=in_queue)
+        first_error = next(iter(list(form.errors.values())[0]), "Verifique os campos do formulário.") if form.errors else "Verifique os campos do formulário."
+        return HtmxResponseHelper.error(
+            message=first_error,
+            form_errors=form.errors.get_json_data(),
+            content=modal_resp.content.decode(modal_resp.charset or "utf-8"),
+        )
 
     @staticmethod
     def _sync_product_ncm(*, item: BudgetItem, form: BudgetItemEditForm) -> None:
@@ -594,6 +615,7 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
             service.selling_price = item.service_selling_price
             service.duration = item.duration
             service.save()
+            record_service_last_used_price(service=service, price=item.service_selling_price)
         elif item.kit:
             kit = item.kit
             kit.name = item.description
@@ -605,6 +627,8 @@ class BudgetItemCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id, item_id):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
 
@@ -617,7 +641,7 @@ class BudgetItemCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         try:
             form.full_clean()
         except Exception:
-            logger.exception("Falha ao executar full_clean no calculo de item", extra={"budget_id": budget_id, "item_id": item_id})
+            logger.exception("budget_item_full_clean_failed", extra={"budget_id": budget_id, "item_id": item_id})
 
         cleaned_data = getattr(form, "cleaned_data", {})
 
@@ -707,16 +731,15 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, budget_id, item_type):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
         if _is_budget_edit_locked(budget):
             return _build_locked_budget_response(request, budget, fallback_step=4)
 
         modal_context = request.POST.get("modal_context", "")
 
         if item_type not in {"product", "service", "kit"}:
-            logger.warning(
-                "Tentativa de adicionar itens em lote com tipo invalido",
-                extra={"budget_id": budget_id, "item_type": item_type},
-            )
+            logger.warning("budget_items_batch_add_invalid_type", extra={"budget_id": budget_id, "item_type": item_type})
             return HttpResponse("Tipo de item inválido.", status=400)
 
         # Recebe IDs dos checkboxes marcados
@@ -724,21 +747,10 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
         selected_ids, invalid_ids = _normalize_selected_item_ids(raw_selected_ids)
 
         if invalid_ids:
-            logger.warning(
-                "IDs invalidos enviados para adicao em lote",
-                extra={
-                    "budget_id": budget_id,
-                    "item_type": item_type,
-                    "invalid_count": len(invalid_ids),
-                    "invalid_ids": invalid_ids[:10],
-                },
-            )
+            logger.warning("budget_items_batch_add_invalid_ids", extra={"budget_id": budget_id, "item_type": item_type, "invalid_count": len(invalid_ids), "invalid_ids": invalid_ids[:10]})
 
         if not selected_ids:
-            logger.warning(
-                "Tentativa de adicionar itens em lote sem selecao",
-                extra={"budget_id": budget_id, "item_type": item_type},
-            )
+            logger.warning("budget_items_batch_add_no_selection", extra={"budget_id": budget_id, "item_type": item_type})
             # Return error message in the modal container
             error_html = """
             <div class="modal-box w-11/12 max-w-md bg-base-100">
@@ -788,15 +800,7 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
                 created_items.append(budget_item.pk)
         except Exception:
-            logger.exception(
-                "Falha ao adicionar itens em lote ao orcamento",
-                extra={
-                    "budget_id": budget_id,
-                    "item_type": item_type,
-                    "selected_count": len(raw_selected_ids),
-                    "selected_ids": raw_selected_ids[:20],
-                },
-            )
+            logger.exception("budget_items_batch_add_failed", extra={"budget_id": budget_id, "item_type": item_type, "selected_count": len(raw_selected_ids), "selected_ids": raw_selected_ids[:20]})
             error_html = """
             <div class="modal-box w-11/12 max-w-md bg-base-100">
                 <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick="form_modal.close()">✕</button>

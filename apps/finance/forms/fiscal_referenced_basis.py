@@ -4,8 +4,8 @@ from decimal import Decimal
 
 from django import forms
 
-from apps.core.forms import CoreModelForm
-from apps.core.widgets import CheckboxInput, NumberInput, SearchableSelectInput, TextareaInput
+from apps.core.presentation.forms import CoreModelForm
+from apps.core.presentation.widgets import CheckboxInput, NumberInput, SearchableSelectInput, TextareaInput
 from apps.finance.models.finance import FiscalDocument, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentStatus, FiscalDocumentType, FiscalReferencedBasis
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.stock.models import StockMovement

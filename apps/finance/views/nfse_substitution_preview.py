@@ -15,7 +15,7 @@ from apps.finance.models.finance import FiscalEmissionAttemptStatus, NfseSubstit
 from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
 from apps.finance.services.nfse_substitution_preview import approve_nfse_substitution_preview, create_nfse_substitution_preview, is_nfse_substitution_preview_enabled
 from apps.finance.services.nfse_substitution import NfseSubstitutionError, is_nfse_substitution_eligible, substitute_nfse_from_preview
-from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
+from apps.core.infrastructure.services.webmania.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import has_workshop_perm
 

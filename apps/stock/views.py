@@ -46,15 +46,12 @@ from .models import StockImport, StockMovement, StockProduct, StockTransfer
 from ..catalog.models.groups import CatalogGroup
 from ..catalog.models.products import Product
 from ..budget.pdf_context import build_workshop_logo_data_uri
-from ..core.documents.http import build_pdf_http_response
-from ..core.forms import MultiStepFormMixin
-from ..core.navigation import STOCK_IMPORT_CREATE_FAVORITE_PAGE
-from ..core.query_filters import QueryParamFilter, apply_query_param_filters
-from ..core.search import apply_text_search
-from ..core.tables import TableActionDefaults
+from ..core.infrastructure.pdf.renderer import build_pdf_http_response
+from ..core.infrastructure import apply_text_search, apply_query_param_filters, QueryParamFilter
+from ..core.presentation import TableActionDefaults, STOCK_IMPORT_CREATE_FAVORITE_PAGE, MultiStepFormMixin
 from ..core.templatetags.table_tags import TableColumn
 from ..core.utils import clean_id
-from ..core.views import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, PageFavoriteMixin
+from ..core.presentation.mixins import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, PageFavoriteMixin
 from ..finance.models.payment_method import PaymentMethod
 from ..finance.services.payment_method_fees import calculate_payment_method_fee_amount
 from ..suppliers.models import Supplier
@@ -788,6 +785,50 @@ class StockImportDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteR
     htmx_template_name = "stock/partials/stock_delete_modal.html"
     htmx_trigger = "stock-table-refresh"
 
+    def _revert_stock_import(self, stock_import: StockImport) -> None:
+        if stock_import.status != StockImport.ImportStatus.COMPLETED:
+            return
+
+        from apps.finance.models.financial_movement import FinancialMovement
+
+        for item in stock_import.items_data or []:
+            product_id = item.get("linked_product_id")
+            if not product_id:
+                continue
+            try:
+                stock_product = StockProduct.objects.get(workshop=self.workshop, product_id=product_id)
+            except StockProduct.DoesNotExist:
+                continue
+            quantity = Decimal(str(item.get("qtd", 0)))
+            stock_product.current_quantity = max(0, stock_product.current_quantity - quantity)
+            stock_product.save(update_fields=["current_quantity"])
+
+        for pay in stock_import.payments_data or []:
+            if pay.get("entry_type") != "payment":
+                continue
+            fm_id = pay.get("financial_movement_id")
+            if fm_id:
+                FinancialMovement.objects.filter(pk=fm_id, workshop=self.workshop).delete()
+            fee_fm_id = pay.get("fee_financial_movement_id")
+            if fee_fm_id:
+                FinancialMovement.objects.filter(pk=fee_fm_id, workshop=self.workshop).delete()
+
+    @transaction.atomic
+    def form_valid(self, form):
+        self.object = self.get_object()
+        self._revert_stock_import(self.object)
+
+        if bool(getattr(self.request, "htmx", False)):
+            self.object.delete()
+            response = HttpResponse()
+            if self.htmx_trigger:
+                response["HX-Trigger"] = self.htmx_trigger
+            return response
+
+        success_url = self.get_success_url()
+        self.object.delete()
+        return redirect(success_url)
+
 
 class StockHistoryEditRedirectView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = StockImport
@@ -824,6 +865,7 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
         response["HX-Trigger"] = json.dumps(trigger)
         return response
 
+    @transaction.atomic
     def post(self, request, *args, **kwargs):
         pk = request.GET.get("pk")
         obj = get_object_or_404(StockImport, id=pk, workshop=self.workshop)
@@ -914,7 +956,10 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return self._htmx_payment_response("Pagamento incluído com sucesso.", level="success", refresh_step=True)
         except (InvalidOperation, ValueError):
             return self._htmx_payment_response("Informe valores válidos para o pagamento.", level="warning")
-        except Exception:
+        except Exception as exc:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.exception("Erro ao criar pagamento de importação de estoque: %s", exc)
             return self._htmx_payment_response("Erro ao processar valores do pagamento.", level="error")
 
 

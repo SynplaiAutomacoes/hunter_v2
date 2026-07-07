@@ -27,7 +27,7 @@ from apps.finance.models.finance import (
     FiscalReferencedBasisStatus,
     WebmaniaCompany,
 )
-from apps.finance.services.emission import build_webmania_webhook_url
+from apps.core.infrastructure.services.webmania.emission import build_webmania_webhook_url
 from apps.finance.services.fiscal_attempts import (
     FiscalEmissionAttemptBlocked,
     begin_emission_attempt,
@@ -40,9 +40,9 @@ from apps.finance.services.fiscal_attempts import (
     sanitize_fiscal_payload,
 )
 from apps.finance.services.fiscal_debit_product_preview import detect_forbidden_debit_groups
-from apps.finance.services.nfe_emission import NfeEmissionError, _build_customer_payload, _build_payment_payload
-from apps.finance.services.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting, should_use_global_webmania_auth
-from apps.finance.services.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+from apps.core.infrastructure.services.webmania.nfe_emission import NfeEmissionError, _build_customer_payload, _build_payment_payload
+from apps.core.infrastructure.services.webmania.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting, should_use_global_webmania_auth
+from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
 
 
 logger = logging.getLogger(__name__)
@@ -147,7 +147,7 @@ def _build_debit_payload(*, preview: FiscalDebitProductPreview, request: HttpReq
     nfe_request = source_document.legacy_nfe_item.request
     try:
         cliente = _build_customer_payload(nfe_request)
-        pedido = _build_payment_payload(workorder=nfe_request.workorder, total_value=Decimal(preview.product_total_amount))
+        pedido = _build_payment_payload(workorder=nfe_request.workorder, total_value=Decimal(preview.product_total_amount), discount_value=Decimal("0.00"))
     except NfeEmissionError as exc:
         raise NfeDebitError(str(exc)) from exc
     product = sanitize_fiscal_payload(dict(preview.product_payload or {}))

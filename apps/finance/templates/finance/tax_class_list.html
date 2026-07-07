@@ -1,10 +1,16 @@
 {% extends 'crud/list_page.html' %}
 
 {% block crud_title %}Classe de Imposto{% endblock %}
-{% block crud_subtitle %}Gerencie classes fiscais de Nota Fiscal e Nota Fiscal de Serviço.{% endblock %}
+{% block crud_subtitle %}Gerencie classes fiscais de Nota Fiscal de Produto e Nota Fiscal de Serviço.{% endblock %}
 
 {% block crud_header_actions %}
     <div class="flex flex-wrap gap-2">
+        <form method="post" action="{% url 'finance:tax_class_list' %}?tab={{ active_tab }}" onsubmit="this.querySelector('button[type=submit]').disabled = true;">
+            {% csrf_token %}
+            <input type="hidden" name="form_action" value="sync">
+            <input type="hidden" name="tab" value="{{ active_tab }}">
+            <button type="submit" class="btn btn-outline">Sincronizar</button>
+        </form>
         <a href="{% url 'finance:tax_class_preset_list' %}?tab={{ active_tab }}" class="btn btn-outline">Gerenciar presets</a>
         <a href="{% url 'finance:tax_class_create' %}?tab={{ active_tab }}" class="btn btn-primary">Criar nova Classe de Imposto</a>
     </div>
@@ -12,8 +18,20 @@
 
 {% block crud_table %}
     <div class="app-tabs tabs tabs-lift mb-6">
-        <a href="{% url 'finance:tax_class_list' %}?tab=nfe" class="tab {% if active_tab == 'nfe' %}tab-active{% endif %}">Nota Fiscal</a>
+        <a href="{% url 'finance:tax_class_list' %}?tab=nfe" class="tab {% if active_tab == 'nfe' %}tab-active{% endif %}">Nota Fiscal de Produto</a>
         <a href="{% url 'finance:tax_class_list' %}?tab=nfse" class="tab {% if active_tab == 'nfse' %}tab-active{% endif %}">Nota Fiscal de Serviço</a>
+    </div>
+
+    <div class="alert alert-info mb-6">
+        <span>
+            {% if tax_class_last_sync_at %}
+                Ultima sincronizacao em {{ tax_class_last_sync_at|date:'d/m/Y H:i' }}. Clique em Sincronizar para atualizar a lista.
+            {% elif tax_class_has_synced_once %}
+                Nenhuma classe de imposto encontrada na base local. Use Sincronizar para consultar novamente.
+            {% else %}
+                Clique em Sincronizar para buscar os dados.
+            {% endif %}
+        </span>
     </div>
 
     <div class="overflow-x-auto">
@@ -56,7 +74,7 @@
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="4" class="text-center text-base-content/60 py-6">Nenhuma classe de imposto de Nota Fiscal encontrada.</td>
+                            <td colspan="4" class="text-center text-base-content/60 py-6">Nenhuma classe de imposto de Nota Fiscal de Produto encontrada.</td>
                         </tr>
                     {% endfor %}
                 {% else %}

@@ -28,8 +28,8 @@ from apps.finance.models.finance import (
 )
 from apps.finance.services.nfe_debit import create_and_emit_nfe_debit_type_four
 from apps.finance.services.nfe_debit_cancellation import NfeDebitCancellationError, cancel_nfe_debit_document, reconcile_nfe_debit_cancellation
-from apps.finance.services.webmania_documents import DownloadedWebmaniaDocument
-from apps.finance.services.webmania_webhooks import process_webhook_event
+from apps.core.infrastructure.services.webmania.webmania_documents import DownloadedWebmaniaDocument
+from apps.core.infrastructure.services.webmania.webmania_webhooks import process_webhook_event
 from apps.finance.test_nfe_debit import DebitFixtureMixin, _response
 from apps.finance.views.nfe_debit import NfeDebitCancellationDownloadView, NfeDebitCancellationPayloadView, NfeDebitCancellationView
 
@@ -114,7 +114,7 @@ class FiscalPhaseTwoDebitTypeFourCancellationTests(DebitCancellationFixtureMixin
     def test_non_debit_documents_and_disabled_feature_are_blocked(self) -> None:
         original_purpose = self.document.purpose
         for document_type, purpose, fiscal_type in [
-            (FiscalDocumentType.NFE, FiscalDocumentPurpose.CREDIT, "1"),
+            (FiscalDocumentType.NFE, FiscalDocumentPurpose.RETURN, ""),
             (FiscalDocumentType.NFE, FiscalDocumentPurpose.NORMAL, ""),
             (FiscalDocumentType.NFCE, FiscalDocumentPurpose.NORMAL, ""),
         ]:
@@ -179,7 +179,7 @@ class FiscalPhaseTwoDebitTypeFourCancellationTests(DebitCancellationFixtureMixin
         debit_event = self.document.events.get(event_payload_type="nfe_debit_cancellation")
         debit_workshop = self.workshop
         other_preview = self.build_fixture(suffix=90)
-        credit_document = FiscalDocument.objects.create(workshop=other_preview.workshop, account=other_preview.workshop.account, document_type=FiscalDocumentType.NFE, origin=FiscalDocumentOrigin.DERIVED, purpose=FiscalDocumentPurpose.CREDIT, fiscal_purpose_type="1", remote_uuid=self.document.remote_uuid, access_key=self.document.access_key, status=FiscalDocumentStatus.APPROVED)
+        credit_document = FiscalDocument.objects.create(workshop=other_preview.workshop, account=other_preview.workshop.account, document_type=FiscalDocumentType.NFE, origin=FiscalDocumentOrigin.LOCAL, purpose=FiscalDocumentPurpose.NORMAL, fiscal_purpose_type="", remote_uuid=self.document.remote_uuid, access_key=self.document.access_key, status=FiscalDocumentStatus.APPROVED)
         credit_event = FiscalDocumentEvent.objects.create(document=credit_document, event_type=FiscalDocumentEventType.CANCELLATION, event_sequence=1, event_payload_type="nfe_credit_cancellation", status=FiscalDocumentEventStatus.UNCERTAIN, remote_model="nfe")
         payload = self.cancellation_payload()
         webhook = WebmaniaWebhookEvent.objects.create(model="nfe", event_uuid=self.document.remote_uuid, fingerprint="debit-credit-cancel-ambiguous", payload=payload)

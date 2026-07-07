@@ -7,10 +7,10 @@ from django.urls import reverse
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
-from apps.core.widgets import TextInput, SearchableSelectInput, NumberInput, CheckboxInput
+from apps.core.presentation.widgets import TextInput, SearchableSelectInput, NumberInput, CheckboxInput
 from apps.quote.models.investigative_questions import InvestigativeQuestion
 from apps.workshops.models.workshops import Workshop
-from apps.core.forms import CoreModelForm
+from apps.core.presentation.forms import CoreModelForm
 
 
 class InvestigativeQuestionForm(CoreModelForm):

@@ -9,7 +9,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from apps.finance.models.finance import NfseReceivedDocument, NfseReceivedDocumentConsultation
-from apps.finance.services.nfse_consulta import NfseConsultaError, consult_nfse_uuid
+from apps.core.infrastructure.services.webmania.nfse_consulta import NfseConsultaError, consult_nfse_uuid
 from apps.finance.services.nfse_received import normalize_tax_id
 
 

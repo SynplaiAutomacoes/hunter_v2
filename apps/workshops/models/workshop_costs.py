@@ -10,7 +10,7 @@ from django.utils.translation import gettext_lazy as _
 from djmoney.models.fields import MoneyField
 from djmoney.money import Money
 
-from apps.core.models import TimeStampedModel
+from apps.core.infrastructure.models import TimeStampedModel
 from apps.workshops.models.monthly_costs import MonthlyCost
 from apps.workshops.models.workshops import Workshop
 
@@ -118,19 +118,16 @@ class WorkshopCost(TimeStampedModel):
     def __str__(self):
         return f"{self.get_month_display()}/{self.year}"
 
-    def get_business_holiday_dates(self) -> set[date]:
-        override_holiday_dates = getattr(self, "holiday_dates_override", None)
-        if override_holiday_dates is not None:
-            holiday_dates = set(override_holiday_dates)
-        elif self.pk:
-            holiday_dates = set(self.holidays.values_list("date", flat=True))
-        else:
-            holiday_dates = set()
+    def get_work_day_dates(self) -> set[date]:
+        override_work_day_dates = getattr(self, "work_day_dates_override", None)
+        if override_work_day_dates is not None:
+            return set(override_work_day_dates)
+        if self.pk:
+            return set(self.work_days.values_list("date", flat=True))
+        return set()
 
-        return {holiday_date for holiday_date in holiday_dates if holiday_date.weekday() < 5}
-
-    def get_business_holiday_count(self) -> int:
-        return len(self.get_business_holiday_dates())
+    def get_work_day_count(self) -> int:
+        return len(self.get_work_day_dates())
 
     def calculate_working_hours_per_month(self) -> Decimal:
         if not self.work_hours_per_day:
@@ -241,16 +238,16 @@ class WorkshopCostItem(models.Model):
         unique_together = ("workshop_cost", "monthly_cost")
 
 
-class WorkshopCostHoliday(models.Model):
-    workshop_cost = models.ForeignKey(WorkshopCost, on_delete=models.CASCADE, related_name="holidays")
-    date = models.DateField(verbose_name="Data do feriado")
+class WorkshopCostWorkDay(models.Model):
+    workshop_cost = models.ForeignKey(WorkshopCost, on_delete=models.CASCADE, related_name="work_days")
+    date = models.DateField(verbose_name="Data do dia trabalhado")
     description = models.CharField(verbose_name="Descricao", max_length=120, blank=True)
 
     class Meta:
-        verbose_name = "Feriado do Custo da Oficina"
-        verbose_name_plural = "Feriados do Custo da Oficina"
+        verbose_name = "Dia Trabalhado do Custo da Oficina"
+        verbose_name_plural = "Dias Trabalhados do Custo da Oficina"
         ordering = ["date", "pk"]
-        constraints = [models.UniqueConstraint(fields=["workshop_cost", "date"], name="unique_workshop_cost_holiday_date")]
+        constraints = [models.UniqueConstraint(fields=["workshop_cost", "date"], name="unique_workshop_cost_work_day_date")]
 
     def __str__(self) -> str:
         return self.description or self.date.strftime("%d/%m/%Y")
@@ -259,4 +256,4 @@ class WorkshopCostHoliday(models.Model):
         super().clean()
 
         if self.date.month != self.workshop_cost.month or self.date.year != self.workshop_cost.year:
-            raise ValidationError({"date": "O feriado deve pertencer ao mesmo mês e ano do custo mensal."})
+            raise ValidationError({"date": "O dia trabalhado deve pertencer ao mesmo mês e ano do custo mensal."})

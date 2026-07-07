@@ -15,6 +15,13 @@
     </div>
     {% endif %}
 
+    {% if concurrent_locked_by_other %}
+    <div class="alert alert-error" id="concurrent-lock-banner">
+        <span class="material-icons">block</span>
+        <span>Outro usuário (<strong>{{ concurrent_lock_info.locked_by }}</strong>) está editando esta O.S. neste momento. Aguarde até que ele saia para editar.</span>
+    </div>
+    {% endif %}
+
     <div class="mt-8 space-y-4">
         <div class="app-tabs tabs tabs-lift flex-wrap" role="tablist" aria-label="Seções da ordem de serviço">
             <input type="radio" name="workorder_tabs" value="resumo" class="tab" aria-label="Resumo" x-model="activeTab" checked />
@@ -261,6 +268,88 @@
         });
 
         lockWorkorderEditing(document);
+    })();
+</script>
+
+<script>
+    (function() {
+        const WORKORDER_ID = {{ workorder.pk }};
+        const OBJ_TYPE = 'workorder.workorder';
+        const LOCK_REFRESH_INTERVAL_MS = 30000;
+
+        let lockHeartbeat = null;
+
+        function acquireLock() {
+            const csrf = document.querySelector('[name=csrfmiddlewaretoken]');
+            const csrfToken = csrf ? csrf.value : '';
+            fetch('{% url "core:lock_acquire" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': csrfToken,
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: new URLSearchParams({ type: OBJ_TYPE, id: WORKORDER_ID })
+            }).then(function(r) {
+                if (r.status === 409) {
+                    r.json().then(function(data) {
+                        if (data.lock_info) {
+                            const banner = document.getElementById('concurrent-lock-banner');
+                            if (!banner) {
+                                const container = document.querySelector('.p-6.space-y-6');
+                                if (container) {
+                                    const div = document.createElement('div');
+                                    div.className = 'alert alert-error';
+                                    div.id = 'concurrent-lock-banner';
+                                    div.innerHTML = '<span class="material-icons">block</span><span>Outro usu\u00e1rio (<strong>' + data.lock_info.locked_by + '</strong>) est\u00e1 editando esta O.S. neste momento. Aguarde at\u00e9 que ele saia para editar.</span>';
+                                    container.insertBefore(div, container.firstChild);
+                                }
+                            }
+                        }
+                    });
+                } else if (r.ok) {
+                    startHeartbeat();
+                }
+            }).catch(function() {});
+        }
+
+        function releaseLock() {
+            const csrf = document.querySelector('[name=csrfmiddlewaretoken]');
+            const csrfToken = csrf ? csrf.value : '';
+            navigator.sendBeacon('{% url "core:lock_release" %}', new URLSearchParams({ type: OBJ_TYPE, id: WORKORDER_ID, csrfmiddlewaretoken: csrfToken }));
+        }
+
+        function refreshLock() {
+            const csrf = document.querySelector('[name=csrfmiddlewaretoken]');
+            const csrfToken = csrf ? csrf.value : '';
+            fetch('{% url "core:lock_refresh" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': csrfToken,
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: new URLSearchParams({ type: OBJ_TYPE, id: WORKORDER_ID })
+            }).catch(function() {});
+        }
+
+        function startHeartbeat() {
+            if (lockHeartbeat) {
+                clearInterval(lockHeartbeat);
+            }
+            lockHeartbeat = setInterval(refreshLock, LOCK_REFRESH_INTERVAL_MS);
+        }
+
+        {% if not concurrent_locked_by_other and not workorder.is_status_locked %}
+        acquireLock();
+        {% endif %}
+
+        window.addEventListener('beforeunload', function() {
+            if (lockHeartbeat) {
+                clearInterval(lockHeartbeat);
+            }
+            releaseLock();
+        });
     })();
 </script>
 

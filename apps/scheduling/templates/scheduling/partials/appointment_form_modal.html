@@ -7,6 +7,7 @@
     </div>
 
     <form
+        novalidate
         data-appointment-form="1"
         method="post"
         action="{{ request.path }}{% if request.META.QUERY_STRING %}?{{ request.META.QUERY_STRING }}{% endif %}"

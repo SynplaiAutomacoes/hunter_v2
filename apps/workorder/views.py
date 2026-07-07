@@ -15,7 +15,6 @@ from django.db.models import Prefetch
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.urls import reverse
 from django.shortcuts import get_object_or_404, render
-from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.utils.html import escape
 from django.views import View
@@ -32,12 +31,15 @@ from apps.catalog.models.kits import Kit
 from apps.budget.models import BudgetType
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
-from apps.core.query_filters import QueryParamFilter, apply_query_param_filters
-from apps.core.tables import TableActionDefaults
-from apps.core.documents.http import build_pdf_http_response
-from apps.core.documents.services import SignatureDeliveryServiceError, download_signed_document_content
+from apps.core.domain.services.editing_lock_service import get_lock_info
+from apps.core.infrastructure.query_filters import QueryParamFilter, apply_query_param_filters
+from apps.core.presentation.tables import TableActionDefaults
+from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
+from apps.core.domain.contracts.signature import SignatureServiceError
+from apps.core.infrastructure.providers import get_signature_service
+from apps.core.text_normalization import sentence_case
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxTemplateResponseMixin
+from apps.core.presentation.mixins import HtmxTemplateResponseMixin
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
 from apps.workorder.discount_sync import sync_workorder_discount_to_budget
 from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock
@@ -57,7 +59,7 @@ from apps.workorder.forms import (
     WorkOrderReopenForm,
     WorkOrderStatusReasonForm,
 )
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderSignatureStatus, WorkOrderStatus
 from apps.workorder.reopening import WorkOrderReopenError, reopen_workorder
 
 from apps.workorder.util import (
@@ -79,6 +81,8 @@ from apps.workorder.util import (
     _get_workorder_from_signature_token,
     _is_workorder_edit_locked,
     LOCKED_WORKORDER_EDIT_MESSAGE,
+    _check_concurrent_edit_lock,
+    _build_concurrent_lock_response,
 )
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.workshops import Workshop
@@ -91,17 +95,21 @@ SIGNED_PDF_VARIANT = "signed"
 BASE_PDF_VARIANT = "base"
 
 
-def _get_requested_pdf_variant(request) -> str:
+def _get_requested_pdf_variant(request) -> str | None:
     requested_variant = str(request.GET.get("variant") or "").strip().lower()
     if requested_variant == BASE_PDF_VARIANT:
         return BASE_PDF_VARIANT
     if requested_variant == SIGNED_PDF_VARIANT:
         return SIGNED_PDF_VARIANT
-    return SIGNED_PDF_VARIANT
+    return None
 
 
 def _can_use_signed_workorder_pdf(workorder: WorkOrder) -> bool:
     return bool(workorder.signature_document_id or workorder.signature_external_id) and workorder.signature_request_status in {WorkOrderSignatureStatus.SENT, WorkOrderSignatureStatus.APPROVED}
+
+
+def _should_default_to_signed_workorder_pdf(workorder: WorkOrder) -> bool:
+    return bool(workorder.signature_document_id or workorder.signature_external_id) and workorder.signature_request_status == WorkOrderSignatureStatus.APPROVED
 
 
 WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
@@ -142,12 +150,12 @@ WORKORDER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
     ),
     QueryParamFilter(
         param_name="data_inicial",
-        lookup="criado_em__date",
+        lookup="delivered_at__date",
         kind="date_gte",
     ),
     QueryParamFilter(
         param_name="data_final",
-        lookup="criado_em__date",
+        lookup="delivered_at__date",
         kind="date_lte",
     ),
 )
@@ -417,7 +425,7 @@ class WorkOrderStatusReportDataMixin:
             filter_configs=WORKORDER_LIST_FILTERS,
         )
 
-        return queryset.order_by("-criado_em")
+        return queryset.order_by("-budget__pk", "-criado_em")
 
     def _get_selection_report_items(self) -> list[WorkOrder]:
         cached = getattr(self, "_selection_report_items_cache", None)
@@ -576,6 +584,13 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
         context["collaborator_form"] = WorkOrderCollaboratorForm(instance=self.object, workorder=self.object)
         context.update(_build_customer_approvement_context(self.object, request=self.request))
         context.update(_build_edit_items_context(self.object))
+
+        lock_info = get_lock_info(self.object)
+        context["concurrent_lock_info"] = lock_info
+        context["concurrent_locked_by_other"] = False
+        if lock_info and lock_info.get("locked_by_session") != self.request.session.session_key:
+            context["concurrent_locked_by_other"] = True
+
         return context
 
 
@@ -601,12 +616,15 @@ class UpdateWorkOrderCollaboratorsView(LoginRequiredMixin, WorkshopScopedMixin, 
 
     def post(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
             return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
 
         form = WorkOrderCollaboratorForm(request.POST, instance=workorder, workorder=workorder)
         if form.is_valid():
             form.save()
+            workorder.refresh_from_db()
             reference_date = max((payment.due_date for payment in workorder.payments.all() if payment.due_date), default=None)
             sync_workorder_collaborator_payrolls(workorder=workorder, reference_date=reference_date)
 
@@ -643,28 +661,27 @@ class UpdateWorkOrderDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View)
 
     def post(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
             return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
 
         try:
             raw_discount_value = request.POST.get("discount_value_0", "0").replace(",", ".") or "0"
             raw_discount_percentage = request.POST.get("discount_percentage", "0").replace(",", ".") or "0"
+            raw_discount_type = request.POST.get("discount_type", "")
+
+            discount_type = raw_discount_type if raw_discount_type in WorkOrderDiscountType.values else None
 
             sync_workorder_discount_to_budget(
                 workorder=workorder,
                 discount_value=Money(Decimal(raw_discount_value), "BRL"),
                 discount_percentage=Decimal(raw_discount_percentage),
+                discount_type=discount_type,
             )
             workorder.refresh_from_db()
         except (ValueError, TypeError, InvalidOperation):
-            logger.warning(
-                "Valor de desconto invalido recebido para ordem de servico",
-                extra={
-                    "workorder_id": pk,
-                    "raw_discount": request.POST.get("discount_value_0"),
-                    "raw_discount_percentage": request.POST.get("discount_percentage"),
-                },
-            )
+            logger.warning("workorder_discount_invalid_value", extra={"workorder_id": pk, "raw_discount": request.POST.get("discount_value_0"), "raw_discount_percentage": request.POST.get("discount_percentage"), "raw_discount_type": request.POST.get("discount_type")})
             return JsonResponse({"ok": False, "error": "Valor de desconto invalido."}, status=400)
 
         return JsonResponse(
@@ -687,6 +704,8 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
             return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
 
@@ -697,10 +716,27 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return JsonResponse({"ok": False, "errors": list(km_final_errors)}, status=400)
 
         km_final = approval_form.cleaned_data["km_final"]
-        workorder.km_final = km_final
-        workorder.save(update_fields=["km_final"])
+        workorder.set_km_final(km_final)
 
         return JsonResponse({"ok": True, "km_final": km_final})
+
+
+class UpdateWorkOrderObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkOrder
+    workshop_permission_codename = "change_workorder"
+
+    def post(self, request, pk):
+        workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
+        if _is_workorder_edit_locked(workorder):
+            return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
+
+        observations = sentence_case(str(request.POST.get("observations", "")).strip())
+        workorder.budget.observations = observations
+        workorder.budget.save(update_fields=["observations"])
+
+        return JsonResponse({"ok": True, "observations": observations})
 
 
 class WorkOrderEditItemsModalView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
@@ -764,6 +800,8 @@ class WorkOrderAddItemsBatchView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk, item_type):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
             response = _render_edit_items_modal(request, workorder, "products")
             response["HX-Trigger"] = json.dumps({"showToast": {"message": LOCKED_WORKORDER_EDIT_MESSAGE, "type": "warning"}})
@@ -776,15 +814,7 @@ class WorkOrderAddItemsBatchView(LoginRequiredMixin, WorkshopScopedMixin, View):
         selected_ids, invalid_ids = _normalize_selected_item_ids(raw_selected_ids)
 
         if invalid_ids:
-            logger.warning(
-                "IDs invalidos enviados para adicao em lote na ordem de servico",
-                extra={
-                    "workorder_id": pk,
-                    "item_type": item_type,
-                    "invalid_count": len(invalid_ids),
-                    "invalid_ids": invalid_ids[:10],
-                },
-            )
+            logger.warning("workorder_items_batch_add_invalid_ids", extra={"workorder_id": pk, "item_type": item_type, "invalid_count": len(invalid_ids), "invalid_ids": invalid_ids[:10]})
 
         if item_type == "kit":
             incompatible_kits = _get_incompatible_workorder_kits(workshop=self.workshop, workorder=workorder, selected_ids=selected_ids)
@@ -815,15 +845,7 @@ class WorkOrderAddItemsBatchView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "service": "services",
                 "kit": "kits",
             }.get(item_type, "products")
-            logger.exception(
-                "Falha ao adicionar itens em lote na ordem de servico",
-                extra={
-                    "workorder_id": pk,
-                    "item_type": item_type,
-                    "selected_count": len(raw_selected_ids),
-                    "selected_ids": raw_selected_ids[:20],
-                },
-            )
+            logger.exception("workorder_items_batch_add_failed", extra={"workorder_id": pk, "item_type": item_type, "selected_count": len(raw_selected_ids), "selected_ids": raw_selected_ids[:20]})
             return _render_edit_items_modal(request, workorder, active_tab)
 
         active_tab = request.POST.get("active_tab") or {
@@ -842,6 +864,8 @@ class WorkOrderRemoveItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
         item = _get_workorder_item_for_workshop(self.workshop, pk, item_id)
         active_tab = request.POST.get("active_tab") or _active_tab_from_item(item)
         workorder = item.workorder
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
             response = _render_edit_items_modal(request, workorder, active_tab)
             response["HX-Trigger"] = json.dumps({"showToast": {"message": LOCKED_WORKORDER_EDIT_MESSAGE, "type": "warning"}})
@@ -872,6 +896,8 @@ class WorkOrderItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk, item_id):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
             response = _render_edit_items_modal(request, workorder, "products")
             response["HX-Trigger"] = json.dumps({"showToast": {"message": LOCKED_WORKORDER_EDIT_MESSAGE, "type": "warning"}})
@@ -1003,6 +1029,8 @@ class WorkOrderKitEditView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk, item_id):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
             response = _render_edit_items_modal(request, workorder, "kits")
             response["HX-Trigger"] = json.dumps({"showToast": {"message": LOCKED_WORKORDER_EDIT_MESSAGE, "type": "warning"}})
@@ -1076,8 +1104,12 @@ class AddPaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk):
         workorder = get_object_or_404(WorkOrder, pk=pk, workshop=self.workshop)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
             return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
+        if workorder.budget_type in ("warranty", "courtesy"):
+            return JsonResponse({"ok": False, "error": "Ordens de serviço do tipo Garantia ou Cortesia não aceitam planos de pagamento."}, status=400)
 
         form = WorkOrderPaymentForm(request.POST, workorder=workorder)
 
@@ -1111,6 +1143,8 @@ class DeletePaymentMethodView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def delete(self, request, pk):
         payment = get_object_or_404(WorkOrderPaymentMethod, pk=pk, workorder__workshop=self.workshop)
         workorder = payment.workorder
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
             return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
 
@@ -1138,6 +1172,8 @@ class UploadAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk):
         workorder = get_object_or_404(WorkOrder, pk=pk, workshop=self.workshop)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
         if _is_workorder_edit_locked(workorder):
             return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
 
@@ -1174,7 +1210,7 @@ class UploadAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
                         content_type=getattr(uploaded_file, "content_type", None),
                     )
         except Exception:
-            logger.exception("Falha ao salvar anexos da ordem de servico", extra={"workorder_id": workorder.pk})
+            logger.exception("workorder_attachments_save_failed", extra={"workorder_id": workorder.pk, "files_count": len(uploaded_files)})
             response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
             response["HX-Trigger"] = json.dumps({"showToast": {"message": "Não foi possível salvar os anexos. Tente novamente.", "type": "error"}})
             return response
@@ -1203,6 +1239,8 @@ class DeleteAttachmentView(LoginRequiredMixin, WorkshopScopedMixin, View):
         attachment = get_object_or_404(WorkOrderAttachment, pk=pk, workorder__workshop=self.workshop)
         with transaction.atomic():
             workorder = attachment.workorder
+            if not _check_concurrent_edit_lock(request, workorder):
+                return _build_concurrent_lock_response(request, workorder)
             if _is_workorder_edit_locked(workorder):
                 return JsonResponse({"ok": False, "error": LOCKED_WORKORDER_EDIT_MESSAGE}, status=409)
             attachment.delete()
@@ -1217,6 +1255,8 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk, status):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
 
         status_map = {
             "approve": WorkOrderStatus.APPROVED,
@@ -1248,9 +1288,7 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
             try:
                 km_final = approval_form.cleaned_data["km_final"]
                 unsigned_delivery_reason = approval_form.cleaned_data["unsigned_delivery_reason"]
-                workorder.km_final = km_final
-                workorder.unsigned_delivery_reason = unsigned_delivery_reason
-                workorder.save(update_fields=["km_final", "unsigned_delivery_reason"])
+                workorder.complete_delivery(km_final=km_final, unsigned_delivery_reason=unsigned_delivery_reason)
 
                 approve_workorder_with_stock(workorder=workorder, user=request.user)
                 sync_workorder_financial_movement(workorder=workorder)
@@ -1264,7 +1302,7 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 response["HX-Trigger"] = json.dumps({"showToast": {"message": str(exc), "type": "error"}})
                 return response
             except Exception:
-                logger.exception("Falha ao concluir entrega da ordem de servico", extra={"workorder_id": workorder.pk})
+                logger.exception("workorder_delivery_failed", extra={"workorder_id": workorder.pk})
                 response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
                 response["HX-Trigger"] = json.dumps({"showToast": {"message": "Erro interno ao concluir a entrega da ordem de serviço.", "type": "error"}})
                 return response
@@ -1294,6 +1332,8 @@ class ReopenWorkOrderView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, pk):
         workorder = _get_workorder_for_workshop(self.workshop, pk)
+        if not _check_concurrent_edit_lock(request, workorder):
+            return _build_concurrent_lock_response(request, workorder)
         if not can_reopen_workorder(request=request, workorder=workorder):
             response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
             response["HX-Trigger"] = json.dumps({"showToast": {"message": "Você não tem permissão para reabrir esta O.S.", "type": "error"}})
@@ -1322,9 +1362,12 @@ def visualizar_pdf_workorder(request, pk):
     should_download = request.GET.get("download") == "1"
     requested_variant = _get_requested_pdf_variant(request)
 
+    if requested_variant is None:
+        requested_variant = SIGNED_PDF_VARIANT if _should_default_to_signed_workorder_pdf(workorder) else BASE_PDF_VARIANT
+
     if requested_variant == SIGNED_PDF_VARIANT and _can_use_signed_workorder_pdf(workorder):
         try:
-            signed_pdf = download_signed_document_content(
+            signed_pdf = get_signature_service().download_signed_document(
                 document_id=workorder.signature_document_id,
                 envelope_id=workorder.signature_external_id,
             )
@@ -1334,15 +1377,8 @@ def visualizar_pdf_workorder(request, pk):
                 use_signed_name=True,
                 pdf_bytes=signed_pdf,
             )
-        except SignatureDeliveryServiceError:
-            logger.warning(
-                "Falha ao carregar PDF assinado da ordem de servico; retornando PDF base",
-                extra={
-                    "workorder_id": workorder.get_id,
-                    "document_id": workorder.signature_document_id,
-                    "envelope_id": workorder.signature_external_id,
-                },
-            )
+        except SignatureServiceError:
+            logger.warning("workorder_signed_pdf_load_failed", extra={"workorder_id": workorder.pk, "document_id": workorder.signature_document_id, "envelope_id": workorder.signature_external_id})
 
     try:
         document = render_workorder_pdf_document(
@@ -1351,7 +1387,7 @@ def visualizar_pdf_workorder(request, pk):
             filename=f"ordem_servico_{workorder.get_id}_base.pdf",
         )
     except Exception:
-        logger.exception("Falha ao gerar PDF base da ordem de servico", extra={"workorder_id": workorder.get_id})
+        logger.exception("workorder_pdf_base_generation_failed", extra={"workorder_id": workorder.pk, "pdf_type": "view"})
         return HttpResponse("Erro ao gerar PDF", status=500)
 
     return build_pdf_http_response(document=document, download=should_download)
@@ -1381,7 +1417,7 @@ def signature_file(request, token):
             filename=f"ordem_servico_{workorder.get_id}.pdf",
         )
     except Exception:
-        logger.exception("Falha ao gerar PDF via Playwright para assinatura da ordem de servico", extra={"workorder_id": workorder.get_id})
+        logger.exception("workorder_pdf_playwright_failed", extra={"workorder_id": workorder.pk, "pdf_type": "signature"})
         return HttpResponse("Erro ao gerar arquivo de assinatura", status=500)
 
     return build_pdf_http_response(document=document, download=False)

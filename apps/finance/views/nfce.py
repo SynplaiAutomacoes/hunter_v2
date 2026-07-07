@@ -12,12 +12,12 @@ from django.urls import reverse
 from django.views import View
 from django.views.generic import FormView, ListView
 
-from apps.core.forms import CoreForm
+from apps.core.presentation.forms import CoreForm
 from apps.finance.models.finance import FiscalDocument, FiscalDocumentEvent, FiscalDocumentEventType, FiscalDocumentOrigin, FiscalDocumentPurpose, FiscalDocumentType, FiscalNumberInutilization
 from apps.finance.services.nfce_cancellation import NfceCancellationError, cancel_nfce_document, is_nfce_document_eligible_for_cancellation
 from apps.finance.services.nfce_emission import NfceEmissionError, create_and_emit_nfce, validate_nfce_configuration
 from apps.finance.services.nfce_inutilization import NfceInutilizationError, create_and_transmit_nfce_inutilization
-from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
+from apps.core.infrastructure.services.webmania.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import has_workshop_perm
 

@@ -18,11 +18,12 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView, V
 from apps.collaborators.forms import CollaboratorBenefitFormSet, WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorPayroll, WorkshopCollaborator, WorkshopMember
 from apps.collaborators.services import calculate_transport_allowance_total, freeze_existing_pricing_history, get_reference_work_days, sync_collaborator_payroll, sync_current_month_salary_costs
-from apps.core.navigation import COLLABORATOR_CREATE_FAVORITE_PAGE
-from apps.core.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
-from apps.core.tables import TableActionDefaults
+from apps.core.presentation.navigation import COLLABORATOR_CREATE_FAVORITE_PAGE
+from apps.core.infrastructure.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
+from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.core.views import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
+from apps.core.utils import clean_id
+from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.workshops.mixin import WorkshopScopedMixin
 
@@ -381,11 +382,11 @@ class CollaboratorBenefitDeleteView(LoginRequiredMixin, WorkshopScopedMixin, Vie
     workshop_permission_codename = "change_workshopcollaborator"
 
     def post(self, request, pk, benefit_id):
-        collaborator = get_object_or_404(WorkshopCollaborator, pk=pk, workshop=self.workshop)
-        benefit = get_object_or_404(CollaboratorBenefit, pk=benefit_id, collaborator=collaborator)
+        collaborator = get_object_or_404(WorkshopCollaborator, pk=clean_id(pk), workshop=self.workshop)
+        benefit = get_object_or_404(CollaboratorBenefit, pk=clean_id(benefit_id), collaborator=collaborator)
         benefit.delete()
         sync_collaborator_payroll(collaborator=collaborator)
-        return HttpResponseRedirect(f"{reverse('collaborators:collaborator_update', kwargs={'pk': collaborator.pk})}?tab=cadastro")
+        return HttpResponseRedirect(f"{reverse('collaborators:collaborator_update', kwargs={'pk': clean_id(collaborator.pk)})}?tab=cadastro")
 
 
 class WorkshopCollaboratorModalCreateView(LoginRequiredMixin, WorkshopScopedMixin, CreateView):

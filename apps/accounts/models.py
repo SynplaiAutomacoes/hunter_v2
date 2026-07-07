@@ -11,7 +11,7 @@ from django.db.models import Q
 from django.utils import timezone
 from localflavor.br.models import BRCPFField
 
-from apps.core.models import TimeStampedModel
+from apps.core.infrastructure import TimeStampedModel
 
 
 class Account(TimeStampedModel):

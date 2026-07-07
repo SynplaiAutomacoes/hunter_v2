@@ -10,10 +10,10 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
 from apps.catalog.forms.equivalent_products import EquivalentProductsFormMixin
-from apps.core.forms import CoreModelForm
+from apps.core.presentation.forms import CoreModelForm
 from apps.catalog.models.products import Product
 from apps.catalog.price_tracking import build_product_price_warning
-from apps.core.widgets import (
+from apps.core.presentation.widgets import (
     CheckboxInput,
     ImageInput,
     MoneyInput,

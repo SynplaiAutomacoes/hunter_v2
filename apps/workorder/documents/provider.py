@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from apps.core.documents.contract import DocumentPayload, DocumentRenderRequest
-from apps.core.documents.renderer import render_template_request_to_pdf
+from apps.core.domain.contracts.documents import DocumentPayload, DocumentRenderRequest
+from apps.core.infrastructure.pdf.renderer import render_template_request_to_pdf
 from apps.workorder.models import WorkOrder
 from apps.workorder.pdf_context import build_workorder_pdf_context
 
@@ -10,7 +10,6 @@ def build_workorder_pdf_render_request(*, workorder: WorkOrder, request=None, fi
     resolved_filename = filename or f"ordem_servico_{workorder.get_id}.pdf"
     context = build_workorder_pdf_context(
         workorder=workorder,
-        observacao=workorder.budget.pdf_observation,
         request=request,
     )
     return DocumentRenderRequest(

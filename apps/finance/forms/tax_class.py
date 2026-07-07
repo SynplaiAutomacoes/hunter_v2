@@ -9,10 +9,9 @@ from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
 from django.forms import formset_factory
 
-from apps.core.widgets import CheckboxInput, DecimalInput, SearchableSelectInput, TextInput, TextareaInput
+from apps.core.presentation.widgets import CheckboxInput, DecimalInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models import TaxClassPreset
-from apps.core.forms import CoreForm, CoreModelForm
-from apps.finance.services.ibs_cbs import IbsCbsConfigurationError, build_ibs_cbs_payload_from_values, clean_ibs_cbs_details
+from apps.core.presentation.forms import CoreForm, CoreModelForm
 
 
 NFE_SCENARIO_CHOICES = (

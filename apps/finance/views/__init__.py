@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from apps.finance.services.webmania_b2b import sync_b2b_companies_to_database
 from .financial_group import FinancialGroupCreateView, FinancialGroupDeleteView, FinancialGroupListView, FinancialGroupUpdateView
 from .fiscal_referenced_basis import FiscalReferencedBasisApproveView, FiscalReferencedBasisCreateView, FiscalReferencedBasisDetailView, FiscalReferencedBasisFeatureToggleView, FiscalReferencedBasisListView, FiscalReferencedBasisPayloadView
 from .fiscal_credit_product_preview import FiscalCreditProductPreviewApproveView, FiscalCreditProductPreviewCreateView, FiscalCreditProductPreviewDetailView, FiscalCreditProductPreviewListView, FiscalCreditProductPreviewPayloadView
@@ -16,15 +15,115 @@ from .nfe_debit import NfeDebitCancellationDownloadView as NfeDebitCancellationD
 from .common import DirectorWorkshopAccessMixin
 from .emission import EmissionPreviewView, EmissionRequestCreateView, EmissionWorkOrderItemUpdateView, EmissionWorkOrderKitComponentUpdateView, NfeCreateRedirectView, NfseCreateRedirectView
 from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocumentsListView
-from .commissions import CommissionReportView
-from .nfe import NfeAdjustmentDownloadView, NfeAdjustmentIssueView, NfeComplementaryDownloadView, NfeComplementaryPriceQuantityIssueView, NfeCorrectionDownloadView, NfeCorrectionIssueView, NfeCorrectionPayloadView, NfeDocumentDownloadView, NfeIbsCbsEvent112110CancelView, NfeIbsCbsEvent112110IssueView, NfeIbsCbsEvent112130CancelView, NfeIbsCbsEvent112130IssueView, NfeIbsCbsEvent112150CancelView, NfeIbsCbsEvent112150IssueView, NfeIbsCbsEventDownloadView, NfeIbsCbsEventPayloadView, NfePreviewPdfView, NfeRequestCancelView, NfeRequestCreateView, NfeRequestDetailView, NfeRequestInvalidateView, NfeRequestListView, NfeRequestReconcileView, NfeRequestUpdateView, NfeReturnDownloadView, NfeReturnIssueView, NfeReturnPayloadView
-from .nfce import NfceCancellationDownloadView, NfceCancellationView, NfceDocumentDownloadView, NfceDocumentListView, NfceDocumentPayloadView, NfceInutilizationDownloadView, NfceInutilizationPayloadView, NfceInutilizationView, NfceManualEmissionView
-from .nfse import NfseBatchReconcileView, NfseCancellationDownloadView, NfseCancellationPayloadView, NfseDocumentDownloadView, NfseManifestationDownloadView, NfseManifestationIssueView, NfseManifestationPayloadView, NfsePreviewPdfView, NfseRequestCancelView, NfseRequestCreateView, NfseRequestDetailView, NfseRequestListView, NfseRequestReconcileView, NfseRequestUpdateView
+from .commissions import CommissionReportView, CommissionReportPdfView
+from .nfe import (
+    NfeAdjustmentDownloadView,
+    NfeAdjustmentIssueView,
+    NfeComplementaryDownloadView,
+    NfeComplementaryPriceQuantityIssueView,
+    NfeCorrectionDownloadView,
+    NfeCorrectionIssueView,
+    NfeCorrectionPayloadView,
+    NfeDocumentDownloadView,
+    NfeIbsCbsEvent112110CancelView,
+    NfeIbsCbsEvent112110IssueView,
+    NfeIbsCbsEvent112130CancelView,
+    NfeIbsCbsEvent112130IssueView,
+    NfeIbsCbsEvent112150CancelView,
+    NfeIbsCbsEvent112150IssueView,
+    NfeIbsCbsEventDownloadView,
+    NfeIbsCbsEventPayloadView,
+    NfePreviewPdfView,
+    NfeRequestCancelView,
+    NfeRequestCreateView,
+    NfeRequestDetailView,
+    NfeRequestInvalidateView,
+    NfeRequestListView,
+    NfeRequestReconcileView,
+    NfeRequestUpdateView,
+    NfeReturnDownloadView,
+    NfeReturnIssueView,
+    NfeReturnPayloadView,
+)
+from .nfce import (
+    NfceCancellationDownloadView,
+    NfceCancellationView,
+    NfceDocumentDownloadView,
+    NfceDocumentListView,
+    NfceDocumentPayloadView,
+    NfceInutilizationDownloadView,
+    NfceInutilizationPayloadView,
+    NfceInutilizationView,
+    NfceManualEmissionView,
+)
+from .nfse import (
+    NfseBatchReconcileView,
+    NfseCancellationDownloadView,
+    NfseCancellationPayloadView,
+    NfseDocumentDownloadView,
+    NfseManifestationDownloadView,
+    NfseManifestationIssueView,
+    NfseManifestationPayloadView,
+    NfsePreviewPdfView,
+    NfseRequestCancelView,
+    NfseRequestCreateView,
+    NfseRequestDetailView,
+    NfseRequestListView,
+    NfseRequestReconcileView,
+    NfseRequestUpdateView,
+)
 from .nfse_capabilities import NfseMunicipalCapabilityCreateView, NfseMunicipalCapabilityListView, NfseMunicipalCapabilityStatusView, NfseMunicipalCapabilityUpdateView
-from .nfse_manual_emission_preview import NfseManualEmissionPreviewApproveView, NfseManualEmissionPreviewCreateView, NfseManualEmissionPreviewDetailView, NfseManualEmissionPreviewListView, NfseManualEmissionPreviewPayloadView
-from .nfse_manual_emission import NfseManualEmissionCancelView, NfseManualEmissionCancellationDownloadView, NfseManualEmissionCancellationPayloadView, NfseManualEmissionDetailView, NfseManualEmissionDownloadView, NfseManualEmissionIssueView, NfseManualEmissionListView, NfseManualEmissionPayloadView, NfseManualEmissionReconcileView
-from .nfse_received import NfseExternalXmlInboxBulkActionView, NfseExternalXmlInboxDetailView, NfseExternalXmlInboxExportView, NfseExternalXmlInboxItemApproveView, NfseExternalXmlInboxItemDiscardView, NfseExternalXmlInboxItemPayloadView, NfseExternalXmlInboxListView, NfseExternalXmlInboxProcessView, NfseExternalXmlInboxUploadView, NfseReceivedDocumentBatchImportView, NfseReceivedDocumentConsultationIssueView, NfseReceivedDocumentConsultationPayloadView, NfseReceivedDocumentDetailView, NfseReceivedDocumentImportView, NfseReceivedDocumentListView, NfseReceivedDocumentManifestationDownloadView, NfseReceivedDocumentManifestationIssueView, NfseReceivedDocumentManifestationPayloadView, NfseReceivedDocumentPayloadView, NfseReceivedDocumentXmlDownloadView, NfseReceivedImportBatchDetailView
-from .nfse_substitution_preview import NfseSubstitutionDownloadView, NfseSubstitutionIssueView, NfseSubstitutionPayloadView, NfseSubstitutionPreviewApproveView, NfseSubstitutionPreviewCreateView, NfseSubstitutionPreviewDetailView, NfseSubstitutionPreviewListView, NfseSubstitutionPreviewPayloadView
+from .nfse_manual_emission import (
+    NfseManualEmissionCancelView,
+    NfseManualEmissionCancellationDownloadView,
+    NfseManualEmissionCancellationPayloadView,
+    NfseManualEmissionDetailView,
+    NfseManualEmissionDownloadView,
+    NfseManualEmissionIssueView,
+    NfseManualEmissionListView,
+    NfseManualEmissionPayloadView,
+    NfseManualEmissionReconcileView,
+)
+from .nfse_manual_emission_preview import (
+    NfseManualEmissionPreviewApproveView,
+    NfseManualEmissionPreviewCreateView,
+    NfseManualEmissionPreviewDetailView,
+    NfseManualEmissionPreviewListView,
+    NfseManualEmissionPreviewPayloadView,
+)
+from .nfse_received import (
+    NfseExternalXmlInboxBulkActionView,
+    NfseExternalXmlInboxDetailView,
+    NfseExternalXmlInboxExportView,
+    NfseExternalXmlInboxItemApproveView,
+    NfseExternalXmlInboxItemDiscardView,
+    NfseExternalXmlInboxItemPayloadView,
+    NfseExternalXmlInboxListView,
+    NfseExternalXmlInboxProcessView,
+    NfseExternalXmlInboxUploadView,
+    NfseReceivedDocumentBatchImportView,
+    NfseReceivedDocumentConsultationIssueView,
+    NfseReceivedDocumentConsultationPayloadView,
+    NfseReceivedDocumentDetailView,
+    NfseReceivedDocumentImportView,
+    NfseReceivedDocumentListView,
+    NfseReceivedDocumentManifestationDownloadView,
+    NfseReceivedDocumentManifestationIssueView,
+    NfseReceivedDocumentManifestationPayloadView,
+    NfseReceivedDocumentPayloadView,
+    NfseReceivedDocumentXmlDownloadView,
+    NfseReceivedImportBatchDetailView,
+)
+from .nfse_substitution_preview import (
+    NfseSubstitutionDownloadView,
+    NfseSubstitutionIssueView,
+    NfseSubstitutionPayloadView,
+    NfseSubstitutionPreviewApproveView,
+    NfseSubstitutionPreviewCreateView,
+    NfseSubstitutionPreviewDetailView,
+    NfseSubstitutionPreviewListView,
+    NfseSubstitutionPreviewPayloadView,
+)
 from .reports import FinancialReportsHomeView, ReportMovementEditView, ReportMovementDeleteView
 from .tax_class import TaxClassCreateView, TaxClassListView, TaxClassManagerView, TaxClassPresetCreateView, TaxClassPresetListView, TaxClassPresetUpdateView, TaxClassUpdateView
 from .webhook import WebhookView
@@ -36,6 +135,12 @@ from .webmania import (
     WebmaniaRequestsView,
 )
 from .dre import DreExcelView, DrePdfPreviewView, DrePdfView, DreReportView, DreResultsView
+
+
+def sync_b2b_companies_to_database(*args, **kwargs):
+    from apps.core.infrastructure.providers import get_fiscal_service
+
+    return get_fiscal_service().sync_b2b_companies_to_database(*args, **kwargs)
 
 
 __all__ = [
@@ -71,6 +176,7 @@ __all__ = [
     "IssuedDocumentsArchiveDownloadView",
     "IssuedDocumentsListView",
     "CommissionReportView",
+    "CommissionReportPdfView",
     "NfeCreateRedirectView",
     "NfeAdjustmentDownloadView",
     "NfeAdjustmentIssueView",

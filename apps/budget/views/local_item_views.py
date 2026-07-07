@@ -3,7 +3,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import IntegrityError
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.template.loader import render_to_string
 from django.views import View
@@ -13,7 +13,7 @@ from apps.budget.models import Budget, BudgetItem
 from apps.budget.utils import HtmxResponseHelper
 from apps.workshops.mixin import WorkshopScopedMixin
 
-from .shared import _calculate_service_prices, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _get_current_step_from_referer, _local_item_kind, _parse_duration_from_string, reset_steps_after_step_4
+from .shared import _calculate_service_prices, _get_budget_for_workshop, _get_budget_item_for_workshop, _get_budget_workshop_cost, _get_current_step_from_referer, _local_item_kind, _parse_duration_from_string, reset_steps_after_step_4, _is_budget_edit_locked, LOCKED_BUDGET_EDIT_MESSAGE, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
 
 
 class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -24,12 +24,15 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def get(self, request, budget_id, item_type):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        modal_context = request.GET.get("modal_context", "parent")
+        modal_target = "#child-modal-container" if modal_context == "child" else "#modal-container"
 
+        default_benefit = "warranty" if budget.budget_type == "warranty" else ("courtesy" if budget.budget_type == "courtesy" else "normal")
         if item_type == "product":
-            form = LocalProductForm(is_warranty_budget=budget.is_warranty_budget)
+            form = LocalProductForm(is_warranty_budget=budget.is_warranty_budget, item_benefit_type=default_benefit)
             title = "Incluir Novo Produto Local"
         elif item_type == "service":
-            form = LocalServiceForm(budget_id=budget_id, is_warranty_budget=budget.is_warranty_budget)
+            form = LocalServiceForm(budget_id=budget_id, is_warranty_budget=budget.is_warranty_budget, item_benefit_type=default_benefit)
             title = "Incluir Novo Serviço Local"
         else:
             return HttpResponse("Tipo inválido", status=400)
@@ -39,16 +42,25 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "budget_id": budget_id,
             "item_type": item_type,
             "title": title,
+            "modal_context": modal_context,
+            "modal_target": modal_target,
         }
         return render(request, "budget/partials/modals/modal_create_local_item.html", context)
 
     def post(self, request, budget_id, item_type):
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
+        if _is_budget_edit_locked(budget):
+            return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
 
+        modal_context = request.POST.get("modal_context", "parent")
+        modal_target = "#child-modal-container" if modal_context == "child" else "#modal-container"
+        default_benefit = "warranty" if budget.budget_type == "warranty" else ("courtesy" if budget.budget_type == "courtesy" else "normal")
         if item_type == "product":
-            form = LocalProductForm(request.POST, is_warranty_budget=budget.is_warranty_budget)
+            form = LocalProductForm(request.POST, is_warranty_budget=budget.is_warranty_budget, item_benefit_type=default_benefit)
         elif item_type == "service":
-            form = LocalServiceForm(request.POST, budget_id=budget_id, is_warranty_budget=budget.is_warranty_budget)
+            form = LocalServiceForm(request.POST, budget_id=budget_id, is_warranty_budget=budget.is_warranty_budget, item_benefit_type=default_benefit)
         else:
             return HttpResponse("Tipo inválido", status=400)
 
@@ -57,6 +69,7 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
             item.workshop = self.workshop
             item.budget = budget
             item.is_local = True
+            item.local_item_type = item_type
             item.save()
 
             # Reset etapas 5 e 6 após modificar a etapa 4
@@ -68,11 +81,13 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             rows = _render_budget_items_rows(budget, step6=False)
             target_selector = "#product-list-body" if item_type == "product" else "#service-list-body"
+            additional_triggers = {"closeParentBudgetModal": True} if modal_context == "child" else None
 
             response = HtmxResponseHelper.success(
                 f"{'Produto' if item_type == 'product' else 'Serviço'} local criado com sucesso!",
                 close_modal=True,
                 update_summary=True,
+                additional_triggers=additional_triggers,
                 content=rows[item_type],
             )
             response["HX-Retarget"] = target_selector
@@ -84,6 +99,8 @@ class CreateLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "budget_id": budget_id,
             "item_type": item_type,
             "title": f"Incluir Novo {'Produto' if item_type == 'product' else 'Serviço'} Local",
+            "modal_context": modal_context,
+            "modal_target": modal_target,
         }
         return render(request, "budget/partials/modals/modal_create_local_item.html", context)
 
@@ -137,6 +154,12 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
     def post(self, request, budget_id, item_id):
         from apps.budget.forms import QuickProductForm, QuickServiceForm
 
+        budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
+        if _is_budget_edit_locked(budget):
+            return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
+
         item = _get_budget_item_for_workshop(self.workshop, budget_id, item_id, is_local=True)
         item_type = _local_item_kind(item)
 
@@ -155,6 +178,7 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     # Vincular ao budget item
                     item.product = product
                     item.is_local = False
+                    item.local_item_type = ""
                     item.save()
 
                     # Retornar a linha atualizada com OOB swap
@@ -179,6 +203,7 @@ class RegisterLocalItemView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     # Vincular ao budget item
                     item.service = service
                     item.is_local = False
+                    item.local_item_type = ""
                     item.save()
 
                     # Retornar a linha atualizada
@@ -224,7 +249,8 @@ class CalculateLocalServiceView(LoginRequiredMixin, WorkshopScopedMixin, View):
             data["service_selling_price_0"] = str(service_selling_price.amount.quantize(Decimal("0.01"), ROUND_HALF_UP))
             data["service_selling_price_1"] = "BRL"
 
-        form = LocalServiceForm(data, budget_id=budget_id, is_warranty_budget=budget.is_warranty_budget)
+        default_benefit = "warranty" if budget.budget_type == "warranty" else ("courtesy" if budget.budget_type == "courtesy" else "normal")
+        form = LocalServiceForm(data, budget_id=budget_id, is_warranty_budget=budget.is_warranty_budget, item_benefit_type=default_benefit)
 
         context = {
             "form": form,
@@ -276,6 +302,11 @@ class QuickCreateProductView(LoginRequiredMixin, WorkshopScopedMixin, View):
         from apps.budget.forms import QuickProductForm, QuickServiceForm
 
         budget = _get_budget_for_workshop(self.workshop, budget_id)
+        if not _check_concurrent_budget_lock(request, budget):
+            return _build_concurrent_budget_lock_response(request, budget)
+        if _is_budget_edit_locked(budget):
+            return JsonResponse({"ok": False, "error": LOCKED_BUDGET_EDIT_MESSAGE}, status=409)
+
         modal_context = request.POST.get("modal_context", "parent")
         modal_target = "#child-modal-container" if modal_context == "child" else "#modal-container"
 

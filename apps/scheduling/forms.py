@@ -6,13 +6,14 @@ from typing import Any
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import HTML, Div, Field, Layout
 from django import forms
+from django.core.cache import cache
 from django.urls import reverse
 from django.utils.html import escape
 from django.utils import timezone
 
 from apps.budget.models import Budget
 from apps.catalog.models import FipeModelFuelCache, FipeVehicleBrand, FipeVehicleModel, FipeVehicleType
-from apps.core.widgets import CPForCNPJInput, CheckboxInput, PhoneInput, PlateInput, SearchableSelectInput, TextInput, TextareaInput
+from apps.core.presentation.widgets import CPForCNPJInput, CheckboxInput, PhoneInput, PlateInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.customer.cpf_cnpj_validator import is_valid_cpf
 from apps.customer.vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
 from apps.customer.models import Customer, Vehicle
@@ -21,7 +22,7 @@ from apps.core.text_normalization import name_case, plate_case, sentence_case
 from apps.scheduling.models import Appointment, AppointmentStatus
 from apps.workorder.models import WorkOrder
 from apps.workshops.models.workshops import Workshop
-from apps.core.forms import CoreForm, CoreModelForm
+from apps.core.presentation.forms import CoreForm, CoreModelForm
 
 
 def _uppercase_text_input() -> TextInput:
@@ -52,26 +53,36 @@ def _with_selected_choice(choices: list[tuple[str, str]], selected_value: object
 
 
 def _guest_vehicle_brand_form_choices() -> list[tuple[str, str]]:
-    return [
+    cache_key = "scheduling:guest_vehicle_brands"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    choices = [
         ("", "Selecione"),
         *[(brand.name, brand.name) for brand in FipeVehicleBrand.objects.filter(vehicle_type=FipeVehicleType.CARROS, is_active=True).order_by("name")],
     ]
+    cache.set(cache_key, choices, 86400)
+    return choices
 
 
 def _guest_vehicle_model_form_choices(brand_name: object, model_name: object = "") -> list[tuple[str, str]]:
     normalized_brand_name = str(brand_name or "").strip()
-    choices = [("", "Selecione")]
-    if normalized_brand_name:
-        choices.extend(
-            (model.name, model.name)
-            for model in FipeVehicleModel.objects.filter(
-                vehicle_type=FipeVehicleType.CARROS,
-                brand__vehicle_type=FipeVehicleType.CARROS,
-                brand__name__iexact=normalized_brand_name,
-                brand__is_active=True,
-                is_active=True,
-            ).order_by("name")
-        )
+    cache_key = f"scheduling:guest_vehicle_models:{normalized_brand_name}"
+    choices = cache.get(cache_key)
+    if choices is None:
+        choices = [("", "Selecione")]
+        if normalized_brand_name:
+            choices.extend(
+                (model.name, model.name)
+                for model in FipeVehicleModel.objects.filter(
+                    vehicle_type=FipeVehicleType.CARROS,
+                    brand__vehicle_type=FipeVehicleType.CARROS,
+                    brand__name__iexact=normalized_brand_name,
+                    brand__is_active=True,
+                    is_active=True,
+                ).order_by("name")
+            )
+        cache.set(cache_key, choices, 86400)
     return _with_selected_choice(choices, model_name)
 
 
@@ -241,8 +252,30 @@ class AppointmentForm(CoreModelForm):
 
         if self.workshop:
             customer_field.queryset = Customer.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
-            budget_field.queryset = Budget.objects.filter(workshop=self.workshop).select_related("customer", "vehicle").order_by("-criado_em")
-            workorder_field.queryset = WorkOrder.objects.filter(workshop=self.workshop).select_related("budget", "budget__customer", "budget__vehicle").order_by("-criado_em")
+
+            budget_qs = Budget.objects.filter(workshop=self.workshop).select_related("customer", "vehicle").order_by("-criado_em")[:200]
+            if self.instance and self.instance.budget_id:
+                if not budget_qs.filter(pk=self.instance.budget_id).exists():
+                    budget_qs = budget_qs | Budget.objects.filter(pk=self.instance.budget_id)
+            budget_field.queryset = budget_qs
+
+            workorder_qs = WorkOrder.objects.filter(workshop=self.workshop).select_related("budget", "budget__customer", "budget__vehicle").order_by("-criado_em")[:200]
+            if self.instance and self.instance.workorder_id:
+                if not workorder_qs.filter(pk=self.instance.workorder_id).exists():
+                    workorder_qs = workorder_qs | WorkOrder.objects.filter(pk=self.instance.workorder_id)
+            workorder_field.queryset = workorder_qs
+
+            def _budget_label_from_instance(budget):
+                return f"Orçamento #{budget.pk}"
+
+            def _workorder_label_from_instance(workorder):
+                return f"O.S. #{workorder.get_id}"
+
+            budget_field.label_from_instance = _budget_label_from_instance
+            workorder_field.label_from_instance = _workorder_label_from_instance
+
+            budget_field.widget = SearchableSelectInput(choices=list(budget_field.choices))
+            workorder_field.widget = SearchableSelectInput(choices=list(workorder_field.choices))
 
         customer_field.widget.attrs.update({":disabled": "!isCustomerRegistered"})
         vehicle_field.widget.attrs.update({":disabled": "!isCustomerRegistered || !customerId"})
@@ -259,6 +292,40 @@ class AppointmentForm(CoreModelForm):
 
         registered_field.initial = is_customer_registered
         self.initial["is_customer_registered"] = is_customer_registered
+
+        guest_field_names = [
+            "guest_customer_name",
+            "guest_customer_cpf",
+            "guest_customer_phone",
+            "guest_vehicle_plate",
+            "guest_vehicle_brand",
+            "guest_vehicle_model",
+            "guest_vehicle_year_fabrication",
+            "guest_vehicle_year_model",
+            "guest_vehicle_engine",
+            "guest_vehicle_fuel",
+        ]
+        for field_name in guest_field_names:
+            self.fields[field_name].required = True
+        self.fields["customer"].required = True
+
+        if is_customer_registered:
+            for field_name in guest_field_names:
+                self.fields[field_name].required = False
+        else:
+            self.fields["customer"].required = False
+
+        customer_field.error_messages["required"] = "Selecione um cliente cadastrado para continuar."
+        self.fields["guest_customer_name"].error_messages["required"] = "Informe o nome do cliente."
+        self.fields["guest_customer_cpf"].error_messages["required"] = "Informe o CPF do cliente."
+        self.fields["guest_customer_phone"].error_messages["required"] = "Informe o telefone do cliente."
+        self.fields["guest_vehicle_plate"].error_messages["required"] = "Informe a placa do veiculo."
+        self.fields["guest_vehicle_brand"].error_messages["required"] = "Informe a marca do veiculo."
+        self.fields["guest_vehicle_model"].error_messages["required"] = "Informe o modelo do veiculo."
+        self.fields["guest_vehicle_year_fabrication"].error_messages["required"] = "Informe o ano de fabricacao."
+        self.fields["guest_vehicle_year_model"].error_messages["required"] = "Informe o ano do modelo."
+        self.fields["guest_vehicle_engine"].error_messages["required"] = "Informe a motorizacao."
+        self.fields["guest_vehicle_fuel"].error_messages["required"] = "Informe o combustivel."
 
         selected_customer_id = ""
         selected_vehicle_id = ""
@@ -950,40 +1017,27 @@ class AppointmentForm(CoreModelForm):
         cleaned_data["guest_vehicle_engine"] = guest_vehicle_engine
         cleaned_data["guest_vehicle_fuel"] = guest_vehicle_fuel
 
+        guest_field_names = [
+            "guest_customer_name",
+            "guest_customer_cpf",
+            "guest_customer_phone",
+            "guest_vehicle_plate",
+            "guest_vehicle_brand",
+            "guest_vehicle_model",
+            "guest_vehicle_year_fabrication",
+            "guest_vehicle_year_model",
+            "guest_vehicle_engine",
+            "guest_vehicle_fuel",
+        ]
         if is_customer_registered:
-            if customer is None:
-                self.add_error("customer", "Selecione um cliente cadastrado para continuar.")
-            cleaned_data["guest_customer_name"] = ""
-            cleaned_data["guest_customer_cpf"] = ""
-            cleaned_data["guest_customer_phone"] = ""
-            cleaned_data["guest_vehicle_plate"] = ""
-            cleaned_data["guest_vehicle_brand"] = ""
-            cleaned_data["guest_vehicle_model"] = ""
-            cleaned_data["guest_vehicle_year_fabrication"] = ""
-            cleaned_data["guest_vehicle_year_model"] = ""
-            cleaned_data["guest_vehicle_engine"] = ""
-            cleaned_data["guest_vehicle_fuel"] = ""
+            for field_name in guest_field_names:
+                self.errors.pop(field_name, None)
+                cleaned_data[field_name] = ""
         else:
-            if not guest_customer_name:
-                self.add_error("guest_customer_name", "Informe o nome do cliente.")
-            if not guest_customer_cpf:
-                self.add_error("guest_customer_cpf", "Informe o CPF do cliente.")
-            elif not is_valid_cpf(guest_customer_cpf):
+            self.errors.pop("customer", None)
+            if guest_customer_cpf and not is_valid_cpf(guest_customer_cpf):
                 self.add_error("guest_customer_cpf", "Informe um CPF valido.")
-            if not guest_customer_phone:
-                self.add_error("guest_customer_phone", "Informe o telefone do cliente.")
-            if not guest_vehicle_plate:
-                self.add_error("guest_vehicle_plate", "Informe a placa do veiculo.")
-            if not guest_vehicle_brand:
-                self.add_error("guest_vehicle_brand", "Informe a marca do veiculo.")
-            if not guest_vehicle_model:
-                self.add_error("guest_vehicle_model", "Informe o modelo do veiculo.")
-            if not guest_vehicle_year_fabrication:
-                self.add_error("guest_vehicle_year_fabrication", "Informe o ano de fabricacao.")
-            if not guest_vehicle_year_model:
-                self.add_error("guest_vehicle_year_model", "Informe o ano do modelo.")
-            if not guest_vehicle_engine and "guest_vehicle_engine" not in self.errors:
-                self.add_error("guest_vehicle_engine", "Informe a motorizacao.")
+            self.instance._guest_validation_done = True
             cleaned_data["customer"] = None
             cleaned_data["vehicle"] = None
             cleaned_data["budget"] = None

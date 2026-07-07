@@ -10,7 +10,7 @@ from apps.finance.models.finance import FiscalDebitProductPreview, FiscalDocumen
 from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
 from apps.finance.services.nfe_debit import NfeDebitError, create_and_emit_nfe_debit_type_four, is_nfe_debit_emission_enabled, set_nfe_debit_emission_enabled
 from apps.finance.services.nfe_debit_cancellation import NfeDebitCancellationError, cancel_nfe_debit_document
-from apps.finance.services.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
+from apps.core.infrastructure.services.webmania.webmania_documents import WebmaniaDocumentDownloadError, download_webmania_document
 from apps.workshops.mixin import WorkshopScopedMixin
 
 

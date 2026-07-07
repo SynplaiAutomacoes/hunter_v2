@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from django import forms
 
-from apps.core.forms import CoreForm
-from apps.core.widgets import CheckboxInput, NumberInput, SearchableSelectInput, TextareaInput, TextInput
+from apps.core.presentation.forms import CoreForm
+from apps.core.presentation.widgets import CheckboxInput, NumberInput, SearchableSelectInput, TextareaInput, TextInput
 from apps.finance.models.finance import NfseMunicipalCapability, WebmaniaCompany
 
 
