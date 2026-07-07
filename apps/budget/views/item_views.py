@@ -529,7 +529,11 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 if price_warning and request.POST.get("confirm_lower_price") != "1":
                     form.add_error("product_selling_price", price_warning.message)
                     annotate_product_issues(workshop=self.workshop, items=[item])
-                    return self._render_edit_modal(request, form=form, item=item, budget_id=budget_id, in_queue=in_queue)
+                    modal_resp = self._render_edit_modal(request, form=form, item=item, budget_id=budget_id, in_queue=in_queue)
+                    return HtmxResponseHelper.warning(
+                        message=price_warning.message,
+                        content=modal_resp.content.decode(modal_resp.charset or "utf-8"),
+                    )
             elif action in {"save_only", "update_master"} and item.service:
                 price_warning = build_service_price_warning(
                     service=item.service,
@@ -537,7 +541,11 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 )
                 if price_warning and request.POST.get("confirm_lower_price") != "1":
                     form.add_error("service_selling_price", price_warning.message)
-                    return self._render_edit_modal(request, form=form, item=item, budget_id=budget_id, in_queue=in_queue)
+                    modal_resp = self._render_edit_modal(request, form=form, item=item, budget_id=budget_id, in_queue=in_queue)
+                    return HtmxResponseHelper.warning(
+                        message=price_warning.message,
+                        content=modal_resp.content.decode(modal_resp.charset or "utf-8"),
+                    )
             try:
                 item = form.save()
                 self._sync_product_ncm(item=item, form=form)
@@ -570,7 +578,13 @@ class BudgetItemUpdateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         logger.warning("budget_item_form_invalid", extra={"budget_id": budget_id, "item_id": item_id, "item_type": "service" if item.service_id else "product" if item.product_id else "kit" if item.kit_id else "unknown", "errors": form.errors.get_json_data()})
 
         annotate_product_issues(workshop=self.workshop, items=[item])
-        return self._render_edit_modal(request, form=form, item=item, budget_id=budget_id, in_queue=in_queue)
+        modal_resp = self._render_edit_modal(request, form=form, item=item, budget_id=budget_id, in_queue=in_queue)
+        first_error = next(iter(list(form.errors.values())[0]), "Verifique os campos do formulário.") if form.errors else "Verifique os campos do formulário."
+        return HtmxResponseHelper.error(
+            message=first_error,
+            form_errors=form.errors.get_json_data(),
+            content=modal_resp.content.decode(modal_resp.charset or "utf-8"),
+        )
 
     @staticmethod
     def _sync_product_ncm(*, item: BudgetItem, form: BudgetItemEditForm) -> None:
