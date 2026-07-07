@@ -6,8 +6,8 @@
         search: '',
         allowedValues: null,
         dynamicOptions: [],
-        sourceUrl: '{{ widget.attrs.data-source-url|default_if_none:""|escapejs }}',
-        minSearchLength: Number('{{ widget.attrs.data-min-search-length|default_if_none:"0"|escapejs }}' || 0),
+        sourceUrl: '{{ widget.data_source_url|escapejs }}',
+        minSearchLength: Number('{{ widget.data_min_search_length|default_if_none:"0"|escapejs }}' || 0),
         fetchToken: 0,
         init() {
             this.updateLabelFromValue();
