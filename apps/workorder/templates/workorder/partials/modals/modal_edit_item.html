@@ -3,6 +3,11 @@
         <h3 class="font-bold text-xl flex items-center gap-2">
             <span class="material-icons text-primary">edit</span>
             Editar Item da O.S.
+            {% if item.item_benefit_type == "warranty" %}
+                <span class="badge badge-error gap-1 shrink-0">Garantia</span>
+            {% elif item.item_benefit_type == "courtesy" %}
+                <span class="badge badge-info gap-1 shrink-0">Cortesia</span>
+            {% endif %}
         </h3>
         <button
             type="button"

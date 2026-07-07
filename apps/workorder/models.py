@@ -21,6 +21,12 @@ from apps.core.infrastructure.models import TimeStampedModel
 from apps.finance.models.payment_method import PaymentMethod
 
 
+class WorkOrderItemBenefitType(models.TextChoices):
+    NORMAL = "normal", "Normal"
+    WARRANTY = "warranty", "Garantia"
+    COURTESY = "courtesy", "Cortesia"
+
+
 class WorkOrderError(Exception):
     pass
 
@@ -702,6 +708,7 @@ class WorkOrder(TimeStampedModel):
                         service_cost_price=budget_item.service_cost_price,
                         service_selling_price=budget_item.service_selling_price,
                         duration=budget_item.duration,
+                        item_benefit_type=budget_item.item_benefit_type,
                     )
                     for budget_item in budget_items
                 ]
@@ -833,6 +840,12 @@ class WorkOrderItem(TimeStampedModel):
     service_selling_price = MoneyField(verbose_name="Valor de Venda", max_digits=14, decimal_places=2, default=0)
     duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
     kit_snapshot_frozen = models.BooleanField(verbose_name="Kit snapshot frozen", default=False)
+    item_benefit_type = models.CharField(
+        verbose_name="Tipo de Benefício",
+        max_length=20,
+        choices=WorkOrderItemBenefitType.choices,
+        default=WorkOrderItemBenefitType.NORMAL,
+    )
 
     def _clear_kit_snapshot_caches(self) -> None:
         for cache_name in ("_kit_override_maps_cache", "_kit_unit_totals_cache"):
@@ -961,6 +974,14 @@ class WorkOrderItem(TimeStampedModel):
 
                 self.duration = sum((ks.service.duration for ks in self.kit.kit_services.all()), timedelta())
                 self.description = self.kit.name
+
+            budget_type = getattr(self.workorder, "budget_type", "sale") if self.workorder_id else "sale"
+            if budget_type == "warranty":
+                self.item_benefit_type = WorkOrderItemBenefitType.WARRANTY
+            elif budget_type == "courtesy":
+                self.item_benefit_type = WorkOrderItemBenefitType.COURTESY
+            else:
+                self.item_benefit_type = WorkOrderItemBenefitType.NORMAL
 
         super().save(*args, **kwargs)
 

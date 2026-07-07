@@ -11,6 +11,8 @@ from django.utils import timezone
 from djmoney.forms import MoneyField
 from djmoney.money import Money
 
+from django.forms import RadioSelect
+
 from apps.budget.pricing import money_from_decimal, resolve_discount_fields
 from apps.collaborators.models import WorkshopCollaborator
 from apps.budget.forms.widgets import MultipleFileInput
@@ -18,7 +20,7 @@ from apps.core.text_normalization import sentence_case
 from apps.core.presentation.widgets import CalendarDateInput, DurationInput, MoneyInput, NumberInput, PercentageInput, RadioButtonGroupInput, SearchableSelectInput, TextInput
 from apps.core.utils import alert_confirm_layout
 from apps.finance.models.payment_method import PaymentMethod
-from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderSignatureStatus
+from apps.workorder.models import WorkOrder, WorkOrderAttachment, WorkOrderDiscountType, WorkOrderItem, WorkOrderItemBenefitType, WorkOrderPaymentMethod, WorkOrderSignatureStatus
 from apps.core.presentation.forms import CoreForm, CoreModelForm
 
 
@@ -912,7 +914,7 @@ class WorkOrderStatusReasonForm(CoreForm):
 class WorkOrderItemEditForm(CoreModelForm):
     class Meta:
         model = WorkOrderItem
-        fields = ["description", "quantity", "product_selling_price", "product_cost_price", "shipping", "service_selling_price", "service_cost_price", "duration"]
+        fields = ["description", "quantity", "product_selling_price", "product_cost_price", "shipping", "service_selling_price", "service_cost_price", "duration", "item_benefit_type"]
         widgets = {
             "description": TextInput(),
             "quantity": NumberInput(),
@@ -922,6 +924,7 @@ class WorkOrderItemEditForm(CoreModelForm):
             "service_selling_price": MoneyInput(),
             "service_cost_price": MoneyInput(),
             "duration": DurationInput(),
+            "item_benefit_type": RadioSelect(),
         }
 
     def __init__(self, *args, **kwargs):
@@ -933,7 +936,6 @@ class WorkOrderItemEditForm(CoreModelForm):
             for field in fields_to_remove:
                 if field in self.fields:
                     self.fields.pop(field)
-            return
 
         if item.product:
             self.fields.pop("service_selling_price")
@@ -943,6 +945,20 @@ class WorkOrderItemEditForm(CoreModelForm):
             self.fields.pop("product_selling_price")
             self.fields.pop("product_cost_price")
             self.fields.pop("shipping")
+
+        budget_type = getattr(getattr(item, "workorder", None), "budget_type", "sale")
+        if budget_type in ("warranty", "courtesy"):
+            self.fields["item_benefit_type"].disabled = True
+
+    def clean_item_benefit_type(self):
+        value = self.cleaned_data.get("item_benefit_type")
+        item = self.instance
+        budget_type = getattr(getattr(item, "workorder", None), "budget_type", "sale")
+        if budget_type == "warranty" and value != WorkOrderItemBenefitType.WARRANTY:
+            raise forms.ValidationError("Itens em O.S. de garantia devem ser do tipo 'Garantia'.")
+        if budget_type == "courtesy" and value != WorkOrderItemBenefitType.COURTESY:
+            raise forms.ValidationError("Itens em O.S. de cortesia devem ser do tipo 'Cortesia'.")
+        return value
 
     def clean_description(self):
         value = self.cleaned_data.get("description")
