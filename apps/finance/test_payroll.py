@@ -413,6 +413,72 @@ class PayrollEditModalViewTests(TestCase):
         self.assertEqual(movement.due_date, date(2026, 8, 15))
         self.assertTrue(movement.is_paid)
 
+    def test_submit_form_marking_payroll_as_unpaid_resets_all_split_movements_reconciliation(self) -> None:
+        workshop = create_workshop(suffix=8)
+        collaborator = create_collaborator(workshop=workshop, suffix=8)
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2000, "BRL"),
+            transport_allowance_amount=Money(120, "BRL"),
+            total_amount=Money(2120, "BRL"),
+        )
+        salary_movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll=payroll,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Salario folha",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=True,
+            is_reconciled=True,
+        )
+        transport_movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll=payroll,
+            payroll_component=FinancialMovement.PayrollComponent.TRANSPORT,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Vale transporte folha",
+            amount=Money(120, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=True,
+            is_reconciled=True,
+        )
+        payroll.financial_movement = salary_movement
+        payroll.save(update_fields=["financial_movement"])
+
+        request = RequestFactory().post(
+            f"/finance/folha-pagamento/{payroll.pk}/edit/",
+            {
+                "due_date": "2026-08-05",
+                "amount_0": "2000.00",
+                "amount_1": "BRL",
+                "is_paid": "False",
+                "is_reconciled": "True",
+            },
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollEditModalView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.post(request)
+
+        payroll.refresh_from_db()
+        resulting_movements = {movement.payroll_component: movement for movement in FinancialMovement.objects.filter(payroll=payroll).order_by("id")}
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(FinancialMovement.PayrollComponent.SALARY, resulting_movements)
+        self.assertTrue(all(not movement.is_paid for movement in resulting_movements.values()))
+        self.assertTrue(all(not movement.is_reconciled for movement in resulting_movements.values()))
+        self.assertEqual(payroll.status, CollaboratorPayroll.Status.FORECAST)
+
 
 class ReportMovementEditRedirectTests(TestCase):
     def test_payroll_movement_edits_redirect_to_payroll_modal(self) -> None:
@@ -517,19 +583,9 @@ class PayrollBulkActionsTests(TestCase):
     def test_bulk_unpay_marks_selected_payrolls_as_not_paid_and_unmarks_commissions(self) -> None:
         workshop = create_workshop(suffix=13)
         collaborator = create_collaborator(workshop=workshop, suffix=13)
-        movement = FinancialMovement.objects.create(
-            workshop=workshop,
-            collaborator=collaborator,
-            direction=FinancialMovement.MovementDirection.DEBIT,
-            description="Folha",
-            amount=Money(2120, "BRL"),
-            due_date=date(2026, 8, 5),
-            is_paid=True,
-        )
         payroll = CollaboratorPayroll.objects.create(
             workshop=workshop,
             collaborator=collaborator,
-            financial_movement=movement,
             reference_year=2026,
             reference_month=8,
             due_date=date(2026, 8, 5),
@@ -537,6 +593,32 @@ class PayrollBulkActionsTests(TestCase):
             commission_amount=Money(120, "BRL"),
             total_amount=Money(2120, "BRL"),
         )
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll=payroll,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Folha",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=True,
+            is_reconciled=True,
+        )
+        commission_movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll=payroll,
+            payroll_component=FinancialMovement.PayrollComponent.COMMISSION,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Comissao folha",
+            amount=Money(120, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=True,
+            is_reconciled=True,
+        )
+        payroll.financial_movement = movement
+        payroll.save(update_fields=["financial_movement"])
         workorder = create_workorder(workshop=workshop, budget_type="sale")
         commission = CollaboratorCommissionEntry.objects.create(
             workshop=workshop,
@@ -560,10 +642,15 @@ class PayrollBulkActionsTests(TestCase):
 
         response = view.post(request)
 
-        movement.refresh_from_db()
         commission.refresh_from_db()
+        payroll.refresh_from_db()
+        resulting_movements = {movement.payroll_component: movement for movement in FinancialMovement.objects.filter(payroll=payroll).order_by("id")}
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers.get("HX-Refresh"), "true")
-        self.assertFalse(movement.is_paid)
+        self.assertIn(FinancialMovement.PayrollComponent.SALARY, resulting_movements)
+        self.assertIn(FinancialMovement.PayrollComponent.COMMISSION, resulting_movements)
+        self.assertTrue(all(not movement.is_paid for movement in resulting_movements.values()))
+        self.assertTrue(all(not movement.is_reconciled for movement in resulting_movements.values()))
+        self.assertEqual(payroll.status, CollaboratorPayroll.Status.FORECAST)
         self.assertEqual(commission.status, CollaboratorCommissionEntry.Status.FORECAST)
         self.assertIsNone(commission.paid_at)
