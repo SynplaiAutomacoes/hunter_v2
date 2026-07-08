@@ -216,7 +216,7 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         context = super().get_context_data(**kwargs)
         benefit_formset = kwargs.get("benefit_formset")
         if benefit_formset is None:
-            benefit_formset = CollaboratorBenefitFormSet(instance=self.object, prefix="benefits")
+            benefit_formset = CollaboratorBenefitFormSet(instance=self.object, prefix="benefits", form_kwargs={"workshop": self.workshop})
         reference_date = self.request.GET.get("reference_date")
         history_month = str(self.request.GET.get("history_month") or "").strip()
         history_year = str(self.request.GET.get("history_year") or "").strip()
@@ -253,7 +253,7 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
         form = self.get_form()
-        benefit_formset = CollaboratorBenefitFormSet(request.POST, instance=self.object, prefix="benefits")
+        benefit_formset = CollaboratorBenefitFormSet(request.POST, instance=self.object, prefix="benefits", form_kwargs={"workshop": self.workshop})
         if form.is_valid() and benefit_formset.is_valid():
             return self.forms_valid(form, benefit_formset)
         return self.forms_invalid(form, benefit_formset)
@@ -321,7 +321,7 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         return self.render_to_response(self.get_context_data(form=form, benefit_formset=benefit_formset))
 
     def form_valid(self, form):
-        benefit_formset = CollaboratorBenefitFormSet(self.request.POST or None, instance=form.instance, prefix="benefits")
+        benefit_formset = CollaboratorBenefitFormSet(self.request.POST or None, instance=form.instance, prefix="benefits", form_kwargs={"workshop": self.workshop})
         return self.forms_valid(form, benefit_formset)
 
 

@@ -12,8 +12,9 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.models import Budget, BudgetStatus
-from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll, CollaboratorPayrollItem, WorkshopCollaborator
-from apps.collaborators.services import sync_collaborator_commission_entries, sync_workorder_collaborator_payrolls
+from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionEntry, CollaboratorPayroll, CollaboratorPayrollItem, WorkshopCollaborator
+from apps.collaborators.services import sync_collaborator_commission_entries, sync_collaborator_payroll, sync_workorder_collaborator_payrolls
+from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.views.payroll import _mark_payroll_as_paid, _mark_payroll_commissions_as_paid, _unmark_payroll_commissions_as_paid
 from apps.workorder.models import WorkOrder, WorkOrderStatus
@@ -58,7 +59,58 @@ def create_workorder(*, workshop: Workshop, budget_type: str, status: str = Work
     )
 
 
+def create_financial_group_path(*, workshop: Workshop, code_segments: list[int], names: list[str] | None = None) -> FinancialGroup:
+    parent: FinancialGroup | None = None
+    created_group: FinancialGroup | None = None
+    for level_index, segment in enumerate(code_segments, start=1):
+        siblings_count = FinancialGroup.objects.filter(workshop=workshop, parent=parent).count()
+        while siblings_count < segment - 1:
+            filler_index = siblings_count + 1
+            FinancialGroup.objects.create(workshop=workshop, parent=parent, name=f"Grupo {level_index}.{filler_index}")
+            siblings_count += 1
+        label = names[level_index - 1] if names and len(names) >= level_index else f"Grupo {level_index}.{segment}"
+        created_group = FinancialGroup.objects.create(workshop=workshop, parent=parent, name=label)
+        parent = created_group
+    assert created_group is not None
+    return created_group
+
+
 class CollaboratorCommissionSyncTests(TestCase):
+    def test_payroll_groups_benefits_by_budget_plan(self) -> None:
+        workshop = create_workshop(suffix=41)
+        collaborator = create_collaborator(workshop=workshop, suffix=41)
+        root_group = create_financial_group_path(workshop=workshop, code_segments=[1], names=["Despesas"])
+        meal_plan = FinancialGroup.objects.create(workshop=workshop, parent=root_group, name="Vale Alimentacao")
+        health_plan = FinancialGroup.objects.create(workshop=workshop, parent=root_group, name="Plano de Saude")
+        CollaboratorBenefit.objects.create(collaborator=collaborator, name="Vale", monthly_amount=Money(100, "BRL"), budget_plan=meal_plan)
+        CollaboratorBenefit.objects.create(collaborator=collaborator, name="Auxilio", monthly_amount=Money(50, "BRL"), budget_plan=meal_plan)
+        CollaboratorBenefit.objects.create(collaborator=collaborator, name="Saude", monthly_amount=Money(75, "BRL"), budget_plan=health_plan)
+
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 9, 1), lock_reference=True)
+
+        benefit_movements = list(payroll.financial_movements.filter(payroll_component=FinancialMovement.PayrollComponent.BENEFIT).order_by("budget_plan__sort_key", "id"))
+
+        self.assertEqual(len(benefit_movements), 2)
+        self.assertEqual(payroll.benefits_amount, Money(225, "BRL"))
+        self.assertEqual([(movement.budget_plan_id, movement.amount) for movement in benefit_movements], [(meal_plan.pk, Money(150, "BRL")), (health_plan.pk, Money(75, "BRL"))])
+
+    def test_payroll_uses_temporary_fallback_plan_for_legacy_benefit_without_budget_plan(self) -> None:
+        workshop = create_workshop(suffix=42)
+        collaborator = create_collaborator(workshop=workshop, suffix=42)
+        create_financial_group_path(
+            workshop=workshop,
+            code_segments=[5, 1, 5],
+            names=["Despesas Trabalhistas", "Subgrupo", "Comissao"],
+        )
+        CollaboratorBenefit.objects.create(collaborator=collaborator, name="Legado", monthly_amount=Money(80, "BRL"))
+
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 10, 1), lock_reference=True)
+
+        benefit_movement = payroll.financial_movements.get(payroll_component=FinancialMovement.PayrollComponent.BENEFIT)
+
+        self.assertEqual(benefit_movement.amount, Money(80, "BRL"))
+        self.assertEqual(getattr(benefit_movement.budget_plan, "code", None), "5.1.5")
+
     def test_sale_workorder_generates_commission_but_courtesy_and_warranty_do_not(self) -> None:
         workshop = create_workshop(suffix=1)
         collaborator = create_collaborator(workshop=workshop, suffix=1)
@@ -297,7 +349,10 @@ class CollaboratorCommissionSyncTests(TestCase):
         self.assertEqual(payroll.commission_amount, Money(100, "BRL"))
         self.assertEqual(payroll.total_amount, Money(2100, "BRL"))
         self.assertTrue(movement.is_paid)
-        self.assertEqual(movement.amount, Money(2100, "BRL"))
+        self.assertEqual(
+            sum((movement.amount for movement in payroll.get_financial_movements()), start=Money(0, "BRL")),
+            Money(2100, "BRL"),
+        )
 
     def test_reopened_workorder_keeps_paid_commission_in_unpaid_payroll_totals(self) -> None:
         workshop = create_workshop(suffix=32)

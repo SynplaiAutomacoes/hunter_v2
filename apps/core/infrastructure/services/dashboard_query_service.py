@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Any
 
 from _decimal import Decimal
-from django.db.models import DecimalField, ExpressionWrapper, F, Prefetch, Q, Sum
+from django.db.models import DecimalField, ExpressionWrapper, F, Prefetch, Sum
 from django.utils import timezone
 
 from apps.budget.models import Budget, BudgetItem, BudgetStatus, BudgetType
@@ -630,7 +630,6 @@ class DashboardQueryService:
 
     @staticmethod
     def _calculate_total_sold(*, workshop_id: int, selected_month: int, selected_year: int) -> Decimal:
-        """Aggregate total sold value at the DB level to avoid loading all payment rows into memory."""
         result = (
             WorkOrderPaymentMethod.objects.filter(
                 workorder__workshop_id=workshop_id,

@@ -22,6 +22,18 @@ from apps.workshops.util.monthly_costs import get_admin_salary_monthly_cost, get
 
 
 ZERO = Decimal("0.00")
+PAYROLL_COMPONENT_PLAN_CODES: dict[str, str] = {
+    FinancialMovement.PayrollComponent.SALARY: "5.1.11",
+    FinancialMovement.PayrollComponent.BENEFIT: "5.1.5",
+    FinancialMovement.PayrollComponent.TRANSPORT: "5.1.13",
+    FinancialMovement.PayrollComponent.COMMISSION: "5.1.5",
+}
+PAYROLL_COMPONENT_LABELS: dict[str, str] = {
+    FinancialMovement.PayrollComponent.SALARY: "Salário",
+    FinancialMovement.PayrollComponent.BENEFIT: "Benefícios",
+    FinancialMovement.PayrollComponent.TRANSPORT: "Vale Transporte",
+    FinancialMovement.PayrollComponent.COMMISSION: "Comissões",
+}
 
 
 def _quantize(value: Decimal) -> Decimal:
@@ -135,13 +147,22 @@ def delete_selected_pending_collaborator_movements(*, collaborator: WorkshopColl
         pk__in=movement_ids,
     )
 
-    payrolls = CollaboratorPayroll.objects.filter(
-        workshop=workshop,
-        collaborator=collaborator,
-        financial_movement_id__in=pending_movements.values("pk"),
+    payrolls = (
+        CollaboratorPayroll.objects.filter(
+            workshop=workshop,
+            collaborator=collaborator,
+        )
+        .filter(Q(financial_movement_id__in=pending_movements.values("pk")) | Q(financial_movements__in=pending_movements))
+        .distinct()
     )
     payroll_ids = list(payrolls.values_list("pk", flat=True))
-    payroll_movement_ids = [movement_id for movement_id in payrolls.values_list("financial_movement_id", flat=True) if movement_id is not None]
+    payroll_movement_ids = list(
+        FinancialMovement.objects.filter(
+            Q(pk__in=[movement_id for movement_id in payrolls.values_list("financial_movement_id", flat=True) if movement_id is not None]) | Q(payroll_id__in=payroll_ids),
+            workshop=workshop,
+            collaborator=collaborator,
+        ).values_list("pk", flat=True)
+    )
 
     deleted_count = 0
     if payroll_movement_ids:
@@ -248,7 +269,7 @@ def _workorder_can_generate_commission(*, workorder: WorkOrder) -> bool:
 
 
 def _is_paid_payroll(*, payroll: CollaboratorPayroll | None) -> bool:
-    return bool(payroll and payroll.financial_movement and payroll.financial_movement.is_paid)
+    return bool(payroll and payroll.status == CollaboratorPayroll.Status.PAID)
 
 
 def _sync_paid_payroll_commission_entries(*, payroll: CollaboratorPayroll, commission_entries: list[CollaboratorCommissionEntry]) -> None:
@@ -294,7 +315,7 @@ def _sync_paid_payroll_commission_entries(*, payroll: CollaboratorPayroll, commi
         payroll.save(update_fields=update_fields)
 
     _rebuild_payroll_commission_items(payroll=payroll, commission_entries=commission_entries)
-    _create_or_update_financial_movement(payroll=payroll)
+    _sync_payroll_financial_movements(payroll=payroll)
 
 
 def _get_effective_commission_entries(
@@ -380,6 +401,22 @@ def get_or_create_collaborator_financial_group(*, collaborator: WorkshopCollabor
                 )
 
     return payroll_group
+
+
+def get_collaborator_payroll_component_group(*, collaborator: WorkshopCollaborator, component: str) -> FinancialGroup:
+    target_code = PAYROLL_COMPONENT_PLAN_CODES.get(component)
+    if target_code:
+        component_group = FinancialGroup.objects.filter(workshop=collaborator.workshop, code=target_code).first()
+        if component_group is not None:
+            return component_group
+    return get_or_create_collaborator_financial_group(collaborator=collaborator)
+
+
+def _resolve_benefit_budget_plan(*, collaborator: WorkshopCollaborator, benefit: CollaboratorBenefit) -> FinancialGroup:
+    budget_plan = benefit.budget_plan
+    if budget_plan is not None and budget_plan.workshop_id == collaborator.workshop_id:
+        return budget_plan
+    return get_collaborator_payroll_component_group(collaborator=collaborator, component=FinancialMovement.PayrollComponent.BENEFIT)
 
 
 @transaction.atomic
@@ -522,22 +559,147 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
     return synced_entries
 
 
-def _create_or_update_financial_movement(*, payroll: CollaboratorPayroll) -> FinancialMovement | None:
-    movement = payroll.financial_movement or FinancialMovement()
-    movement.workshop = payroll.workshop
-    movement.user = payroll.collaborator.user
-    movement.collaborator = payroll.collaborator
-    movement.direction = FinancialMovement.MovementDirection.DEBIT
-    movement.description = f"Folha {payroll.collaborator.name} - {payroll.reference_month:02d}/{payroll.reference_year}"
-    movement.amount = payroll.total_amount
-    movement.due_date = payroll.due_date
-    movement.budget_plan = get_or_create_collaborator_financial_group(collaborator=payroll.collaborator)
-    movement.is_paid = movement.is_paid if movement.pk else False
-    movement.save()
-    if payroll.financial_movement_id != movement.pk:
-        payroll.financial_movement = movement
+def _build_payroll_component_specs(*, payroll: CollaboratorPayroll, active_benefits: list[CollaboratorBenefit] | None = None) -> list[dict[str, object]]:
+    resolved_specs: list[dict[str, object]] = []
+    component_values = [
+        (FinancialMovement.PayrollComponent.SALARY, payroll.salary_amount),
+        (FinancialMovement.PayrollComponent.TRANSPORT, payroll.transport_allowance_amount),
+        (FinancialMovement.PayrollComponent.COMMISSION, payroll.commission_amount),
+    ]
+    for component, amount in component_values:
+        if Decimal(str(amount.amount or ZERO)) <= ZERO:
+            continue
+        resolved_specs.append(
+            {
+                "component": component,
+                "amount": amount,
+                "description": f"{PAYROLL_COMPONENT_LABELS[component]} {payroll.collaborator.name} - {payroll.reference_month:02d}/{payroll.reference_year}",
+                "budget_plan": get_collaborator_payroll_component_group(collaborator=payroll.collaborator, component=component),
+            }
+        )
+
+    effective_benefits = active_benefits
+    if effective_benefits is None:
+        effective_benefits = list(CollaboratorBenefit.objects.filter(collaborator=payroll.collaborator, is_active=True).select_related("budget_plan").order_by("id"))
+
+    benefits_by_budget_plan_id: dict[int, dict[str, object]] = {}
+    for benefit in effective_benefits:
+        benefit_amount = Decimal(str(benefit.monthly_amount.amount or ZERO))
+        if benefit_amount <= ZERO:
+            continue
+        budget_plan = _resolve_benefit_budget_plan(collaborator=payroll.collaborator, benefit=benefit)
+        bucket = benefits_by_budget_plan_id.setdefault(
+            budget_plan.pk,
+            {
+                "budget_plan": budget_plan,
+                "amount": ZERO,
+            },
+        )
+        bucket["amount"] = Decimal(str(bucket["amount"])) + benefit_amount
+
+    for benefit_bucket in benefits_by_budget_plan_id.values():
+        amount = Money(_quantize(Decimal(str(benefit_bucket["amount"]))), "BRL")
+        if Decimal(str(amount.amount or ZERO)) <= ZERO:
+            continue
+        resolved_specs.append(
+            {
+                "component": FinancialMovement.PayrollComponent.BENEFIT,
+                "amount": amount,
+                "description": f"{PAYROLL_COMPONENT_LABELS[FinancialMovement.PayrollComponent.BENEFIT]} {payroll.collaborator.name} - {payroll.reference_month:02d}/{payroll.reference_year}",
+                "budget_plan": benefit_bucket["budget_plan"],
+            }
+        )
+
+    return resolved_specs
+
+
+def _get_payroll_effective_movements(*, payroll: CollaboratorPayroll) -> list[FinancialMovement]:
+    return payroll.get_financial_movements()
+
+
+def _get_payroll_representative_movement(*, payroll: CollaboratorPayroll, existing_by_component: dict[str, FinancialMovement]) -> FinancialMovement | None:
+    primary_movement = payroll.primary_financial_movement
+    if primary_movement is not None:
+        return primary_movement
+    if existing_by_component:
+        return next(iter(existing_by_component.values()))
+    return payroll.financial_movement
+
+
+def _build_payroll_component_key(*, component: str | None, budget_plan_id: int | None) -> tuple[str, int | None]:
+    return (str(component or ""), budget_plan_id)
+
+
+def _sync_payroll_financial_movements(*, payroll: CollaboratorPayroll, active_benefits: list[CollaboratorBenefit] | None = None) -> list[FinancialMovement]:
+    existing_movements = list(payroll.financial_movements.all().order_by("id"))
+    existing_by_component = {_build_payroll_component_key(component=movement.payroll_component, budget_plan_id=movement.budget_plan_id): movement for movement in existing_movements if movement.payroll_component}
+    representative_movement = _get_payroll_representative_movement(payroll=payroll, existing_by_component={key[0]: movement for key, movement in existing_by_component.items()})
+    inherited_paid = bool(representative_movement and representative_movement.is_paid)
+    inherited_reconciled = bool(representative_movement and representative_movement.is_reconciled)
+    inherited_payment_method = representative_movement.payment_method if representative_movement is not None else None
+    inherited_bank_account = representative_movement.bank_account if representative_movement is not None else None
+    inherited_nf_number = representative_movement.nf_number if representative_movement is not None else None
+    inherited_observation = representative_movement.financial_observation if representative_movement is not None else None
+    representative_consumed = bool(representative_movement and any(movement.pk == representative_movement.pk for movement in existing_movements))
+    synced_movements: list[FinancialMovement] = []
+
+    for spec in _build_payroll_component_specs(payroll=payroll, active_benefits=active_benefits):
+        component = str(spec["component"])
+        budget_plan = spec["budget_plan"]
+        budget_plan_id = getattr(budget_plan, "pk", None)
+        movement = existing_by_component.get(_build_payroll_component_key(component=component, budget_plan_id=budget_plan_id))
+        if movement is None and representative_movement is not None and not representative_consumed:
+            movement = representative_movement
+            representative_consumed = True
+
+        is_new_movement = movement is None or movement.pk is None
+        if movement is None:
+            movement = FinancialMovement(
+                is_paid=inherited_paid,
+                is_reconciled=inherited_reconciled,
+                payment_method=inherited_payment_method,
+                bank_account=inherited_bank_account,
+                nf_number=inherited_nf_number,
+                financial_observation=inherited_observation,
+            )
+
+        movement.workshop = payroll.workshop
+        movement.user = payroll.collaborator.user
+        movement.collaborator = payroll.collaborator
+        movement.payroll = payroll
+        movement.payroll_component = component
+        movement.direction = FinancialMovement.MovementDirection.DEBIT
+        movement.description = str(spec["description"])
+        movement.amount = spec["amount"]
+        movement.due_date = payroll.due_date
+        movement.budget_plan = budget_plan
+        if is_new_movement:
+            movement.is_paid = inherited_paid
+            movement.is_reconciled = inherited_reconciled
+            movement.payment_method = inherited_payment_method
+            movement.bank_account = inherited_bank_account
+            movement.nf_number = inherited_nf_number
+            movement.financial_observation = inherited_observation
+        movement.save()
+        synced_movements.append(movement)
+
+    synced_keys = {_build_payroll_component_key(component=movement.payroll_component, budget_plan_id=movement.budget_plan_id) for movement in synced_movements}
+    synced_ids = {synced.pk for synced in synced_movements}
+    stale_movements = [movement for movement in existing_movements if _build_payroll_component_key(component=movement.payroll_component, budget_plan_id=movement.budget_plan_id) not in synced_keys and movement.pk not in synced_ids]
+    for stale_movement in stale_movements:
+        if stale_movement.is_paid:
+            continue
+        if payroll.financial_movement_id == stale_movement.pk:
+            payroll.financial_movement = None
+            payroll.save(update_fields=["financial_movement"])
+        stale_movement.delete()
+
+    primary_movement = synced_movements[0] if synced_movements else None
+    if payroll.financial_movement_id != getattr(primary_movement, "pk", None):
+        payroll.financial_movement = primary_movement
         payroll.save(update_fields=["financial_movement"])
-    return movement
+
+    return synced_movements
 
 
 def mark_payroll_commissions_as_paid(*, payroll: CollaboratorPayroll, paid_at: date | None = None) -> int:
@@ -574,16 +736,18 @@ def ensure_payroll_financial_movement(*, payroll: CollaboratorPayroll) -> Collab
         lock_reference=True,
     )
     refreshed_payroll.refresh_from_db()
-    if refreshed_payroll.financial_movement is None:
+    if not _get_payroll_effective_movements(payroll=refreshed_payroll):
         raise ValueError(f"Nao foi possivel criar a movimentacao financeira da folha {refreshed_payroll.pk}.")
     return refreshed_payroll
 
 
 def mark_payroll_as_paid(*, payroll: CollaboratorPayroll, paid_at: date | None = None) -> CollaboratorPayroll:
     refreshed_payroll = ensure_payroll_financial_movement(payroll=payroll)
-    if not refreshed_payroll.financial_movement.is_paid:
-        refreshed_payroll.financial_movement.is_paid = True
-        refreshed_payroll.financial_movement.save(update_fields=["is_paid"])
+    for movement in _get_payroll_effective_movements(payroll=refreshed_payroll):
+        if movement.is_paid:
+            continue
+        movement.is_paid = True
+        movement.save(update_fields=["is_paid"])
     mark_payroll_commissions_as_paid(payroll=refreshed_payroll, paid_at=paid_at)
     return refreshed_payroll
 
@@ -640,7 +804,7 @@ def recalculate_historical_commissions(*, workshop: Workshop | None = None, dry_
                     payroll.total_amount = total_amount
                     payroll.save(update_fields=["commission_amount", "total_amount"])
                     _rebuild_payroll_commission_items(payroll=payroll, commission_entries=commission_entries)
-                    _create_or_update_financial_movement(payroll=payroll)
+                    _sync_payroll_financial_movements(payroll=payroll)
 
     return {
         "updated_entries": updated_entries,
@@ -676,7 +840,7 @@ def _sync_collaborator_payroll_internal(
     salary_amount = Money(_quantize(collaborator.salary_amount), "BRL")
     work_days = prefetched_work_days if prefetched_work_days is not None else get_reference_work_days(collaborator=collaborator, reference_date=resolved)
     transport_amount = _calculate_transport_allowance_total_from_work_days(collaborator=collaborator, work_days=work_days)
-    active_benefits = prefetched_benefits if prefetched_benefits is not None else list(CollaboratorBenefit.objects.filter(collaborator=collaborator, is_active=True).order_by("id"))
+    active_benefits = prefetched_benefits if prefetched_benefits is not None else list(CollaboratorBenefit.objects.filter(collaborator=collaborator, is_active=True).select_related("budget_plan").order_by("id"))
     benefits_total = sum((Decimal(str(benefit.monthly_amount.amount or ZERO)) for benefit in active_benefits), start=ZERO)
     commission_total = sum((Decimal(str(entry.commission_amount.amount or ZERO)) for entry in commission_entries), start=ZERO)
     total_amount = _quantize(Decimal(str(salary_amount.amount or ZERO)) + Decimal(str(transport_amount.amount or ZERO)) + benefits_total + commission_total)
@@ -729,7 +893,7 @@ def _sync_collaborator_payroll_internal(
         CollaboratorCommissionEntry.objects.bulk_update(entries_to_attach, ["payroll"])
     _rebuild_payroll_commission_items(payroll=payroll, commission_entries=commission_entries)
 
-    _create_or_update_financial_movement(payroll=payroll)
+    _sync_payroll_financial_movements(payroll=payroll, active_benefits=active_benefits)
     return payroll
 
 
@@ -741,7 +905,7 @@ def sync_collaborator_payrolls_batch(*, collaborators: list[WorkshopCollaborator
     resolved = _resolve_reference_date(reference_date)
     collaborator_ids = [collaborator.pk for collaborator in collaborators]
     benefits_by_collaborator_id: dict[int, list[CollaboratorBenefit]] = defaultdict(list)
-    for benefit in CollaboratorBenefit.objects.filter(collaborator_id__in=collaborator_ids, is_active=True).order_by("collaborator_id", "id"):
+    for benefit in CollaboratorBenefit.objects.filter(collaborator_id__in=collaborator_ids, is_active=True).select_related("budget_plan").order_by("collaborator_id", "id"):
         benefits_by_collaborator_id[benefit.collaborator_id].append(benefit)
 
     work_days_by_workshop_id: dict[int, int] = {}

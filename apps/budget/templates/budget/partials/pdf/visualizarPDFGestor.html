@@ -123,38 +123,28 @@
           <h4 class="font-bold mb-2 uppercase">Cliente</h4>
           <div class="grid grid-cols-2 gap-x-4 gap-y-1">
             <p>
-              <span class="text-gray-500">Nome:</span> {{
-              budget.customer.name|default:budget.customer }}
+              <span class="text-gray-500">Nome:</span> {{ budget.customer.name|default:budget.customer }}
             </p>
             <p>
-              <span class="text-gray-500">CPF/CNPJ:</span> {{
-              budget.customer.cpf_or_cnpj|default:"-" }}
+              <span class="text-gray-500">CPF/CNPJ:</span> {{ budget.customer.cpf_or_cnpj|default:"-" }}
             </p>
             <p>
-              <span class="text-gray-500">Telefone:</span> {{
-              budget.customer.phone|default:"-" }}
+              <span class="text-gray-500">Telefone:</span> {{ budget.customer.phone|default:"-" }}
             </p>
             <p>
-              <span class="text-gray-500">Email:</span> {{
-              budget.customer.email|default:"-" }}
+              <span class="text-gray-500">Email:</span> {{ budget.customer.email|default:"-" }}
             </p>
             <p>
-              <span class="text-gray-500">Bairro:</span> {{
-              budget.customer.bairro|default:"-" }}
+              <span class="text-gray-500">Bairro:</span> {{ budget.customer.bairro|default:"-" }}
             </p>
             <p>
-              <span class="text-gray-500">Cidade:</span> {{
-              budget.customer.cidade|default:"-" }}
+              <span class="text-gray-500">Cidade:</span> {{ budget.customer.cidade|default:"-" }}
             </p>
             <p>
-              <span class="text-gray-500">Endereço:</span> {{
-              budget.customer.estado|default:"-" }}, {{
-              budget.customer.logradouro|default:"-" }}, {{
-              budget.customer.numero|default:"-" }}
+              <span class="text-gray-500">Endereço:</span> {{ budget.customer.estado|default:"-" }}, {{ budget.customer.logradouro|default:"-" }}, {{ budget.customer.numero|default:"-" }}
             </p>
             <p>
-              <span class="text-gray-500">CEP:</span> {{
-              budget.customer.cep|default:"-" }}
+              <span class="text-gray-500">CEP:</span> {{ budget.customer.cep|default:"-" }}
             </p>
           </div>
         </div>
@@ -187,7 +177,6 @@
             <p>
               <span class="text-gray-500">Km-E:</span> {{ budget.current_km|default:"-" }}
             </p>
-          </div>
         </div>
       </div>
 
@@ -198,8 +187,7 @@
           {{ budget.problem_description|default:"Não informado." }}
         </p>
         <p>
-          <span class="text-gray-500 italic">Observações da Oficina:</span> {{
-          budget.technical_diagnosis|default:"Não informado." }}
+          <span class="text-gray-500 italic">Observações da Oficina:</span> {{ budget.technical_diagnosis|default:"Não informado." }}
         </p>
       </div>
 
