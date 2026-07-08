@@ -158,6 +158,7 @@
                                         <th>Colaborador</th>
                                         <th>Vencimento</th>
                                         <th>Pago</th>
+                                        <th>Conciliado</th>
                                         <th>Salário</th>
                                         <th>VT</th>
                                         <th>Benefícios</th>
@@ -180,6 +181,12 @@
                                                 <span class="inline-flex items-center gap-1 whitespace-nowrap {{ row.paid_indicator.class }}" title="{{ row.status_label }}" aria-label="{{ row.status_label }}">
                                                     <span class="material-icons text-base leading-none">{{ row.paid_indicator.icon }}</span>
                                                     <span class="font-medium">{{ row.status_label }}</span>
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <span class="inline-flex items-center gap-1 whitespace-nowrap {{ row.reconciliation_indicator.class }}" title="{{ row.reconciliation_label }}" aria-label="{{ row.reconciliation_label }}">
+                                                    <span class="material-icons text-base leading-none">{{ row.reconciliation_indicator.icon }}</span>
+                                                    <span class="font-medium">{{ row.reconciliation_label }}</span>
                                                 </span>
                                             </td>
                                             <td>{{ row.salary_amount }}</td>

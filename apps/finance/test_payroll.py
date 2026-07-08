@@ -125,3 +125,103 @@ class PayrollEditModalViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("6,00%", response.content.decode())
         self.assertIn("Não Pago", response.content.decode())
+
+    def test_edit_modal_displays_reconciliation_field(self) -> None:
+        workshop = create_workshop(suffix=3)
+        collaborator = create_collaborator(workshop=workshop, suffix=3)
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Folha",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=False,
+            is_reconciled=False,
+        )
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            financial_movement=movement,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2000, "BRL"),
+            total_amount=Money(2000, "BRL"),
+        )
+
+        request = RequestFactory().get(f"/finance/folha-pagamento/{payroll.pk}/edit/")
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollEditModalView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.get(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Conciliado", response.content.decode())
+        self.assertIn("Aguardando Conciliação", response.content.decode())
+
+    def test_new_financial_movement_defaults_to_not_reconciled(self) -> None:
+        workshop = create_workshop(suffix=4)
+        collaborator = create_collaborator(workshop=workshop, suffix=4)
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Folha nova",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 8, 5),
+        )
+
+        self.assertFalse(movement.is_reconciled)
+        self.assertFalse(movement.is_paid)
+
+    def test_submit_form_saves_reconciliation_status(self) -> None:
+        workshop = create_workshop(suffix=5)
+        collaborator = create_collaborator(workshop=workshop, suffix=5)
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Folha",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=False,
+            is_reconciled=False,
+        )
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            financial_movement=movement,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2000, "BRL"),
+            total_amount=Money(2000, "BRL"),
+        )
+
+        request = RequestFactory().post(
+            f"/finance/folha-pagamento/{payroll.pk}/edit/",
+            {
+                "due_date": "2026-08-05",
+                "amount_0": "2000.00",
+                "amount_1": "BRL",
+                "is_paid": "True",
+                "is_reconciled": "True",
+            },
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollEditModalView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.post(request)
+
+        movement.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("HX-Refresh", response.headers)
+        self.assertTrue(movement.is_paid)
+        self.assertTrue(movement.is_reconciled)
