@@ -13,7 +13,7 @@ from djmoney.money import Money
 
 from apps.budget.models import Budget, BudgetStatus
 from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll, CollaboratorPayrollItem, WorkshopCollaborator
-from apps.collaborators.services import sync_workorder_collaborator_payrolls
+from apps.collaborators.services import sync_collaborator_commission_entries, sync_workorder_collaborator_payrolls
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.views.payroll import _mark_payroll_as_paid, _mark_payroll_commissions_as_paid, _unmark_payroll_commissions_as_paid
 from apps.workorder.models import WorkOrder, WorkOrderStatus
@@ -326,6 +326,90 @@ class CollaboratorCommissionSyncTests(TestCase):
         self.assertEqual(payroll.commission_amount, Money(100, "BRL"))
         self.assertEqual(payroll.total_amount, Money(2100, "BRL"))
         self.assertEqual(payroll.items.filter(item_type=CollaboratorPayrollItem.ItemType.COMMISSION).count(), 1)
+
+    def test_current_month_sync_does_not_delete_forecast_commissions_that_roll_to_next_month(self) -> None:
+        workshop = create_workshop(suffix=33)
+        collaborator = create_collaborator(workshop=workshop, suffix=33)
+        workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
+        workorder.collaborators.add(collaborator)
+        workorder.criado_em = timezone.make_aware(datetime(2026, 8, 2, 10, 0, 0))
+        workorder.save(update_fields=["criado_em"])
+        entry = CollaboratorCommissionEntry.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            workorder=workorder,
+            reference_year=2026,
+            reference_month=8,
+            percentage=Decimal("0.100000"),
+            base_amount=Money(275.20, "BRL"),
+            commission_amount=Money(27.52, "BRL"),
+            status=CollaboratorCommissionEntry.Status.FORECAST,
+        )
+
+        with (
+            patch("apps.collaborators.services.timezone.localdate", return_value=date(2026, 8, 10)),
+            patch("apps.workorder.models.WorkOrder.total_services_value", new_callable=PropertyMock, return_value=Money(275.20, "BRL")),
+        ):
+            sync_collaborator_commission_entries(collaborator=collaborator, reference_date=date(2026, 8, 1), lock_reference=False)
+
+        self.assertTrue(CollaboratorCommissionEntry.objects.filter(pk=entry.pk).exists())
+        entry.refresh_from_db()
+        self.assertEqual(entry.reference_year, 2026)
+        self.assertEqual(entry.reference_month, 8)
+        self.assertEqual(entry.status, CollaboratorCommissionEntry.Status.FORECAST)
+
+    def test_reprocessing_one_workorder_preserves_other_current_month_forecast_commissions(self) -> None:
+        workshop = create_workshop(suffix=34)
+        collaborator = create_collaborator(workshop=workshop, suffix=34)
+        CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2000, "BRL"),
+            transport_allowance_amount=Money(0, "BRL"),
+            benefits_amount=Money(0, "BRL"),
+            commission_amount=Money(27.52, "BRL"),
+            total_amount=Money(2027.52, "BRL"),
+        )
+        workorders = [create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED) for _ in range(3)]
+        for workorder in workorders:
+            workorder.collaborators.add(collaborator)
+            workorder.criado_em = timezone.make_aware(datetime(2026, 8, 2, 10, 0, 0))
+            workorder.save(update_fields=["criado_em"])
+
+        entries = [
+            CollaboratorCommissionEntry.objects.create(
+                workshop=workshop,
+                collaborator=collaborator,
+                workorder=workorder,
+                reference_year=2026,
+                reference_month=8,
+                percentage=Decimal("0.100000"),
+                base_amount=Money(275.20 if index == 0 else 0, "BRL"),
+                commission_amount=Money(27.52 if index == 0 else 0, "BRL"),
+                status=CollaboratorCommissionEntry.Status.FORECAST,
+            )
+            for index, workorder in enumerate(workorders)
+        ]
+
+        with (
+            patch("apps.collaborators.services.timezone.localdate", return_value=date(2026, 8, 10)),
+            patch("apps.workorder.models.WorkOrder.total_services_value", new_callable=PropertyMock, return_value=Money(275.20, "BRL")),
+        ):
+            sync_workorder_collaborator_payrolls(workorder=workorders[0], reference_date=date(2026, 8, 1))
+
+        remaining_entries = list(
+            CollaboratorCommissionEntry.objects.filter(
+                collaborator=collaborator,
+                reference_year=2026,
+                reference_month=8,
+                status=CollaboratorCommissionEntry.Status.FORECAST,
+            ).order_by("id")
+        )
+
+        self.assertEqual([entry.pk for entry in remaining_entries], [entry.pk for entry in entries])
 
     def test_mark_payroll_commissions_as_paid_respects_month_boundary(self) -> None:
         workshop = create_workshop(suffix=4)

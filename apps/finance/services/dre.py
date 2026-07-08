@@ -39,6 +39,34 @@ COMP_OPERATING_RESULT = "resultado_operacional"
 _VALID_TIPO_DATA = {"PG", "NPG", "A"}
 
 
+def _adjust_payment_for_dre(payment: WorkOrderPaymentMethod) -> Money:
+    """Ajusta o valor do pagamento excluindo itens de garantia/cortesia.
+
+    Calcula a proporção do valor líquido (total_budget_value, que já exclui
+    itens de benefício) sobre o valor bruto (incluindo itens de benefício
+    a preço cheio) e aplica essa proporção ao total_paid do pagamento.
+    """
+    workorder = getattr(payment, "workorder", None)
+    if workorder is None:
+        return payment.total_paid
+
+    total_budget_value = workorder.total_budget_value
+    if total_budget_value.amount <= Decimal("0.00"):
+        return _ZERO
+
+    benefit_items_value = _ZERO
+    for item in workorder.items.all():
+        if item.item_benefit_type not in ("normal", ""):
+            benefit_items_value += item.total_price
+
+    gross_value = total_budget_value + benefit_items_value
+    if gross_value.amount <= Decimal("0.00"):
+        return _ZERO
+
+    ratio = total_budget_value / gross_value
+    return payment.total_paid * ratio
+
+
 # ---------------------------------------------------------------------------
 # Resultado público
 # ---------------------------------------------------------------------------
@@ -133,7 +161,7 @@ def build_dre_calculation(
         pagamentos_ordens_de_servico = pagamentos_ordens_de_servico.filter(due_date__lte=end_date)
 
     pagamentos_ordens_de_servico = list(pagamentos_ordens_de_servico)
-    total_receita_bruta_de_vendas_e_servicos = sum((payment.total_paid for payment in pagamentos_ordens_de_servico), _ZERO)
+    total_receita_bruta_de_vendas_e_servicos = sum((_adjust_payment_for_dre(payment) for payment in pagamentos_ordens_de_servico), _ZERO)
     detail_receita_bruta_de_vendas_e_servicos = workorder_payment_method_details(pagamentos_ordens_de_servico)
     workorder_payment_totals = _build_workorder_payment_totals(payments=pagamentos_ordens_de_servico)
     workorder_revenue_movements = _fetch_workorder_revenue_movements(
@@ -396,7 +424,7 @@ def _build_workorder_payment_totals(*, payments: list[WorkOrderPaymentMethod]) -
         workorder_id = getattr(payment, "workorder_id", None)
         if workorder_id is None:
             continue
-        totals[workorder_id] = totals.get(workorder_id, _ZERO) + payment.total_paid
+        totals[workorder_id] = totals.get(workorder_id, _ZERO) + _adjust_payment_for_dre(payment)
     return totals
 
 
@@ -699,7 +727,7 @@ def _build_wo_pm_detail(payment: WorkOrderPaymentMethod, include_workshop_ref: b
         "reference": reference,
         "entry_date": getattr(payment, "criado_em", None),
         "payment_date": payment.due_date,
-        "amount": payment.total_paid,
+        "amount": _adjust_payment_for_dre(payment),
     }
 
 
@@ -815,7 +843,7 @@ def _resolve_workorder_revenue_amount(*, movement: FinancialMovement, workorder_
         return _ZERO
 
     payments = list(workorder.payments.all()) if hasattr(workorder, "payments") else []
-    return sum((payment.total_paid for payment in payments), _ZERO)
+    return sum((_adjust_payment_for_dre(payment) for payment in payments), _ZERO)
 
 
 def _should_include_workorder_revenue_movement(*, movement: FinancialMovement, workorder_payment_totals: dict[int, Money] | None = None) -> bool:

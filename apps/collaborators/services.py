@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import calendar
+from collections import defaultdict
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -166,12 +167,30 @@ def _sum_salary_by_type(*, workshop: Workshop, collaborator_type: str, reference
 
 
 def _resolve_payroll_reference_date(*, collaborator: WorkshopCollaborator, reference_date: date | None = None, lock_reference: bool = False) -> date:
+    return _resolve_payroll_reference_date_from_lookup(
+        collaborator=collaborator,
+        reference_date=reference_date,
+        lock_reference=lock_reference,
+        existing_payroll_lookup=None,
+    )
+
+
+def _resolve_payroll_reference_date_from_lookup(
+    *,
+    collaborator: WorkshopCollaborator,
+    reference_date: date | None = None,
+    lock_reference: bool = False,
+    existing_payroll_lookup: dict[tuple[int, int], CollaboratorPayroll] | None,
+) -> date:
     resolved = _resolve_reference_date(reference_date)
     if lock_reference:
         return resolved
 
     current_month_reference = _resolve_reference_date()
-    existing_payroll = CollaboratorPayroll.objects.filter(collaborator=collaborator, reference_year=resolved.year, reference_month=resolved.month).select_related("financial_movement").first()
+    if existing_payroll_lookup is None:
+        existing_payroll = CollaboratorPayroll.objects.filter(collaborator=collaborator, reference_year=resolved.year, reference_month=resolved.month).select_related("financial_movement").first()
+    else:
+        existing_payroll = existing_payroll_lookup.get((resolved.year, resolved.month))
 
     if resolved.year == current_month_reference.year and resolved.month == current_month_reference.month and existing_payroll is None:
         return _get_next_month_reference(resolved)
@@ -197,6 +216,11 @@ def get_reference_work_days(*, collaborator: WorkshopCollaborator, reference_dat
 
 def calculate_transport_allowance_total(*, collaborator: WorkshopCollaborator, reference_date: date | None = None) -> Money:
     total = collaborator.transport_allowance_daily_amount * Decimal(get_reference_work_days(collaborator=collaborator, reference_date=reference_date))
+    return Money(_quantize(total), "BRL")
+
+
+def _calculate_transport_allowance_total_from_work_days(*, collaborator: WorkshopCollaborator, work_days: int) -> Money:
+    total = collaborator.transport_allowance_daily_amount * Decimal(work_days)
     return Money(_quantize(total), "BRL")
 
 
@@ -233,19 +257,23 @@ def _sync_paid_payroll_commission_entries(*, payroll: CollaboratorPayroll, commi
     stale_entries = payroll.commission_entries.exclude(pk__in=commission_entry_ids)
     stale_entries.filter(status=CollaboratorCommissionEntry.Status.FORECAST).delete()
 
+    entries_to_update: list[CollaboratorCommissionEntry] = []
     for entry in commission_entries:
-        update_fields: list[str] = []
+        changed = False
         if entry.payroll_id != payroll.pk:
             entry.payroll = payroll
-            update_fields.append("payroll")
+            changed = True
         if entry.status != CollaboratorCommissionEntry.Status.PAID:
             entry.status = CollaboratorCommissionEntry.Status.PAID
-            update_fields.append("status")
+            changed = True
         if entry.paid_at is None:
             entry.paid_at = now
-            update_fields.append("paid_at")
-        if update_fields:
-            entry.save(update_fields=update_fields)
+            changed = True
+        if changed:
+            entries_to_update.append(entry)
+
+    if entries_to_update:
+        CollaboratorCommissionEntry.objects.bulk_update(entries_to_update, ["payroll", "status", "paid_at"])
 
     commission_total = Money(
         _quantize(sum((Decimal(str(entry.commission_amount.amount or ZERO)) for entry in commission_entries), start=ZERO)),
@@ -281,7 +309,7 @@ def _get_effective_commission_entries(
         reference_year=resolved.year,
         reference_month=resolved.month,
     ).filter(Q(status=CollaboratorCommissionEntry.Status.PAID) | Q(pk__in=synced_entry_ids))
-    return list(queryset.select_related("workorder").order_by("id"))
+    return list(queryset.select_related("workorder", "workorder__budget").order_by("id"))
 
 
 def remove_pending_workorder_commissions(*, workorder: WorkOrder) -> int:
@@ -298,15 +326,18 @@ def _build_commission_payroll_item_description(*, entry: CollaboratorCommissionE
 
 def _rebuild_payroll_commission_items(*, payroll: CollaboratorPayroll, commission_entries: list[CollaboratorCommissionEntry]) -> None:
     payroll.items.filter(item_type=CollaboratorPayrollItem.ItemType.COMMISSION).delete()
-
-    for entry in commission_entries:
-        CollaboratorPayrollItem.objects.create(
+    commission_items = [
+        CollaboratorPayrollItem(
             payroll=payroll,
             item_type=CollaboratorPayrollItem.ItemType.COMMISSION,
             title=f"Comissão OS #{entry.workorder.pk}",
             description=_build_commission_payroll_item_description(entry=entry),
             amount=entry.commission_amount,
         )
+        for entry in commission_entries
+    ]
+    if commission_items:
+        CollaboratorPayrollItem.objects.bulk_create(commission_items)
 
 
 def get_or_create_collaborator_financial_group(*, collaborator: WorkshopCollaborator) -> FinancialGroup:
@@ -368,12 +399,41 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
             workshop=collaborator.workshop,
             collaborators=collaborator,
         )
-        .prefetch_related("payments")
+        .select_related("budget")
+        .prefetch_related(
+            "payments",
+            "items__product",
+            "items__service",
+            "items__kit",
+            "items__kit_overrides",
+            "items__kit__kit_products__product",
+            "items__kit__kit_services__service",
+        )
         .order_by("id")
         .distinct()
     )
+    workorders = list(workorders)
+    commission_reference_by_workorder_id = {workorder.pk: _resolve_commission_reference_date(workorder=workorder) for workorder in workorders}
+    reference_years = {reference.year for reference in commission_reference_by_workorder_id.values()}
+    reference_months = {reference.month for reference in commission_reference_by_workorder_id.values()}
+    existing_payroll_lookup = {
+        (payroll.reference_year, payroll.reference_month): payroll
+        for payroll in CollaboratorPayroll.objects.filter(
+            collaborator=collaborator,
+            reference_year__in=reference_years or {resolved.year},
+            reference_month__in=reference_months or {resolved.month},
+        ).select_related("financial_movement")
+    }
+    existing_entries_by_workorder_id = {
+        entry.workorder_id: entry
+        for entry in CollaboratorCommissionEntry.objects.filter(
+            collaborator=collaborator,
+            workorder__in=workorders,
+        ).select_related("workorder")
+    }
     synced_entries: list[CollaboratorCommissionEntry] = []
     active_workorder_ids: set[int] = set()
+    protected_workorder_ids: set[int] = set()
     percentage = Decimal(str(collaborator.commission_percentage or 0))
 
     for workorder in workorders:
@@ -381,8 +441,15 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
             remove_pending_workorder_commissions(workorder=workorder)
             continue
 
-        commission_reference = _resolve_commission_reference_date(workorder=workorder)
-        effective_reference = _resolve_payroll_reference_date(collaborator=collaborator, reference_date=commission_reference, lock_reference=lock_reference)
+        protected_workorder_ids.add(workorder.pk)
+
+        commission_reference = commission_reference_by_workorder_id[workorder.pk]
+        effective_reference = _resolve_payroll_reference_date_from_lookup(
+            collaborator=collaborator,
+            reference_date=commission_reference,
+            lock_reference=lock_reference,
+            existing_payroll_lookup=existing_payroll_lookup,
+        )
         if effective_reference.year != resolved.year or effective_reference.month != resolved.month:
             continue
 
@@ -393,10 +460,7 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
         status = CollaboratorCommissionEntry.Status.FORECAST
         paid_at = None
 
-        entry = CollaboratorCommissionEntry.objects.filter(
-            collaborator=collaborator,
-            workorder=workorder,
-        ).first()
+        entry = existing_entries_by_workorder_id.get(workorder.pk)
         if entry is None:
             entry = CollaboratorCommissionEntry.objects.create(
                 workshop=collaborator.workshop,
@@ -410,6 +474,7 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
                 status=status,
                 paid_at=paid_at,
             )
+            existing_entries_by_workorder_id[workorder.pk] = entry
         elif entry.status == CollaboratorCommissionEntry.Status.PAID:
             update_fields: list[str] = []
             if entry.workshop_id != collaborator.workshop_id:
@@ -450,8 +515,9 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
         synced_entries.append(entry)
 
     stale_entries = CollaboratorCommissionEntry.objects.filter(collaborator=collaborator, reference_year=resolved.year, reference_month=resolved.month)
-    if active_workorder_ids:
-        stale_entries = stale_entries.exclude(workorder_id__in=active_workorder_ids)
+    protected_ids = active_workorder_ids | protected_workorder_ids
+    if protected_ids:
+        stale_entries = stale_entries.exclude(workorder_id__in=protected_ids)
     stale_entries.filter(status=CollaboratorCommissionEntry.Status.FORECAST).delete()
     return synced_entries
 
@@ -584,6 +650,17 @@ def recalculate_historical_commissions(*, workshop: Workshop | None = None, dry_
 
 @transaction.atomic
 def sync_collaborator_payroll(*, collaborator: WorkshopCollaborator, reference_date: date | None = None, lock_reference: bool = False) -> CollaboratorPayroll:
+    return _sync_collaborator_payroll_internal(collaborator=collaborator, reference_date=reference_date, lock_reference=lock_reference)
+
+
+def _sync_collaborator_payroll_internal(
+    *,
+    collaborator: WorkshopCollaborator,
+    reference_date: date | None,
+    lock_reference: bool,
+    prefetched_benefits: list[CollaboratorBenefit] | None = None,
+    prefetched_work_days: int | None = None,
+) -> CollaboratorPayroll:
     resolved = _resolve_payroll_reference_date(collaborator=collaborator, reference_date=reference_date, lock_reference=lock_reference)
     existing_payroll = CollaboratorPayroll.objects.filter(collaborator=collaborator, reference_year=resolved.year, reference_month=resolved.month).select_related("financial_movement").first()
     if _is_paid_payroll(payroll=existing_payroll):
@@ -597,8 +674,9 @@ def sync_collaborator_payroll(*, collaborator: WorkshopCollaborator, reference_d
     commission_entries = _get_effective_commission_entries(collaborator=collaborator, resolved=resolved, synced_entries=synced_entries)
 
     salary_amount = Money(_quantize(collaborator.salary_amount), "BRL")
-    transport_amount = calculate_transport_allowance_total(collaborator=collaborator, reference_date=resolved)
-    active_benefits = list(CollaboratorBenefit.objects.filter(collaborator=collaborator, is_active=True).order_by("id"))
+    work_days = prefetched_work_days if prefetched_work_days is not None else get_reference_work_days(collaborator=collaborator, reference_date=resolved)
+    transport_amount = _calculate_transport_allowance_total_from_work_days(collaborator=collaborator, work_days=work_days)
+    active_benefits = prefetched_benefits if prefetched_benefits is not None else list(CollaboratorBenefit.objects.filter(collaborator=collaborator, is_active=True).order_by("id"))
     benefits_total = sum((Decimal(str(benefit.monthly_amount.amount or ZERO)) for benefit in active_benefits), start=ZERO)
     commission_total = sum((Decimal(str(entry.commission_amount.amount or ZERO)) for entry in commission_entries), start=ZERO)
     total_amount = _quantize(Decimal(str(salary_amount.amount or ZERO)) + Decimal(str(transport_amount.amount or ZERO)) + benefits_total + commission_total)
@@ -609,7 +687,7 @@ def sync_collaborator_payroll(*, collaborator: WorkshopCollaborator, reference_d
         reference_month=resolved.month,
         defaults={
             "workshop": collaborator.workshop,
-            "due_date": collaborator.get_due_date_for_reference(reference_date=resolved),
+            "due_date": existing_payroll.due_date if existing_payroll is not None else collaborator.get_due_date_for_reference(reference_date=resolved),
             "salary_amount": salary_amount,
             "transport_allowance_amount": transport_amount,
             "benefits_amount": Money(_quantize(benefits_total), "BRL"),
@@ -624,7 +702,6 @@ def sync_collaborator_payroll(*, collaborator: WorkshopCollaborator, reference_d
         CollaboratorPayrollItem.objects.create(payroll=payroll, item_type=CollaboratorPayrollItem.ItemType.SALARY, title="Salário", amount=payroll.salary_amount)
 
     if Decimal(str(payroll.transport_allowance_amount.amount or ZERO)) > ZERO:
-        work_days = get_reference_work_days(collaborator=collaborator, reference_date=resolved)
         CollaboratorPayrollItem.objects.create(
             payroll=payroll,
             item_type=CollaboratorPayrollItem.ItemType.TRANSPORT,
@@ -645,13 +722,51 @@ def sync_collaborator_payroll(*, collaborator: WorkshopCollaborator, reference_d
             amount=benefit.monthly_amount,
         )
 
-    for entry in commission_entries:
-        entry.payroll = payroll
-        entry.save(update_fields=["payroll"])
+    entries_to_attach = [entry for entry in commission_entries if entry.payroll_id != payroll.pk]
+    if entries_to_attach:
+        for entry in entries_to_attach:
+            entry.payroll = payroll
+        CollaboratorCommissionEntry.objects.bulk_update(entries_to_attach, ["payroll"])
     _rebuild_payroll_commission_items(payroll=payroll, commission_entries=commission_entries)
 
     _create_or_update_financial_movement(payroll=payroll)
     return payroll
+
+
+@transaction.atomic
+def sync_collaborator_payrolls_batch(*, collaborators: list[WorkshopCollaborator], reference_date: date | None = None, lock_reference: bool = False) -> list[CollaboratorPayroll]:
+    if not collaborators:
+        return []
+
+    resolved = _resolve_reference_date(reference_date)
+    collaborator_ids = [collaborator.pk for collaborator in collaborators]
+    benefits_by_collaborator_id: dict[int, list[CollaboratorBenefit]] = defaultdict(list)
+    for benefit in CollaboratorBenefit.objects.filter(collaborator_id__in=collaborator_ids, is_active=True).order_by("collaborator_id", "id"):
+        benefits_by_collaborator_id[benefit.collaborator_id].append(benefit)
+
+    work_days_by_workshop_id: dict[int, int] = {}
+    workshop_ids = {collaborator.workshop_id for collaborator in collaborators}
+    workshop_costs = {workshop_cost.workshop_id: int(workshop_cost.work_days_per_month or 0) for workshop_cost in WorkshopCost.objects.filter(workshop_id__in=workshop_ids, year=resolved.year, month=resolved.month).only("workshop_id", "work_days_per_month")}
+    latest_workshop_costs: dict[int, int] = {}
+    for workshop_id in workshop_ids:
+        work_days_by_workshop_id[workshop_id] = workshop_costs.get(workshop_id, 0)
+        if workshop_id in workshop_costs:
+            continue
+        if workshop_id not in latest_workshop_costs:
+            latest_workshop_cost = WorkshopCost.objects.filter(workshop_id=workshop_id).order_by("-year", "-month", "-id").only("work_days_per_month").first()
+            latest_workshop_costs[workshop_id] = int(latest_workshop_cost.work_days_per_month or 0) if latest_workshop_cost is not None else 0
+        work_days_by_workshop_id[workshop_id] = latest_workshop_costs[workshop_id]
+
+    return [
+        _sync_collaborator_payroll_internal(
+            collaborator=collaborator,
+            reference_date=reference_date,
+            lock_reference=lock_reference,
+            prefetched_benefits=benefits_by_collaborator_id.get(collaborator.pk, []),
+            prefetched_work_days=work_days_by_workshop_id.get(collaborator.workshop_id, 0),
+        )
+        for collaborator in collaborators
+    ]
 
 
 def sync_workorder_collaborator_payrolls(*, workorder: WorkOrder, reference_date: date | None = None) -> list[CollaboratorPayroll]:
