@@ -438,7 +438,7 @@ class PayrollEditModalViewTests(TestCase):
             is_paid=True,
             is_reconciled=True,
         )
-        transport_movement = FinancialMovement.objects.create(
+        FinancialMovement.objects.create(
             workshop=workshop,
             collaborator=collaborator,
             payroll=payroll,
@@ -478,6 +478,36 @@ class PayrollEditModalViewTests(TestCase):
         self.assertTrue(all(not movement.is_paid for movement in resulting_movements.values()))
         self.assertTrue(all(not movement.is_reconciled for movement in resulting_movements.values()))
         self.assertEqual(payroll.status, CollaboratorPayroll.Status.FORECAST)
+
+    def test_edit_modal_returns_warning_when_payroll_has_no_financial_movements(self) -> None:
+        workshop = create_workshop(suffix=9)
+        collaborator = create_collaborator(workshop=workshop, suffix=9)
+        collaborator.salary = Money(0, "BRL")
+        collaborator.save(update_fields=["salary"])
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(0, "BRL"),
+            total_amount=Money(0, "BRL"),
+        )
+
+        request = RequestFactory().get(f"/finance/folha-pagamento/{payroll.pk}/edit/")
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollEditModalView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.get(request)
+
+        payroll.refresh_from_db()
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(FinancialMovement.objects.filter(payroll=payroll).count(), 0)
+        self.assertIn("HX-Trigger", response.headers)
+        self.assertIn("nao possui movimentacoes financeiras", response.headers["HX-Trigger"])
 
 
 class ReportMovementEditRedirectTests(TestCase):
@@ -580,6 +610,63 @@ class PayrollBulkActionsTests(TestCase):
         self.assertEqual(response.headers.get("HX-Refresh"), "true")
         self.assertTrue(movement.is_paid)
 
+    def test_bulk_pay_skips_payrolls_without_movements_and_returns_warning(self) -> None:
+        workshop = create_workshop(suffix=14)
+        collaborator_paid = create_collaborator(workshop=workshop, suffix=14)
+        collaborator_skipped = create_collaborator(workshop=workshop, suffix=15)
+        collaborator_skipped.salary = Money(0, "BRL")
+        collaborator_skipped.save(update_fields=["salary"])
+
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator_paid,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Folha valida",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=False,
+        )
+        payable_payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator_paid,
+            financial_movement=movement,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2000, "BRL"),
+            total_amount=Money(2000, "BRL"),
+        )
+        skipped_payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator_skipped,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(0, "BRL"),
+            total_amount=Money(0, "BRL"),
+        )
+
+        request = RequestFactory().post(
+            "/finance/folha-pagamento/bulk-pay/",
+            {"payroll_ids": [str(payable_payroll.pk), str(skipped_payroll.pk)]},
+            HTTP_HX_REQUEST="true",
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollBulkPayView()
+        view.request = request
+        view.workshop = workshop
+
+        response = view.post(request)
+
+        movement.refresh_from_db()
+        skipped_payroll.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Refresh"), "true")
+        self.assertTrue(movement.is_paid)
+        self.assertEqual(FinancialMovement.objects.filter(payroll=skipped_payroll).count(), 0)
+        self.assertIn("HX-Trigger", response.headers)
+        self.assertIn(collaborator_skipped.name, response.headers["HX-Trigger"])
+
     def test_bulk_unpay_marks_selected_payrolls_as_not_paid_and_unmarks_commissions(self) -> None:
         workshop = create_workshop(suffix=13)
         collaborator = create_collaborator(workshop=workshop, suffix=13)
@@ -605,7 +692,7 @@ class PayrollBulkActionsTests(TestCase):
             is_paid=True,
             is_reconciled=True,
         )
-        commission_movement = FinancialMovement.objects.create(
+        FinancialMovement.objects.create(
             workshop=workshop,
             collaborator=collaborator,
             payroll=payroll,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import calendar
+import logging
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
@@ -22,6 +23,7 @@ from apps.workshops.util.monthly_costs import get_admin_salary_monthly_cost, get
 
 
 ZERO = Decimal("0.00")
+logger = logging.getLogger(__name__)
 PAYROLL_COMPONENT_PLAN_CODES: dict[str, str] = {
     FinancialMovement.PayrollComponent.SALARY: "5.1.11",
     FinancialMovement.PayrollComponent.BENEFIT: "5.1.5",
@@ -617,6 +619,10 @@ def _get_payroll_effective_movements(*, payroll: CollaboratorPayroll) -> list[Fi
     return payroll.get_financial_movements()
 
 
+def payroll_has_financial_movements(*, payroll: CollaboratorPayroll) -> bool:
+    return bool(_get_payroll_effective_movements(payroll=payroll))
+
+
 def _get_payroll_representative_movement(*, payroll: CollaboratorPayroll, existing_by_component: dict[str, FinancialMovement]) -> FinancialMovement | None:
     primary_movement = payroll.primary_financial_movement
     if primary_movement is not None:
@@ -730,19 +736,27 @@ def unmark_payroll_commissions_as_paid(*, payroll: CollaboratorPayroll) -> int:
 
 
 def ensure_payroll_financial_movement(*, payroll: CollaboratorPayroll) -> CollaboratorPayroll:
+    if payroll_has_financial_movements(payroll=payroll):
+        return payroll
     refreshed_payroll = sync_collaborator_payroll(
         collaborator=payroll.collaborator,
         reference_date=date(payroll.reference_year, payroll.reference_month, 1),
         lock_reference=True,
     )
     refreshed_payroll.refresh_from_db()
-    if not _get_payroll_effective_movements(payroll=refreshed_payroll):
-        raise ValueError(f"Nao foi possivel criar a movimentacao financeira da folha {refreshed_payroll.pk}.")
+    if not payroll_has_financial_movements(payroll=refreshed_payroll):
+        logger.warning(
+            "Payroll %s for collaborator %s has no financial movements after sync; payment action skipped.",
+            refreshed_payroll.pk,
+            refreshed_payroll.collaborator_id,
+        )
     return refreshed_payroll
 
 
 def mark_payroll_as_paid(*, payroll: CollaboratorPayroll, paid_at: date | None = None) -> CollaboratorPayroll:
     refreshed_payroll = ensure_payroll_financial_movement(payroll=payroll)
+    if not payroll_has_financial_movements(payroll=refreshed_payroll):
+        return refreshed_payroll
     for movement in _get_payroll_effective_movements(payroll=refreshed_payroll):
         if movement.is_paid:
             continue
@@ -754,6 +768,8 @@ def mark_payroll_as_paid(*, payroll: CollaboratorPayroll, paid_at: date | None =
 
 def mark_payroll_as_unpaid(*, payroll: CollaboratorPayroll) -> CollaboratorPayroll:
     refreshed_payroll = ensure_payroll_financial_movement(payroll=payroll)
+    if not payroll_has_financial_movements(payroll=refreshed_payroll):
+        return refreshed_payroll
     for movement in _get_payroll_effective_movements(payroll=refreshed_payroll):
         update_fields: list[str] = []
         if movement.is_paid:
