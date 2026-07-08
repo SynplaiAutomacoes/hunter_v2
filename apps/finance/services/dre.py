@@ -51,7 +51,7 @@ def _adjust_payment_for_dre(payment: WorkOrderPaymentMethod) -> Money:
     benefit_items_value = _ZERO
     for item in workorder.items.all():
         if item.item_benefit_type not in ("normal", ""):
-            benefit_items_value += item.total_price
+            benefit_items_value += (item.product_selling_price + item.service_selling_price) * item.quantity
 
     gross_value = total_budget_value + benefit_items_value
     if gross_value.amount <= Decimal("0.00"):

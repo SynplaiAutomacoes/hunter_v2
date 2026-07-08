@@ -201,7 +201,7 @@ def _adjust_payment_for_dashboard(payment: WorkOrderPaymentMethod) -> Decimal:
     benefit_items_value = Decimal("0.00")
     for item in workorder.items.all():
         if item.item_benefit_type not in (WorkOrderItemBenefitType.NORMAL, ""):
-            benefit_items_value += resolve_decimal_amount(item.total_price)
+            benefit_items_value += resolve_decimal_amount((item.product_selling_price + item.service_selling_price) * item.quantity)
 
     gross_value = total_budget_value + benefit_items_value
     if gross_value <= Decimal("0.00"):
