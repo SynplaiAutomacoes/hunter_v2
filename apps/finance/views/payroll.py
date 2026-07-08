@@ -7,8 +7,8 @@ from typing import Any
 from django import forms
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
-from django.db.models import Q
-from django.http import HttpResponse
+from django.db.models import Q, Sum
+from django.http import HttpResponse, QueryDict
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 from django.utils import timezone
@@ -19,7 +19,7 @@ from django.http import HttpResponseRedirect
 from django.db import transaction
 
 from apps.collaborators.models import CollaboratorPayroll, WorkshopCollaborator
-from apps.collaborators.services import ensure_payroll_financial_movement, mark_payroll_as_paid, mark_payroll_commissions_as_paid, sync_collaborator_payroll, unmark_payroll_commissions_as_paid
+from apps.collaborators.services import ensure_payroll_financial_movement, mark_payroll_as_paid, mark_payroll_commissions_as_paid, sync_collaborator_payroll, sync_collaborator_payrolls_batch, unmark_payroll_commissions_as_paid
 from apps.core.presentation.widgets import CalendarDateInput, MoneyInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
@@ -127,9 +127,9 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             "has_modal_date_filter": bool(start_date or end_date),
         }
 
-    def _sync_monthly_payrolls(self, *, filters: dict[str, Any]) -> None:
+    def _get_collaborators_to_sync(self, *, filters: dict[str, Any]):
         if filters["has_modal_date_filter"]:
-            return
+            return WorkshopCollaborator.objects.none()
 
         reference_date = date(filters["year"], filters["month"], 1)
         collaborators = WorkshopCollaborator.objects.filter(
@@ -145,13 +145,29 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         if search:
             collaborators = collaborators.filter(name__icontains=search)
 
-        for collaborator in collaborators.order_by("name", "id").iterator():
-            sync_collaborator_payroll(collaborator=collaborator, reference_date=reference_date, lock_reference=True)
+        collaborator_ids = list(collaborators.values_list("pk", flat=True))
+        if not collaborator_ids:
+            return collaborators.none()
+
+        synced_collaborator_ids = set(
+            CollaboratorPayroll.objects.filter(
+                workshop=self.workshop,
+                collaborator_id__in=collaborator_ids,
+                reference_month=filters["month"],
+                reference_year=filters["year"],
+                financial_movement_id__isnull=False,
+            ).values_list("collaborator_id", flat=True)
+        )
+        return collaborators.exclude(pk__in=synced_collaborator_ids)
+
+    def _sync_monthly_payrolls(self, *, filters: dict[str, Any]) -> None:
+        reference_date = date(filters["year"], filters["month"], 1)
+        collaborators_to_sync = list(self._get_collaborators_to_sync(filters=filters).order_by("name", "id"))
+        sync_collaborator_payrolls_batch(collaborators=collaborators_to_sync, reference_date=reference_date, lock_reference=True)
 
     def _get_queryset(self):
         filters = self._get_filter_params()
-        self._sync_monthly_payrolls(filters=filters)
-        queryset = CollaboratorPayroll.objects.filter(workshop=self.workshop).select_related("collaborator", "financial_movement").prefetch_related("items", "commission_entries__workorder").order_by("collaborator__name", "id")
+        queryset = CollaboratorPayroll.objects.filter(workshop=self.workshop).select_related("collaborator", "financial_movement").order_by("collaborator__name", "id")
         if filters["has_modal_date_filter"]:
             if filters["start_date"]:
                 queryset = queryset.filter(due_date__gte=filters["start_date"])
@@ -213,8 +229,9 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         page_obj = paginator.get_page(self.request.GET.get("page") or "1")
         payrolls = list(page_obj.object_list)
         context["payroll_rows"] = self._build_rows(payrolls)
-        total_amount = sum((self._money_amount(payroll.total_amount) for payroll in queryset), start=Decimal("0.00"))
-        paid_amount = sum((self._money_amount(payroll.paid_amount) for payroll in queryset), start=Decimal("0.00"))
+        totals = queryset.aggregate(total_payroll_amount=Sum("total_amount"), paid_amount=Sum("total_amount", filter=Q(financial_movement__is_paid=True)))
+        total_amount = self._money_amount(totals.get("total_payroll_amount"))
+        paid_amount = self._money_amount(totals.get("paid_amount"))
         context["pending_amount"] = max(total_amount - paid_amount, Decimal("0.00"))
         context["paid_amount"] = paid_amount
         context["collaborator_filters"] = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
@@ -226,11 +243,32 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         context["month_choices"] = MONTH_CHOICES
         context["year_choices"] = range(timezone.localdate().year - 4, timezone.localdate().year + 2)
         context["has_modal_date_filter"] = filters["has_modal_date_filter"]
+        context["can_refresh_payroll"] = not filters["has_modal_date_filter"]
         context["clear_filters_url"] = reverse("finance:payroll_list")
         context["has_active_filters"] = bool(filters["start_date"] or filters["end_date"] or filters["collaborator_id"] is not None or filters["status"] or self.request.GET.get("search") or self.request.GET.get("mes") or self.request.GET.get("ano"))
         context["page_obj"] = page_obj
         context["is_paginated"] = paginator.num_pages > 1
         return context
+
+
+class PayrollRefreshView(PayrollListView, View):
+    workshop_permission_codename = "change_financialmovement"
+
+    def post(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        filters = self._get_filter_params()
+        self._sync_monthly_payrolls(filters=filters)
+
+        params = QueryDict("", mutable=True)
+        for key in ["search", "mes", "ano", "data_inicial", "data_final", "collaborator", "status", "page"]:
+            value = request.POST.get(key)
+            if value not in (None, ""):
+                params[key] = value
+
+        redirect_url = reverse("finance:payroll_list")
+        querystring = params.urlencode()
+        if querystring:
+            redirect_url = f"{redirect_url}?{querystring}"
+        return HttpResponseRedirect(redirect_url)
 
 
 def _get_payroll_reference_date(*, payroll: CollaboratorPayroll) -> date:
@@ -262,7 +300,7 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def _get_payroll(self) -> CollaboratorPayroll:
         return get_object_or_404(
-            CollaboratorPayroll.objects.select_related("collaborator", "financial_movement").prefetch_related("items", "commission_entries__workorder"),
+            CollaboratorPayroll.objects.select_related("collaborator", "financial_movement").prefetch_related("items", "commission_entries__workorder__budget"),
             pk=self.kwargs["pk"],
             workshop=self.workshop,
         )
