@@ -15,9 +15,16 @@ from apps.core.presentation.forms import CoreModelForm
 RESERVED_ROLE_NAMES = {"diretor", "gerente"}
 
 
+def _iter_live_permissions():
+    for permission in Permission.objects.select_related("content_type").order_by("content_type__app_label", "content_type__model", "codename"):
+        if permission.content_type.model_class() is None:
+            continue
+        yield permission
+
+
 class WorkshopRoleForm(CoreModelForm):
     permissions = forms.ModelMultipleChoiceField(
-        queryset=Permission.objects.select_related("content_type").all(),
+        queryset=Permission.objects.none(),
         required=False,
     )
 
@@ -40,7 +47,8 @@ class WorkshopRoleForm(CoreModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        perms = Permission.objects.select_related("content_type").order_by("content_type__app_label", "content_type__model", "codename")
+        perms = list(_iter_live_permissions())
+        self.fields["permissions"].queryset = Permission.objects.filter(pk__in=[permission.pk for permission in perms]).select_related("content_type")
 
         grouped = {}
         for p in perms:
@@ -54,10 +62,7 @@ class WorkshopRoleForm(CoreModelForm):
 
             # Pega o nome amigável do Modelo
             model_class = p.content_type.model_class()
-            if model_class:
-                model_name = model_class._meta.verbose_name.capitalize()
-            else:
-                model_name = p.content_type.model.capitalize()
+            model_name = model_class._meta.verbose_name.capitalize()
 
             if app_name not in grouped:
                 grouped[app_name] = {}
