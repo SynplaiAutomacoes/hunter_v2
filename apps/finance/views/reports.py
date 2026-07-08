@@ -813,6 +813,20 @@ class ReportMovementEditView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView
     template_name = "finance/partials/financial_movement/report_edit_movement_modal.html"
     workshop_permission_codename = "change_financialmovement"
 
+    def get(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        payroll = getattr(self.object, "collaborator_payroll", None)
+        if payroll is not None:
+            return HttpResponseRedirect(reverse("finance:payroll_edit_modal", kwargs={"pk": payroll.pk}))
+        return super().get(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        payroll = getattr(self.object, "collaborator_payroll", None)
+        if payroll is not None:
+            return HttpResponseRedirect(reverse("finance:payroll_edit_modal", kwargs={"pk": payroll.pk}))
+        return super().post(request, *args, **kwargs)
+
     def get_form_class(self):
         from apps.finance.forms.financial_movement import ReportMovementEditForm
 
