@@ -1,5 +1,56 @@
 # PRD UX, permissoes e workflows fiscais
 
+## Fase 4.0.5 - Homologacao operacional das permissoes dedicadas NF-e
+
+A Fase 4.0.4 foi validada no checkpoint `9486f8ca` e decidiu manter fallback legado ate migracao/homologacao de grupos. A Fase 4.0.5 nao altera grupos reais e nao remove fallback; ela documenta o roteiro verificavel de homologacao operacional.
+
+### Matriz de grupos e permissoes
+
+| Grupo/Perfil | `cancel_nferequest` | `invalidate_nferequest_numbering` | `download_nferequest_xml` | `download_nferequest_pdf` | `view_nferequest_payload` | `view_nferequest_remote_response` | Observacao |
+|---|---:|---:|---:|---:|---:|---:|---|
+| Administrador fiscal | Sim | Sim | Sim | Sim | Sim | Sim | Perfil sugerido; nomes reais dos grupos ainda exigem confirmacao operacional |
+| Gestor financeiro/fiscal | Sim | Sim | Sim | Sim | Nao | Nao | Pode executar acoes fiscais sensiveis e consultar documentos, sem acesso tecnico a payload/log salvo decisao local |
+| Operador de emissao | Nao | Nao | Sim | Sim | Nao | Nao | Opera emissao/entrega documental, mas nao cancela nem inutiliza por padrao |
+| Usuario de consulta | Nao | Nao | Opcional | Sim | Nao | Nao | DANFE pode ser suficiente; XML depende de necessidade fiscal/escrituracao |
+| Auditor/suporte | Nao | Nao | Sim | Sim | Sim | Sim | Acesso tecnico/auditoria deve ser restrito e rastreavel |
+| Usuario sem permissao fiscal | Nao | Nao | Nao | Nao | Nao | Nao | Deve nao ver acoes sensiveis e receber bloqueio backend |
+
+### Matriz de cenarios de homologacao
+
+| Cenario | Usuario/Perfil | Permissao esperada | Resultado esperado | Evidencia necessaria | Status |
+|---|---|---|---|---|---|
+| Cancelamento autorizado | Administrador fiscal ou gestor fiscal | `cancel_nferequest` | Ve botao e consegue POST | Print/registro da tela e resposta POST permitida | Pendente |
+| Cancelamento bloqueado | Usuario sem cancelamento | Sem `cancel_nferequest` e sem fallback aplicavel | Nao ve botao e POST bloqueia | Print/registro da tela e resposta 403/bloqueio | Pendente |
+| Inutilizacao autorizada | Administrador fiscal ou gestor fiscal | `invalidate_nferequest_numbering` | Ve botao e consegue POST | Print/registro da tela e resposta POST permitida | Pendente |
+| Inutilizacao bloqueada | Usuario sem inutilizacao | Sem `invalidate_nferequest_numbering` e sem fallback aplicavel | Nao ve botao e POST bloqueia | Print/registro da tela e resposta 403/bloqueio | Pendente |
+| Cancelar nao concede inutilizar | Perfil apenas cancelamento | `cancel_nferequest` | Cancelamento permitido; inutilizacao bloqueada | Registro comparativo das duas acoes | Pendente |
+| Inutilizar nao concede cancelar | Perfil apenas inutilizacao | `invalidate_nferequest_numbering` | Inutilizacao permitida; cancelamento bloqueado | Registro comparativo das duas acoes | Pendente |
+| Download XML autorizado | Fiscal/auditoria | `download_nferequest_xml` | Baixa XML | Arquivo/headers do download | Pendente |
+| Download XML bloqueado | Usuario sem XML | Sem `download_nferequest_xml` e sem fallback aplicavel | Download bloqueado | Resposta 403/bloqueio | Pendente |
+| Download PDF autorizado | Operador/consulta/fiscal | `download_nferequest_pdf` | Baixa DANFE/PDF | Arquivo/headers do download | Pendente |
+| Download PDF bloqueado | Usuario sem PDF | Sem `download_nferequest_pdf` e sem fallback aplicavel | Download bloqueado | Resposta 403/bloqueio | Pendente |
+| Fallback em transicao | Usuario legado | `change_nferequest`, `change_nfserequest` ou `view_nferequest` conforme acao | Continua funcionando enquanto fallback estiver ativo | Registro do usuario legado executando cenario aprovado | Pendente |
+| Cross-workshop | Usuario de outra oficina | Permissao em outra oficina nao basta | Documento inacessivel | Resposta 404/bloqueio por oficina | Pendente |
+| Sem permissao fiscal | Usuario sem permissao | Nenhuma permissao fiscal sensivel | Nao acessa acoes sensiveis | Tela sem acoes e backend bloqueado | Pendente |
+| Sem novo remoto | Qualquer perfil | N/A | Nenhuma chamada Webmania nova | Log/teste confirmando ausencia de novo endpoint | Pendente |
+| Payload inalterado | Qualquer perfil | N/A | Nenhum payload fiscal alterado | Comparacao funcional/teste existente | Pendente |
+| Regra fiscal inalterada | Qualquer perfil | N/A | Nenhuma regra fiscal alterada | Registro de escopo e regressao | Pendente |
+
+### Evidencias obrigatorias
+
+- print ou registro da tela sem botao para usuario sem permissao;
+- print ou registro da tela com botao para usuario autorizado;
+- resultado de POST bloqueado para usuario sem permissao;
+- resultado de POST permitido para usuario autorizado;
+- validacao de download XML/PDF;
+- validacao de cross-workshop;
+- lista de grupos atualizados;
+- aceite do responsavel operacional/fiscal;
+- resultado de testes automatizados relevantes;
+- confirmacao de ausencia de erro em producao/homologacao.
+
+Decisao: **Opcao B - homologar grupos e preparar fase futura de remocao do fallback**. Proxima fase recomendada: **Fase 4.0.6 - Registro de Homologacao Operacional NF-e**, caso ainda dependa de evidencias reais externas. Nao propor remocao imediata sem evidencias.
+
 ## Fase 4.0.4 - Migracao operacional de permissoes NF-e normal
 
 A Fase 4.0.3 foi validada no checkpoint `9f888ced` e criou permissoes dedicadas com fallback legado temporario. A Fase 4.0.4 nao remove fallback e nao altera grupos reais; ela define a matriz operacional para migracao futura.

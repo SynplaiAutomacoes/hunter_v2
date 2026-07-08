@@ -1,5 +1,15 @@
 # Log de implementacao fiscal
 
+## 2026-07-08 - Fase 4.0.5 - Homologacao operacional das permissoes NF-e
+
+- Fase 4.0.4 reconhecida como validada e encerrada no checkpoint `9486f8ca`.
+- Fase exclusivamente documental/operacional para transformar a matriz de transicao em roteiro verificavel de homologacao.
+- Registrada matriz grupo/perfil x permissoes dedicadas da NF-e normal.
+- Registrada matriz de cenarios de homologacao: cancelamento, inutilizacao, downloads, fallback temporario, bloqueio sem permissao, cross-workshop, ausencia de chamada Webmania nova, payload inalterado e regra fiscal inalterada.
+- Decisao escolhida: Opcao B, homologar grupos e preparar fase futura de remocao do fallback.
+- Proxima fase proposta: Fase 4.0.6 - Registro de Homologacao Operacional NF-e, salvo se as evidencias ja permitirem preparacao tecnica para remocao.
+- Nenhum codigo funcional, migration, service, view, template, teste, OpenAPI, endpoint remoto, payload fiscal, regra fiscal ou dominio fiscal novo foi iniciado.
+
 ## 2026-07-08 - Fase 4.0.4 - Planejamento de migracao de grupos NF-e
 
 - Fase 4.0.3 reconhecida como validada e encerrada no checkpoint `9f888ced`.

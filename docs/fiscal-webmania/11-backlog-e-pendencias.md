@@ -1,5 +1,36 @@
 # Backlog e pendencias fiscais
 
+## Apos a Fase 4.0.5
+
+Concluido:
+
+- permissoes dedicadas criadas;
+- fallback preservado;
+- plano de migracao documentado;
+- roteiro de homologacao documentado;
+- matriz grupo/permissao documentada;
+- matriz usuario/cenario documentada;
+- criterios para futura remocao do fallback registrados.
+
+Pendente operacional:
+
+- mapear grupos reais;
+- atribuir permissoes dedicadas;
+- homologar usuarios;
+- coletar evidencias de UI, POST/backend, download e cross-workshop;
+- registrar aceite operacional/fiscal;
+- confirmar ausencia de erro em producao/homologacao;
+- avisar suporte antes de qualquer remocao futura.
+
+Pendente tecnico futuro:
+
+- remover fallback legado em fase propria;
+- modernizar cancelamento NF-e normal para evento/tentativa propria;
+- modernizar inutilizacao NF-e normal para evento/tentativa propria;
+- avaliar preview remoto NF-e como artefato sensivel.
+
+Continuam nao iniciados: endpoint remoto novo, payload fiscal novo, regra fiscal nova, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
+
 ## Apos a Fase 4.0.4
 
 Concluido:

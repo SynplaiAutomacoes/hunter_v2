@@ -1,5 +1,26 @@
 # Decisoes arquiteturais
 
+## ADR - Fase 4.0.5 - Homologacao operacional antes de remover fallback NF-e
+
+Data: 2026-07-08.
+
+Contexto: a Fase 4.0.4, checkpoint `9486f8ca`, planejou migracao de grupos e decidiu que a remocao do fallback so deve ocorrer em fase futura. Ainda faltam evidencias reais de homologacao operacional.
+
+Decisao: escolher **Opcao B - homologar grupos e preparar fase futura de remocao do fallback**.
+
+Consequencias:
+
+- O fallback legado permanece ativo.
+- A proxima etapa deve registrar evidencias operacionais reais ou preparar tecnicamente a remocao apenas se essas evidencias ja existirem.
+- Nenhuma remocao imediata e aceitavel sem matriz de usuarios, resultados de UI/backend/downloads/cross-workshop, aceite fiscal/operacional, janela de implantacao e rollback.
+- Modernizacao de cancelamento/inutilizacao continua backlog tecnico separado.
+
+Opcoes rejeitadas:
+
+- Opcao A, manter fallback por tempo indeterminado: aceitavel se homologacao bloquear, mas nao e a direcao preferida.
+- Opcao C, remover fallback na proxima fase: rejeitada sem evidencias reais.
+- Opcao D, pausar permissoes e priorizar modernizacao tecnica: fica como alternativa se a homologacao depender de terceiros.
+
 ## ADR - Fase 4.0.4 - Remocao futura do fallback NF-e depende de migracao de grupos
 
 Data: 2026-07-08.

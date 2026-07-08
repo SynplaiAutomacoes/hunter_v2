@@ -1,5 +1,34 @@
 # Plano de fases e criterios de aceite
 
+## Fase 4.0.5 - Homologacao Operacional das Permissoes Dedicadas NF-e
+
+Status: **documental/operacional em 2026-07-08**. A Fase 4.0.4 foi validada e encerrada no checkpoint `9486f8ca`.
+
+Objetivo: documentar como homologar as permissoes dedicadas da NF-e normal antes de qualquer remocao futura dos fallbacks legados. O fallback permanece ativo nesta fase.
+
+Decisao: **Opcao B - homologar grupos e preparar fase futura de remocao do fallback**.
+
+Escopo permitido: documentacao, roteiro de homologacao, checklist operacional, matriz grupo/permissao, matriz usuario/cenario, criterios de evidencia e backlog.
+
+Escopo proibido: remover fallback, alterar grupos reais, criar migration, alterar model/view/template/service/teste/OpenAPI, endpoint remoto, payload fiscal, regra fiscal, modernizar cancelamento/inutilizacao ou iniciar CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendente, credito/debito pendente ou complementar tributaria.
+
+Checklist de homologacao:
+
+- grupos reais mapeados;
+- permissoes dedicadas atribuidas em ambiente controlado;
+- usuarios operacionais homologados;
+- usuarios sem permissao bloqueados;
+- downloads XML/PDF homologados;
+- cross-workshop homologado;
+- testes automatizados relevantes passando;
+- responsavel fiscal/operacional aprovou;
+- janela de implantacao definida;
+- plano de rollback definido;
+- documentacao atualizada;
+- suporte avisado.
+
+Proxima fase proposta: **Fase 4.0.6 - Registro de Homologacao Operacional NF-e** se depender de evidencias externas; ou **Fase 4.0.6 - Preparacao Tecnica para Remocao do Fallback Legado NF-e** somente se as evidencias e o aceite operacional ja estiverem completos.
+
 ## Fase 4.0.4 - Planejamento de Migracao de Grupos e Remocao Futura do Fallback NF-e
 
 Status: **documental em 2026-07-08**. A Fase 4.0.3 foi validada e encerrada no checkpoint `9f888ced`.

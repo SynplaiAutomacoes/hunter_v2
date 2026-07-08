@@ -1,5 +1,30 @@
 # Plano de testes e operacao fiscal
 
+## Fase 4.0.5 - Roteiro operacional de homologacao NF-e
+
+Esta fase nao executa testes funcionais porque e documental/operacional. A homologacao deve coletar evidencias para:
+
+- usuario apenas com permissao dedicada de cancelamento;
+- usuario apenas com permissao dedicada de inutilizacao;
+- usuario apenas com permissao dedicada de download XML;
+- usuario apenas com permissao dedicada de download PDF;
+- usuario apenas com permissao generica legada durante fallback;
+- usuario sem permissao;
+- usuario de outra oficina;
+- nenhuma chamada Webmania nova;
+- nenhum payload fiscal alterado;
+- nenhuma regra fiscal alterada.
+
+Antes de autorizar uma fase de remocao de fallback, devem existir:
+
+- evidencias de tela com/sem acoes sensiveis;
+- evidencias de POST permitido/bloqueado;
+- evidencias de download permitido/bloqueado;
+- evidencias de cross-workshop bloqueado;
+- lista de grupos e usuarios homologados;
+- aceite operacional/fiscal;
+- plano de rollback e janela de implantacao.
+
 ## Fase 4.0.4 - Testes planejados para remocao futura do fallback NF-e
 
 Esta fase nao executa testes funcionais porque e documental. A fase futura deve validar:

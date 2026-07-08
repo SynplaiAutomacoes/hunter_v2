@@ -1,5 +1,13 @@
 # Fiscal Webmania - PRDs vivos
 
+## Atualizacao Fase 4.0.5
+
+- A Fase 4.0.4 foi validada e encerrada no checkpoint `9486f8ca`.
+- A Fase 4.0.5 e exclusivamente documental/operacional e transforma o plano de migracao em roteiro de homologacao das permissoes dedicadas NF-e.
+- Decisao: Opcao B, homologar grupos e preparar fase futura de remocao do fallback somente com evidencias reais e aceite operacional.
+- O fallback legado permanece ativo; nao ha alteracao de codigo, migration, model, service, view, template, teste, OpenAPI, endpoint remoto, payload fiscal ou regra fiscal.
+- CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendente, credito/debito pendente e complementar tributaria continuam nao iniciados.
+
 ## Atualizacao Fase 4.0.4
 
 - A Fase 4.0.3 foi validada e encerrada no checkpoint `9f888ced`.
