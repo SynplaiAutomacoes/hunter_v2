@@ -23,10 +23,9 @@
         workDays: {{ current_work_days }},
         transportTotalDisplay: '{{ current_transport_total }}',
         pendingMovementsCount: {{ pending_financial_movements|length }},
-        pendingMovementIds: [{% for movement in pending_financial_movements %}'{{ movement.pk }}'{% if not forloop.last %}, {% endif %}{% endfor %}],
+        pendingMovementIds: [{% for movement in pending_financial_movements %}'{{ movement.pk|unlocalize }}'{% if not forloop.last %}, {% endif %}{% endfor %}],
         selectedDeletionIds: [],
         allPendingSelected: false,
-        terminationModalShown: false,
         parseMoney(value) {
             let normalized = String(value || '').trim().replace(/[^0-9,.-]/g, '');
             if (normalized.includes(',')) {
@@ -55,46 +54,39 @@
         togglePendingSelection() {
             this.syncAllPendingSelection();
         },
+        syncDeletionPayload() {
+            const payloadInput = document.getElementById('id_delete_movement_ids_payload');
+            if (!payloadInput) {
+                return;
+            }
+
+            payloadInput.value = this.selectedDeletionIds.join(',');
+        },
+        submitDeletionForm() {
+            this.syncDeletionPayload();
+
+            const form = this.$refs.deleteMovementsForm;
+            if (!form) {
+                console.warn('delete movements form not found');
+                return;
+            }
+
+            console.debug('collaborator pending delete submit', {
+                selectedDeletionIds: [...this.selectedDeletionIds],
+                payload: document.getElementById('id_delete_movement_ids_payload')?.value || '',
+            });
+
+            form.requestSubmit();
+        },
         openTerminationPendingModal() {
             if (!this.$refs.terminationPendingModal || this.pendingMovementsCount === 0) {
                 return;
             }
             this.$refs.terminationPendingModal.showModal();
-            this.terminationModalShown = true;
-        },
-        handleSubmit(event) {
-            const terminationInput = document.getElementById('id_termination_date');
-            const hasTerminationDate = Boolean(terminationInput && (terminationInput.value || '').trim());
-            if (this.selectedDeletionIds.length > 0 && !hasTerminationDate) {
-                event.preventDefault();
-                window.alert('Preencha a data de saída para apagar lançamentos.');
-                if (terminationInput) {
-                    terminationInput.focus();
-                }
-            }
-        },
-        handleTerminationDateChange() {
-            const terminationInput = document.getElementById('id_termination_date');
-            if (!terminationInput) {
-                return;
-            }
-
-            const hasTerminationDate = Boolean((terminationInput.value || '').trim());
-            if (!hasTerminationDate) {
-                this.terminationModalShown = false;
-                this.selectedDeletionIds = [];
-                this.syncAllPendingSelection();
-                return;
-            }
-
-            if (this.pendingMovementsCount > 0 && !this.terminationModalShown) {
-                this.openTerminationPendingModal();
-            }
         },
         init() {
             const displayInput = document.getElementById('id_transport_allowance_daily_0_display');
             const amountInput = document.getElementById('id_transport_allowance_daily_0');
-            const terminationInput = document.getElementById('id_termination_date');
             const initialValue = (displayInput && displayInput.value) || (amountInput && amountInput.value) || '';
 
             this.transportDailyDisplay = initialValue;
@@ -111,21 +103,13 @@
                     this.updateTransportTotal();
                 });
             }
-
-            if (terminationInput) {
-                terminationInput.addEventListener('input', () => this.handleTerminationDateChange());
-                terminationInput.addEventListener('change', () => this.handleTerminationDateChange());
-            }
         }
     }"
     class="space-y-6"
 >
-    <form method="post" novalidate @submit="handleSubmit($event)">
+    <form id="collaborator-update-form" method="post" novalidate>
         {% csrf_token %}
         <input type="hidden" name="tab" value="cadastro">
-        <template x-for="movementId in selectedDeletionIds" :key="movementId">
-            <input type="hidden" name="delete_movement_ids" :value="movementId">
-        </template>
 
         {% if form.non_field_errors or benefit_formset.non_form_errors %}
             <div class="alert alert-error">
@@ -174,6 +158,8 @@
                 <div class="col-span-12 lg:col-span-4">{{ form.salary|as_crispy_field }}</div>
                 <div class="col-span-12 lg:col-span-4">{{ form.payment_day_type|as_crispy_field }}</div>
                 <div class="col-span-12 lg:col-span-4" x-show="payment_day_type === 'FIXED_DAY'" x-cloak>{{ form.payment_day_of_month|as_crispy_field }}</div>
+
+                <div class="col-span-12 lg:col-span-4">{{ form.salary_repeat_count|as_crispy_field }}</div>
 
                 <div class="col-span-12 lg:col-span-4">{{ form.transport_allowance_daily|as_crispy_field }}</div>
                 <div class="col-span-12 lg:col-span-4">
@@ -294,6 +280,14 @@
         </div>
     </form>
 
+    <form id="collaborator-delete-movements-form" x-ref="deleteMovementsForm" method="post" action="{% url 'collaborators:collaborator_delete_pending_movements' pk=object.pk %}">
+        {% csrf_token %}
+        <input type="hidden" id="id_delete_movement_ids_payload" name="delete_movement_ids_payload" value="">
+        <template x-for="movementId in selectedDeletionIds" :key="`delete-${movementId}`">
+            <input type="hidden" name="delete_movement_ids" :value="movementId">
+        </template>
+    </form>
+
     <dialog
         class="modal"
         x-ref="terminationPendingModal"
@@ -340,7 +334,7 @@
                                                 <input
                                                     type="checkbox"
                                                     class="checkbox checkbox-sm"
-                                                    value="{{ movement.pk }}"
+                                                    value="{{ movement.pk|unlocalize }}"
                                                     x-model="selectedDeletionIds"
                                                     @change="togglePendingSelection()"
                                                 />
@@ -362,7 +356,15 @@
             {% endif %}
 
             <div class="modal-action mt-6 border-t border-base-200 pt-4">
-                <button type="button" class="btn btn-ghost" @click="$refs.terminationPendingModal.close()">Continuar edição</button>
+                <button type="button" class="btn btn-ghost" @click="$refs.terminationPendingModal.close()">Cancelar</button>
+                <button
+                    type="button"
+                    class="btn btn-error"
+                    :disabled="selectedDeletionIds.length === 0"
+                    @click="submitDeletionForm()"
+                >
+                    Apagar
+                </button>
             </div>
         </div>
     </dialog>
