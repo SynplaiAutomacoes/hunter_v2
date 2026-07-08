@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -36,6 +37,14 @@ def _get_next_month_reference(reference_date: date) -> date:
     return date(reference_date.year, reference_date.month + 1, 1)
 
 
+def _add_months(reference_date: date, months: int) -> date:
+    month_index = reference_date.month - 1 + months
+    year = reference_date.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(reference_date.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
 def freeze_existing_pricing_history(*, workshop: Workshop, cutoff) -> None:
     budgets = Budget.objects.filter(workshop=workshop, criado_em__lt=cutoff, pricing_reference_year__isnull=True).iterator()
     for budget in budgets:
@@ -67,6 +76,55 @@ def sync_current_month_salary_costs(*, workshop: Workshop, reference_date=None) 
 
     workshop_cost.calculate_all()
     workshop_cost.save()
+
+
+def sync_repeated_collaborator_payrolls(*, collaborator: WorkshopCollaborator, repeat_count: int | None, first_payroll: CollaboratorPayroll | None = None) -> list[CollaboratorPayroll]:
+    if repeat_count is None or repeat_count <= 1:
+        return []
+
+    payroll = first_payroll or sync_collaborator_payroll(collaborator=collaborator)
+    reference_date = date(payroll.reference_year, payroll.reference_month, 1)
+    repeated_payrolls: list[CollaboratorPayroll] = []
+
+    for month_offset in range(1, repeat_count):
+        repeated_payrolls.append(
+            sync_collaborator_payroll(
+                collaborator=collaborator,
+                reference_date=_add_months(reference_date, month_offset),
+            )
+        )
+
+    return repeated_payrolls
+
+
+def delete_selected_pending_collaborator_movements(*, collaborator: WorkshopCollaborator, workshop: Workshop, movement_ids: list[int]) -> int:
+    if not movement_ids:
+        return 0
+
+    pending_movements = FinancialMovement.objects.filter(
+        workshop=workshop,
+        collaborator=collaborator,
+        is_paid=False,
+        pk__in=movement_ids,
+    )
+
+    payrolls = CollaboratorPayroll.objects.filter(
+        workshop=workshop,
+        collaborator=collaborator,
+        financial_movement_id__in=pending_movements.values("pk"),
+    )
+    payroll_ids = list(payrolls.values_list("pk", flat=True))
+    payroll_movement_ids = [movement_id for movement_id in payrolls.values_list("financial_movement_id", flat=True) if movement_id is not None]
+
+    deleted_count = 0
+    if payroll_movement_ids:
+        payroll_movement_deleted_count, _ = pending_movements.filter(pk__in=payroll_movement_ids).delete()
+        deleted_count += payroll_movement_deleted_count
+        CollaboratorPayroll.objects.filter(pk__in=payroll_ids).delete()
+
+    manual_deleted_count, _ = pending_movements.exclude(pk__in=payroll_movement_ids).delete()
+    deleted_count += manual_deleted_count
+    return deleted_count
 
 
 def _sum_salary_by_type(*, workshop: Workshop, collaborator_type: str, reference_date) -> Money:

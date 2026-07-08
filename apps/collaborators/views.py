@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from django.contrib import messages
 from django.contrib.auth import get_user_model
@@ -16,7 +17,7 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView, V
 
 from apps.collaborators.forms import CollaboratorBenefitFormSet, WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorPayroll, WorkshopCollaborator, WorkshopMember
-from apps.collaborators.services import calculate_transport_allowance_total, freeze_existing_pricing_history, get_reference_work_days, mark_payroll_as_paid, sync_collaborator_payroll, sync_current_month_salary_costs
+from apps.collaborators.services import calculate_transport_allowance_total, delete_selected_pending_collaborator_movements, freeze_existing_pricing_history, get_reference_work_days, mark_payroll_as_paid, sync_collaborator_payroll, sync_current_month_salary_costs, sync_repeated_collaborator_payrolls
 from apps.core.presentation.navigation import COLLABORATOR_CREATE_FAVORITE_PAGE
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.presentation.tables import TableActionDefaults
@@ -28,6 +29,7 @@ from apps.workshops.mixin import WorkshopScopedMixin
 
 AuthUser = get_user_model()
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 COLLABORATOR_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
@@ -141,7 +143,12 @@ class WorkshopCollaboratorCreateView(PageFavoriteMixin, LoginRequiredMixin, Work
                 form.instance.user = None
                 response = super().form_valid(form)
 
-            sync_collaborator_payroll(collaborator=self.object)
+            first_payroll = sync_collaborator_payroll(collaborator=self.object)
+            sync_repeated_collaborator_payrolls(
+                collaborator=self.object,
+                repeat_count=form.cleaned_data.get("salary_repeat_count"),
+                first_payroll=first_payroll,
+            )
             freeze_existing_pricing_history(workshop=self.workshop, cutoff=self.object.criado_em)
             sync_current_month_salary_costs(workshop=self.workshop)
 
@@ -169,22 +176,35 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
                 movement_ids.append(int(value))
         return movement_ids
 
+    def _get_selected_movement_ids(self) -> list[int]:
+        movement_ids = self._parse_selected_movement_ids(self.request.POST.getlist("delete_movement_ids"))
+        if movement_ids:
+            return movement_ids
+
+        payload = str(self.request.POST.get("delete_movement_ids_payload") or "").strip()
+        if not payload:
+            return []
+
+        return self._parse_selected_movement_ids(payload.split(","))
+
     def _delete_selected_pending_movements(self, *, collaborator: WorkshopCollaborator) -> None:
         if collaborator.termination_date is None:
             return
 
-        movement_ids = self._parse_selected_movement_ids(self.request.POST.getlist("delete_movement_ids"))
+        movement_ids = self._get_selected_movement_ids()
         if not movement_ids:
             return
 
-        deleted_count, _ = FinancialMovement.objects.filter(
-            workshop=self.workshop,
+        deleted_count = delete_selected_pending_collaborator_movements(
             collaborator=collaborator,
-            is_paid=False,
-            pk__in=movement_ids,
-        ).delete()
+            workshop=self.workshop,
+            movement_ids=movement_ids,
+        )
         if deleted_count:
             messages.success(self.request, f"{deleted_count} lançamento(s) removido(s) com sucesso.")
+
+    def get_success_url(self):
+        return f"{reverse('collaborators:collaborator_update', kwargs={'pk': clean_id(self.object.pk)})}?tab=cadastro"
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -288,9 +308,13 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
                 collaborator.user.is_active = False
                 collaborator.user.save(update_fields=["is_active"])
 
-            sync_collaborator_payroll(collaborator=collaborator)
+            first_payroll = sync_collaborator_payroll(collaborator=collaborator)
+            sync_repeated_collaborator_payrolls(
+                collaborator=collaborator,
+                repeat_count=form.cleaned_data.get("salary_repeat_count"),
+                first_payroll=first_payroll,
+            )
             sync_current_month_salary_costs(workshop=self.workshop)
-            self._delete_selected_pending_movements(collaborator=collaborator)
             return response
 
     def forms_invalid(self, form, benefit_formset: BaseInlineFormSet):
@@ -330,6 +354,73 @@ class WorkshopCollaboratorDeleteView(LoginRequiredMixin, WorkshopScopedMixin, Ht
             return response
 
         return HttpResponseRedirect(self.get_success_url())
+
+
+class WorkshopCollaboratorPendingMovementDeleteView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkshopCollaborator
+    workshop_permission_codename = "change_workshopcollaborator"
+
+    @staticmethod
+    def _parse_selected_movement_ids(raw_values: list[str]) -> list[int]:
+        movement_ids: list[int] = []
+        for raw_value in raw_values:
+            value = str(raw_value or "").strip()
+            if value.isdigit():
+                movement_ids.append(int(value))
+        return movement_ids
+
+    def _get_selected_movement_ids(self, request) -> list[int]:
+        movement_ids = self._parse_selected_movement_ids(request.POST.getlist("delete_movement_ids"))
+        if movement_ids:
+            return movement_ids
+
+        payload = str(request.POST.get("delete_movement_ids_payload") or "").strip()
+        if not payload:
+            return []
+
+        return self._parse_selected_movement_ids(payload.split(","))
+
+    def post(self, request, pk):
+        collaborator = get_object_or_404(WorkshopCollaborator, pk=clean_id(pk), workshop=self.workshop)
+        movement_ids = self._get_selected_movement_ids(request)
+
+        logger.warning(
+            "Collaborator pending delete payload received",
+            extra={
+                "collaborator_id": collaborator.pk,
+                "workshop_id": self.workshop.pk,
+                "delete_movement_ids": request.POST.getlist("delete_movement_ids"),
+                "delete_movement_ids_payload": request.POST.get("delete_movement_ids_payload", ""),
+                "parsed_movement_ids": movement_ids,
+            },
+        )
+
+        if not movement_ids:
+            messages.warning(request, "Selecione ao menos um lançamento para apagar.")
+            return HttpResponseRedirect(f"{reverse('collaborators:collaborator_update', kwargs={'pk': clean_id(collaborator.pk)})}?tab=cadastro")
+
+        deleted_count = delete_selected_pending_collaborator_movements(
+            collaborator=collaborator,
+            workshop=self.workshop,
+            movement_ids=movement_ids,
+        )
+
+        logger.warning(
+            "Collaborator pending delete result",
+            extra={
+                "collaborator_id": collaborator.pk,
+                "workshop_id": self.workshop.pk,
+                "parsed_movement_ids": movement_ids,
+                "deleted_count": deleted_count,
+            },
+        )
+
+        if deleted_count:
+            messages.success(request, f"{deleted_count} lançamento(s) removido(s) com sucesso.")
+        else:
+            messages.warning(request, "Nenhum lançamento pendente selecionado foi removido.")
+
+        return HttpResponseRedirect(f"{reverse('collaborators:collaborator_update', kwargs={'pk': clean_id(collaborator.pk)})}?tab=cadastro")
 
 
 class CollaboratorPayrollMarkPaidView(LoginRequiredMixin, WorkshopScopedMixin, View):

@@ -93,6 +93,8 @@
                 <div class="col-span-12 lg:col-span-4">{{ form.payment_day_type|as_crispy_field }}</div>
                 <div class="col-span-12 lg:col-span-4" x-show="payment_day_type === 'FIXED_DAY'" x-cloak>{{ form.payment_day_of_month|as_crispy_field }}</div>
 
+                <div class="col-span-12 lg:col-span-4">{{ form.salary_repeat_count|as_crispy_field }}</div>
+
                 <div class="col-span-12 lg:col-span-4">{{ form.transport_allowance_daily|as_crispy_field }}</div>
                 <div class="col-span-12 lg:col-span-4">
                     <label class="label pb-1"><span class="label-text text-xs">Dias úteis do mês atual</span></label>
