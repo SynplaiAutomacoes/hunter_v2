@@ -21,6 +21,12 @@ from apps.core.infrastructure.models import TimeStampedModel
 from apps.finance.models.payment_method import PaymentMethod
 
 
+class WorkOrderItemBenefitType(models.TextChoices):
+    NORMAL = "normal", "Normal"
+    WARRANTY = "warranty", "Garantia"
+    COURTESY = "courtesy", "Cortesia"
+
+
 class WorkOrderError(Exception):
     pass
 
@@ -192,14 +198,25 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def pricing_snapshot(self) -> PricingSnapshot:
-        return self._build_pricing_snapshot()
+        cached_snapshot = getattr(self, "_pricing_snapshot_cache", None)
+        if cached_snapshot is None:
+            cached_snapshot = self._build_pricing_snapshot()
+            setattr(self, "_pricing_snapshot_cache", cached_snapshot)
+        return cached_snapshot
 
     def invalidate_pricing_snapshot_cache(self) -> None:
-        pass
+        if hasattr(self, "_pricing_snapshot_cache"):
+            delattr(self, "_pricing_snapshot_cache")
+        if hasattr(self, "_product_issue_summary_cache"):
+            delattr(self, "_product_issue_summary_cache")
 
     @property
     def product_issue_summary(self) -> ProductIssueSummary:
-        return annotate_product_issues(workshop=self.workshop, items=self.pricing_snapshot.product_lines)
+        cached_summary = getattr(self, "_product_issue_summary_cache", None)
+        if cached_summary is None:
+            cached_summary = annotate_product_issues(workshop=self.workshop, items=self.pricing_snapshot.product_lines)
+            setattr(self, "_product_issue_summary_cache", cached_summary)
+        return cached_summary
 
     @property
     def has_stock_issues(self) -> bool:
@@ -696,6 +713,7 @@ class WorkOrder(TimeStampedModel):
                         service_selling_price=budget_item.service_selling_price,
                         service_shipping=budget_item.service_shipping,
                         duration=budget_item.duration,
+                        item_benefit_type=budget_item.item_benefit_type,
                     )
                     for budget_item in budget_items
                 ]
@@ -828,6 +846,12 @@ class WorkOrderItem(TimeStampedModel):
     service_shipping = MoneyField(verbose_name="Frete do Serviço", max_digits=14, decimal_places=2, default=0)
     duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
     kit_snapshot_frozen = models.BooleanField(verbose_name="Kit snapshot frozen", default=False)
+    item_benefit_type = models.CharField(
+        verbose_name="Tipo de Benefício",
+        max_length=20,
+        choices=WorkOrderItemBenefitType.choices,
+        default=WorkOrderItemBenefitType.NORMAL,
+    )
 
     def _clear_kit_snapshot_caches(self) -> None:
         for cache_name in ("_kit_override_maps_cache", "_kit_unit_totals_cache"):
@@ -957,6 +981,14 @@ class WorkOrderItem(TimeStampedModel):
 
                 self.duration = sum((ks.service.duration for ks in self.kit.kit_services.all()), timedelta())
                 self.description = self.kit.name
+
+            budget_type = getattr(self.workorder, "budget_type", "sale") if self.workorder_id else "sale"
+            if budget_type == "warranty":
+                self.item_benefit_type = WorkOrderItemBenefitType.WARRANTY
+            elif budget_type == "courtesy":
+                self.item_benefit_type = WorkOrderItemBenefitType.COURTESY
+            else:
+                self.item_benefit_type = WorkOrderItemBenefitType.NORMAL
 
         super().save(*args, **kwargs)
 

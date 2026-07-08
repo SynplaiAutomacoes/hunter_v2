@@ -1,4 +1,4 @@
-{% load crispy_forms_tags %}
+{% load l10n crispy_forms_tags %}
 
 <div class="modal-content-wrapper bg-base-100 p-6 rounded-lg">
     <!-- Header with title and buttons -->
@@ -28,7 +28,7 @@
                     class="btn btn-accent btn-sm gap-2 js-update-master flex-shrink-0 whitespace-nowrap"
                     data-url="{% url 'budget:edit_item' budget_id item.pk %}"
                     data-action="update_master"
-                    data-last-used-price="{% if item.product and item.product.last_used_price %}{{ item.product.last_used_price.amount }}{% elif item.service and item.service.last_used_price %}{{ item.service.last_used_price.amount }}{% endif %}"
+                    data-last-used-price="{% if item.product and item.product.last_used_price %}{{ item.product.last_used_price.amount|unlocalize }}{% elif item.service and item.service.last_used_price %}{{ item.service.last_used_price.amount|unlocalize }}{% endif %}"
                     data-keep-modal-open="true">
                 <span class="material-icons text-sm">cloud_upload</span>
                 <span class="hidden sm:inline">Atualizar Cadastro</span>
@@ -48,7 +48,7 @@
           hx-target="#current-item-form"
           hx-swap="none"
           id="edit-item-form"
-          data-last-used-price="{% if item.product and item.product.last_used_price %}{{ item.product.last_used_price.amount }}{% elif item.service and item.service.last_used_price %}{{ item.service.last_used_price.amount }}{% endif %}"
+          data-last-used-price="{% if item.product and item.product.last_used_price %}{{ item.product.last_used_price.amount|unlocalize }}{% elif item.service and item.service.last_used_price %}{{ item.service.last_used_price.amount|unlocalize }}{% endif %}"
           class="space-y-4 js-save-form">
         {% csrf_token %}
         <input type="hidden" name="confirm_lower_price" id="confirm-lower-price-input" value="">
@@ -254,6 +254,7 @@
                     const modalElement = document.getElementById(lowerPriceModalHost.dialogId);
 
                     if (!modalContainer || typeof lowerPriceModalHost.open !== 'function') {
+                        console.warn('ModalItemEditor: lower price modal not available, using window.confirm fallback');
                         const confirmed = window.confirm('O valor informado esta abaixo do ultimo valor utilizado para este item. Deseja continuar mesmo assim?');
                         if (!confirmed) {
                             if (confirmLowerPriceInput) {
@@ -339,7 +340,12 @@
 
                     const url = button.dataset.url;
                     const action = button.dataset.action;
-                    const sellingPrice = Number.parseFloat(sellingPriceAmountInput?.value || '0') || 0;
+                    const currentSellingPriceInput = document.getElementById('id_product_selling_price_0') || document.getElementById('id_service_selling_price_0');
+                    const rawSellingPrice = currentSellingPriceInput?.value
+                        || document.getElementById('id_product_selling_price_0_display')?.value
+                        || document.getElementById('id_service_selling_price_0_display')?.value
+                        || '0';
+                    const sellingPrice = Number.parseFloat(rawSellingPrice) || 0;
 
                     if (confirmLowerPriceInput && sellingPrice >= lastUsedPrice) {
                         confirmLowerPriceInput.value = '';
@@ -378,13 +384,11 @@
                         swap: 'none',
                         values: Object.fromEntries(formData)
                     }).finally(() => {
-                        setTimeout(() => {
-                            if (icon) {
-                                icon.textContent = originalIconContent;
-                                icon.classList.remove('animate-spin');
-                            }
-                            button.disabled = false;
-                        }, 500);
+                        if (icon) {
+                            icon.textContent = originalIconContent;
+                            icon.classList.remove('animate-spin');
+                        }
+                        button.disabled = false;
                     });
                 });
             },
@@ -453,6 +457,50 @@
             const modal = document.getElementById('form_modal');
             if (modal && modal.open) {
                 modal.close();
+            }
+        });
+
+        // Global error handler for HTTP errors in the edit item form
+        document.body.addEventListener('htmx:beforeOnLoad', function(e) {
+            const form = document.getElementById('edit-item-form');
+            if (!form || !form.contains(e.detail?.elt)) return;
+
+            const xhr = e.detail?.xhr;
+            if (xhr && xhr.status >= 400) {
+                const hasTrigger = xhr.getResponseHeader('HX-Trigger');
+                if (!hasTrigger) {
+                    e.preventDefault();
+                    document.body.dispatchEvent(new CustomEvent('showToast', {
+                        detail: { type: 'error', message: 'Erro ao salvar o item. Tente novamente.' },
+                    }));
+                }
+            }
+        });
+
+        // Inline form errors from HX-Trigger formErrors event
+        document.body.addEventListener('formErrors', function(e) {
+            const errors = e.detail;
+            if (!errors || typeof errors !== 'object') return;
+
+            for (const [fieldName, fieldErrors] of Object.entries(errors)) {
+                const formGroup = document.getElementById('div_id_' + fieldName);
+                if (!formGroup) continue;
+
+                formGroup.querySelectorAll('.label-text-alt.text-error').forEach(function(el) {
+                    var label = el.closest('.label');
+                    if (label) label.remove();
+                });
+
+                for (var i = 0; i < fieldErrors.length; i++) {
+                    var error = fieldErrors[i];
+                    var label = document.createElement('label');
+                    label.className = 'label';
+                    label.innerHTML = '<span class="label-text-alt text-error flex items-center gap-1 animate-fade-in">' +
+                        '<span class="material-icons text-xs">error</span> ' +
+                        error.message +
+                    '</span>';
+                    formGroup.appendChild(label);
+                }
             }
         });
     })();

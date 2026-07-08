@@ -206,6 +206,22 @@ DATABASES = {
     }
 }
 
+# Cache
+# https://docs.djangoproject.com/en/5.2/topics/cache/
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "default-cache",
+        "TIMEOUT": 300,
+    },
+    "fipe": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "fipe-cache",
+        "TIMEOUT": 86400,
+    },
+}
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators

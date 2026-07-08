@@ -6,6 +6,7 @@ from typing import Any
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import HTML, Div, Field, Layout
 from django import forms
+from django.core.cache import cache
 from django.urls import reverse
 from django.utils.html import escape
 from django.utils import timezone
@@ -52,26 +53,36 @@ def _with_selected_choice(choices: list[tuple[str, str]], selected_value: object
 
 
 def _guest_vehicle_brand_form_choices() -> list[tuple[str, str]]:
-    return [
+    cache_key = "scheduling:guest_vehicle_brands"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    choices = [
         ("", "Selecione"),
         *[(brand.name, brand.name) for brand in FipeVehicleBrand.objects.filter(vehicle_type=FipeVehicleType.CARROS, is_active=True).order_by("name")],
     ]
+    cache.set(cache_key, choices, 86400)
+    return choices
 
 
 def _guest_vehicle_model_form_choices(brand_name: object, model_name: object = "") -> list[tuple[str, str]]:
     normalized_brand_name = str(brand_name or "").strip()
-    choices = [("", "Selecione")]
-    if normalized_brand_name:
-        choices.extend(
-            (model.name, model.name)
-            for model in FipeVehicleModel.objects.filter(
-                vehicle_type=FipeVehicleType.CARROS,
-                brand__vehicle_type=FipeVehicleType.CARROS,
-                brand__name__iexact=normalized_brand_name,
-                brand__is_active=True,
-                is_active=True,
-            ).order_by("name")
-        )
+    cache_key = f"scheduling:guest_vehicle_models:{normalized_brand_name}"
+    choices = cache.get(cache_key)
+    if choices is None:
+        choices = [("", "Selecione")]
+        if normalized_brand_name:
+            choices.extend(
+                (model.name, model.name)
+                for model in FipeVehicleModel.objects.filter(
+                    vehicle_type=FipeVehicleType.CARROS,
+                    brand__vehicle_type=FipeVehicleType.CARROS,
+                    brand__name__iexact=normalized_brand_name,
+                    brand__is_active=True,
+                    is_active=True,
+                ).order_by("name")
+            )
+        cache.set(cache_key, choices, 86400)
     return _with_selected_choice(choices, model_name)
 
 
@@ -241,8 +252,18 @@ class AppointmentForm(CoreModelForm):
 
         if self.workshop:
             customer_field.queryset = Customer.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
-            budget_field.queryset = Budget.objects.filter(workshop=self.workshop).select_related("customer", "vehicle").order_by("-criado_em")
-            workorder_field.queryset = WorkOrder.objects.filter(workshop=self.workshop).select_related("budget", "budget__customer", "budget__vehicle").order_by("-criado_em")
+
+            budget_qs = Budget.objects.filter(workshop=self.workshop).select_related("customer", "vehicle").order_by("-criado_em")[:200]
+            if self.instance and self.instance.budget_id:
+                if not budget_qs.filter(pk=self.instance.budget_id).exists():
+                    budget_qs = budget_qs | Budget.objects.filter(pk=self.instance.budget_id)
+            budget_field.queryset = budget_qs
+
+            workorder_qs = WorkOrder.objects.filter(workshop=self.workshop).select_related("budget", "budget__customer", "budget__vehicle").order_by("-criado_em")[:200]
+            if self.instance and self.instance.workorder_id:
+                if not workorder_qs.filter(pk=self.instance.workorder_id).exists():
+                    workorder_qs = workorder_qs | WorkOrder.objects.filter(pk=self.instance.workorder_id)
+            workorder_field.queryset = workorder_qs
 
             def _budget_label_from_instance(budget):
                 return f"Orçamento #{budget.pk}"
@@ -273,14 +294,26 @@ class AppointmentForm(CoreModelForm):
         self.initial["is_customer_registered"] = is_customer_registered
 
         guest_field_names = [
-            "guest_customer_name", "guest_customer_cpf", "guest_customer_phone",
-            "guest_vehicle_plate", "guest_vehicle_brand", "guest_vehicle_model",
-            "guest_vehicle_year_fabrication", "guest_vehicle_year_model",
-            "guest_vehicle_engine", "guest_vehicle_fuel",
+            "guest_customer_name",
+            "guest_customer_cpf",
+            "guest_customer_phone",
+            "guest_vehicle_plate",
+            "guest_vehicle_brand",
+            "guest_vehicle_model",
+            "guest_vehicle_year_fabrication",
+            "guest_vehicle_year_model",
+            "guest_vehicle_engine",
+            "guest_vehicle_fuel",
         ]
         for field_name in guest_field_names:
             self.fields[field_name].required = True
         self.fields["customer"].required = True
+
+        if is_customer_registered:
+            for field_name in guest_field_names:
+                self.fields[field_name].required = False
+        else:
+            self.fields["customer"].required = False
 
         customer_field.error_messages["required"] = "Selecione um cliente cadastrado para continuar."
         self.fields["guest_customer_name"].error_messages["required"] = "Informe o nome do cliente."
@@ -985,10 +1018,16 @@ class AppointmentForm(CoreModelForm):
         cleaned_data["guest_vehicle_fuel"] = guest_vehicle_fuel
 
         guest_field_names = [
-            "guest_customer_name", "guest_customer_cpf", "guest_customer_phone",
-            "guest_vehicle_plate", "guest_vehicle_brand", "guest_vehicle_model",
-            "guest_vehicle_year_fabrication", "guest_vehicle_year_model",
-            "guest_vehicle_engine", "guest_vehicle_fuel",
+            "guest_customer_name",
+            "guest_customer_cpf",
+            "guest_customer_phone",
+            "guest_vehicle_plate",
+            "guest_vehicle_brand",
+            "guest_vehicle_model",
+            "guest_vehicle_year_fabrication",
+            "guest_vehicle_year_model",
+            "guest_vehicle_engine",
+            "guest_vehicle_fuel",
         ]
         if is_customer_registered:
             for field_name in guest_field_names:

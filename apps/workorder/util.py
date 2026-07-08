@@ -144,7 +144,7 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
             kit_items.append(item)
 
     pricing_snapshot = workorder.pricing_snapshot
-    workorder.product_issue_summary
+    _ = workorder.product_issue_summary
 
     summary_service_items = list(service_items)
 
@@ -155,6 +155,7 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
                 SimpleNamespace(
                     service=override.service,
                     total_price=override.service_selling_price * qty,
+                    item_benefit_type=kit_item.item_benefit_type,
                 )
             )
 
@@ -183,6 +184,12 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
             discount_products = Money(allocated[0], "BRL")
             discount_services = Money(allocated[1], "BRL")
 
+    benefit_map: dict[int, str] = {}
+    for _item in items:
+        eid = _item.product_id or _item.service_id
+        if eid and eid not in benefit_map:
+            benefit_map[eid] = _item.item_benefit_type
+
     return {
         "workorder": workorder,
         "product_items": product_items,
@@ -190,6 +197,7 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
         "summary_product_items": pricing_snapshot.product_lines,
         "summary_service_items": summary_service_items,
         "kit_items": kit_items,
+        "benefit_map": benefit_map,
         "active_tab": _normalize_active_tab(active_tab),
         "discount_products": discount_products,
         "discount_services": discount_services,

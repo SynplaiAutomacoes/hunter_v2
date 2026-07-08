@@ -1,4 +1,4 @@
-{% load format_tags %}
+{% load format_tags workorder_extras %}
 <div class="card-body">
     <div class="flex w-full justify-end gap-2">
         <a
@@ -88,6 +88,24 @@
 
             <div class="p-4 border-b border-gray-200">
                 <h4 class="font-bold mb-2">PRODUTOS</h4>
+
+                {% if workorder.has_stock_issues or workorder.has_invalid_ncm_items %}
+                <div class="mb-3 flex flex-wrap gap-2">
+                    {% if workorder.has_stock_issues %}
+                    <span class="badge badge-warning gap-1">
+                        <span class="material-icons" style="font-size: 16px;">inventory</span>
+                        Existem peças com quantidade acima do estoque disponível.
+                    </span>
+                    {% endif %}
+                    {% if workorder.has_invalid_ncm_items %}
+                    <span class="badge badge-warning gap-1">
+                        <span class="material-icons" style="font-size: 16px;">badge</span>
+                        Existem produtos com NCM inválido.
+                    </span>
+                    {% endif %}
+                </div>
+                {% endif %}
+
                 <div class="overflow-x-auto">
                     <table class="w-full text-left">
                         <thead>
@@ -102,23 +120,23 @@
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
-                            {% for item in summary_product_items %}
-                                <tr>
+                            {% for item in product_items %}
+                                <tr class="{% if item.item_benefit_type == "warranty" or item.item_benefit_type == "courtesy" %}opacity-[0.85]{% endif %}">
                                     <td class="p-2">{{ item.product.code|default:"-" }}</td>
-                                    <td class="p-2">{{ item.product.name }}</td>
+                                    <td class="p-2">
+                                        <div class="flex items-center gap-2 min-w-0">
+                                            <span>{{ item.product.name }}</span>
+                                            {% if item.item_benefit_type == "warranty" %}
+                                                <span class="badge badge-error badge-xs gap-1 shrink-0">Garantia</span>
+                                            {% elif item.item_benefit_type == "courtesy" %}
+                                                <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
+                                            {% endif %}
+                                        </div>
+                                    </td>
                                     <td class="p-2">{{ item.product.description }}</td>
                                     <td class="p-2 whitespace-normal break-words">{{ item.product.application|default:"-" }}</td>
-                                    <td class="p-2 text-center">
-                                        <span class="inline-flex items-center justify-center gap-1">
-                                            <span>{{ item.quantity }}</span>
-                                            {% if item.has_product_issues %}
-                                                <span class="tooltip tooltip-left shrink-0" data-tip="{{ item.product_issue_tooltip }}">
-                                                    <span class="material-icons text-warning" style="font-size: 18px;">warning</span>
-                                                </span>
-                                            {% endif %}
-                                        </span>
-                                    </td>
-                                    <td class="p-2">{{ item.unit_price }}</td>
+                                    <td class="p-2 text-center">{{ item.quantity }}</td>
+                                    <td class="p-2">{{ item.product_selling_price }}</td>
                                     <td class="p-2 font-semibold">{{ item.total_price }}</td>
                                 </tr>
                             {% empty %}
@@ -143,12 +161,21 @@
                             <th class="p-2 font-semibold w-32">R$ Total</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-100">
-                        {% for item in summary_service_items %}
-                            <tr>
-                                <td class="p-2">{{ item.service.name }}</td>
-                                <td class="p-2 font-semibold">{{ item.total_price }}</td>
-                            </tr>
+                        <tbody class="divide-y divide-gray-100">
+                            {% for item in summary_service_items %}
+                                <tr class="{% if item.item_benefit_type == "warranty" or item.item_benefit_type == "courtesy" %}opacity-[0.85]{% endif %}">
+                                    <td class="p-2">
+                                        <div class="flex items-center gap-2 min-w-0">
+                                            <span>{{ item.service.name }}</span>
+                                            {% if item.item_benefit_type == "warranty" %}
+                                                <span class="badge badge-error badge-xs gap-1 shrink-0">Garantia</span>
+                                            {% elif item.item_benefit_type == "courtesy" %}
+                                                <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    <td class="p-2 font-semibold">{{ item.total_price }}</td>
+                                </tr>
                         {% empty %}
                             <tr>
                                 <td class="p-2 text-center text-base-content/60" colspan="2">Nenhum serviço adicionado.</td>
@@ -174,10 +201,19 @@
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100">
-                        {% for item in kit_items %}
-                            <tr>
-                                <td class="p-2">{{ item.kit.name }}</td>
-                                <td class="p-2 text-center">{{ item.quantity }}</td>
+                            {% for item in kit_items %}
+                                <tr class="{% if item.item_benefit_type == "warranty" or item.item_benefit_type == "courtesy" %}opacity-[0.85]{% endif %}">
+                                    <td class="p-2">
+                                        <div class="flex items-center gap-2 min-w-0">
+                                            <span>{{ item.kit.name }}</span>
+                                            {% if item.item_benefit_type == "warranty" %}
+                                                <span class="badge badge-error badge-xs gap-1 shrink-0">Garantia</span>
+                                            {% elif item.item_benefit_type == "courtesy" %}
+                                                <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    <td class="p-2 text-center">{{ item.quantity }}</td>
                                 <td class="p-2 text-center">{{ item.effective_kit_products_count }}</td>
                                 <td class="p-2 text-center">{{ item.effective_kit_services_count }}</td>
                                 <td class="p-2 text-right font-semibold">{{ item.total_price }}</td>

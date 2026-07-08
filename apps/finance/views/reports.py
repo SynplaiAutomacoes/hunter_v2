@@ -302,6 +302,11 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         payment_method_id = filter_params["payment_method_id"]
         reconciliation_status = filter_params["reconciliation_status"]
 
+        # Fix A: Se não há filtro de data, aplica mês corrente como padrão
+        # para evitar carregar todo o histórico financeiro em memória.
+        if start_date is None and end_date is None:
+            start_date = timezone.localdate().replace(day=1)
+
         if start_date is not None:
             queryset = self._apply_workorder_payment_aware_date_filter(queryset, lookup="due_date__gte", value=start_date)
 
@@ -381,18 +386,11 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
                 continue
             if payment_method_id is not None and payment.payment_method_id != payment_method_id:
                 continue
-            payment_movement = FinancialMovement.objects.filter(workorder_payment_id=payment.pk, movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workshop=self.workshop).order_by("-pk").first()
+            # Fix B2: Usa cache pré-carregado para evitar N+1 queries por payment
+            payment_movement = payment_movement_by_payment_id.get(payment.pk)
             if payment_movement is None:
-                payment_movement = (
-                    FinancialMovement.objects.filter(
-                        workorder_id=payment.workorder_id,
-                        workorder_payment__isnull=True,
-                        movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
-                        workshop=self.workshop,
-                    )
-                    .order_by("-pk")
-                    .first()
-                )
+                workorder_fallback_cache: dict[int, FinancialMovement] = getattr(self, "_workorder_fallback_movement_cache", {})
+                payment_movement = workorder_fallback_cache.get(getattr(payment, "workorder_id", None))
             if payment_movement is None:
                 continue
             payment_movement_by_payment_id[payment.pk] = payment_movement
@@ -411,6 +409,10 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         workorder = movement.workorder
         payment_movement_by_payment_id: dict[int, FinancialMovement] = getattr(self, "_payment_movement_by_payment_id", {})
         payment_movement = payment_movement_by_payment_id.get(payment.pk)
+        if payment_movement is None:
+            # Fix B3: Tenta o cache de fallback por workorder antes de ir ao banco
+            workorder_fallback_cache: dict[int, FinancialMovement] = getattr(self, "_workorder_fallback_movement_cache", {})
+            payment_movement = workorder_fallback_cache.get(workorder.pk if workorder is not None else None)
         if payment_movement is None:
             payment_movement = (
                 FinancialMovement.objects.filter(
@@ -661,8 +663,9 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         page_number = self.request.GET.get("page") or "1"
 
         if self._has_active_filters():
-            paginator = Paginator(rows, max(len(rows), 1))
-            return paginator.get_page(1), paginator
+            # Fix C: Limita a 50 resultados por página mesmo com filtros ativos
+            paginator = Paginator(rows, 50)
+            return paginator.get_page(page_number), paginator
 
         paginator = Paginator(rows, self.MOVEMENTS_PER_PAGE)
         page_obj = paginator.get_page(page_number)
@@ -692,12 +695,56 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             choices.append((str(pm.pk), pm.description))
         return choices
 
+    def _preload_payment_movement_cache(self, movement_list: list) -> None:
+        """Fix B1: Pré-carrega movimentos por payment_id e workorder_id em batch para evitar N+1 queries."""
+        all_payment_ids: list[int] = []
+        all_workorder_ids: list[int] = []
+
+        for movement in movement_list:
+            if movement.movement_kind != FinancialMovement.MovementKind.WORKORDER_PARENT:
+                continue
+            workorder = getattr(movement, "workorder", None)
+            if workorder is None:
+                continue
+            # workorder.payments.all() usa o prefetch_related já carregado — sem query extra
+            for payment in workorder.payments.all():
+                all_payment_ids.append(payment.pk)
+            if movement.workorder_id:
+                all_workorder_ids.append(movement.workorder_id)
+
+        payment_movement_cache: dict[int, FinancialMovement] = {}
+        if all_payment_ids:
+            for m in FinancialMovement.objects.filter(
+                workorder_payment_id__in=all_payment_ids,
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                workshop=self.workshop,
+            ).order_by("-pk"):
+                if m.workorder_payment_id not in payment_movement_cache:
+                    payment_movement_cache[m.workorder_payment_id] = m
+
+        workorder_fallback_cache: dict[int, FinancialMovement] = {}
+        if all_workorder_ids:
+            for m in FinancialMovement.objects.filter(
+                workorder_id__in=all_workorder_ids,
+                workorder_payment__isnull=True,
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                workshop=self.workshop,
+            ).order_by("-pk"):
+                if m.workorder_id not in workorder_fallback_cache:
+                    workorder_fallback_cache[m.workorder_id] = m
+
+        self._payment_movement_by_payment_id = payment_movement_cache
+        self._workorder_fallback_movement_cache = workorder_fallback_cache
+
     def _get_financial_movement_report_rows(self, *, movements: Any) -> list[dict[str, object]]:
         rows: list[dict[str, object]] = []
         seen_components: set[str] = set()
         filter_params = self._get_filter_params()
         movement_list = list(movements)
         workorder_ids_with_parent: set[int] = {movement.workorder_id for movement in movement_list if movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT and movement.workorder_id is not None}
+
+        # Fix B4: Pré-carrega o cache antes do loop principal para evitar N+1
+        self._preload_payment_movement_cache(movement_list)
 
         for movement in movement_list:
             workorder = getattr(movement, "workorder", None)

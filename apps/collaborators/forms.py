@@ -32,6 +32,13 @@ User = get_user_model()
 
 
 class BaseWorkshopCollaboratorForm(CoreModelForm):
+    salary_repeat_count = forms.IntegerField(
+        label="Repetir este salario",
+        required=False,
+        min_value=1,
+        max_value=120,
+        widget=NumberInput(attrs={"placeholder": "1"}),
+    )
     system_username = forms.CharField(label="Usuário", required=False)
     role = forms.ModelChoiceField(label="Grupo", queryset=WorkshopRole.objects.none(), required=False)
 
@@ -86,6 +93,12 @@ class BaseWorkshopCollaboratorForm(CoreModelForm):
         self.workshop = workshop
 
         self.fields["system_username"].widget = TextInput(attrs={"placeholder": "usuario"})
+        self.fields["salary_repeat_count"].help_text = "Informe o total de meses, incluindo o primeiro lançamento."
+
+        searchable_choice_fields = ("sex", "payment_day_type", "collaborator_type")
+        for field_name in searchable_choice_fields:
+            field = self.fields[field_name]
+            field.widget = SearchableSelectInput(choices=list(field.choices), attrs=field.widget.attrs)
 
         roles_qs = WorkshopRole.objects.filter(account=account).order_by("name") if account else WorkshopRole.objects.none()
         self.fields["role"].queryset = roles_qs
