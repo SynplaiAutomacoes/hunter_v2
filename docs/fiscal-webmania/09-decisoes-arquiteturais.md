@@ -1,5 +1,26 @@
 # Decisoes arquiteturais
 
+## ADR - Fase 4.0.4 - Remocao futura do fallback NF-e depende de migracao de grupos
+
+Data: 2026-07-08.
+
+Contexto: a Fase 4.0.3, checkpoint `9f888ced`, criou permissoes dedicadas para NF-e normal, mas manteve fallback temporario para evitar quebra operacional. Ainda nao ha confirmacao documental dos grupos reais e usuarios que dependem de `change_nferequest`, `change_nfserequest` e `view_nferequest`.
+
+Decisao: escolher **Opcao B - planejar remocao futura em fase propria apos migracao de grupos**.
+
+Consequencias:
+
+- O fallback legado permanece ativo agora.
+- Grupos reais devem ser mapeados e receber permissoes dedicadas antes da remocao.
+- A proxima fase deve ser de homologacao operacional, nao de remocao imediata.
+- A remocao futura exige testes de UI, backend, downloads, usuario sem permissao, cross-workshop e ausencia de mudanca remota/payload/regra fiscal.
+
+Opcoes rejeitadas:
+
+- Opcao A, manter fallback por tempo indeterminado: reduz risco imediato, mas perpetua autorizacao ampla.
+- Opcao C, remover fallback imediatamente: rejeitada por risco operacional sem mapeamento de grupos.
+- Opcao D, priorizar modernizacao de cancelamento/inutilizacao: permanece backlog tecnico, mas nao substitui a migracao de permissoes.
+
 ## ADR - Fase 4.0.3 - Permissoes dedicadas NF-e normal com fallback temporario
 
 Data: 2026-07-08.

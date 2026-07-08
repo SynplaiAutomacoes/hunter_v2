@@ -1,5 +1,25 @@
 # Plano de testes e operacao fiscal
 
+## Fase 4.0.4 - Testes planejados para remocao futura do fallback NF-e
+
+Esta fase nao executa testes funcionais porque e documental. A fase futura deve validar:
+
+- usuario apenas com `cancel_nferequest`;
+- usuario apenas com `invalidate_nferequest_numbering`;
+- usuario apenas com `download_nferequest_xml`;
+- usuario apenas com `download_nferequest_pdf`;
+- usuario apenas com permissao generica legada durante fallback;
+- usuario sem permissao;
+- usuario de outra oficina;
+- remocao futura de `change_nferequest` como fallback de cancelamento/inutilizacao/downloads;
+- remocao futura de `change_nfserequest` como fallback de cancelamento/inutilizacao;
+- remocao futura de `view_nferequest` como fallback para downloads;
+- ausencia de chamada Webmania nova;
+- ausencia de alteracao de payload fiscal;
+- ausencia de alteracao de regra fiscal.
+
+Criterio operacional: a remocao do fallback so pode ser planejada depois de homologacao com usuarios reais e aceite registrado.
+
 ## Fase 4.0.3 - Testes de permissoes NF-e normal
 
 - Criar testes focados para `NfeRequest` cobrindo UI e backend.

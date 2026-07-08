@@ -1,5 +1,37 @@
 # Backlog e pendencias fiscais
 
+## Apos a Fase 4.0.4
+
+Concluido:
+
+- permissoes dedicadas criadas na Fase 4.0.3;
+- UI/backend alinhados na Fase 4.0.3;
+- fallback temporario preservado;
+- testes direcionados criados na Fase 4.0.3;
+- matriz de permissoes e matriz de transicao operacional documentadas;
+- decisao registrada: Opcao B, remocao futura somente apos migracao/homologacao de grupos.
+
+Futuro operacional:
+
+- mapear grupos reais;
+- identificar usuarios com `change_nferequest`;
+- identificar usuarios com `change_nfserequest`;
+- identificar usuarios com `view_nferequest`;
+- atribuir permissoes dedicadas aos grupos corretos;
+- homologar usuarios operacionais;
+- validar UI, POST/backend, downloads, usuario sem permissao e cross-workshop;
+- registrar aceite operacional.
+
+Futuro tecnico:
+
+- remover fallback legado em fase propria depois do aceite;
+- modernizar cancelamento NF-e normal para evento/tentativa propria;
+- modernizar inutilizacao NF-e normal para evento/tentativa propria;
+- avaliar preview remoto NF-e como artefato sensivel;
+- manter payload/resposta remota sem view ate fase propria.
+
+Continuam nao iniciados: endpoint remoto novo, payload fiscal novo, regra fiscal nova, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
+
 ## Apos a Fase 4.0.3
 
 Concluido nesta fase:

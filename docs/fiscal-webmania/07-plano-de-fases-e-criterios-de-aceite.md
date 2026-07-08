@@ -1,5 +1,28 @@
 # Plano de fases e criterios de aceite
 
+## Fase 4.0.4 - Planejamento de Migracao de Grupos e Remocao Futura do Fallback NF-e
+
+Status: **documental em 2026-07-08**. A Fase 4.0.3 foi validada e encerrada no checkpoint `9f888ced`.
+
+Objetivo: planejar a migracao das permissoes dedicadas da NF-e normal para grupos reais e definir criterios para remocao futura segura dos fallbacks legados. O fallback nao sera removido nesta fase.
+
+Decisao: **Opcao B - planejar remocao futura em fase propria apos migracao de grupos**.
+
+Escopo permitido: documentacao, matriz de grupos/permissoes, matriz de transicao, plano de testes futuro, decisao arquitetural, log e backlog.
+
+Escopo proibido: remover fallback, alterar grupos reais, criar migration, alterar model/service/view/template/teste/OpenAPI, endpoint remoto, payload fiscal, regra fiscal, modernizar cancelamento/inutilizacao ou iniciar CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendente, credito/debito pendente ou complementar tributaria.
+
+Proxima fase proposta: **Fase 4.0.5 - Homologacao Operacional das Permissoes Dedicadas NF-e**. Essa fase deve mapear grupos reais, atribuir permissoes em ambiente controlado, validar usuarios operacionais e registrar aceite antes de qualquer fase que remova fallback.
+
+Criterios para futura remocao do fallback:
+
+- grupos reais mapeados;
+- usuarios com `change_nferequest`, `change_nfserequest` e `view_nferequest` classificados;
+- permissoes dedicadas atribuidas aos grupos corretos;
+- UI, POST/backend, downloads, bloqueio sem permissao e cross-workshop homologados;
+- aceite operacional registrado;
+- nova fase aprovada explicitamente para remover fallback.
+
 ## Fase 4.0.3 - Implementacao de Permissoes Dedicadas da NF-e Normal
 
 Status: **em implementacao em 2026-07-08**. A Fase 4.0.2 foi validada e encerrada no checkpoint `43a597e0dbce3ece5cfcb05d7eae278f2522e8f6`. A branch `feat/notas-fiscais` ja integrou `origin/main`; validacao pos-merge concluida no HEAD `0caf7ca5`.

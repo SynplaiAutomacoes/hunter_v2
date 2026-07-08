@@ -1,5 +1,39 @@
 # PRD UX, permissoes e workflows fiscais
 
+## Fase 4.0.4 - Migracao operacional de permissoes NF-e normal
+
+A Fase 4.0.3 foi validada no checkpoint `9f888ced` e criou permissoes dedicadas com fallback legado temporario. A Fase 4.0.4 nao remove fallback e nao altera grupos reais; ela define a matriz operacional para migracao futura.
+
+### Matriz de permissoes
+
+| Permissao | Acao protegida | Fallback atual | Grupo sugerido | Risco se ausente | Observacao |
+|---|---|---|---|---|---|
+| `cancel_nferequest` | Cancelar NF-e normal | `change_nferequest` ou `change_nfserequest` | Fiscal responsavel, gerente fiscal, diretor | Usuario autorizado hoje perde cancelamento quando fallback for removido | Exige validacao operacional antes de remover fallback |
+| `invalidate_nferequest_numbering` | Inutilizar numeracao NF-e normal | `change_nferequest` ou `change_nfserequest` | Fiscal responsavel, gerente fiscal, diretor | Numeracoes reservadas podem ficar sem acao administrativa segura | Nao equivale a permissao de cancelamento |
+| `download_nferequest_xml` | Baixar XML NF-e normal | `view_nferequest` ou `change_nferequest` | Fiscal, financeiro fiscal, auditoria, diretor | XML fiscal sensivel indisponivel para conferencia/escrituracao | Deve continuar respeitando oficina ativa |
+| `download_nferequest_pdf` | Baixar DANFE/PDF NF-e normal | `view_nferequest` ou `change_nferequest` | Atendimento fiscal, financeiro fiscal, auditoria, diretor | Operacao pode perder acesso ao DANFE para entrega/conferencia | Separada do XML por sensibilidade operacional |
+| `view_nferequest_payload` | Ver payload enviado da NF-e normal | `change_nferequest` | Suporte fiscal interno, auditoria tecnica | Payload sensivel sem trilha clara ou indisponivel em suporte futuro | Permissao criada sem view atual |
+| `view_nferequest_remote_response` | Ver resposta/log remoto da NF-e normal | `change_nferequest` | Suporte fiscal interno, auditoria tecnica | Diagnostico fiscal futuro sem permissao propria | Permissao criada sem view atual |
+
+### Matriz de transicao
+
+| Etapa | Acao | Responsavel | Risco | Criterio de conclusao |
+|---|---|---|---|---|
+| 1 | Mapear grupos atuais | Administracao/operacao | Grupos reais divergirem dos nomes sugeridos | Lista de grupos e usuarios exportada/revisada |
+| 2 | Identificar usuarios com `change_nferequest` | Administracao/operacao | Remover fallback sem substituto | Usuarios classificados por necessidade real |
+| 3 | Identificar usuarios com `change_nfserequest` | Administracao/operacao | Dependencia indevida do fallback legado NFS-e | Dependencias registradas e justificadas |
+| 4 | Identificar usuarios com `view_nferequest` | Administracao/operacao | Perda de download XML/PDF apos remocao do fallback | Leitores/downloaders mapeados |
+| 5 | Atribuir permissoes dedicadas aos grupos corretos | Administracao/seguranca | Excesso ou falta de privilegio | Grupos atualizados em homologacao |
+| 6 | Validar UI com usuario operacional | Fiscal/QA | Botao ausente para usuario correto | Acoes aparecem apenas para perfis esperados |
+| 7 | Validar POST/backend com usuario operacional | Fiscal/QA | UI correta, backend incorreto | POSTs autorizados/bloqueados conforme matriz |
+| 8 | Validar downloads | Fiscal/QA | XML/DANFE indisponiveis ou expostos | Downloads aprovados por perfil e oficina |
+| 9 | Validar usuario sem permissao | QA/seguranca | Acesso indevido persistir | Usuario sem permissao bloqueado |
+| 10 | Validar cross-workshop | QA/seguranca | Permissao vazar entre oficinas | Outra oficina recebe bloqueio/404 esperado |
+| 11 | Registrar aceite operacional | Produto/fiscal | Remocao sem aceite formal | Aceite documentado por responsavel |
+| 12 | Planejar remocao do fallback | Engenharia/produto | Remocao prematura | Nova fase aprovada com criterios e testes |
+
+Decisao: **Opcao B - planejar remocao futura em fase propria apos migracao de grupos**. A proxima fase recomendada e **Fase 4.0.5 - Homologacao Operacional das Permissoes Dedicadas NF-e**. Ela nao deve remover fallback sem confirmacao de grupos e aceite operacional.
+
 ## Fase 4.0.3 - UX e permissoes NF-e normal
 
 - Fase 4.0.2 validada no checkpoint `43a597e0dbce3ece5cfcb05d7eae278f2522e8f6`; Opcao A aprovada.

@@ -1,5 +1,15 @@
 # Log de implementacao fiscal
 
+## 2026-07-08 - Fase 4.0.4 - Planejamento de migracao de grupos NF-e
+
+- Fase 4.0.3 reconhecida como validada e encerrada no checkpoint `9f888ced`.
+- Fase exclusivamente documental para planejar migracao de grupos e remocao futura do fallback NF-e normal.
+- Registrada matriz de permissoes dedicadas, fallback atual, grupos sugeridos, riscos e observacoes.
+- Registrada matriz de transicao operacional: mapear grupos, identificar usuarios com permissoes legadas, atribuir permissoes dedicadas, homologar UI/backend/downloads/cross-workshop e registrar aceite.
+- Decisao escolhida: Opcao B, planejar remocao futura em fase propria apos migracao/homologacao de grupos.
+- Proxima fase proposta: Fase 4.0.5 - Homologacao Operacional das Permissoes Dedicadas NF-e.
+- Nenhum codigo funcional, migration, service, view, template, teste, OpenAPI, endpoint remoto, payload fiscal, regra fiscal ou dominio fiscal novo foi iniciado.
+
 ## 2026-07-08 - Fase 4.0.3 - Implementacao de permissoes dedicadas NF-e normal
 
 - Fase 4.0.2 reconhecida como validada e encerrada no checkpoint `43a597e0dbce3ece5cfcb05d7eae278f2522e8f6`.
