@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from datetime import date
 from decimal import Decimal
 from typing import Any
 
 from django import forms
+from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
 from django.db.models import Q, Sum
@@ -19,7 +21,7 @@ from django.http import HttpResponseRedirect
 from django.db import transaction
 
 from apps.collaborators.models import CollaboratorPayroll, WorkshopCollaborator
-from apps.collaborators.services import ensure_payroll_financial_movement, mark_payroll_as_paid, mark_payroll_as_unpaid, mark_payroll_commissions_as_paid, sync_collaborator_payrolls_batch, unmark_payroll_commissions_as_paid
+from apps.collaborators.services import ensure_payroll_financial_movement, mark_payroll_as_paid, mark_payroll_as_unpaid, mark_payroll_commissions_as_paid, payroll_has_financial_movements, sync_collaborator_payrolls_batch, unmark_payroll_commissions_as_paid
 from apps.core.presentation.widgets import CalendarDateInput, MoneyInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
@@ -295,6 +297,22 @@ def _mark_payroll_as_unpaid(*, payroll: CollaboratorPayroll) -> CollaboratorPayr
     return mark_payroll_as_unpaid(payroll=payroll)
 
 
+def _payroll_missing_movement_message(*, collaborator_names: list[str], action_label: str) -> str:
+    skipped_count = len(collaborator_names)
+    base_message = f"{skipped_count} folha{'s' if skipped_count != 1 else ''} foram ignorada{'s' if skipped_count != 1 else ''} ao {action_label} porque nao possuem movimentacoes financeiras."
+    if not collaborator_names:
+        return base_message
+    return f"{base_message} Colaboradores: {', '.join(collaborator_names)}"
+
+
+def _build_hx_toast_response(*, message: str, toast_type: str, refresh: bool = False, status: int = 200) -> HttpResponse:
+    response = HttpResponse(status=status)
+    if refresh:
+        response["HX-Refresh"] = "true"
+    response["HX-Trigger"] = json.dumps({"showToast": {"message": message, "type": toast_type}})
+    return response
+
+
 class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = CollaboratorPayroll
     workshop_permission_app_label = "finance"
@@ -313,6 +331,12 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         payroll = self._get_payroll()
         if payroll.financial_movement is None:
             payroll = _ensure_payroll_financial_movement(payroll=payroll)
+        if not payroll_has_financial_movements(payroll=payroll) or payroll.financial_movement is None:
+            return _build_hx_toast_response(
+                message="Esta folha nao possui movimentacoes financeiras para editar.",
+                toast_type="warning",
+                status=400,
+            )
         form = PayrollPaymentForm(instance=payroll.financial_movement, workshop=self.workshop, payroll=payroll)
         return render(request, self.template_name, {"payroll": payroll, "form": form})
 
@@ -320,6 +344,13 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         payroll = self._get_payroll()
         if payroll.financial_movement is None:
             payroll = _ensure_payroll_financial_movement(payroll=payroll)
+        if not payroll_has_financial_movements(payroll=payroll) or payroll.financial_movement is None:
+            return _build_hx_toast_response(
+                message="Esta folha nao possui movimentacoes financeiras para editar.",
+                toast_type="warning",
+                refresh=True,
+                status=400,
+            )
         form = PayrollPaymentForm(request.POST, instance=payroll.financial_movement, workshop=self.workshop, payroll=payroll)
         if form.is_valid():
             due_date = form.cleaned_data["due_date"]
@@ -364,16 +395,28 @@ class PayrollBulkPayView(LoginRequiredMixin, WorkshopScopedMixin, View):
         payrolls = CollaboratorPayroll.objects.filter(
             pk__in=payroll_ids,
             workshop=self.workshop,
-        ).select_related("financial_movement")
+        ).select_related("collaborator", "financial_movement")
 
+        skipped_collaborators: list[str] = []
         with transaction.atomic():
             for payroll in payrolls:
-                _mark_payroll_as_paid(payroll=payroll)
+                refreshed_payroll = _mark_payroll_as_paid(payroll=payroll)
+                if not payroll_has_financial_movements(payroll=refreshed_payroll):
+                    skipped_collaborators.append(refreshed_payroll.collaborator.name)
 
         if request.headers.get("HX-Request"):
+            if skipped_collaborators:
+                return _build_hx_toast_response(
+                    message=_payroll_missing_movement_message(collaborator_names=skipped_collaborators, action_label="marcar como pagas"),
+                    toast_type="warning",
+                    refresh=True,
+                )
             response = HttpResponse()
             response["HX-Refresh"] = "true"
             return response
+
+        if skipped_collaborators:
+            messages.warning(request, _payroll_missing_movement_message(collaborator_names=skipped_collaborators, action_label="marcar como pagas"))
 
         return HttpResponseRedirect(reverse("finance:payroll_list"))
 
