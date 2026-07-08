@@ -9,8 +9,10 @@ from django.urls import reverse
 from djmoney.money import Money
 
 from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
+from apps.collaborators.services import sync_collaborator_payroll
 from apps.collaborators.test_commissions import create_workorder
 from apps.finance.models.financial_movement import FinancialMovement
+from apps.finance.services.dre import _agent_label
 from apps.finance.views.payroll import PayrollBulkPayView, PayrollBulkUnpayView, PayrollEditModalView, PayrollListView, PayrollRefreshView
 from apps.finance.views.reports import ReportMovementEditView
 from apps.workshops.models.workshops import Workshop
@@ -166,6 +168,24 @@ class PayrollListViewTests(TestCase):
 
 
 class PayrollEditModalViewTests(TestCase):
+    def test_payroll_movements_use_anonymous_agent_and_description(self) -> None:
+        workshop = create_workshop(suffix=24)
+        collaborator = create_collaborator(workshop=workshop, suffix=24)
+
+        payroll = sync_collaborator_payroll(
+            collaborator=collaborator,
+            reference_date=date(2026, 8, 1),
+            lock_reference=True,
+        )
+
+        movements = list(FinancialMovement.objects.filter(payroll=payroll).order_by("id"))
+
+        self.assertTrue(movements)
+        self.assertTrue(all(movement.report_agent_display == "Anonimo" for movement in movements))
+        self.assertTrue(all(_agent_label(movement) == "Anonimo" for movement in movements))
+        self.assertTrue(all(collaborator.name not in str(movement.description or "") for movement in movements))
+        self.assertIn("Salário - 08/2026", [str(movement.description) for movement in movements])
+
     def test_commission_tab_formats_percentage_as_percent(self) -> None:
         workshop = create_workshop(suffix=2)
         collaborator = create_collaborator(workshop=workshop, suffix=2)
