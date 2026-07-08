@@ -165,7 +165,98 @@ class PayrollListViewTests(TestCase):
         )
 
 
+class FinancialMovementListViewTests(TestCase):
+    def test_payroll_movements_use_remove_action_instead_of_delete(self) -> None:
+        workshop = create_workshop(suffix=24)
+        collaborator = create_collaborator(workshop=workshop, suffix=24)
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2000, "BRL"),
+            total_amount=Money(2000, "BRL"),
+        )
+        payroll_movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll=payroll,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Salario Colaborador Folha 24 - 08/2026",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=False,
+        )
+        manual_movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Despesa manual",
+            amount=Money(100, "BRL"),
+            due_date=date(2026, 8, 6),
+            is_paid=False,
+        )
+
+        view = FinancialMovementListView()
+        view.request = RequestFactory().get("/finance/financial-movement/")
+        view.workshop = workshop
+
+        actions = view.get_context_data(object_list=[])["actions"]
+        remove_action = next(action for action in actions if action.label == "Excluir da Folha")
+        delete_action = next(action for action in actions if action.label == "Excluir")
+
+        self.assertTrue(remove_action.visible(payroll_movement))
+        self.assertFalse(delete_action.visible(payroll_movement))
+        self.assertFalse(remove_action.visible(manual_movement))
+        self.assertTrue(delete_action.visible(manual_movement))
+
+    def test_remove_payroll_link_view_uses_specific_confirmation_modal(self) -> None:
+        self.assertEqual(
+            FinancialMovementRemovePayrollLinkView.htmx_template_name,
+            "finance/partials/financial_movement/financial_movement_remove_payroll_link_modal.html",
+        )
+
+
 class PayrollEditModalViewTests(TestCase):
+    def test_primary_salary_movement_modal_shows_remove_from_payroll_button(self) -> None:
+        workshop = create_workshop(suffix=26)
+        collaborator = create_collaborator(workshop=workshop, suffix=26)
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Folha salario",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=False,
+        )
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            financial_movement=movement,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2000, "BRL"),
+            total_amount=Money(2000, "BRL"),
+        )
+
+        request = RequestFactory().get(f"/finance/folha-pagamento/{payroll.pk}/edit/")
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollEditModalView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.get(request)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn("Excluir da Folha", content)
+        self.assertIn(reverse("finance:financial_movement_remove_payroll_link", kwargs={"pk": movement.pk}), content)
+
     def test_commission_tab_formats_percentage_as_percent(self) -> None:
         workshop = create_workshop(suffix=2)
         collaborator = create_collaborator(workshop=workshop, suffix=2)
@@ -571,6 +662,54 @@ class ReportMovementEditRedirectTests(TestCase):
         self.assertEqual(response.status_code, 200)
         content = response.rendered_content
         self.assertIn("Editar Movimentação Financeira", content)
+
+    def test_secondary_payroll_movement_modal_shows_remove_from_payroll_button(self) -> None:
+        workshop = create_workshop(suffix=25)
+        collaborator = create_collaborator(workshop=workshop, suffix=25)
+        primary_movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Folha principal",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=False,
+        )
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            financial_movement=primary_movement,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2000, "BRL"),
+            total_amount=Money(2000, "BRL"),
+        )
+        secondary_movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll=payroll,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Salario Colaborador Folha 25 - 08/2026",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=False,
+        )
+
+        request = RequestFactory().get(f"/finance/reports/movement/{secondary_movement.pk}/edit/")
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = ReportMovementEditView()
+        view.request = request
+        view.kwargs = {"pk": secondary_movement.pk}
+        view.workshop = workshop
+
+        response = view.get(request)
+
+        self.assertEqual(response.status_code, 200)
+        content = response.rendered_content
+        self.assertIn("Excluir da Folha", content)
+        self.assertIn(reverse("finance:financial_movement_remove_payroll_link", kwargs={"pk": secondary_movement.pk}), content)
 
 
 class PayrollBulkActionsTests(TestCase):

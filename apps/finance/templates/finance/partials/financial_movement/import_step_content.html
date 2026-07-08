@@ -25,9 +25,24 @@
             <div></div>
         {% endif %}
 
-        <button type="submit" form="movement-form" class="btn btn-primary">
-            {% if current_step == steps_config|length %} Salvar e Finalizar {% else %} Próxima Etapa {% endif %}
-        </button>
+        <div class="flex items-center gap-2">
+            {% if object.pk %}
+                <button
+                    type="button"
+                    class="btn btn-error btn-outline"
+                    hx-get="{% if object.payroll_id %}{% url 'finance:financial_movement_remove_payroll_link' object.pk %}{% else %}{% url 'finance:financial_movement_delete' object.pk %}{% endif %}"
+                    hx-target="body"
+                    hx-swap="beforeend"
+                >
+                    <span class="material-icons">{% if object.payroll_id %}link_off{% else %}delete{% endif %}</span>
+                    {% if object.payroll_id %}Excluir da Folha{% else %}Excluir{% endif %}
+                </button>
+            {% endif %}
+
+            <button type="submit" form="movement-form" class="btn btn-primary">
+                {% if current_step == steps_config|length %} Salvar e Finalizar {% else %} Próxima Etapa {% endif %}
+            </button>
+        </div>
     </div>
 
     <div id="form-container">

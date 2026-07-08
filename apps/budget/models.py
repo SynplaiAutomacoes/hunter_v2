@@ -1322,6 +1322,8 @@ class BudgetItem(TimeStampedModel):
 
     @property
     def summary_products_total_without_shipping(self) -> Money:
+        if self.is_customer_supplied:
+            return Money(0, "BRL")
         if self.kit:
             return self.get_kit_products_total() - self.get_kit_products_shipping_total()
         return self.product_selling_price * self.quantity
@@ -1334,6 +1336,8 @@ class BudgetItem(TimeStampedModel):
 
     @property
     def summary_shipping_total(self) -> Money:
+        if self.is_customer_supplied and not self.service_id:
+            return Money(0, "BRL")
         if self.kit:
             return self.get_kit_products_shipping_total()
         return self.shipping + (self.service_shipping * self.quantity)

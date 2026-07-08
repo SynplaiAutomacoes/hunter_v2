@@ -112,7 +112,9 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
         if search_query:
             queryset = apply_text_search(queryset, search_value=search_query, lookups=("name", "fantasy_name", "cpf_or_cnpj", "phone", "rg", "email"))
 
-        queryset = apply_is_active_filter(queryset, params=self.request.GET)
+        is_active = self.request.GET.get("is_active", "").strip()
+        if is_active:
+            queryset = apply_is_active_filter(queryset, params=self.request.GET)
 
         queryset = apply_query_param_filters(
             queryset,

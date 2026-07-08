@@ -417,8 +417,8 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         servicos = _build_snapshot_service_rows(budget=budget, snapshot=snapshot)
         kits = []
 
-    total_produtos = sum((p["total_price"] for p in produtos), Money(0, "BRL"))
-    total_servicos = sum((s["total_price"] for s in servicos), Money(0, "BRL"))
+    total_produtos = sum((p["total_price"] for p in produtos if p.get("item_benefit_type", "normal") in ("normal", "")), Money(0, "BRL"))
+    total_servicos = sum((s["total_price"] for s in servicos if s.get("item_benefit_type", "normal") in ("normal", "")), Money(0, "BRL"))
     workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=budget.workshop)
     total_services_cost_original_value = sum((line["service_cost_price"] for line in servicos), Money(0, "BRL"))
     total_services_mechanic_cost_value = sum((line["service_mechanic_cost_price"] for line in servicos), Money(0, "BRL"))
@@ -434,6 +434,10 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         total_products_shipping=total_products_shipping_value,
         total_services_shipping=total_services_shipping_value,
     )
+
+    total_geral = total_produtos + total_servicos - desconto
+    benefit_total = Money(0, "BRL")
+    benefit_label = ""
 
     return {
         "budget": budget,

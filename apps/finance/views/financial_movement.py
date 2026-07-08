@@ -24,7 +24,7 @@ from apps.core.infrastructure.pdf.renderer import render_template_request_to_pdf
 from apps.core.presentation.forms import MultiStepFormMixin
 from apps.core.presentation.navigation import FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE
 from apps.core.presentation.tables import TableActionDefaults
-from apps.core.templatetags.table_tags import TableColumn, _apply_search, _apply_sort, _ensure_stable_ordering, _paginate, _parse_sort
+from apps.core.templatetags.table_tags import TableAction, TableColumn, _apply_search, _apply_sort, _ensure_stable_ordering, _paginate, _parse_sort
 from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.core.utils import clean_id
 from apps.finance.forms.financial_movement import MovementStep1Form, MovementStep2Form, MovementStep3Form, MovementStep4Form
@@ -500,7 +500,20 @@ class FinancialMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTem
         context["fields"] = get_financial_movement_table_columns()
         context["actions"] = [
             TableActionDefaults.edit("finance:financial_movement_update", preserve_current_url_as_next=True),
-            TableActionDefaults.delete("finance:financial_movement_delete"),
+            TableAction(
+                label="Excluir da Folha",
+                url_name="finance:financial_movement_remove_payroll_link",
+                icon="link_off",
+                a_class="btn-table-delete",
+                hx_target="#modal-container",
+                hx_swap="innerHTML",
+                hx_push_url="false",
+                visible=lambda obj: obj.payroll_id is not None,
+            ),
+            TableActionDefaults.delete(
+                "finance:financial_movement_delete",
+                visible=lambda obj: obj.payroll_id is None,
+            ),
         ]
         context["source_filters"] = Source.objects.filter(workshop=self.workshop).order_by("name", "id")
         context["selected_source_id"] = _get_financial_movement_selected_source_id(self.request)
@@ -737,6 +750,19 @@ class FinancialMovementDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxD
 
     htmx_template_name = "finance/partials/financial_movement/financial_movement_delete_modal.html"
     htmx_trigger = "financial_movement-table-refresh"
+
+
+class FinancialMovementRemovePayrollLinkView(FinancialMovementDeleteView):
+    htmx_template_name = "finance/partials/financial_movement/financial_movement_remove_payroll_link_modal.html"
+
+    def form_valid(self, form):
+        if bool(getattr(self.request, "htmx", False)):
+            self.object.delete()
+            response = HttpResponse()
+            response["HX-Refresh"] = "true"
+            return response
+
+        return super().form_valid(form)
 
 
 class EntityListView(LoginRequiredMixin, WorkshopScopedMixin, View):

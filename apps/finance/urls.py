@@ -61,6 +61,7 @@ from apps.finance.views.financial_movement import (
     FinancialMovementCreateView,
     FinancialMovementDeleteView,
     FinancialMovementListView,
+    FinancialMovementRemovePayrollLinkView,
     FinancialMovementUpdateView,
     EntityListView,
     EntityDetailView,
@@ -139,6 +140,7 @@ urlpatterns = [
     path("financial-movement/create/", FinancialMovementCreateView.as_view(), name="financial_movement_create"),
     path("financial-movement/<int:pk>/update/", FinancialMovementUpdateView.as_view(), name="financial_movement_update"),
     path("financial-movement/<int:pk>/delete/", FinancialMovementDeleteView.as_view(), name="financial_movement_delete"),
+    path("financial-movement/<int:pk>/remove-payroll-link/", FinancialMovementRemovePayrollLinkView.as_view(), name="financial_movement_remove_payroll_link"),
     path("entities", EntityListView.as_view(), name="entities"),
     path("entity_details", EntityDetailView.as_view(), name="entity_details"),
     # NFS-e
