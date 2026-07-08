@@ -752,6 +752,21 @@ def mark_payroll_as_paid(*, payroll: CollaboratorPayroll, paid_at: date | None =
     return refreshed_payroll
 
 
+def mark_payroll_as_unpaid(*, payroll: CollaboratorPayroll) -> CollaboratorPayroll:
+    refreshed_payroll = ensure_payroll_financial_movement(payroll=payroll)
+    for movement in _get_payroll_effective_movements(payroll=refreshed_payroll):
+        update_fields: list[str] = []
+        if movement.is_paid:
+            movement.is_paid = False
+            update_fields.append("is_paid")
+        if movement.is_reconciled:
+            movement.is_reconciled = False
+            update_fields.append("is_reconciled")
+        if update_fields:
+            movement.save(update_fields=update_fields)
+    return refreshed_payroll
+
+
 @transaction.atomic
 def recalculate_historical_commissions(*, workshop: Workshop | None = None, dry_run: bool = False) -> dict[str, int]:
     entry_queryset = CollaboratorCommissionEntry.objects.select_related("workorder", "payroll")

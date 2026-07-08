@@ -19,7 +19,7 @@ from django.http import HttpResponseRedirect
 from django.db import transaction
 
 from apps.collaborators.models import CollaboratorPayroll, WorkshopCollaborator
-from apps.collaborators.services import ensure_payroll_financial_movement, mark_payroll_as_paid, mark_payroll_commissions_as_paid, sync_collaborator_payroll, sync_collaborator_payrolls_batch, unmark_payroll_commissions_as_paid
+from apps.collaborators.services import ensure_payroll_financial_movement, mark_payroll_as_paid, mark_payroll_as_unpaid, mark_payroll_commissions_as_paid, sync_collaborator_payrolls_batch, unmark_payroll_commissions_as_paid
 from apps.core.presentation.widgets import CalendarDateInput, MoneyInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
@@ -291,6 +291,10 @@ def _mark_payroll_as_paid(*, payroll: CollaboratorPayroll) -> CollaboratorPayrol
     return mark_payroll_as_paid(payroll=payroll, paid_at=timezone.localdate())
 
 
+def _mark_payroll_as_unpaid(*, payroll: CollaboratorPayroll) -> CollaboratorPayroll:
+    return mark_payroll_as_unpaid(payroll=payroll)
+
+
 class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = CollaboratorPayroll
     workshop_permission_app_label = "finance"
@@ -326,7 +330,7 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
             if movement.is_paid:
                 _mark_payroll_as_paid(payroll=payroll)
             else:
-                sync_collaborator_payroll(collaborator=payroll.collaborator, reference_date=_get_payroll_reference_date(payroll=payroll), lock_reference=True)
+                _mark_payroll_as_unpaid(payroll=payroll)
                 _unmark_payroll_commissions_as_paid(payroll=payroll)
             response = HttpResponse()
             response["HX-Refresh"] = "true"
@@ -401,14 +405,7 @@ class PayrollBulkUnpayView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         with transaction.atomic():
             for payroll in payrolls:
-                if payroll.financial_movement is not None and payroll.financial_movement.is_paid:
-                    payroll.financial_movement.is_paid = False
-                    payroll.financial_movement.save(update_fields=["is_paid"])
-                sync_collaborator_payroll(
-                    collaborator=payroll.collaborator,
-                    reference_date=_get_payroll_reference_date(payroll=payroll),
-                    lock_reference=True,
-                )
+                _mark_payroll_as_unpaid(payroll=payroll)
                 _unmark_payroll_commissions_as_paid(payroll=payroll)
 
         if request.headers.get("HX-Request"):
