@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import Any
 
 from _decimal import Decimal
-from django.db.models import Prefetch
+from django.db.models import DecimalField, ExpressionWrapper, F, Prefetch, Sum
 from django.utils import timezone
 
 from apps.budget.models import Budget, BudgetItem, BudgetStatus, BudgetType
@@ -15,7 +15,7 @@ from apps.budget.pdf_context import calculate_markup_multiplier
 from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.core.domain.services.dashboard_service import DashboardMetrics
 from apps.finance.models import FinancialGroup, FinancialMovement
-from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderItemBenefitType, WorkOrderPaymentMethod, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
 
@@ -160,57 +160,6 @@ def _format_brl(amount: Decimal) -> str:
     return f"R$ {amount:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def _get_payments_with_items(*, workshop_id: int, month: int, year: int) -> list[WorkOrderPaymentMethod]:
-    return list(
-        WorkOrderPaymentMethod.objects.filter(
-            workorder__workshop_id=workshop_id,
-            workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
-            workorder__budget_type="sale",
-            due_date__month=month,
-            due_date__year=year,
-        )
-        .select_related("workorder")
-        .prefetch_related(
-            Prefetch(
-                "workorder__items",
-                queryset=WorkOrderItem.objects.select_related("product", "service", "kit").prefetch_related(
-                    "kit_overrides",
-                    "kit__kit_products__product",
-                    "kit__kit_services__service",
-                ),
-            )
-        )
-    )
-
-
-def _adjust_payment_for_dashboard(payment: WorkOrderPaymentMethod) -> Decimal:
-    """Scale payment amount to exclude warranty/courtesy item values.
-
-    Uses the same ratio approach as the DRE: total_budget_value (net)
-    divided by gross value (including benefit items at full price),
-    applied to the payment's total_paid.
-    """
-    workorder = getattr(payment, "workorder", None)
-    if workorder is None:
-        return resolve_decimal_amount(payment.total_paid)
-
-    total_budget_value = resolve_decimal_amount(workorder.total_budget_value)
-    if total_budget_value <= Decimal("0.00"):
-        return Decimal("0.00")
-
-    benefit_items_value = Decimal("0.00")
-    for item in workorder.items.all():
-        if item.item_benefit_type not in (WorkOrderItemBenefitType.NORMAL, ""):
-            benefit_items_value += resolve_decimal_amount((item.product_selling_price + item.service_selling_price) * item.quantity)
-
-    gross_value = total_budget_value + benefit_items_value
-    if gross_value <= Decimal("0.00"):
-        return Decimal("0.00")
-
-    ratio = total_budget_value / gross_value
-    return resolve_decimal_amount(payment.total_paid) * ratio
-
-
 def calculate_aggregate_markup(*, workshop_id: int, month: int, year: int) -> Decimal:
     """Calculate aggregate markup aligned with DRE methodology.
 
@@ -241,12 +190,24 @@ def calculate_aggregate_markup(*, workshop_id: int, month: int, year: int) -> De
 
 
 def _aggregate_revenue(*, workshop_id: int, month: int, year: int) -> Decimal:
-    payments = _get_payments_with_items(
-        workshop_id=workshop_id,
-        month=month,
-        year=year,
+    result = (
+        WorkOrderPaymentMethod.objects.filter(
+            workorder__workshop_id=workshop_id,
+            workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+            workorder__budget_type="sale",
+            due_date__month=month,
+            due_date__year=year,
+        )
+        .annotate(
+            payment_total=ExpressionWrapper(
+                F("first_installment_amount")
+                + (F("installments_count") - 1) * F("remaining_installments_amount"),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            )
+        )
+        .aggregate(total=Sum("payment_total"))
     )
-    return sum((_adjust_payment_for_dashboard(p) for p in payments), Decimal("0.00"))
+    return result["total"] or Decimal("0.00")
 
 
 def _get_workorder_ids_from_payments(*, workshop_id: int, month: int, year: int) -> list[int]:
@@ -654,35 +615,44 @@ class DashboardQueryService:
 
     @staticmethod
     def _calculate_total_sold(*, workshop_id: int, selected_month: int, selected_year: int) -> Decimal:
-        payments = _get_payments_with_items(
-            workshop_id=workshop_id,
-            month=selected_month,
-            year=selected_year,
+        result = (
+            WorkOrderPaymentMethod.objects.filter(
+                workorder__workshop_id=workshop_id,
+                workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+                workorder__budget_type="sale",
+                due_date__month=selected_month,
+                due_date__year=selected_year,
+            )
+            .annotate(
+                payment_total=ExpressionWrapper(
+                    F("first_installment_amount")
+                    + (F("installments_count") - 1) * F("remaining_installments_amount"),
+                    output_field=DecimalField(max_digits=14, decimal_places=2),
+                )
+            )
+            .aggregate(total=Sum("payment_total"))
         )
-        return sum((_adjust_payment_for_dashboard(p) for p in payments), Decimal("0.00"))
+        return result["total"] or Decimal("0.00")
 
     @staticmethod
     def _calculate_today_sales(*, workshop_id: int, today: date) -> Decimal:
-        payments = list(
+        result = (
             WorkOrderPaymentMethod.objects.filter(
                 workorder__workshop_id=workshop_id,
                 workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
                 workorder__budget_type="sale",
                 due_date=today,
             )
-            .select_related("workorder")
-            .prefetch_related(
-                Prefetch(
-                    "workorder__items",
-                    queryset=WorkOrderItem.objects.select_related("product", "service", "kit").prefetch_related(
-                        "kit_overrides",
-                        "kit__kit_products__product",
-                        "kit__kit_services__service",
-                    ),
+            .annotate(
+                payment_total=ExpressionWrapper(
+                    F("first_installment_amount")
+                    + (F("installments_count") - 1) * F("remaining_installments_amount"),
+                    output_field=DecimalField(max_digits=14, decimal_places=2),
                 )
             )
+            .aggregate(total=Sum("payment_total"))
         )
-        return sum((_adjust_payment_for_dashboard(p) for p in payments), Decimal("0.00"))
+        return result["total"] or Decimal("0.00")
 
     @staticmethod
     def _get_delivered_workorders(*, workshop_id: int, selected_month: int, selected_year: int) -> tuple[list[WorkOrder], list[WorkOrder]]:
