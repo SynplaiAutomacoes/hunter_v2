@@ -92,3 +92,53 @@ class CommissionReportVisibilityTests(TestCase):
 
         self.assertEqual(len(queryset), 1)
         self.assertEqual(queryset[0].pk, paid_entry.pk)
+
+    def test_report_uses_persisted_base_amount_instead_of_workorder_total_services(self) -> None:
+        workshop = create_workshop(suffix=95)
+        collaborator = create_collaborator(workshop=workshop, suffix=95)
+        workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
+        entry = CollaboratorCommissionEntry.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            workorder=workorder,
+            reference_year=2026,
+            reference_month=8,
+            percentage=Decimal("0.100000"),
+            base_amount=Money(900, "BRL"),
+            commission_amount=Money(90, "BRL"),
+            status=CollaboratorCommissionEntry.Status.FORECAST,
+        )
+
+        request = RequestFactory().get(reverse("finance:commission_report"), {"mes": 8, "ano": 2026})
+        view = CommissionReportView()
+        view.request = request
+        view.workshop = workshop
+
+        rows = view._build_rows(entries=[entry])
+
+        self.assertEqual(rows[0]["base_amount"], Money(900, "BRL"))
+
+    def test_pdf_uses_persisted_base_amount_instead_of_workorder_total_services(self) -> None:
+        workshop = create_workshop(suffix=96)
+        collaborator = create_collaborator(workshop=workshop, suffix=96)
+        workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
+        entry = CollaboratorCommissionEntry.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            workorder=workorder,
+            reference_year=2026,
+            reference_month=8,
+            percentage=Decimal("0.100000"),
+            base_amount=Money(900, "BRL"),
+            commission_amount=Money(90, "BRL"),
+            status=CollaboratorCommissionEntry.Status.FORECAST,
+        )
+
+        request = RequestFactory().get(reverse("finance:commission_report_pdf"), {"mes": 8, "ano": 2026})
+        view = CommissionReportPdfView()
+        view.request = request
+        view.workshop = workshop
+
+        collaborators_data = view._build_collaborators_data([entry])
+
+        self.assertEqual(collaborators_data[0]["entries"][0]["base_amount"], Money(900, "BRL"))

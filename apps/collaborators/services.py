@@ -10,9 +10,10 @@ from djmoney.money import Money
 
 from apps.budget.models import Budget
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionEntry, CollaboratorPayroll, CollaboratorPayrollItem, WorkshopCollaborator
+from apps.finance.services.pricing import distribute_total_proportionally
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
-from apps.workorder.models import WorkOrder, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderDiscountType, WorkOrderStatus
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.monthly_costs import get_admin_salary_monthly_cost, get_mechanic_salary_monthly_cost
@@ -28,6 +29,31 @@ def _quantize(value: Decimal) -> Decimal:
 def _resolve_reference_date(reference_date: date | None = None) -> date:
     resolved = reference_date or timezone.localdate()
     return date(resolved.year, resolved.month, 1)
+
+
+def _resolve_commission_base_amount(*, workorder: WorkOrder) -> Money:
+    services_total = Money(_quantize(Decimal(str(workorder.total_services_value.amount or ZERO))), "BRL")
+    resolved_discount_value = Money(_quantize(Decimal(str(workorder.resolved_discount_value.amount or ZERO))), "BRL")
+    if resolved_discount_value.amount <= ZERO:
+        return services_total
+
+    discount_type = workorder.discount_type or WorkOrderDiscountType.BOTH
+    if discount_type == WorkOrderDiscountType.PRODUCTS:
+        return services_total
+    if discount_type == WorkOrderDiscountType.SERVICES:
+        return Money(_quantize(max(Decimal(str(services_total.amount)) - Decimal(str(resolved_discount_value.amount)), ZERO)), "BRL")
+
+    products_decimal = Decimal(str(workorder.pricing_snapshot.total_products_by_slider.amount or ZERO))
+    services_decimal = Decimal(str(workorder.pricing_snapshot.total_services_by_slider.amount or ZERO))
+    if products_decimal <= ZERO and services_decimal <= ZERO:
+        return services_total
+
+    allocated_discount = distribute_total_proportionally(
+        base_values=[products_decimal, services_decimal],
+        target_total=Decimal(str(resolved_discount_value.amount)),
+    )
+    services_discount = allocated_discount[1] if len(allocated_discount) > 1 else ZERO
+    return Money(_quantize(max(Decimal(str(services_total.amount)) - services_discount, ZERO)), "BRL")
 
 
 def _get_next_month_reference(reference_date: date) -> date:
@@ -303,7 +329,8 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
             continue
 
         active_workorder_ids.add(workorder.pk)
-        base_amount = Decimal(str(workorder.total_services_value.amount or ZERO))
+        commission_base_amount = _resolve_commission_base_amount(workorder=workorder)
+        base_amount = Decimal(str(commission_base_amount.amount or ZERO))
         commission_amount = _quantize(base_amount * percentage)
         status = CollaboratorCommissionEntry.Status.FORECAST
         paid_at = None
@@ -455,7 +482,7 @@ def recalculate_historical_commissions(*, workshop: Workshop | None = None, dry_
                 entry.delete()
             continue
 
-        base_amount = Money(_quantize(Decimal(str(entry.workorder.total_services_value.amount or ZERO))), "BRL")
+        base_amount = _resolve_commission_base_amount(workorder=entry.workorder)
         commission_amount = Money(_quantize(Decimal(str(base_amount.amount or ZERO)) * Decimal(str(entry.percentage or ZERO))), "BRL")
         should_update_entry = entry.base_amount != base_amount or entry.commission_amount != commission_amount
         if should_update_entry:

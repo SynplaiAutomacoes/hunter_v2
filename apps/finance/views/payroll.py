@@ -37,10 +37,18 @@ class PayrollPaymentForm(forms.ModelForm):
         choices=((False, "Não"), (True, "Sim")),
         widget=SearchableSelectInput(choices=[(False, "Não"), (True, "Sim")]),
     )
+    is_reconciled = forms.TypedChoiceField(
+        label="Conciliado",
+        required=True,
+        coerce=lambda value: str(value).lower() == "true",
+        choices=((False, "Aguardando Conciliação"), (True, "Conciliado")),
+        widget=SearchableSelectInput(choices=[(False, "Aguardando Conciliação"), (True, "Conciliado")]),
+        initial=False,
+    )
 
     class Meta:
         model = FinancialMovement
-        fields = ["due_date", "amount", "budget_plan", "bank_account", "payment_method", "is_paid", "nf_number", "financial_observation"]
+        fields = ["due_date", "amount", "budget_plan", "bank_account", "payment_method", "is_paid", "is_reconciled", "nf_number", "financial_observation"]
         widgets = {
             "due_date": CalendarDateInput(),
             "amount": MoneyInput(),
@@ -55,6 +63,7 @@ class PayrollPaymentForm(forms.ModelForm):
         payroll: CollaboratorPayroll | None = kwargs.pop("payroll", None)
         super().__init__(*args, **kwargs)
         self.fields["is_paid"].initial = bool(self.instance.is_paid) if self.instance.pk else False
+        self.fields["is_reconciled"].initial = bool(self.instance.is_reconciled) if self.instance.pk else False
         self.fields["budget_plan"].required = False
         self.fields["bank_account"].required = False
         self.fields["payment_method"].required = False
@@ -168,6 +177,7 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     def _build_rows(self, payrolls: list[CollaboratorPayroll]) -> list[dict[str, Any]]:
         rows = []
         for payroll in payrolls:
+            is_reconciled = bool(payroll.financial_movement and payroll.financial_movement.is_reconciled)
             rows.append(
                 {
                     "id": payroll.pk,
@@ -183,6 +193,12 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
                     "status_label": payroll.status_label,
                     "is_paid": payroll.status == CollaboratorPayroll.Status.PAID,
                     "paid_indicator": build_paid_status_indicator(is_paid=payroll.status == CollaboratorPayroll.Status.PAID),
+                    "is_reconciled": is_reconciled,
+                    "reconciliation_label": "Conciliado" if is_reconciled else "Aguardando Conciliação",
+                    "reconciliation_indicator": {
+                        "icon": "check_circle" if is_reconciled else "schedule",
+                        "class": "text-success" if is_reconciled else "text-warning",
+                    },
                     "edit_url": reverse("finance:payroll_edit_modal", kwargs={"pk": payroll.pk}),
                     "receipt_url": reverse("collaborators:collaborator_payroll_receipt", kwargs={"pk": payroll.collaborator_id, "payroll_id": payroll.pk}),
                 }
@@ -307,6 +323,51 @@ class PayrollBulkPayView(LoginRequiredMixin, WorkshopScopedMixin, View):
         with transaction.atomic():
             for payroll in payrolls:
                 _mark_payroll_as_paid(payroll=payroll)
+
+        if request.headers.get("HX-Request"):
+            response = HttpResponse()
+            response["HX-Refresh"] = "true"
+            return response
+
+        return HttpResponseRedirect(reverse("finance:payroll_list"))
+
+
+class PayrollBulkUnpayView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "financialmovement"
+    workshop_permission_codename = "change_financialmovement"
+
+    def post(self, request, *args, **kwargs):
+        raw_values = request.POST.getlist("payroll_ids")
+        if not raw_values:
+            return HttpResponse("Nenhuma folha selecionada.", status=400)
+
+        payroll_ids = []
+        for value in raw_values:
+            try:
+                payroll_ids.append(int(value))
+            except (TypeError, ValueError):
+                pass
+
+        if not payroll_ids:
+            return HttpResponse("Nenhuma folha selecionada.", status=400)
+
+        payrolls = CollaboratorPayroll.objects.filter(
+            pk__in=payroll_ids,
+            workshop=self.workshop,
+        ).select_related("collaborator", "financial_movement")
+
+        with transaction.atomic():
+            for payroll in payrolls:
+                if payroll.financial_movement is not None and payroll.financial_movement.is_paid:
+                    payroll.financial_movement.is_paid = False
+                    payroll.financial_movement.save(update_fields=["is_paid"])
+                sync_collaborator_payroll(
+                    collaborator=payroll.collaborator,
+                    reference_date=_get_payroll_reference_date(payroll=payroll),
+                    lock_reference=True,
+                )
+                _unmark_payroll_commissions_as_paid(payroll=payroll)
 
         if request.headers.get("HX-Request"):
             response = HttpResponse()
