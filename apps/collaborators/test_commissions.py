@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 from io import StringIO
+from types import SimpleNamespace
 from unittest.mock import PropertyMock, patch
 
 from django.core.management import call_command
@@ -76,6 +77,66 @@ class CollaboratorCommissionSyncTests(TestCase):
         self.assertTrue(CollaboratorCommissionEntry.objects.filter(workorder=sale_workorder, collaborator=collaborator).exists())
         self.assertFalse(CollaboratorCommissionEntry.objects.filter(workorder=courtesy_workorder, collaborator=collaborator).exists())
         self.assertFalse(CollaboratorCommissionEntry.objects.filter(workorder=warranty_workorder, collaborator=collaborator).exists())
+
+    def test_commission_ignores_product_only_discount(self) -> None:
+        workshop = create_workshop(suffix=11)
+        collaborator = create_collaborator(workshop=workshop, suffix=11)
+        workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
+        workorder.discount_type = "products"
+        workorder.save(update_fields=["discount_type"])
+        workorder.collaborators.add(collaborator)
+        pricing_snapshot = SimpleNamespace(total_products_by_slider=Money(500, "BRL"), total_services_by_slider=Money(1000, "BRL"))
+
+        with (
+            patch("apps.workorder.models.WorkOrder.total_services_value", new_callable=PropertyMock, return_value=Money(1000, "BRL")),
+            patch("apps.workorder.models.WorkOrder.resolved_discount_value", new_callable=PropertyMock, return_value=Money(100, "BRL")),
+            patch("apps.workorder.models.WorkOrder.pricing_snapshot", new_callable=PropertyMock, return_value=pricing_snapshot),
+        ):
+            sync_workorder_collaborator_payrolls(workorder=workorder)
+
+        entry = CollaboratorCommissionEntry.objects.get(workorder=workorder, collaborator=collaborator)
+        self.assertEqual(entry.base_amount, Money(1000, "BRL"))
+        self.assertEqual(entry.commission_amount, Money(100, "BRL"))
+
+    def test_commission_applies_service_only_discount_to_base_amount(self) -> None:
+        workshop = create_workshop(suffix=12)
+        collaborator = create_collaborator(workshop=workshop, suffix=12)
+        workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
+        workorder.discount_type = "services"
+        workorder.save(update_fields=["discount_type"])
+        workorder.collaborators.add(collaborator)
+        pricing_snapshot = SimpleNamespace(total_products_by_slider=Money(500, "BRL"), total_services_by_slider=Money(1000, "BRL"))
+
+        with (
+            patch("apps.workorder.models.WorkOrder.total_services_value", new_callable=PropertyMock, return_value=Money(1000, "BRL")),
+            patch("apps.workorder.models.WorkOrder.resolved_discount_value", new_callable=PropertyMock, return_value=Money(100, "BRL")),
+            patch("apps.workorder.models.WorkOrder.pricing_snapshot", new_callable=PropertyMock, return_value=pricing_snapshot),
+        ):
+            sync_workorder_collaborator_payrolls(workorder=workorder)
+
+        entry = CollaboratorCommissionEntry.objects.get(workorder=workorder, collaborator=collaborator)
+        self.assertEqual(entry.base_amount, Money(900, "BRL"))
+        self.assertEqual(entry.commission_amount, Money(90, "BRL"))
+
+    def test_commission_applies_proportional_discount_when_discount_type_is_both(self) -> None:
+        workshop = create_workshop(suffix=13)
+        collaborator = create_collaborator(workshop=workshop, suffix=13)
+        workorder = create_workorder(workshop=workshop, budget_type="sale", status=WorkOrderStatus.APPROVED)
+        workorder.discount_type = "both"
+        workorder.save(update_fields=["discount_type"])
+        workorder.collaborators.add(collaborator)
+        pricing_snapshot = SimpleNamespace(total_products_by_slider=Money(500, "BRL"), total_services_by_slider=Money(1000, "BRL"))
+
+        with (
+            patch("apps.workorder.models.WorkOrder.total_services_value", new_callable=PropertyMock, return_value=Money(1000, "BRL")),
+            patch("apps.workorder.models.WorkOrder.resolved_discount_value", new_callable=PropertyMock, return_value=Money(150, "BRL")),
+            patch("apps.workorder.models.WorkOrder.pricing_snapshot", new_callable=PropertyMock, return_value=pricing_snapshot),
+        ):
+            sync_workorder_collaborator_payrolls(workorder=workorder)
+
+        entry = CollaboratorCommissionEntry.objects.get(workorder=workorder, collaborator=collaborator)
+        self.assertEqual(entry.base_amount, Money(900, "BRL"))
+        self.assertEqual(entry.commission_amount, Money(90, "BRL"))
 
     def test_reopened_workorder_removes_pending_commission_and_preserves_paid_commission(self) -> None:
         workshop = create_workshop(suffix=2)
