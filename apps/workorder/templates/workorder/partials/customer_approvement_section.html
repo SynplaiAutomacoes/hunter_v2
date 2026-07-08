@@ -109,9 +109,15 @@
                             downloadUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?download=1',
                             showSignatureBtn: true,
                             isStatusLocked: {% if workorder.is_status_locked %}true{% else %}false{% endif %},
-                            kmFinalIsNone: !(document.getElementById('id_km_final')?.value?.trim()),
-                            hasCompletionBlockers: {% if workorder.has_completion_blockers %}true{% else %}false{% endif %},
-                            completionBlockersDisplay: '{{ workorder.completion_blockers_display|escapejs }}',
+                            signatureBlocked: {% if workorder.has_signature_blockers %}true{% else %}false{% endif %},
+                            signatureBlockedReason: '{{ workorder.signature_blockers_display|escapejs }}',
+                            kmBlocked: !(document.getElementById('id_km_final')?.value?.trim()) || !document.getElementById('id_km_final')?.checkValidity(),
+                            kmBlockedReason: (function() {
+                                const el = document.getElementById('id_km_final');
+                                if (!el || !el.value.trim()) return 'É necessário inserir o Km Final para desbloquear o botão';
+                                if (!el.checkValidity()) return el.validationMessage || 'KM final inválido';
+                                return '';
+                            })(),
                             showPdfVariantToggle: {% if workorder.signature_request_status == 'sent' or workorder.signature_request_status == 'approved' %}{% if workorder.signature_external_id or workorder.signature_document_id %}true{% else %}false{% endif %}{% else %}false{% endif %},
                             pdfVariant: '',
                             signedPdfUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?variant=signed',
@@ -377,16 +383,18 @@
             currentDeliveryButton.classList.toggle('btn-disabled', isDisabled);
             currentDeliveryButton.classList.toggle('cursor-not-allowed', isDisabled);
 
-            const pdfModal = document.getElementById('pdfModal');
-            if (pdfModal?.open && typeof Alpine !== 'undefined') {
-                const data = Alpine.$data(pdfModal);
-                if (data) {
-                    data.kmFinalIsNone = !kmFinalIsValid;
-                }
-            }
-
             if (!kmFinalIsValid) {
                 setDeliveryButtonTooltip(currentDeliveryButton, kmFinalUnlockTooltip);
+                const pdfModal = document.getElementById('pdfModal');
+                if (pdfModal?.open && typeof Alpine !== 'undefined') {
+                    const data = Alpine.$data(pdfModal);
+                    if (data) {
+                        data.kb = !kmFinalIsValid;
+                        data.kbr = !hasKmFinal
+                            ? 'É necessário inserir o Km Final para desbloquear o botão'
+                            : (!kmInput.checkValidity() ? (kmInput.validationMessage || 'KM final inválido') : '');
+                    }
+                }
                 return;
             }
 
@@ -396,6 +404,17 @@
             }
 
             setDeliveryButtonTooltip(currentDeliveryButton, '');
+
+            const pdfModal = document.getElementById('pdfModal');
+            if (pdfModal?.open && typeof Alpine !== 'undefined') {
+                const data = Alpine.$data(pdfModal);
+                if (data) {
+                    data.kb = !kmFinalIsValid;
+                    data.kbr = !hasKmFinal
+                        ? 'É necessário inserir o Km Final para desbloquear o botão'
+                        : (!kmInput.checkValidity() ? (kmInput.validationMessage || 'KM final inválido') : '');
+                }
+            }
         };
 
         const persistKmFinal = async () => {
@@ -443,10 +462,15 @@
                 lastSavedValue = currentValue;
                 kmInput.setCustomValidity('');
                 window.updateWorkorderDeliveryButtonState();
-                window.dispatchEvent(new CustomEvent('update-pdf-modal-state', {
-                    detail: { kmFinalIsNone: !lastSavedValue }
-                }));
                 setStatus('');
+                window.dispatchEvent(new CustomEvent('update-pdf-modal-state', {
+                    detail: {
+                        kmBlocked: !lastSavedValue || !kmInput.checkValidity(),
+                        kmBlockedReason: !lastSavedValue
+                            ? 'É necessário inserir o Km Final para desbloquear o botão'
+                            : (!kmInput.checkValidity() ? kmInput.validationMessage || 'KM final inválido' : '')
+                    }
+                }));
             } catch (error) {
                 if (error.name === 'AbortError') {
                     return;
