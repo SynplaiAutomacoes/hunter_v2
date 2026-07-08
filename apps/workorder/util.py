@@ -293,9 +293,17 @@ def _build_workorder_pdf_file_response(*, workorder: WorkOrder, download: bool, 
 
 
 def trigger_workorder_signature_send_if_needed(*, workorder: WorkOrder) -> tuple[str, str]:
-    if workorder.has_signature_blockers:
-        logger.info("workorder_signature_blocked", extra={"workorder_id": workorder.pk, "blockers": workorder.signature_blockers_display})
-        return "error", workorder.signature_blockers_display
+    if workorder.is_status_locked:
+        logger.info("workorder_signature_status_locked", extra={"workorder_id": workorder.pk})
+        return "error", "Reabra a O.S. antes de alterar o status."
+
+    if workorder.km_final is None:
+        logger.info("workorder_signature_missing_km", extra={"workorder_id": workorder.pk})
+        return "error", "É necessário inserir o Km Final para desbloquear o envio para assinatura."
+
+    if workorder.has_completion_blockers:
+        logger.info("workorder_signature_blocked", extra={"workorder_id": workorder.pk, "blockers": workorder.completion_blockers_display})
+        return "error", workorder.completion_blockers_display
 
     if not workorder.budget.service_expected_completion_at:
         logger.info("workorder_signature_missing_completion_date", extra={"workorder_id": workorder.pk})

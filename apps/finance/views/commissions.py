@@ -224,7 +224,7 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
                     "reference": f"{entry.reference_month:02d}/{entry.reference_year}",
                     "applied_at": entry.criado_em.date() if entry.criado_em else None,
                     "percentage": f"{(entry.percentage * Decimal('100')).quantize(Decimal('0.01'))}%",
-                    "base_amount": entry.workorder.total_services_value,
+                    "base_amount": entry.base_amount,
                     "commission_amount": entry.commission_amount,
                     "status": entry.status,
                     "status_label": "Pago" if entry.status == CollaboratorCommissionEntry.Status.PAID else "Não Pago",
@@ -374,7 +374,7 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "customer": customer.name if customer else "-",
                     "vehicle": str(vehicle) if vehicle else "-",
                     "delivered_at": entry.workorder.delivered_at,
-                    "base_amount": entry.workorder.total_services_value,
+                    "base_amount": entry.base_amount,
                     "percentage": (entry.percentage * Decimal("100")).quantize(Decimal("0.01")),
                     "commission_amount": entry.commission_amount,
                 }
