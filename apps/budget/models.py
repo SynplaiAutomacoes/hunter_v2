@@ -1723,3 +1723,37 @@ class BudgetHistory(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.get_action_display()} - Orçamento #{self.budget.pk}"
+
+
+class BudgetPdfRenderJob(TimeStampedModel):
+    class Variant(models.TextChoices):
+        BASE = "base", "PDF base"
+        MANAGER = "manager", "PDF gestor"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pendente"
+        PROCESSING = "processing", "Processando"
+        COMPLETED = "completed", "Concluído"
+        FAILED = "failed", "Falhou"
+
+    budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="pdf_render_jobs")
+    variant = models.CharField(max_length=20, choices=Variant.choices)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    requested_by = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, related_name="budget_pdf_render_jobs", null=True, blank=True)
+    budget_updated_at = models.DateTimeField(null=True, blank=True)
+    output_file = models.FileField(upload_to="generated/budget_pdfs/", blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(blank=True, default="")
+
+    class Meta(TimeStampedModel.Meta):
+        verbose_name = "Fila de renderização de PDF do orçamento"
+        verbose_name_plural = "Filas de renderização de PDFs do orçamento"
+        constraints = [
+            models.UniqueConstraint(fields=("budget", "variant"), name="unique_budget_pdf_render_job_per_variant"),
+        ]
+        indexes = [
+            models.Index(fields=("status", "variant"), name="budget_pdf_job_sv_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"PDF {self.variant} do orçamento #{self.budget_id} ({self.status})"

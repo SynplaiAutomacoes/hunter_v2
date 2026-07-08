@@ -6,7 +6,7 @@ from typing import Any, cast
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
-from django.db.models import Count, Max, Q, QuerySet
+from django.db.models import Count, OuterRef, Q, QuerySet, Subquery
 from django.http import HttpResponse, HttpResponseRedirect
 from django.urls import reverse, reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
@@ -22,6 +22,7 @@ from apps.messaging.models import CustomerMessageGroup, CustomerMessageGroupMemb
 from apps.messaging.rendering import format_phone_value, format_variable_value
 from apps.messaging.variables import get_variable_groups
 from apps.workshops.mixin import WorkshopScopedMixin
+from apps.workorder.models import WorkOrder
 
 
 CUSTOMER_MESSAGE_GROUP_CUSTOMER_FILTERS: tuple[QueryParamFilter, ...] = (
@@ -52,7 +53,15 @@ def _parse_selected_customer_ids(raw_values: Iterable[Any]) -> list[int]:
 
 
 def _annotate_customers_with_latest_os(queryset: QuerySet[Customer]) -> QuerySet[Customer]:
-    return queryset.annotate(latest_os_at=Max("budgets__workorders__criado_em"))
+    latest_workorder_subquery = (
+        WorkOrder.objects.filter(
+            budget__customer=OuterRef("pk"),
+            criado_em__isnull=False,
+        )
+        .order_by("-criado_em")
+        .values("criado_em")[:1]
+    )
+    return queryset.annotate(latest_os_at=Subquery(latest_workorder_subquery))
 
 
 def _build_customer_picker_queryset(*, workshop: Any, params: Any) -> QuerySet[Customer]:

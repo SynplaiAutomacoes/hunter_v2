@@ -1,11 +1,12 @@
-<input
-  type="checkbox"
+<dialog
   id="financial-movement-delete-modal"
-  class="modal-toggle"
-  checked
-/>
-
-<div class="modal" role="dialog" aria-modal="true">
+  class="modal"
+  x-data="{}"
+  x-ref="deleteFinancialMovementModal"
+  x-init="$nextTick(() => $el.showModal())"
+  @click="if ($event.target === $el) $el.close()"
+  @close="$el.remove()"
+>
   <div class="modal-box">
     <h3 class="text-lg font-bold text-base-content">
       Excluir Movimentacao Financeira
@@ -29,17 +30,15 @@
       method="post"
       class="modal-action"
       hx-post="{{ request.path }}"
-      hx-target="{{ hx_target|default:'#modal-container' }}"
-      hx-swap="innerHTML"
+      hx-target="closest dialog"
+      hx-swap="outerHTML"
     >
       {% csrf_token %}
-      <label for="financial-movement-delete-modal" class="btn btn-ghost"
-        >Cancelar</label
-      >
+      <button type="button" class="btn btn-ghost" @click="$refs.deleteFinancialMovementModal.close()">Cancelar</button>
       <button type="submit" class="btn btn-error">Excluir</button>
     </form>
   </div>
-  <label class="modal-backdrop" for="financial-movement-delete-modal"
-    >Close</label
-  >
-</div>
+  <form method="dialog" class="modal-backdrop">
+    <button>Close</button>
+  </form>
+</dialog>

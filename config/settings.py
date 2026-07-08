@@ -43,6 +43,10 @@ PERF_LOG_MIN_MS = int(os.getenv("PERF_LOG_MIN_MS", "300"))
 
 # Environment (required for structured logging)
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+OTEL_SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "hunter-web")
+OTEL_SERVICE_NAMESPACE = os.getenv("OTEL_SERVICE_NAMESPACE", "synplai")
+OTEL_SERVICE_VERSION = os.getenv("OTEL_SERVICE_VERSION", "0.1.0")
+OTEL_METRIC_EXPORT_INTERVAL_MS = int(os.getenv("OTEL_METRIC_EXPORT_INTERVAL_MS", "300000"))
 
 # Grafana Cloud OTLP (OpenTelemetry)
 # Endpoint lido automaticamente de OTEL_EXPORTER_OTLP_ENDPOINT (definido no ambiente)
@@ -365,7 +369,7 @@ LOGGING = {
     },
 }
 
-# OpenTelemetry (logs + traces)
+# OpenTelemetry (logs + traces + metrics)
 # Só ativa se ambas as configs estiverem presentes (endpoint + auth)
 _otel_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 _otel_run = os.getenv("RUN_MAIN") == "true" or not os.getenv("RUN_MAIN")
@@ -373,7 +377,10 @@ if OTLP_AUTH_HEADER and _otel_endpoint and _otel_run:
     from apps.core.otel_logging import setup_otel  # noqa: PLC0415
 
     setup_otel(
-        service_name=ENVIRONMENT,
+        service_name=OTEL_SERVICE_NAME,
         environment=ENVIRONMENT,
         auth_header=OTLP_AUTH_HEADER,
+        service_namespace=OTEL_SERVICE_NAMESPACE,
+        service_version=OTEL_SERVICE_VERSION,
+        metric_export_interval_millis=OTEL_METRIC_EXPORT_INTERVAL_MS,
     )

@@ -115,12 +115,12 @@
                     <button
                         type="button"
                         class="btn btn-error btn-outline px-6"
-                        hx-get="{% url 'finance:report_movement_delete' pk=movement.pk %}"
-                        hx-target="closest .modal"
-                        hx-swap="outerHTML"
+                        hx-get="{% if movement.payroll_id %}{% url 'finance:financial_movement_remove_payroll_link' pk=movement.pk %}{% else %}{% url 'finance:report_movement_delete' pk=movement.pk %}{% endif %}"
+                        hx-target="body"
+                        hx-swap="beforeend"
                     >
-                        <span class="material-icons text-sm">delete</span>
-                        Excluir
+                        <span class="material-icons text-sm">{% if movement.payroll_id %}link_off{% else %}delete{% endif %}</span>
+                        {% if movement.payroll_id %}Excluir da Folha{% else %}Excluir{% endif %}
                     </button>
                     {% if movement.workorder_id %}
                     <a

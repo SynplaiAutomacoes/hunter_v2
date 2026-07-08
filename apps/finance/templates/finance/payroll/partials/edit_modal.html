@@ -119,7 +119,21 @@
                 </section>
             </div>
 
-            <div class="modal-action mt-8 flex items-center justify-end gap-3 border-t border-base-200 pt-6">
+            <div class="modal-action mt-8 flex items-center justify-between gap-3 border-t border-base-200 pt-6">
+                <div>
+                    {% if payroll.financial_movement_id %}
+                        <button
+                            type="button"
+                            class="btn btn-error btn-outline"
+                            hx-get="{% url 'finance:financial_movement_remove_payroll_link' payroll.financial_movement_id %}"
+                            hx-target="body"
+                            hx-swap="beforeend"
+                        >
+                            <span class="material-icons text-sm">link_off</span>
+                            Excluir da Folha
+                        </button>
+                    {% endif %}
+                </div>
                 <button type="button" class="btn-form-cancel" @click="$refs.payrollEditModal.close()">Cancelar</button>
                 <button type="submit" class="btn btn-primary">
                     <span class="material-icons text-sm">save</span>
