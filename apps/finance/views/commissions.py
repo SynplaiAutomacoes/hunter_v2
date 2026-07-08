@@ -6,7 +6,7 @@ from typing import Any
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
-from django.db.models import Q
+from django.db.models import Count, Q, Sum
 from django.http import HttpResponse
 from django.urls import reverse
 from django.utils.decorators import method_decorator
@@ -181,31 +181,35 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
             return "-"
         return str(budget.problem_description or budget.notes or "-")
 
-    def _build_summary_cards(self, *, entries: list[CollaboratorCommissionEntry]) -> list[dict[str, str]]:
-        forecast_entries = [entry for entry in entries if entry.status == CollaboratorCommissionEntry.Status.FORECAST]
-        paid_entries = [entry for entry in entries if entry.status == CollaboratorCommissionEntry.Status.PAID]
-        workorder_count = len({entry.workorder_id for entry in entries})
-        collaborator_count = len({entry.collaborator_id for entry in entries})
+    def _build_summary_cards(self, *, queryset) -> list[dict[str, str]]:
+        aggregates = queryset.aggregate(
+            forecast_total=Sum("commission_amount", filter=Q(status=CollaboratorCommissionEntry.Status.FORECAST)),
+            forecast_count=Count("id", filter=Q(status=CollaboratorCommissionEntry.Status.FORECAST)),
+            paid_total=Sum("commission_amount", filter=Q(status=CollaboratorCommissionEntry.Status.PAID)),
+            paid_count=Count("id", filter=Q(status=CollaboratorCommissionEntry.Status.PAID)),
+            workorder_count=Count("workorder", distinct=True),
+            collaborator_count=Count("collaborator", distinct=True),
+        )
 
         return [
             {
                 "title": "Comissões não pagas",
-                "value": format_money(self._money_total(forecast_entries, "commission_amount")),
-                "support": f"{len(forecast_entries)} lançamento(s)",
+                "value": format_money(aggregates.get("forecast_total") or Decimal("0.00")),
+                "support": f"{aggregates.get('forecast_count') or 0} lançamento(s)",
             },
             {
                 "title": "Comissões pagas",
-                "value": format_money(self._money_total(paid_entries, "commission_amount")),
-                "support": f"{len(paid_entries)} lançamento(s)",
+                "value": format_money(aggregates.get("paid_total") or Decimal("0.00")),
+                "support": f"{aggregates.get('paid_count') or 0} lançamento(s)",
             },
             {
                 "title": "O.S. com comissão",
-                "value": str(workorder_count),
+                "value": str(aggregates.get("workorder_count") or 0),
                 "support": "com comissão apurada",
             },
             {
                 "title": "Colaboradores",
-                "value": str(collaborator_count),
+                "value": str(aggregates.get("collaborator_count") or 0),
                 "support": "com comissão no filtro",
             },
         ]
@@ -247,7 +251,7 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
         visible_entries = list(page_obj.object_list)
         filter_params = self._get_filter_params()
 
-        context["summary_cards"] = self._build_summary_cards(entries=list(queryset))
+        context["summary_cards"] = self._build_summary_cards(queryset=queryset)
         context["commission_rows"] = self._build_rows(entries=visible_entries)
         context["collaborator_filters"] = self._get_collaborators_queryset()
         context["status_choices"] = self.STATUS_CHOICES

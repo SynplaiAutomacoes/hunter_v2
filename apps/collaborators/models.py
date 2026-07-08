@@ -150,6 +150,7 @@ class CollaboratorBenefit(TimeStampedModel):
     name = models.CharField(verbose_name="Nome do benefício", max_length=255)
     description = models.TextField(verbose_name="Descrição", blank=True)
     monthly_amount = MoneyField(verbose_name="Valor mensal", max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    budget_plan = models.ForeignKey("finance.FinancialGroup", verbose_name="Plano Orçamentário", on_delete=models.PROTECT, null=True, blank=True, related_name="collaborator_benefits")
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
 
     class Meta(TimeStampedModel.Meta):
@@ -197,16 +198,59 @@ class CollaboratorPayroll(TimeStampedModel):
     def __str__(self) -> str:
         return f"{self.collaborator.name} - {self.reference_month:02d}/{self.reference_year}"
 
+    @staticmethod
+    def _component_order(item) -> int:
+        component = getattr(item, "payroll_component", None)
+        order = {
+            "SALARY": 0,
+            "BENEFIT": 1,
+            "TRANSPORT": 2,
+            "COMMISSION": 3,
+        }
+        return order.get(str(component or ""), 99)
+
+    def get_financial_movements(self) -> list:
+        movements = list(self.financial_movements.all())
+        if movements:
+            return sorted(movements, key=lambda movement: (self._component_order(movement), movement.pk or 0))
+        if self.financial_movement is not None:
+            return [self.financial_movement]
+        return []
+
+    @property
+    def primary_financial_movement(self):
+        movements = self.get_financial_movements()
+        return movements[0] if movements else None
+
+    @property
+    def has_split_financial_movements(self) -> bool:
+        return bool(self.financial_movements.exists())
+
+    @property
+    def is_reconciled(self) -> bool:
+        movements = self.get_financial_movements()
+        return bool(movements) and all(movement.is_reconciled for movement in movements)
+
     @property
     def paid_amount(self) -> Money:
-        if self.financial_movement and self.financial_movement.is_paid:
-            return self.total_amount
-        return Money(0, "BRL")
+        movements = self.get_financial_movements()
+        if not movements:
+            return Money(0, "BRL")
+
+        paid_total = sum((Decimal(str(movement.amount.amount or 0)) for movement in movements if movement.is_paid), start=Decimal("0.00"))
+        return Money(paid_total, "BRL")
 
     @property
     def status(self) -> str:
-        if self.financial_movement and self.financial_movement.is_paid:
+        movements = self.get_financial_movements()
+        if not movements:
+            return self.Status.FORECAST
+
+        paid_count = sum(1 for movement in movements if movement.is_paid)
+        if paid_count == len(movements):
             return self.Status.PAID
+        if paid_count > 0:
+            return self.Status.PARTIAL
         return self.Status.FORECAST
 
     @property
