@@ -433,12 +433,15 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
     }
     synced_entries: list[CollaboratorCommissionEntry] = []
     active_workorder_ids: set[int] = set()
+    protected_workorder_ids: set[int] = set()
     percentage = Decimal(str(collaborator.commission_percentage or 0))
 
     for workorder in workorders:
         if not _workorder_can_generate_commission(workorder=workorder):
             remove_pending_workorder_commissions(workorder=workorder)
             continue
+
+        protected_workorder_ids.add(workorder.pk)
 
         commission_reference = commission_reference_by_workorder_id[workorder.pk]
         effective_reference = _resolve_payroll_reference_date_from_lookup(
@@ -512,8 +515,9 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
         synced_entries.append(entry)
 
     stale_entries = CollaboratorCommissionEntry.objects.filter(collaborator=collaborator, reference_year=resolved.year, reference_month=resolved.month)
-    if active_workorder_ids:
-        stale_entries = stale_entries.exclude(workorder_id__in=active_workorder_ids)
+    protected_ids = active_workorder_ids | protected_workorder_ids
+    if protected_ids:
+        stale_entries = stale_entries.exclude(workorder_id__in=protected_ids)
     stale_entries.filter(status=CollaboratorCommissionEntry.Status.FORECAST).delete()
     return synced_entries
 
