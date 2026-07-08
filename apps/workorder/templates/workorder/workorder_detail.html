@@ -120,6 +120,16 @@
             btn.disabled = false;
         }
     }
+
+    window.addEventListener('update-pdf-modal-state', (e) => {
+        const modal = document.getElementById('pdfModal');
+        if (!modal || typeof Alpine === 'undefined') return;
+        const data = Alpine.$data(modal);
+        if (!data) return;
+        if (e.detail.kmFinalIsNone !== undefined) data.kmFinalIsNone = e.detail.kmFinalIsNone;
+        if (e.detail.hasCompletionBlockers !== undefined) data.hasCompletionBlockers = e.detail.hasCompletionBlockers;
+        if (e.detail.completionBlockersDisplay !== undefined) data.completionBlockersDisplay = e.detail.completionBlockersDisplay;
+    });
 </script>
 
 <script>
