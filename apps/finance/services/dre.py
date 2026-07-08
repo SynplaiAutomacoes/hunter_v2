@@ -669,8 +669,6 @@ def _agent_label(m: FinancialMovement) -> str:
         pk = getattr(budget, "pk", "-")
         name = getattr(customer, "name", "-") or "-"
         return f"O.S #{pk} - {name}"
-    if m.payroll_id:
-        return "Anonimo"
     if m.collaborator_id:
         return str(m.collaborator.name)
     if m.supplier_id:

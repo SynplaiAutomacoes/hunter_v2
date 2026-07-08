@@ -170,9 +170,6 @@ class FinancialMovement(TimeStampedModel):
             customer = getattr(getattr(self.workorder, "budget", None), "customer", None)
             return f"O.S #{str(self.workorder.budget.pk)} - {getattr(customer, 'name', '-') or '-'}"
 
-        if self.payroll_id:
-            return "Anonimo"
-
         if self.collaborator_id:
             return str(self.collaborator.name)
 

@@ -131,9 +131,6 @@ def has_workshop_perm(*, user: User, workshop: Workshop, app_label: str, model: 
     if is_workshop_director(user=user, workshop=workshop, request=request):
         return True
 
-    if is_workshop_manager(user=user, workshop=workshop, request=request):
-        return True
-
     workshop_id = getattr(workshop, "id", None)
     permission_key = (workshop_id, app_label, model, codename)
     cache: dict[tuple[object, ...], bool] | None = None
@@ -158,3 +155,14 @@ def has_workshop_perm(*, user: User, workshop: Workshop, app_label: str, model: 
         cache[permission_key] = has_permission
 
     return has_permission
+
+
+def can_view_payroll_details(*, user: User, workshop: Workshop, request=None) -> bool:
+    return has_workshop_perm(
+        user=user,
+        workshop=workshop,
+        app_label="collaborators",
+        model="collaboratorpayroll",
+        codename="view_payroll_details",
+        request=request,
+    )

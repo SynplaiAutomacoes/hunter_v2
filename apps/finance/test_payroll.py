@@ -10,9 +10,11 @@ from djmoney.money import Money
 
 from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
 from apps.collaborators.services import sync_collaborator_payroll
+from apps.core.presentation.navigation import get_navbar_menus
 from apps.collaborators.test_commissions import create_workorder
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.services.dre import _agent_label
+from apps.finance.services.payroll_visibility import PAYROLL_REDACTED_LABEL, resolve_payroll_movement_display
 from apps.finance.views.payroll import PayrollBulkPayView, PayrollBulkUnpayView, PayrollEditModalView, PayrollListView, PayrollRefreshView
 from apps.finance.views.reports import ReportMovementEditView
 from apps.workshops.models.workshops import Workshop
@@ -40,6 +42,20 @@ def create_collaborator(*, workshop: Workshop, suffix: int) -> WorkshopCollabora
 
 
 class PayrollListViewTests(TestCase):
+    def test_navbar_hides_payroll_menu_without_permission(self) -> None:
+        request = RequestFactory().get("/")
+        request.user = SimpleNamespace(is_authenticated=True, account_id=1)
+
+        with (
+            patch("apps.core.presentation.navigation.active_workshops", return_value={"active_workshops": [SimpleNamespace(pk=1)], "active_workshop_id": 1, "active_workshop_is_director": False, "active_workshop_is_manager": False}),
+            patch("apps.core.presentation.navigation.can_view_payroll_details", return_value=False),
+        ):
+            menus = get_navbar_menus(request)
+
+        finance_menu = next(menu for menu in menus if menu["label"] == "Financeiro")
+        labels = {item["label"] for item in finance_menu["children"]}
+        self.assertNotIn("Folha de Pagamento", labels)
+
     def test_list_queryset_does_not_trigger_monthly_sync_on_page_load(self) -> None:
         workshop = create_workshop(suffix=19)
         collaborator = create_collaborator(workshop=workshop, suffix=19)
@@ -168,7 +184,7 @@ class PayrollListViewTests(TestCase):
 
 
 class PayrollEditModalViewTests(TestCase):
-    def test_payroll_movements_use_anonymous_agent_and_description(self) -> None:
+    def test_payroll_movements_store_named_agent_and_description(self) -> None:
         workshop = create_workshop(suffix=24)
         collaborator = create_collaborator(workshop=workshop, suffix=24)
 
@@ -181,10 +197,42 @@ class PayrollEditModalViewTests(TestCase):
         movements = list(FinancialMovement.objects.filter(payroll=payroll).order_by("id"))
 
         self.assertTrue(movements)
-        self.assertTrue(all(movement.report_agent_display == "Anonimo" for movement in movements))
-        self.assertTrue(all(_agent_label(movement) == "Anonimo" for movement in movements))
-        self.assertTrue(all(collaborator.name not in str(movement.description or "") for movement in movements))
-        self.assertIn("Salário - 08/2026", [str(movement.description) for movement in movements])
+        self.assertTrue(all(movement.report_agent_display == collaborator.name for movement in movements))
+        self.assertTrue(all(_agent_label(movement) == collaborator.name for movement in movements))
+        self.assertTrue(all(collaborator.name in str(movement.description or "") for movement in movements))
+        self.assertIn(f"Salário {collaborator.name} - 08/2026", [str(movement.description) for movement in movements])
+
+    def test_payroll_movements_are_redacted_without_permission(self) -> None:
+        workshop = create_workshop(suffix=25)
+        collaborator = create_collaborator(workshop=workshop, suffix=25)
+        payroll = sync_collaborator_payroll(
+            collaborator=collaborator,
+            reference_date=date(2026, 8, 1),
+            lock_reference=True,
+        )
+        movement = FinancialMovement.objects.filter(payroll=payroll).order_by("id")[0]
+
+        with patch("apps.finance.services.payroll_visibility.can_view_payroll_details", return_value=False):
+            agent, description = resolve_payroll_movement_display(movement=movement, user=SimpleNamespace(), workshop=workshop)
+
+        self.assertEqual(agent, PAYROLL_REDACTED_LABEL)
+        self.assertEqual(description, f"{PAYROLL_REDACTED_LABEL} - 08/2026")
+
+    def test_payroll_movements_show_full_data_with_permission(self) -> None:
+        workshop = create_workshop(suffix=26)
+        collaborator = create_collaborator(workshop=workshop, suffix=26)
+        payroll = sync_collaborator_payroll(
+            collaborator=collaborator,
+            reference_date=date(2026, 8, 1),
+            lock_reference=True,
+        )
+        movement = FinancialMovement.objects.filter(payroll=payroll).order_by("id")[0]
+
+        with patch("apps.finance.services.payroll_visibility.can_view_payroll_details", return_value=True):
+            agent, description = resolve_payroll_movement_display(movement=movement, user=SimpleNamespace(), workshop=workshop)
+
+        self.assertEqual(agent, collaborator.name)
+        self.assertIn(collaborator.name, description)
 
     def test_commission_tab_formats_percentage_as_percent(self) -> None:
         workshop = create_workshop(suffix=2)

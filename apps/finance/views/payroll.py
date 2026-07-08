@@ -8,6 +8,7 @@ from typing import Any
 from django import forms
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db.models import Q, Sum
 from django.http import HttpResponse, QueryDict
@@ -29,6 +30,7 @@ from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.views.commissions import MONTH_CHOICES, _parse_int_param, build_paid_status_indicator
 from apps.workshops.mixin import WorkshopScopedMixin
+from apps.workshops.util.workshops import can_view_payroll_details, get_active_workshop_or_404
 
 
 class PayrollPaymentForm(forms.ModelForm):
@@ -84,7 +86,15 @@ class PayrollPaymentForm(forms.ModelForm):
             self.fields["payment_method"].widget.choices = [(item.pk, str(item)) for item in methods]
 
 
-class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
+class PayrollAccessMixin:
+    def dispatch(self, request, *args, **kwargs):
+        workshop = get_active_workshop_or_404(request)
+        if not can_view_payroll_details(user=request.user, workshop=workshop, request=request):
+            raise PermissionDenied
+        return super().dispatch(request, *args, **kwargs)
+
+
+class PayrollListView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScopedMixin, TemplateView):
     model = CollaboratorPayroll
     template_name = "finance/payroll/list.html"
     workshop_permission_app_label = "finance"
@@ -313,7 +323,7 @@ def _build_hx_toast_response(*, message: str, toast_type: str, refresh: bool = F
     return response
 
 
-class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
+class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScopedMixin, View):
     model = CollaboratorPayroll
     workshop_permission_app_label = "finance"
     workshop_permission_model = "financialmovement"
@@ -372,7 +382,7 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return response
 
 
-class PayrollBulkPayView(LoginRequiredMixin, WorkshopScopedMixin, View):
+class PayrollBulkPayView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScopedMixin, View):
     workshop_permission_app_label = "finance"
     workshop_permission_model = "financialmovement"
     workshop_permission_codename = "change_financialmovement"
@@ -421,7 +431,7 @@ class PayrollBulkPayView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return HttpResponseRedirect(reverse("finance:payroll_list"))
 
 
-class PayrollBulkUnpayView(LoginRequiredMixin, WorkshopScopedMixin, View):
+class PayrollBulkUnpayView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScopedMixin, View):
     workshop_permission_app_label = "finance"
     workshop_permission_model = "financialmovement"
     workshop_permission_codename = "change_financialmovement"

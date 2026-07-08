@@ -575,7 +575,7 @@ def _build_payroll_component_specs(*, payroll: CollaboratorPayroll, active_benef
             {
                 "component": component,
                 "amount": amount,
-                "description": f"{PAYROLL_COMPONENT_LABELS[component]} - {payroll.reference_month:02d}/{payroll.reference_year}",
+                "description": f"{PAYROLL_COMPONENT_LABELS[component]} {payroll.collaborator.name} - {payroll.reference_month:02d}/{payroll.reference_year}",
                 "budget_plan": get_collaborator_payroll_component_group(collaborator=payroll.collaborator, component=component),
             }
         )
@@ -607,7 +607,7 @@ def _build_payroll_component_specs(*, payroll: CollaboratorPayroll, active_benef
             {
                 "component": FinancialMovement.PayrollComponent.BENEFIT,
                 "amount": amount,
-                "description": f"{PAYROLL_COMPONENT_LABELS[FinancialMovement.PayrollComponent.BENEFIT]} - {payroll.reference_month:02d}/{payroll.reference_year}",
+                "description": f"{PAYROLL_COMPONENT_LABELS[FinancialMovement.PayrollComponent.BENEFIT]} {payroll.collaborator.name} - {payroll.reference_month:02d}/{payroll.reference_year}",
                 "budget_plan": benefit_bucket["budget_plan"],
             }
         )
