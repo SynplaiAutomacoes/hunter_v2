@@ -155,6 +155,7 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
                 SimpleNamespace(
                     service=override.service,
                     total_price=override.service_selling_price * qty,
+                    item_benefit_type=kit_item.item_benefit_type,
                 )
             )
 
