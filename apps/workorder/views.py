@@ -1288,15 +1288,17 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
             try:
                 km_final = approval_form.cleaned_data["km_final"]
                 unsigned_delivery_reason = approval_form.cleaned_data["unsigned_delivery_reason"]
-                workorder.complete_delivery(km_final=km_final, unsigned_delivery_reason=unsigned_delivery_reason)
 
-                approve_workorder_with_stock(workorder=workorder, user=request.user)
-                sync_workorder_financial_movement(workorder=workorder)
+                with transaction.atomic():
+                    workorder.complete_delivery(km_final=km_final, unsigned_delivery_reason=unsigned_delivery_reason)
 
-                vehicle = getattr(workorder.budget, "vehicle", None)
-                if vehicle and (vehicle.km is None or km_final > vehicle.km):
-                    vehicle.km = km_final
-                    vehicle.save(update_fields=["km"])
+                    approve_workorder_with_stock(workorder=workorder, user=request.user)
+                    sync_workorder_financial_movement(workorder=workorder)
+
+                    vehicle = getattr(workorder.budget, "vehicle", None)
+                    if vehicle and (vehicle.km is None or km_final > vehicle.km):
+                        vehicle.km = km_final
+                        vehicle.save(update_fields=["km"])
             except WorkOrderApprovalError as exc:
                 response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
                 response["HX-Trigger"] = json.dumps({"showToast": {"message": str(exc), "type": "error"}})

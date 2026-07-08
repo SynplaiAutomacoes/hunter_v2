@@ -117,6 +117,7 @@ def parse_supersign_webhook_body(request: HttpRequest) -> dict[str, Any]:
 
 def process_supersign_webhook_payload(*, payload: dict[str, Any]) -> HttpResponse:
     from apps.budget.models import Budget, SignatureStatus
+    from apps.workorder.approval import WorkOrderApprovalError, approve_workorder_with_stock
     from apps.workorder.models import WorkOrderSignatureStatus
 
     event_name = extract_supersign_event(payload)
@@ -160,6 +161,18 @@ def process_supersign_webhook_payload(*, payload: dict[str, Any]) -> HttpRespons
                 logger.info("supersign_webhook_budget_approved", extra={"budget_id": budget.pk, "envelope_id": envelope_id})
 
         if workorder is not None:
+            try:
+                approve_workorder_with_stock(workorder=workorder, user=None)
+            except WorkOrderApprovalError as exc:
+                logger.warning(
+                    "supersign_webhook_workorder_stock_insufficient",
+                    extra={
+                        "workorder_id": workorder.pk,
+                        "envelope_id": envelope_id,
+                        "error": str(exc),
+                    },
+                )
+
             workorder.mark_signature_approved()
             sync_workorder_financial_movement(workorder=workorder)
             logger.info("supersign_webhook_workorder_approved", extra={"workorder_id": workorder.pk, "envelope_id": envelope_id})

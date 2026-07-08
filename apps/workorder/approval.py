@@ -49,11 +49,15 @@ def approve_workorder_with_stock(*, workorder: WorkOrder, user: object | None = 
 
             for product_id, required_quantity in required_quantities.items():
                 stock_entry = stock_by_product_id.get(product_id)
-                available_quantity = stock_entry.current_quantity if stock_entry is not None else 0
-                excess_quantity = max(required_quantity - available_quantity, 0)
-                if excess_quantity > 0:
-                    product_name = product_names.get(product_id) or (stock_entry.product.name if stock_entry else str(product_id))
-                    stock_issue_labels.append(f"{product_name} (+{excess_quantity})")
+                product_name = product_names.get(product_id) or str(product_id)
+
+                if stock_entry is None:
+                    stock_issue_labels.append(f"{product_name} (sem cadastro de estoque, necessita {required_quantity})")
+                else:
+                    available_quantity = stock_entry.current_quantity
+                    excess_quantity = max(required_quantity - available_quantity, 0)
+                    if excess_quantity > 0:
+                        stock_issue_labels.append(f"{product_name} (+{excess_quantity}, disponivel {available_quantity})")
 
             if stock_issue_labels:
                 blockers.append(f"Existem pecas com quantidade acima do estoque disponivel: {', '.join(stock_issue_labels)}.")
