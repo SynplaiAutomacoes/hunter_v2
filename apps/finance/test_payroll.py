@@ -11,7 +11,6 @@ from djmoney.money import Money
 from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
 from apps.collaborators.test_commissions import create_workorder
 from apps.finance.models.financial_movement import FinancialMovement
-from apps.finance.views.financial_movement import FinancialMovementListView, FinancialMovementRemovePayrollLinkView
 from apps.finance.views.payroll import PayrollBulkPayView, PayrollBulkUnpayView, PayrollEditModalView, PayrollListView, PayrollRefreshView
 from apps.finance.views.reports import ReportMovementEditView
 from apps.workshops.models.workshops import Workshop

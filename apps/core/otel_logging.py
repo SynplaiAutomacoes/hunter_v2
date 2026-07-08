@@ -3,14 +3,19 @@ from __future__ import annotations
 import logging
 import urllib.parse
 
+from opentelemetry import metrics
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
+from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.django import DjangoInstrumentor
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
+from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk._logs import LoggerProvider
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -46,18 +51,30 @@ _LOG_RECORD_STANDARD_ATTRS: frozenset[str] = frozenset(
 )
 
 
-def setup_otel(*, service_name: str, environment: str, auth_header: str | None = None) -> None:
+def setup_otel(
+    *,
+    service_name: str,
+    environment: str,
+    auth_header: str | None = None,
+    service_namespace: str | None = None,
+    service_version: str | None = None,
+    metric_export_interval_millis: int = 60000,
+) -> None:
     if auth_header:
         auth_header = urllib.parse.unquote(auth_header)
 
     headers = {"Authorization": auth_header} if auth_header else None
 
-    resource = Resource.create(
-        {
-            "service.name": service_name,
-            "deployment.environment": environment,
-        }
-    )
+    resource_attributes: dict[str, str] = {
+        "service.name": service_name,
+        "deployment.environment": environment,
+    }
+    if service_namespace:
+        resource_attributes["service.namespace"] = service_namespace
+    if service_version:
+        resource_attributes["service.version"] = service_version
+
+    resource = Resource.create(resource_attributes)
 
     # Logs
     logger_provider = LoggerProvider(resource=resource)
@@ -78,9 +95,17 @@ def setup_otel(*, service_name: str, environment: str, auth_header: str | None =
     )
     set_tracer_provider(tracer_provider)
 
+    # Metrics
+    metric_reader = PeriodicExportingMetricReader(
+        OTLPMetricExporter(headers=headers),
+        export_interval_millis=metric_export_interval_millis,
+    )
+    metrics.set_meter_provider(MeterProvider(resource=resource, metric_readers=[metric_reader]))
+
     # Auto-instrumentation
     DjangoInstrumentor().instrument()
     RequestsInstrumentor().instrument()
+    PsycopgInstrumentor().instrument()
 
 
 class OtelAttrsFilter(logging.Filter):

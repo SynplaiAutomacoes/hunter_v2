@@ -5,7 +5,7 @@ import json
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse_lazy
@@ -14,10 +14,13 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from apps.catalog.equivalent_products import get_equivalent_products_queryset, serialize_equivalent_product
-from apps.budget.models import BudgetItem
+from apps.budget.models import BudgetItem, BudgetKitItemOverride
+from apps.workorder.models import WorkOrderItem
 from apps.catalog.forms.products import ProductForm
 from apps.catalog.models.groups import CatalogGroup
+from apps.catalog.models.kits import KitProduct
 from apps.catalog.models.products import Product
+from apps.stock.models import StockProduct
 from apps.catalog.util import build_product_kits_assignment_context
 from apps.core.utils import clean_id
 from apps.core.presentation.navigation import PRODUCT_CREATE_FAVORITE_PAGE
@@ -26,8 +29,7 @@ from apps.core.infrastructure.search import apply_text_search, build_text_search
 from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
-from apps.stock.models import StockMovement, StockProduct
-from apps.workorder.models import WorkOrderItem
+from apps.stock.models import StockMovement
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
@@ -94,6 +96,14 @@ class ProductListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
             filter_configs=product_list_filters,
         )
 
+        queryset = queryset.annotate(
+            has_usage=Exists(BudgetItem.objects.filter(product=OuterRef("pk")).only("pk"))
+            | Exists(WorkOrderItem.objects.filter(product=OuterRef("pk")).only("pk"))
+            | Exists(BudgetKitItemOverride.objects.filter(product=OuterRef("pk")).only("pk"))
+            | Exists(WorkOrderItem.objects.filter(product=OuterRef("pk")).only("pk"))
+            | Exists(KitProduct.objects.filter(product=OuterRef("pk")).only("pk"))
+            | Exists(StockProduct.objects.filter(product=OuterRef("pk"), movements__isnull=False).only("pk")),
+        )
         return queryset.order_by("-criado_em")
 
     def get_context_data(self, **kwargs):
@@ -113,7 +123,7 @@ class ProductListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
 
         context["actions"] = [
             TableActionDefaults.edit("catalog:product_update"),
-            TableActionDefaults.delete("catalog:product_delete", visible=lambda obj: not obj.is_used),
+            TableActionDefaults.delete("catalog:product_delete", visible=lambda obj: not getattr(obj, "has_usage", False)),
         ]
 
         context["group_choices"] = [(str(group_id), name) for group_id, name in CatalogGroup.objects.filter(workshop=self.workshop).order_by("name").values_list("id", "name")]

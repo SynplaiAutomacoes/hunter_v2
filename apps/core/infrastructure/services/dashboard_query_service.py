@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -14,6 +15,7 @@ from apps.budget.models import Budget, BudgetItem, BudgetStatus, BudgetType
 from apps.budget.pdf_context import calculate_markup_multiplier
 from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.core.domain.services.dashboard_service import DashboardMetrics
+from apps.core.observability import build_business_metric_attributes, record_business_operation
 from apps.finance.models import FinancialGroup, FinancialMovement
 from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.models.workshop_costs import WorkshopCost
@@ -28,8 +30,18 @@ TWO_DECIMAL_PLACES = Decimal("0.01")
 
 MONTH_LABELS_PT: list[str] = [
     "",
-    "Janeiro", "Fevereiro", "Marco", "Abril", "Maio", "Junho",
-    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+    "Janeiro",
+    "Fevereiro",
+    "Marco",
+    "Abril",
+    "Maio",
+    "Junho",
+    "Julho",
+    "Agosto",
+    "Setembro",
+    "Outubro",
+    "Novembro",
+    "Dezembro",
 ]
 
 OPEN_BUDGET_STATUSES: tuple[str, ...] = (
@@ -84,6 +96,7 @@ _WORKORDER_ITEMS_PREFETCH = Prefetch(
 
 
 # ─── Value objects (result types for each query) ──────────────────────────────
+
 
 @dataclass(frozen=True)
 class ApprovedBudgetMetrics:
@@ -149,6 +162,7 @@ class FinancialIndicatorReportData:
 
 # ─── Pure utility functions ───────────────────────────────────────────────────
 
+
 def resolve_decimal_amount(value: Any) -> Decimal:
     amount = getattr(value, "amount", value)
     if isinstance(amount, Decimal):
@@ -175,9 +189,7 @@ def calculate_aggregate_markup(*, workshop_id: int, month: int, year: int) -> De
     if not workorder_ids:
         return Decimal("0.00")
 
-    total_product_cost, total_third_party_cost, total_mechanic_cost, total_shipping = _aggregate_costs(
-        workorder_ids=workorder_ids
-    )
+    total_product_cost, total_third_party_cost, total_mechanic_cost, total_shipping = _aggregate_costs(workorder_ids=workorder_ids)
 
     total_service_cost = total_third_party_cost + total_mechanic_cost
     total_cost = total_product_cost + total_service_cost + total_shipping
@@ -200,8 +212,7 @@ def _aggregate_revenue(*, workshop_id: int, month: int, year: int) -> Decimal:
         )
         .annotate(
             payment_total=ExpressionWrapper(
-                F("first_installment_amount")
-                + (F("installments_count") - 1) * F("remaining_installments_amount"),
+                F("first_installment_amount") + (F("installments_count") - 1) * F("remaining_installments_amount"),
                 output_field=DecimalField(max_digits=14, decimal_places=2),
             )
         )
@@ -274,6 +285,7 @@ def count_elapsed_business_days(*, workshop_cost: WorkshopCost, today: date) -> 
 
 # ─── Report building functions ────────────────────────────────────────────────
 
+
 def resolve_indicator_row_amount(*, item: Any, indicator: str, is_budget_report: bool) -> Decimal:
     if is_budget_report:
         if indicator == "reprovados":
@@ -331,8 +343,7 @@ def _resolve_value_column_label(indicator: str) -> str:
     return "Valor total"
 
 
-def build_financial_indicator_report_data(*, indicator: str, month: int, year: int, items: list[Any],
-                                          is_budget_report: bool) -> FinancialIndicatorReportData:
+def build_financial_indicator_report_data(*, indicator: str, month: int, year: int, items: list[Any], is_budget_report: bool) -> FinancialIndicatorReportData:
     report_title, _ = INDICATOR_LABELS[indicator]
     periodo_label = f"{MONTH_LABELS_PT[month]} de {year}"
     items_label = "Orçamentos considerados no cálculo" if is_budget_report else "Ordens de Serviço consideradas no cálculo"
@@ -354,8 +365,7 @@ def build_financial_indicator_report_data(*, indicator: str, month: int, year: i
     )
 
 
-def _build_budget_report(*, indicator: str, report_title: str, periodo_label: str,
-                         items_label: str, items: list[Any]) -> FinancialIndicatorReportData:
+def _build_budget_report(*, indicator: str, report_title: str, periodo_label: str, items_label: str, items: list[Any]) -> FinancialIndicatorReportData:
     total_value = sum(
         (resolve_indicator_row_amount(item=item, indicator=indicator, is_budget_report=True) for item in items),
         Decimal("0.00"),
@@ -376,8 +386,7 @@ def _build_budget_report(*, indicator: str, report_title: str, periodo_label: st
     )
 
 
-def _build_workorder_report(*, indicator: str, report_title: str, periodo_label: str,
-                            items_label: str, items: list[Any]) -> FinancialIndicatorReportData:
+def _build_workorder_report(*, indicator: str, report_title: str, periodo_label: str, items_label: str, items: list[Any]) -> FinancialIndicatorReportData:
     workorder_groups = _build_workorder_groups(items=items, indicator=indicator)
     total_value = sum((group.group_total for group in workorder_groups), Decimal("0.00"))
     summary_count = len(workorder_groups)
@@ -403,6 +412,7 @@ def _build_workorder_report(*, indicator: str, report_title: str, periodo_label:
 
 # ─── Target comparison helpers ────────────────────────────────────────────────
 
+
 def _compute_projection_vs_target(projection: Decimal, target_gross: Decimal) -> dict[str, Any]:
     percentage_achieved = (projection / target_gross * Decimal("100")).quantize(Decimal("0.1"))
     if percentage_achieved >= 100:
@@ -420,6 +430,7 @@ def _compute_daily_vs_target(actual_daily: Decimal, daily_target: Decimal) -> di
 
 # ─── DashboardQueryService ────────────────────────────────────────────────────
 
+
 class DashboardQueryService:
     """Orchestrates all data fetching and computation for the dashboard.
 
@@ -430,62 +441,60 @@ class DashboardQueryService:
     """
 
     def compute(self, workshop: Workshop, selected_month: int, selected_year: int) -> DashboardMetrics:
+        started_at = time.perf_counter()
         hoje = timezone.localdate()
         workshop_id = workshop.pk
 
-        workshop_cost = WorkshopCost.objects.filter(
-            workshop_id=workshop_id, month=selected_month, year=selected_year
-        ).first()
+        workshop_cost = WorkshopCost.objects.filter(workshop_id=workshop_id, month=selected_month, year=selected_year).first()
 
-        approved_budget_metrics = self._get_approved_budget_metrics(
-            workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year
-        )
-        sale_workorders, warranty_workorders = self._get_delivered_workorders(
-            workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year
-        )
-        total_sold = self._calculate_total_sold(
-            workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year
-        )
-        today_sales = self._calculate_today_sales(
-            workshop_id=workshop_id, today=hoje
-        )
+        approved_budget_metrics = self._get_approved_budget_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
+        sale_workorders, warranty_workorders = self._get_delivered_workorders(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
+        total_sold = self._calculate_total_sold(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
+        today_sales = self._calculate_today_sales(workshop_id=workshop_id, today=hoje)
 
         logger.info(
             "Dashboard total vendido calculado | workshop_id=%s mes=%s ano=%s total_vendido=%s",
-            workshop_id, selected_month, selected_year, str(total_sold),
+            workshop_id,
+            selected_month,
+            selected_year,
+            str(total_sold),
         )
 
-        approval_rate_metrics = self._get_approval_rate_metrics(
-            workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year
-        )
-        pending_receivable_metrics = self._get_pending_receivable_metrics(
-            workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year
-        )
-        pending_budget_metrics = self._get_pending_budget_metrics(
-            workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year
-        )
-        total_rejected_budgets = self._get_rejected_budget_total(
-            workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year
-        )
+        approval_rate_metrics = self._get_approval_rate_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
+        pending_receivable_metrics = self._get_pending_receivable_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
+        pending_budget_metrics = self._get_pending_budget_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
+        total_rejected_budgets = self._get_rejected_budget_total(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
 
-        cars_this_month, warranty_courtesy_cars, warranty_return_rate = self._compute_delivery_counts(
-            sale_workorders=sale_workorders, warranty_workorders=warranty_workorders
-        )
+        cars_this_month, warranty_courtesy_cars, warranty_return_rate = self._compute_delivery_counts(sale_workorders=sale_workorders, warranty_workorders=warranty_workorders)
         average_ticket = total_sold / cars_this_month if cars_this_month > 0 else Decimal("0.00")
-        approval_rate = (
-            (approval_rate_metrics.approved_count / approval_rate_metrics.created_count * 100)
-            if approval_rate_metrics.created_count > 0
-            else 0
-        )
+        approval_rate = (approval_rate_metrics.approved_count / approval_rate_metrics.created_count * 100) if approval_rate_metrics.created_count > 0 else 0
 
-        projection_data = self._compute_projection(
-            workshop_cost=workshop_cost, total_sold=total_sold, today=hoje
-        )
+        projection_data = self._compute_projection(workshop_cost=workshop_cost, total_sold=total_sold, today=hoje)
         target_data = self._compute_target_metrics(
             workshop_cost=workshop_cost,
             total_sold=total_sold,
             projection=projection_data["projection"],
             elapsed_days=projection_data["elapsed_days"],
+        )
+
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        attributes = build_business_metric_attributes(
+            operation_name="compute_dashboard",
+            operation_group="dashboard",
+            result="success",
+        )
+        record_business_operation(duration_ms=duration_ms, attributes=attributes)
+        logger.info(
+            "business_operation_completed",
+            extra={
+                "operation_name": "compute_dashboard",
+                "operation_group": "dashboard",
+                "duration_ms": duration_ms,
+                "result": "success",
+                "workshop_id": workshop_id,
+                "selected_month": selected_month,
+                "selected_year": selected_year,
+            },
         )
 
         return DashboardMetrics(
@@ -531,9 +540,18 @@ class DashboardQueryService:
     @staticmethod
     def _month_choices() -> list[tuple[int, str]]:
         return [
-            (1, "Janeiro"), (2, "Fevereiro"), (3, "Março"), (4, "Abril"),
-            (5, "Maio"), (6, "Junho"), (7, "Julho"), (8, "Agosto"),
-            (9, "Setembro"), (10, "Outubro"), (11, "Novembro"), (12, "Dezembro"),
+            (1, "Janeiro"),
+            (2, "Fevereiro"),
+            (3, "Março"),
+            (4, "Abril"),
+            (5, "Maio"),
+            (6, "Junho"),
+            (7, "Julho"),
+            (8, "Agosto"),
+            (9, "Setembro"),
+            (10, "Outubro"),
+            (11, "Novembro"),
+            (12, "Dezembro"),
         ]
 
     @staticmethod
@@ -542,9 +560,7 @@ class DashboardQueryService:
         warranty_courtesy_cars = sum(1 for wo in warranty_workorders if wo.budget.reference_budget_id is None)
         warranty_count = sum(1 for wo in warranty_workorders if wo.budget_type == "warranty")
         total_cars_with_warranty = cars_this_month + warranty_count
-        warranty_return_rate = (
-            warranty_count / total_cars_with_warranty * 100 if total_cars_with_warranty > 0 else 0
-        )
+        warranty_return_rate = warranty_count / total_cars_with_warranty * 100 if total_cars_with_warranty > 0 else 0
         return cars_this_month, warranty_courtesy_cars, warranty_return_rate
 
     @staticmethod
@@ -580,8 +596,7 @@ class DashboardQueryService:
         }
 
     @staticmethod
-    def _compute_target_metrics( *, workshop_cost: WorkshopCost | None, total_sold: Decimal,
-                                 projection: Decimal | None, elapsed_days: int) -> dict[str, Any]:
+    def _compute_target_metrics(*, workshop_cost: WorkshopCost | None, total_sold: Decimal, projection: Decimal | None, elapsed_days: int) -> dict[str, Any]:
         base: dict[str, Any] = {
             "gross_revenue_target": None,
             "daily_revenue_target": None,
@@ -625,8 +640,7 @@ class DashboardQueryService:
             )
             .annotate(
                 payment_total=ExpressionWrapper(
-                    F("first_installment_amount")
-                    + (F("installments_count") - 1) * F("remaining_installments_amount"),
+                    F("first_installment_amount") + (F("installments_count") - 1) * F("remaining_installments_amount"),
                     output_field=DecimalField(max_digits=14, decimal_places=2),
                 )
             )
@@ -645,8 +659,7 @@ class DashboardQueryService:
             )
             .annotate(
                 payment_total=ExpressionWrapper(
-                    F("first_installment_amount")
-                    + (F("installments_count") - 1) * F("remaining_installments_amount"),
+                    F("first_installment_amount") + (F("installments_count") - 1) * F("remaining_installments_amount"),
                     output_field=DecimalField(max_digits=14, decimal_places=2),
                 )
             )
@@ -683,9 +696,7 @@ class DashboardQueryService:
         )
         profitabilities = [b.rentability for b in approved_budgets if b.rentability is not None]
         accumulated_profitability = sum(profitabilities) / len(profitabilities) if profitabilities else 0
-        accumulated_markup = calculate_aggregate_markup(
-            workshop_id=workshop_id, month=selected_month, year=selected_year
-        )
+        accumulated_markup = calculate_aggregate_markup(workshop_id=workshop_id, month=selected_month, year=selected_year)
         return ApprovedBudgetMetrics(
             accumulated_profitability=accumulated_profitability,
             accumulated_markup=accumulated_markup,
@@ -731,11 +742,7 @@ class DashboardQueryService:
         for workorder in draft_workorders:
             pending_value = resolve_decimal_amount(workorder.pending_payment_value)
             total_general += pending_value
-            if (
-                workorder.criado_em
-                and workorder.criado_em.month == selected_month
-                and workorder.criado_em.year == selected_year
-            ):
+            if workorder.criado_em and workorder.criado_em.month == selected_month and workorder.criado_em.year == selected_year:
                 monthly += pending_value
 
         return PendingReceivableMetrics(
@@ -755,13 +762,7 @@ class DashboardQueryService:
         )
         total_general = sum((b.total_budget_value.amount for b in pending_budgets), Decimal("0.00"))
         monthly = sum(
-            (
-                b.total_budget_value.amount
-                for b in pending_budgets
-                if b.entry_date
-                and b.entry_date.month == selected_month
-                and b.entry_date.year == selected_year
-            ),
+            (b.total_budget_value.amount for b in pending_budgets if b.entry_date and b.entry_date.month == selected_month and b.entry_date.year == selected_year),
             Decimal("0.00"),
         )
         return PendingBudgetMetrics(
@@ -903,15 +904,5 @@ def _build_indicator_queryset(model_name: str, filters: dict[str, Any]):
     when computing total_budget_value and pending_payment_value per item.
     """
     if model_name == "budget":
-        return (
-            Budget.objects.filter(**filters)
-            .select_related("customer", "vehicle")
-            .prefetch_related(_BUDGET_ITEMS_PREFETCH)
-            .order_by("entry_date")
-        )
-    return (
-        WorkOrder.objects.filter(**filters)
-        .select_related("budget__customer", "budget__vehicle")
-        .prefetch_related(_WORKORDER_ITEMS_PREFETCH, "payments")
-        .order_by("criado_em")
-    )
+        return Budget.objects.filter(**filters).select_related("customer", "vehicle").prefetch_related(_BUDGET_ITEMS_PREFETCH).order_by("entry_date")
+    return WorkOrder.objects.filter(**filters).select_related("budget__customer", "budget__vehicle").prefetch_related(_WORKORDER_ITEMS_PREFETCH, "payments").order_by("criado_em")

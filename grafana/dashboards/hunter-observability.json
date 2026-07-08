@@ -1,0 +1,504 @@
+{
+  "title": "Hunter - Observability",
+  "uid": "hunter-observability",
+  "tags": ["hunter", "monitoring", "observability"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "label": "Prometheus (metricas)",
+        "current": {},
+        "refresh": 1
+      },
+      {
+        "name": "DS_LOKI",
+        "type": "datasource",
+        "label": "Loki (logs)",
+        "current": {},
+        "refresh": 1
+      },
+      {
+        "name": "environment",
+        "label": "Ambiente (filtro de logs)",
+        "type": "custom",
+        "current": { "value": "production", "text": "production" },
+        "options": [
+          { "value": "production", "text": "Producao" },
+          { "value": "staging", "text": "Homologacao" },
+          { "value": "development", "text": "Desenvolvimento" }
+        ]
+      },
+      {
+        "name": "rate_interval",
+        "label": "Janela rate",
+        "type": "interval",
+        "current": { "value": "5m", "text": "5 min" },
+        "options": [
+          { "value": "1m", "text": "1 min" },
+          { "value": "2m", "text": "2 min" },
+          { "value": "5m", "text": "5 min" },
+          { "value": "10m", "text": "10 min" },
+          { "value": "15m", "text": "15 min" }
+        ]
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Resumo (visao geral)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 },
+      "collapsed": false,
+      "panels": [
+        {
+          "id": 11,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "stat",
+          "title": "RPS total",
+          "gridPos": { "x": 0, "y": 1, "w": 6, "h": 4 },
+          "targets": [
+            { "expr": "sum(rate(http_server_request_count_total[$rate_interval]))", "refId": "A" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "reqps", "color": { "mode": "palette-classic" } } }
+        },
+        {
+          "id": 12,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "stat",
+          "title": "p95 latencia",
+          "gridPos": { "x": 6, "y": 1, "w": 6, "h": 4 },
+          "targets": [
+            { "expr": "histogram_quantile(0.95, sum(rate(http_server_request_duration_milliseconds_bucket[$rate_interval])) by (le)) or histogram_quantile(0.95, sum(rate(http_server_request_duration_bucket[$rate_interval])) by (le))", "refId": "A" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "ms", "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 500 }, { "color": "red", "value": 1000 }] } } }
+        },
+        {
+          "id": 13,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "stat",
+          "title": "Erros 5xx",
+          "gridPos": { "x": 12, "y": 1, "w": 6, "h": 4 },
+          "targets": [
+            { "expr": "sum(rate(http_server_request_errors_total[$rate_interval]))", "refId": "A" }
+          ],
+          "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 0.01 }] } } }
+        },
+        {
+          "id": 14,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "stat",
+          "title": "Requests ativas",
+          "gridPos": { "x": 18, "y": 1, "w": 6, "h": 4 },
+          "targets": [
+            { "expr": "sum(http_server_active_requests)", "refId": "A" }
+          ],
+          "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 10 }, { "color": "red", "value": 50 }] } } }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "row",
+      "title": "HTTP Requests (rotas, latencia, erros)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 0, "y": 5, "w": 24, "h": 1 },
+      "collapsed": true,
+      "panels": [
+        {
+          "id": 21,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "timeseries",
+          "title": "RPS por rota",
+          "gridPos": { "x": 0, "y": 6, "w": 12, "h": 7 },
+          "targets": [
+            { "expr": "sum(rate(http_server_request_count_total[$rate_interval])) by (http_route)", "refId": "A", "legendFormat": "{{http_route}}" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "lineWidth": 2, "fillOpacity": 10 } } }
+        },
+        {
+          "id": 22,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "timeseries",
+          "title": "p95 latencia por rota",
+          "gridPos": { "x": 12, "y": 6, "w": 12, "h": 7 },
+          "targets": [
+            { "expr": "histogram_quantile(0.95, sum(rate(http_server_request_duration_milliseconds_bucket[$rate_interval])) by (le, http_route)) or histogram_quantile(0.95, sum(rate(http_server_request_duration_bucket[$rate_interval])) by (le, http_route))", "refId": "A", "legendFormat": "{{http_route}}" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } } }
+        },
+        {
+          "id": 23,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "timeseries",
+          "title": "p50 / p95 / p99 global",
+          "gridPos": { "x": 0, "y": 13, "w": 8, "h": 6 },
+          "targets": [
+            { "expr": "histogram_quantile(0.50, sum(rate(http_server_request_duration_milliseconds_bucket[$rate_interval])) by (le)) or histogram_quantile(0.50, sum(rate(http_server_request_duration_bucket[$rate_interval])) by (le))", "refId": "A", "legendFormat": "p50" },
+            { "expr": "histogram_quantile(0.95, sum(rate(http_server_request_duration_milliseconds_bucket[$rate_interval])) by (le)) or histogram_quantile(0.95, sum(rate(http_server_request_duration_bucket[$rate_interval])) by (le))", "refId": "B", "legendFormat": "p95" },
+            { "expr": "histogram_quantile(0.99, sum(rate(http_server_request_duration_milliseconds_bucket[$rate_interval])) by (le)) or histogram_quantile(0.99, sum(rate(http_server_request_duration_bucket[$rate_interval])) by (le))", "refId": "C", "legendFormat": "p99" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } } }
+        },
+        {
+          "id": 24,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "timeseries",
+          "title": "Error rate por rota (%)",
+          "gridPos": { "x": 8, "y": 13, "w": 8, "h": 6 },
+          "targets": [
+            { "expr": "(sum(rate(http_server_request_errors_total[$rate_interval])) by (http_route) / sum(rate(http_server_request_count_total[$rate_interval])) by (http_route)) * 100", "refId": "A", "legendFormat": "{{http_route}}" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "custom": { "lineWidth": 2 } } }
+        },
+        {
+          "id": 25,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "table",
+          "title": "Todas as rotas - p95",
+          "gridPos": { "x": 16, "y": 13, "w": 8, "h": 6 },
+          "targets": [
+            { "expr": "histogram_quantile(0.95, sum(rate(http_server_request_duration_milliseconds_bucket[$rate_interval])) by (le, http_route)) or histogram_quantile(0.95, sum(rate(http_server_request_duration_bucket[$rate_interval])) by (le, http_route))", "refId": "A", "format": "table", "instant": true }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "ms" },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "http_route" }, "properties": [{ "id": "custom.width", "value": 250 }] },
+              { "matcher": { "id": "byName", "options": "Value" }, "properties": [{ "id": "displayName", "value": "p95 (ms)" }] }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "row",
+      "title": "Database SQL (via Loki logs)",
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 1 },
+      "collapsed": true,
+      "panels": [
+        {
+          "id": 31,
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "type": "timeseries",
+          "title": "SQL time medio por rota (ms)",
+          "gridPos": { "x": 0, "y": 21, "w": 12, "h": 7 },
+          "targets": [
+            { "expr": "avg by (route) (avg_over_time({logger=\"apps.core.presentation.middlewares\", environment=~\"$environment\"} | json | route != \"\" | unwrap sql_time_ms [$__interval]))", "refId": "A", "legendFormat": "{{route}}" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } } }
+        },
+        {
+          "id": 32,
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "type": "timeseries",
+          "title": "Query count medio por rota",
+          "gridPos": { "x": 12, "y": 21, "w": 12, "h": 7 },
+          "targets": [
+            { "expr": "avg by (route) (avg_over_time({logger=\"apps.core.presentation.middlewares\", environment=~\"$environment\"} | json | route != \"\" | unwrap query_count [$__interval]))", "refId": "A", "legendFormat": "{{route}}" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "none", "custom": { "lineWidth": 2 } } }
+        },
+        {
+          "id": 33,
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "type": "table",
+          "title": "Top rotas por query count (N+1 candidates)",
+          "gridPos": { "x": 0, "y": 28, "w": 12, "h": 7 },
+          "targets": [
+            { "expr": "avg by (route) (avg_over_time({logger=\"apps.core.presentation.middlewares\", environment=~\"$environment\"} | json | route != \"\" | unwrap query_count [$__range]))", "refId": "A", "format": "table", "instant": true }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "none" },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "route" }, "properties": [{ "id": "custom.width", "value": 300 }] },
+              { "matcher": { "id": "byName", "options": "Value" }, "properties": [{ "id": "displayName", "value": "avg q/req" }, { "id": "thresholds", "value": { "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 20 }, { "color": "red", "value": 50 }] } }] }
+            ]
+          }
+        },
+        {
+          "id": 34,
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "type": "timeseries",
+          "title": "% do tempo em SQL",
+          "gridPos": { "x": 12, "y": 28, "w": 12, "h": 7 },
+          "targets": [
+            { "expr": "avg by (route) (avg_over_time({logger=\"apps.core.presentation.middlewares\", environment=~\"$environment\"} | json | route != \"\" | unwrap sql_time_ms [$__interval])) / avg by (route) (avg_over_time({logger=\"apps.core.presentation.middlewares\", environment=~\"$environment\"} | json | route != \"\" | unwrap duration_ms [$__interval])) * 100", "refId": "A", "legendFormat": "{{route}}" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "percent", "max": 100, "custom": { "lineWidth": 2 } } }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "row",
+      "title": "External Dependencies (Webmania, SuperSign, S3, FIPE, etc)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 0, "y": 36, "w": 24, "h": 1 },
+      "collapsed": true,
+      "panels": [
+        {
+          "id": 41,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "stat",
+          "title": "Chamadas / min",
+          "gridPos": { "x": 0, "y": 37, "w": 6, "h": 4 },
+          "targets": [
+            { "expr": "sum(rate(dependency_client_request_count_total[$rate_interval]))", "refId": "A" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "reqpm" } }
+        },
+        {
+          "id": 42,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "stat",
+          "title": "Erros (5 min)",
+          "gridPos": { "x": 6, "y": 37, "w": 6, "h": 4 },
+          "targets": [
+            { "expr": "sum(increase(dependency_client_error_count_total[5m])) by (dependency_name) > 0", "refId": "A" }
+          ],
+          "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } }
+        },
+        {
+          "id": 43,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "stat",
+          "title": "p95 global",
+          "gridPos": { "x": 12, "y": 37, "w": 6, "h": 4 },
+          "targets": [
+            { "expr": "histogram_quantile(0.95, sum(rate(dependency_client_duration_milliseconds_bucket[$rate_interval])) by (le)) or histogram_quantile(0.95, sum(rate(dependency_client_duration_bucket[$rate_interval])) by (le))", "refId": "A" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "ms" } }
+        },
+        {
+          "id": 44,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "stat",
+          "title": "Error rate global (%)",
+          "gridPos": { "x": 18, "y": 37, "w": 6, "h": 4 },
+          "targets": [
+            { "expr": "(sum(rate(dependency_client_error_count_total[$rate_interval])) / sum(rate(dependency_client_request_count_total[$rate_interval]))) * 100", "refId": "A" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "percent", "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 5 }] } } }
+        },
+        {
+          "id": 45,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "timeseries",
+          "title": "p95 por provider",
+          "gridPos": { "x": 0, "y": 41, "w": 12, "h": 7 },
+          "targets": [
+            { "expr": "histogram_quantile(0.95, sum(rate(dependency_client_duration_milliseconds_bucket[$rate_interval])) by (le, dependency_name)) or histogram_quantile(0.95, sum(rate(dependency_client_duration_bucket[$rate_interval])) by (le, dependency_name))", "refId": "A", "legendFormat": "{{dependency_name}}" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } } }
+        },
+        {
+          "id": 46,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "timeseries",
+          "title": "Throughput por provider",
+          "gridPos": { "x": 12, "y": 41, "w": 12, "h": 7 },
+          "targets": [
+            { "expr": "sum(rate(dependency_client_request_count_total[$rate_interval])) by (dependency_name, operation)", "refId": "A", "legendFormat": "{{dependency_name}}.{{operation}}" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "lineWidth": 2, "fillOpacity": 10 } } }
+        },
+        {
+          "id": 47,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "table",
+          "title": "Todas as operacoes - p95",
+          "gridPos": { "x": 0, "y": 48, "w": 12, "h": 7 },
+          "targets": [
+            { "expr": "histogram_quantile(0.95, sum(rate(dependency_client_duration_milliseconds_bucket[$rate_interval])) by (le, dependency_name, operation)) or histogram_quantile(0.95, sum(rate(dependency_client_duration_bucket[$rate_interval])) by (le, dependency_name, operation))", "refId": "A", "format": "table", "instant": true }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "ms" },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "dependency_name" }, "properties": [{ "id": "custom.width", "value": 110 }] },
+              { "matcher": { "id": "byName", "options": "operation" }, "properties": [{ "id": "custom.width", "value": 250 }] },
+              { "matcher": { "id": "byName", "options": "Value" }, "properties": [{ "id": "displayName", "value": "p95 (ms)" }, { "id": "thresholds", "value": { "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1000 }, { "color": "red", "value": 5000 }] } }] }
+            ]
+          }
+        },
+        {
+          "id": 48,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "timeseries",
+          "title": "Erros por provider",
+          "gridPos": { "x": 12, "y": 48, "w": 12, "h": 7 },
+          "targets": [
+            { "expr": "sum(increase(dependency_client_error_count_total[$rate_interval])) by (dependency_name, operation) > 0", "refId": "A", "legendFormat": "{{dependency_name}}.{{operation}}" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "none", "custom": { "stacking": { "mode": "normal" }, "lineWidth": 2 } } }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "row",
+      "title": "Business Operations (DRE, Dashboard, PDFs)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "x": 0, "y": 56, "w": 24, "h": 1 },
+      "collapsed": true,
+      "panels": [
+        {
+          "id": 51,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "stat",
+          "title": "Operacoes / min",
+          "gridPos": { "x": 0, "y": 57, "w": 6, "h": 4 },
+          "targets": [
+            { "expr": "sum(rate(business_operation_count_total[$rate_interval]))", "refId": "A" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "opm" } }
+        },
+        {
+          "id": 52,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "stat",
+          "title": "Falhas (5 min)",
+          "gridPos": { "x": 6, "y": 57, "w": 6, "h": 4 },
+          "targets": [
+            { "expr": "sum(increase(business_operation_error_count_total[5m]))", "refId": "A" }
+          ],
+          "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } }
+        },
+        {
+          "id": 53,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "stat",
+          "title": "p95 global",
+          "gridPos": { "x": 12, "y": 57, "w": 6, "h": 4 },
+          "targets": [
+            { "expr": "histogram_quantile(0.95, sum(rate(business_operation_duration_milliseconds_bucket[$rate_interval])) by (le)) or histogram_quantile(0.95, sum(rate(business_operation_duration_bucket[$rate_interval])) by (le))", "refId": "A" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "ms" } }
+        },
+        {
+          "id": 54,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "stat",
+          "title": "Falhas por operacao",
+          "gridPos": { "x": 18, "y": 57, "w": 6, "h": 4 },
+          "targets": [
+            { "expr": "sum(increase(business_operation_error_count_total[5m])) by (operation_name) > 0", "refId": "A" }
+          ],
+          "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } }
+        },
+        {
+          "id": 55,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "timeseries",
+          "title": "p95 por operacao",
+          "gridPos": { "x": 0, "y": 61, "w": 12, "h": 7 },
+          "targets": [
+            { "expr": "histogram_quantile(0.95, sum(rate(business_operation_duration_milliseconds_bucket[$rate_interval])) by (le, operation_name)) or histogram_quantile(0.95, sum(rate(business_operation_duration_bucket[$rate_interval])) by (le, operation_name))", "refId": "A", "legendFormat": "{{operation_name}}" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } } }
+        },
+        {
+          "id": 56,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "table",
+          "title": "Todas as operacoes - p95",
+          "gridPos": { "x": 12, "y": 61, "w": 12, "h": 7 },
+          "targets": [
+            { "expr": "histogram_quantile(0.95, sum(rate(business_operation_duration_milliseconds_bucket[$rate_interval])) by (le, operation_name, operation_group)) or histogram_quantile(0.95, sum(rate(business_operation_duration_bucket[$rate_interval])) by (le, operation_name, operation_group))", "refId": "A", "format": "table", "instant": true }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "ms" },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "operation_group" }, "properties": [{ "id": "custom.width", "value": 100 }] },
+              { "matcher": { "id": "byName", "options": "operation_name" }, "properties": [{ "id": "custom.width", "value": 300 }] },
+              { "matcher": { "id": "byName", "options": "Value" }, "properties": [{ "id": "displayName", "value": "p95 (ms)" }, { "id": "thresholds", "value": { "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1000 }, { "color": "red", "value": 5000 }] } }] }
+            ]
+          }
+        },
+        {
+          "id": 57,
+          "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+          "type": "timeseries",
+          "title": "Volume por operacao",
+          "gridPos": { "x": 0, "y": 68, "w": 24, "h": 6 },
+          "targets": [
+            { "expr": "sum(rate(business_operation_count_total[$rate_interval])) by (operation_group, operation_name)", "refId": "A", "legendFormat": "{{operation_group}}.{{operation_name}}" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "lineWidth": 2, "fillOpacity": 10 } } }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "row",
+      "title": "Logs & Traces (explorer)",
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "gridPos": { "x": 0, "y": 75, "w": 24, "h": 1 },
+      "collapsed": true,
+      "panels": [
+        {
+          "id": 61,
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "type": "logs",
+          "title": "Todas as requests",
+          "gridPos": { "x": 0, "y": 76, "w": 24, "h": 12 },
+          "targets": [
+            { "expr": "{logger=\"apps.core.presentation.middlewares\", environment=~\"$environment\"} | json | line_format \"{{.method}}  {{.status_code}}  {{.route}}    {{.duration_ms}}ms    {{.query_count}}q    sql={{.sql_time_ms}}ms\"", "refId": "A" }
+          ],
+          "options": { "dedupStrategy": "none", "enableLogDetails": true, "showTime": true, "sortOrder": "Descending" }
+        },
+        {
+          "id": 62,
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "type": "logs",
+          "title": "Requests lentas (> 500ms)",
+          "gridPos": { "x": 0, "y": 88, "w": 12, "h": 8 },
+          "targets": [
+            { "expr": "{logger=\"apps.core.presentation.middlewares\", environment=~\"$environment\"} | json | duration_ms > 500 | line_format \"[{{.method}}]  {{.route}}  {{.duration_ms}}ms  status={{.status_code}}  q={{.query_count}}\"", "refId": "A" }
+          ],
+          "options": { "dedupStrategy": "none", "enableLogDetails": true, "sortOrder": "Descending" }
+        },
+        {
+          "id": 63,
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "type": "logs",
+          "title": "Requests com erro 5xx",
+          "gridPos": { "x": 12, "y": 88, "w": 12, "h": 8 },
+          "targets": [
+            { "expr": "{logger=\"apps.core.presentation.middlewares\", environment=~\"$environment\"} | json | status_code >= 500 | line_format \"[{{.method}}]  {{.route}}  status={{.status_code}}  {{.duration_ms}}ms  q={{.query_count}}  sql={{.sql_time_ms}}ms\"", "refId": "A" }
+          ],
+          "options": { "dedupStrategy": "none", "enableLogDetails": true, "sortOrder": "Descending" }
+        },
+        {
+          "id": 64,
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "type": "logs",
+          "title": "Dependencies (todos os providers)",
+          "gridPos": { "x": 0, "y": 96, "w": 12, "h": 8 },
+          "targets": [
+            { "expr": "{logger=~\"apps.(catalog.fipe_service|customer.util|core.infrastructure.(services.storage|gateways.supersign|services.webmania.*)|core.presentation.views)\", environment=~\"$environment\"} | json | line_format \"{{.dependency_name}}.{{.operation}}  {{.duration_ms}}ms  {{.result}}  status={{.status_code}}\"", "refId": "A" }
+          ],
+          "options": { "dedupStrategy": "none", "enableLogDetails": true, "sortOrder": "Descending" }
+        },
+        {
+          "id": 65,
+          "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+          "type": "logs",
+          "title": "Business operations (DRE, PDF, Dashboard)",
+          "gridPos": { "x": 12, "y": 96, "w": 12, "h": 8 },
+          "targets": [
+            { "expr": "{logger=~\"apps.(finance.services.dre|core.infrastructure.pdf.renderer|core.infrastructure.services.dashboard_query_service)\", environment=~\"$environment\"} | json | line_format \"{{.operation_name}}  {{.operation_group}}  {{.duration_ms}}ms  {{.result}}\"", "refId": "A" }
+          ],
+          "options": { "dedupStrategy": "none", "enableLogDetails": true, "sortOrder": "Descending" }
+        }
+      ]
+    }
+  ]
+}

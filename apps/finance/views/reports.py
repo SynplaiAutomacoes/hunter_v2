@@ -523,6 +523,8 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
 
     def _build_selection_summary_card(self, *, rows: list[dict[str, object]]) -> dict[str, object]:
         title = "Créditos e Débitos da Filtragem"
+        if self._has_active_filters():
+            title = "Créditos e Débitos da Página Filtrada"
         if not self._has_active_filters():
             return {
                 "title": title,
@@ -659,17 +661,74 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         querystring = params.urlencode()
         return f"{self.request.path}?{querystring}" if querystring else self.request.path
 
-    def _get_financial_movements_page(self, *, rows: list[dict[str, object]]) -> tuple[Any, Paginator]:
+    def _get_financial_movements_page(self, *, entry_refs: list[tuple[str, int]]) -> tuple[Any, Paginator]:
         page_number = self.request.GET.get("page") or "1"
 
         if self._has_active_filters():
-            # Fix C: Limita a 50 resultados por página mesmo com filtros ativos
-            paginator = Paginator(rows, 50)
+            paginator = Paginator(entry_refs, 50)
             return paginator.get_page(page_number), paginator
 
-        paginator = Paginator(rows, self.MOVEMENTS_PER_PAGE)
+        paginator = Paginator(entry_refs, self.MOVEMENTS_PER_PAGE)
         page_obj = paginator.get_page(page_number)
         return page_obj, paginator
+
+    def _build_fallback_payment_movements_queryset(self, *, excluded_workorder_ids: set[int]):
+        queryset = self._apply_report_filters(
+            FinancialMovement.objects.filter(
+                workshop=self.workshop,
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                workorder__isnull=False,
+                workorder_payment__isnull=False,
+            )
+            .exclude(workorder_id__in=excluded_workorder_ids)
+            .select_related(
+                "source",
+                "supplier",
+                "collaborator",
+                "budget_plan",
+                "bank_account",
+                "payment_method",
+                "workorder",
+                "workorder__budget",
+                "workorder__budget__customer",
+                "workorder_payment",
+                "workorder_payment__payment_method",
+            )
+            .order_by("-pk")
+        )
+        return queryset
+
+    def _get_report_entry_refs(self) -> list[tuple[str, int]]:
+        cached = getattr(self, "_report_entry_refs_cache", None)
+        if cached is not None:
+            return cached
+
+        base_queryset = self._get_financial_movements_queryset()
+        base_entries = list(base_queryset.values_list("pk", "workorder_id", "movement_kind"))
+        parent_workorder_ids = {int(workorder_id) for _, workorder_id, movement_kind in base_entries if movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT and workorder_id is not None}
+        entry_refs = [("movement", int(pk)) for pk, _, _ in base_entries]
+
+        fallback_ids = list(self._build_fallback_payment_movements_queryset(excluded_workorder_ids=parent_workorder_ids).values_list("pk", flat=True))
+        entry_refs.extend(("fallback", int(pk)) for pk in fallback_ids)
+        entry_refs.sort(key=lambda item: item[1], reverse=True)
+        self._report_entry_refs_cache = entry_refs
+        return entry_refs
+
+    def _get_paginated_report_movements(self, *, entry_refs: list[tuple[str, int]]) -> list[FinancialMovement]:
+        movement_ids = [entry_id for entry_type, entry_id in entry_refs if entry_type == "movement"]
+        fallback_ids = [entry_id for entry_type, entry_id in entry_refs if entry_type == "fallback"]
+
+        movements_by_id: dict[tuple[str, int], FinancialMovement] = {}
+        if movement_ids:
+            base_queryset = self._get_financial_movements_queryset().filter(pk__in=movement_ids)
+            for movement in base_queryset:
+                movements_by_id[("movement", int(movement.pk))] = movement
+
+        if fallback_ids:
+            for movement in self._build_fallback_payment_movements_queryset(excluded_workorder_ids=set()).filter(pk__in=fallback_ids):
+                movements_by_id[("fallback", int(movement.pk))] = movement
+
+        return [movements_by_id[key] for key in entry_refs if key in movements_by_id]
 
     def _get_agent_filter_choices(self) -> List[Tuple[str, str]]:
         collaborators = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
@@ -741,9 +800,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         seen_components: set[str] = set()
         filter_params = self._get_filter_params()
         movement_list = list(movements)
-        workorder_ids_with_parent: set[int] = {movement.workorder_id for movement in movement_list if movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT and movement.workorder_id is not None}
 
-        # Fix B4: Pré-carrega o cache antes do loop principal para evitar N+1
         self._preload_payment_movement_cache(movement_list)
 
         for movement in movement_list:
@@ -764,41 +821,6 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
                 continue
             rows.append(financial_row)
             seen_components.add(component)
-
-        fallback_payment_movements = self._apply_report_filters(
-            FinancialMovement.objects.filter(
-                workshop=self.workshop,
-                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
-                workorder__isnull=False,
-                workorder_payment__isnull=False,
-            )
-            .exclude(workorder_id__in=workorder_ids_with_parent)
-            .select_related(
-                "source",
-                "supplier",
-                "collaborator",
-                "budget_plan",
-                "bank_account",
-                "payment_method",
-                "workorder",
-                "workorder__budget",
-                "workorder__budget__customer",
-                "workorder_payment",
-                "workorder_payment__payment_method",
-            )
-            .order_by("-pk")
-        )
-        for movement in fallback_payment_movements:
-            payment = getattr(movement, "workorder_payment", None)
-            workorder = getattr(movement, "workorder", None)
-            if payment is None or workorder is None:
-                continue
-            payment_row = self._build_workorder_payment_row(movement=movement, payment=payment)
-            component = str(payment_row.get("component") or "")
-            if component in seen_components:
-                continue
-            rows.append(payment_row)
-            seen_components.add(component)
         return rows
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
@@ -807,16 +829,18 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         monthly_overview = build_monthly_financial_overview(workshop=self.workshop, reference_date=reference_date)
         yearly_overview = build_yearly_financial_overview(workshop=self.workshop, reference_date=reference_date)
         filter_params = self._get_filter_params()
-        all_report_rows = self._get_financial_movement_report_rows(movements=self._get_financial_movements_queryset())
-        page_obj, paginator = self._get_financial_movements_page(rows=all_report_rows)
+        report_entry_refs = self._get_report_entry_refs()
+        page_obj, paginator = self._get_financial_movements_page(entry_refs=report_entry_refs)
+        paginated_movements = self._get_paginated_report_movements(entry_refs=list(page_obj.object_list))
+        page_rows = self._get_financial_movement_report_rows(movements=paginated_movements)
 
         context["top_summary_cards"] = [
             self._build_summary_card(title="Créditos e Débitos deste Mês", overview=monthly_overview),
             self._build_summary_card(title=f"Balanço Geral {reference_date.year}", overview=yearly_overview),
             self._build_collaborator_payroll_summary_card(),
         ]
-        context["selection_summary"] = self._build_selection_summary_card(rows=all_report_rows)
-        context["financial_movement_report_rows"] = page_obj.object_list
+        context["selection_summary"] = self._build_selection_summary_card(rows=page_rows)
+        context["financial_movement_report_rows"] = page_rows
         context["collaborator_payroll_rows"] = self._build_collaborator_payroll_rows()
         context["financial_group_filters"] = self._get_financial_groups_queryset()
         context["bank_account_filters"] = self._get_bank_accounts_queryset()

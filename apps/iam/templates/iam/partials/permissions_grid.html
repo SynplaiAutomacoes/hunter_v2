@@ -1,48 +1,56 @@
-<div class="space-y-8" id="permissions-container">
+<div class="space-y-4" id="permissions-container">
 
-    <div class="flex items-center justify-between border-b pb-4 mb-6 bg-base-200 p-4 rounded-lg">
+    <div class="flex items-center justify-between bg-base-200 p-4 rounded-lg">
         <div>
-            <h3 class="text-xl font-bold text-base-content">Configurações de Acesso</h3>
-            <p class="text-xs opacity-60">Gerencie todas as permissões do cargo</p>
+            <h3 class="text-xl font-bold text-base-content">Configuracoes de Acesso</h3>
+            <p class="text-xs opacity-60">Gerencie todas as permissoes do cargo</p>
         </div>
         <div class="form-control">
             <label class="label cursor-pointer gap-4">
                 <span class="label-text font-bold">Selecionar Tudo</span>
-                <input type="checkbox" id="global-master-check" class="checkbox checkbox-primary" onclick="toggleAllPermissions(this.checked)">
+                <input type="checkbox" id="global-master-check" class="checkbox checkbox-primary" onchange="toggleAllPermissions(this.checked)">
             </label>
         </div>
     </div>
 
-    {% for app_label, models in form.grouped_permissions.items %}
-    {% with app_id=app_label|slugify %}
-    <div class="app-group p-4 border rounded-lg bg-base-100" data-app="{{ app_id }}">
+    <input type="text" id="perm-search" class="input input-bordered w-full" placeholder="Buscar permissao...">
 
-        <div class="flex items-center justify-between mb-4 border-b border-dashed pb-2">
-            <h4 class="text-lg font-black text-primary uppercase tracking-wider flex items-center gap-2">
+    {% for app_label, app_data in form.grouped_permissions.items %}
+    {% with app_id=app_label|slugify %}
+    <details class="collapse collapse-arrow bg-base-100 border rounded-lg" data-app="{{ app_id }}" {% if app_data.total_count > 0 %}{% endif %}>
+        <summary class="collapse-title flex items-center justify-between">
+            <div class="flex items-center gap-2">
                 <span class="w-2 h-6 bg-primary rounded-full"></span>
-                {{ app_label }}
-            </h4>
-            <div class="form-control">
-                <label class="label cursor-pointer gap-2">
-                    <span class="text-xs opacity-70">Marcar módulo</span>
-                    <input type="checkbox"
-                           class="checkbox checkbox-sm checkbox-secondary app-master-check"
-                           onclick="toggleAppPermissions('{{ app_id }}', this.checked)">
+                <span class="font-black text-primary uppercase tracking-wider text-sm">{{ app_label }}</span>
+            </div>
+            <div class="flex items-center gap-3">
+                <span class="badge badge-sm app-badge">0/{{ app_data.total_count }}</span>
+                <label onclick="event.stopPropagation()" class="cursor-pointer flex items-center gap-1">
+                    <span class="text-xs opacity-70">Marcar modulo</span>
+                    <input type="checkbox" class="checkbox checkbox-xs checkbox-secondary app-master-check" onchange="toggleAppPermissions('{{ app_id }}', this.checked)">
                 </label>
             </div>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {% for model_name, perms in models.items %}
-            <div class="card bg-base-200 border border-base-300 shadow-sm">
-                <div class="card-body p-4">
-                    <h5 class="font-bold text-sm border-b border-base-300 pb-1 mb-3 text-base-content/70">
-                        {{ model_name }}
-                    </h5>
-
-                    <div class="flex flex-col gap-2">
-                        {% for perm in perms %}
-                        <label class="flex items-center gap-2 cursor-pointer hover:bg-base-300 rounded p-1 transition-all">
+        </summary>
+        <div class="collapse-content">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {% for model_name, model_data in app_data.models.items %}
+                <div class="model-card bg-base-200 border border-base-300 rounded-lg p-3">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center gap-1">
+                            <span class="font-bold text-sm text-base-content/80">{{ model_name }}</span>
+                            {% if model_data.description %}
+                            <div class="tooltip tooltip-right before:max-w-[250px] before:whitespace-normal before:text-xs" data-tip="{{ model_data.description }}">
+                                <svg class="w-4 h-4 opacity-40 cursor-help shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                            </div>
+                            {% endif %}
+                        </div>
+                        <span class="badge badge-ghost badge-sm model-badge">0/{{ model_data.perms|length }}</span>
+                    </div>
+                    <div class="flex flex-wrap gap-x-4 gap-y-1">
+                        {% for perm in model_data.perms %}
+                        <label class="flex items-center gap-1 cursor-pointer hover:text-primary transition-colors">
                             <input type="checkbox"
                                    name="permissions"
                                    value="{{ perm.id }}"
@@ -54,55 +62,97 @@
                                 {% elif "Can change" in perm.name %}Editar
                                 {% elif "Can delete" in perm.name %}Excluir
                                 {% elif "Can view" in perm.name %}Visualizar
+                                {% elif "reopen" in perm.codename %}Reabrir
                                 {% else %}{{ perm.name }}{% endif %}
                             </span>
                         </label>
                         {% endfor %}
                     </div>
                 </div>
+                {% endfor %}
             </div>
-            {% endfor %}
         </div>
-    </div>
+    </details>
     {% endwith %}
     {% endfor %}
 </div>
 
 <script>
-    // Lógica para o Master Global
     function toggleAllPermissions(isChecked) {
-        document.querySelectorAll('.permission-checkbox').forEach(cb => {
+        document.querySelectorAll('.permission-checkbox').forEach(function(cb) {
             cb.checked = isChecked;
         });
-        // Atualiza todos os masters de App para ficarem sincronizados
-        document.querySelectorAll('.app-master-check').forEach(cb => {
+        document.querySelectorAll('.app-master-check').forEach(function(cb) {
             cb.checked = isChecked;
         });
+        updateCounts();
     }
 
-    // Lógica para o Master do App
     function toggleAppPermissions(appId, isChecked) {
-        const container = document.querySelector(`[data-app="${appId}"]`);
+        var container = document.querySelector('[data-app="' + appId + '"]');
         if (container) {
-            container.querySelectorAll('.permission-checkbox').forEach(cb => {
+            container.querySelectorAll('.permission-checkbox').forEach(function(cb) {
                 cb.checked = isChecked;
             });
         }
+        updateCounts();
     }
 
-    // Lógica reversa: Se desmarcar um filho manualmente, desmarca o "Marcar Tudo"
+    function updateCounts() {
+        document.querySelectorAll('[data-app]').forEach(function(app) {
+            var checkboxes = app.querySelectorAll('.permission-checkbox');
+            var checked = app.querySelectorAll('.permission-checkbox:checked');
+            var appBadge = app.querySelector('.app-badge');
+            if (appBadge) {
+                appBadge.textContent = checked.length + '/' + checkboxes.length;
+            }
+            app.querySelectorAll('.model-card').forEach(function(card) {
+                var cbs = card.querySelectorAll('.permission-checkbox');
+                var ckd = card.querySelectorAll('.permission-checkbox:checked');
+                var badge = card.querySelector('.model-badge');
+                if (badge) {
+                    badge.textContent = ckd.length + '/' + cbs.length;
+                }
+            });
+        });
+    }
+
     document.addEventListener('change', function(e) {
         if (e.target.classList.contains('permission-checkbox')) {
-            const appId = e.target.getAttribute('data-parent-app');
-            const container = document.querySelector(`[data-app="${appId}"]`);
-            const appMaster = container.querySelector('.app-master-check');
-            const globalMaster = document.getElementById('global-master-check');
+            var appId = e.target.getAttribute('data-parent-app');
+            var container = document.querySelector('[data-app="' + appId + '"]');
+            if (container) {
+                var appMaster = container.querySelector('.app-master-check');
+                var globalMaster = document.getElementById('global-master-check');
 
-            // Se um checkbox for desmarcado, os masters não podem estar marcados
-            if (!e.target.checked) {
-                appMaster.checked = false;
-                globalMaster.checked = false;
+                var appCheckboxes = container.querySelectorAll('.permission-checkbox');
+                var appChecked = container.querySelectorAll('.permission-checkbox:checked');
+                appMaster.checked = appCheckboxes.length > 0 && appCheckboxes.length === appChecked.length;
+
+                var allCheckboxes = document.querySelectorAll('.permission-checkbox');
+                var allChecked = document.querySelectorAll('.permission-checkbox:checked');
+                globalMaster.checked = allCheckboxes.length > 0 && allCheckboxes.length === allChecked.length;
             }
+            updateCounts();
         }
+    });
+
+    document.addEventListener('DOMContentLoaded', updateCounts);
+
+    document.getElementById('perm-search').addEventListener('input', function(e) {
+        var term = e.target.value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        document.querySelectorAll('.model-card').forEach(function(card) {
+            var text = card.textContent.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            card.style.display = text.includes(term) ? '' : 'none';
+        });
+        document.querySelectorAll('[data-app]').forEach(function(app) {
+            var visibleCards = app.querySelectorAll('.model-card[style*="display: none"]');
+            var totalCards = app.querySelectorAll('.model-card');
+            if (totalCards.length > 0 && visibleCards.length === totalCards.length) {
+                app.style.display = 'none';
+            } else {
+                app.style.display = '';
+            }
+        });
     });
 </script>

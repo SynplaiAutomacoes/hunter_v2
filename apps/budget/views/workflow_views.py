@@ -443,6 +443,7 @@ class BudgetListView(LoginRequiredMixin, BudgetStatusReportDataMixin, WorkshopSc
     template_name = "budget/budget_list.html"
     context_object_name = "budget"
     htmx_template_name = "budget/partials/budget_table.html"
+    paginate_by = 20
 
     def get_queryset(self):
         return self._get_filtered_budget_queryset()
