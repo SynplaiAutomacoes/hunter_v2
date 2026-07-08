@@ -1,5 +1,13 @@
 # PRD dominio e modelagem fiscal
 
+## Fase 4.0.3 - Modelagem de permissoes NF-e normal
+
+- A Fase 4.0.2 foi validada no checkpoint `43a597e0dbce3ece5cfcb05d7eae278f2522e8f6` e aprovou a Opcao A.
+- A validacao pos-merge da `origin/main` foi concluida no HEAD `0caf7ca5`.
+- `NfeRequest` passa a declarar permissoes dedicadas: `cancel_nferequest`, `invalidate_nferequest_numbering`, `download_nferequest_xml`, `download_nferequest_pdf`, `view_nferequest_payload` e `view_nferequest_remote_response`.
+- A migration da fase altera somente `Meta.permissions`; nao cria campo, tabela, dominio fiscal, evento, tentativa ou regra fiscal.
+- Payload e resposta remota da NF-e normal nao ganham view nova nesta fase; as permissoes ficam reservadas para proteger eventual superficie futura.
+
 ## Modelo conceitual recomendado
 
 Entidades propostas:

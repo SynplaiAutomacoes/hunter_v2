@@ -1,5 +1,25 @@
 # Decisoes arquiteturais
 
+## ADR - Fase 4.0.3 - Permissoes dedicadas NF-e normal com fallback temporario
+
+Data: 2026-07-08.
+
+Contexto: a Fase 4.0.2, validada no checkpoint `43a597e0dbce3ece5cfcb05d7eae278f2522e8f6`, aprovou a Opcao A para reduzir dependencia de `change_nferequest` e do fallback legado `change_nfserequest`. A branch ja tinha `origin/main` integrada e validada no HEAD `0caf7ca5`.
+
+Decisao:
+
+- Declarar permissoes dedicadas em `NfeRequest`.
+- Aplicar as permissoes nos fluxos existentes de cancelamento, inutilizacao e downloads.
+- Manter fallback temporario para grupos existentes.
+- Criar permissoes de payload/resposta remota sem abrir views novas nesta fase.
+
+Consequencias:
+
+- Menor autorizacao ampla para acoes fiscais sensiveis.
+- Compatibilidade operacional preservada ate migracao de grupos reais.
+- Fallback deve ser removido em fase posterior.
+- Cancelamento/inutilizacao continuam legados; modernizacao exige fase propria.
+
 ## ADR-001 - Manter fiscal dentro de `apps.finance`
 
 - Contexto: codigo atual concentra fiscal em `apps.finance`.

@@ -244,27 +244,27 @@
                 </div>
 
                 <div class="flex flex-wrap gap-2">
-                    {% if latest_item.xml_url %}
+                    {% if latest_item.xml_url and can_download_nferequest_xml %}
                         <a href="{% url 'finance:nfe_document_download' pk=nfe_request.pk document='xml' %}" class="btn btn-outline btn-sm">Baixar XML</a>
                     {% else %}
                         <span class="btn btn-outline btn-sm btn-disabled">Baixar XML</span>
                     {% endif %}
-                    {% if latest_item.danfe_url %}
+                    {% if latest_item.danfe_url and can_download_nferequest_pdf %}
                         <a href="{% url 'finance:nfe_document_download' pk=nfe_request.pk document='danfe' %}" class="btn btn-outline btn-sm">Baixar DANFE</a>
                     {% else %}
                         <span class="btn btn-outline btn-sm btn-disabled">Baixar DANFE</span>
                     {% endif %}
-                    {% if latest_item.danfe_simple_url %}
+                    {% if latest_item.danfe_simple_url and can_download_nferequest_pdf %}
                         <a href="{% url 'finance:nfe_document_download' pk=nfe_request.pk document='danfe_simples' %}" class="btn btn-outline btn-sm">DANFE simples</a>
                     {% else %}
                         <span class="btn btn-outline btn-sm btn-disabled">DANFE simples</span>
                     {% endif %}
-                    {% if latest_item.danfe_label_url %}
+                    {% if latest_item.danfe_label_url and can_download_nferequest_pdf %}
                         <a href="{% url 'finance:nfe_document_download' pk=nfe_request.pk document='danfe_etiqueta' %}" class="btn btn-outline btn-sm">DANFE etiqueta</a>
                     {% else %}
                         <span class="btn btn-outline btn-sm btn-disabled">DANFE etiqueta</span>
                     {% endif %}
-                    {% if nfe_request.invalidation_xml_url %}
+                    {% if nfe_request.invalidation_xml_url and can_download_nferequest_xml %}
                         <a href="{{ nfe_request.invalidation_xml_url }}" class="btn btn-outline btn-sm" target="_blank" rel="noopener">XML inutilizacao</a>
                     {% endif %}
                 </div>
@@ -575,7 +575,7 @@
                 <div class="alert alert-warning">
                     <span>A Nota Fiscal de Produto ainda nao possui item sincronizado. Reenvie a consulta quando a Webmania retornar o processamento.</span>
                 </div>
-                {% if nfe_request.invalidation_xml_url %}
+                {% if nfe_request.invalidation_xml_url and can_download_nferequest_xml %}
                     <div class="mt-4">
                         <a href="{{ nfe_request.invalidation_xml_url }}" class="btn btn-outline btn-sm" target="_blank" rel="noopener">XML inutilizacao</a>
                     </div>

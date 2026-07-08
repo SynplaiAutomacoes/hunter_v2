@@ -1,5 +1,25 @@
 # Backlog e pendencias fiscais
 
+## Apos a Fase 4.0.3
+
+Concluido nesta fase:
+
+- permissoes dedicadas da NF-e normal implementadas em `NfeRequest`;
+- UI e backend alinhados para cancelamento, inutilizacao e downloads XML/DANFE;
+- fallback legado temporario preservado para `change_nferequest`, `change_nfserequest` e `view_nferequest` conforme superficie;
+- permissoes de payload/resposta remota criadas para uso futuro, sem view nova;
+- testes direcionados de permissao, fallback e cross-workshop adicionados.
+
+Futuro:
+
+- remover fallback legado em fase posterior, depois de mapear/migrar grupos reais;
+- modernizar cancelamento NF-e normal para evento/tentativa propria;
+- modernizar inutilizacao NF-e normal para entidade/tentativa propria;
+- avaliar preview remoto NF-e como artefato sensivel;
+- abrir view de payload/resposta remota somente em fase propria com sanitizacao e testes.
+
+Continuam nao iniciados: endpoint remoto novo, payload fiscal novo, regra fiscal nova, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
+
 ## Decisoes que exigem aprovacao
 
 - Manter models legados com camada de compatibilidade ou migrar diretamente para dominio unificado.

@@ -1,5 +1,14 @@
 # PRD matriz API Webmania
 
+## Fase 4.0.3 - Permissoes dedicadas NF-e normal
+
+- Decisao aprovada: Opcao A da Fase 4.0.2, checkpoint `43a597e0dbce3ece5cfcb05d7eae278f2522e8f6`.
+- Validacao pos-merge da `origin/main` concluida no HEAD `0caf7ca5`.
+- A fase nao adiciona endpoint remoto Webmania e nao altera os endpoints ja usados pela NF-e normal.
+- Cancelamento e inutilizacao NF-e normal continuam usando os fluxos remotos existentes; a mudanca e somente de autorizacao local.
+- Downloads XML/DANFE continuam usando os documentos ja retornados pela emissao; a mudanca e somente de autorizacao local.
+- Nao ha novo payload fiscal, nova regra fiscal, modernizacao de cancelamento/inutilizacao ou nova familia fiscal.
+
 Fonte oficial consultada:
 
 - NF-e/NFC-e: `https://webmania.com.br/docs/rest-api-nfe/`

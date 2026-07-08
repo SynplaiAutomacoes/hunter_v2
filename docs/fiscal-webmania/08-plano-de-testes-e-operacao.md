@@ -1,5 +1,14 @@
 # Plano de testes e operacao fiscal
 
+## Fase 4.0.3 - Testes de permissoes NF-e normal
+
+- Criar testes focados para `NfeRequest` cobrindo UI e backend.
+- Cancelamento: permissao dedicada, ausencia de permissao, fallbacks `change_nferequest`/`change_nfserequest` e separacao contra permissao de inutilizacao.
+- Inutilizacao: permissao dedicada, ausencia de permissao, fallbacks `change_nferequest`/`change_nfserequest` e separacao contra permissao de cancelamento.
+- Downloads: `download_nferequest_xml`, `download_nferequest_pdf`, fallback `view_nferequest`/`change_nferequest`, bloqueio sem permissao e cross-workshop.
+- Payload/resposta remota: confirmar permissoes criadas sem nova view nesta fase.
+- Regressao: executar bateria fiscal direcionada NF-e/NFC-e relevante; confirmar que nao houve novo endpoint remoto, payload fiscal novo ou regra fiscal nova.
+
 ## Estrategia
 
 - Unitarios para normalizacao de status, payloads e idempotencia.

@@ -1,5 +1,14 @@
 # Log de implementacao fiscal
 
+## 2026-07-08 - Fase 4.0.3 - Implementacao de permissoes dedicadas NF-e normal
+
+- Fase 4.0.2 reconhecida como validada e encerrada no checkpoint `43a597e0dbce3ece5cfcb05d7eae278f2522e8f6`.
+- Branch `feat/notas-fiscais` ja integrou `origin/main`; validacao pos-merge concluida no HEAD `0caf7ca5`.
+- Implementada a Opcao A: permissoes dedicadas em `NfeRequest` com fallback legado temporario.
+- Escopo funcional limitado a guards locais de UI/backend para cancelamento, inutilizacao e downloads XML/DANFE existentes.
+- Payload/resposta remota da NF-e normal tiveram permissoes criadas para uso futuro, sem view nova.
+- Nenhum endpoint remoto novo, payload fiscal novo, regra fiscal nova, modernizacao de cancelamento/inutilizacao ou dominio fiscal posterior foi iniciado.
+
 ## Fase 3.5.0 - reavaliacao documental apos NFS-e legada
 
 - Fase 3.4.1 reconhecida como validada no checkpoint `5865c74d59459ce1f347d8a36a217098f20cb5a9`.

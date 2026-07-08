@@ -1,5 +1,28 @@
 # Plano de fases e criterios de aceite
 
+## Fase 4.0.3 - Implementacao de Permissoes Dedicadas da NF-e Normal
+
+Status: **em implementacao em 2026-07-08**. A Fase 4.0.2 foi validada e encerrada no checkpoint `43a597e0dbce3ece5cfcb05d7eae278f2522e8f6`. A branch `feat/notas-fiscais` ja integrou `origin/main`; validacao pos-merge concluida no HEAD `0caf7ca5`.
+
+Decisao aprovada: **Opcao A - implementar permissoes dedicadas com fallback legado temporario**.
+
+Escopo:
+
+- Criar permissoes em `NfeRequest`: `cancel_nferequest`, `invalidate_nferequest_numbering`, `download_nferequest_xml`, `download_nferequest_pdf`, `view_nferequest_payload`, `view_nferequest_remote_response`.
+- Aplicar UI e backend juntos em cancelamento, inutilizacao e downloads XML/DANFE existentes.
+- Preservar fallback temporario para `change_nferequest`, `change_nfserequest` e `view_nferequest` conforme superficie.
+- Nao criar view nova de payload/resposta remota; apenas reservar permissoes.
+- Nao alterar endpoint remoto, payload Webmania, regra fiscal, cancelamento/inutilizacao legados ou dominio fiscal.
+
+Criterios de aceite:
+
+- Usuario com permissao dedicada consegue executar a acao correspondente.
+- Usuario sem permissao dedicada nem fallback e bloqueado no backend.
+- Permissao de cancelamento nao concede inutilizacao e permissao de inutilizacao nao concede cancelamento.
+- Downloads XML e DANFE/PDF respeitam permissoes dedicadas ou fallback documentado.
+- Cross-workshop permanece bloqueado.
+- Migration limitada a permissoes; testes direcionados, migration-check, Ruff e diff-check aprovados.
+
 ## Fase 0 - Auditoria e PRDs
 
 - Objetivos: ler codigo, validar OpenAPI, criar docs.

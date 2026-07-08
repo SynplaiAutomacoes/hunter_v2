@@ -764,6 +764,16 @@ class NfeRequest(TimeStampedModel):
 
         return str(first_item.number or "-")
 
+    class Meta(TimeStampedModel.Meta):
+        permissions = [
+            ("cancel_nferequest", "Pode cancelar NF-e normal"),
+            ("invalidate_nferequest_numbering", "Pode inutilizar numeracao de NF-e normal"),
+            ("download_nferequest_xml", "Pode baixar XML de NF-e normal"),
+            ("download_nferequest_pdf", "Pode baixar DANFE/PDF de NF-e normal"),
+            ("view_nferequest_payload", "Pode visualizar payload de NF-e normal"),
+            ("view_nferequest_remote_response", "Pode visualizar resposta remota de NF-e normal"),
+        ]
+
 
 class NfseMunicipalCapability(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", verbose_name="Oficina", on_delete=models.CASCADE, related_name="nfse_municipal_capabilities")

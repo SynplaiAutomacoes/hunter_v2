@@ -6,6 +6,7 @@ import json
 from django import forms
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import PermissionDenied
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
@@ -53,7 +54,7 @@ from apps.finance.views.request_workflow import (
     render_emission_preview_modal,
 )
 from apps.workshops.mixin import WorkshopScopedMixin
-from apps.workshops.util.workshops import has_workshop_perm
+from apps.workshops.util.workshops import get_active_workshop_or_404, has_workshop_perm
 
 
 logger = logging.getLogger(__name__)
@@ -281,6 +282,60 @@ def _user_can_change_legacy_nfe_request(*, user, workshop, request) -> bool:
     )
 
 
+def _user_can_view_legacy_nfe_request(*, user, workshop, request) -> bool:
+    return has_workshop_perm(
+        user=user,
+        workshop=workshop,
+        app_label="finance",
+        model="nferequest",
+        codename="view_nferequest",
+        request=request,
+    )
+
+
+def _user_has_nferequest_permission(*, user, workshop, request, codename: str) -> bool:
+    return has_workshop_perm(
+        user=user,
+        workshop=workshop,
+        app_label="finance",
+        model="nferequest",
+        codename=codename,
+        request=request,
+    )
+
+
+def _user_can_cancel_nferequest(*, user, workshop, request) -> bool:
+    return _user_has_nferequest_permission(user=user, workshop=workshop, request=request, codename="cancel_nferequest") or _user_can_change_legacy_nfe_request(user=user, workshop=workshop, request=request)
+
+
+def _user_can_invalidate_nferequest_numbering(*, user, workshop, request) -> bool:
+    return _user_has_nferequest_permission(user=user, workshop=workshop, request=request, codename="invalidate_nferequest_numbering") or _user_can_change_legacy_nfe_request(user=user, workshop=workshop, request=request)
+
+
+def _user_can_download_nferequest_xml(*, user, workshop, request) -> bool:
+    return (
+        _user_has_nferequest_permission(user=user, workshop=workshop, request=request, codename="download_nferequest_xml")
+        or _user_can_view_legacy_nfe_request(user=user, workshop=workshop, request=request)
+        or _user_can_change_legacy_nfe_request(user=user, workshop=workshop, request=request)
+    )
+
+
+def _user_can_download_nferequest_pdf(*, user, workshop, request) -> bool:
+    return (
+        _user_has_nferequest_permission(user=user, workshop=workshop, request=request, codename="download_nferequest_pdf")
+        or _user_can_view_legacy_nfe_request(user=user, workshop=workshop, request=request)
+        or _user_can_change_legacy_nfe_request(user=user, workshop=workshop, request=request)
+    )
+
+
+def _user_can_view_nferequest_payload(*, user, workshop, request) -> bool:
+    return _user_has_nferequest_permission(user=user, workshop=workshop, request=request, codename="view_nferequest_payload") or _user_can_change_legacy_nfe_request(user=user, workshop=workshop, request=request)
+
+
+def _user_can_view_nferequest_remote_response(*, user, workshop, request) -> bool:
+    return _user_has_nferequest_permission(user=user, workshop=workshop, request=request, codename="view_nferequest_remote_response") or _user_can_change_legacy_nfe_request(user=user, workshop=workshop, request=request)
+
+
 def _user_can_issue_return(*, user, workshop, request) -> bool:
     return has_workshop_perm(
         user=user,
@@ -372,9 +427,12 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         latest_item = self.object.items.order_by("-id").first()
-        can_change_legacy_nfe_request = _user_can_change_legacy_nfe_request(user=self.request.user, workshop=self.workshop, request=self.request)
-        can_cancel = bool(can_change_legacy_nfe_request and latest_item and str(getattr(latest_item, "status", "")).strip().lower() in {"aprovado", "contingencia"})
-        can_invalidate = bool(can_change_legacy_nfe_request and _can_invalidate_nfe_request(nfe_request=self.object, latest_item=latest_item))
+        can_cancel_nferequest = _user_can_cancel_nferequest(user=self.request.user, workshop=self.workshop, request=self.request)
+        can_invalidate_nferequest_numbering = _user_can_invalidate_nferequest_numbering(user=self.request.user, workshop=self.workshop, request=self.request)
+        can_download_nferequest_xml = _user_can_download_nferequest_xml(user=self.request.user, workshop=self.workshop, request=self.request)
+        can_download_nferequest_pdf = _user_can_download_nferequest_pdf(user=self.request.user, workshop=self.workshop, request=self.request)
+        can_cancel = bool(can_cancel_nferequest and latest_item and str(getattr(latest_item, "status", "")).strip().lower() in {"aprovado", "contingencia"})
+        can_invalidate = bool(can_invalidate_nferequest_numbering and _can_invalidate_nfe_request(nfe_request=self.object, latest_item=latest_item))
         can_issue_cce = bool(latest_item and is_nfe_item_eligible_for_cce(latest_item) and not has_active_cce_event_for_nfe_item(item=latest_item) and _user_can_issue_cce(user=self.request.user, workshop=self.workshop, request=self.request))
         can_view_cce_payload = _user_can_view_cce_payload(user=self.request.user, workshop=self.workshop, request=self.request)
         can_issue_return = bool(latest_item and is_local_nfe_eligible_for_return(latest_item) and _user_can_issue_return(user=self.request.user, workshop=self.workshop, request=self.request))
@@ -420,6 +478,10 @@ class NfeRequestDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
                 ],
                 "latest_item_status_badge": _format_item_status_badge(getattr(latest_item, "status", "")),
                 "can_invalidate": can_invalidate,
+                "can_download_nferequest_xml": can_download_nferequest_xml,
+                "can_download_nferequest_pdf": can_download_nferequest_pdf,
+                "can_view_nferequest_payload": _user_can_view_nferequest_payload(user=self.request.user, workshop=self.workshop, request=self.request),
+                "can_view_nferequest_remote_response": _user_can_view_nferequest_remote_response(user=self.request.user, workshop=self.workshop, request=self.request),
                 "can_issue_cce": can_issue_cce,
                 "can_view_cce_payload": can_view_cce_payload,
                 "can_issue_return": can_issue_return,
@@ -776,8 +838,8 @@ class NfeAdjustmentIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
 class NfeRequestCancelView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_app_label = "finance"
     workshop_permission_model = "nferequest"
-    workshop_permission_codename = "change_nferequest"
-    workshop_permission_fallbacks = (("finance", "nfserequest", "change_nfserequest"),)
+    workshop_permission_codename = "cancel_nferequest"
+    workshop_permission_fallbacks = (("finance", "nferequest", "change_nferequest"), ("finance", "nfserequest", "change_nfserequest"))
 
     def post(self, request, *args, **kwargs):
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
@@ -850,8 +912,8 @@ class NfeRequestReconcileView(LoginRequiredMixin, WorkshopScopedMixin, View):
 class NfeRequestInvalidateView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_app_label = "finance"
     workshop_permission_model = "nferequest"
-    workshop_permission_codename = "change_nferequest"
-    workshop_permission_fallbacks = (("finance", "nfserequest", "change_nfserequest"),)
+    workshop_permission_codename = "invalidate_nferequest_numbering"
+    workshop_permission_fallbacks = (("finance", "nferequest", "change_nferequest"), ("finance", "nfserequest", "change_nfserequest"))
 
     def post(self, request, *args, **kwargs):
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
@@ -892,12 +954,7 @@ class NfeRequestInvalidateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return redirect(build_detail_url_with_preserved_origin(view_name="finance:nfe_detail", pk=nfe_request.pk, query_params=request.GET))
 
 
-class NfeDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
-    workshop_permission_app_label = "finance"
-    workshop_permission_model = "nferequest"
-    workshop_permission_codename = "view_nferequest"
-    workshop_permission_fallbacks = (("finance", "nfserequest", "view_nfserequest"),)
-
+class NfeDocumentDownloadView(LoginRequiredMixin, View):
     document_fields = {
         "xml": ("xml_url", "xml"),
         "danfe": ("danfe_url", "pdf"),
@@ -905,11 +962,22 @@ class NfeDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
         "danfe_etiqueta": ("danfe_label_url", "pdf"),
     }
 
+    def dispatch(self, request, *args, **kwargs):
+        self.workshop = get_active_workshop_or_404(request)
+        return super().dispatch(request, *args, **kwargs)
+
     def get(self, request, *args, **kwargs):
         nfe_request = get_object_or_404(NfeRequest, pk=kwargs.get("pk"), workshop=self.workshop)
         document_kind = str(kwargs.get("document") or "").strip().lower()
         if document_kind not in self.document_fields:
             raise Http404("Documento nao suportado")
+
+        if document_kind == "xml":
+            can_download = _user_can_download_nferequest_xml(user=request.user, workshop=self.workshop, request=request)
+        else:
+            can_download = _user_can_download_nferequest_pdf(user=request.user, workshop=self.workshop, request=request)
+        if not can_download:
+            raise PermissionDenied
 
         item = nfe_request.items.order_by("-id").first()
         if item is None:

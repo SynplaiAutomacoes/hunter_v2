@@ -1,5 +1,16 @@
 # PRD seguranca, idempotencia, webhooks e reconciliacao
 
+## Fase 4.0.3 - Seguranca de acoes NF-e normal
+
+- A Fase 4.0.3 aplica permissoes dedicadas em UI e backend para acoes sensiveis da NF-e normal.
+- Cancelamento: permitido por `cancel_nferequest` ou fallback temporario `change_nferequest`/`change_nfserequest`.
+- Inutilizacao: permitida por `invalidate_nferequest_numbering` ou fallback temporario `change_nferequest`/`change_nfserequest`.
+- Download XML: permitido por `download_nferequest_xml` ou fallback temporario `view_nferequest`/`change_nferequest`.
+- Download DANFE/PDF: permitido por `download_nferequest_pdf` ou fallback temporario `view_nferequest`/`change_nferequest`.
+- Payload/resposta remota: permissoes `view_nferequest_payload` e `view_nferequest_remote_response` criadas sem abertura de view nova.
+- Cross-workshop continua bloqueado por oficina ativa e filtro local antes de qualquer chamada de download/acao.
+- Idempotencia, webhook, payload remoto e contrato Webmania nao foram alterados.
+
 ## Seguranca
 
 - Credenciais Webmania devem continuar em settings ou `WebmaniaCompany` criptografada.

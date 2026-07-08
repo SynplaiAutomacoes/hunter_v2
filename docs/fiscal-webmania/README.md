@@ -1,5 +1,13 @@
 # Fiscal Webmania - PRDs vivos
 
+## Atualizacao Fase 4.0.3
+
+- A Fase 4.0.2 foi validada e encerrada no checkpoint `43a597e0dbce3ece5cfcb05d7eae278f2522e8f6`.
+- A branch `feat/notas-fiscais` ja integrou `origin/main`; validacao pos-merge concluida no HEAD `0caf7ca5`.
+- A Fase 4.0.3 implementa a Opcao A: permissoes dedicadas para NF-e normal com fallback legado temporario.
+- Escopo: cancelamento, inutilizacao e downloads XML/DANFE existentes; permissoes de payload/resposta remota ficam criadas para uso futuro sem view nova.
+- Nao ha endpoint remoto novo, payload fiscal novo, regra fiscal nova, modernizacao de cancelamento/inutilizacao, CT-e, MDF-e, NFCom, DC-e, IBS/CBS pendente, credito/debito pendente ou complementar tributaria.
+
 ## INSTRUÇÕES PARA QUALQUER AGENTE OU SESSÃO FUTURA
 
 1. Leia este indice antes de modificar o fiscal.

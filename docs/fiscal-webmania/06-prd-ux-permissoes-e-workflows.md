@@ -1,5 +1,15 @@
 # PRD UX, permissoes e workflows fiscais
 
+## Fase 4.0.3 - UX e permissoes NF-e normal
+
+- Fase 4.0.2 validada no checkpoint `43a597e0dbce3ece5cfcb05d7eae278f2522e8f6`; Opcao A aprovada.
+- Pos-merge da `origin/main` validado no HEAD `0caf7ca5`.
+- O detalhe da NF-e normal passa a exibir cancelar/inutilizar/downloads somente quando a mesma permissao aceita pelo backend tambem existe.
+- Fallback legado temporario preserva operacao de usuarios/grupos atuais enquanto permissoes dedicadas sao mapeadas.
+- Acoes protegidas: botao e POST de cancelamento, botao e POST de inutilizacao, links e backend de XML/DANFE.
+- Nao ha nova tela de payload/resposta remota nesta fase; as permissoes foram criadas para uso futuro.
+- Pendencia operacional: mapear grupos reais e remover fallback legado em fase posterior.
+
 ## Interface final
 
 - Central fiscal unificada.
