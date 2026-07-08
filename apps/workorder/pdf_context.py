@@ -86,6 +86,11 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
             return item_benefit_map[line.entity_id]
         return "normal"
 
+    def _should_include_in_pdf(line) -> bool:
+        if is_visible_pdf_pricing_line(line):
+            return True
+        return _benefit_type(line) != "normal"
+
     produtos = [
         {
             "id": line.entity_id,
@@ -105,7 +110,7 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
             "item_benefit_type": _benefit_type(line),
         }
         for line in snapshot.product_lines
-        if is_visible_pdf_pricing_line(line)
+        if _should_include_in_pdf(line)
     ]
 
     servicos = [
@@ -121,7 +126,7 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
             "item_benefit_type": _benefit_type(line),
         }
         for line in snapshot.service_lines
-        if is_visible_pdf_pricing_line(line)
+        if _should_include_in_pdf(line)
     ]
 
     budget_proxy = WorkOrderPdfBudgetProxy(
