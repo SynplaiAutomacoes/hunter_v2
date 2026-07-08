@@ -342,11 +342,13 @@ def build_pricing_snapshot(
         if item_quantity <= 0:
             continue
 
+        if getattr(item, "item_benefit_type", "normal") not in ("normal", ""):
+            continue
+
         item_id = getattr(item, "id", None)
         product_id = getattr(item, "product_id", None)
         service_id = getattr(item, "service_id", None)
         kit_id = getattr(item, "kit_id", None)
-        _is_item_benefit = getattr(item, "item_benefit_type", "normal") not in ("normal", "")
 
         if product_id is not None or local_product_check(item):
             key = f"product-{product_id}" if product_id is not None else f"local-product-{item_id or sort_order}"
@@ -372,7 +374,7 @@ def build_pricing_snapshot(
                 )
                 product_aggregates[key] = aggregate
 
-            effective_selling = zero_money() if _is_item_benefit else _coerce_money(getattr(item, "product_selling_price", None))
+            effective_selling = _coerce_money(getattr(item, "product_selling_price", None))
             direct_total = (effective_selling * item_quantity) + _coerce_money(getattr(item, "shipping", None))
             direct_cost_total = _coerce_money(getattr(item, "product_cost_price", None)) * item_quantity
             direct_shipping = _coerce_money(getattr(item, "shipping", None))
@@ -415,7 +417,7 @@ def build_pricing_snapshot(
                 service_aggregates[key] = service_aggregate
 
             service_aggregate.direct_quantity += item_quantity
-            effective_selling = zero_money() if _is_item_benefit else _coerce_money(getattr(item, "service_selling_price", None))
+            effective_selling = _coerce_money(getattr(item, "service_selling_price", None))
             service_aggregate.direct_raw_total += effective_selling * item_quantity
             service_aggregate.direct_cost_total += _coerce_money(getattr(item, "service_cost_price", None)) * item_quantity
             service_aggregate.direct_shipping += _coerce_money(getattr(item, "service_shipping", None)) * item_quantity
@@ -456,7 +458,7 @@ def build_pricing_snapshot(
                 product_aggregates[key] = aggregate
 
             shipping = override.shipping * item_quantity
-            unit_price = zero_money() if _is_item_benefit else override.product_selling_price
+            unit_price = override.product_selling_price
             unit_cost = override.product_cost_price
 
             aggregate.kit_quantity += consolidated_quantity
@@ -492,7 +494,7 @@ def build_pricing_snapshot(
                 )
                 service_aggregates[key] = service_aggregate
 
-            unit_price = zero_money() if _is_item_benefit else override.service_selling_price
+            unit_price = override.service_selling_price
             unit_cost = override.service_cost_price
             fixed_cost_total = unit_cost * consolidated_quantity
             service_duration = timedelta(0)
