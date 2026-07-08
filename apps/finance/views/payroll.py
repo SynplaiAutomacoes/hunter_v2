@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import json
 from datetime import date
 from decimal import Decimal
 from typing import Any
 
 from django import forms
+from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
-from django.db.models import Q
-from django.http import HttpResponse
+from django.db.models import Q, Sum
+from django.http import HttpResponse, QueryDict
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 from django.utils import timezone
@@ -19,7 +21,7 @@ from django.http import HttpResponseRedirect
 from django.db import transaction
 
 from apps.collaborators.models import CollaboratorPayroll, WorkshopCollaborator
-from apps.collaborators.services import ensure_payroll_financial_movement, mark_payroll_as_paid, mark_payroll_commissions_as_paid, sync_collaborator_payroll, unmark_payroll_commissions_as_paid
+from apps.collaborators.services import ensure_payroll_financial_movement, mark_payroll_as_paid, mark_payroll_as_unpaid, mark_payroll_commissions_as_paid, payroll_has_financial_movements, sync_collaborator_payrolls_batch, unmark_payroll_commissions_as_paid
 from apps.core.presentation.widgets import CalendarDateInput, MoneyInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
@@ -127,9 +129,9 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             "has_modal_date_filter": bool(start_date or end_date),
         }
 
-    def _sync_monthly_payrolls(self, *, filters: dict[str, Any]) -> None:
+    def _get_collaborators_to_sync(self, *, filters: dict[str, Any]):
         if filters["has_modal_date_filter"]:
-            return
+            return WorkshopCollaborator.objects.none()
 
         reference_date = date(filters["year"], filters["month"], 1)
         collaborators = WorkshopCollaborator.objects.filter(
@@ -145,13 +147,29 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         if search:
             collaborators = collaborators.filter(name__icontains=search)
 
-        for collaborator in collaborators.order_by("name", "id").iterator():
-            sync_collaborator_payroll(collaborator=collaborator, reference_date=reference_date, lock_reference=True)
+        collaborator_ids = list(collaborators.values_list("pk", flat=True))
+        if not collaborator_ids:
+            return collaborators.none()
+
+        synced_collaborator_ids = set(
+            CollaboratorPayroll.objects.filter(
+                workshop=self.workshop,
+                collaborator_id__in=collaborator_ids,
+                reference_month=filters["month"],
+                reference_year=filters["year"],
+                financial_movement_id__isnull=False,
+            ).values_list("collaborator_id", flat=True)
+        )
+        return collaborators.exclude(pk__in=synced_collaborator_ids)
+
+    def _sync_monthly_payrolls(self, *, filters: dict[str, Any]) -> None:
+        reference_date = date(filters["year"], filters["month"], 1)
+        collaborators_to_sync = list(self._get_collaborators_to_sync(filters=filters).order_by("name", "id"))
+        sync_collaborator_payrolls_batch(collaborators=collaborators_to_sync, reference_date=reference_date, lock_reference=True)
 
     def _get_queryset(self):
         filters = self._get_filter_params()
-        self._sync_monthly_payrolls(filters=filters)
-        queryset = CollaboratorPayroll.objects.filter(workshop=self.workshop).select_related("collaborator", "financial_movement").prefetch_related("items", "commission_entries__workorder").order_by("collaborator__name", "id")
+        queryset = CollaboratorPayroll.objects.filter(workshop=self.workshop).select_related("collaborator", "financial_movement").order_by("collaborator__name", "id")
         if filters["has_modal_date_filter"]:
             if filters["start_date"]:
                 queryset = queryset.filter(due_date__gte=filters["start_date"])
@@ -213,8 +231,9 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         page_obj = paginator.get_page(self.request.GET.get("page") or "1")
         payrolls = list(page_obj.object_list)
         context["payroll_rows"] = self._build_rows(payrolls)
-        total_amount = sum((self._money_amount(payroll.total_amount) for payroll in queryset), start=Decimal("0.00"))
-        paid_amount = sum((self._money_amount(payroll.paid_amount) for payroll in queryset), start=Decimal("0.00"))
+        totals = queryset.aggregate(total_payroll_amount=Sum("total_amount"), paid_amount=Sum("total_amount", filter=Q(financial_movement__is_paid=True)))
+        total_amount = self._money_amount(totals.get("total_payroll_amount"))
+        paid_amount = self._money_amount(totals.get("paid_amount"))
         context["pending_amount"] = max(total_amount - paid_amount, Decimal("0.00"))
         context["paid_amount"] = paid_amount
         context["collaborator_filters"] = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
@@ -226,11 +245,32 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         context["month_choices"] = MONTH_CHOICES
         context["year_choices"] = range(timezone.localdate().year - 4, timezone.localdate().year + 2)
         context["has_modal_date_filter"] = filters["has_modal_date_filter"]
+        context["can_refresh_payroll"] = not filters["has_modal_date_filter"]
         context["clear_filters_url"] = reverse("finance:payroll_list")
         context["has_active_filters"] = bool(filters["start_date"] or filters["end_date"] or filters["collaborator_id"] is not None or filters["status"] or self.request.GET.get("search") or self.request.GET.get("mes") or self.request.GET.get("ano"))
         context["page_obj"] = page_obj
         context["is_paginated"] = paginator.num_pages > 1
         return context
+
+
+class PayrollRefreshView(PayrollListView, View):
+    workshop_permission_codename = "change_financialmovement"
+
+    def post(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        filters = self._get_filter_params()
+        self._sync_monthly_payrolls(filters=filters)
+
+        params = QueryDict("", mutable=True)
+        for key in ["search", "mes", "ano", "data_inicial", "data_final", "collaborator", "status", "page"]:
+            value = request.POST.get(key)
+            if value not in (None, ""):
+                params[key] = value
+
+        redirect_url = reverse("finance:payroll_list")
+        querystring = params.urlencode()
+        if querystring:
+            redirect_url = f"{redirect_url}?{querystring}"
+        return HttpResponseRedirect(redirect_url)
 
 
 def _get_payroll_reference_date(*, payroll: CollaboratorPayroll) -> date:
@@ -253,6 +293,26 @@ def _mark_payroll_as_paid(*, payroll: CollaboratorPayroll) -> CollaboratorPayrol
     return mark_payroll_as_paid(payroll=payroll, paid_at=timezone.localdate())
 
 
+def _mark_payroll_as_unpaid(*, payroll: CollaboratorPayroll) -> CollaboratorPayroll:
+    return mark_payroll_as_unpaid(payroll=payroll)
+
+
+def _payroll_missing_movement_message(*, collaborator_names: list[str], action_label: str) -> str:
+    skipped_count = len(collaborator_names)
+    base_message = f"{skipped_count} folha{'s' if skipped_count != 1 else ''} foram ignorada{'s' if skipped_count != 1 else ''} ao {action_label} porque nao possuem movimentacoes financeiras."
+    if not collaborator_names:
+        return base_message
+    return f"{base_message} Colaboradores: {', '.join(collaborator_names)}"
+
+
+def _build_hx_toast_response(*, message: str, toast_type: str, refresh: bool = False, status: int = 200) -> HttpResponse:
+    response = HttpResponse(status=status)
+    if refresh:
+        response["HX-Refresh"] = "true"
+    response["HX-Trigger"] = json.dumps({"showToast": {"message": message, "type": toast_type}})
+    return response
+
+
 class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = CollaboratorPayroll
     workshop_permission_app_label = "finance"
@@ -262,7 +322,7 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def _get_payroll(self) -> CollaboratorPayroll:
         return get_object_or_404(
-            CollaboratorPayroll.objects.select_related("collaborator", "financial_movement").prefetch_related("items", "commission_entries__workorder"),
+            CollaboratorPayroll.objects.select_related("collaborator", "financial_movement").prefetch_related("items", "commission_entries__workorder__budget"),
             pk=self.kwargs["pk"],
             workshop=self.workshop,
         )
@@ -271,6 +331,12 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         payroll = self._get_payroll()
         if payroll.financial_movement is None:
             payroll = _ensure_payroll_financial_movement(payroll=payroll)
+        if not payroll_has_financial_movements(payroll=payroll) or payroll.financial_movement is None:
+            return _build_hx_toast_response(
+                message="Esta folha nao possui movimentacoes financeiras para editar.",
+                toast_type="warning",
+                status=400,
+            )
         form = PayrollPaymentForm(instance=payroll.financial_movement, workshop=self.workshop, payroll=payroll)
         return render(request, self.template_name, {"payroll": payroll, "form": form})
 
@@ -278,6 +344,13 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         payroll = self._get_payroll()
         if payroll.financial_movement is None:
             payroll = _ensure_payroll_financial_movement(payroll=payroll)
+        if not payroll_has_financial_movements(payroll=payroll) or payroll.financial_movement is None:
+            return _build_hx_toast_response(
+                message="Esta folha nao possui movimentacoes financeiras para editar.",
+                toast_type="warning",
+                refresh=True,
+                status=400,
+            )
         form = PayrollPaymentForm(request.POST, instance=payroll.financial_movement, workshop=self.workshop, payroll=payroll)
         if form.is_valid():
             due_date = form.cleaned_data["due_date"]
@@ -288,7 +361,7 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
             if movement.is_paid:
                 _mark_payroll_as_paid(payroll=payroll)
             else:
-                sync_collaborator_payroll(collaborator=payroll.collaborator, reference_date=_get_payroll_reference_date(payroll=payroll), lock_reference=True)
+                _mark_payroll_as_unpaid(payroll=payroll)
                 _unmark_payroll_commissions_as_paid(payroll=payroll)
             response = HttpResponse()
             response["HX-Refresh"] = "true"
@@ -322,16 +395,28 @@ class PayrollBulkPayView(LoginRequiredMixin, WorkshopScopedMixin, View):
         payrolls = CollaboratorPayroll.objects.filter(
             pk__in=payroll_ids,
             workshop=self.workshop,
-        ).select_related("financial_movement")
+        ).select_related("collaborator", "financial_movement")
 
+        skipped_collaborators: list[str] = []
         with transaction.atomic():
             for payroll in payrolls:
-                _mark_payroll_as_paid(payroll=payroll)
+                refreshed_payroll = _mark_payroll_as_paid(payroll=payroll)
+                if not payroll_has_financial_movements(payroll=refreshed_payroll):
+                    skipped_collaborators.append(refreshed_payroll.collaborator.name)
 
         if request.headers.get("HX-Request"):
+            if skipped_collaborators:
+                return _build_hx_toast_response(
+                    message=_payroll_missing_movement_message(collaborator_names=skipped_collaborators, action_label="marcar como pagas"),
+                    toast_type="warning",
+                    refresh=True,
+                )
             response = HttpResponse()
             response["HX-Refresh"] = "true"
             return response
+
+        if skipped_collaborators:
+            messages.warning(request, _payroll_missing_movement_message(collaborator_names=skipped_collaborators, action_label="marcar como pagas"))
 
         return HttpResponseRedirect(reverse("finance:payroll_list"))
 
@@ -363,14 +448,7 @@ class PayrollBulkUnpayView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         with transaction.atomic():
             for payroll in payrolls:
-                if payroll.financial_movement is not None and payroll.financial_movement.is_paid:
-                    payroll.financial_movement.is_paid = False
-                    payroll.financial_movement.save(update_fields=["is_paid"])
-                sync_collaborator_payroll(
-                    collaborator=payroll.collaborator,
-                    reference_date=_get_payroll_reference_date(payroll=payroll),
-                    lock_reference=True,
-                )
+                _mark_payroll_as_unpaid(payroll=payroll)
                 _unmark_payroll_commissions_as_paid(payroll=payroll)
 
         if request.headers.get("HX-Request"):

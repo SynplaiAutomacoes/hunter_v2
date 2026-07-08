@@ -194,9 +194,10 @@
                                 {% endif %}
                             {% endfor %}
                             <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-                                <div class="col-span-12 lg:col-span-3">{{ benefit_form.name|as_crispy_field }}</div>
-                                <div class="col-span-12 lg:col-span-5">{{ benefit_form.description|as_crispy_field }}</div>
+                                <div class="col-span-12 lg:col-span-2">{{ benefit_form.name|as_crispy_field }}</div>
+                                <div class="col-span-12 lg:col-span-3">{{ benefit_form.description|as_crispy_field }}</div>
                                 <div class="col-span-12 lg:col-span-2">{{ benefit_form.monthly_amount|as_crispy_field }}</div>
+                                <div class="col-span-12 lg:col-span-3">{{ benefit_form.budget_plan|as_crispy_field }}</div>
                                 <div class="col-span-12 lg:col-span-1">{{ benefit_form.is_active|as_crispy_field }}</div>
                                 <div class="col-span-12 lg:col-span-1 flex items-center justify-end lg:min-h-full">
                                     {% if benefit_form.instance.pk %}
@@ -245,9 +246,10 @@
                             {% endif %}
                         {% endfor %}
                         <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-                            <div class="col-span-12 lg:col-span-3">{{ benefit_empty_form.name|as_crispy_field }}</div>
-                            <div class="col-span-12 lg:col-span-5">{{ benefit_empty_form.description|as_crispy_field }}</div>
+                            <div class="col-span-12 lg:col-span-2">{{ benefit_empty_form.name|as_crispy_field }}</div>
+                            <div class="col-span-12 lg:col-span-3">{{ benefit_empty_form.description|as_crispy_field }}</div>
                             <div class="col-span-12 lg:col-span-2">{{ benefit_empty_form.monthly_amount|as_crispy_field }}</div>
+                            <div class="col-span-12 lg:col-span-3">{{ benefit_empty_form.budget_plan|as_crispy_field }}</div>
                             <div class="col-span-12 lg:col-span-1">{{ benefit_empty_form.is_active|as_crispy_field }}</div>
                             <div class="col-span-12 lg:col-span-1 flex items-center justify-end lg:min-h-full">
                                 <button type="button" class="btn btn-ghost btn-sm text-error" @click="removeUnsavedBenefit($event)">Remover</button>

@@ -26,6 +26,7 @@ from apps.core.presentation.widgets import (
 )
 from apps.iam.models import WorkshopRole
 from apps.core.text_normalization import name_case, sentence_case
+from apps.finance.models.financial_group import FinancialGroup
 from apps.workshops.models.workshops import Workshop
 
 User = get_user_model()
@@ -411,13 +412,23 @@ class WorkshopCollaboratorModalForm(CoreModelForm):
 
 
 class CollaboratorBenefitInlineForm(CoreModelForm):
+    def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        budget_plan_field = self.fields["budget_plan"]
+        budget_plan_queryset = FinancialGroup.objects.none()
+        if workshop is not None:
+            budget_plan_queryset = FinancialGroup.objects.filter(workshop=workshop, is_active=True).order_by("sort_key", "id")
+        budget_plan_field.queryset = budget_plan_queryset
+        budget_plan_field.widget = SearchableSelectInput(choices=[("", "Selecione um plano"), *[(str(group.pk), str(group)) for group in budget_plan_queryset]])
+
     class Meta:
         model = CollaboratorBenefit
-        fields = ["name", "description", "monthly_amount", "is_active"]
+        fields = ["name", "description", "monthly_amount", "budget_plan", "is_active"]
         widgets = {
             "name": TextInput(attrs={"placeholder": "Nome do beneficio"}),
             "description": TextInput(attrs={"placeholder": "Descricao"}),
             "monthly_amount": MoneyInput(),
+            "budget_plan": SearchableSelectInput(),
             "is_active": CheckboxInput(),
         }
 
@@ -451,7 +462,7 @@ CollaboratorBenefitFormSet = inlineformset_factory(
     model=CollaboratorBenefit,
     form=CollaboratorBenefitInlineForm,
     formset=CollaboratorBenefitInlineFormSet,
-    fields=["name", "description", "monthly_amount", "is_active"],
+    fields=["name", "description", "monthly_amount", "budget_plan", "is_active"],
     extra=0,
     can_delete=True,
 )
