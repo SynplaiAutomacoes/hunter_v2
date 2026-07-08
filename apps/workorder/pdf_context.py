@@ -72,24 +72,54 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
         for p in workorder.iter_payments()
     ]
 
-    item_benefit_map: dict[int, str] = {}
-    for _wo_item in WorkOrderItem.objects.filter(workorder=workorder).only("id", "product_id", "service_id", "item_benefit_type"):
-        item_benefit_map[_wo_item.id] = _wo_item.item_benefit_type
+    _item_data: dict[int, dict] = {}
+    for _wo_item in WorkOrderItem.objects.filter(workorder=workorder).only(
+        "id", "product_id", "service_id", "item_benefit_type",
+        "product_selling_price", "product_selling_price_currency",
+        "service_selling_price", "service_selling_price_currency",
+        "shipping", "shipping_currency",
+    ):
+        unit_price = _wo_item.product_selling_price or _wo_item.service_selling_price
+        _item_data[_wo_item.id] = {
+            "benefit_type": _wo_item.item_benefit_type,
+            "unit_price": unit_price,
+            "shipping": _wo_item.shipping,
+        }
         eid = _wo_item.product_id or _wo_item.service_id
-        if eid and eid not in item_benefit_map:
-            item_benefit_map[eid] = _wo_item.item_benefit_type
+        if eid and eid not in _item_data:
+            _item_data[eid] = _item_data[_wo_item.id]
+
+    def _item_data_for_line(line) -> dict | None:
+        if line.source_item_id is not None and line.source_item_id in _item_data:
+            return _item_data[line.source_item_id]
+        if line.entity_id is not None and line.entity_id in _item_data:
+            return _item_data[line.entity_id]
+        return None
 
     def _benefit_type(line) -> str:
-        if line.source_item_id is not None and line.source_item_id in item_benefit_map:
-            return item_benefit_map[line.source_item_id]
-        if line.entity_id is not None and line.entity_id in item_benefit_map:
-            return item_benefit_map[line.entity_id]
+        data = _item_data_for_line(line)
+        if data:
+            return data["benefit_type"]
         return "normal"
 
     def _should_include_in_pdf(line) -> bool:
         if is_visible_pdf_pricing_line(line):
             return True
         return _benefit_type(line) != "normal"
+
+    def _line_display_unit_price(line) -> Money:
+        if _benefit_type(line) != "normal":
+            data = _item_data_for_line(line)
+            if data and data["unit_price"] and data["unit_price"].amount > 0:
+                return data["unit_price"]
+        return line.unit_price
+
+    def _line_display_total_price(line) -> Money:
+        if _benefit_type(line) != "normal":
+            data = _item_data_for_line(line)
+            if data and data["unit_price"] and data["unit_price"].amount > 0:
+                return (data["unit_price"] * line.quantity) + line.shipping
+        return line.total_price
 
     produtos = [
         {
@@ -100,10 +130,10 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
             "application": line.application or "-",
             "code": line.code or "-",
             "location": line.location or "-",
-            "unit_price": line.unit_price,
-            "adjusted_unit_price": line.adjusted_unit_price,
+            "unit_price": _line_display_unit_price(line),
+            "adjusted_unit_price": _line_display_unit_price(line),
             "shipping": line.shipping,
-            "total_price": line.total_price,
+            "total_price": _line_display_total_price(line),
             "product_cost_price": line.cost_total,
             "profit_value": line.profit_value,
             "show_kit_duplicate_warning": line.show_kit_duplicate_warning,
@@ -118,8 +148,8 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
             "id": line.entity_id,
             "description": line.description,
             "quantity": line.quantity,
-            "unit_price": line.adjusted_unit_price,
-            "total_price": line.total_price,
+            "unit_price": _line_display_unit_price(line),
+            "total_price": _line_display_total_price(line),
             "service_cost_price": line.cost_total,
             "profit_value": line.profit_value,
             "duration_display": line.duration_display,
