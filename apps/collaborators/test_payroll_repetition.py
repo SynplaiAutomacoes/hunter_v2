@@ -10,8 +10,10 @@ from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
 from apps.accounts.models import Account
-from apps.collaborators.forms import WorkshopCollaboratorCreateForm
+from apps.collaborators.forms import CollaboratorBenefitFormSet, WorkshopCollaboratorCreateForm
 from apps.collaborators.models import CollaboratorPayroll, WorkshopCollaborator
+from apps.core.presentation.widgets import SearchableSelectInput
+from apps.finance.models.financial_group import FinancialGroup
 from apps.collaborators.views import WorkshopCollaboratorPendingMovementDeleteView, WorkshopCollaboratorUpdateView
 from apps.collaborators.services import sync_collaborator_payroll, sync_repeated_collaborator_payrolls
 from apps.workshops.models.workshops import Workshop
@@ -49,6 +51,10 @@ def create_collaborator(*, workshop: Workshop, cpf: str, payment_day_type: str, 
     )
 
 
+def create_financial_group(*, workshop: Workshop, name: str, parent: FinancialGroup | None = None) -> FinancialGroup:
+    return FinancialGroup.objects.create(workshop=workshop, parent=parent, name=name)
+
+
 class CollaboratorPayrollRepetitionTests(TestCase):
     def setUp(self) -> None:
         self.factory = RequestFactory()
@@ -74,6 +80,26 @@ class CollaboratorPayrollRepetitionTests(TestCase):
         self.assertIn(WorkshopCollaborator.PaymentDayType.FIFTH_BUSINESS_DAY, payment_day_choices)
         self.assertIn(WorkshopCollaborator.PaymentDayType.FIXED_DAY, payment_day_choices)
         self.assertIn(WorkshopCollaborator.CollaboratorType.PRODUCTIVE, collaborator_type_choices)
+
+    def test_benefit_formset_exposes_budget_plan_searchable_select(self) -> None:
+        account = create_account(suffix=9)
+        workshop = create_workshop(account=account, suffix=9)
+        root_group = create_financial_group(workshop=workshop, name="Despesas")
+        budget_plan = create_financial_group(workshop=workshop, name="Plano de Saude", parent=root_group)
+        collaborator = create_collaborator(
+            workshop=workshop,
+            cpf="12345678919",
+            payment_day_type=WorkshopCollaborator.PaymentDayType.FIXED_DAY,
+            payment_day_of_month=10,
+        )
+
+        formset = CollaboratorBenefitFormSet(instance=collaborator, prefix="benefits", form_kwargs={"workshop": workshop})
+        form = formset.empty_form
+
+        self.assertIn("budget_plan", form.fields)
+        self.assertIsInstance(form.fields["budget_plan"].widget, SearchableSelectInput)
+        widget_choices = dict(form.fields["budget_plan"].widget.choices)
+        self.assertEqual(str(widget_choices[str(budget_plan.pk)]), str(budget_plan))
 
     def test_repeated_payrolls_keep_fixed_payment_day_rules(self) -> None:
         account = create_account(suffix=2)
