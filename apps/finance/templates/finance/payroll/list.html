@@ -13,6 +13,10 @@
                     <span class="material-icons">payments</span>
                     Pagar selecionados
                 </button>
+                <button type="button" class="btn btn-warning" id="btn-desfazer-pagamentos" disabled @click="$refs.payrollBulkUnpayModal.showModal()">
+                    <span class="material-icons">undo</span>
+                    Desfazer pagamentos
+                </button>
             </div>
         </div>
 
@@ -49,6 +53,41 @@
                 </div>
             </div>
             <button type="button" class="modal-backdrop" @click="$refs.payrollBulkPayModal.close()">close</button>
+        </dialog>
+
+        <dialog id="payroll-bulk-unpay-modal" class="modal" x-ref="payrollBulkUnpayModal" @click="if ($event.target === $el) $el.close()">
+            <div class="modal-box w-11/12 max-w-lg border border-base-300 bg-base-100 shadow-2xl">
+                <div class="flex items-start gap-3">
+                    <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-warning/10 text-warning">
+                        <span class="material-icons">undo</span>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold text-base-content">Confirmar desfazer pagamentos</h3>
+                        <p class="mt-2 text-sm leading-6 text-base-content/70">As folhas selecionadas voltarão para não pagas, e as comissões vinculadas também serão marcadas como não pagas.</p>
+                    </div>
+                </div>
+
+                <div class="mt-5 rounded-xl border border-base-300 bg-base-200/40 px-4 py-3 text-sm text-base-content/80">
+                    Revise os itens selecionados antes de continuar. Esta ação desfaz o pagamento de todos os registros marcados de uma só vez.
+                </div>
+
+                <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                    <button type="button" class="btn-form-cancel" @click="$refs.payrollBulkUnpayModal.close()">Cancelar</button>
+                    <button
+                        type="button"
+                        class="btn btn-warning"
+                        hx-post="{% url 'finance:payroll_bulk_unpay' %}"
+                        hx-include="#payroll-table .payroll-checkbox:checked"
+                        hx-target="#payroll-section"
+                        hx-swap="outerHTML"
+                        @click="$refs.payrollBulkUnpayModal.close()"
+                    >
+                        <span class="material-icons text-[18px]">undo</span>
+                        Confirmar desfazer
+                    </button>
+                </div>
+            </div>
+            <button type="button" class="modal-backdrop" @click="$refs.payrollBulkUnpayModal.close()">close</button>
         </dialog>
 
         <form method="get" action="{% url 'finance:payroll_list' %}" class="card border border-base-300 bg-base-100 shadow-xl" x-data>
@@ -171,9 +210,7 @@
                                     {% for row in payroll_rows %}
                                         <tr>
                                             <td>
-                                                {% if not row.is_paid %}
-                                                    <input type="checkbox" name="payroll_ids" value="{{ row.id }}" class="checkbox checkbox-primary checkbox-sm payroll-checkbox" />
-                                                {% endif %}
+                                                <input type="checkbox" name="payroll_ids" value="{{ row.id }}" data-is-paid="{{ row.is_paid|yesno:'true,false' }}" class="checkbox checkbox-primary checkbox-sm payroll-checkbox" />
                                             </td>
                                             <td>{{ row.collaborator_name }}</td>
                                             <td>{{ row.due_date|date:"d/m/Y" }}</td>
@@ -219,19 +256,35 @@
                             window.__payrollSelectionInitDone = true;
 
                             var btnPagar = document.getElementById('btn-pagar-selecionados');
+                            var btnDesfazer = document.getElementById('btn-desfazer-pagamentos');
+
+                            function setButtonState(button, enabled) {
+                                if (!button) {
+                                    return;
+                                }
+                                button.disabled = !enabled;
+                                if (enabled) button.removeAttribute('disabled');
+                                else button.setAttribute('disabled', 'disabled');
+                            }
 
                             function updateActionButtons() {
                                 var checkboxes = document.querySelectorAll('#payroll-table .payroll-checkbox:checked');
                                 var hasSelection = checkboxes.length > 0;
-                                if (btnPagar) {
-                                    btnPagar.disabled = !hasSelection;
-                                    if (hasSelection) btnPagar.removeAttribute('disabled');
-                                    else btnPagar.setAttribute('disabled', 'disabled');
+                                var paidSelected = 0;
+                                var unpaidSelected = 0;
+
+                                for (var i = 0; i < checkboxes.length; i++) {
+                                    if (checkboxes[i].dataset.isPaid === 'true') paidSelected++;
+                                    else unpaidSelected++;
                                 }
+
+                                setButtonState(btnPagar, hasSelection && unpaidSelected > 0);
+                                setButtonState(btnDesfazer, hasSelection && paidSelected > 0);
                             }
 
                             function init() {
                                 btnPagar = document.getElementById('btn-pagar-selecionados');
+                                btnDesfazer = document.getElementById('btn-desfazer-pagamentos');
                                 var selectAll = document.getElementById('select-all-payroll');
                                 if (!selectAll) {
                                     updateActionButtons();

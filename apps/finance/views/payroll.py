@@ -330,3 +330,48 @@ class PayrollBulkPayView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return response
 
         return HttpResponseRedirect(reverse("finance:payroll_list"))
+
+
+class PayrollBulkUnpayView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "financialmovement"
+    workshop_permission_codename = "change_financialmovement"
+
+    def post(self, request, *args, **kwargs):
+        raw_values = request.POST.getlist("payroll_ids")
+        if not raw_values:
+            return HttpResponse("Nenhuma folha selecionada.", status=400)
+
+        payroll_ids = []
+        for value in raw_values:
+            try:
+                payroll_ids.append(int(value))
+            except (TypeError, ValueError):
+                pass
+
+        if not payroll_ids:
+            return HttpResponse("Nenhuma folha selecionada.", status=400)
+
+        payrolls = CollaboratorPayroll.objects.filter(
+            pk__in=payroll_ids,
+            workshop=self.workshop,
+        ).select_related("collaborator", "financial_movement")
+
+        with transaction.atomic():
+            for payroll in payrolls:
+                if payroll.financial_movement is not None and payroll.financial_movement.is_paid:
+                    payroll.financial_movement.is_paid = False
+                    payroll.financial_movement.save(update_fields=["is_paid"])
+                sync_collaborator_payroll(
+                    collaborator=payroll.collaborator,
+                    reference_date=_get_payroll_reference_date(payroll=payroll),
+                    lock_reference=True,
+                )
+                _unmark_payroll_commissions_as_paid(payroll=payroll)
+
+        if request.headers.get("HX-Request"):
+            response = HttpResponse()
+            response["HX-Refresh"] = "true"
+            return response
+
+        return HttpResponseRedirect(reverse("finance:payroll_list"))
