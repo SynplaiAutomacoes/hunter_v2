@@ -280,6 +280,10 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
             payroll = _ensure_payroll_financial_movement(payroll=payroll)
         form = PayrollPaymentForm(request.POST, instance=payroll.financial_movement, workshop=self.workshop, payroll=payroll)
         if form.is_valid():
+            due_date = form.cleaned_data["due_date"]
+            if payroll.due_date != due_date:
+                payroll.due_date = due_date
+                payroll.save(update_fields=["due_date"])
             movement = form.save()
             if movement.is_paid:
                 _mark_payroll_as_paid(payroll=payroll)

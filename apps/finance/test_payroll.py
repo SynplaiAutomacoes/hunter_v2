@@ -227,6 +227,103 @@ class PayrollEditModalViewTests(TestCase):
         self.assertTrue(movement.is_paid)
         self.assertTrue(movement.is_reconciled)
 
+    def test_submit_form_updates_due_date_for_unpaid_payroll_without_sync_reverting_it(self) -> None:
+        workshop = create_workshop(suffix=6)
+        collaborator = create_collaborator(workshop=workshop, suffix=6)
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Folha",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=False,
+            is_reconciled=False,
+        )
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            financial_movement=movement,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2000, "BRL"),
+            total_amount=Money(2000, "BRL"),
+        )
+
+        request = RequestFactory().post(
+            f"/finance/folha-pagamento/{payroll.pk}/edit/",
+            {
+                "due_date": "2026-08-12",
+                "amount_0": "2000.00",
+                "amount_1": "BRL",
+                "is_paid": "False",
+                "is_reconciled": "False",
+            },
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollEditModalView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.post(request)
+
+        movement.refresh_from_db()
+        payroll.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payroll.due_date, date(2026, 8, 12))
+        self.assertEqual(movement.due_date, date(2026, 8, 12))
+
+    def test_submit_form_updates_due_date_for_paid_payroll(self) -> None:
+        workshop = create_workshop(suffix=7)
+        collaborator = create_collaborator(workshop=workshop, suffix=7)
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Folha",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=False,
+            is_reconciled=False,
+        )
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            financial_movement=movement,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2000, "BRL"),
+            total_amount=Money(2000, "BRL"),
+        )
+
+        request = RequestFactory().post(
+            f"/finance/folha-pagamento/{payroll.pk}/edit/",
+            {
+                "due_date": "2026-08-15",
+                "amount_0": "2000.00",
+                "amount_1": "BRL",
+                "is_paid": "True",
+                "is_reconciled": "False",
+            },
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollEditModalView()
+        view.request = request
+        view.kwargs = {"pk": payroll.pk}
+        view.workshop = workshop
+
+        response = view.post(request)
+
+        movement.refresh_from_db()
+        payroll.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payroll.due_date, date(2026, 8, 15))
+        self.assertEqual(movement.due_date, date(2026, 8, 15))
+        self.assertTrue(movement.is_paid)
+
 
 class ReportMovementEditRedirectTests(TestCase):
     def test_payroll_movement_edits_redirect_to_payroll_modal(self) -> None:

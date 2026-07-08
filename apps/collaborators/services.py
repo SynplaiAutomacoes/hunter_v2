@@ -551,7 +551,7 @@ def sync_collaborator_payroll(*, collaborator: WorkshopCollaborator, reference_d
         reference_month=resolved.month,
         defaults={
             "workshop": collaborator.workshop,
-            "due_date": collaborator.get_due_date_for_reference(reference_date=resolved),
+            "due_date": existing_payroll.due_date if existing_payroll is not None else collaborator.get_due_date_for_reference(reference_date=resolved),
             "salary_amount": salary_amount,
             "transport_allowance_amount": transport_amount,
             "benefits_amount": Money(_quantize(benefits_total), "BRL"),
