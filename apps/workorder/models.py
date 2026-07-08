@@ -252,6 +252,15 @@ class WorkOrder(TimeStampedModel):
     @property
     def signature_blockers(self) -> list[str]:
         blockers: list[str] = []
+        if self.km_final is None:
+            blockers.append("É necessário inserir o Km Final para desbloquear o botão.")
+        else:
+            km_initial = int(getattr(self.budget, "current_km", 0) or 0)
+            if self.km_final < km_initial:
+                blockers.append(
+                    f"O KM final não pode ser menor que o KM inicial ({km_initial:,})."
+                    .replace(",", ".")
+                )
         payment_reason = self.payment_block_reason
         if payment_reason:
             blockers.append(payment_reason)
