@@ -31,6 +31,7 @@ from apps.finance.forms.financial_movement import MovementStep1Form, MovementSte
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.views.navigation import append_query_params
 from apps.accounts.models import User
+from apps.collaborators.services import delete_payroll_linked_financial_movement
 from apps.collaborators.models import WorkshopCollaborator
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
@@ -757,7 +758,7 @@ class FinancialMovementRemovePayrollLinkView(FinancialMovementDeleteView):
 
     def form_valid(self, form):
         if bool(getattr(self.request, "htmx", False)):
-            self.object.delete()
+            delete_payroll_linked_financial_movement(movement=self.object)
             response = HttpResponse()
             response["HX-Refresh"] = "true"
             return response
