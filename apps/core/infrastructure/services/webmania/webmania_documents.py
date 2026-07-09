@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 
 import requests
 
+from apps.core.observability import observe_dependency_call
 from apps.core.infrastructure.services.webmania.webmania_auth import WebmaniaAuthError, build_webmania_headers
 from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message
+
+
+logger = logging.getLogger(__name__)
 
 
 class WebmaniaDocumentDownloadError(Exception):
@@ -30,8 +35,17 @@ def download_webmania_document(*, workshop, url: str) -> DownloadedWebmaniaDocum
         raise WebmaniaDocumentDownloadError(str(exc)) from exc
 
     try:
-        response = requests.get(normalized_url, headers=headers, timeout=60)
-        response.raise_for_status()
+        with observe_dependency_call(
+            logger=logger,
+            dependency_type="http",
+            dependency_name="webmania",
+            operation="download_document",
+            log_context={"url": normalized_url},
+        ) as dependency_call:
+            response = requests.get(normalized_url, headers=headers, timeout=60)
+            dependency_call.set_http_status_code(response.status_code)
+            response.raise_for_status()
+            dependency_call.success(extra={"content_type": str(response.headers.get("Content-Type") or "application/octet-stream")})
     except requests.RequestException as exc:
         message = build_webmania_request_exception_message(exc, default="Falha ao baixar documento fiscal")
         raise WebmaniaDocumentDownloadError(message) from exc

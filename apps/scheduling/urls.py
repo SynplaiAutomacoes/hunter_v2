@@ -12,6 +12,7 @@ urlpatterns = [
     path("<int:pk>/edit/", views.AppointmentUpdateView.as_view(), name="appointment_update"),
     path("<int:pk>/delete/", views.AppointmentDeleteView.as_view(), name="appointment_delete"),
     path("<int:pk>/move/", views.AppointmentMoveView.as_view(), name="appointment_move"),
+    path("get-customers/", views.CustomerListView.as_view(), name="get_customers"),
     path("get-vehicles/", views.VehicleByCustomerListView.as_view(), name="get_vehicles"),
     path("get-vehicle-detail/", views.VehicleDetailView.as_view(), name="get_vehicle_detail"),
     path("get-budgets/", views.BudgetByVehicleListView.as_view(), name="get_budgets"),

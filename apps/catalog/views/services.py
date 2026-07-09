@@ -4,6 +4,7 @@ import json
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import Exists, OuterRef
 from django.http import HttpResponse
 from django.shortcuts import render
 from django.urls import reverse_lazy
@@ -11,9 +12,12 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from apps.budget.views.shared import _parse_duration_from_string
+from apps.budget.models import BudgetItem, BudgetKitItemOverride
 from apps.catalog.forms.services import ServiceForm
+from apps.catalog.models.kits import KitService
 from apps.catalog.models.services import Service
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
+from apps.workorder.models import WorkOrderItem, WorkOrderKitItemOverride
 from apps.core.presentation.navigation import SERVICE_CREATE_FAVORITE_PAGE
 from apps.core.infrastructure.search import apply_text_search
 from apps.catalog.util import get_current_workshop_cost, calculate_catalog_service_prices
@@ -37,6 +41,13 @@ class ServiceListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
 
     def get_queryset(self):
         queryset = super().get_queryset()
+        queryset = queryset.annotate(
+            has_usage=Exists(BudgetItem.objects.filter(service=OuterRef("pk")).only("pk"))
+            | Exists(WorkOrderItem.objects.filter(service=OuterRef("pk")).only("pk"))
+            | Exists(BudgetKitItemOverride.objects.filter(service=OuterRef("pk")).only("pk"))
+            | Exists(WorkOrderKitItemOverride.objects.filter(service=OuterRef("pk")).only("pk"))
+            | Exists(KitService.objects.filter(service=OuterRef("pk")).only("pk")),
+        )
         queryset = apply_is_active_filter(queryset, params=self.request.GET)
         queryset = apply_query_param_filters(
             queryset,
@@ -58,7 +69,7 @@ class ServiceListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
 
         context["actions"] = [
             TableActionDefaults.edit("catalog:services_update"),
-            TableActionDefaults.delete("catalog:services_delete", visible=lambda obj: not obj.is_used),
+            TableActionDefaults.delete("catalog:services_delete", visible=lambda obj: not getattr(obj, "has_usage", False)),
         ]
 
         return context

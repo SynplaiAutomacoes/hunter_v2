@@ -129,6 +129,7 @@ class ProductForm(EquivalentProductsFormMixin, CoreModelForm):
             priceError: false,
             lowerPriceConfirmed: false,
             priceHelpMessage: '',
+            _calculatingMargin: false,
             getRawMoneyValue(fieldId) {{
                 const field = document.getElementById(fieldId);
                 if (!field) return 0;
@@ -164,6 +165,7 @@ class ProductForm(EquivalentProductsFormMixin, CoreModelForm):
                 return numericValue.toLocaleString('pt-BR', {{ style: 'currency', currency: 'BRL' }});
             }},
             calculateMargin(resetLowerPriceConfirmation = true) {{
+                if (this._calculatingMargin) return;
                 const cost = this.getRawMoneyValue('id_cost_price_0');
                 const sell = this.getRawMoneyValue('id_selling_price_0');
                 this.priceError = sell > 0 && sell < cost;
@@ -176,11 +178,15 @@ class ProductForm(EquivalentProductsFormMixin, CoreModelForm):
                     const margin = ((sell - cost) / sell) * 100;
                     if (marginEl) {{
                         marginEl.value = margin.toFixed(2).replace('.', ',');
+                        this._calculatingMargin = true;
                         marginEl.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        this._calculatingMargin = false;
                     }}
                 }} else if (marginEl) {{
                     marginEl.value = '0,00';
+                    this._calculatingMargin = true;
                     marginEl.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    this._calculatingMargin = false;
                 }}
 
                 if (sell > 0) {{

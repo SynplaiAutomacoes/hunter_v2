@@ -223,8 +223,7 @@ def get_financial_movement_visible_page(*, request: HttpRequest, workshop: Any) 
     ordered_queryset, _, _, _ = _apply_sort(filtered_queryset, columns=fields, sort=sort, sort_attr=sort_attr, sort_desc=sort_desc, sort_is_valid=sort_is_valid)
     ordered_queryset = _ensure_stable_ordering(ordered_queryset)
 
-    has_active_filters = any(str(value).strip() != "" for param_name in ("data_inicial", "data_final", "source") for value in request.GET.getlist(param_name))
-    per_page = max(ordered_queryset.count(), 1) if has_active_filters else 10
+    per_page = 10
     page_obj, _ = _paginate(ordered_queryset, per_page=per_page, page_number=request.GET.get("page", "1"))
     return page_obj
 
