@@ -122,11 +122,33 @@ def sync_current_month_salary_costs(*, workshop: Workshop, reference_date=None) 
 
 def sync_repeated_collaborator_payrolls(*, collaborator: WorkshopCollaborator, repeat_count: int | None, first_payroll: CollaboratorPayroll | None = None) -> list[CollaboratorPayroll]:
     if repeat_count is None or repeat_count <= 1:
+        logger.warning(
+            "Repeated collaborator payroll sync skipped due to repeat count",
+            extra={"collaborator_id": collaborator.pk, "repeat_count": repeat_count},
+        )
+        return []
+    if not collaborator.is_active:
+        logger.warning(
+            "Repeated collaborator payroll sync skipped because collaborator is inactive",
+            extra={"collaborator_id": collaborator.pk, "repeat_count": repeat_count},
+        )
         return []
 
     payroll = first_payroll or sync_collaborator_payroll(collaborator=collaborator)
     reference_date = date(payroll.reference_year, payroll.reference_month, 1)
     repeated_payrolls: list[CollaboratorPayroll] = []
+
+    logger.warning(
+        "Repeated collaborator payroll sync started",
+        extra={
+            "collaborator_id": collaborator.pk,
+            "repeat_count": repeat_count,
+            "first_payroll_id": payroll.pk,
+            "first_reference_year": payroll.reference_year,
+            "first_reference_month": payroll.reference_month,
+            "first_due_date": payroll.due_date.isoformat(),
+        },
+    )
 
     for month_offset in range(1, repeat_count):
         repeated_payrolls.append(
@@ -136,7 +158,73 @@ def sync_repeated_collaborator_payrolls(*, collaborator: WorkshopCollaborator, r
             )
         )
 
+    logger.warning(
+        "Repeated collaborator payroll sync finished",
+        extra={
+            "collaborator_id": collaborator.pk,
+            "repeat_count": repeat_count,
+            "generated_count": len(repeated_payrolls),
+            "generated_payrolls": [
+                {
+                    "payroll_id": payroll.pk,
+                    "reference_year": payroll.reference_year,
+                    "reference_month": payroll.reference_month,
+                    "due_date": payroll.due_date.isoformat(),
+                    "financial_movement_id": payroll.financial_movement_id,
+                    "financial_movements_count": payroll.financial_movements.count(),
+                }
+                for payroll in repeated_payrolls
+            ],
+        },
+    )
+
     return repeated_payrolls
+
+
+def sync_collaborator_payroll_range(*, collaborator: WorkshopCollaborator, start_reference_date: date, months_count: int) -> list[CollaboratorPayroll]:
+    if months_count <= 0:
+        logger.warning(
+            "Collaborator payroll range sync skipped due to months count",
+            extra={"collaborator_id": collaborator.pk, "months_count": months_count, "start_reference_date": start_reference_date.isoformat()},
+        )
+        return []
+    if not collaborator.is_active:
+        logger.warning(
+            "Collaborator payroll range sync skipped because collaborator is inactive",
+            extra={"collaborator_id": collaborator.pk, "months_count": months_count, "start_reference_date": start_reference_date.isoformat()},
+        )
+        return []
+
+    payrolls: list[CollaboratorPayroll] = []
+    for month_offset in range(months_count):
+        payrolls.append(
+            sync_collaborator_payroll(
+                collaborator=collaborator,
+                reference_date=_add_months(start_reference_date, month_offset),
+                lock_reference=True,
+            )
+        )
+
+    logger.warning(
+        "Collaborator payroll range sync finished",
+        extra={
+            "collaborator_id": collaborator.pk,
+            "months_count": months_count,
+            "start_reference_date": start_reference_date.isoformat(),
+            "generated_payrolls": [
+                {
+                    "payroll_id": payroll.pk,
+                    "reference_year": payroll.reference_year,
+                    "reference_month": payroll.reference_month,
+                    "due_date": payroll.due_date.isoformat(),
+                    "financial_movement_id": payroll.financial_movement_id,
+                    "financial_movements_count": payroll.financial_movements.count(),
+                }
+                for payroll in payrolls
+            ],
+        },
+    )
+    return payrolls
 
 
 def delete_selected_pending_collaborator_movements(*, collaborator: WorkshopCollaborator, workshop: Workshop, movement_ids: list[int]) -> int:
@@ -716,7 +804,7 @@ def build_payroll_projection(*, collaborator: WorkshopCollaborator, reference_da
 
 def get_payroll_due_date_for_reference(*, collaborator: WorkshopCollaborator, reference_date: date | None = None) -> date:
     resolved = _resolve_reference_date(reference_date)
-    return collaborator.get_due_date_for_reference(reference_date=_get_next_month_reference(resolved))
+    return collaborator.get_due_date_for_reference(reference_date=resolved)
 
 
 def _should_update_existing_payroll_due_date(*, collaborator: WorkshopCollaborator, payroll: CollaboratorPayroll, resolved_reference: date) -> bool:
@@ -1143,7 +1231,8 @@ def _sync_collaborator_payroll_internal(
         CollaboratorCommissionEntry.objects.bulk_update(entries_to_attach, ["payroll"])
     _rebuild_payroll_commission_items(payroll=payroll, commission_entries=commission_entries)
 
-    _sync_payroll_financial_movements(payroll=payroll, active_benefits=active_benefits)
+    if collaborator.is_active:
+        _sync_payroll_financial_movements(payroll=payroll, active_benefits=active_benefits)
     return payroll
 
 
