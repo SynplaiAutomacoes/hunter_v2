@@ -26,7 +26,13 @@
                 <span class="badge badge-error">Saída</span>
               {% endif %}
             </td>
-            <td>{{ m.transcation_by.get_full_name|default:m.transcation_by.username }}</td>
+            <td>
+              {% if m.transcation_by %}
+                {{ m.transcation_by.get_full_name|default:m.transcation_by.username }}
+              {% else %}
+                Sistema
+              {% endif %}
+            </td>
             <td class="font-bold">{{ m.quantity }}</td>
             <td>{{ m.supplier.name|default:"—" }}</td>
             <td>

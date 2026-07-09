@@ -31,7 +31,13 @@
                             </span>
                         </td>
                         <td class="text-lg font-semibold">{{ movement.quantity }}</td>
-                        <td>{{ movement.transcation_by.get_full_name|default:movement.transcation_by.username }}</td>
+                        <td>
+                            {% if movement.transcation_by %}
+                                {{ movement.transcation_by.get_full_name|default:movement.transcation_by.username }}
+                            {% else %}
+                                Sistema
+                            {% endif %}
+                        </td>
                         <td class="flex justify-end gap-2">
                             <form method="post" action="{% url 'stock:process_approval' movement.pk %}">
                                 {% csrf_token %}
