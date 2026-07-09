@@ -353,8 +353,26 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 class PayrollRefreshView(PayrollListView, View):
     workshop_permission_codename = "change_financialmovement"
 
+    def _get_filter_params_from_post(self, request: Any) -> dict[str, Any]:
+        today = timezone.localdate()
+        start_date = self._parse_date_param(request.POST.get("data_inicial"))
+        end_date = self._parse_date_param(request.POST.get("data_final"))
+        selected_status = str(request.POST.get("status") or "").strip()
+        if selected_status not in {CollaboratorPayroll.Status.FORECAST, CollaboratorPayroll.Status.PAID}:
+            selected_status = ""
+        collaborator_id = _parse_int_param(request.POST.get("collaborator"), default=None, minimum=1, maximum=999999999)
+        return {
+            "start_date": start_date,
+            "end_date": end_date,
+            "collaborator_id": collaborator_id,
+            "status": selected_status,
+            "month": _parse_int_param(request.POST.get("mes"), default=today.month, minimum=1, maximum=12),
+            "year": _parse_int_param(request.POST.get("ano"), default=today.year, minimum=2000, maximum=9999),
+            "has_modal_date_filter": bool(start_date or end_date),
+        }
+
     def post(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
-        filters = self._get_filter_params()
+        filters = self._get_filter_params_from_post(request)
         collaborators_to_sync = list(self._get_collaborators_to_sync(filters=filters).order_by("name", "id"))
 
         if request.headers.get("HX-Request") and request.POST.get("confirm_create") != "true":

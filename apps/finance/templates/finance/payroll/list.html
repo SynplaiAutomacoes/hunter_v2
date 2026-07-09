@@ -9,7 +9,7 @@
                 <p class="text-base-content/70">Acompanhe a folha consolidada por colaborador.</p>
             </div>
             <div class="flex items-center gap-2">
-                <button type="button" class="btn btn-outline btn-primary" {% if not can_refresh_payroll %}disabled title="Indisponível com filtro por data"{% else %}hx-post="{% url 'finance:payroll_refresh' %}" hx-include="#payroll-filter-form" hx-target="#payroll-edit-modal-container" hx-swap="innerHTML"{% endif %}>
+                <button type="button" class="btn btn-outline btn-primary" {% if not can_refresh_payroll %}disabled title="Indisponível com filtro por data"{% else %}hx-post="{% url 'finance:payroll_refresh' %}" hx-include="#payroll-filter-form [name]" hx-vals='js:{ mes: document.getElementById("payroll-month")?.value || "", ano: document.querySelector("#payroll-filter-form select[name=ano]")?.value || "", search: document.getElementById("payroll-search")?.value || "", data_inicial: document.getElementById("payroll-start-date")?.value || "", data_final: document.getElementById("payroll-end-date")?.value || "", collaborator: document.getElementById("payroll-collaborator")?.value || "", status: document.getElementById("payroll-paid")?.value || "" }' hx-target="#payroll-edit-modal-container" hx-swap="innerHTML"{% endif %}>
                     <span class="material-icons">sync</span>
                     Atualizar folha
                 </button>

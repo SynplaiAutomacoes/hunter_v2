@@ -20,7 +20,7 @@
                 </h3>
                 <p class="mt-2 text-sm leading-6 text-base-content/70">
                     {% if is_new_payroll %}
-                        A folha de <span class="font-semibold">{{ collaborator.name }}</span> para {{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year|unlocalize }} ainda não existe.
+                        A folha de <span class="font-semibold">{{ collaborator.name }}</span> para {{ source_filters.mes|stringformat:'02d' }}/{{ source_filters.ano|unlocalize }} ainda não existe.
                     {% else %}
                         A folha de <span class="font-semibold">{{ collaborator.name }}</span> está com movimentações financeiras faltando.
                     {% endif %}
@@ -40,7 +40,7 @@
             <div class="mt-4 grid gap-3 sm:grid-cols-2">
                 <div>
                     <p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Competência</p>
-                    <p class="mt-1 font-medium text-base-content">{{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year|unlocalize }}</p>
+                    <p class="mt-1 font-medium text-base-content">{{ source_filters.mes|stringformat:'02d' }}/{{ source_filters.ano|unlocalize }}</p>
                 </div>
                 <div>
                     <p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Vencimento previsto</p>
