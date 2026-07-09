@@ -370,7 +370,6 @@ class WorkOrder(TimeStampedModel):
             raise WorkOrderError("Somente ordens de serviço entregues, canceladas ou rejeitadas podem ser reabertas.")
 
         self.status = WorkOrderStatus.DRAFT
-        self.delivered_at = None
         self.reopen_reason = reason
 
         self.save(update_fields=["status", "delivered_at", "reopen_reason"])
