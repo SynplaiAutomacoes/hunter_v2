@@ -215,7 +215,7 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
                         collaborator=collaborator,
                         reference_year=filters["year"],
                         reference_month=filters["month"],
-                    ).only("commission_amount")
+                    )
                 ),
                 start=Decimal("0.00"),
             )

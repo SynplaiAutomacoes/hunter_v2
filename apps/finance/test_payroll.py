@@ -67,6 +67,31 @@ class PayrollListViewTests(TestCase):
         self.assertFalse(pending_row["can_select"])
         self.assertIn(reverse("finance:payroll_edit_modal_for_collaborator", kwargs={"collaborator_pk": collaborator.pk}), pending_row["edit_url"])
 
+    def test_list_includes_pending_collaborator_commission_amount_without_moneyfield_error(self) -> None:
+        workshop = create_workshop(suffix=91)
+        collaborator = create_collaborator(workshop=workshop, suffix=91)
+        workorder = create_workorder(workshop=workshop, budget_type="sale")
+        CollaboratorCommissionEntry.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            workorder=workorder,
+            reference_year=2026,
+            reference_month=10,
+            base_amount=Money(1000, "BRL"),
+            commission_amount=Money(150, "BRL"),
+            percentage=0.15,
+        )
+
+        view = PayrollListView()
+        view.request = RequestFactory().get("/finance/folha-pagamento/", {"mes": 10, "ano": 2026})
+        view.workshop = workshop
+
+        context = view.get_context_data()
+
+        pending_row = next(row for row in context["payroll_rows"] if row["collaborator_name"] == collaborator.name)
+        self.assertEqual(pending_row["commission_amount"], Money(150, "BRL"))
+        self.assertEqual(pending_row["total_amount"], Money(2150, "BRL"))
+
     def test_monthly_sync_skips_collaborators_with_existing_payroll_and_financial_movement(self) -> None:
         workshop = create_workshop(suffix=20)
         synced_collaborator = create_collaborator(workshop=workshop, suffix=20)
