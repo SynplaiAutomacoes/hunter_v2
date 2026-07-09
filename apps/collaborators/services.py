@@ -619,8 +619,44 @@ def _get_payroll_effective_movements(*, payroll: CollaboratorPayroll) -> list[Fi
     return payroll.get_financial_movements()
 
 
+def _resolve_payroll_due_date(*, collaborator: WorkshopCollaborator, resolved: date, existing_payroll: CollaboratorPayroll | None) -> date:
+    if existing_payroll is not None and existing_payroll.status == CollaboratorPayroll.Status.PAID:
+        return existing_payroll.due_date
+    return collaborator.get_due_date_for_reference(reference_date=resolved)
+
+
 def payroll_has_financial_movements(*, payroll: CollaboratorPayroll) -> bool:
     return bool(_get_payroll_effective_movements(payroll=payroll))
+
+
+@transaction.atomic
+def delete_payroll_linked_financial_movement(*, movement: FinancialMovement) -> CollaboratorPayroll | None:
+    payroll_id = movement.payroll_id
+    if payroll_id is None:
+        collaborator_payroll = getattr(movement, "collaborator_payroll", None)
+        payroll_id = getattr(collaborator_payroll, "pk", None)
+
+    if payroll_id is None:
+        movement.delete()
+        return None
+
+    payroll = CollaboratorPayroll.objects.select_for_update().get(pk=payroll_id)
+    movement = FinancialMovement.objects.select_for_update().get(pk=movement.pk)
+
+    was_primary_movement = payroll.financial_movement_id == movement.pk
+    remaining_movement = FinancialMovement.objects.filter(payroll_id=payroll.pk).exclude(pk=movement.pk).order_by("id").first()
+
+    movement.delete()
+    payroll.refresh_from_db()
+
+    if was_primary_movement:
+        payroll.financial_movement = remaining_movement
+        payroll.save(update_fields=["financial_movement"])
+    elif payroll.financial_movement_id is None and remaining_movement is not None:
+        payroll.financial_movement = remaining_movement
+        payroll.save(update_fields=["financial_movement"])
+
+    return payroll
 
 
 def _get_payroll_representative_movement(*, payroll: CollaboratorPayroll, existing_by_component: dict[str, FinancialMovement]) -> FinancialMovement | None:
@@ -882,7 +918,7 @@ def _sync_collaborator_payroll_internal(
         reference_month=resolved.month,
         defaults={
             "workshop": collaborator.workshop,
-            "due_date": existing_payroll.due_date if existing_payroll is not None else collaborator.get_due_date_for_reference(reference_date=resolved),
+            "due_date": _resolve_payroll_due_date(collaborator=collaborator, resolved=resolved, existing_payroll=existing_payroll),
             "salary_amount": salary_amount,
             "transport_allowance_amount": transport_amount,
             "benefits_amount": Money(_quantize(benefits_total), "BRL"),

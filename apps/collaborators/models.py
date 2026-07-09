@@ -126,7 +126,9 @@ class WorkshopCollaborator(TimeStampedModel):
 
     def get_payment_reference_date(self, *, reference_date: date | None = None) -> date:
         base_date = reference_date or timezone.localdate()
-        return date(base_date.year, base_date.month, 1)
+        if base_date.month == 12:
+            return date(base_date.year + 1, 1, 1)
+        return date(base_date.year, base_date.month + 1, 1)
 
     def get_due_date_for_reference(self, *, reference_date: date | None = None) -> date:
         target_month = self.get_payment_reference_date(reference_date=reference_date)
