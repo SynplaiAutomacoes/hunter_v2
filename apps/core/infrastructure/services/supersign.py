@@ -11,7 +11,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 
 from apps.finance.services.workorder_financial_movements import sync_workorder_financial_movement
-from apps.workorder.models import WorkOrder
+from apps.workorder.approval import approve_workorder_with_stock
+from apps.workorder.models import WorkOrder, WorkOrderStatus
 
 
 logger = logging.getLogger(__name__)
@@ -160,9 +161,14 @@ def process_supersign_webhook_payload(*, payload: dict[str, Any]) -> HttpRespons
                 logger.info("supersign_webhook_budget_approved", extra={"budget_id": budget.pk, "envelope_id": envelope_id})
 
         if workorder is not None:
-            workorder.mark_signature_approved()
-            sync_workorder_financial_movement(workorder=workorder)
-            logger.info("supersign_webhook_workorder_approved", extra={"workorder_id": workorder.pk, "envelope_id": envelope_id})
+            can_finalize_workorder = workorder.is_fully_paid or workorder.budget_type in ("warranty", "courtesy")
+            if can_finalize_workorder or workorder.status == WorkOrderStatus.APPROVED:
+                approve_workorder_with_stock(workorder=workorder, signature_approved=True)
+                sync_workorder_financial_movement(workorder=workorder)
+                logger.info("supersign_webhook_workorder_approved", extra={"workorder_id": workorder.pk, "envelope_id": envelope_id})
+            else:
+                workorder.mark_signature_approved()
+                logger.info("supersign_webhook_workorder_signature_approved_pending_completion", extra={"workorder_id": workorder.pk, "envelope_id": envelope_id})
     except Exception:
         logger.exception("supersign_webhook_processing_failed", extra={"budget_id": budget.pk if budget is not None else None, "workorder_id": workorder.pk if workorder is not None else None, "envelope_id": envelope_id})
         return HttpResponse(status=500)
