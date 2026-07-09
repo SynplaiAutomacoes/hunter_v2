@@ -334,6 +334,7 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         context["pending_amount"] = max(total_amount - paid_amount, Decimal("0.00"))
         context["paid_amount"] = paid_amount
         context["collaborator_filters"] = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
+        context["bank_account_filters"] = BankAccount.objects.filter(workshop=self.workshop).order_by("bank_name", "account_number", "id")
         context["status_choices"] = self.STATUS_CHOICES
         context["selected_collaborator_id"] = filters["collaborator_id"]
         context["selected_status"] = filters["status"]
@@ -804,5 +805,75 @@ class PayrollBulkUnpayView(LoginRequiredMixin, WorkshopScopedMixin, View):
             response = HttpResponse()
             response["HX-Refresh"] = "true"
             return response
+
+        return HttpResponseRedirect(reverse("finance:payroll_list"))
+
+
+class PayrollBulkConciliateView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "financialmovement"
+    workshop_permission_codename = "change_financialmovement"
+
+    def post(self, request, *args, **kwargs):
+        raw_values = request.POST.getlist("payroll_ids")
+        bank_account_id = str(request.POST.get("bank_account_id") or "").strip()
+        if not raw_values:
+            return HttpResponse("Nenhuma folha selecionada.", status=400)
+        if not bank_account_id:
+            return HttpResponse("Selecione uma conta bancária.", status=400)
+
+        payroll_ids: list[int] = []
+        for value in raw_values:
+            try:
+                payroll_ids.append(int(value))
+            except (TypeError, ValueError):
+                pass
+
+        if not payroll_ids:
+            return HttpResponse("Nenhuma folha selecionada.", status=400)
+
+        bank_account = get_object_or_404(BankAccount, workshop=self.workshop, pk=bank_account_id)
+        payrolls = (
+            CollaboratorPayroll.objects.filter(
+                pk__in=payroll_ids,
+                workshop=self.workshop,
+            )
+            .select_related("collaborator", "financial_movement")
+            .prefetch_related("financial_movements")
+        )
+
+        skipped: list[str] = []
+        with transaction.atomic():
+            for payroll in payrolls:
+                movements = payroll.get_financial_movements()
+                if not movements:
+                    skipped.append(f"{payroll.collaborator.name}: sem movimentações")
+                    continue
+                if any(not movement.is_paid for movement in movements):
+                    skipped.append(f"{payroll.collaborator.name}: pagamento pendente")
+                    continue
+                if any(not movement.budget_plan_id for movement in movements):
+                    skipped.append(f"{payroll.collaborator.name}: plano orçamentário pendente")
+                    continue
+
+                movement_ids = [movement.pk for movement in movements if movement.pk is not None and not movement.is_reconciled]
+                if not movement_ids:
+                    continue
+
+                FinancialMovement.objects.filter(pk__in=movement_ids).update(is_reconciled=True, bank_account=bank_account)
+
+        if request.headers.get("HX-Request"):
+            if skipped:
+                return _build_hx_toast_response(
+                    message="Algumas folhas não puderam ser conciliadas: " + "; ".join(skipped[:3]) + ("..." if len(skipped) > 3 else ""),
+                    toast_type="warning",
+                    refresh=True,
+                )
+            response = HttpResponse()
+            response["HX-Refresh"] = "true"
+            return response
+
+        if skipped:
+            messages.warning(request, "Algumas folhas não puderam ser conciliadas: " + "; ".join(skipped[:3]) + ("..." if len(skipped) > 3 else ""))
 
         return HttpResponseRedirect(reverse("finance:payroll_list"))

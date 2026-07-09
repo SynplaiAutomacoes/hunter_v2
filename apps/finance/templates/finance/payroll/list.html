@@ -9,9 +9,13 @@
                 <p class="text-base-content/70">Acompanhe a folha consolidada por colaborador.</p>
             </div>
             <div class="flex items-center gap-2">
-                <button type="button" class="btn btn-outline btn-primary" {% if not can_refresh_payroll %}disabled title="Indisponível com filtro por data"{% else %}hx-post="{% url 'finance:payroll_refresh' %}" hx-include="#payroll-filter-form [name]" hx-vals='js:{ mes: document.getElementById("payroll-month")?.value || "", ano: document.querySelector("#payroll-filter-form select[name=ano]")?.value || "", search: document.getElementById("payroll-search")?.value || "", data_inicial: document.getElementById("payroll-start-date")?.value || "", data_final: document.getElementById("payroll-end-date")?.value || "", collaborator: document.getElementById("payroll-collaborator")?.value || "", status: document.getElementById("payroll-paid")?.value || "" }' hx-target="#payroll-edit-modal-container" hx-swap="innerHTML"{% endif %}>
+                <button type="button" class="btn btn-outline btn-primary" {% if not can_refresh_payroll %}disabled title="Indisponível com filtro por data"{% else %}hx-post="{% url 'finance:payroll_refresh' %}" hx-include="#payroll-filter-form [name]" hx-vals='{"mes": "{{ selected_month|unlocalize }}", "ano": "{{ selected_year|unlocalize }}", "search": "{{ request.GET.search|default:""|escapejs }}", "data_inicial": "{{ request.GET.data_inicial|default:""|escapejs }}", "data_final": "{{ request.GET.data_final|default:""|escapejs }}", "collaborator": "{{ selected_collaborator_id|default:""|unlocalize }}", "status": "{{ selected_status|default:""|escapejs }}"}' hx-target="#payroll-edit-modal-container" hx-swap="innerHTML"{% endif %}>
                     <span class="material-icons">sync</span>
                     Atualizar folha
+                </button>
+                <button type="button" class="btn btn-info" id="btn-conciliar-selecionados" disabled @click="$refs.payrollBulkConciliateModal.showModal()">
+                    <span class="material-icons">account_balance</span>
+                    Conciliar selecionados
                 </button>
                 <button type="button" class="btn btn-success" id="btn-pagar-selecionados" disabled @click="$refs.payrollBulkPayModal.showModal()">
                     <span class="material-icons">payments</span>
@@ -92,6 +96,51 @@
                 </div>
             </div>
             <button type="button" class="modal-backdrop" @click="$refs.payrollBulkUnpayModal.close()">close</button>
+        </dialog>
+
+        <dialog id="payroll-bulk-conciliate-modal" class="modal" x-ref="payrollBulkConciliateModal" @click="if ($event.target === $el) $el.close()">
+            <div class="modal-box w-11/12 max-w-lg border border-base-300 bg-base-100 shadow-2xl">
+                <div class="flex items-start gap-3">
+                    <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-info/10 text-info">
+                        <span class="material-icons">account_balance</span>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold text-base-content">Confirmar conciliação em lote</h3>
+                        <p class="mt-2 text-sm leading-6 text-base-content/70">As folhas selecionadas terão as movimentações marcadas como conciliadas e vinculadas à conta bancária escolhida.</p>
+                    </div>
+                </div>
+
+                <div class="mt-5 space-y-3 rounded-xl border border-base-300 bg-base-200/40 px-4 py-4 text-sm text-base-content/80">
+                    <div>
+                        <label for="payroll-bulk-bank-account" class="mb-1 block text-sm font-medium text-base-content">Conta bancária</label>
+                        <select id="payroll-bulk-bank-account" class="select select-bordered w-full">
+                            <option value="">Selecione</option>
+                            {% for account in bank_account_filters %}
+                                <option value="{{ account.pk|unlocalize }}">{{ account }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <p>Somente movimentações pagas e com plano orçamentário serão conciliadas.</p>
+                </div>
+
+                <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                    <button type="button" class="btn-form-cancel" @click="$refs.payrollBulkConciliateModal.close()">Cancelar</button>
+                    <button
+                        type="button"
+                        class="btn btn-info"
+                        hx-post="{% url 'finance:payroll_bulk_conciliate' %}"
+                        hx-include="#payroll-table .payroll-checkbox:checked"
+                        hx-vals='js:{ bank_account_id: document.getElementById("payroll-bulk-bank-account")?.value || "" }'
+                        hx-target="#payroll-section"
+                        hx-swap="outerHTML"
+                        @click="$refs.payrollBulkConciliateModal.close()"
+                    >
+                        <span class="material-icons text-[18px]">account_balance</span>
+                        Confirmar conciliação
+                    </button>
+                </div>
+            </div>
+            <button type="button" class="modal-backdrop" @click="$refs.payrollBulkConciliateModal.close()">close</button>
         </dialog>
 
         <form method="get" action="{% url 'finance:payroll_list' %}" id="payroll-filter-form" class="card border border-base-300 bg-base-100 shadow-xl" x-data>
@@ -216,7 +265,7 @@
                                         <tr>
                                             <td>
                                                 {% if row.can_select %}
-                                                    <input type="checkbox" name="payroll_ids" value="{{ row.id }}" data-is-paid="{{ row.is_paid|yesno:'true,false' }}" class="checkbox checkbox-primary checkbox-sm payroll-checkbox" />
+                                                    <input type="checkbox" name="payroll_ids" value="{{ row.id }}" data-is-paid="{{ row.is_paid|yesno:'true,false' }}" data-is-reconciled="{{ row.is_reconciled|yesno:'true,false' }}" class="checkbox checkbox-primary checkbox-sm payroll-checkbox" />
                                                 {% endif %}
                                             </td>
                                             <td>
@@ -275,6 +324,7 @@
                             }
                             window.__payrollSelectionInitDone = true;
 
+                            var btnConciliar = document.getElementById('btn-conciliar-selecionados');
                             var btnPagar = document.getElementById('btn-pagar-selecionados');
                             var btnDesfazer = document.getElementById('btn-desfazer-pagamentos');
 
@@ -292,17 +342,21 @@
                                 var hasSelection = checkboxes.length > 0;
                                 var paidSelected = 0;
                                 var unpaidSelected = 0;
+                                var unreconciledSelected = 0;
 
                                 for (var i = 0; i < checkboxes.length; i++) {
                                     if (checkboxes[i].dataset.isPaid === 'true') paidSelected++;
                                     else unpaidSelected++;
+                                    if (checkboxes[i].dataset.isReconciled !== 'true') unreconciledSelected++;
                                 }
 
+                                setButtonState(btnConciliar, hasSelection && paidSelected > 0 && unreconciledSelected > 0);
                                 setButtonState(btnPagar, hasSelection && unpaidSelected > 0);
                                 setButtonState(btnDesfazer, hasSelection && paidSelected > 0);
                             }
 
                             function init() {
+                                btnConciliar = document.getElementById('btn-conciliar-selecionados');
                                 btnPagar = document.getElementById('btn-pagar-selecionados');
                                 btnDesfazer = document.getElementById('btn-desfazer-pagamentos');
                                 var selectAll = document.getElementById('select-all-payroll');

@@ -10,10 +10,11 @@ from djmoney.money import Money
 
 from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
 from apps.collaborators.services import sync_collaborator_payroll
-from apps.collaborators.test_commissions import create_workorder
+from apps.collaborators.test_commissions import create_financial_group_path, create_workorder
 from apps.finance.models.financial_movement import FinancialMovement
+from apps.finance.models.bank_account import BankAccount
 from apps.finance.views.financial_movement import FinancialMovementListView, FinancialMovementRemovePayrollLinkView
-from apps.finance.views.payroll import PayrollBulkPayView, PayrollBulkUnpayView, PayrollEditModalView, PayrollListView, PayrollRefreshView
+from apps.finance.views.payroll import PayrollBulkConciliateView, PayrollBulkPayView, PayrollBulkUnpayView, PayrollEditModalView, PayrollListView, PayrollRefreshView
 from apps.finance.views.reports import ReportMovementEditView
 from apps.workshops.models.workshops import Workshop
 
@@ -1107,3 +1108,129 @@ class PayrollBulkActionsTests(TestCase):
         self.assertEqual(payroll.status, CollaboratorPayroll.Status.FORECAST)
         self.assertEqual(commission.status, CollaboratorCommissionEntry.Status.FORECAST)
         self.assertIsNone(commission.paid_at)
+
+    def test_bulk_conciliate_marks_selected_payroll_movements_as_reconciled(self) -> None:
+        workshop = create_workshop(suffix=31)
+        collaborator = create_collaborator(workshop=workshop, suffix=31)
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[5, 1, 11], names=["Despesas", "Folha", "Salários"])
+        bank_account = BankAccount.objects.create(
+            workshop=workshop,
+            bank_code="001",
+            bank_name="Banco Teste",
+            agency="1234",
+            account_number="98765-0",
+        )
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2000, "BRL"),
+            commission_amount=Money(120, "BRL"),
+            total_amount=Money(2120, "BRL"),
+        )
+        salary_movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll=payroll,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Folha",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=True,
+            is_reconciled=False,
+            budget_plan=budget_plan,
+        )
+        commission_movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll=payroll,
+            payroll_component=FinancialMovement.PayrollComponent.COMMISSION,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Comissao folha",
+            amount=Money(120, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=True,
+            is_reconciled=False,
+            budget_plan=budget_plan,
+        )
+        payroll.financial_movement = salary_movement
+        payroll.save(update_fields=["financial_movement"])
+
+        request = RequestFactory().post(
+            "/finance/folha-pagamento/bulk-conciliate/",
+            {"payroll_ids": [str(payroll.pk)], "bank_account_id": str(bank_account.pk)},
+            HTTP_HX_REQUEST="true",
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollBulkConciliateView()
+        view.request = request
+        view.workshop = workshop
+
+        response = view.post(request)
+
+        salary_movement.refresh_from_db()
+        commission_movement.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Refresh"), "true")
+        self.assertTrue(salary_movement.is_reconciled)
+        self.assertTrue(commission_movement.is_reconciled)
+        self.assertEqual(salary_movement.bank_account_id, bank_account.pk)
+        self.assertEqual(commission_movement.bank_account_id, bank_account.pk)
+
+    def test_bulk_conciliate_warns_when_selected_payroll_has_unpaid_movement(self) -> None:
+        workshop = create_workshop(suffix=32)
+        collaborator = create_collaborator(workshop=workshop, suffix=32)
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[5, 1, 12], names=["Despesas", "Folha", "Comissões"])
+        bank_account = BankAccount.objects.create(
+            workshop=workshop,
+            bank_code="237",
+            bank_name="Banco Teste 2",
+            agency="9999",
+            account_number="12345-6",
+        )
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2000, "BRL"),
+            total_amount=Money(2000, "BRL"),
+        )
+        movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll=payroll,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Folha",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=False,
+            is_reconciled=False,
+            budget_plan=budget_plan,
+        )
+        payroll.financial_movement = movement
+        payroll.save(update_fields=["financial_movement"])
+
+        request = RequestFactory().post(
+            "/finance/folha-pagamento/bulk-conciliate/",
+            {"payroll_ids": [str(payroll.pk)], "bank_account_id": str(bank_account.pk)},
+            HTTP_HX_REQUEST="true",
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        view = PayrollBulkConciliateView()
+        view.request = request
+        view.workshop = workshop
+
+        response = view.post(request)
+
+        movement.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Refresh"), "true")
+        self.assertIn("HX-Trigger", response.headers)
+        self.assertIn(collaborator.name, response.headers["HX-Trigger"])
+        self.assertFalse(movement.is_reconciled)
