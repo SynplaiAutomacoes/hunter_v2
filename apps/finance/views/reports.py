@@ -19,7 +19,7 @@ from typing import List, Tuple
 from apps.core.infrastructure.search import build_text_search_query
 from apps.accounts.models import User
 from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
-from apps.collaborators.services import sync_workorder_collaborator_payrolls
+from apps.collaborators.services import recalculate_payroll_from_linked_movements, sync_workorder_collaborator_payrolls
 from apps.core.presentation.widgets import SearchableSelectInput
 from apps.finance.forms.emission_ui import format_money
 from apps.finance.models.bank_account import BankAccount
@@ -950,6 +950,9 @@ class ReportMovementEditView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView
 
     def form_valid(self, form):
         self.object = form.save()
+        payroll = getattr(self.object, "payroll", None) or getattr(self.object, "collaborator_payroll", None)
+        if payroll is not None:
+            recalculate_payroll_from_linked_movements(payroll=payroll)
         if self.object.workorder_id:
             sync_workorder_collaborator_payrolls(workorder=self.object.workorder, reference_date=self.object.due_date)
         if self.request.htmx:
@@ -980,7 +983,10 @@ class ReportMovementDeleteView(LoginRequiredMixin, WorkshopScopedMixin, DeleteVi
         return render(request, "finance/partials/financial_movement/financial_movement_delete_modal.html", context)
 
     def form_valid(self, form):
+        linked_payroll = self.object.payroll if getattr(self.object, "payroll_id", None) else None
         self.object.delete()
+        if linked_payroll is not None:
+            recalculate_payroll_from_linked_movements(payroll=linked_payroll)
         if self.request.htmx:
             response = HttpResponse()
             response["HX-Refresh"] = "true"
