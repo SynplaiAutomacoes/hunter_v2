@@ -103,6 +103,7 @@ class StockMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplat
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        context["movements"] = self.object_list
         context["fields"] = [
             TableColumn(StockMovement.criado_em.field.verbose_name, attr=StockMovement.criado_em.field.name),
             TableColumn(StockMovement.status.field.verbose_name, attr="stockmovement_status_badge", search_by="status", format="status_badge"),
@@ -374,6 +375,7 @@ class StockReportListView(LoginRequiredMixin, StockReportDataMixin, WorkshopScop
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        context["stock_report_items"] = self.object_list
         selected_columns = self._get_selected_columns()
         context["fields"] = [column.table_column for column in selected_columns]
         context["actions"] = []
