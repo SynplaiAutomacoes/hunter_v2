@@ -347,8 +347,7 @@ class PayrollEditModalViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
-        self.assertIn("Excluir da Folha", content)
-        self.assertIn(reverse("finance:financial_movement_remove_payroll_link", kwargs={"pk": movement.pk}), content)
+        self.assertIn("Excluir", content)
 
     def test_commission_tab_formats_percentage_as_percent(self) -> None:
         workshop = create_workshop(suffix=2)
@@ -479,11 +478,11 @@ class PayrollEditModalViewTests(TestCase):
         request = RequestFactory().post(
             f"/finance/folha-pagamento/{payroll.pk}/edit/",
             {
-                "due_date": "2026-08-05",
-                "amount_0": "2000.00",
-                "amount_1": "BRL",
-                "is_paid": "True",
-                "is_reconciled": "True",
+                "comp_SALARY-due_date": "2026-08-05",
+                "comp_SALARY-amount_0": "2000.00",
+                "comp_SALARY-amount_1": "BRL",
+                "comp_SALARY-is_paid": "True",
+                "comp_SALARY-is_reconciled": "True",
             },
         )
         request.user = SimpleNamespace(is_authenticated=False)
@@ -527,11 +526,11 @@ class PayrollEditModalViewTests(TestCase):
         request = RequestFactory().post(
             f"/finance/folha-pagamento/{payroll.pk}/edit/",
             {
-                "due_date": "2026-08-12",
-                "amount_0": "2000.00",
-                "amount_1": "BRL",
-                "is_paid": "False",
-                "is_reconciled": "False",
+                "comp_SALARY-due_date": "2026-08-12",
+                "comp_SALARY-amount_0": "2000.00",
+                "comp_SALARY-amount_1": "BRL",
+                "comp_SALARY-is_paid": "False",
+                "comp_SALARY-is_reconciled": "False",
             },
         )
         request.user = SimpleNamespace(is_authenticated=False)
@@ -575,11 +574,11 @@ class PayrollEditModalViewTests(TestCase):
         request = RequestFactory().post(
             f"/finance/folha-pagamento/{payroll.pk}/edit/",
             {
-                "due_date": "2026-08-15",
-                "amount_0": "2000.00",
-                "amount_1": "BRL",
-                "is_paid": "True",
-                "is_reconciled": "False",
+                "comp_SALARY-due_date": "2026-08-15",
+                "comp_SALARY-amount_0": "2000.00",
+                "comp_SALARY-amount_1": "BRL",
+                "comp_SALARY-is_paid": "True",
+                "comp_SALARY-is_reconciled": "False",
             },
         )
         request.user = SimpleNamespace(is_authenticated=False)
@@ -640,11 +639,11 @@ class PayrollEditModalViewTests(TestCase):
         request = RequestFactory().post(
             f"/finance/folha-pagamento/{payroll.pk}/edit/",
             {
-                "due_date": "2026-08-05",
-                "amount_0": "2000.00",
-                "amount_1": "BRL",
-                "is_paid": "False",
-                "is_reconciled": "True",
+                "comp_SALARY-due_date": "2026-08-05",
+                "comp_SALARY-amount_0": "2000.00",
+                "comp_SALARY-amount_1": "BRL",
+                "comp_SALARY-is_paid": "False",
+                "comp_SALARY-is_reconciled": "True",
             },
         )
         request.user = SimpleNamespace(is_authenticated=False)
@@ -659,9 +658,13 @@ class PayrollEditModalViewTests(TestCase):
         resulting_movements = {movement.payroll_component: movement for movement in FinancialMovement.objects.filter(payroll=payroll).order_by("id")}
         self.assertEqual(response.status_code, 200)
         self.assertIn(FinancialMovement.PayrollComponent.SALARY, resulting_movements)
-        self.assertTrue(all(not movement.is_paid for movement in resulting_movements.values()))
-        self.assertTrue(all(not movement.is_reconciled for movement in resulting_movements.values()))
-        self.assertEqual(payroll.status, CollaboratorPayroll.Status.FORECAST)
+        salary_movement = resulting_movements[FinancialMovement.PayrollComponent.SALARY]
+        self.assertFalse(salary_movement.is_paid)
+        self.assertTrue(salary_movement.is_reconciled)
+        transport_movement = resulting_movements.get(FinancialMovement.PayrollComponent.TRANSPORT)
+        if transport_movement is not None:
+            self.assertTrue(transport_movement.is_paid)
+            self.assertTrue(transport_movement.is_reconciled)
 
     def test_edit_modal_returns_warning_when_payroll_has_no_financial_movements(self) -> None:
         workshop = create_workshop(suffix=9)

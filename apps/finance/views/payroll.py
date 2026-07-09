@@ -594,6 +594,10 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
             },
         )
 
+    @staticmethod
+    def _component_form_prefix(component: str) -> str:
+        return f"comp_{component}"
+
     def _open_edit_modal(self, *, request: Any, payroll: CollaboratorPayroll) -> HttpResponse:
         component_tabs = self._build_component_tabs(payroll=payroll)
         selected_tab = self._get_requested_tab()
@@ -621,8 +625,9 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         for tab in component_tabs:
             movement_id = default_movement_ids.get(tab["key"])
             movement = next((m for m in tab["movements"] if m.pk == movement_id), None) if movement_id is not None else None
+            prefix = self._component_form_prefix(str(tab["key"]))
             tab["default_movement_id"] = movement_id
-            tab["form"] = PayrollPaymentForm(instance=movement, workshop=self.workshop, payroll=payroll) if movement is not None else None
+            tab["form"] = PayrollPaymentForm(instance=movement, workshop=self.workshop, payroll=payroll, prefix=prefix) if movement is not None else None
 
         return render(
             request,
@@ -687,36 +692,75 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return self._build_confirmation_response(request=request, collaborator=collaborator, payroll=payroll)
 
         component_tabs = self._build_component_tabs(payroll=payroll)
-        active_component_tab = next((tab for tab in component_tabs if tab["key"] == self._get_requested_tab()), None)
-        movement_id = self._get_requested_movement_id()
-        selected_movement = None
-        if active_component_tab is not None:
-            selected_movement = next((movement for movement in active_component_tab["movements"] if movement_id is not None and movement.pk == movement_id), None)
-            if selected_movement is None and active_component_tab["movements"]:
-                selected_movement = active_component_tab["movements"][0]
-        if selected_movement is None:
-            return self._open_edit_modal(request=request, payroll=payroll)
+        all_forms: list[tuple[str, PayrollPaymentForm]] = []
+        invalid_forms: list[tuple[str, PayrollPaymentForm]] = []
 
-        form = PayrollPaymentForm(request.POST, instance=selected_movement, workshop=self.workshop, payroll=payroll)
-        if form.is_valid():
-            due_date = form.cleaned_data["due_date"]
-            if payroll.due_date != due_date:
-                payroll.due_date = due_date
-                payroll.save(update_fields=["due_date"])
-            movement = form.save()
-            recalculate_payroll_from_linked_movements(payroll=payroll)
-            if movement.is_paid:
-                _mark_payroll_as_paid(payroll=payroll)
+        for tab in component_tabs:
+            if not tab["movements"]:
+                continue
+            movement = tab["movements"][0]
+            prefix = self._component_form_prefix(str(tab["key"]))
+            form = PayrollPaymentForm(request.POST, instance=movement, workshop=self.workshop, payroll=payroll, prefix=prefix)
+            has_tab_data = any(str(key).startswith(prefix) for key in request.POST.keys())
+            if not has_tab_data:
+                continue
+            if form.is_valid():
+                all_forms.append((tab["key"], form))
             else:
-                _mark_payroll_as_unpaid(payroll=payroll)
-                _unmark_payroll_commissions_as_paid(payroll=payroll)
+                invalid_forms.append((tab["key"], form))
+
+        if invalid_forms:
+            modal_url = self._get_modal_url(payroll=payroll)
+            fallback_tab = self._get_first_available_financial_tab(component_tabs)
+            selected_tab_retry = self._get_requested_tab()
+            if selected_tab_retry not in {"collaborator", "commissions_history", "summary"}:
+                active_tab = next((tab for tab in component_tabs if tab["key"] == selected_tab_retry), None)
+                if active_tab is None or active_tab["is_missing"]:
+                    selected_tab_retry = fallback_tab
+            for tab in component_tabs:
+                if not tab["movements"]:
+                    continue
+                prefix = self._component_form_prefix(str(tab["key"]))
+                failed_form = next((f for key, f in invalid_forms if key == tab["key"]), None)
+                if failed_form is not None:
+                    tab["form"] = failed_form
+                    tab["default_movement_id"] = tab["movements"][0].pk
+                else:
+                    tab["default_movement_id"] = tab["movements"][0].pk
+                    tab["form"] = PayrollPaymentForm(instance=tab["movements"][0], workshop=self.workshop, payroll=payroll, prefix=prefix)
+            return render(
+                request,
+                self.template_name,
+                {
+                    "payroll": payroll,
+                    "selected_tab": selected_tab_retry,
+                    "component_tabs": component_tabs,
+                    "modal_url": modal_url,
+                    "fallback_tab": fallback_tab,
+                    "continue_without_create": True,
+                },
+            )
+
+        if all_forms:
+            with transaction.atomic():
+                for _component_key, form in all_forms:
+                    form.save()
+                recalculate_payroll_from_linked_movements(payroll=payroll)
+                payroll.refresh_from_db()
+
+                movements = payroll.get_financial_movements()
+                if any(movement.is_paid for movement in movements):
+                    mark_payroll_commissions_as_paid(payroll=payroll, paid_at=timezone.localdate())
+                else:
+                    unmark_payroll_commissions_as_paid(payroll=payroll)
+                payroll.refresh_from_db()
+
             response = HttpResponse()
             response["HX-Refresh"] = "true"
             response["HX-Trigger"] = '{"showToast": {"message": "Folha atualizada com sucesso.", "type": "success"}}'
             return response
-        response = render(request, self.template_name, {"payroll": payroll, "form": form}, status=400)
-        response["HX-Trigger"] = '{"showToast": {"message": "Revise os dados da folha.", "type": "error"}}'
-        return response
+
+        return self._open_edit_modal(request=request, payroll=payroll)
 
 
 class PayrollBulkPayView(LoginRequiredMixin, WorkshopScopedMixin, View):

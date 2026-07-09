@@ -9,7 +9,7 @@
     @click="if ($event.target === $el) $el.close()"
     @close="$el.remove()"
 >
-    <div class="modal-box w-[95vw] max-w-7xl border border-base-300 bg-base-100 p-6 shadow-2xl md:p-10">
+    <div class="modal-box w-[95vw] max-w-7xl border border-base-300 bg-base-100 p-6 pb-0 shadow-2xl md:p-10 md:pb-0">
         <div class="mb-4 flex items-center justify-between gap-4">
             <div>
                 <h3 class="flex items-center gap-3 text-2xl font-bold text-base-content">
@@ -35,76 +35,76 @@
             <button type="button" class="btn btn-sm" :class="activeTab === 'summary' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'summary'">Resumo</button>
         </div>
 
-        <div class="max-h-[60vh] overflow-y-auto px-1 py-2">
-            <section x-show="activeTab === 'collaborator'" x-cloak class="space-y-4">
-                <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Nome</p><p class="mt-1 font-semibold">{{ payroll.collaborator.name }}</p></div>
-                    <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Cargo</p><p class="mt-1 font-semibold">{{ payroll.collaborator.position|default:"-" }}</p></div>
-                    <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Admissão</p><p class="mt-1 font-semibold">{{ payroll.collaborator.admission_date|date:"d/m/Y" }}</p></div>
-                    <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Salário</p><p class="mt-1 font-semibold">{{ payroll.salary_amount }}</p></div>
-                </div>
-                <a href="{% url 'collaborators:collaborator_update' payroll.collaborator.pk %}" class="btn btn-outline"><span class="material-icons text-sm">open_in_new</span>Editar Colaborador</a>
-            </section>
+        <form method="post" hx-post="{{ modal_url }}" hx-target="closest .modal" hx-swap="outerHTML">
+            {% csrf_token %}
 
-            <section x-show="activeTab === 'commissions_history'" x-cloak class="space-y-4">
-                <div class="overflow-x-auto rounded-xl border border-base-300">
-                    <table class="table table-sm">
-                        <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55"><tr><th>O.S.</th><th>Competência</th><th>Base</th><th>%</th><th>Valor</th><th>Status</th></tr></thead>
-                        <tbody>
-                            {% for commission in payroll.commission_entries.all %}
-                                <tr>
-                                    <td>#{{ commission.workorder.get_id }}</td>
-                                    <td>{{ commission.reference_month|stringformat:'02d' }}/{{ commission.reference_year|unlocalize }}</td>
-                                    <td>{{ commission.base_amount }}</td>
-                                    <td>{{ commission.percentage_display }}</td>
-                                    <td class="font-semibold">{{ commission.commission_amount }}</td>
-                                    <td>{% if commission.status == "PAID" %}Pago{% else %}Não Pago{% endif %}</td>
-                                </tr>
-                            {% empty %}
-                                <tr><td colspan="6" class="py-6 text-center text-base-content/60">Nenhuma comissão vinculada.</td></tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </section>
-
-            <section x-show="activeTab === 'summary'" x-cloak class="space-y-4">
-                <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-                    <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Salário</p><p class="mt-1 font-bold">{{ payroll.salary_amount }}</p></div>
-                    <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">VT</p><p class="mt-1 font-bold">{{ payroll.transport_allowance_amount }}</p></div>
-                    <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Benefícios</p><p class="mt-1 font-bold">{{ payroll.benefits_amount }}</p></div>
-                    <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Comissões</p><p class="mt-1 font-bold">{{ payroll.commission_amount }}</p></div>
-                    <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Total</p><p class="mt-1 font-black text-success">{{ payroll.total_amount }}</p></div>
-                </div>
-                <button type="button" class="btn btn-secondary" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{% url 'collaborators:collaborator_payroll_receipt' payroll.collaborator.pk payroll.pk %}', downloadUrl: '{% url 'collaborators:collaborator_payroll_receipt' payroll.collaborator.pk payroll.pk %}?download=1' } }))"><span class="material-icons text-sm">picture_as_pdf</span>Imprimir PDF</button>
-            </section>
-
-            {% for tab in component_tabs %}
-                <section x-show="activeTab === '{{ tab.key }}'" x-cloak class="space-y-4">
-                    <div class="flex items-center justify-between gap-3">
-                        <h3 class="flex items-center gap-2 text-base font-semibold text-base-content"><span class="material-icons text-sm">payments</span>{{ tab.label }}</h3>
-                        {% if tab.movements|length > 1 %}
-                            <div class="flex flex-wrap gap-2">
-                                {% for movement_option in tab.movements %}
-                                    <button type="button" class="btn btn-xs" hx-get="{{ modal_url }}?tab={{ tab.key }}&movement_id={{ movement_option.pk }}&continue_without_create=true" hx-target="closest .modal" hx-swap="outerHTML">{{ movement_option.description|default:tab.label }}</button>
-                                {% endfor %}
-                            </div>
-                        {% endif %}
+            <div class="max-h-[60vh] overflow-y-auto px-1 py-2">
+                <section x-show="activeTab === 'collaborator'" x-cloak class="space-y-4">
+                    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Nome</p><p class="mt-1 font-semibold">{{ payroll.collaborator.name }}</p></div>
+                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Cargo</p><p class="mt-1 font-semibold">{{ payroll.collaborator.position|default:"-" }}</p></div>
+                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Admissão</p><p class="mt-1 font-semibold">{{ payroll.collaborator.admission_date|date:"d/m/Y" }}</p></div>
+                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Salário</p><p class="mt-1 font-semibold">{{ payroll.salary_amount }}</p></div>
                     </div>
+                    <a href="{% url 'collaborators:collaborator_update' payroll.collaborator.pk %}" class="btn btn-outline"><span class="material-icons text-sm">open_in_new</span>Editar Colaborador</a>
+                </section>
 
-                    {% if tab.is_missing and not tab.movements %}
-                        <div class="rounded-xl border border-warning/40 bg-warning/10 p-5 text-warning-content">
-                            <p class="font-semibold text-base-content">Esta movimentação ainda não foi criada.</p>
-                            <p class="mt-1 text-sm text-base-content/70">Se quiser gerar {{ tab.label|lower }}, confirme a criação. Se preferir não criar agora, você pode continuar editando as outras abas.</p>
-                            <div class="mt-4 flex gap-2">
-                                <button type="button" class="btn btn-warning" hx-get="{{ modal_url }}?tab={{ tab.key }}&prompt_create_component={{ tab.key }}&continue_without_create=true" hx-target="closest .modal" hx-swap="outerHTML"><span class="material-icons text-sm">add_task</span>Criar esta movimentação</button>
-                            </div>
+                <section x-show="activeTab === 'commissions_history'" x-cloak class="space-y-4">
+                    <div class="overflow-x-auto rounded-xl border border-base-300">
+                        <table class="table table-sm">
+                            <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55"><tr><th>O.S.</th><th>Competência</th><th>Base</th><th>%</th><th>Valor</th><th>Status</th></tr></thead>
+                            <tbody>
+                                {% for commission in payroll.commission_entries.all %}
+                                    <tr>
+                                        <td>#{{ commission.workorder.get_id }}</td>
+                                        <td>{{ commission.reference_month|stringformat:'02d' }}/{{ commission.reference_year|unlocalize }}</td>
+                                        <td>{{ commission.base_amount }}</td>
+                                        <td>{{ commission.percentage_display }}</td>
+                                        <td class="font-semibold">{{ commission.commission_amount }}</td>
+                                        <td>{% if commission.status == "PAID" %}Pago{% else %}Não Pago{% endif %}</td>
+                                    </tr>
+                                {% empty %}
+                                    <tr><td colspan="6" class="py-6 text-center text-base-content/60">Nenhuma comissão vinculada.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section x-show="activeTab === 'summary'" x-cloak class="space-y-4">
+                    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Salário</p><p class="mt-1 font-bold">{{ payroll.salary_amount }}</p></div>
+                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">VT</p><p class="mt-1 font-bold">{{ payroll.transport_allowance_amount }}</p></div>
+                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Benefícios</p><p class="mt-1 font-bold">{{ payroll.benefits_amount }}</p></div>
+                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Comissões</p><p class="mt-1 font-bold">{{ payroll.commission_amount }}</p></div>
+                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Total</p><p class="mt-1 font-black text-success">{{ payroll.total_amount }}</p></div>
+                    </div>
+                    <button type="button" class="btn btn-secondary" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{% url 'collaborators:collaborator_payroll_receipt' payroll.collaborator.pk payroll.pk %}', downloadUrl: '{% url 'collaborators:collaborator_payroll_receipt' payroll.collaborator.pk payroll.pk %}?download=1' } }))"><span class="material-icons text-sm">picture_as_pdf</span>Imprimir PDF</button>
+                </section>
+
+                {% for tab in component_tabs %}
+                    <section x-show="activeTab === '{{ tab.key }}'" x-cloak class="space-y-4">
+                        <div class="flex items-center justify-between gap-3">
+                            <h3 class="flex items-center gap-2 text-base font-semibold text-base-content"><span class="material-icons text-sm">payments</span>{{ tab.label }}</h3>
+                            {% if tab.movements|length > 1 %}
+                                <div class="flex flex-wrap gap-2">
+                                    {% for movement_option in tab.movements %}
+                                        <button type="button" class="btn btn-xs" hx-get="{{ modal_url }}?tab={{ tab.key }}&movement_id={{ movement_option.pk }}&continue_without_create=true" hx-target="closest .modal" hx-swap="outerHTML">{{ movement_option.description|default:tab.label }}</button>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
                         </div>
-                    {% elif tab.form %}
-                        <form method="post" hx-post="{{ modal_url }}" hx-target="closest .modal" hx-swap="outerHTML">
-                            {% csrf_token %}
-                            <input type="hidden" name="tab" value="{{ tab.key }}">
-                            <input type="hidden" name="movement_id" value="{{ tab.default_movement_id }}">
+
+                        {% if tab.is_missing and not tab.movements %}
+                            <div class="rounded-xl border border-warning/40 bg-warning/10 p-5 text-warning-content">
+                                <p class="font-semibold text-base-content">Esta movimentação ainda não foi criada.</p>
+                                <p class="mt-1 text-sm text-base-content/70">Se quiser gerar {{ tab.label|lower }}, confirme a criação. Se preferir não criar agora, você pode continuar editando as outras abas.</p>
+                                <div class="mt-4 flex gap-2">
+                                    <button type="button" class="btn btn-warning" hx-get="{{ modal_url }}?tab={{ tab.key }}&prompt_create_component={{ tab.key }}&continue_without_create=true" hx-target="closest .modal" hx-swap="outerHTML"><span class="material-icons text-sm">add_task</span>Criar esta movimentação</button>
+                                </div>
+                            </div>
+                        {% elif tab.form %}
+                            <input type="hidden" name="tab_{{ tab.key }}_movement_id" value="{{ tab.default_movement_id }}">
                             <div class="grid grid-cols-12 gap-4">
                                 <div class="col-span-12 lg:col-span-4">{{ tab.form.due_date|as_crispy_field }}</div>
                                 <div class="col-span-12 lg:col-span-4">{{ tab.form.amount|as_crispy_field }}</div>
@@ -116,18 +116,32 @@
                                 <div class="col-span-12 lg:col-span-4">{{ tab.form.nf_number|as_crispy_field }}</div>
                                 <div class="col-span-12">{{ tab.form.financial_observation|as_crispy_field }}</div>
                             </div>
+                        {% endif %}
+                    </section>
+                {% endfor %}
+            </div>
 
-                            <div class="modal-action mt-8 flex items-center justify-between gap-3 border-t border-base-200 pt-6">
-                                <div>
-                                    <button type="button" class="btn btn-error btn-outline" hx-get="{% url 'finance:financial_movement_remove_payroll_link' tab.form.instance.pk %}" hx-target="body" hx-swap="beforeend"><span class="material-icons text-sm">link_off</span>Excluir da Folha</button>
-                                </div>
-                                <button type="button" class="btn-form-cancel" @click="$refs.payrollEditModal.close()">Cancelar</button>
-                                <button type="submit" class="btn btn-primary"><span class="material-icons text-sm">save</span>Salvar</button>
-                            </div>
-                        </form>
-                    {% endif %}
-                </section>
-            {% endfor %}
-        </div>
+            <div class="modal-action mt-8 flex items-center justify-between gap-3 border-t border-base-200 py-6"
+                 x-data="{
+                     tabLabels: { {% for tab in component_tabs %}'{{ tab.key }}': '{{ tab.label|escapejs }}'{% if not forloop.last %}, {% endif %}{% endfor %} },
+                     tabMovementIds: { {% for tab in component_tabs %}'{{ tab.key }}': {% if tab.default_movement_id is not None %}{{ tab.default_movement_id|unlocalize }}{% else %}null{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %} },
+                     removeUrl: '{% url 'finance:financial_movement_remove_payroll_link' 0 %}',
+                     removeUrlForTab(tab) { return this.removeUrl.replace('/0/', '/' + (this.tabMovementIds[tab] || '') + '/'); }
+                 }">
+                <div>
+                    <span class="text-sm text-base-content/70">Ações para <span class="font-semibold" x-text="tabLabels[activeTab] || ''"></span>:</span>
+                    <button type="button" class="btn btn-error btn-outline btn-sm ml-2"
+                            hx-target="body" hx-swap="beforeend"
+                            x-bind:hx-get="removeUrlForTab(activeTab)">
+                        <span class="material-icons text-sm">link_off</span>
+                        Excluir <span x-text="tabLabels[activeTab] || ''"></span>
+                    </button>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button type="button" class="btn-form-cancel" @click="$refs.payrollEditModal.close()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary"><span class="material-icons text-sm">save</span>Salvar</button>
+                </div>
+            </div>
+        </form>
     </div>
 </dialog>
