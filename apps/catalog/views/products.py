@@ -15,7 +15,7 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from apps.catalog.equivalent_products import get_equivalent_products_queryset, serialize_equivalent_product
 from apps.budget.models import BudgetItem, BudgetKitItemOverride
-from apps.workorder.models import WorkOrderItem
+from apps.workorder.models import WorkOrderItem, WorkOrderKitItemOverride
 from apps.catalog.forms.products import ProductForm
 from apps.catalog.models.groups import CatalogGroup
 from apps.catalog.models.kits import KitProduct
@@ -186,7 +186,9 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         context["movements"] = StockMovement.objects.filter(stock_product=stock_obj).order_by("-criado_em")
 
         budget_items = BudgetItem.objects.filter(product=product, workshop=self.workshop).select_related("budget", "budget__customer", "budget__vehicle")
+        budget_kit_items = BudgetKitItemOverride.objects.filter(product=product, workshop=self.workshop).select_related("budget_item", "budget_item__budget", "budget_item__budget__customer", "budget_item__budget__vehicle")
         workorder_items = WorkOrderItem.objects.filter(product=product, workshop=self.workshop).select_related("workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle")
+        workorder_kit_items = WorkOrderKitItemOverride.objects.filter(product=product, workshop=self.workshop).select_related("workorder_item", "workorder_item__workorder", "workorder_item__workorder__budget", "workorder_item__workorder__budget__customer", "workorder_item__workorder__budget__vehicle")
         history_dict = {}
 
         # Orçamento
@@ -203,6 +205,21 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
                 "url": reverse_lazy("budget:budget_update", kwargs={"pk": item.budget.id}),
             }
 
+        # Orçamento (Kit)
+        for item in budget_kit_items:
+            history_dict[item.budget_item.budget.id] = {
+                "type": "budget",
+                "id": clean_id(item.budget_item.budget.id),
+                "obj": item.budget_item.budget,
+                "date": item.budget_item.budget.criado_em,
+                "quantity": item.quantity,
+                "status": item.budget_item.budget.get_status_display(),
+                "label": f"Orçamento #{item.budget_item.budget.id}",
+                "sub_label": "Orçamento",
+                "url": reverse_lazy("budget:budget_update", kwargs={"pk": item.budget_item.budget.id}),
+            }
+
+
         # Ordem de Serviço
         for item in workorder_items:
             history_dict[item.workorder.budget.id] = {
@@ -215,6 +232,20 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
                 "label": f"OS #{item.workorder.id}",
                 "sub_label": "Ordem de Serviço",
                 "url": reverse_lazy("workorder:workorder_detail", kwargs={"pk": clean_id(item.workorder.id)}),
+            }
+
+        # Ordem de Serviço (Kit)
+        for item in workorder_kit_items:
+            history_dict[item.workorder_item.workorder.budget.id] = {
+                "type": "workorder",
+                "id": clean_id(item.workorder_item.workorder.id),
+                "obj": item.workorder_item.workorder,
+                "date": item.workorder_item.workorder.criado_em,
+                "quantity": item.quantity,
+                "status": item.workorder_item.workorder.get_status_display(),
+                "label": f"OS #{item.workorder_item.workorder.budget.id}",
+                "sub_label": "Ordem de Serviço",
+                "url": reverse_lazy("workorder:workorder_detail", kwargs={"pk": clean_id(item.workorder_item.workorder.id)}),
             }
 
         history_list = sorted(history_dict.values(), key=lambda x: x["date"], reverse=True)
