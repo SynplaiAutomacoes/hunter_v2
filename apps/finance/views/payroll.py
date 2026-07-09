@@ -334,6 +334,7 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         context["pending_amount"] = max(total_amount - paid_amount, Decimal("0.00"))
         context["paid_amount"] = paid_amount
         context["collaborator_filters"] = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
+        context["bank_account_filters"] = BankAccount.objects.filter(workshop=self.workshop).order_by("bank_name", "account_number", "id")
         context["status_choices"] = self.STATUS_CHOICES
         context["selected_collaborator_id"] = filters["collaborator_id"]
         context["selected_status"] = filters["status"]
@@ -353,8 +354,26 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 class PayrollRefreshView(PayrollListView, View):
     workshop_permission_codename = "change_financialmovement"
 
+    def _get_filter_params_from_post(self, request: Any) -> dict[str, Any]:
+        today = timezone.localdate()
+        start_date = self._parse_date_param(request.POST.get("data_inicial"))
+        end_date = self._parse_date_param(request.POST.get("data_final"))
+        selected_status = str(request.POST.get("status") or "").strip()
+        if selected_status not in {CollaboratorPayroll.Status.FORECAST, CollaboratorPayroll.Status.PAID}:
+            selected_status = ""
+        collaborator_id = _parse_int_param(request.POST.get("collaborator"), default=None, minimum=1, maximum=999999999)
+        return {
+            "start_date": start_date,
+            "end_date": end_date,
+            "collaborator_id": collaborator_id,
+            "status": selected_status,
+            "month": _parse_int_param(request.POST.get("mes"), default=today.month, minimum=1, maximum=12),
+            "year": _parse_int_param(request.POST.get("ano"), default=today.year, minimum=2000, maximum=9999),
+            "has_modal_date_filter": bool(start_date or end_date),
+        }
+
     def post(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
-        filters = self._get_filter_params()
+        filters = self._get_filter_params_from_post(request)
         collaborators_to_sync = list(self._get_collaborators_to_sync(filters=filters).order_by("name", "id"))
 
         if request.headers.get("HX-Request") and request.POST.get("confirm_create") != "true":
@@ -575,6 +594,10 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
             },
         )
 
+    @staticmethod
+    def _component_form_prefix(component: str) -> str:
+        return f"comp_{component}"
+
     def _open_edit_modal(self, *, request: Any, payroll: CollaboratorPayroll) -> HttpResponse:
         component_tabs = self._build_component_tabs(payroll=payroll)
         selected_tab = self._get_requested_tab()
@@ -602,8 +625,9 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         for tab in component_tabs:
             movement_id = default_movement_ids.get(tab["key"])
             movement = next((m for m in tab["movements"] if m.pk == movement_id), None) if movement_id is not None else None
+            prefix = self._component_form_prefix(str(tab["key"]))
             tab["default_movement_id"] = movement_id
-            tab["form"] = PayrollPaymentForm(instance=movement, workshop=self.workshop, payroll=payroll) if movement is not None else None
+            tab["form"] = PayrollPaymentForm(instance=movement, workshop=self.workshop, payroll=payroll, prefix=prefix) if movement is not None else None
 
         return render(
             request,
@@ -668,36 +692,75 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return self._build_confirmation_response(request=request, collaborator=collaborator, payroll=payroll)
 
         component_tabs = self._build_component_tabs(payroll=payroll)
-        active_component_tab = next((tab for tab in component_tabs if tab["key"] == self._get_requested_tab()), None)
-        movement_id = self._get_requested_movement_id()
-        selected_movement = None
-        if active_component_tab is not None:
-            selected_movement = next((movement for movement in active_component_tab["movements"] if movement_id is not None and movement.pk == movement_id), None)
-            if selected_movement is None and active_component_tab["movements"]:
-                selected_movement = active_component_tab["movements"][0]
-        if selected_movement is None:
-            return self._open_edit_modal(request=request, payroll=payroll)
+        all_forms: list[tuple[str, PayrollPaymentForm]] = []
+        invalid_forms: list[tuple[str, PayrollPaymentForm]] = []
 
-        form = PayrollPaymentForm(request.POST, instance=selected_movement, workshop=self.workshop, payroll=payroll)
-        if form.is_valid():
-            due_date = form.cleaned_data["due_date"]
-            if payroll.due_date != due_date:
-                payroll.due_date = due_date
-                payroll.save(update_fields=["due_date"])
-            movement = form.save()
-            recalculate_payroll_from_linked_movements(payroll=payroll)
-            if movement.is_paid:
-                _mark_payroll_as_paid(payroll=payroll)
+        for tab in component_tabs:
+            if not tab["movements"]:
+                continue
+            movement = tab["movements"][0]
+            prefix = self._component_form_prefix(str(tab["key"]))
+            form = PayrollPaymentForm(request.POST, instance=movement, workshop=self.workshop, payroll=payroll, prefix=prefix)
+            has_tab_data = any(str(key).startswith(prefix) for key in request.POST.keys())
+            if not has_tab_data:
+                continue
+            if form.is_valid():
+                all_forms.append((tab["key"], form))
             else:
-                _mark_payroll_as_unpaid(payroll=payroll)
-                _unmark_payroll_commissions_as_paid(payroll=payroll)
+                invalid_forms.append((tab["key"], form))
+
+        if invalid_forms:
+            modal_url = self._get_modal_url(payroll=payroll)
+            fallback_tab = self._get_first_available_financial_tab(component_tabs)
+            selected_tab_retry = self._get_requested_tab()
+            if selected_tab_retry not in {"collaborator", "commissions_history", "summary"}:
+                active_tab = next((tab for tab in component_tabs if tab["key"] == selected_tab_retry), None)
+                if active_tab is None or active_tab["is_missing"]:
+                    selected_tab_retry = fallback_tab
+            for tab in component_tabs:
+                if not tab["movements"]:
+                    continue
+                prefix = self._component_form_prefix(str(tab["key"]))
+                failed_form = next((f for key, f in invalid_forms if key == tab["key"]), None)
+                if failed_form is not None:
+                    tab["form"] = failed_form
+                    tab["default_movement_id"] = tab["movements"][0].pk
+                else:
+                    tab["default_movement_id"] = tab["movements"][0].pk
+                    tab["form"] = PayrollPaymentForm(instance=tab["movements"][0], workshop=self.workshop, payroll=payroll, prefix=prefix)
+            return render(
+                request,
+                self.template_name,
+                {
+                    "payroll": payroll,
+                    "selected_tab": selected_tab_retry,
+                    "component_tabs": component_tabs,
+                    "modal_url": modal_url,
+                    "fallback_tab": fallback_tab,
+                    "continue_without_create": True,
+                },
+            )
+
+        if all_forms:
+            with transaction.atomic():
+                for _component_key, form in all_forms:
+                    form.save()
+                recalculate_payroll_from_linked_movements(payroll=payroll)
+                payroll.refresh_from_db()
+
+                movements = payroll.get_financial_movements()
+                if any(movement.is_paid for movement in movements):
+                    mark_payroll_commissions_as_paid(payroll=payroll, paid_at=timezone.localdate())
+                else:
+                    unmark_payroll_commissions_as_paid(payroll=payroll)
+                payroll.refresh_from_db()
+
             response = HttpResponse()
             response["HX-Refresh"] = "true"
             response["HX-Trigger"] = '{"showToast": {"message": "Folha atualizada com sucesso.", "type": "success"}}'
             return response
-        response = render(request, self.template_name, {"payroll": payroll, "form": form}, status=400)
-        response["HX-Trigger"] = '{"showToast": {"message": "Revise os dados da folha.", "type": "error"}}'
-        return response
+
+        return self._open_edit_modal(request=request, payroll=payroll)
 
 
 class PayrollBulkPayView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -786,5 +849,75 @@ class PayrollBulkUnpayView(LoginRequiredMixin, WorkshopScopedMixin, View):
             response = HttpResponse()
             response["HX-Refresh"] = "true"
             return response
+
+        return HttpResponseRedirect(reverse("finance:payroll_list"))
+
+
+class PayrollBulkConciliateView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "financialmovement"
+    workshop_permission_codename = "change_financialmovement"
+
+    def post(self, request, *args, **kwargs):
+        raw_values = request.POST.getlist("payroll_ids")
+        bank_account_id = str(request.POST.get("bank_account_id") or "").strip()
+        if not raw_values:
+            return HttpResponse("Nenhuma folha selecionada.", status=400)
+        if not bank_account_id:
+            return HttpResponse("Selecione uma conta bancária.", status=400)
+
+        payroll_ids: list[int] = []
+        for value in raw_values:
+            try:
+                payroll_ids.append(int(value))
+            except (TypeError, ValueError):
+                pass
+
+        if not payroll_ids:
+            return HttpResponse("Nenhuma folha selecionada.", status=400)
+
+        bank_account = get_object_or_404(BankAccount, workshop=self.workshop, pk=bank_account_id)
+        payrolls = (
+            CollaboratorPayroll.objects.filter(
+                pk__in=payroll_ids,
+                workshop=self.workshop,
+            )
+            .select_related("collaborator", "financial_movement")
+            .prefetch_related("financial_movements")
+        )
+
+        skipped: list[str] = []
+        with transaction.atomic():
+            for payroll in payrolls:
+                movements = payroll.get_financial_movements()
+                if not movements:
+                    skipped.append(f"{payroll.collaborator.name}: sem movimentações")
+                    continue
+                if any(not movement.is_paid for movement in movements):
+                    skipped.append(f"{payroll.collaborator.name}: pagamento pendente")
+                    continue
+                if any(not movement.budget_plan_id for movement in movements):
+                    skipped.append(f"{payroll.collaborator.name}: plano orçamentário pendente")
+                    continue
+
+                movement_ids = [movement.pk for movement in movements if movement.pk is not None and not movement.is_reconciled]
+                if not movement_ids:
+                    continue
+
+                FinancialMovement.objects.filter(pk__in=movement_ids).update(is_reconciled=True, bank_account=bank_account)
+
+        if request.headers.get("HX-Request"):
+            if skipped:
+                return _build_hx_toast_response(
+                    message="Algumas folhas não puderam ser conciliadas: " + "; ".join(skipped[:3]) + ("..." if len(skipped) > 3 else ""),
+                    toast_type="warning",
+                    refresh=True,
+                )
+            response = HttpResponse()
+            response["HX-Refresh"] = "true"
+            return response
+
+        if skipped:
+            messages.warning(request, "Algumas folhas não puderam ser conciliadas: " + "; ".join(skipped[:3]) + ("..." if len(skipped) > 3 else ""))
 
         return HttpResponseRedirect(reverse("finance:payroll_list"))
