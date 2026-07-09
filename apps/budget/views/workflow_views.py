@@ -450,6 +450,11 @@ class BudgetListView(LoginRequiredMixin, BudgetStatusReportDataMixin, WorkshopSc
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        # render_table faz sua própria paginação e filtragem. O Django ListView
+        # com paginate_by fatia o queryset antes de expô-lo no contexto, o que
+        # impede o render_table de chamar .filter() depois. Passamos o queryset
+        # completo para que o render_table gerencie paginação e busca corretamente.
+        context["budget"] = self.object_list
         context["fields"] = self._get_budget_table_fields()
         context["actions"] = [
             TableActionDefaults.edit("budget:budget_update"),
@@ -466,6 +471,7 @@ class BudgetListView(LoginRequiredMixin, BudgetStatusReportDataMixin, WorkshopSc
         context["budget_events_enabled"] = getattr(settings, "BUDGET_EVENTS_ENABLED", False)
         context["budget_poll_interval_seconds"] = getattr(settings, "BUDGET_POLL_INTERVAL_SECONDS", 20)
         return context
+
 
 
 @method_decorator(xframe_options_exempt, name="dispatch")
