@@ -330,16 +330,10 @@ class WorkOrder(TimeStampedModel):
         self.save(update_fields=["signature_token_version", "signature_token_active"])
 
     def mark_signature_approved(self) -> None:
+        if self.signature_request_status == WorkOrderSignatureStatus.APPROVED:
+            return
         self.signature_request_status = WorkOrderSignatureStatus.APPROVED
-        if not self.is_fully_paid and self.budget_type not in ("warranty", "courtesy"):
-            self.save(update_fields=["signature_request_status"])
-            return
-        self.status = WorkOrderStatus.APPROVED
-        if self.delivered_at is None:
-            self.delivered_at = timezone.now()
-            self.save(update_fields=["status", "signature_request_status", "delivered_at"])
-            return
-        self.save(update_fields=["status", "signature_request_status"])
+        self.save(update_fields=["signature_request_status"])
 
     def approve(self) -> None:
         if self.status == WorkOrderStatus.APPROVED:
@@ -376,7 +370,6 @@ class WorkOrder(TimeStampedModel):
             raise WorkOrderError("Somente ordens de serviço entregues, canceladas ou rejeitadas podem ser reabertas.")
 
         self.status = WorkOrderStatus.DRAFT
-        self.delivered_at = None
         self.reopen_reason = reason
 
         self.save(update_fields=["status", "delivered_at", "reopen_reason"])
@@ -1137,70 +1130,42 @@ class WorkOrderItem(TimeStampedModel):
     def get_kit_products_total(self):
         if not self.kit:
             return Money(0, "BRL")
-        return sum(
-            (ov.product_selling_price * ov.quantity) + ov.shipping
-            for ov in self._iter_frozen_kit_product_overrides()
-        ) * self.quantity
+        return sum((ov.product_selling_price * ov.quantity) + ov.shipping for ov in self._iter_frozen_kit_product_overrides()) * self.quantity
 
     def get_kit_services_total(self):
         if not self.kit:
             return Money(0, "BRL")
-        return sum(
-            ov.service_selling_price * ov.quantity
-            for ov in self._iter_frozen_kit_service_overrides()
-        ) * self.quantity
+        return sum(ov.service_selling_price * ov.quantity for ov in self._iter_frozen_kit_service_overrides()) * self.quantity
 
     def get_kit_services_duration(self):
         if not self.kit:
             return timedelta(0)
-        return sum(
-            (ov.duration * ov.quantity)
-            for ov in self._iter_frozen_kit_service_overrides()
-            if ov.duration
-        ) * self.quantity
+        return sum((ov.duration * ov.quantity) for ov in self._iter_frozen_kit_service_overrides() if ov.duration) * self.quantity
 
     def get_kit_products_shipping_total(self):
         if not self.kit:
             return Money(0, "BRL")
-        return sum(
-            ov.shipping
-            for ov in self._iter_frozen_kit_product_overrides()
-            if ov.quantity > 0
-        ) * self.quantity
+        return sum(ov.shipping for ov in self._iter_frozen_kit_product_overrides() if ov.quantity > 0) * self.quantity
 
     def get_kit_products_cost_total(self):
         if not self.kit:
             return Money(0, "BRL")
-        return sum(
-            ov.product_cost_price * ov.quantity
-            for ov in self._iter_frozen_kit_product_overrides()
-        ) * self.quantity
+        return sum(ov.product_cost_price * ov.quantity for ov in self._iter_frozen_kit_product_overrides()) * self.quantity
 
     def get_kit_services_cost_total(self):
         if not self.kit:
             return Money(0, "BRL")
-        return sum(
-            ov.service_cost_price * ov.quantity
-            for ov in self._iter_frozen_kit_service_overrides()
-        ) * self.quantity
+        return sum(ov.service_cost_price * ov.quantity for ov in self._iter_frozen_kit_service_overrides()) * self.quantity
 
     def get_kit_third_party_services_cost_total(self):
         if not self.kit:
             return Money(0, "BRL")
-        return sum(
-            ov.service_cost_price * ov.quantity
-            for ov in self._iter_frozen_kit_service_overrides()
-            if ov.service and ov.service.is_third_party
-        ) * self.quantity
+        return sum(ov.service_cost_price * ov.quantity for ov in self._iter_frozen_kit_service_overrides() if ov.service and ov.service.is_third_party) * self.quantity
 
     def get_kit_third_party_services_selling_total(self):
         if not self.kit:
             return Money(0, "BRL")
-        return sum(
-            ov.service_selling_price * ov.quantity
-            for ov in self._iter_frozen_kit_service_overrides()
-            if ov.service and ov.service.is_third_party
-        ) * self.quantity
+        return sum(ov.service_selling_price * ov.quantity for ov in self._iter_frozen_kit_service_overrides() if ov.service and ov.service.is_third_party) * self.quantity
 
     class Meta:
         verbose_name = "Item da O.S."

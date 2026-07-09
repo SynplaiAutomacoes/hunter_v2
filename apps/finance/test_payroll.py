@@ -226,6 +226,65 @@ class FinancialMovementListViewTests(TestCase):
             "finance/partials/financial_movement/financial_movement_remove_payroll_link_modal.html",
         )
 
+    def test_remove_payroll_link_view_deletes_commission_component(self) -> None:
+        workshop = create_workshop(suffix=27)
+        collaborator = create_collaborator(workshop=workshop, suffix=27)
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 9, 5),
+            salary_amount=Money(2000, "BRL"),
+            commission_amount=Money(120, "BRL"),
+            total_amount=Money(2120, "BRL"),
+        )
+        salary_movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll=payroll,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Salario",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 9, 5),
+            is_paid=False,
+        )
+        commission_movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll=payroll,
+            payroll_component=FinancialMovement.PayrollComponent.COMMISSION,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Comissao",
+            amount=Money(120, "BRL"),
+            due_date=date(2026, 9, 5),
+            is_paid=False,
+        )
+        payroll.financial_movement = salary_movement
+        payroll.save(update_fields=["financial_movement"])
+
+        request = RequestFactory().post(
+            f"/finance/financial-movement/{commission_movement.pk}/remove-payroll-link/",
+            HTTP_HX_REQUEST="true",
+        )
+        request.user = SimpleNamespace(is_authenticated=False)
+        request.htmx = True
+        view = FinancialMovementRemovePayrollLinkView()
+        view.request = request
+        view.kwargs = {"pk": commission_movement.pk}
+        view.object = commission_movement
+        view.workshop = workshop
+
+        response = view.form_valid(form=None)
+
+        payroll.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("HX-Refresh"), "true")
+        self.assertFalse(FinancialMovement.objects.filter(pk=commission_movement.pk).exists())
+        self.assertTrue(FinancialMovement.objects.filter(pk=salary_movement.pk).exists())
+        self.assertEqual(payroll.financial_movement.pk, salary_movement.pk)
+
 
 class PayrollEditModalViewTests(TestCase):
     def test_primary_salary_movement_modal_shows_remove_from_payroll_button(self) -> None:
