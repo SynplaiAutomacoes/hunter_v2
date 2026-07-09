@@ -219,7 +219,6 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
                 "url": reverse_lazy("budget:budget_update", kwargs={"pk": item.budget_item.budget.id}),
             }
 
-
         # Ordem de Serviço
         for item in workorder_items:
             history_dict[item.workorder.budget.id] = {
@@ -229,7 +228,7 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
                 "date": item.workorder.criado_em,
                 "quantity": item.quantity,
                 "status": item.workorder.get_status_display(),
-                "label": f"OS #{item.workorder.id}",
+                "label": f"OS #{item.workorder.budget.id}",
                 "sub_label": "Ordem de Serviço",
                 "url": reverse_lazy("workorder:workorder_detail", kwargs={"pk": clean_id(item.workorder.id)}),
             }

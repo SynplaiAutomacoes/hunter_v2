@@ -19,7 +19,7 @@ def render_template_request_to_pdf(render_request: DocumentRenderRequest) -> Doc
         logger=logger,
         operation_name="render_template_to_pdf",
         operation_group="documents",
-        log_context={"template_name": render_request.template_name, "filename": render_request.filename},
+        log_context={"template_name": render_request.template_name, "pdf_filename": render_request.filename},
     ):
         html = render_to_string(render_request.template_name, render_request.context)
         pdf_bytes = render_pdf_from_html(html)
