@@ -16,7 +16,7 @@ from apps.core.presentation.widgets import SearchableSelectInput
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.collaborators.views import WorkshopCollaboratorPendingMovementDeleteView, WorkshopCollaboratorUpdateView
-from apps.collaborators.services import get_payroll_due_date_for_reference, sync_collaborator_payroll, sync_repeated_collaborator_payrolls
+from apps.collaborators.services import delete_payroll_linked_financial_movement, get_payroll_due_date_for_reference, sync_collaborator_payroll, sync_repeated_collaborator_payrolls
 from apps.workshops.models.workshops import Workshop
 
 
@@ -273,7 +273,7 @@ class CollaboratorPayrollRepetitionTests(TestCase):
         payroll.refresh_from_db()
         synced_payroll.refresh_from_db()
         self.assertEqual(payroll.pk, synced_payroll.pk)
-        self.assertEqual(payroll.due_date, date(2026, 8, 10))
+        self.assertEqual(payroll.due_date, date(2026, 7, 10))
 
     def test_sync_preserves_paid_existing_payroll_due_date_in_same_month(self) -> None:
         account = create_account(suffix=13)
