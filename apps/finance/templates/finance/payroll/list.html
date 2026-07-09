@@ -9,7 +9,7 @@
                 <p class="text-base-content/70">Acompanhe a folha consolidada por colaborador.</p>
             </div>
             <div class="flex items-center gap-2">
-                <button type="submit" form="payroll-filter-form" formaction="{% url 'finance:payroll_refresh' %}" formmethod="post" class="btn btn-outline btn-primary" {% if not can_refresh_payroll %}disabled title="Indisponível com filtro por data"{% endif %}>
+                <button type="button" class="btn btn-outline btn-primary" {% if not can_refresh_payroll %}disabled title="Indisponível com filtro por data"{% else %}hx-post="{% url 'finance:payroll_refresh' %}" hx-include="#payroll-filter-form" hx-target="#payroll-edit-modal-container" hx-swap="innerHTML"{% endif %}>
                     <span class="material-icons">sync</span>
                     Atualizar folha
                 </button>
@@ -215,9 +215,24 @@
                                     {% for row in payroll_rows %}
                                         <tr>
                                             <td>
-                                                <input type="checkbox" name="payroll_ids" value="{{ row.id }}" data-is-paid="{{ row.is_paid|yesno:'true,false' }}" class="checkbox checkbox-primary checkbox-sm payroll-checkbox" />
+                                                {% if row.can_select %}
+                                                    <input type="checkbox" name="payroll_ids" value="{{ row.id }}" data-is-paid="{{ row.is_paid|yesno:'true,false' }}" class="checkbox checkbox-primary checkbox-sm payroll-checkbox" />
+                                                {% endif %}
                                             </td>
-                                            <td>{{ row.collaborator_name }}</td>
+                                            <td>
+                                                <div class="space-y-1">
+                                                    <div>{{ row.collaborator_name }}</div>
+                                                    {% if row.missing_components %}
+                                                        <div class="text-xs text-warning">
+                                                            {% if row.is_pending_creation %}
+                                                                Será criado: {{ row.missing_components|join:", " }}
+                                                            {% else %}
+                                                                Faltando: {{ row.missing_components|join:", " }}
+                                                            {% endif %}
+                                                        </div>
+                                                    {% endif %}
+                                                </div>
+                                            </td>
                                             <td>{{ row.due_date|date:"d/m/Y" }}</td>
                                             <td>
                                                 <span class="inline-flex items-center gap-1 whitespace-nowrap {{ row.paid_indicator.class }}" title="{{ row.status_label }}" aria-label="{{ row.status_label }}">
@@ -242,7 +257,7 @@
                                                         <span class="material-icons text-sm">edit</span>
                                                         Editar
                                                     </button>
-                                                    <button type="button" class="btn btn-primary btn-xs" title="Abrir resumo da folha" aria-label="Abrir resumo da folha" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{{ row.receipt_url }}', downloadUrl: '{{ row.receipt_url }}?download=1' } }))">
+                                                    <button type="button" class="btn btn-primary btn-xs" title="Abrir resumo da folha" aria-label="Abrir resumo da folha" {% if row.receipt_url %}onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{{ row.receipt_url }}', downloadUrl: '{{ row.receipt_url }}?download=1' } }))"{% else %}disabled{% endif %}>
                                                         Resumo
                                                     </button>
                                                 </div>

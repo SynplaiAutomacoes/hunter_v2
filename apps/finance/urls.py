@@ -93,6 +93,7 @@ urlpatterns = [
     path("folha-pagamento/bulk-pay/", PayrollBulkPayView.as_view(), name="payroll_bulk_pay"),
     path("folha-pagamento/bulk-unpay/", PayrollBulkUnpayView.as_view(), name="payroll_bulk_unpay"),
     path("folha-pagamento/<int:pk>/edit/", PayrollEditModalView.as_view(), name="payroll_edit_modal"),
+    path("folha-pagamento/collaborator/<int:collaborator_pk>/edit/", PayrollEditModalView.as_view(), name="payroll_edit_modal_for_collaborator"),
     path("comissoes/", CommissionReportView.as_view(), name="commission_report"),
     path("comissoes/pdf/", CommissionReportPdfView.as_view(), name="commission_report_pdf"),
     path("notas-emitidas/", IssuedDocumentsListView.as_view(), name="issued_documents_list"),

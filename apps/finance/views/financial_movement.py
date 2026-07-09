@@ -31,7 +31,7 @@ from apps.finance.forms.financial_movement import MovementStep1Form, MovementSte
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.views.navigation import append_query_params
 from apps.accounts.models import User
-from apps.collaborators.services import delete_payroll_linked_financial_movement
+from apps.collaborators.services import recalculate_payroll_from_linked_movements
 from apps.collaborators.models import WorkshopCollaborator
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
@@ -657,6 +657,8 @@ class FinancialMovementCreateView(PageFavoriteMixin, LoginRequiredMixin, Worksho
         form.instance.user = self.request.user
 
         self.object = form.save()
+        if getattr(self.object, "payroll_id", None):
+            recalculate_payroll_from_linked_movements(payroll=self.object.payroll)
 
         current_step = self.get_current_step()
         steps_config = self.get_steps_config()
@@ -719,6 +721,8 @@ class FinancialMovementUpdateView(FinancialMovementCreateView):
         form.instance.user = self.request.user
 
         self.object = form.save()
+        if getattr(self.object, "payroll_id", None):
+            recalculate_payroll_from_linked_movements(payroll=self.object.payroll)
 
         current_step = self.get_current_step()
         steps_config = self.get_steps_config()
@@ -757,13 +761,19 @@ class FinancialMovementRemovePayrollLinkView(FinancialMovementDeleteView):
     htmx_template_name = "finance/partials/financial_movement/financial_movement_remove_payroll_link_modal.html"
 
     def form_valid(self, form):
+        linked_payroll = self.object.payroll if getattr(self.object, "payroll_id", None) else None
         if bool(getattr(self.request, "htmx", False)):
-            delete_payroll_linked_financial_movement(movement=self.object)
+            self.object.delete()
+            if linked_payroll is not None:
+                recalculate_payroll_from_linked_movements(payroll=linked_payroll)
             response = HttpResponse()
             response["HX-Refresh"] = "true"
             return response
 
-        return super().form_valid(form)
+        response = super().form_valid(form)
+        if linked_payroll is not None:
+            recalculate_payroll_from_linked_movements(payroll=linked_payroll)
+        return response
 
 
 class EntityListView(LoginRequiredMixin, WorkshopScopedMixin, View):

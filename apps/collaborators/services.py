@@ -3,6 +3,7 @@ from __future__ import annotations
 import calendar
 import logging
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -672,7 +673,182 @@ def _build_payroll_component_key(*, component: str | None, budget_plan_id: int |
     return (str(component or ""), budget_plan_id)
 
 
-def _sync_payroll_financial_movements(*, payroll: CollaboratorPayroll, active_benefits: list[CollaboratorBenefit] | None = None) -> list[FinancialMovement]:
+@dataclass(slots=True)
+class PayrollMovementDiagnosis:
+    payroll_exists: bool
+    missing_components: list[str]
+    expected_components: list[str]
+
+    @property
+    def requires_confirmation(self) -> bool:
+        return (not self.payroll_exists) or bool(self.missing_components)
+
+
+def build_payroll_projection(*, collaborator: WorkshopCollaborator, reference_date: date | None = None) -> CollaboratorPayroll:
+    resolved = _resolve_reference_date(reference_date)
+    salary_amount = Money(_quantize(collaborator.salary_amount), "BRL")
+    work_days = get_reference_work_days(collaborator=collaborator, reference_date=resolved)
+    transport_amount = _calculate_transport_allowance_total_from_work_days(collaborator=collaborator, work_days=work_days)
+    active_benefits = list(CollaboratorBenefit.objects.filter(collaborator=collaborator, is_active=True).select_related("budget_plan").order_by("id"))
+    benefits_total = sum((Decimal(str(benefit.monthly_amount.amount or ZERO)) for benefit in active_benefits), start=ZERO)
+    commission_entries = list(
+        CollaboratorCommissionEntry.objects.filter(
+            collaborator=collaborator,
+            reference_year=resolved.year,
+            reference_month=resolved.month,
+        )
+    )
+    commission_total = sum((Decimal(str(entry.commission_amount.amount or ZERO)) for entry in commission_entries), start=ZERO)
+    total_amount = _quantize(Decimal(str(salary_amount.amount or ZERO)) + Decimal(str(transport_amount.amount or ZERO)) + benefits_total + commission_total)
+    return CollaboratorPayroll(
+        workshop=collaborator.workshop,
+        collaborator=collaborator,
+        reference_year=resolved.year,
+        reference_month=resolved.month,
+        due_date=get_payroll_due_date_for_reference(collaborator=collaborator, reference_date=resolved),
+        salary_amount=salary_amount,
+        transport_allowance_amount=transport_amount,
+        benefits_amount=Money(_quantize(benefits_total), "BRL"),
+        commission_amount=Money(_quantize(commission_total), "BRL"),
+        total_amount=Money(total_amount, "BRL"),
+    )
+
+
+def get_payroll_due_date_for_reference(*, collaborator: WorkshopCollaborator, reference_date: date | None = None) -> date:
+    resolved = _resolve_reference_date(reference_date)
+    return collaborator.get_due_date_for_reference(reference_date=_get_next_month_reference(resolved))
+
+
+def _should_update_existing_payroll_due_date(*, collaborator: WorkshopCollaborator, payroll: CollaboratorPayroll, resolved_reference: date) -> bool:
+    if _is_paid_payroll(payroll=payroll):
+        return False
+
+    current_due_date = payroll.due_date
+    new_default_due_date = get_payroll_due_date_for_reference(collaborator=collaborator, reference_date=resolved_reference)
+    if current_due_date == new_default_due_date:
+        return True
+
+    old_default_due_date = collaborator.get_due_date_for_reference(reference_date=resolved_reference)
+    return current_due_date == old_default_due_date
+
+
+def get_payroll_movement_diagnosis(*, payroll: CollaboratorPayroll) -> PayrollMovementDiagnosis:
+    expected_payroll = build_payroll_projection(collaborator=payroll.collaborator, reference_date=date(payroll.reference_year, payroll.reference_month, 1))
+    expected_specs = _build_payroll_component_specs(payroll=expected_payroll)
+    expected_components = [PAYROLL_COMPONENT_LABELS.get(str(spec["component"]), str(spec["component"])) for spec in expected_specs]
+    effective_movements = _get_payroll_effective_movements(payroll=payroll)
+    if payroll.financial_movement is not None and not any(movement.pk == payroll.financial_movement.pk for movement in effective_movements):
+        effective_movements.append(payroll.financial_movement)
+
+    if any(movement.payroll_component in (None, "") for movement in effective_movements):
+        return PayrollMovementDiagnosis(
+            payroll_exists=payroll.pk is not None,
+            missing_components=[],
+            expected_components=expected_components,
+        )
+
+    existing_keys = {_build_payroll_component_key(component=movement.payroll_component, budget_plan_id=movement.budget_plan_id) for movement in effective_movements if movement.payroll_component}
+    missing_components = [PAYROLL_COMPONENT_LABELS.get(str(spec["component"]), str(spec["component"])) for spec in expected_specs if _build_payroll_component_key(component=str(spec["component"]), budget_plan_id=getattr(spec["budget_plan"], "pk", None)) not in existing_keys]
+    return PayrollMovementDiagnosis(
+        payroll_exists=payroll.pk is not None,
+        missing_components=missing_components,
+        expected_components=expected_components,
+    )
+
+
+@transaction.atomic
+def ensure_payroll_movements_confirmed(*, payroll: CollaboratorPayroll) -> CollaboratorPayroll:
+    refreshed_payroll = sync_collaborator_payroll(
+        collaborator=payroll.collaborator,
+        reference_date=date(payroll.reference_year, payroll.reference_month, 1),
+        lock_reference=True,
+    )
+    refreshed_payroll.refresh_from_db()
+    return refreshed_payroll
+
+
+@transaction.atomic
+def ensure_payroll_component_movements_confirmed(*, payroll: CollaboratorPayroll, component: str) -> CollaboratorPayroll:
+    payroll.refresh_from_db()
+    projection = build_payroll_projection(collaborator=payroll.collaborator, reference_date=date(payroll.reference_year, payroll.reference_month, 1))
+    _sync_payroll_financial_movements(
+        payroll=payroll,
+        source_payroll=projection,
+        allowed_components={component},
+        prune_stale=False,
+    )
+    return recalculate_payroll_from_linked_movements(payroll=payroll)
+
+
+@transaction.atomic
+def recalculate_payroll_from_linked_movements(*, payroll: CollaboratorPayroll) -> CollaboratorPayroll:
+    payroll.refresh_from_db()
+    effective_movements = list(payroll.financial_movements.all().order_by("id"))
+    if not effective_movements and payroll.financial_movement_id is not None:
+        payroll.financial_movement.refresh_from_db()
+        effective_movements = [payroll.financial_movement]
+
+    salary_total = ZERO
+    transport_total = ZERO
+    commission_total = ZERO
+    benefits_total = ZERO
+    legacy_total = ZERO
+
+    for movement in effective_movements:
+        amount = Decimal(str(movement.amount.amount if movement.amount is not None else ZERO))
+        if movement.payroll_component == FinancialMovement.PayrollComponent.SALARY:
+            salary_total += amount
+        elif movement.payroll_component == FinancialMovement.PayrollComponent.TRANSPORT:
+            transport_total += amount
+        elif movement.payroll_component == FinancialMovement.PayrollComponent.COMMISSION:
+            commission_total += amount
+        elif movement.payroll_component == FinancialMovement.PayrollComponent.BENEFIT:
+            benefits_total += amount
+        else:
+            legacy_total += amount
+
+    if legacy_total > ZERO and not any((salary_total, transport_total, commission_total, benefits_total)):
+        salary_total = legacy_total
+
+    total_amount = salary_total + transport_total + commission_total + benefits_total
+    primary_movement = payroll.primary_financial_movement
+    update_fields: list[str] = []
+
+    resolved_salary = Money(_quantize(salary_total), "BRL")
+    resolved_transport = Money(_quantize(transport_total), "BRL")
+    resolved_benefits = Money(_quantize(benefits_total), "BRL")
+    resolved_commission = Money(_quantize(commission_total), "BRL")
+    resolved_total = Money(_quantize(total_amount), "BRL")
+
+    if payroll.salary_amount != resolved_salary:
+        payroll.salary_amount = resolved_salary
+        update_fields.append("salary_amount")
+    if payroll.transport_allowance_amount != resolved_transport:
+        payroll.transport_allowance_amount = resolved_transport
+        update_fields.append("transport_allowance_amount")
+    if payroll.benefits_amount != resolved_benefits:
+        payroll.benefits_amount = resolved_benefits
+        update_fields.append("benefits_amount")
+    if payroll.commission_amount != resolved_commission:
+        payroll.commission_amount = resolved_commission
+        update_fields.append("commission_amount")
+    if payroll.total_amount != resolved_total:
+        payroll.total_amount = resolved_total
+        update_fields.append("total_amount")
+    if primary_movement is not None and payroll.due_date != primary_movement.due_date:
+        payroll.due_date = primary_movement.due_date
+        update_fields.append("due_date")
+    if payroll.financial_movement_id != getattr(primary_movement, "pk", None):
+        payroll.financial_movement = primary_movement
+        update_fields.append("financial_movement")
+
+    if update_fields:
+        payroll.save(update_fields=update_fields)
+
+    return payroll
+
+
+def _sync_payroll_financial_movements(*, payroll: CollaboratorPayroll, active_benefits: list[CollaboratorBenefit] | None = None, source_payroll: CollaboratorPayroll | None = None, allowed_components: set[str] | None = None, prune_stale: bool = True) -> list[FinancialMovement]:
     existing_movements = list(payroll.financial_movements.all().order_by("id"))
     existing_by_component = {_build_payroll_component_key(component=movement.payroll_component, budget_plan_id=movement.budget_plan_id): movement for movement in existing_movements if movement.payroll_component}
     representative_movement = _get_payroll_representative_movement(payroll=payroll, existing_by_component={key[0]: movement for key, movement in existing_by_component.items()})
@@ -685,8 +861,11 @@ def _sync_payroll_financial_movements(*, payroll: CollaboratorPayroll, active_be
     representative_consumed = bool(representative_movement and any(movement.pk == representative_movement.pk for movement in existing_movements))
     synced_movements: list[FinancialMovement] = []
 
-    for spec in _build_payroll_component_specs(payroll=payroll, active_benefits=active_benefits):
+    effective_source_payroll = source_payroll or payroll
+    for spec in _build_payroll_component_specs(payroll=effective_source_payroll, active_benefits=active_benefits):
         component = str(spec["component"])
+        if allowed_components is not None and component not in allowed_components:
+            continue
         budget_plan = spec["budget_plan"]
         budget_plan_id = getattr(budget_plan, "pk", None)
         movement = existing_by_component.get(_build_payroll_component_key(component=component, budget_plan_id=budget_plan_id))
@@ -725,16 +904,17 @@ def _sync_payroll_financial_movements(*, payroll: CollaboratorPayroll, active_be
         movement.save()
         synced_movements.append(movement)
 
-    synced_keys = {_build_payroll_component_key(component=movement.payroll_component, budget_plan_id=movement.budget_plan_id) for movement in synced_movements}
-    synced_ids = {synced.pk for synced in synced_movements}
-    stale_movements = [movement for movement in existing_movements if _build_payroll_component_key(component=movement.payroll_component, budget_plan_id=movement.budget_plan_id) not in synced_keys and movement.pk not in synced_ids]
-    for stale_movement in stale_movements:
-        if stale_movement.is_paid:
-            continue
-        if payroll.financial_movement_id == stale_movement.pk:
-            payroll.financial_movement = None
-            payroll.save(update_fields=["financial_movement"])
-        stale_movement.delete()
+    if prune_stale:
+        synced_keys = {_build_payroll_component_key(component=movement.payroll_component, budget_plan_id=movement.budget_plan_id) for movement in synced_movements}
+        synced_ids = {synced.pk for synced in synced_movements}
+        stale_movements = [movement for movement in existing_movements if _build_payroll_component_key(component=movement.payroll_component, budget_plan_id=movement.budget_plan_id) not in synced_keys and movement.pk not in synced_ids]
+        for stale_movement in stale_movements:
+            if stale_movement.is_paid:
+                continue
+            if payroll.financial_movement_id == stale_movement.pk:
+                payroll.financial_movement = None
+                payroll.save(update_fields=["financial_movement"])
+            stale_movement.delete()
 
     primary_movement = synced_movements[0] if synced_movements else None
     if payroll.financial_movement_id != getattr(primary_movement, "pk", None):
@@ -911,6 +1091,9 @@ def _sync_collaborator_payroll_internal(
     benefits_total = sum((Decimal(str(benefit.monthly_amount.amount or ZERO)) for benefit in active_benefits), start=ZERO)
     commission_total = sum((Decimal(str(entry.commission_amount.amount or ZERO)) for entry in commission_entries), start=ZERO)
     total_amount = _quantize(Decimal(str(salary_amount.amount or ZERO)) + Decimal(str(transport_amount.amount or ZERO)) + benefits_total + commission_total)
+    due_date = get_payroll_due_date_for_reference(collaborator=collaborator, reference_date=resolved)
+    if existing_payroll is not None and not _should_update_existing_payroll_due_date(collaborator=collaborator, payroll=existing_payroll, resolved_reference=resolved):
+        due_date = existing_payroll.due_date
 
     payroll, _ = CollaboratorPayroll.objects.update_or_create(
         collaborator=collaborator,
@@ -918,7 +1101,7 @@ def _sync_collaborator_payroll_internal(
         reference_month=resolved.month,
         defaults={
             "workshop": collaborator.workshop,
-            "due_date": _resolve_payroll_due_date(collaborator=collaborator, resolved=resolved, existing_payroll=existing_payroll),
+            "due_date": due_date,
             "salary_amount": salary_amount,
             "transport_allowance_amount": transport_amount,
             "benefits_amount": Money(_quantize(benefits_total), "BRL"),
@@ -965,6 +1148,33 @@ def _sync_collaborator_payroll_internal(
 
 
 @transaction.atomic
+def refresh_unpaid_payroll_due_dates(*, workshop: object, reference_year: int, reference_month: int) -> int:
+    payrolls = CollaboratorPayroll.objects.select_related("collaborator").filter(
+        workshop=workshop,
+        reference_year=reference_year,
+        reference_month=reference_month,
+    )
+    reference_date = date(reference_year, reference_month, 1)
+    updated_count = 0
+    for payroll in payrolls:
+        if _is_paid_payroll(payroll=payroll):
+            continue
+
+        new_due_date = get_payroll_due_date_for_reference(collaborator=payroll.collaborator, reference_date=reference_date)
+        if payroll.due_date == new_due_date:
+            continue
+
+        old_default_due_date = payroll.collaborator.get_due_date_for_reference(reference_date=reference_date)
+        if payroll.due_date != old_default_due_date:
+            continue
+
+        payroll.due_date = new_due_date
+        payroll.save(update_fields=["due_date"])
+        updated_count += 1
+
+    return updated_count
+
+
 def sync_collaborator_payrolls_batch(*, collaborators: list[WorkshopCollaborator], reference_date: date | None = None, lock_reference: bool = False) -> list[CollaboratorPayroll]:
     if not collaborators:
         return []

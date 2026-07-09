@@ -16,7 +16,7 @@ from apps.core.presentation.widgets import SearchableSelectInput
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.collaborators.views import WorkshopCollaboratorPendingMovementDeleteView, WorkshopCollaboratorUpdateView
-from apps.collaborators.services import delete_payroll_linked_financial_movement, sync_collaborator_payroll, sync_repeated_collaborator_payrolls
+from apps.collaborators.services import get_payroll_due_date_for_reference, sync_collaborator_payroll, sync_repeated_collaborator_payrolls
 from apps.workshops.models.workshops import Workshop
 
 
@@ -136,9 +136,9 @@ class CollaboratorPayrollRepetitionTests(TestCase):
         payrolls = list(CollaboratorPayroll.objects.filter(collaborator=collaborator).select_related("financial_movement").order_by("reference_year", "reference_month"))
 
         expected_due_dates = [
-            collaborator.get_due_date_for_reference(reference_date=date(2026, 4, 1)),
-            collaborator.get_due_date_for_reference(reference_date=date(2026, 5, 1)),
-            collaborator.get_due_date_for_reference(reference_date=date(2026, 6, 1)),
+            get_payroll_due_date_for_reference(collaborator=collaborator, reference_date=date(2026, 4, 1)),
+            get_payroll_due_date_for_reference(collaborator=collaborator, reference_date=date(2026, 5, 1)),
+            get_payroll_due_date_for_reference(collaborator=collaborator, reference_date=date(2026, 6, 1)),
         ]
 
         self.assertEqual([(payroll.reference_year, payroll.reference_month) for payroll in payrolls], [(2026, 4), (2026, 5), (2026, 6)])
@@ -353,6 +353,43 @@ class CollaboratorPayrollRepetitionTests(TestCase):
         self.assertFalse(CollaboratorPayroll.objects.filter(pk=payroll.pk).exists())
         self.assertFalse(payroll.financial_movement.__class__.objects.filter(pk=payroll_movement_id).exists())
         self.assertFalse(payroll.financial_movement.__class__.objects.filter(pk=manual_movement.pk).exists())
+
+    def test_sync_updates_unpaid_payroll_due_date_only_when_it_matches_old_default(self) -> None:
+        account = create_account(suffix=10)
+        workshop = create_workshop(account=account, suffix=10)
+        collaborator = create_collaborator(
+            workshop=workshop,
+            cpf="12345678910",
+            payment_day_type=WorkshopCollaborator.PaymentDayType.FIXED_DAY,
+            payment_day_of_month=10,
+        )
+
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 8, 1), lock_reference=True)
+        old_due_date = collaborator.get_due_date_for_reference(reference_date=date(2026, 8, 1))
+        payroll.due_date = old_due_date
+        payroll.save(update_fields=["due_date"])
+
+        synced_payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 8, 1), lock_reference=True)
+
+        self.assertEqual(synced_payroll.due_date, date(2026, 9, 10))
+
+    def test_sync_preserves_manual_due_date_for_unpaid_payroll(self) -> None:
+        account = create_account(suffix=11)
+        workshop = create_workshop(account=account, suffix=11)
+        collaborator = create_collaborator(
+            workshop=workshop,
+            cpf="12345678911",
+            payment_day_type=WorkshopCollaborator.PaymentDayType.FIXED_DAY,
+            payment_day_of_month=10,
+        )
+
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 8, 1), lock_reference=True)
+        payroll.due_date = date(2026, 9, 17)
+        payroll.save(update_fields=["due_date"])
+
+        synced_payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 8, 1), lock_reference=True)
+
+        self.assertEqual(synced_payroll.due_date, date(2026, 9, 17))
 
     def test_delete_selected_pending_movements_accepts_csv_payload(self) -> None:
         account = create_account(suffix=5)

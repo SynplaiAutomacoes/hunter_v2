@@ -20,8 +20,27 @@ from django.http import HttpResponseRedirect
 
 from django.db import transaction
 
-from apps.collaborators.models import CollaboratorPayroll, WorkshopCollaborator
-from apps.collaborators.services import ensure_payroll_financial_movement, mark_payroll_as_paid, mark_payroll_as_unpaid, mark_payroll_commissions_as_paid, payroll_has_financial_movements, sync_collaborator_payrolls_batch, unmark_payroll_commissions_as_paid
+from djmoney.money import Money
+
+from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
+from apps.collaborators.services import (
+    PAYROLL_COMPONENT_LABELS,
+    build_payroll_projection,
+    calculate_transport_allowance_total,
+    ensure_payroll_component_movements_confirmed,
+    ensure_payroll_movements_confirmed,
+    get_payroll_due_date_for_reference,
+    get_payroll_movement_diagnosis,
+    mark_payroll_as_paid,
+    mark_payroll_as_unpaid,
+    mark_payroll_commissions_as_paid,
+    payroll_has_financial_movements,
+    recalculate_payroll_from_linked_movements,
+    refresh_unpaid_payroll_due_dates,
+    sync_collaborator_payroll,
+    sync_collaborator_payrolls_batch,
+    unmark_payroll_commissions_as_paid,
+)
 from apps.core.presentation.widgets import CalendarDateInput, MoneyInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
@@ -129,7 +148,7 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             "has_modal_date_filter": bool(start_date or end_date),
         }
 
-    def _get_collaborators_to_sync(self, *, filters: dict[str, Any]):
+    def _get_active_collaborators_queryset(self, *, filters: dict[str, Any]):
         if filters["has_modal_date_filter"]:
             return WorkshopCollaborator.objects.none()
 
@@ -151,6 +170,14 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         if not collaborator_ids:
             return collaborators.none()
 
+        return collaborators
+
+    def _get_collaborators_to_sync(self, *, filters: dict[str, Any]):
+        collaborators = self._get_active_collaborators_queryset(filters=filters)
+        collaborator_ids = list(collaborators.values_list("pk", flat=True))
+        if not collaborator_ids:
+            return collaborators.none()
+
         synced_collaborator_ids = set(
             CollaboratorPayroll.objects.filter(
                 workshop=self.workshop,
@@ -166,6 +193,70 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         reference_date = date(filters["year"], filters["month"], 1)
         collaborators_to_sync = list(self._get_collaborators_to_sync(filters=filters).order_by("name", "id"))
         sync_collaborator_payrolls_batch(collaborators=collaborators_to_sync, reference_date=reference_date, lock_reference=True)
+
+    def _get_pending_collaborator_rows(self, *, filters: dict[str, Any], existing_collaborator_ids: set[int]) -> list[dict[str, Any]]:
+        if filters["has_modal_date_filter"]:
+            return []
+
+        reference_date = date(filters["year"], filters["month"], 1)
+        rows: list[dict[str, Any]] = []
+        for collaborator in self._get_active_collaborators_queryset(filters=filters).order_by("name", "id"):
+            if collaborator.pk in existing_collaborator_ids:
+                continue
+
+            benefits_amount = sum(
+                (Decimal(str(benefit.monthly_amount.amount or 0)) for benefit in collaborator.benefits.filter(is_active=True)),
+                start=Decimal("0.00"),
+            )
+            commission_amount = sum(
+                (
+                    Decimal(str(entry.commission_amount.amount or 0))
+                    for entry in CollaboratorCommissionEntry.objects.filter(
+                        collaborator=collaborator,
+                        reference_year=filters["year"],
+                        reference_month=filters["month"],
+                    ).only("commission_amount")
+                ),
+                start=Decimal("0.00"),
+            )
+            salary_amount = Decimal(str(collaborator.salary.amount or 0))
+            transport_amount = Decimal(str(calculate_transport_allowance_total(collaborator=collaborator, reference_date=reference_date).amount or 0))
+            total_amount = salary_amount + transport_amount + benefits_amount + commission_amount
+            missing_components: list[str] = []
+            if salary_amount > Decimal("0.00"):
+                missing_components.append("Salário")
+            if transport_amount > Decimal("0.00"):
+                missing_components.append("Vale Transporte")
+            if benefits_amount > Decimal("0.00"):
+                missing_components.append("Benefícios")
+            if commission_amount > Decimal("0.00"):
+                missing_components.append("Comissões")
+            rows.append(
+                {
+                    "id": None,
+                    "collaborator_name": collaborator.name,
+                    "due_date": get_payroll_due_date_for_reference(collaborator=collaborator, reference_date=reference_date),
+                    "salary_amount": Money(salary_amount, "BRL"),
+                    "transport_allowance_amount": Money(transport_amount, "BRL"),
+                    "benefits_amount": Money(benefits_amount, "BRL"),
+                    "commission_amount": Money(commission_amount, "BRL"),
+                    "total_amount": Money(total_amount, "BRL"),
+                    "paid_amount": Money(0, "BRL"),
+                    "status": "PENDING_CREATION",
+                    "status_label": "Pendente de criação",
+                    "is_paid": False,
+                    "paid_indicator": {"icon": "schedule", "class": "text-warning"},
+                    "is_reconciled": False,
+                    "reconciliation_label": "Aguardando criação",
+                    "reconciliation_indicator": {"icon": "schedule", "class": "text-warning"},
+                    "edit_url": f"{reverse('finance:payroll_edit_modal_for_collaborator', kwargs={'collaborator_pk': collaborator.pk})}?mes={filters['month']}&ano={filters['year']}",
+                    "receipt_url": "",
+                    "is_pending_creation": True,
+                    "can_select": False,
+                    "missing_components": missing_components,
+                }
+            )
+        return rows
 
     def _get_queryset(self):
         filters = self._get_filter_params()
@@ -196,6 +287,7 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         rows = []
         for payroll in payrolls:
             is_reconciled = bool(payroll.financial_movement and payroll.financial_movement.is_reconciled)
+            diagnosis = get_payroll_movement_diagnosis(payroll=payroll)
             rows.append(
                 {
                     "id": payroll.pk,
@@ -218,7 +310,10 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
                         "class": "text-success" if is_reconciled else "text-warning",
                     },
                     "edit_url": reverse("finance:payroll_edit_modal", kwargs={"pk": payroll.pk}),
-                    "receipt_url": reverse("collaborators:collaborator_payroll_receipt", kwargs={"pk": payroll.collaborator_id, "payroll_id": payroll.pk}),
+                    "receipt_url": reverse("collaborators:collaborator_payroll_receipt", kwargs={"pk": payroll.collaborator.pk, "payroll_id": payroll.pk}),
+                    "is_pending_creation": False,
+                    "can_select": True,
+                    "missing_components": diagnosis.missing_components,
                 }
             )
         return rows
@@ -230,7 +325,9 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         paginator = Paginator(queryset, self.PER_PAGE)
         page_obj = paginator.get_page(self.request.GET.get("page") or "1")
         payrolls = list(page_obj.object_list)
-        context["payroll_rows"] = self._build_rows(payrolls)
+        existing_rows = self._build_rows(payrolls)
+        pending_rows = self._get_pending_collaborator_rows(filters=filters, existing_collaborator_ids={payroll.collaborator.pk for payroll in queryset})
+        context["payroll_rows"] = existing_rows + pending_rows
         totals = queryset.aggregate(total_payroll_amount=Sum("total_amount"), paid_amount=Sum("total_amount", filter=Q(financial_movement__is_paid=True)))
         total_amount = self._money_amount(totals.get("total_payroll_amount"))
         paid_amount = self._money_amount(totals.get("paid_amount"))
@@ -258,7 +355,23 @@ class PayrollRefreshView(PayrollListView, View):
 
     def post(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
         filters = self._get_filter_params()
-        self._sync_monthly_payrolls(filters=filters)
+        collaborators_to_sync = list(self._get_collaborators_to_sync(filters=filters).order_by("name", "id"))
+
+        if request.headers.get("HX-Request") and request.POST.get("confirm_create") != "true":
+            return render(
+                request,
+                "finance/payroll/partials/refresh_confirm_modal.html",
+                {
+                    "collaborators": collaborators_to_sync,
+                    "filters": filters,
+                },
+            )
+
+        if request.POST.get("confirm_create") == "true":
+            self._sync_monthly_payrolls(filters=filters)
+            refresh_unpaid_payroll_due_dates(workshop=self.workshop, reference_year=filters["year"], reference_month=filters["month"])
+            if request.headers.get("HX-Request"):
+                return _build_hx_toast_response(message="Folhas criadas/atualizadas com sucesso.", toast_type="success", refresh=True)
 
         params = QueryDict("", mutable=True)
         for key in ["search", "mes", "ano", "data_inicial", "data_final", "collaborator", "status", "page"]:
@@ -283,10 +396,6 @@ def _mark_payroll_commissions_as_paid(*, payroll: CollaboratorPayroll) -> None:
 
 def _unmark_payroll_commissions_as_paid(*, payroll: CollaboratorPayroll) -> None:
     unmark_payroll_commissions_as_paid(payroll=payroll)
-
-
-def _ensure_payroll_financial_movement(*, payroll: CollaboratorPayroll) -> CollaboratorPayroll:
-    return ensure_payroll_financial_movement(payroll=payroll)
 
 
 def _mark_payroll_as_paid(*, payroll: CollaboratorPayroll) -> CollaboratorPayroll:
@@ -320,6 +429,16 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "change_financialmovement"
     template_name = "finance/payroll/partials/edit_modal.html"
 
+    def _get_reference_date(self) -> date:
+        month = _parse_int_param(self.request.GET.get("mes") or self.request.POST.get("mes"), default=timezone.localdate().month, minimum=1, maximum=12)
+        year = _parse_int_param(self.request.GET.get("ano") or self.request.POST.get("ano"), default=timezone.localdate().year, minimum=2000, maximum=9999)
+        return date(year, month, 1)
+
+    def _get_collaborator(self) -> WorkshopCollaborator:
+        if "collaborator_pk" in self.kwargs:
+            return get_object_or_404(WorkshopCollaborator, pk=self.kwargs["collaborator_pk"], workshop=self.workshop)
+        return self._get_payroll().collaborator
+
     def _get_payroll(self) -> CollaboratorPayroll:
         return get_object_or_404(
             CollaboratorPayroll.objects.select_related("collaborator", "financial_movement").prefetch_related("items", "commission_entries__workorder__budget"),
@@ -327,37 +446,246 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
             workshop=self.workshop,
         )
 
-    def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
-        payroll = self._get_payroll()
-        if payroll.financial_movement is None:
-            payroll = _ensure_payroll_financial_movement(payroll=payroll)
-        if not payroll_has_financial_movements(payroll=payroll) or payroll.financial_movement is None:
-            return _build_hx_toast_response(
-                message="Esta folha nao possui movimentacoes financeiras para editar.",
-                toast_type="warning",
-                status=400,
+    def _get_existing_payroll(self) -> CollaboratorPayroll | None:
+        if "pk" in self.kwargs:
+            return self._get_payroll()
+        collaborator = self._get_collaborator()
+        reference_date = self._get_reference_date()
+        return (
+            CollaboratorPayroll.objects.select_related("collaborator", "financial_movement")
+            .prefetch_related("items", "commission_entries__workorder__budget")
+            .filter(
+                workshop=self.workshop,
+                collaborator=collaborator,
+                reference_month=reference_date.month,
+                reference_year=reference_date.year,
             )
-        form = PayrollPaymentForm(instance=payroll.financial_movement, workshop=self.workshop, payroll=payroll)
-        return render(request, self.template_name, {"payroll": payroll, "form": form})
+            .first()
+        )
+
+    def _get_modal_url(self, *, collaborator: WorkshopCollaborator | None = None, payroll: CollaboratorPayroll | None = None) -> str:
+        if payroll is not None:
+            return reverse("finance:payroll_edit_modal", kwargs={"pk": payroll.pk})
+        assert collaborator is not None
+        return reverse("finance:payroll_edit_modal_for_collaborator", kwargs={"collaborator_pk": collaborator.pk})
+
+    @staticmethod
+    def _resolve_preview_components(*, payroll: CollaboratorPayroll) -> list[str]:
+        components: list[str] = []
+        component_amounts = [
+            (FinancialMovement.PayrollComponent.SALARY, payroll.salary_amount),
+            (FinancialMovement.PayrollComponent.TRANSPORT, payroll.transport_allowance_amount),
+            (FinancialMovement.PayrollComponent.BENEFIT, payroll.benefits_amount),
+            (FinancialMovement.PayrollComponent.COMMISSION, payroll.commission_amount),
+        ]
+        for component, amount in component_amounts:
+            if Decimal(str(amount.amount or 0)) > 0:
+                components.append(PAYROLL_COMPONENT_LABELS[component])
+        return components
+
+    @staticmethod
+    def _get_financial_tab_order() -> list[str]:
+        return [
+            FinancialMovement.PayrollComponent.SALARY,
+            FinancialMovement.PayrollComponent.TRANSPORT,
+            FinancialMovement.PayrollComponent.BENEFIT,
+            FinancialMovement.PayrollComponent.COMMISSION,
+        ]
+
+    def _get_requested_tab(self) -> str:
+        return str(self.request.GET.get("tab") or self.request.POST.get("tab") or FinancialMovement.PayrollComponent.SALARY)
+
+    def _get_requested_movement_id(self) -> int | None:
+        raw_value = self.request.GET.get("movement_id") or self.request.POST.get("movement_id")
+        try:
+            return int(str(raw_value)) if raw_value else None
+        except (TypeError, ValueError):
+            return None
+
+    def _build_component_tabs(self, *, payroll: CollaboratorPayroll) -> list[dict[str, Any]]:
+        projection = build_payroll_projection(collaborator=payroll.collaborator, reference_date=date(payroll.reference_year, payroll.reference_month, 1))
+        component_amounts = {
+            str(FinancialMovement.PayrollComponent.SALARY): projection.salary_amount,
+            str(FinancialMovement.PayrollComponent.TRANSPORT): projection.transport_allowance_amount,
+            str(FinancialMovement.PayrollComponent.BENEFIT): projection.benefits_amount,
+            str(FinancialMovement.PayrollComponent.COMMISSION): projection.commission_amount,
+        }
+        grouped_movements: dict[str, list[FinancialMovement]] = {component: [] for component in self._get_financial_tab_order()}
+        for movement in payroll.get_financial_movements():
+            component_key = str(movement.payroll_component or FinancialMovement.PayrollComponent.SALARY)
+            if component_key in grouped_movements:
+                grouped_movements[component_key].append(movement)
+
+        tabs: list[dict[str, Any]] = []
+        for component in self._get_financial_tab_order():
+            amount = component_amounts.get(component)
+            expected = Decimal(str(amount.amount or 0)) > 0 if amount is not None else False
+            movements = grouped_movements.get(component, [])
+            tabs.append(
+                {
+                    "key": component,
+                    "label": PAYROLL_COMPONENT_LABELS.get(component, component),
+                    "movements": movements,
+                    "has_expected_value": expected,
+                    "is_missing": expected and not movements,
+                }
+            )
+        return tabs
+
+    @staticmethod
+    def _get_first_available_financial_tab(component_tabs: list[dict[str, Any]]) -> str:
+        for tab in component_tabs:
+            if tab["movements"]:
+                return str(tab["key"])
+        return "summary"
+
+    def _build_component_url(self, *, payroll: CollaboratorPayroll, tab: str, movement_id: int | None = None, continue_without_create: bool = False, prompt_create_component: str | None = None) -> str:
+        params = QueryDict("", mutable=True)
+        params["tab"] = tab
+        if movement_id is not None:
+            params["movement_id"] = str(movement_id)
+        if continue_without_create:
+            params["continue_without_create"] = "true"
+        if prompt_create_component:
+            params["prompt_create_component"] = prompt_create_component
+        query = params.urlencode()
+        return f"{self._get_modal_url(payroll=payroll)}?{query}" if query else self._get_modal_url(payroll=payroll)
+
+    def _build_confirmation_response(self, *, request: Any, collaborator: WorkshopCollaborator, payroll: CollaboratorPayroll | None, component_to_create: str | None = None, continue_url: str | None = None) -> HttpResponse:
+        reference_date = self._get_reference_date()
+        preview_payroll = payroll or build_payroll_projection(collaborator=collaborator, reference_date=reference_date)
+        if component_to_create is not None:
+            missing_components = [PAYROLL_COMPONENT_LABELS.get(component_to_create, component_to_create)]
+        else:
+            missing_components = self._resolve_preview_components(payroll=preview_payroll) if payroll is None else get_payroll_movement_diagnosis(payroll=preview_payroll).missing_components
+
+        return render(
+            request,
+            "finance/payroll/partials/confirm_create_modal.html",
+            {
+                "payroll": preview_payroll,
+                "collaborator": collaborator,
+                "missing_components": missing_components,
+                "reference_date": reference_date,
+                "post_url": request.path,
+                "source_filters": {"mes": reference_date.month, "ano": reference_date.year},
+                "is_new_payroll": payroll is None,
+                "continue_url": continue_url,
+                "component_to_create": component_to_create,
+            },
+        )
+
+    def _open_edit_modal(self, *, request: Any, payroll: CollaboratorPayroll) -> HttpResponse:
+        component_tabs = self._build_component_tabs(payroll=payroll)
+        selected_tab = self._get_requested_tab()
+        fallback_tab = self._get_first_available_financial_tab(component_tabs)
+
+        if selected_tab not in {"collaborator", "commissions_history", "summary"}:
+            active_component_tab = next((tab for tab in component_tabs if tab["key"] == selected_tab), None)
+            if active_component_tab is None or active_component_tab["is_missing"]:
+                selected_tab = fallback_tab
+
+        modal_url = self._get_modal_url(payroll=payroll)
+
+        default_movement_ids: dict[str, int | None] = {}
+        for tab in component_tabs:
+            default_movement_ids[tab["key"]] = tab["movements"][0].pk if tab["movements"] else None
+
+        requested_movement_id = self._get_requested_movement_id()
+        if requested_movement_id is not None and selected_tab not in {"collaborator", "commissions_history", "summary"}:
+            active_tab = next((tab for tab in component_tabs if tab["key"] == selected_tab), None)
+            if active_tab is not None:
+                matching = [m for m in active_tab["movements"] if m.pk == requested_movement_id]
+                if matching:
+                    default_movement_ids[selected_tab] = matching[0].pk
+
+        for tab in component_tabs:
+            movement_id = default_movement_ids.get(tab["key"])
+            movement = next((m for m in tab["movements"] if m.pk == movement_id), None) if movement_id is not None else None
+            tab["default_movement_id"] = movement_id
+            tab["form"] = PayrollPaymentForm(instance=movement, workshop=self.workshop, payroll=payroll) if movement is not None else None
+
+        return render(
+            request,
+            self.template_name,
+            {
+                "payroll": payroll,
+                "selected_tab": selected_tab,
+                "component_tabs": component_tabs,
+                "modal_url": modal_url,
+                "fallback_tab": fallback_tab,
+                "continue_without_create": True,
+            },
+        )
+
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        payroll = self._get_existing_payroll()
+        collaborator = self._get_collaborator()
+        if payroll is None:
+            return self._build_confirmation_response(request=request, collaborator=collaborator, payroll=None)
+
+        if request.GET.get("prompt_create_component"):
+            component_to_create = str(request.GET["prompt_create_component"])
+            component_tabs = self._build_component_tabs(payroll=payroll)
+            continue_url = self._build_component_url(payroll=payroll, tab=self._get_first_available_financial_tab(component_tabs), continue_without_create=True)
+            return self._build_confirmation_response(request=request, collaborator=collaborator, payroll=payroll, component_to_create=component_to_create, continue_url=continue_url)
+
+        diagnosis = get_payroll_movement_diagnosis(payroll=payroll)
+        has_movements = payroll_has_financial_movements(payroll=payroll)
+        if not has_movements:
+            return self._build_confirmation_response(request=request, collaborator=collaborator, payroll=payroll)
+        if diagnosis.requires_confirmation and request.GET.get("continue_without_create") != "true":
+            component_tabs = self._build_component_tabs(payroll=payroll)
+            continue_url = self._build_component_url(payroll=payroll, tab=self._get_first_available_financial_tab(component_tabs), continue_without_create=True)
+            return self._build_confirmation_response(request=request, collaborator=collaborator, payroll=payroll, continue_url=continue_url)
+
+        return self._open_edit_modal(request=request, payroll=payroll)
 
     def post(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
-        payroll = self._get_payroll()
-        if payroll.financial_movement is None:
-            payroll = _ensure_payroll_financial_movement(payroll=payroll)
-        if not payroll_has_financial_movements(payroll=payroll) or payroll.financial_movement is None:
-            return _build_hx_toast_response(
-                message="Esta folha nao possui movimentacoes financeiras para editar.",
-                toast_type="warning",
-                refresh=True,
-                status=400,
-            )
-        form = PayrollPaymentForm(request.POST, instance=payroll.financial_movement, workshop=self.workshop, payroll=payroll)
+        payroll = self._get_existing_payroll()
+        collaborator = self._get_collaborator()
+        reference_date = self._get_reference_date()
+
+        if request.POST.get("confirm_create") == "true":
+            target_payroll = payroll
+            if target_payroll is None:
+                target_payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=reference_date, lock_reference=True)
+            elif request.POST.get("component_to_create"):
+                target_payroll = ensure_payroll_component_movements_confirmed(payroll=target_payroll, component=str(request.POST["component_to_create"]))
+            else:
+                target_payroll = ensure_payroll_movements_confirmed(payroll=target_payroll)
+
+            if not payroll_has_financial_movements(payroll=target_payroll) or target_payroll.financial_movement is None:
+                return _build_hx_toast_response(
+                    message="Nao foi possivel gerar movimentacoes financeiras para esta folha.",
+                    toast_type="warning",
+                    refresh=True,
+                    status=400,
+                )
+            return self._open_edit_modal(request=request, payroll=target_payroll)
+
+        if payroll is None or not payroll_has_financial_movements(payroll=payroll) or payroll.financial_movement is None:
+            return self._build_confirmation_response(request=request, collaborator=collaborator, payroll=payroll)
+
+        component_tabs = self._build_component_tabs(payroll=payroll)
+        active_component_tab = next((tab for tab in component_tabs if tab["key"] == self._get_requested_tab()), None)
+        movement_id = self._get_requested_movement_id()
+        selected_movement = None
+        if active_component_tab is not None:
+            selected_movement = next((movement for movement in active_component_tab["movements"] if movement_id is not None and movement.pk == movement_id), None)
+            if selected_movement is None and active_component_tab["movements"]:
+                selected_movement = active_component_tab["movements"][0]
+        if selected_movement is None:
+            return self._open_edit_modal(request=request, payroll=payroll)
+
+        form = PayrollPaymentForm(request.POST, instance=selected_movement, workshop=self.workshop, payroll=payroll)
         if form.is_valid():
             due_date = form.cleaned_data["due_date"]
             if payroll.due_date != due_date:
                 payroll.due_date = due_date
                 payroll.save(update_fields=["due_date"])
             movement = form.save()
+            recalculate_payroll_from_linked_movements(payroll=payroll)
             if movement.is_paid:
                 _mark_payroll_as_paid(payroll=payroll)
             else:
@@ -400,6 +728,9 @@ class PayrollBulkPayView(LoginRequiredMixin, WorkshopScopedMixin, View):
         skipped_collaborators: list[str] = []
         with transaction.atomic():
             for payroll in payrolls:
+                if not payroll_has_financial_movements(payroll=payroll):
+                    skipped_collaborators.append(payroll.collaborator.name)
+                    continue
                 refreshed_payroll = _mark_payroll_as_paid(payroll=payroll)
                 if not payroll_has_financial_movements(payroll=refreshed_payroll):
                     skipped_collaborators.append(refreshed_payroll.collaborator.name)
