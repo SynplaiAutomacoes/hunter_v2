@@ -38,6 +38,9 @@ def _collect_required_products(workorder: WorkOrder) -> tuple[dict[int, int], di
         if item.quantity <= 0:
             continue
 
+        if getattr(item, "is_customer_supplied", False):
+            continue
+
         product_id = getattr(item, "product_id", None)
         kit_id = getattr(item, "kit_id", None)
 

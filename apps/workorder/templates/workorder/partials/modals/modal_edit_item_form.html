@@ -1,3 +1,23 @@
+{% if form.is_customer_supplied %}
+    <div class="form-control w-full" id="div_id_is_customer_supplied">
+        <label class="label">
+            <span class="label-text font-semibold flex items-center gap-2">
+                <span class="material-icons text-sm">person</span>
+                {{ form.is_customer_supplied.label }}
+            </span>
+        </label>
+        {{ form.is_customer_supplied }}
+        {% if form.is_customer_supplied.errors %}
+        <label class="label">
+            <span class="label-text-alt text-error flex items-center gap-1">
+                <span class="material-icons text-xs">error</span>
+                {{ form.is_customer_supplied.errors.0 }}
+            </span>
+        </label>
+        {% endif %}
+    </div>
+{% endif %}
+
 {% for field in form %}
     {% if field.name == "item_benefit_type" %}
         {% if item.workorder.budget_type == "sale" %}
@@ -20,6 +40,7 @@
     {% endif %}
 </div>
         {% endif %}
+    {% elif field.name == "is_customer_supplied" %}
     {% else %}
     {% with field_name=field.name|lower %}
         <div id="div_id_{{ field.name }}" class="form-control w-full {% if 'description' in field_name or 'descri' in field_name %}md:col-span-2{% endif %}">

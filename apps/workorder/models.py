@@ -708,6 +708,7 @@ class WorkOrder(TimeStampedModel):
                         kit=budget_item.kit,
                         description=budget_item.description,
                         quantity=budget_item.quantity,
+                        is_customer_supplied=budget_item.is_customer_supplied,
                         shipping=budget_item.shipping,
                         product_cost_price=budget_item.product_cost_price,
                         product_selling_price=budget_item.product_selling_price,
@@ -838,6 +839,7 @@ class WorkOrderItem(TimeStampedModel):
 
     description = models.CharField(verbose_name="Descrição", max_length=100, default="")
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
+    is_customer_supplied = models.BooleanField(verbose_name="Peça trazida pelo cliente", default=False)
 
     shipping = MoneyField(verbose_name="Frete", max_digits=14, decimal_places=2, default=0)
     product_cost_price = MoneyField(verbose_name="Custo", max_digits=14, decimal_places=2, default=0)
@@ -999,7 +1001,7 @@ class WorkOrderItem(TimeStampedModel):
 
         self.workorder.invalidate_pricing_snapshot_cache()
 
-        if self.product_id:
+        if self.product_id and not self.is_customer_supplied:
             record_product_last_used_price(product=self.product, price=self.product_selling_price)
 
     @property
