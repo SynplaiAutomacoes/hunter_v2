@@ -105,9 +105,15 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
     def _should_include_in_pdf(line) -> bool:
         if is_visible_pdf_pricing_line(line):
             return True
-        return _benefit_type(line) != "normal"
+        if _benefit_type(line) != "normal":
+            return True
+        if line.is_customer_supplied:
+            return True
+        return False
 
     def _line_display_unit_price(line) -> Money:
+        if line.is_customer_supplied:
+            return ZERO
         if _benefit_type(line) != "normal":
             data = _item_data_for_line(line)
             if data and data["unit_price"] and data["unit_price"].amount > 0:
@@ -115,6 +121,8 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
         return line.unit_price
 
     def _line_display_total_price(line) -> Money:
+        if line.is_customer_supplied:
+            return ZERO
         if _benefit_type(line) != "normal":
             data = _item_data_for_line(line)
             if data and data["unit_price"] and data["unit_price"].amount > 0:

@@ -137,6 +137,7 @@ def _merge_selected_pdf_rows(*, produtos: list[dict], servicos: list[dict]) -> t
 
 
 def _build_snapshot_product_rows(*, snapshot) -> list[dict[str, Any]]:
+    ZERO = zero_money()
     return [
         {
             "id": line.entity_id,
@@ -146,18 +147,18 @@ def _build_snapshot_product_rows(*, snapshot) -> list[dict[str, Any]]:
             "application": line.application or "-",
             "code": line.code or "-",
             "location": line.location or "-",
-            "unit_price": line.unit_price,
-            "adjusted_unit_price": line.adjusted_unit_price,
-            "display_unit_price": money_div(line.raw_total, line.quantity) if line.quantity > 0 else zero_money(),
-            "shipping": line.shipping,
-            "total_price": line.total_price,
-            "product_cost_price": line.cost_total,
-            "profit_value": line.profit_value,
+            "unit_price": ZERO if line.is_customer_supplied else line.unit_price,
+            "adjusted_unit_price": ZERO if line.is_customer_supplied else line.adjusted_unit_price,
+            "display_unit_price": ZERO if line.is_customer_supplied else (money_div(line.raw_total, line.quantity) if line.quantity > 0 else ZERO),
+            "shipping": ZERO if line.is_customer_supplied else line.shipping,
+            "total_price": ZERO if line.is_customer_supplied else line.total_price,
+            "product_cost_price": ZERO if line.is_customer_supplied else line.cost_total,
+            "profit_value": ZERO if line.is_customer_supplied else line.profit_value,
             "show_kit_duplicate_warning": line.show_kit_duplicate_warning,
             "item_benefit_type": getattr(line, "item_benefit_type", "normal"),
         }
         for line in snapshot.product_lines
-        if is_visible_pdf_pricing_line(line)
+        if is_visible_pdf_pricing_line(line) or line.is_customer_supplied
     ]
 
 
