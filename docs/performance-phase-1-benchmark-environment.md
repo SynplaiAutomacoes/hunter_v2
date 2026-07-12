@@ -1,5 +1,7 @@
 # Fase 1.1 — ambiente isolado de benchmark da Pessoa 1
 
+> Ambiente pós-merge adicional (2026-07-12): `hunter_v2_perf_3fb8ff31` foi criado do zero para a Fase 1.3.1-B, recebeu toda a linhagem integrada, seed padrão e backfill de stored totals. `hunter_v2_perf_4a57a015` foi preservado. Use o banco novo na próxima coleta e consulte `docs/performance-phase-1-person-1-post-merge-environment.md`.
+
 Data de preparação: 2026-07-12.
 
 Status: **ambiente isolado criado, migrado, semeado e aprovado para iniciar a Fase 1.2**.

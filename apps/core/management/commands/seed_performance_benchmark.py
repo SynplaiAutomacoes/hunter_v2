@@ -17,6 +17,7 @@ from apps.accounts.models import Account, User
 from apps.budget.models import Budget, BudgetHistory, BudgetItem, BudgetStatus, BudgetType
 from apps.catalog.models import CatalogGroup, Product, Service
 from apps.collaborators.models import WorkshopMember
+from apps.core.infrastructure.services.stored_totals import backfill_stored_totals
 from apps.customer.models import Customer, Vehicle
 from apps.finance.models import FinancialGroup, FinancialMovement, NfeItem, NfeRequest, NfseItem, NfseRequest, PaymentMethod
 from apps.iam.models import WorkshopRole
@@ -261,6 +262,7 @@ class Command(BaseCommand):
             movements_per_product=volumes["stock_movements_per_product"],
         )
         workshop_costs = self._create_workshop_costs(workshop=primary_workshop)
+        stored_totals = backfill_stored_totals(workshop_id=primary_workshop.pk)
 
         models_to_count = [
             Account,
@@ -300,6 +302,8 @@ class Command(BaseCommand):
         summary["seed.stock_products_created"] = len(stock_products)
         summary["seed.stock_movements_created"] = len(stock_movements)
         summary["seed.workshop_costs_created"] = len(workshop_costs)
+        summary["seed.budget_stored_totals_rebuilt"] = stored_totals.budgets_updated
+        summary["seed.workorder_stored_totals_rebuilt"] = stored_totals.workorders_updated
         return summary
 
     @staticmethod
