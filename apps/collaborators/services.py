@@ -8,7 +8,8 @@ from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Prefetch, Q, Sum, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from djmoney.money import Money
 
@@ -26,6 +27,16 @@ from apps.workshops.util.monthly_costs import get_admin_salary_monthly_cost, get
 
 ZERO = Decimal("0.00")
 logger = logging.getLogger(__name__)
+
+_WORKORDER_PARENT_MOVEMENTS_PREFETCH = Prefetch(
+    "financial_movements",
+    queryset=FinancialMovement.objects.filter(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT).only(
+        "id",
+        "workorder_id",
+        "is_paid",
+        "movement_kind",
+    ),
+)
 PAYROLL_COMPONENT_PLAN_CODES: dict[str, str] = {
     FinancialMovement.PayrollComponent.SALARY: "5.1.11",
     FinancialMovement.PayrollComponent.BENEFIT: "5.1.5",
@@ -275,7 +286,7 @@ def _sum_salary_by_type(*, workshop: Workshop, collaborator_type: str, reference
         admission_date__lte=reference_date,
     ).filter(Q(termination_date__isnull=True) | Q(termination_date__gte=reference_date))
 
-    total = sum((collaborator.salary.amount for collaborator in collaborators), Decimal("0.00"))
+    total = collaborators.aggregate(total=Coalesce(Sum("salary"), Value(Decimal("0.00"))))["total"] or Decimal("0.00")
     return Money(total, "BRL")
 
 
@@ -346,7 +357,19 @@ def _resolve_commission_reference_date(*, workorder: WorkOrder) -> date:
 
 
 def _is_workorder_commission_paid(*, workorder: WorkOrder) -> bool:
-    parent_movement = workorder.financial_movements.filter(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT).only("is_paid").first()
+    # Prefer Prefetch from the calling queryset (request-scoped); avoid N+1 .filter().first().
+    prefetched = getattr(workorder, "_prefetched_objects_cache", None)
+    if prefetched is not None and "financial_movements" in prefetched:
+        parent_movements = [
+            movement
+            for movement in workorder.financial_movements.all()
+            if movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT
+        ]
+        return bool(parent_movements and parent_movements[0].is_paid)
+
+    parent_movement = (
+        workorder.financial_movements.filter(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT).only("is_paid").first()
+    )
     return bool(parent_movement and parent_movement.is_paid)
 
 
@@ -531,6 +554,7 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
         .select_related("budget")
         .prefetch_related(
             "payments",
+            _WORKORDER_PARENT_MOVEMENTS_PREFETCH,
             workorder_items_with_kit_prefetch(with_kit_tree=True),
         )
         .order_by("id")
@@ -821,7 +845,8 @@ def get_payroll_movement_diagnosis(*, payroll: CollaboratorPayroll) -> PayrollMo
     expected_specs = _build_payroll_component_specs(payroll=expected_payroll)
     expected_components = [PAYROLL_COMPONENT_LABELS.get(str(spec["component"]), str(spec["component"])) for spec in expected_specs]
     effective_movements = _get_payroll_effective_movements(payroll=payroll)
-    if payroll.financial_movement is not None and not any(movement.pk == payroll.financial_movement.pk for movement in effective_movements):
+    effective_movement_ids = {movement.pk for movement in effective_movements}
+    if payroll.financial_movement is not None and payroll.financial_movement.pk not in effective_movement_ids:
         effective_movements.append(payroll.financial_movement)
 
     if any(movement.payroll_component in (None, "") for movement in effective_movements):
@@ -942,7 +967,8 @@ def _sync_payroll_financial_movements(*, payroll: CollaboratorPayroll, active_be
     inherited_bank_account = representative_movement.bank_account if representative_movement is not None else None
     inherited_nf_number = representative_movement.nf_number if representative_movement is not None else None
     inherited_observation = representative_movement.financial_observation if representative_movement is not None else None
-    representative_consumed = bool(representative_movement and any(movement.pk == representative_movement.pk for movement in existing_movements))
+    existing_movement_ids = {movement.pk for movement in existing_movements}
+    representative_consumed = bool(representative_movement and representative_movement.pk in existing_movement_ids)
     synced_movements: list[FinancialMovement] = []
 
     effective_source_payroll = source_payroll or payroll

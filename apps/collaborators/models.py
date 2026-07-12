@@ -196,6 +196,9 @@ class CollaboratorPayroll(TimeStampedModel):
         constraints = [
             models.UniqueConstraint(fields=("collaborator", "reference_year", "reference_month"), name="unique_collaborator_payroll_reference"),
         ]
+        indexes = [
+            models.Index(fields=["workshop", "reference_year", "reference_month"], name="collab_payroll_ws_ref_idx"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.collaborator.name} - {self.reference_month:02d}/{self.reference_year}"
@@ -310,6 +313,10 @@ class CollaboratorCommissionEntry(TimeStampedModel):
         ordering = ["-reference_year", "-reference_month", "-id"]
         constraints = [
             models.UniqueConstraint(fields=("collaborator", "workorder"), name="unique_collaborator_commission_workorder"),
+        ]
+        indexes = [
+            models.Index(fields=["collaborator", "reference_year", "reference_month"], name="collab_comm_ref_idx"),
+            models.Index(fields=["workshop", "reference_year", "reference_month"], name="collab_comm_ws_ref_idx"),
         ]
 
     def __str__(self) -> str:

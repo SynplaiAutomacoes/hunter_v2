@@ -159,6 +159,13 @@ class Budget(TimeStampedModel):
     pricing_hourly_cost_value = MoneyField(verbose_name="Valor hora congelado", max_digits=14, decimal_places=2, null=True, blank=True)
     pricing_profitability_multiplier = models.DecimalField(verbose_name="Multiplicador congelado", max_digits=10, decimal_places=2, null=True, blank=True)
     pricing_method = models.CharField(verbose_name="Método de Precificação", max_length=20, choices=PricingMethod.choices, null=True, blank=True)
+    stored_total_amount = MoneyField(
+        verbose_name="Total armazenado do orçamento",
+        max_digits=14,
+        decimal_places=2,
+        default=0.00,
+        help_text="Total denormalizado para agregações (dashboard). Atualizado no write path.",
+    )
 
     # Token SuperSign
     signature_token_version = models.PositiveIntegerField(verbose_name="ID do PDF do Orçamento", default=1)
@@ -207,9 +214,24 @@ class Budget(TimeStampedModel):
                 self.signature_token_active = False
                 super().save(update_fields=["signature_token_active"])
 
+            self.refresh_stored_total_amount()
+
+    def refresh_stored_total_amount(self) -> None:
+        """Persist live pricing total for dashboard SQL aggregates."""
+        if self.pk is None:
+            return
+        total = self.total_budget_value
+        type(self).objects.filter(pk=self.pk).update(stored_total_amount=total)
+        self.stored_total_amount = total
+
     class Meta:
         verbose_name = "Orçamento"
         verbose_name_plural = "Orçamentos"
+        indexes = [
+            models.Index(fields=["workshop", "status", "entry_date"], name="budget_ws_status_entry_idx"),
+            models.Index(fields=["workshop", "entry_date"], name="budget_ws_entry_idx"),
+            models.Index(fields=["customer", "criado_em"], name="budget_customer_criado_idx"),
+        ]
 
     @property
     def has_frozen_pricing_snapshot(self) -> bool:
@@ -225,10 +247,22 @@ class Budget(TimeStampedModel):
 
     @property
     def warranty_items_count(self) -> int:
+        prefetched = getattr(self, "_prefetched_objects_cache", None)
+        if prefetched is not None and "items" in prefetched:
+            return sum(1 for item in self.items.all() if item.item_benefit_type == "warranty")
+        annotated = getattr(self, "annotated_warranty_items_count", None)
+        if annotated is not None:
+            return int(annotated)
         return self.items.filter(item_benefit_type="warranty").count()
 
     @property
     def courtesy_items_count(self) -> int:
+        prefetched = getattr(self, "_prefetched_objects_cache", None)
+        if prefetched is not None and "items" in prefetched:
+            return sum(1 for item in self.items.all() if item.item_benefit_type == "courtesy")
+        annotated = getattr(self, "annotated_courtesy_items_count", None)
+        if annotated is not None:
+            return int(annotated)
         return self.items.filter(item_benefit_type="courtesy").count()
 
     @staticmethod
@@ -301,6 +335,8 @@ class Budget(TimeStampedModel):
         type(self).objects.filter(pk=self.pk).update(**snapshot_data)
         for field_name, value in snapshot_data.items():
             setattr(self, field_name, value)
+        self.invalidate_pricing_snapshot_cache()
+        self.refresh_stored_total_amount()
 
     def get_frozen_pricing_context(self):
         injected = getattr(self, "_injected_pricing_context", None)
@@ -587,8 +623,8 @@ class Budget(TimeStampedModel):
 
     @property
     def collaborator_name(self):
-        collabs = self.collaborators.all()
-        if collabs.exists():
+        collabs = list(self.collaborators.all())
+        if collabs:
             return ", ".join([c.name for c in collabs])
         return "Sistema"
 
@@ -1121,6 +1157,18 @@ class BudgetItem(TimeStampedModel):
 
         if self.service_id:
             record_service_last_used_price(service=self.service, price=self.service_selling_price)
+
+        if self.budget_id:
+            self.budget.invalidate_pricing_snapshot_cache()
+            self.budget.refresh_stored_total_amount()
+
+    def delete(self, *args, **kwargs):
+        budget = self.budget if self.budget_id else None
+        result = super().delete(*args, **kwargs)
+        if budget is not None:
+            budget.invalidate_pricing_snapshot_cache()
+            budget.refresh_stored_total_amount()
+        return result
 
     def _clear_kit_snapshot_caches(self) -> None:
         for cache_name in ("_kit_override_maps_cache", "_kit_unit_totals_cache"):
