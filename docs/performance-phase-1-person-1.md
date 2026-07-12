@@ -6,16 +6,16 @@ Data do levantamento: 2026-07-12.
 
 Este documento cobre aplicação e banco de dados: dashboard, filtros de data, helper compartilhado de tabelas e telas com overfetch.
 
-O levantamento estático foi executado no código atual. A linha de base dinâmica ainda não é válida porque o PostgreSQL local pertence a uma linha de migrations diferente do checkout. O primeiro acesso ORM que materializa `Workshop` falha com `UndefinedColumn` para `workshops_workshop.whatsapp_phone`, mas essa coluna é apenas o primeiro sintoma. O diagnóstico completo e o plano seguro estão em `docs/performance-phase-1-environment-regularization.md`.
+O levantamento estático foi executado no código atual. O bloqueio original de linhagem foi regularizado em banco isolado na Fase 1.1 e a linha de base quantitativa foi coletada na Fase 1.2.
 
-Consequências:
+Documentos de referência:
 
-- ainda não há números confiáveis para as cinco rotas mais lentas;
-- ainda não há ranking medido de quantidade de queries por rota;
-- o tempo do dashboard antes das correções deve permanecer como **não medido**, em vez de usar uma amostra inválida;
-- os candidatos abaixo são priorizados por evidência estática e precisam ser confirmados em banco migrado com volume representativo.
+- regularização: `docs/performance-phase-1-environment-regularization.md`;
+- ambiente aprovado: `docs/performance-phase-1-benchmark-environment.md`;
+- baseline, matrizes e backlog quantitativo: `docs/performance-phase-1-person-1-baseline.md`;
+- resultados brutos: `docs/performance-results/person-one-baseline.json`.
 
-Atualização da Fase 1.1: o ambiente isolado `hunter_v2_perf_4a57a015` foi criado, migrado e carregado com dados sintéticos determinísticos. A preparação e suas validações estão em `docs/performance-phase-1-benchmark-environment.md`. Os números quantitativos da Fase 1.2 continuam pendentes.
+O diagnóstico estático abaixo é preservado como contexto anterior à medição. Em caso de divergência quantitativa, prevalece o relatório da Fase 1.2.
 
 ## Resumo executivo
 
@@ -169,15 +169,15 @@ PERF_LOG_MIN_MS=0
 9. `suppliers:supplier_update` do fornecedor com mais movimentos;
 10. `workorder:workorder_detail` da OS com mais eventos/itens.
 
-## Critérios para encerrar a frente da Pessoa 1
+## Critérios de encerramento da frente da Pessoa 1
 
-A frente ainda não está concluída. Ela estará concluída quando a bateria acima produzir:
+A bateria da Fase 1.2 produziu:
 
 - ranking das cinco rotas mais lentas por p95;
 - ranking das rotas com mais queries;
 - baseline do dashboard com duração total, queries e tempo SQL;
 - top queries por tempo, com plano de execução;
-- confirmação ou descarte dos candidatos de overfetch;
+- confirmação quantitativa dos candidatos de overfetch;
 - backlog de correções ordenado por impacto medido e esforço.
 
-Dependências externas bloqueantes e ocupação de workers pertencem primariamente às frentes Pessoas 2 e 3. A Pessoa 1 deve correlacionar esses dados com as rotas, mas não inferi-los apenas a partir do ORM.
+Limitação registrada: `stock:report` retornou HTTP 500 por falha funcional preexistente e não possui baseline funcional. Dependências externas bloqueantes e ocupação de workers pertencem primariamente às frentes Pessoas 2 e 3; nenhuma chamada externa ocorreu nas rotas GET medidas e a Pessoa 1 não inferiu ocupação concorrente a partir do ORM.
