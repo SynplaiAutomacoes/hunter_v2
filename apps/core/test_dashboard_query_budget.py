@@ -123,6 +123,27 @@ class ReadOnlyPricingContextTests(SimpleTestCase):
 
 class DashboardKitOverridePrefetchShapeTests(SimpleTestCase):
     def test_budget_and_workorder_prefetch_select_related_override_catalog_fks(self) -> None:
+        from apps.core.infrastructure.kit_prefetch import (
+            budget_items_with_kit_prefetch,
+            budget_kit_overrides_prefetch,
+            workorder_items_with_kit_prefetch,
+            workorder_kit_overrides_prefetch,
+        )
+        from django.db.models import Prefetch
+
+        budget_overrides = budget_kit_overrides_prefetch()
+        workorder_overrides = workorder_kit_overrides_prefetch()
+        self.assertIn("product", budget_overrides.queryset.query.select_related)
+        self.assertIn("service", budget_overrides.queryset.query.select_related)
+        self.assertIn("product", workorder_overrides.queryset.query.select_related)
+        self.assertIn("service", workorder_overrides.queryset.query.select_related)
+
+        budget_items = budget_items_with_kit_prefetch()
+        workorder_items = workorder_items_with_kit_prefetch()
+        self.assertTrue(any(isinstance(lookup, Prefetch) and lookup.prefetch_through == "kit_overrides" for lookup in budget_items.queryset._prefetch_related_lookups))
+        self.assertTrue(any(isinstance(lookup, Prefetch) and lookup.prefetch_through == "kit_overrides" for lookup in workorder_items.queryset._prefetch_related_lookups))
+
+    def test_dashboard_reexports_use_shared_helpers(self) -> None:
         from apps.core.infrastructure.services.dashboard_query_service import (
             _BUDGET_ITEMS_PREFETCH,
             _BUDGET_KIT_OVERRIDES_PREFETCH,
@@ -131,14 +152,9 @@ class DashboardKitOverridePrefetchShapeTests(SimpleTestCase):
         )
 
         self.assertIn("product", _BUDGET_KIT_OVERRIDES_PREFETCH.queryset.query.select_related)
-        self.assertIn("service", _BUDGET_KIT_OVERRIDES_PREFETCH.queryset.query.select_related)
-        self.assertIn("product", _WORKORDER_KIT_OVERRIDES_PREFETCH.queryset.query.select_related)
         self.assertIn("service", _WORKORDER_KIT_OVERRIDES_PREFETCH.queryset.query.select_related)
-
-        budget_lookups = list(_BUDGET_ITEMS_PREFETCH.queryset._prefetch_related_lookups)
-        workorder_lookups = list(_WORKORDER_ITEMS_PREFETCH.queryset._prefetch_related_lookups)
-        self.assertIn(_BUDGET_KIT_OVERRIDES_PREFETCH, budget_lookups)
-        self.assertIn(_WORKORDER_KIT_OVERRIDES_PREFETCH, workorder_lookups)
+        self.assertEqual(_BUDGET_ITEMS_PREFETCH.prefetch_through, "items")
+        self.assertEqual(_WORKORDER_ITEMS_PREFETCH.prefetch_through, "items")
 
 
 class DashboardKitOverrideNumQueriesTests(TestCase):
@@ -206,3 +222,16 @@ class DashboardKitOverrideNumQueriesTests(TestCase):
             total = budget.total_budget_value
 
         self.assertEqual(total.amount, Money("50.00", "BRL").amount)
+
+    def test_iter_items_fallback_select_related_override_catalog_fks(self) -> None:
+        budget = Budget.objects.get(pk=self.budget.pk)
+        # Force the model fallback path (no outer items prefetch cache).
+        items = list(budget._iter_items())
+        item = items[0]
+        overrides = list(item._iter_frozen_kit_product_overrides())
+        self.assertEqual(len(overrides), 5)
+
+        with self.assertNumQueries(0):
+            for override in overrides:
+                _ = override.product.name
+                _ = override.product.code

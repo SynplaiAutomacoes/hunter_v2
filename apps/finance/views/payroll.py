@@ -9,7 +9,7 @@ from django import forms
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
-from django.db.models import Q, Sum
+from django.db.models import Prefetch, Q, Sum
 from django.http import HttpResponse, QueryDict
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
@@ -22,15 +22,15 @@ from django.db import transaction
 
 from djmoney.money import Money
 
-from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
+from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
 from apps.collaborators.services import (
     PAYROLL_COMPONENT_LABELS,
     build_payroll_projection,
-    calculate_transport_allowance_total,
     ensure_payroll_component_movements_confirmed,
     ensure_payroll_movements_confirmed,
     get_payroll_due_date_for_reference,
     get_payroll_movement_diagnosis,
+    get_reference_work_days,
     mark_payroll_as_paid,
     mark_payroll_as_unpaid,
     mark_payroll_commissions_as_paid,
@@ -199,28 +199,39 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             return []
 
         reference_date = date(filters["year"], filters["month"], 1)
-        rows: list[dict[str, Any]] = []
-        for collaborator in self._get_active_collaborators_queryset(filters=filters).order_by("name", "id"):
-            if collaborator.pk in existing_collaborator_ids:
-                continue
+        collaborators = list(
+            self._get_active_collaborators_queryset(filters=filters)
+            .prefetch_related(Prefetch("benefits", queryset=CollaboratorBenefit.objects.filter(is_active=True)))
+            .order_by("name", "id")
+        )
+        pending_collaborators = [collaborator for collaborator in collaborators if collaborator.pk not in existing_collaborator_ids]
+        if not pending_collaborators:
+            return []
 
+        pending_ids = [collaborator.pk for collaborator in pending_collaborators]
+        commission_by_collaborator_id: dict[int, Decimal] = {collaborator_id: Decimal("0.00") for collaborator_id in pending_ids}
+        for entry in CollaboratorCommissionEntry.objects.filter(
+            collaborator_id__in=pending_ids,
+            reference_year=filters["year"],
+            reference_month=filters["month"],
+        ).only("collaborator_id", "commission_amount", "commission_amount_currency"):
+            commission_by_collaborator_id[entry.collaborator_id] = commission_by_collaborator_id.get(entry.collaborator_id, Decimal("0.00")) + Decimal(
+                str(entry.commission_amount.amount or 0)
+            )
+
+        # All pending collaborators share the same workshop — resolve work days once.
+        work_days = get_reference_work_days(collaborator=pending_collaborators[0], reference_date=reference_date)
+
+        rows: list[dict[str, Any]] = []
+        for collaborator in pending_collaborators:
             benefits_amount = sum(
-                (Decimal(str(benefit.monthly_amount.amount or 0)) for benefit in collaborator.benefits.filter(is_active=True)),
+                (Decimal(str(benefit.monthly_amount.amount or 0)) for benefit in collaborator.benefits.all()),
                 start=Decimal("0.00"),
             )
-            commission_amount = sum(
-                (
-                    Decimal(str(entry.commission_amount.amount or 0))
-                    for entry in CollaboratorCommissionEntry.objects.filter(
-                        collaborator=collaborator,
-                        reference_year=filters["year"],
-                        reference_month=filters["month"],
-                    )
-                ),
-                start=Decimal("0.00"),
-            )
+            commission_amount = commission_by_collaborator_id.get(collaborator.pk, Decimal("0.00"))
             salary_amount = Decimal(str(collaborator.salary.amount or 0))
-            transport_amount = Decimal(str(calculate_transport_allowance_total(collaborator=collaborator, reference_date=reference_date).amount or 0))
+            transport_amount = Decimal(str((collaborator.transport_allowance_daily_amount * Decimal(work_days)) or 0))
+            transport_amount = Money(transport_amount, "BRL").amount
             total_amount = salary_amount + transport_amount + benefits_amount + commission_amount
             missing_components: list[str] = []
             if salary_amount > Decimal("0.00"):

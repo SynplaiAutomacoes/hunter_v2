@@ -199,11 +199,21 @@ def build_financial_overview(
             paid_credit_movements = paid_credit_movements.filter(is_reconciled=expected_reconciled)
 
         if paid_status == "paid":
-            paid_credit_movements = [movement for movement in paid_credit_movements.select_related("workorder") if movement.is_paid]
+            paid_credit_movements = [
+                movement
+                for movement in paid_credit_movements.select_related("workorder", "workorder_payment").prefetch_related(
+                    "workorder__payments",
+                    "workorder__payments__payment_method",
+                )
+                if movement.is_paid
+            ]
         elif paid_status == "unpaid":
             paid_credit_movements = []
         else:
-            paid_credit_movements = paid_credit_movements.select_related("workorder", "workorder_payment").prefetch_related("workorder__payments")
+            paid_credit_movements = paid_credit_movements.select_related("workorder", "workorder_payment").prefetch_related(
+                "workorder__payments",
+                "workorder__payments__payment_method",
+            )
 
         if not isinstance(paid_credit_movements, list):
             paid_credit_movements = paid_credit_movements.only("workorder", "workorder_payment")

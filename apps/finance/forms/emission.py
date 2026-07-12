@@ -22,6 +22,7 @@ from apps.finance.forms.emission_ui import (
     clamp_slider_value,
     format_money,
 )
+from apps.core.infrastructure.kit_prefetch import workorder_kit_overrides_prefetch
 from apps.core.infrastructure.services.webmania.emission import build_default_service_description_for_workorder, compute_service_discount_for_nfse
 from apps.core.infrastructure.services.webmania.nfe_emission import build_nfe_preview_rows, build_nfe_preview_warning_messages, compute_product_discount_for_nfe
 from apps.finance.services.pricing import build_emission_pricing_snapshot_for_workorder, build_nfse_service_preview_rows, build_slider_allocation_for_workorder
@@ -65,7 +66,15 @@ def _build_step3_rows(*, workorder: WorkOrder) -> tuple[list[dict[str, Any]], li
     product_rows: list[dict[str, Any]] = []
     service_rows: list[dict[str, Any]] = []
 
-    workorder_items = list(workorder.items.select_related("product", "service", "kit").prefetch_related("kit_overrides", "kit__kit_products__product", "kit__kit_services__service").order_by("id"))
+    workorder_items = list(
+        workorder.items.select_related("product", "service", "kit")
+        .prefetch_related(
+            workorder_kit_overrides_prefetch(),
+            "kit__kit_products__product",
+            "kit__kit_services__service",
+        )
+        .order_by("id")
+    )
 
     for item in workorder_items:
         if item.product_id:

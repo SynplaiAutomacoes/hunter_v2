@@ -11,12 +11,12 @@ from urllib.parse import urlencode
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Prefetch
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.urls import reverse
 from django.shortcuts import get_object_or_404, render
 from django.utils.decorators import method_decorator
 from django.utils.html import escape
+from django.utils import timezone
 from django.views import View
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import DetailView, ListView, TemplateView
@@ -32,7 +32,12 @@ from apps.budget.models import BudgetType
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
 from apps.core.domain.services.editing_lock_service import get_lock_info
+from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_query_param_filters
+from apps.core.infrastructure.services.dashboard_query_service import (
+    _build_injected_pricing_context,
+    _prepare_workorder_for_dashboard_pricing,
+)
 from apps.core.presentation.tables import TableActionDefaults
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.domain.contracts.signature import SignatureServiceError
@@ -85,6 +90,7 @@ from apps.workorder.util import (
     _build_concurrent_lock_response,
 )
 from apps.workshops.mixin import WorkshopScopedMixin
+from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
@@ -407,39 +413,13 @@ class WorkOrderStatusReportDataMixin:
         if not for_pricing:
             return queryset
 
-        return queryset.prefetch_related(
-            Prefetch(
-                "items",
-                queryset=WorkOrderItem.objects.select_related("product", "service", "kit")
-                .prefetch_related(
-                    Prefetch(
-                        "kit_overrides",
-                        queryset=WorkOrderKitItemOverride.objects.select_related("product", "service"),
-                    )
-                )
-                .order_by("id"),
-            )
-        )
+        return queryset.prefetch_related(workorder_items_with_kit_prefetch(with_kit_tree=False))
 
     def _get_workorder_report_queryset(self):
         return (
             WorkOrder.objects.filter(workshop=self.workshop)
             .select_related("budget", "budget__customer", "budget__vehicle")
-            .prefetch_related(
-                Prefetch(
-                    "items",
-                    queryset=WorkOrderItem.objects.select_related("product", "service", "kit")
-                    .prefetch_related(
-                        Prefetch(
-                            "kit_overrides",
-                            queryset=WorkOrderKitItemOverride.objects.select_related("product", "service"),
-                        ),
-                        "kit__kit_products__product",
-                        "kit__kit_services__service",
-                    )
-                    .order_by("id"),
-                )
-            )
+            .prefetch_related(workorder_items_with_kit_prefetch(with_kit_tree=True))
         )
 
     def _get_filtered_workorder_queryset(self, *, for_report: bool = False):
@@ -453,15 +433,26 @@ class WorkOrderStatusReportDataMixin:
 
         return queryset.order_by("-budget__pk", "-criado_em")
 
+    def _get_list_pricing_context(self):
+        today = timezone.localdate()
+        workshop_cost = WorkshopCost.objects.filter(workshop=self.workshop, month=today.month, year=today.year).first()
+        return _build_injected_pricing_context(workshop=self.workshop, workshop_cost=workshop_cost)
+
+    def _prepare_workorders_for_list_pricing(self, workorders: list[WorkOrder], *, for_totals_only: bool = True) -> list[WorkOrder]:
+        pricing_context = self._get_list_pricing_context()
+        for workorder in workorders:
+            _prepare_workorder_for_dashboard_pricing(workorder, pricing_context=pricing_context, for_totals_only=for_totals_only)
+        return workorders
+
     def _get_selection_report_items(self) -> list[WorkOrder]:
         cached = getattr(self, "_selection_report_items_cache", None)
         if cached is not None:
             return cached
 
-        items = list(self._get_filtered_workorder_queryset(for_report=True))
-        for workorder in items:
-            if workorder.budget_id:
-                setattr(workorder.budget, "_read_only_pricing_context", True)
+        items = self._prepare_workorders_for_list_pricing(
+            list(self._get_filtered_workorder_queryset(for_report=True)),
+            for_totals_only=True,
+        )
         self._selection_report_items_cache = items
         return items
 
@@ -540,7 +531,8 @@ class WorkOrderListView(LoginRequiredMixin, WorkOrderStatusReportDataMixin, Work
         # com paginate_by fatia o queryset antes de expô-lo no contexto, o que
         # impede o render_table de chamar .filter() depois. Passamos o queryset
         # completo para que o render_table gerencie paginação e busca corretamente.
-        context["workorder"] = self.object_list
+        # Read-only pricing flags avoid freeze_pricing_snapshot write-on-read per row.
+        context["workorder"] = self._prepare_workorders_for_list_pricing(list(self.get_queryset()), for_totals_only=True)
         context["fields"] = self._get_workorder_table_fields()
 
         context["actions"] = [
@@ -598,19 +590,7 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
                 "collaborators",
                 "payments",
                 "attachments",
-                Prefetch(
-                    "items",
-                    queryset=WorkOrderItem.objects.select_related("product", "service", "kit")
-                    .prefetch_related(
-                        Prefetch(
-                            "kit_overrides",
-                            queryset=WorkOrderKitItemOverride.objects.select_related("product", "service"),
-                        ),
-                        "kit__kit_products__product",
-                        "kit__kit_services__service",
-                    )
-                    .order_by("id"),
-                ),
+                workorder_items_with_kit_prefetch(with_kit_tree=True),
             )
         )
 
