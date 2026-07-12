@@ -167,14 +167,15 @@ def _format_brl(amount: Decimal) -> str:
     return f"R$ {amount:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def calculate_aggregate_markup(*, workshop_id: int, month: int, year: int) -> Decimal:
+def calculate_aggregate_markup(*, workshop_id: int, month: int, year: int, total_revenue: Decimal | None = None) -> Decimal:
     """Calculate aggregate markup aligned with DRE methodology.
 
     Formula: SUM(total_paid) / SUM(total_costs_products_value + total_costs_services_value + total_products_shipping)
 
     Uses WorkOrderPaymentMethod due_date (same as DRE) instead of Budget entry_date.
     """
-    total_revenue = _aggregate_revenue(workshop_id=workshop_id, month=month, year=year)
+    if total_revenue is None:
+        total_revenue = _aggregate_revenue(workshop_id=workshop_id, month=month, year=year)
     if total_revenue == Decimal("0.00"):
         return Decimal("0.00")
 
@@ -541,12 +542,17 @@ class DashboardQueryService:
         )
         pricing_context = _build_injected_pricing_context(workshop=workshop, workshop_cost=workshop_cost)
 
+        total_sold = _run_section(
+            "total_sold",
+            lambda: self._calculate_total_sold(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
+        )
         approved_budget_metrics = _run_section(
             "approved_budget_metrics",
             lambda: self._get_approved_budget_metrics(
                 workshop_id=workshop_id,
                 selected_month=selected_month,
                 selected_year=selected_year,
+                total_revenue=total_sold,
                 pricing_context=pricing_context,
             ),
         )
@@ -567,10 +573,6 @@ class DashboardQueryService:
                 selected_year=selected_year,
             ),
         )
-        total_sold = _run_section(
-            "total_sold",
-            lambda: self._calculate_total_sold(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
-        )
         today_sales = _run_section(
             "today_sales",
             lambda: self._calculate_today_sales(workshop_id=workshop_id, today=hoje),
@@ -586,7 +588,12 @@ class DashboardQueryService:
 
         approval_rate_metrics = _run_section(
             "approval_rate_metrics",
-            lambda: self._get_approval_rate_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
+            lambda: self._get_approval_rate_metrics(
+                workshop_id=workshop_id,
+                selected_month=selected_month,
+                selected_year=selected_year,
+                approved_count=approved_budget_metrics.approved_count,
+            ),
         )
         pending_receivable_metrics = _run_section(
             "pending_receivable_metrics",
@@ -882,6 +889,7 @@ class DashboardQueryService:
         workshop_id: int,
         selected_month: int,
         selected_year: int,
+        total_revenue: Decimal | None = None,
         pricing_context: SimpleNamespace | None = None,
     ) -> ApprovedBudgetMetrics:
         approved_budgets = list(
@@ -903,7 +911,12 @@ class DashboardQueryService:
             if rentability is not None:
                 profitabilities.append(rentability)
         accumulated_profitability = sum(profitabilities) / len(profitabilities) if profitabilities else 0
-        accumulated_markup = calculate_aggregate_markup(workshop_id=workshop_id, month=selected_month, year=selected_year)
+        accumulated_markup = calculate_aggregate_markup(
+            workshop_id=workshop_id,
+            month=selected_month,
+            year=selected_year,
+            total_revenue=total_revenue,
+        )
         return ApprovedBudgetMetrics(
             accumulated_profitability=accumulated_profitability,
             accumulated_markup=accumulated_markup,
@@ -911,7 +924,7 @@ class DashboardQueryService:
         )
 
     @staticmethod
-    def _get_approval_rate_metrics(*, workshop_id: int, selected_month: int, selected_year: int) -> ApprovalRateMetrics:
+    def _get_approval_rate_metrics(*, workshop_id: int, selected_month: int, selected_year: int, approved_count: int | None = None) -> ApprovalRateMetrics:
         created_count = (
             Budget.objects.filter(
                 workshop_id=workshop_id,
@@ -922,12 +935,13 @@ class DashboardQueryService:
             .exclude(status=BudgetStatus.CANCELLED)
             .count()
         )
-        approved_count = Budget.objects.filter(
-            workshop_id=workshop_id,
-            status=BudgetStatus.APPROVED,
-            entry_date__month=selected_month,
-            entry_date__year=selected_year,
-        ).count()
+        if approved_count is None:
+            approved_count = Budget.objects.filter(
+                workshop_id=workshop_id,
+                status=BudgetStatus.APPROVED,
+                entry_date__month=selected_month,
+                entry_date__year=selected_year,
+            ).count()
         return ApprovalRateMetrics(created_count=created_count, approved_count=approved_count)
 
     @staticmethod

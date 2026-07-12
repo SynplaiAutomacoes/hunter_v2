@@ -145,8 +145,8 @@ class Command(BaseCommand):
             database_name=database_name,
             benchmark_environment=bool(getattr(settings, "BENCHMARK_ENVIRONMENT", False)),
         )
-        if database_name != "hunter_v2_perf_4a57a015":
-            raise CommandError(f"Baseline oficial exige hunter_v2_perf_4a57a015; recebido {database_name!r}.")
+        if not database_name.startswith("hunter_v2_perf_"):
+            raise CommandError(f"Baseline oficial exige banco isolado hunter_v2_perf_*; recebido {database_name!r}.")
 
         user = User.objects.get(username="benchmark.owner")
         workshop = Workshop.objects.order_by("pk").first()
