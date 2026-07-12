@@ -210,6 +210,11 @@ class Budget(TimeStampedModel):
     class Meta:
         verbose_name = "Orçamento"
         verbose_name_plural = "Orçamentos"
+        indexes = [
+            models.Index(fields=["workshop", "status", "entry_date"], name="budget_ws_status_entry_idx"),
+            models.Index(fields=["workshop", "entry_date"], name="budget_ws_entry_idx"),
+            models.Index(fields=["customer", "criado_em"], name="budget_customer_criado_idx"),
+        ]
 
     @property
     def has_frozen_pricing_snapshot(self) -> bool:
@@ -225,10 +230,22 @@ class Budget(TimeStampedModel):
 
     @property
     def warranty_items_count(self) -> int:
+        prefetched = getattr(self, "_prefetched_objects_cache", None)
+        if prefetched is not None and "items" in prefetched:
+            return sum(1 for item in self.items.all() if item.item_benefit_type == "warranty")
+        annotated = getattr(self, "annotated_warranty_items_count", None)
+        if annotated is not None:
+            return int(annotated)
         return self.items.filter(item_benefit_type="warranty").count()
 
     @property
     def courtesy_items_count(self) -> int:
+        prefetched = getattr(self, "_prefetched_objects_cache", None)
+        if prefetched is not None and "items" in prefetched:
+            return sum(1 for item in self.items.all() if item.item_benefit_type == "courtesy")
+        annotated = getattr(self, "annotated_courtesy_items_count", None)
+        if annotated is not None:
+            return int(annotated)
         return self.items.filter(item_benefit_type="courtesy").count()
 
     @staticmethod
@@ -587,8 +604,8 @@ class Budget(TimeStampedModel):
 
     @property
     def collaborator_name(self):
-        collabs = self.collaborators.all()
-        if collabs.exists():
+        collabs = list(self.collaborators.all())
+        if collabs:
             return ", ".join([c.name for c in collabs])
         return "Sistema"
 

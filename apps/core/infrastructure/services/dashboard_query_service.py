@@ -854,7 +854,9 @@ class DashboardQueryService:
         )
         profitabilities: list[Any] = []
         for budget in approved_budgets:
-            _prepare_budget_for_dashboard_pricing(budget, pricing_context=pricing_context, for_totals_only=False)
+            # Injected pricing context covers WorkshopCost; markup is aggregated separately.
+            # totals-only is enough for rentability averages (no per-budget markup rebuild).
+            _prepare_budget_for_dashboard_pricing(budget, pricing_context=pricing_context, for_totals_only=True)
             rentability = budget.rentability
             if rentability is not None:
                 profitabilities.append(rentability)
@@ -899,6 +901,7 @@ class DashboardQueryService:
             WorkOrder.objects.filter(
                 workshop_id=workshop_id,
                 status=WorkOrderStatus.DRAFT,
+                budget__isnull=False,
             )
             .select_related("budget__workshop")
             .prefetch_related(_WORKORDER_ITEMS_PREFETCH, "payments")

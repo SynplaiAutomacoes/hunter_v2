@@ -778,6 +778,10 @@ class WorkOrder(TimeStampedModel):
         permissions = [
             ("reopen_workorder", "Can Reopen Ordem de Serviço"),
         ]
+        indexes = [
+            models.Index(fields=["workshop", "status", "delivered_at"], name="workorder_ws_status_deliv_idx"),
+            models.Index(fields=["workshop", "status", "criado_em"], name="workorder_ws_status_criado_idx"),
+        ]
 
     def __str__(self):
         return f"OS #{self.get_id} | WorkOrder #{self.id}"
@@ -795,6 +799,9 @@ class WorkOrderPaymentMethod(TimeStampedModel):
     class Meta:
         verbose_name = "Plano de Pagamento"
         verbose_name_plural = "Planos de Pagamento"
+        indexes = [
+            models.Index(fields=["due_date", "workorder"], name="wo_payment_due_wo_idx"),
+        ]
 
     @property
     def total_paid(self) -> Money:

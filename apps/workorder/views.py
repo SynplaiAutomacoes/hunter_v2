@@ -1376,7 +1376,19 @@ class ReopenWorkOrderView(LoginRequiredMixin, WorkshopScopedMixin, View):
 @xframe_options_exempt
 def visualizar_pdf_workorder(request, pk):
     workshop = get_active_workshop_or_404(request)
-    workorder = get_object_or_404(WorkOrder.objects.select_related("workshop", "budget"), pk=pk, workshop=workshop)
+    workorder = get_object_or_404(
+        WorkOrder.objects.select_related("workshop", "budget", "budget__customer", "budget__vehicle").prefetch_related(
+            workorder_items_with_kit_prefetch(with_kit_tree=True),
+            "payments",
+            "payments__payment_method",
+        ),
+        pk=pk,
+        workshop=workshop,
+    )
+    today = timezone.localdate()
+    workshop_cost = WorkshopCost.objects.filter(workshop=workshop, month=today.month, year=today.year).first()
+    pricing_context = _build_injected_pricing_context(workshop=workshop, workshop_cost=workshop_cost)
+    _prepare_workorder_for_dashboard_pricing(workorder, pricing_context=pricing_context, for_totals_only=True)
     should_download = request.GET.get("download") == "1"
     requested_variant = _get_requested_pdf_variant(request)
 

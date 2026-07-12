@@ -122,11 +122,7 @@ def _apply_paid_status_filter_to_queryset(queryset: QuerySet[FinancialMovement],
     if not paid_status:
         return queryset
     is_paid_lookup = paid_status == "paid"
-    matched_ids = list(queryset.exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False).filter(is_paid=is_paid_lookup).values_list("pk", flat=True))
-    for movement in queryset.filter(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False):
-        if (is_paid_lookup and movement.is_paid) or (not is_paid_lookup and not movement.is_paid):
-            matched_ids.append(movement.pk)
-    return queryset.filter(pk__in=matched_ids)
+    return queryset.filter(is_paid=is_paid_lookup)
 
 
 def _apply_report_filters_to_queryset(queryset: QuerySet[FinancialMovement], *, params: dict[str, Any]) -> QuerySet[FinancialMovement]:

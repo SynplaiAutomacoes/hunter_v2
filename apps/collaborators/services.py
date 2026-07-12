@@ -8,7 +8,7 @@ from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from django.utils import timezone
 from djmoney.money import Money
 
@@ -26,6 +26,16 @@ from apps.workshops.util.monthly_costs import get_admin_salary_monthly_cost, get
 
 ZERO = Decimal("0.00")
 logger = logging.getLogger(__name__)
+
+_WORKORDER_PARENT_MOVEMENTS_PREFETCH = Prefetch(
+    "financial_movements",
+    queryset=FinancialMovement.objects.filter(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT).only(
+        "id",
+        "workorder_id",
+        "is_paid",
+        "movement_kind",
+    ),
+)
 PAYROLL_COMPONENT_PLAN_CODES: dict[str, str] = {
     FinancialMovement.PayrollComponent.SALARY: "5.1.11",
     FinancialMovement.PayrollComponent.BENEFIT: "5.1.5",
@@ -346,7 +356,19 @@ def _resolve_commission_reference_date(*, workorder: WorkOrder) -> date:
 
 
 def _is_workorder_commission_paid(*, workorder: WorkOrder) -> bool:
-    parent_movement = workorder.financial_movements.filter(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT).only("is_paid").first()
+    # Prefer Prefetch from the calling queryset (request-scoped); avoid N+1 .filter().first().
+    prefetched = getattr(workorder, "_prefetched_objects_cache", None)
+    if prefetched is not None and "financial_movements" in prefetched:
+        parent_movements = [
+            movement
+            for movement in workorder.financial_movements.all()
+            if movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT
+        ]
+        return bool(parent_movements and parent_movements[0].is_paid)
+
+    parent_movement = (
+        workorder.financial_movements.filter(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT).only("is_paid").first()
+    )
     return bool(parent_movement and parent_movement.is_paid)
 
 
@@ -531,6 +553,7 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
         .select_related("budget")
         .prefetch_related(
             "payments",
+            _WORKORDER_PARENT_MOVEMENTS_PREFETCH,
             workorder_items_with_kit_prefetch(with_kit_tree=True),
         )
         .order_by("id")
