@@ -465,7 +465,7 @@ class BudgetListView(LoginRequiredMixin, BudgetStatusReportDataMixin, WorkshopSc
     template_name = "budget/budget_list.html"
     context_object_name = "budget"
     htmx_template_name = "budget/partials/budget_table.html"
-    paginate_by = 20
+    # Pagination is owned by render_table; keep ListView from counting/slicing.
 
     def get_queryset(self):
         return self._get_filtered_budget_queryset(for_pricing=False, for_report=False)
@@ -720,9 +720,17 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         if current_step == 1:
             self._sync_originating_appointment()
 
-        # Aplicar status automático configurado para esta etapa (se houver)
+        # Aplicar status automático em memória; coalesce com current_step abaixo.
+        status_changed = False
         try:
-            self.apply_step_status(budget=self.object, current_step=self.get_current_step(), actor=self.request.user)
+            status_changed = bool(
+                self.apply_step_status(
+                    budget=self.object,
+                    current_step=self.get_current_step(),
+                    actor=self.request.user,
+                    save=False,
+                )
+            )
         except Exception:
             logger.exception("budget_auto_status_failed", extra={"budget_id": self.object.pk, "step": self.get_current_step(), "user_id": self.request.user.pk, "action": "create"})
 
@@ -734,9 +742,14 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         total_steps = len(self.steps_definition)
         next_step_value = min(current_step + 1, total_steps)
 
+        update_fields: list[str] = []
+        if status_changed:
+            update_fields.append("status")
         if self.object.current_step < next_step_value:
             self.object.current_step = next_step_value
-            self.object.save(update_fields=["current_step"])
+            update_fields.append("current_step")
+        if update_fields:
+            self.object.save(update_fields=update_fields)
 
         if current_step == total_steps:
             review_url = self._build_create_flow_url(step=current_step, budget_id=self.object.pk)
@@ -842,9 +855,18 @@ class BudgetUpdateView(BudgetCreateView):
                 self.object.sync_items_benefit_type_to_budget_type()
                 reset_steps_after_step_4(self.object)
 
-        # Aplicar status automático configurado para esta etapa (se houver)
+        # Aplicar status automático em memória; coalesce com current_step abaixo.
+        status_changed = False
         try:
-            self.apply_step_status(budget=self.object, current_step=self.get_current_step(), actor=self.request.user, isUpdate=True)
+            status_changed = bool(
+                self.apply_step_status(
+                    budget=self.object,
+                    current_step=self.get_current_step(),
+                    actor=self.request.user,
+                    isUpdate=True,
+                    save=False,
+                )
+            )
         except Exception:
             logger.exception("budget_auto_status_failed", extra={"budget_id": self.object.pk, "step": self.get_current_step(), "user_id": self.request.user.pk, "action": "update"})
 
@@ -858,9 +880,14 @@ class BudgetUpdateView(BudgetCreateView):
         total_steps = len(self.steps_definition)
         next_step_value = min(current_step + 1, total_steps)
 
+        update_fields: list[str] = []
+        if status_changed:
+            update_fields.append("status")
         if self.object.current_step < next_step_value:
             self.object.current_step = next_step_value
-            self.object.save(update_fields=["current_step"])
+            update_fields.append("current_step")
+        if update_fields:
+            self.object.save(update_fields=update_fields)
 
         if current_step == total_steps:
             success_url = f"{reverse('budget:budget_update', kwargs={'pk': self.object.pk})}?step={current_step}"

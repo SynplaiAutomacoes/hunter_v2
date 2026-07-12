@@ -235,3 +235,48 @@ class DashboardKitOverrideNumQueriesTests(TestCase):
             for override in overrides:
                 _ = override.product.name
                 _ = override.product.code
+
+
+class DashboardStoredTotalPathTests(TestCase):
+    def setUp(self) -> None:
+        self.workshop = Workshop.objects.create(
+            name="Oficina Dashboard Stored",
+            cnpj="61.111.222/0001-01",
+            phone="+5511777777777",
+            address="Rua Dash, 1",
+        )
+
+    def test_delivered_workorders_use_stored_total_without_pricing(self) -> None:
+        from django.utils import timezone
+
+        from apps.budget.models import Budget, BudgetStatus, BudgetType
+        from apps.core.infrastructure.services.dashboard_query_service import DashboardQueryService
+        from apps.workorder.models import WorkOrder, WorkOrderStatus
+
+        budget = Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=date(2026, 7, 1),
+            budget_type=BudgetType.SALE,
+            status=BudgetStatus.APPROVED,
+        )
+        workorder = WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            status=WorkOrderStatus.APPROVED,
+            budget_type="sale",
+            delivered_at=timezone.now(),
+        )
+        WorkOrder.objects.filter(pk=workorder.pk).update(stored_total_amount=Money("123.45", "BRL"))
+
+        with patch("apps.budget.pricing.build_pricing_snapshot") as pricing_mock:
+            sale_workorders, warranty_workorders = DashboardQueryService._get_delivered_workorders(
+                workshop_id=self.workshop.pk,
+                selected_month=timezone.localdate().month,
+                selected_year=timezone.localdate().year,
+            )
+
+        self.assertEqual(len(sale_workorders), 1)
+        self.assertEqual(len(warranty_workorders), 0)
+        self.assertEqual(sale_workorders[0].dashboard_display_total.amount, Money("123.45", "BRL").amount)
+        pricing_mock.assert_not_called()
+

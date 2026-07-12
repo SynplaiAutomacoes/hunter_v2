@@ -175,14 +175,50 @@ class Budget(TimeStampedModel):
     signature_document_id = models.CharField(max_length=255, blank=True, null=True)
     signature_sent_at = models.DateTimeField(blank=True, null=True)
 
-    def save(self, *args, **kwargs):
-        self.sync_discount_fields()
+    # Fields that do not affect pricing totals — skip sync_discount / stored refresh.
+    _METADATA_UPDATE_FIELDS = frozenset(
+        {
+            "status",
+            "current_step",
+            "step5_calculation_viewed",
+            "signature_token_version",
+            "signature_token_active",
+            "signature_request_status",
+            "signature_external_id",
+            "signature_document_id",
+            "signature_sent_at",
+            "cancellation_reason",
+            "customer_agreed_departure_at",
+            "service_expected_completion_at",
+            "entry_date",
+            "expiration_date",
+            "observations",
+            "notes",
+            "problem_description",
+            "technical_diagnosis",
+            "fuel_level",
+            "current_km",
+            "atualizado_em",
+            "criado_em",
+        }
+    )
 
+    def _is_metadata_only_update(self, update_fields: Iterable[str] | None) -> bool:
+        if update_fields is None:
+            return False
+        return bool(update_fields) and set(update_fields).issubset(self._METADATA_UPDATE_FIELDS)
+
+    def save(self, *args, **kwargs):
         update_fields = kwargs.get("update_fields")
-        if update_fields is not None:
-            update_fields_set = set(update_fields)
-            update_fields_set.update({"discount_value", "discount_value_currency", "discount_percentage", "discount_type"})
-            kwargs["update_fields"] = list(update_fields_set)
+        metadata_only = self._is_metadata_only_update(update_fields)
+        skip_stored_refresh = metadata_only or getattr(self, "_skip_stored_total_refresh", False)
+
+        if not metadata_only:
+            self.sync_discount_fields()
+            if update_fields is not None:
+                update_fields_set = set(update_fields)
+                update_fields_set.update({"discount_value", "discount_value_currency", "discount_percentage", "discount_type"})
+                kwargs["update_fields"] = list(update_fields_set)
 
         is_new = self.pk is None
 
@@ -214,11 +250,14 @@ class Budget(TimeStampedModel):
                 self.signature_token_active = False
                 super().save(update_fields=["signature_token_active"])
 
-            self.refresh_stored_total_amount()
+            if not skip_stored_refresh:
+                self.refresh_stored_total_amount()
 
     def refresh_stored_total_amount(self) -> None:
         """Persist live pricing total for dashboard SQL aggregates."""
         if self.pk is None:
+            return
+        if getattr(self, "_skip_stored_total_refresh", False):
             return
         total = self.total_budget_value
         type(self).objects.filter(pk=self.pk).update(stored_total_amount=total)
@@ -336,7 +375,8 @@ class Budget(TimeStampedModel):
         for field_name, value in snapshot_data.items():
             setattr(self, field_name, value)
         self.invalidate_pricing_snapshot_cache()
-        self.refresh_stored_total_amount()
+        # Avoid nested full pricing while resolving labor costs inside pricing_snapshot.
+        # Full Budget.save() / explicit callers refresh stored totals separately.
 
     def get_frozen_pricing_context(self):
         injected = getattr(self, "_injected_pricing_context", None)
@@ -647,6 +687,10 @@ class Budget(TimeStampedModel):
         if not self.pk:
             return ()
 
+        cached_items = getattr(self, "_pricing_items_list_cache", None)
+        if cached_items is not None:
+            return cached_items
+
         prefetched_items = getattr(self, "_prefetched_objects_cache", {}).get("items")
         if prefetched_items is not None:
             return prefetched_items
@@ -708,15 +752,21 @@ class Budget(TimeStampedModel):
     def pricing_snapshot(self) -> PricingSnapshot:
         cached_snapshot = getattr(self, "_pricing_snapshot_cache", None)
         if cached_snapshot is None:
-            cached_snapshot = build_pricing_snapshot(
-                items=list(self._iter_items()),
-                slider=int(self.slider or 0),
-                discount_value=self.discount_value,
-                discount_percentage=self.discount_percentage,
-                labor_cost_value=self.total_labor_cost_value,
-                is_local_product_item=self._is_local_product_item,
-                is_local_service_item=self._is_local_service_item,
-            )
+            items = list(self._iter_items())
+            setattr(self, "_pricing_items_list_cache", items)
+            try:
+                cached_snapshot = build_pricing_snapshot(
+                    items=items,
+                    slider=int(self.slider or 0),
+                    discount_value=self.discount_value,
+                    discount_percentage=self.discount_percentage,
+                    labor_cost_value=self.total_labor_cost_value,
+                    is_local_product_item=self._is_local_product_item,
+                    is_local_service_item=self._is_local_service_item,
+                )
+            finally:
+                if hasattr(self, "_pricing_items_list_cache"):
+                    delattr(self, "_pricing_items_list_cache")
             setattr(self, "_pricing_snapshot_cache", cached_snapshot)
         return cached_snapshot
 
@@ -725,6 +775,8 @@ class Budget(TimeStampedModel):
             delattr(self, "_pricing_snapshot_cache")
         if hasattr(self, "_product_issue_summary_cache"):
             delattr(self, "_product_issue_summary_cache")
+        if hasattr(self, "_pricing_items_list_cache"):
+            delattr(self, "_pricing_items_list_cache")
 
     def sync_discount_fields(self) -> None:
         self.invalidate_pricing_snapshot_cache()
@@ -735,6 +787,7 @@ class Budget(TimeStampedModel):
         )
         self.discount_value = resolved_discount_value
         self.discount_percentage = resolved_discount_percentage
+        # Invalidate once so the following refresh_stored_total_amount rebuilds with new discounts.
         self.invalidate_pricing_snapshot_cache()
 
     ## Products
@@ -1158,14 +1211,14 @@ class BudgetItem(TimeStampedModel):
         if self.service_id:
             record_service_last_used_price(service=self.service, price=self.service_selling_price)
 
-        if self.budget_id:
+        if self.budget_id and not getattr(self.budget, "_skip_stored_total_refresh", False):
             self.budget.invalidate_pricing_snapshot_cache()
             self.budget.refresh_stored_total_amount()
 
     def delete(self, *args, **kwargs):
         budget = self.budget if self.budget_id else None
         result = super().delete(*args, **kwargs)
-        if budget is not None:
+        if budget is not None and not getattr(budget, "_skip_stored_total_refresh", False):
             budget.invalidate_pricing_snapshot_cache()
             budget.refresh_stored_total_amount()
         return result
