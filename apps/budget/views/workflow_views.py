@@ -25,6 +25,10 @@ from apps.budget.documents.provider import build_budget_status_report_pdf_render
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
 from apps.budget.models import Budget, BudgetHistory, BudgetStatus, SignatureStatus, BudgetType, PricingMethod
 from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch
+from apps.core.infrastructure.services.dashboard_query_service import (
+    _build_injected_pricing_context,
+    _prepare_budget_for_dashboard_pricing,
+)
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.budget.service import SuperSignError, send_budget_for_signature
 from apps.budget.views.shared import reset_steps_after_step_4
@@ -366,14 +370,26 @@ class BudgetStatusReportDataMixin:
 
         return queryset.order_by("-pk", "-entry_date")
 
+    def _get_list_pricing_context(self):
+        today = timezone.localdate()
+        workshop_cost = WorkshopCost.objects.filter(workshop=self.workshop, month=today.month, year=today.year).first()
+        return _build_injected_pricing_context(workshop=self.workshop, workshop_cost=workshop_cost)
+
+    def _prepare_budgets_for_list_pricing(self, budgets: list[Budget], *, for_totals_only: bool = True) -> list[Budget]:
+        pricing_context = self._get_list_pricing_context()
+        for budget in budgets:
+            _prepare_budget_for_dashboard_pricing(budget, pricing_context=pricing_context, for_totals_only=for_totals_only)
+        return budgets
+
     def _get_selection_report_items(self) -> list[Budget]:
         cached = getattr(self, "_selection_report_items_cache", None)
         if cached is not None:
             return cached
 
-        items = list(self._get_filtered_budget_queryset(for_report=True))
-        for budget in items:
-            setattr(budget, "_read_only_pricing_context", True)
+        items = self._prepare_budgets_for_list_pricing(
+            list(self._get_filtered_budget_queryset(for_report=True)),
+            for_totals_only=True,
+        )
         self._selection_report_items_cache = items
         return items
 
@@ -458,7 +474,8 @@ class BudgetListView(LoginRequiredMixin, BudgetStatusReportDataMixin, WorkshopSc
         # com paginate_by fatia o queryset antes de expô-lo no contexto, o que
         # impede o render_table de chamar .filter() depois. Passamos o queryset
         # completo para que o render_table gerencie paginação e busca corretamente.
-        context["budget"] = self.object_list
+        # Read-only pricing flags avoid freeze_pricing_snapshot write-on-read per row.
+        context["budget"] = self._prepare_budgets_for_list_pricing(list(self.get_queryset()), for_totals_only=True)
         context["fields"] = self._get_budget_table_fields()
         context["actions"] = [
             TableActionDefaults.edit("budget:budget_update"),
