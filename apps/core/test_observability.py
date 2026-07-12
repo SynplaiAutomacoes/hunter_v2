@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
+from apps.core.logging_filters import clear_request_context, get_dependency_timing, record_dependency_timing, reset_dependency_timing
 from apps.core.observability import observe_dependency_call
 from apps.core.presentation.middlewares import RequestIdMiddleware, RequestPerformanceLoggingMiddleware
 
@@ -19,6 +20,7 @@ class RequestIdMiddlewareTests(SimpleTestCase):
 
         self.assertIn("X-Request-ID", response)
         self.assertTrue(response["X-Request-ID"])
+        self.assertTrue(getattr(request, "request_id", None))
 
 
 class RequestPerformanceLoggingMiddlewareTests(SimpleTestCase):
@@ -54,6 +56,8 @@ class RequestPerformanceLoggingMiddlewareTests(SimpleTestCase):
         _, info_kwargs = logger_mock.info.call_args
         self.assertEqual(info_kwargs["extra"]["route"], "accounts:login")
         self.assertEqual(info_kwargs["extra"]["status_code"], 200)
+        self.assertIn("dependency_time_ms", info_kwargs["extra"])
+        self.assertIn("dependency_call_count", info_kwargs["extra"])
 
     @override_settings(PERF_LOGGING_ENABLED=True, PERF_LOG_QUERIES=False, PERF_LOG_MIN_MS=300)
     @patch("apps.core.presentation.middlewares.annotate_current_span")
@@ -87,11 +91,78 @@ class RequestPerformanceLoggingMiddlewareTests(SimpleTestCase):
         self.assertEqual(warning_kwargs["extra"]["route"], "finance:nfe_emit")
         self.assertEqual(warning_kwargs["extra"]["status_code"], 503)
 
+    @override_settings(PERF_LOGGING_ENABLED=True, PERF_LOG_QUERIES=False, PERF_LOG_MIN_MS=300)
+    @patch("apps.core.presentation.middlewares.annotate_current_span")
+    @patch("apps.core.presentation.middlewares.record_http_request")
+    @patch("apps.core.presentation.middlewares.change_active_requests")
+    @patch("apps.core.presentation.middlewares.logger")
+    def test_includes_workshop_id_from_session(
+        self,
+        logger_mock: Mock,
+        change_active_requests_mock: Mock,
+        record_http_request_mock: Mock,
+        annotate_current_span_mock: Mock,
+    ) -> None:
+        request = self.factory.get("/budget/")
+        setattr(request, "resolver_match", SimpleNamespace(view_name="budget:list", route="budget/"))
+        setattr(request, "request_id", "req-workshop")
+        request.session = {"active_workshop_id": 42}
+        middleware = RequestPerformanceLoggingMiddleware(lambda _: HttpResponse("ok", status=200))
+
+        middleware(request)
+
+        _, info_kwargs = logger_mock.info.call_args
+        self.assertEqual(info_kwargs["extra"]["workshop_id"], 42)
+
+    @override_settings(PERF_LOGGING_ENABLED=True, PERF_LOG_QUERIES=True, PERF_LOG_MIN_MS=300)
+    @patch("apps.core.presentation.middlewares.annotate_current_span")
+    @patch("apps.core.presentation.middlewares.record_http_request")
+    @patch("apps.core.presentation.middlewares.change_active_requests")
+    @patch("apps.core.presentation.middlewares.logger")
+    def test_captures_sql_timing_when_enabled(
+        self,
+        logger_mock: Mock,
+        change_active_requests_mock: Mock,
+        record_http_request_mock: Mock,
+        annotate_current_span_mock: Mock,
+    ) -> None:
+        request = self.factory.get("/accounts/login/")
+        setattr(request, "resolver_match", SimpleNamespace(view_name="accounts:login", route="accounts/login/"))
+        setattr(request, "request_id", "req-sql")
+
+        with patch("apps.core.presentation.middlewares.SqlTimingWrapper") as sql_wrapper_cls:
+            sql_wrapper = Mock()
+            sql_wrapper.collect.return_value = SimpleNamespace(query_count=3, sql_time_ms=12.5)
+            sql_wrapper_cls.return_value = sql_wrapper
+            middleware = RequestPerformanceLoggingMiddleware(lambda _: HttpResponse("ok", status=200))
+            middleware(request)
+
+        _, info_kwargs = logger_mock.info.call_args
+        self.assertEqual(info_kwargs["extra"]["query_count"], 3)
+        self.assertEqual(info_kwargs["extra"]["sql_time_ms"], 12.5)
+
+
+class DependencyTimingAccumulatorTests(SimpleTestCase):
+    def tearDown(self) -> None:
+        clear_request_context()
+
+    def test_records_dependency_timing_totals(self) -> None:
+        reset_dependency_timing()
+        record_dependency_timing(10.5)
+        record_dependency_timing(4.5)
+        dependency_time_ms, dependency_call_count = get_dependency_timing()
+        self.assertEqual(dependency_time_ms, 15.0)
+        self.assertEqual(dependency_call_count, 2)
+
 
 class DependencyObservabilityTests(SimpleTestCase):
+    def tearDown(self) -> None:
+        clear_request_context()
+
     @patch("apps.core.observability.record_dependency_call")
     def test_dependency_helper_records_success(self, record_dependency_call_mock: Mock) -> None:
         logger_mock = Mock()
+        reset_dependency_timing()
 
         with observe_dependency_call(
             logger=logger_mock,
@@ -107,6 +178,9 @@ class DependencyObservabilityTests(SimpleTestCase):
         record_kwargs = record_dependency_call_mock.call_args.kwargs
         self.assertEqual(record_kwargs["attributes"]["dependency.name"], "viacep")
         self.assertEqual(record_kwargs["attributes"]["result"], "success")
+        dependency_time_ms, dependency_call_count = get_dependency_timing()
+        self.assertEqual(dependency_call_count, 1)
+        self.assertGreaterEqual(dependency_time_ms, 0.0)
 
     @patch("apps.core.observability.record_dependency_call")
     def test_dependency_helper_records_error(self, record_dependency_call_mock: Mock) -> None:

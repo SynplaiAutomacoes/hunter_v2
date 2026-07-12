@@ -15,23 +15,56 @@ O foco e responder rapidamente perguntas como:
 
 ## Estado atual do projeto
 
-Hoje o repositorio ja possui uma base importante:
+Hoje o repositorio ja possui uma base operacional:
 
-- exportacao OTLP de logs e traces em `apps/core/otel_logging.py`
-- auto-instrumentacao de Django e `requests` em `apps/core/otel_logging.py`
+- exportacao OTLP de logs, traces e metrics em `apps/core/otel_logging.py` (quando `OTLP_AUTH_HEADER` e `OTEL_EXPORTER_OTLP_ENDPOINT` estao configurados)
+- auto-instrumentacao de Django, `requests` e `psycopg`
 - logging JSON estruturado em `config/settings.py`
-- contexto de request com `request_id`, `workshop_id` e `user_id` em `apps/core/logging_filters.py`
-- middleware de performance de request em `apps/core/presentation/middlewares.py`
-- alguns logs de duracao em chamadas externas e operacoes especificas
+- contexto de request com `request_id`, `workshop_id`, `user_id` e `account_id` em `apps/core/logging_filters.py`
+- middleware de performance estruturado em `apps/core/presentation/middlewares.py` (logger `performance.request`)
+- helper padrao `observe_dependency_call` / `observe_business_operation` em `apps/core/observability.py`
+- dashboard Grafana versionado em `grafana/dashboards/hunter-observability.json`
 
-As principais lacunas atuais sao:
+Contrato do log final de request (quando `PERF_LOGGING_ENABLED=1`):
 
-- metrics ainda nao sao exportadas via OTLP
-- o middleware atual depende de logging por threshold, nao de series temporais completas
-- a medicao de queries via `connection.queries` nao e a estrategia ideal para prod
-- nao existe uma camada padrao para spans e metrics de operacoes de negocio
-- nao existe taxonomia padrao para atributos, nomes de metricas, dashboards e alertas
+- `route`, `method`, `path`, `status_code`, `duration_ms`
+- `workshop_id` (quando disponivel ao final da request)
+- `query_count` e `sql_time_ms` (quando `PERF_LOG_QUERIES=1`, via `SqlTimingWrapper`)
+- `dependency_time_ms` e `dependency_call_count`
+- `request_id` / correlacao OTEL (`trace_id`, `span_id`)
 
+Lacunas remanescentes:
+
+- instrumentacao de RabbitMQ e alguns providers ainda parcial
+- `PERF_LOG_QUERIES` continua opt-in por custo e deve ficar off no steady-state
+- baseline de p50/p95/p99 depende de trafego real apos ativar perf logging + OTLP
+
+## Como ler o baseline (p50 / p95 / p99)
+
+1. Confirme `ENVIRONMENT=production`, `PERF_LOGGING_ENABLED=1`, `PERF_LOG_QUERIES=0` e OTLP configurado.
+2. Abra o dashboard `hunter-observability` e selecione `$environment`.
+3. Na linha **Resumo / HTTP Requests**, leia:
+   - p50 / p95 / p99 global a partir de `http.server.request.duration`
+   - p95 por `http.route`
+   - error rate 5xx por rota
+4. Para SQL, ligue `PERF_LOG_QUERIES=1` apenas em janela curta e use os paineis Loki de `query_count` / `sql_time_ms`.
+5. Para dependencias externas, use os paineis de `dependency.client.duration`.
+6. Registre o baseline apos 24–72h de traffego representativo antes de mudar `GUNICORN_WORKERS` / `GUNICORN_THREADS`.
+
+## Capacidade Gunicorn (recomendacao inicial)
+
+Defaults em `gunicorn.conf.py`: `2` workers x `4` threads (~8 requests concorrentes).
+
+Heuristica apos o baseline:
+
+| Sintoma | Acao sugerida |
+| --- | --- |
+| p95 alto + CPU baixa | aumentar threads (mais concorrencia I/O) |
+| CPU ~100% / risco de OOM (PDF) | reduzir threads ou aumentar RAM/CPU |
+| 1 vCPU / 512MB–1GB | manter 2 workers, 4–8 threads |
+| 2 vCPU / 2GB | avaliar 3–4 workers com 4–8 threads |
+
+Correlacione Railway CPU/RAM com a metrica `http.server.active_requests`.
 ## Stack recomendada
 
 ### Aplicacao Python

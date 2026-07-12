@@ -191,7 +191,7 @@
           "title": "SQL time medio por rota (ms)",
           "gridPos": { "x": 0, "y": 21, "w": 12, "h": 7 },
           "targets": [
-            { "expr": "avg by (route) (avg_over_time({logger=\"apps.core.presentation.middlewares\", environment=~\"$environment\"} | json | route != \"\" | unwrap sql_time_ms [$__interval]))", "refId": "A", "legendFormat": "{{route}}" }
+            { "expr": "avg by (route) (avg_over_time({logger=\"performance.request\", environment=~\"$environment\"} | json | route != \"\" | unwrap sql_time_ms [$__interval]))", "refId": "A", "legendFormat": "{{route}}" }
           ],
           "fieldConfig": { "defaults": { "unit": "ms", "custom": { "lineWidth": 2 } } }
         },
@@ -202,7 +202,7 @@
           "title": "Query count medio por rota",
           "gridPos": { "x": 12, "y": 21, "w": 12, "h": 7 },
           "targets": [
-            { "expr": "avg by (route) (avg_over_time({logger=\"apps.core.presentation.middlewares\", environment=~\"$environment\"} | json | route != \"\" | unwrap query_count [$__interval]))", "refId": "A", "legendFormat": "{{route}}" }
+            { "expr": "avg by (route) (avg_over_time({logger=\"performance.request\", environment=~\"$environment\"} | json | route != \"\" | unwrap query_count [$__interval]))", "refId": "A", "legendFormat": "{{route}}" }
           ],
           "fieldConfig": { "defaults": { "unit": "none", "custom": { "lineWidth": 2 } } }
         },
@@ -213,7 +213,7 @@
           "title": "Top rotas por query count (N+1 candidates)",
           "gridPos": { "x": 0, "y": 28, "w": 12, "h": 7 },
           "targets": [
-            { "expr": "avg by (route) (avg_over_time({logger=\"apps.core.presentation.middlewares\", environment=~\"$environment\"} | json | route != \"\" | unwrap query_count [$__range]))", "refId": "A", "format": "table", "instant": true }
+            { "expr": "avg by (route) (avg_over_time({logger=\"performance.request\", environment=~\"$environment\"} | json | route != \"\" | unwrap query_count [$__range]))", "refId": "A", "format": "table", "instant": true }
           ],
           "fieldConfig": {
             "defaults": { "unit": "none" },
@@ -230,7 +230,7 @@
           "title": "% do tempo em SQL",
           "gridPos": { "x": 12, "y": 28, "w": 12, "h": 7 },
           "targets": [
-            { "expr": "avg by (route) (avg_over_time({logger=\"apps.core.presentation.middlewares\", environment=~\"$environment\"} | json | route != \"\" | unwrap sql_time_ms [$__interval])) / avg by (route) (avg_over_time({logger=\"apps.core.presentation.middlewares\", environment=~\"$environment\"} | json | route != \"\" | unwrap duration_ms [$__interval])) * 100", "refId": "A", "legendFormat": "{{route}}" }
+            { "expr": "avg by (route) (avg_over_time({logger=\"performance.request\", environment=~\"$environment\"} | json | route != \"\" | unwrap sql_time_ms [$__interval])) / avg by (route) (avg_over_time({logger=\"performance.request\", environment=~\"$environment\"} | json | route != \"\" | unwrap duration_ms [$__interval])) * 100", "refId": "A", "legendFormat": "{{route}}" }
           ],
           "fieldConfig": { "defaults": { "unit": "percent", "max": 100, "custom": { "lineWidth": 2 } } }
         }
@@ -450,7 +450,7 @@
           "title": "Todas as requests",
           "gridPos": { "x": 0, "y": 76, "w": 24, "h": 12 },
           "targets": [
-            { "expr": "{logger=\"apps.core.presentation.middlewares\", environment=~\"$environment\"} | json | line_format \"{{.method}}  {{.status_code}}  {{.route}}    {{.duration_ms}}ms    {{.query_count}}q    sql={{.sql_time_ms}}ms\"", "refId": "A" }
+            { "expr": "{logger=\"performance.request\", environment=~\"$environment\"} | json | line_format \"{{.method}}  {{.status_code}}  {{.route}}    {{.duration_ms}}ms    {{.query_count}}q    sql={{.sql_time_ms}}ms\"", "refId": "A" }
           ],
           "options": { "dedupStrategy": "none", "enableLogDetails": true, "showTime": true, "sortOrder": "Descending" }
         },
@@ -461,7 +461,7 @@
           "title": "Requests lentas (> 500ms)",
           "gridPos": { "x": 0, "y": 88, "w": 12, "h": 8 },
           "targets": [
-            { "expr": "{logger=\"apps.core.presentation.middlewares\", environment=~\"$environment\"} | json | duration_ms > 500 | line_format \"[{{.method}}]  {{.route}}  {{.duration_ms}}ms  status={{.status_code}}  q={{.query_count}}\"", "refId": "A" }
+            { "expr": "{logger=\"performance.request\", environment=~\"$environment\"} | json | duration_ms > 500 | line_format \"[{{.method}}]  {{.route}}  {{.duration_ms}}ms  status={{.status_code}}  q={{.query_count}}\"", "refId": "A" }
           ],
           "options": { "dedupStrategy": "none", "enableLogDetails": true, "sortOrder": "Descending" }
         },
@@ -472,7 +472,7 @@
           "title": "Requests com erro 5xx",
           "gridPos": { "x": 12, "y": 88, "w": 12, "h": 8 },
           "targets": [
-            { "expr": "{logger=\"apps.core.presentation.middlewares\", environment=~\"$environment\"} | json | status_code >= 500 | line_format \"[{{.method}}]  {{.route}}  status={{.status_code}}  {{.duration_ms}}ms  q={{.query_count}}  sql={{.sql_time_ms}}ms\"", "refId": "A" }
+            { "expr": "{logger=\"performance.request\", environment=~\"$environment\"} | json | status_code >= 500 | line_format \"[{{.method}}]  {{.route}}  status={{.status_code}}  {{.duration_ms}}ms  q={{.query_count}}  sql={{.sql_time_ms}}ms\"", "refId": "A" }
           ],
           "options": { "dedupStrategy": "none", "enableLogDetails": true, "sortOrder": "Descending" }
         },

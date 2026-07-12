@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import base64
 import gzip
+import logging
 from typing import Any
 
 from lxml.etree import QName, fromstring
 
 from apps.finance.models.payment_method import PaymentMethod
 
+
+logger = logging.getLogger(__name__)
 
 SEFAZ_NFE_NAMESPACE = {"ns": "http://www.portalfiscal.inf.br/nfe"}
 
@@ -169,6 +172,6 @@ class NFParser:
                     }
                 )
             return {"nf_key": chave_acesso, "nf_number": nf_numero, "supplier_cnpj": cnpj_fornecedor, "supplier_name": nome_fornecedor, "items": produtos, "payments": pagamentos_sessao}
-        except Exception as e:
-            print(f"Erro no parsing do XML: {e}")
+        except Exception:
+            logger.exception("Erro no parsing do XML")
             return None
