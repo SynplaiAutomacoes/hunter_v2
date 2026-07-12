@@ -11,7 +11,6 @@ from urllib.parse import urlencode
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Prefetch
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.urls import reverse
 from django.shortcuts import get_object_or_404, render
@@ -32,6 +31,7 @@ from apps.budget.models import BudgetType
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
 from apps.core.domain.services.editing_lock_service import get_lock_info
+from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_query_param_filters
 from apps.core.presentation.tables import TableActionDefaults
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
@@ -407,39 +407,13 @@ class WorkOrderStatusReportDataMixin:
         if not for_pricing:
             return queryset
 
-        return queryset.prefetch_related(
-            Prefetch(
-                "items",
-                queryset=WorkOrderItem.objects.select_related("product", "service", "kit")
-                .prefetch_related(
-                    Prefetch(
-                        "kit_overrides",
-                        queryset=WorkOrderKitItemOverride.objects.select_related("product", "service"),
-                    )
-                )
-                .order_by("id"),
-            )
-        )
+        return queryset.prefetch_related(workorder_items_with_kit_prefetch(with_kit_tree=False))
 
     def _get_workorder_report_queryset(self):
         return (
             WorkOrder.objects.filter(workshop=self.workshop)
             .select_related("budget", "budget__customer", "budget__vehicle")
-            .prefetch_related(
-                Prefetch(
-                    "items",
-                    queryset=WorkOrderItem.objects.select_related("product", "service", "kit")
-                    .prefetch_related(
-                        Prefetch(
-                            "kit_overrides",
-                            queryset=WorkOrderKitItemOverride.objects.select_related("product", "service"),
-                        ),
-                        "kit__kit_products__product",
-                        "kit__kit_services__service",
-                    )
-                    .order_by("id"),
-                )
-            )
+            .prefetch_related(workorder_items_with_kit_prefetch(with_kit_tree=True))
         )
 
     def _get_filtered_workorder_queryset(self, *, for_report: bool = False):
@@ -598,19 +572,7 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
                 "collaborators",
                 "payments",
                 "attachments",
-                Prefetch(
-                    "items",
-                    queryset=WorkOrderItem.objects.select_related("product", "service", "kit")
-                    .prefetch_related(
-                        Prefetch(
-                            "kit_overrides",
-                            queryset=WorkOrderKitItemOverride.objects.select_related("product", "service"),
-                        ),
-                        "kit__kit_products__product",
-                        "kit__kit_services__service",
-                    )
-                    .order_by("id"),
-                ),
+                workorder_items_with_kit_prefetch(with_kit_tree=True),
             )
         )
 

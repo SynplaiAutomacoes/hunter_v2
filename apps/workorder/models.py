@@ -17,6 +17,7 @@ from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.price_tracking import record_product_last_used_price
 from apps.catalog.product_issues import ProductIssueSummary, annotate_product_issues
+from apps.core.infrastructure.kit_prefetch import budget_kit_overrides_prefetch, workorder_kit_overrides_prefetch
 from apps.core.infrastructure.models import TimeStampedModel
 from apps.finance.models.payment_method import PaymentMethod
 
@@ -125,7 +126,7 @@ class WorkOrder(TimeStampedModel):
         return (
             self.items.select_related("product", "service", "kit")
             .prefetch_related(
-                "kit_overrides",
+                workorder_kit_overrides_prefetch(),
                 "kit__kit_products__product",
                 "kit__kit_services__service",
             )
@@ -691,7 +692,7 @@ class WorkOrder(TimeStampedModel):
         budget_items = list(
             self.budget.items.select_related("product", "service", "kit")
             .prefetch_related(
-                "kit_overrides",
+                budget_kit_overrides_prefetch(),
                 "kit__kit_products__product",
                 "kit__kit_services__service",
             )

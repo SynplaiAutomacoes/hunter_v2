@@ -14,6 +14,7 @@ from djmoney.money import Money
 
 from apps.budget.models import Budget
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionEntry, CollaboratorPayroll, CollaboratorPayrollItem, WorkshopCollaborator
+from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch
 from apps.finance.services.pricing import distribute_total_proportionally
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
@@ -530,12 +531,7 @@ def sync_collaborator_commission_entries(*, collaborator: WorkshopCollaborator, 
         .select_related("budget")
         .prefetch_related(
             "payments",
-            "items__product",
-            "items__service",
-            "items__kit",
-            "items__kit_overrides",
-            "items__kit__kit_products__product",
-            "items__kit__kit_services__service",
+            workorder_items_with_kit_prefetch(with_kit_tree=True),
         )
         .order_by("id")
         .distinct()

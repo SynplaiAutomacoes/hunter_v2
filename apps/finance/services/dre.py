@@ -11,6 +11,7 @@ from djmoney.money import Money
 from django.db.models import Q
 
 from apps.budget.service_costs import calculate_mechanic_service_cost
+from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch
 from apps.core.observability import build_business_metric_attributes, record_business_operation
 from apps.finance.models import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
@@ -118,12 +119,7 @@ def build_dre_calculation(
         )
         .select_related("workorder", "workorder__budget", "workorder__budget__customer", "payment_method")
         .prefetch_related(
-            "workorder__items__product",
-            "workorder__items__service",
-            "workorder__items__kit",
-            "workorder__items__kit_overrides",
-            "workorder__items__kit__kit_products__product",
-            "workorder__items__kit__kit_services__service",
+            workorder_items_with_kit_prefetch(lookup="workorder__items", with_kit_tree=True),
         )
         .order_by("criado_em", "pk")
     )
@@ -410,12 +406,7 @@ def _fetch_delivered_workorders_with_costs(*, payments: list[WorkOrderPaymentMet
         .select_related("budget", "budget__customer", "workshop")
         .prefetch_related(
             "payments",
-            "items__product",
-            "items__service",
-            "items__kit",
-            "items__kit_overrides",
-            "items__kit__kit_products__product",
-            "items__kit__kit_services__service",
+            workorder_items_with_kit_prefetch(with_kit_tree=True),
         )
     )
 
@@ -427,7 +418,9 @@ def _fetch_delivered_workorders_with_costs(*, payments: list[WorkOrderPaymentMet
         custo_local = _ZERO
         budget = workorder.budget
         if budget is not None:
-            snapshot = budget.pricing_snapshot
+            setattr(budget, "_read_only_pricing_context", True)
+            # Prefer WO snapshot (items prefetched on WO) over budget.pricing_snapshot.
+            snapshot = workorder.pricing_snapshot
             for line in snapshot.service_lines:
                 if line.third_party:
                     continue

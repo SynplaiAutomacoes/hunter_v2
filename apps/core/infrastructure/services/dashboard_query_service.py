@@ -9,15 +9,16 @@ from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any, TypeVar
 
-from django.db.models import DecimalField, ExpressionWrapper, F, Prefetch, Sum
+from django.db.models import DecimalField, ExpressionWrapper, F, Sum
 from django.utils import timezone
 from djmoney.money import Money
 
-from apps.budget.models import Budget, BudgetItem, BudgetKitItemOverride, BudgetStatus, BudgetType
+from apps.budget.models import Budget, BudgetStatus, BudgetType
 from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.core.domain.services.dashboard_service import DashboardMetrics
+from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch, budget_kit_overrides_prefetch, workorder_items_with_kit_prefetch, workorder_kit_overrides_prefetch
 from apps.core.observability import build_business_metric_attributes, record_business_operation
-from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderKitItemOverride, WorkOrderPaymentMethod, WorkOrderStatus
+from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.monthly_costs import get_mechanic_salary_monthly_cost
@@ -46,16 +47,9 @@ MONTH_LABELS_PT: list[str] = [
     "Dezembro",
 ]
 
-# Kit overrides must select_related catalog FKs: build_pricing_snapshot accesses
-# override.product / override.service per component (lazy FK = N+1 without this).
-_BUDGET_KIT_OVERRIDES_PREFETCH = Prefetch(
-    "kit_overrides",
-    queryset=BudgetKitItemOverride.objects.select_related("product", "service"),
-)
-_WORKORDER_KIT_OVERRIDES_PREFETCH = Prefetch(
-    "kit_overrides",
-    queryset=WorkOrderKitItemOverride.objects.select_related("product", "service"),
-)
+# Re-export shared kit Prefetch helpers (select_related product/service on overrides).
+_BUDGET_KIT_OVERRIDES_PREFETCH = budget_kit_overrides_prefetch()
+_WORKORDER_KIT_OVERRIDES_PREFETCH = workorder_kit_overrides_prefetch()
 
 OPEN_BUDGET_STATUSES: tuple[str, ...] = (
     BudgetStatus.DRAFT,
@@ -89,23 +83,8 @@ INDICATOR_LABELS: dict[str, tuple[str, str]] = {
 # Each Prefetch pre-loads item relations so Budget/WorkOrder._iter_items()
 # finds results in _prefetched_objects_cache["items"] and avoids N+1 queries.
 
-_BUDGET_ITEMS_PREFETCH = Prefetch(
-    "items",
-    queryset=BudgetItem.objects.select_related("product", "service", "kit").prefetch_related(
-        _BUDGET_KIT_OVERRIDES_PREFETCH,
-        "kit__kit_products__product",
-        "kit__kit_services__service",
-    ),
-)
-
-_WORKORDER_ITEMS_PREFETCH = Prefetch(
-    "items",
-    queryset=WorkOrderItem.objects.select_related("product", "service", "kit").prefetch_related(
-        _WORKORDER_KIT_OVERRIDES_PREFETCH,
-        "kit__kit_products__product",
-        "kit__kit_services__service",
-    ),
-)
+_BUDGET_ITEMS_PREFETCH = budget_items_with_kit_prefetch()
+_WORKORDER_ITEMS_PREFETCH = workorder_items_with_kit_prefetch()
 
 
 # ─── Value objects (result types for each query) ──────────────────────────────

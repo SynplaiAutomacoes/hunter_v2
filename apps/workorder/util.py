@@ -14,6 +14,7 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.fields import DurationField
+from apps.core.infrastructure.kit_prefetch import workorder_kit_overrides_prefetch
 from apps.finance.services.pricing import distribute_total_proportionally
 from apps.core.domain.contracts.documents import DocumentPayload
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
@@ -128,7 +129,7 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
         items = list(
             workorder.items.select_related("product", "service", "kit")
             .prefetch_related(
-                "kit_overrides",
+                workorder_kit_overrides_prefetch(),
                 "kit__kit_products__product",
                 "kit__kit_services__service",
             )

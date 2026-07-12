@@ -26,6 +26,7 @@ from apps.finance.forms import (
     EmissionStep4Form,
     EmissionStep5Form,
 )
+from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch, workorder_kit_overrides_prefetch
 from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.finance.models.finance import NfeRequest, NfeRequestStatus, NfseRequest, NfseRequestStatus
@@ -223,7 +224,12 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         workorder_id = resolved_state.get("workorder_id")
         if not workorder_id:
             return None
-        return WorkOrder.objects.select_related("budget", "budget__customer", "budget__vehicle").prefetch_related("items", "items__kit_overrides", "items__kit__kit_products__product", "items__kit__kit_services__service").filter(pk=workorder_id, workshop=self.workshop).first()
+        return (
+            WorkOrder.objects.select_related("budget", "budget__customer", "budget__vehicle")
+            .prefetch_related(workorder_items_with_kit_prefetch(with_kit_tree=True))
+            .filter(pk=workorder_id, workshop=self.workshop)
+            .first()
+        )
 
     def _get_step_config(self, *, step_number: int | None = None, state: dict[str, Any] | None = None) -> dict[str, Any]:
         resolved_state = state or self._load_state()
@@ -972,7 +978,11 @@ class EmissionWorkOrderKitComponentUpdateView(LoginRequiredMixin, WorkshopScoped
     def _get_workorder_item(self, *, workorder_pk: int, item_id: int) -> WorkOrderItem:
         workorder = get_object_or_404(WorkOrder, pk=workorder_pk, workshop=self.workshop)
         return get_object_or_404(
-            WorkOrderItem.objects.select_related("kit").prefetch_related("kit__kit_products__product", "kit__kit_services__service", "kit_overrides"),
+            WorkOrderItem.objects.select_related("kit").prefetch_related(
+                "kit__kit_products__product",
+                "kit__kit_services__service",
+                workorder_kit_overrides_prefetch(),
+            ),
             pk=item_id,
             workorder=workorder,
             workshop=self.workshop,
