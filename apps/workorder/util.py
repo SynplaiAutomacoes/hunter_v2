@@ -14,6 +14,7 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.fields import DurationField
+from apps.core.infrastructure.kit_prefetch import workorder_kit_overrides_prefetch
 from apps.finance.services.pricing import distribute_total_proportionally
 from apps.core.domain.contracts.documents import DocumentPayload
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
@@ -121,15 +122,22 @@ def _is_workorder_edit_locked(workorder: WorkOrder) -> bool:
 
 
 def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products") -> dict[str, object]:
-    items = list(
-        workorder.items.select_related("product", "service", "kit")
-        .prefetch_related(
-            "kit_overrides",
-            "kit__kit_products__product",
-            "kit__kit_services__service",
+    prefetched_items = getattr(workorder, "_prefetched_objects_cache", {}).get("items")
+    if prefetched_items is not None:
+        items = list(prefetched_items)
+    else:
+        items = list(
+            workorder.items.select_related("product", "service", "kit")
+            .prefetch_related(
+                workorder_kit_overrides_prefetch(),
+                "kit__kit_products__product",
+                "kit__kit_services__service",
+            )
+            .order_by("id")
         )
-        .order_by("id")
-    )
+
+    if workorder.budget_id:
+        setattr(workorder.budget, "_read_only_pricing_context", True)
 
     product_items: list[WorkOrderItem] = []
     service_items: list[WorkOrderItem] = []

@@ -17,6 +17,7 @@ from apps.catalog.models.products import Product
 from apps.catalog.models.services import Service
 from apps.catalog.price_tracking import record_product_last_used_price
 from apps.catalog.product_issues import ProductIssueSummary, annotate_product_issues
+from apps.core.infrastructure.kit_prefetch import budget_kit_overrides_prefetch, workorder_kit_overrides_prefetch
 from apps.core.infrastructure.models import TimeStampedModel
 from apps.finance.models.payment_method import PaymentMethod
 
@@ -83,6 +84,20 @@ class WorkOrder(TimeStampedModel):
     km_final = models.PositiveIntegerField(verbose_name="KM Final", null=True, blank=True)
     budget_type = models.CharField(verbose_name="Tipo", max_length=50, choices=[("sale", "Venda"), ("warranty", "Garantia"), ("courtesy", "Cortesia")], default="sale")
     pricing_method = models.CharField(verbose_name="Método de Precificação", max_length=20, choices=[("hunter", "Hunter"), ("traditional", "Tradicional")], null=True, blank=True)
+    stored_total_amount = MoneyField(
+        verbose_name="Total armazenado da O.S.",
+        max_digits=14,
+        decimal_places=2,
+        default=0.00,
+        help_text="Total denormalizado para agregações (dashboard). Atualizado no write path.",
+    )
+    stored_paid_amount = MoneyField(
+        verbose_name="Total pago armazenado da O.S.",
+        max_digits=14,
+        decimal_places=2,
+        default=0.00,
+        help_text="Soma denormalizada dos planos de pagamento. Atualizado no write path.",
+    )
 
     def save(self, *args, **kwargs):
         if self.budget_id:
@@ -125,7 +140,7 @@ class WorkOrder(TimeStampedModel):
         return (
             self.items.select_related("product", "service", "kit")
             .prefetch_related(
-                "kit_overrides",
+                workorder_kit_overrides_prefetch(),
                 "kit__kit_products__product",
                 "kit__kit_services__service",
             )
@@ -183,6 +198,9 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def total_labor_cost_value(self) -> Money:
+        # Dashboard/list total-only paths: with slider==0, labor cost does not change total_budget_value.
+        if getattr(self, "_skip_mechanic_labor_cost", False):
+            return Money(0, "BRL")
         duracao_em_horas = Decimal(self._raw_labor_duration().total_seconds()) / Decimal(3600)
         return self.mechanic_hour_cost_value * duracao_em_horas
 
@@ -209,6 +227,29 @@ class WorkOrder(TimeStampedModel):
             delattr(self, "_pricing_snapshot_cache")
         if hasattr(self, "_product_issue_summary_cache"):
             delattr(self, "_product_issue_summary_cache")
+
+    def refresh_stored_total_amount(self) -> None:
+        if self.pk is None:
+            return
+        total = self.total_budget_value
+        type(self).objects.filter(pk=self.pk).update(stored_total_amount=total)
+        self.stored_total_amount = total
+
+    def refresh_stored_paid_amount(self) -> None:
+        if self.pk is None:
+            return
+        paid = self.paid_value
+        type(self).objects.filter(pk=self.pk).update(stored_paid_amount=paid)
+        self.stored_paid_amount = paid
+
+    def refresh_stored_amounts(self) -> None:
+        if self.pk is None:
+            return
+        total = self.total_budget_value
+        paid = self.paid_value
+        type(self).objects.filter(pk=self.pk).update(stored_total_amount=total, stored_paid_amount=paid)
+        self.stored_total_amount = total
+        self.stored_paid_amount = paid
 
     @property
     def product_issue_summary(self) -> ProductIssueSummary:
@@ -384,6 +425,7 @@ class WorkOrder(TimeStampedModel):
 
         self.save(update_fields=update_fields)
         self.invalidate_pricing_snapshot_cache()
+        self.refresh_stored_total_amount()
 
     def set_km_final(self, km_final: int) -> None:
         self.km_final = km_final
@@ -688,7 +730,7 @@ class WorkOrder(TimeStampedModel):
         budget_items = list(
             self.budget.items.select_related("product", "service", "kit")
             .prefetch_related(
-                "kit_overrides",
+                budget_kit_overrides_prefetch(),
                 "kit__kit_products__product",
                 "kit__kit_services__service",
             )
@@ -765,6 +807,7 @@ class WorkOrder(TimeStampedModel):
             self.collaborators.set(collaborator_ids)
 
             self.invalidate_pricing_snapshot_cache()
+            self.refresh_stored_amounts()
 
             sync_workorder_financial_movement(workorder=self)
 
@@ -773,6 +816,10 @@ class WorkOrder(TimeStampedModel):
         verbose_name_plural = "Ordens de Serviço"
         permissions = [
             ("reopen_workorder", "Can Reopen Ordem de Serviço"),
+        ]
+        indexes = [
+            models.Index(fields=["workshop", "status", "delivered_at"], name="workorder_ws_status_deliv_idx"),
+            models.Index(fields=["workshop", "status", "criado_em"], name="workorder_ws_status_criado_idx"),
         ]
 
     def __str__(self):
@@ -791,6 +838,9 @@ class WorkOrderPaymentMethod(TimeStampedModel):
     class Meta:
         verbose_name = "Plano de Pagamento"
         verbose_name_plural = "Planos de Pagamento"
+        indexes = [
+            models.Index(fields=["due_date", "workorder"], name="wo_payment_due_wo_idx"),
+        ]
 
     @property
     def total_paid(self) -> Money:
@@ -798,6 +848,18 @@ class WorkOrderPaymentMethod(TimeStampedModel):
 
     def __str__(self):
         return f"Plano de Pagamento #{self.id} - {self.payment_method}"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        if self.workorder_id:
+            self.workorder.refresh_stored_paid_amount()
+
+    def delete(self, *args, **kwargs):
+        workorder = self.workorder if self.workorder_id else None
+        result = super().delete(*args, **kwargs)
+        if workorder is not None:
+            workorder.refresh_stored_paid_amount()
+        return result
 
 
 class WorkOrderAttachment(TimeStampedModel):
@@ -1000,9 +1062,18 @@ class WorkOrderItem(TimeStampedModel):
             self.ensure_kit_snapshot()
 
         self.workorder.invalidate_pricing_snapshot_cache()
+        self.workorder.refresh_stored_total_amount()
 
         if self.product_id and not self.is_customer_supplied:
             record_product_last_used_price(product=self.product, price=self.product_selling_price)
+
+    def delete(self, *args, **kwargs):
+        workorder = self.workorder if self.workorder_id else None
+        result = super().delete(*args, **kwargs)
+        if workorder is not None:
+            workorder.invalidate_pricing_snapshot_cache()
+            workorder.refresh_stored_total_amount()
+        return result
 
     @property
     def item_type(self) -> str:
@@ -1025,22 +1096,34 @@ class WorkOrderItem(TimeStampedModel):
 
         return f"{hours:02d}h {minutes:02d}m"
 
+    def _cached_kit_overrides(self) -> list["WorkOrderKitItemOverride"]:
+        """Return kit overrides using prefetch cache when available (no write-on-read)."""
+        prefetched = getattr(self, "_prefetched_objects_cache", {}).get("kit_overrides")
+        if prefetched is not None:
+            return list(prefetched)
+
+        cached = getattr(self, "_kit_overrides_list_cache", None)
+        if cached is not None:
+            return cached
+
+        cached = list(self.kit_overrides.all())
+        setattr(self, "_kit_overrides_list_cache", cached)
+        return cached
+
     def _iter_frozen_kit_product_overrides(self):
-        """Yield non-zero-quantity product overrides, creating snapshot if needed."""
+        """Yield non-zero-quantity product overrides without ensure_kit_snapshot on read."""
         if not self.kit_id:
             return
-        self.ensure_kit_snapshot()
-        for override in self.kit_overrides.filter(product__isnull=False).select_related("product").all():
-            if override.quantity > 0:
+        for override in self._cached_kit_overrides():
+            if override.product_id and override.quantity > 0:
                 yield override
 
     def _iter_frozen_kit_service_overrides(self):
-        """Yield non-zero-quantity service overrides, creating snapshot if needed."""
+        """Yield non-zero-quantity service overrides without ensure_kit_snapshot on read."""
         if not self.kit_id:
             return
-        self.ensure_kit_snapshot()
-        for override in self.kit_overrides.filter(service__isnull=False).select_related("service").all():
-            if override.quantity > 0:
+        for override in self._cached_kit_overrides():
+            if override.service_id and override.quantity > 0:
                 yield override
 
     def _get_kit_override_maps(self) -> tuple[dict[int, "WorkOrderKitItemOverride"], dict[int, "WorkOrderKitItemOverride"]]:
@@ -1049,13 +1132,10 @@ class WorkOrderItem(TimeStampedModel):
         if cache is not None:
             return cache
 
-        if self.kit_id:
-            self.ensure_kit_snapshot()
-
         product_overrides: dict[int, "WorkOrderKitItemOverride"] = {}
         service_overrides: dict[int, "WorkOrderKitItemOverride"] = {}
 
-        for override in self.kit_overrides.all():
+        for override in self._cached_kit_overrides():
             if override.product_id:
                 product_overrides[override.product_id] = override
             if override.service_id:

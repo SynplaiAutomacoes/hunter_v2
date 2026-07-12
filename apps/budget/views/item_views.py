@@ -30,6 +30,7 @@ from .shared import (
     _calculate_service_prices,
     _check_concurrent_budget_lock,
     _build_concurrent_budget_lock_response,
+    _get_budget_for_summary,
     _get_budget_for_workshop,
     _get_budget_item_for_workshop,
     _get_budget_workshop_cost,
@@ -841,7 +842,7 @@ class BudgetSummaryView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "view_budget"
 
     def get(self, request, budget_id):
-        budget = _get_budget_for_workshop(self.workshop, budget_id)
+        budget = _get_budget_for_summary(self.workshop, budget_id)
         return render(request, "budget/partials/components/budget_summary.html", {"budget": budget})
 
 

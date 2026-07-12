@@ -51,6 +51,8 @@ class JsonFormatter(logging.Formatter):
         route = getattr(record, "route", None)
         query_count = getattr(record, "query_count", None)
         sql_time_ms = getattr(record, "sql_time_ms", None)
+        dependency_time_ms = getattr(record, "dependency_time_ms", None)
+        dependency_call_count = getattr(record, "dependency_call_count", None)
         response_bytes = getattr(record, "response_bytes", None)
 
         log_entry: dict[str, Any] = {
@@ -92,6 +94,10 @@ class JsonFormatter(logging.Formatter):
             log_entry["query_count"] = query_count
         if sql_time_ms is not None:
             log_entry["sql_time_ms"] = sql_time_ms
+        if dependency_time_ms is not None:
+            log_entry["dependency_time_ms"] = dependency_time_ms
+        if dependency_call_count is not None:
+            log_entry["dependency_call_count"] = dependency_call_count
         if response_bytes is not None:
             log_entry["response_bytes"] = response_bytes
 

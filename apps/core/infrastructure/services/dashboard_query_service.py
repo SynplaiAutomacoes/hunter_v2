@@ -2,26 +2,30 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, TypeVar
 
-from _decimal import Decimal
-from django.db.models import DecimalField, ExpressionWrapper, F, Prefetch, Sum
+from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum, Value
+from django.db.models.functions import Coalesce, Greatest
 from django.utils import timezone
+from djmoney.money import Money
 
-from apps.budget.models import Budget, BudgetItem, BudgetStatus, BudgetType
-from apps.budget.pdf_context import calculate_markup_multiplier
+from apps.budget.models import Budget, BudgetStatus, BudgetType
 from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.core.domain.services.dashboard_service import DashboardMetrics
+from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch, budget_kit_overrides_prefetch, workorder_items_with_kit_prefetch, workorder_kit_overrides_prefetch
 from apps.core.observability import build_business_metric_attributes, record_business_operation
-from apps.finance.models import FinancialGroup, FinancialMovement
-from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderStatus
-from apps.workshops.models.workshop_costs import WorkshopCost
+from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
+from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.models.workshops import Workshop
+from apps.workshops.util.monthly_costs import get_mechanic_salary_monthly_cost
 
 logger = logging.getLogger(__name__)
+_T = TypeVar("_T")
 
 # ─── Module-level constants ───────────────────────────────────────────────────
 
@@ -43,6 +47,10 @@ MONTH_LABELS_PT: list[str] = [
     "Novembro",
     "Dezembro",
 ]
+
+# Re-export shared kit Prefetch helpers (select_related product/service on overrides).
+_BUDGET_KIT_OVERRIDES_PREFETCH = budget_kit_overrides_prefetch()
+_WORKORDER_KIT_OVERRIDES_PREFETCH = workorder_kit_overrides_prefetch()
 
 OPEN_BUDGET_STATUSES: tuple[str, ...] = (
     BudgetStatus.DRAFT,
@@ -76,23 +84,8 @@ INDICATOR_LABELS: dict[str, tuple[str, str]] = {
 # Each Prefetch pre-loads item relations so Budget/WorkOrder._iter_items()
 # finds results in _prefetched_objects_cache["items"] and avoids N+1 queries.
 
-_BUDGET_ITEMS_PREFETCH = Prefetch(
-    "items",
-    queryset=BudgetItem.objects.select_related("product", "service", "kit").prefetch_related(
-        "kit_overrides",
-        "kit__kit_products__product",
-        "kit__kit_services__service",
-    ),
-)
-
-_WORKORDER_ITEMS_PREFETCH = Prefetch(
-    "items",
-    queryset=WorkOrderItem.objects.select_related("product", "service", "kit").prefetch_related(
-        "kit_overrides",
-        "kit__kit_products__product",
-        "kit__kit_services__service",
-    ),
-)
+_BUDGET_ITEMS_PREFETCH = budget_items_with_kit_prefetch()
+_WORKORDER_ITEMS_PREFETCH = workorder_items_with_kit_prefetch()
 
 
 # ─── Value objects (result types for each query) ──────────────────────────────
@@ -235,11 +228,80 @@ def _get_workorder_ids_from_payments(*, workshop_id: int, month: int, year: int)
     )
 
 
-def _calculate_dre_local_cost(workorder: WorkOrder) -> Decimal:
+def _mark_budget_read_only(budget: Budget | None) -> None:
+    if budget is not None:
+        setattr(budget, "_read_only_pricing_context", True)
+
+
+def _build_injected_pricing_context(*, workshop: Workshop, workshop_cost: WorkshopCost | None) -> SimpleNamespace:
+    productive_salary_total = Money(0, "BRL")
+    working_hours_per_month = Decimal("0.00")
+    hourly_cost_value = Money(0, "BRL")
+    profitability_multiplier = Decimal("1.00")
+    minimum_hourly_cost = Money(0, "BRL")
+    month = None
+    year = None
+
+    if workshop_cost is not None:
+        month = workshop_cost.month
+        year = workshop_cost.year
+        working_hours_per_month = workshop_cost.working_hours_per_month or Decimal("0.00")
+        hourly_cost_value = workshop_cost.hourly_cost_value or Money(0, "BRL")
+        profitability_multiplier = workshop_cost.profitability_multiplier or Decimal("1.00")
+        minimum_hourly_cost = workshop_cost.minimum_hourly_cost or Money(0, "BRL")
+        mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=workshop)
+        if mechanic_salary_obj is not None:
+            salary_item = WorkshopCostItem.objects.filter(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).first()
+            if salary_item is not None:
+                productive_salary_total = salary_item.amount
+
+    return SimpleNamespace(
+        minimum_hourly_cost=minimum_hourly_cost,
+        hourly_cost_value=hourly_cost_value,
+        profitability_multiplier=profitability_multiplier,
+        working_hours_per_month=working_hours_per_month,
+        productive_salary_total=productive_salary_total,
+        month=month,
+        year=year,
+    )
+
+
+def _prepare_budget_for_dashboard_pricing(
+    budget: Budget | None,
+    *,
+    pricing_context: SimpleNamespace | None = None,
+    for_totals_only: bool = False,
+) -> None:
+    if budget is None:
+        return
+    _mark_budget_read_only(budget)
+    if pricing_context is not None:
+        setattr(budget, "_injected_pricing_context", pricing_context)
+    # Slider 0: labor cost does not change total_budget_value (see build_pricing_snapshot).
+    if for_totals_only and int(getattr(budget, "slider", 0) or 0) == 0:
+        setattr(budget, "_skip_mechanic_labor_cost", True)
+
+
+def _prepare_workorder_for_dashboard_pricing(
+    workorder: WorkOrder,
+    *,
+    pricing_context: SimpleNamespace | None = None,
+    for_totals_only: bool = False,
+) -> None:
+    _prepare_budget_for_dashboard_pricing(
+        workorder.budget,
+        pricing_context=pricing_context,
+        for_totals_only=for_totals_only,
+    )
+    if for_totals_only and workorder.budget is not None and int(getattr(workorder.budget, "slider", 0) or 0) == 0:
+        setattr(workorder, "_skip_mechanic_labor_cost", True)
+
+
+def _mechanic_cost_from_snapshot(*, workorder: WorkOrder, snapshot) -> Decimal:
     budget = workorder.budget
     if budget is None:
         return Decimal("0.00")
-    snapshot = budget.pricing_snapshot
+    _mark_budget_read_only(budget)
     total = Decimal("0.00")
     for line in snapshot.service_lines:
         if line.third_party:
@@ -255,23 +317,33 @@ def _calculate_dre_local_cost(workorder: WorkOrder) -> Decimal:
     return total
 
 
-def _aggregate_costs(*, workorder_ids: list[int]) -> tuple[int, int, int, int]:
+def _aggregate_costs(*, workorder_ids: list[int]) -> tuple[Decimal, Decimal, Decimal, Decimal]:
     workorders = list(
         WorkOrder.objects.filter(
             pk__in=workorder_ids,
             delivered_at__isnull=False,
         )
-        .select_related("budget")
+        .select_related("budget__workshop")
         .prefetch_related(_WORKORDER_ITEMS_PREFETCH)
     )
-    total_pcost = sum(resolve_decimal_amount(wo.total_costs_products_value) for wo in workorders)
-    total_third_party = sum(resolve_decimal_amount(wo.total_third_party_services_cost) for wo in workorders)
-    total_mechanic = sum(_calculate_dre_local_cost(wo) for wo in workorders)
-    total_shipping = sum(resolve_decimal_amount(wo.total_products_shipping) for wo in workorders)
-    print(f"total_pcost: {total_pcost}")
-    print(f"total_third_party: {total_third_party}")
-    print(f"total_mechanic: {total_mechanic}")
-    print(f"total_shipping: {total_shipping}")
+    total_pcost = Decimal("0.00")
+    total_third_party = Decimal("0.00")
+    total_mechanic = Decimal("0.00")
+    total_shipping = Decimal("0.00")
+    for workorder in workorders:
+        _prepare_workorder_for_dashboard_pricing(workorder, for_totals_only=False)
+        snapshot = workorder.pricing_snapshot
+        total_pcost += resolve_decimal_amount(snapshot.total_costs_products_value)
+        total_third_party += resolve_decimal_amount(snapshot.total_third_party_services_cost)
+        total_shipping += resolve_decimal_amount(snapshot.total_products_shipping)
+        total_mechanic += _mechanic_cost_from_snapshot(workorder=workorder, snapshot=snapshot)
+    logger.debug(
+        "aggregate_costs total_pcost=%s total_third_party=%s total_mechanic=%s total_shipping=%s",
+        total_pcost,
+        total_third_party,
+        total_mechanic,
+        total_shipping,
+    )
     return total_pcost, total_third_party, total_mechanic, total_shipping
 
 
@@ -288,13 +360,24 @@ def count_elapsed_business_days(*, workshop_cost: WorkshopCost, today: date) -> 
 
 def resolve_indicator_row_amount(*, item: Any, indicator: str, is_budget_report: bool) -> Decimal:
     if is_budget_report:
+        stored = getattr(item, "stored_total_amount", None)
+        if stored is not None:
+            return resolve_decimal_amount(stored)
         if indicator == "reprovados":
             return resolve_decimal_amount(item.display_total_budget_value)
         return resolve_decimal_amount(item.total_budget_value)
 
     if indicator.startswith("a_receber"):
+        stored_total = getattr(item, "stored_total_amount", None)
+        stored_paid = getattr(item, "stored_paid_amount", None)
+        if stored_total is not None and stored_paid is not None:
+            pending = resolve_decimal_amount(stored_total) - resolve_decimal_amount(stored_paid)
+            return max(pending, Decimal("0.00"))
         return resolve_decimal_amount(item.pending_payment_value)
 
+    stored_total = getattr(item, "stored_total_amount", None)
+    if stored_total is not None:
+        return resolve_decimal_amount(stored_total)
     return resolve_decimal_amount(item.total_budget_value)
 
 
@@ -442,15 +525,56 @@ class DashboardQueryService:
 
     def compute(self, workshop: Workshop, selected_month: int, selected_year: int) -> DashboardMetrics:
         started_at = time.perf_counter()
+        section_timings_ms: dict[str, float] = {}
         hoje = timezone.localdate()
         workshop_id = workshop.pk
 
-        workshop_cost = WorkshopCost.objects.filter(workshop_id=workshop_id, month=selected_month, year=selected_year).first()
+        def _run_section(section_name: str, callback: Callable[[], _T]) -> _T:
+            section_started_at = time.perf_counter()
+            result = callback()
+            section_timings_ms[section_name] = round((time.perf_counter() - section_started_at) * 1000, 2)
+            return result
 
-        approved_budget_metrics = self._get_approved_budget_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
-        sale_workorders, warranty_workorders = self._get_delivered_workorders(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
-        total_sold = self._calculate_total_sold(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
-        today_sales = self._calculate_today_sales(workshop_id=workshop_id, today=hoje)
+        workshop_cost = _run_section(
+            "workshop_cost",
+            lambda: WorkshopCost.objects.filter(workshop_id=workshop_id, month=selected_month, year=selected_year).first(),
+        )
+        pricing_context = _build_injected_pricing_context(workshop=workshop, workshop_cost=workshop_cost)
+
+        approved_budget_metrics = _run_section(
+            "approved_budget_metrics",
+            lambda: self._get_approved_budget_metrics(
+                workshop_id=workshop_id,
+                selected_month=selected_month,
+                selected_year=selected_year,
+                pricing_context=pricing_context,
+            ),
+        )
+        sale_workorders, warranty_workorders = _run_section(
+            "delivered_workorders",
+            lambda: self._get_delivered_workorders(
+                workshop_id=workshop_id,
+                selected_month=selected_month,
+                selected_year=selected_year,
+                pricing_context=pricing_context,
+            ),
+        )
+        cars_this_month, warranty_courtesy_cars, warranty_return_rate = _run_section(
+            "delivery_counts",
+            lambda: self._compute_delivery_counts_sql(
+                workshop_id=workshop_id,
+                selected_month=selected_month,
+                selected_year=selected_year,
+            ),
+        )
+        total_sold = _run_section(
+            "total_sold",
+            lambda: self._calculate_total_sold(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
+        )
+        today_sales = _run_section(
+            "today_sales",
+            lambda: self._calculate_today_sales(workshop_id=workshop_id, today=hoje),
+        )
 
         logger.info(
             "Dashboard total vendido calculado | workshop_id=%s mes=%s ano=%s total_vendido=%s",
@@ -460,21 +584,55 @@ class DashboardQueryService:
             str(total_sold),
         )
 
-        approval_rate_metrics = self._get_approval_rate_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
-        pending_receivable_metrics = self._get_pending_receivable_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
-        pending_budget_metrics = self._get_pending_budget_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
-        total_rejected_budgets = self._get_rejected_budget_total(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
+        approval_rate_metrics = _run_section(
+            "approval_rate_metrics",
+            lambda: self._get_approval_rate_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
+        )
+        pending_receivable_metrics = _run_section(
+            "pending_receivable_metrics",
+            lambda: self._get_pending_receivable_metrics(
+                workshop_id=workshop_id,
+                selected_month=selected_month,
+                selected_year=selected_year,
+                pricing_context=pricing_context,
+            ),
+        )
+        pending_budget_metrics = _run_section(
+            "pending_budget_metrics",
+            lambda: self._get_pending_budget_metrics(
+                workshop_id=workshop_id,
+                selected_month=selected_month,
+                selected_year=selected_year,
+                pricing_context=pricing_context,
+            ),
+        )
+        total_rejected_budgets = _run_section(
+            "rejected_budget_total",
+            lambda: self._get_rejected_budget_total(
+                workshop_id=workshop_id,
+                selected_month=selected_month,
+                selected_year=selected_year,
+                pricing_context=pricing_context,
+            ),
+        )
 
-        cars_this_month, warranty_courtesy_cars, warranty_return_rate = self._compute_delivery_counts(sale_workorders=sale_workorders, warranty_workorders=warranty_workorders)
         average_ticket = total_sold / cars_this_month if cars_this_month > 0 else Decimal("0.00")
-        approval_rate = (approval_rate_metrics.approved_count / approval_rate_metrics.created_count * 100) if approval_rate_metrics.created_count > 0 else 0
+        approval_rate = (
+            (approval_rate_metrics.approved_count / approval_rate_metrics.created_count * 100) if approval_rate_metrics.created_count > 0 else 0
+        )
 
-        projection_data = self._compute_projection(workshop_cost=workshop_cost, total_sold=total_sold, today=hoje)
-        target_data = self._compute_target_metrics(
-            workshop_cost=workshop_cost,
-            total_sold=total_sold,
-            projection=projection_data["projection"],
-            elapsed_days=projection_data["elapsed_days"],
+        projection_data = _run_section(
+            "projection",
+            lambda: self._compute_projection(workshop_cost=workshop_cost, total_sold=total_sold, today=hoje),
+        )
+        target_data = _run_section(
+            "target_metrics",
+            lambda: self._compute_target_metrics(
+                workshop_cost=workshop_cost,
+                total_sold=total_sold,
+                projection=projection_data["projection"],
+                elapsed_days=projection_data["elapsed_days"],
+            ),
         )
 
         duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
@@ -494,6 +652,7 @@ class DashboardQueryService:
                 "workshop_id": workshop_id,
                 "selected_month": selected_month,
                 "selected_year": selected_year,
+                "section_timings_ms": section_timings_ms,
             },
         )
 
@@ -559,6 +718,29 @@ class DashboardQueryService:
         cars_this_month = sum(1 for wo in sale_workorders if wo.budget.reference_budget_id is None)
         warranty_courtesy_cars = sum(1 for wo in warranty_workorders if wo.budget.reference_budget_id is None)
         warranty_count = sum(1 for wo in warranty_workorders if wo.budget_type == "warranty")
+        total_cars_with_warranty = cars_this_month + warranty_count
+        warranty_return_rate = warranty_count / total_cars_with_warranty * 100 if total_cars_with_warranty > 0 else 0
+        return cars_this_month, warranty_courtesy_cars, warranty_return_rate
+
+    @staticmethod
+    def _compute_delivery_counts_sql(*, workshop_id: int, selected_month: int, selected_year: int) -> tuple[int, int, float]:
+        delivered = WorkOrder.objects.filter(
+            workshop_id=workshop_id,
+            status=WorkOrderStatus.APPROVED,
+            delivered_at__month=selected_month,
+            delivered_at__year=selected_year,
+        )
+        counts = delivered.aggregate(
+            cars_this_month=Count("pk", filter=Q(budget_type="sale", budget__reference_budget_id__isnull=True)),
+            warranty_courtesy_cars=Count(
+                "pk",
+                filter=Q(budget_type__in=("warranty", "courtesy"), budget__reference_budget_id__isnull=True),
+            ),
+            warranty_count=Count("pk", filter=Q(budget_type="warranty")),
+        )
+        cars_this_month = int(counts["cars_this_month"] or 0)
+        warranty_courtesy_cars = int(counts["warranty_courtesy_cars"] or 0)
+        warranty_count = int(counts["warranty_count"] or 0)
         total_cars_with_warranty = cars_this_month + warranty_count
         warranty_return_rate = warranty_count / total_cars_with_warranty * 100 if total_cars_with_warranty > 0 else 0
         return cars_this_month, warranty_courtesy_cars, warranty_return_rate
@@ -668,7 +850,13 @@ class DashboardQueryService:
         return result["total"] or Decimal("0.00")
 
     @staticmethod
-    def _get_delivered_workorders(*, workshop_id: int, selected_month: int, selected_year: int) -> tuple[list[WorkOrder], list[WorkOrder]]:
+    def _get_delivered_workorders(
+        *,
+        workshop_id: int,
+        selected_month: int,
+        selected_year: int,
+        pricing_context: SimpleNamespace | None = None,
+    ) -> tuple[list[WorkOrder], list[WorkOrder]]:
         all_workorders = list(
             WorkOrder.objects.filter(
                 workshop_id=workshop_id,
@@ -676,25 +864,44 @@ class DashboardQueryService:
                 delivered_at__month=selected_month,
                 delivered_at__year=selected_year,
             )
-            .select_related("budget__customer", "budget__vehicle")
+            .select_related("budget__customer", "budget__vehicle", "budget__reference_budget", "budget__workshop")
             .prefetch_related(_WORKORDER_ITEMS_PREFETCH)
             .order_by("delivered_at", "pk")
         )
+        for workorder in all_workorders:
+            _prepare_workorder_for_dashboard_pricing(workorder, pricing_context=pricing_context, for_totals_only=True)
+            # Cache display total once so the template does not rebuild pricing repeatedly.
+            setattr(workorder, "dashboard_display_total", workorder.total_budget_value)
         sale_workorders = [wo for wo in all_workorders if wo.budget_type == "sale"]
         warranty_workorders = [wo for wo in all_workorders if wo.budget_type in ("warranty", "courtesy")]
         return sale_workorders, warranty_workorders
 
     @staticmethod
-    def _get_approved_budget_metrics(*, workshop_id: int, selected_month: int, selected_year: int) -> ApprovedBudgetMetrics:
+    def _get_approved_budget_metrics(
+        *,
+        workshop_id: int,
+        selected_month: int,
+        selected_year: int,
+        pricing_context: SimpleNamespace | None = None,
+    ) -> ApprovedBudgetMetrics:
         approved_budgets = list(
             Budget.objects.filter(
                 workshop_id=workshop_id,
                 status=BudgetStatus.APPROVED,
                 entry_date__month=selected_month,
                 entry_date__year=selected_year,
-            ).prefetch_related(_BUDGET_ITEMS_PREFETCH)
+            )
+            .select_related("workshop")
+            .prefetch_related(_BUDGET_ITEMS_PREFETCH)
         )
-        profitabilities = [b.rentability for b in approved_budgets if b.rentability is not None]
+        profitabilities: list[Any] = []
+        for budget in approved_budgets:
+            # Injected pricing context covers WorkshopCost; markup is aggregated separately.
+            # totals-only is enough for rentability averages (no per-budget markup rebuild).
+            _prepare_budget_for_dashboard_pricing(budget, pricing_context=pricing_context, for_totals_only=True)
+            rentability = budget.rentability
+            if rentability is not None:
+                profitabilities.append(rentability)
         accumulated_profitability = sum(profitabilities) / len(profitabilities) if profitabilities else 0
         accumulated_markup = calculate_aggregate_markup(workshop_id=workshop_id, month=selected_month, year=selected_year)
         return ApprovedBudgetMetrics(
@@ -724,27 +931,39 @@ class DashboardQueryService:
         return ApprovalRateMetrics(created_count=created_count, approved_count=approved_count)
 
     @staticmethod
-    def _get_pending_receivable_metrics(*, workshop_id: int, selected_month: int, selected_year: int) -> PendingReceivableMetrics:
-        """Computes total pending receivable for all draft OSs, split by current vs previous months.
-        Requires items and payments prefetched to calculate pending_payment_value without N+1 queries.
-        """
-        draft_workorders = list(
+    def _get_pending_receivable_metrics(
+        *,
+        workshop_id: int,
+        selected_month: int,
+        selected_year: int,
+        pricing_context: SimpleNamespace | None = None,
+    ) -> PendingReceivableMetrics:
+        """Computes total pending receivable for draft OSs, split by current vs previous months."""
+        del pricing_context  # Totals come from stored denormalized amounts.
+        decimal_out = DecimalField(max_digits=14, decimal_places=2)
+        pending_expr = Greatest(
+            Coalesce(F("stored_total_amount"), Value(Decimal("0.00"))) - Coalesce(F("stored_paid_amount"), Value(Decimal("0.00"))),
+            Value(Decimal("0.00")),
+            output_field=decimal_out,
+        )
+        aggregates = (
             WorkOrder.objects.filter(
                 workshop_id=workshop_id,
                 status=WorkOrderStatus.DRAFT,
+                budget__isnull=False,
             )
-            .select_related("budget")
-            .prefetch_related(_WORKORDER_ITEMS_PREFETCH, "payments")
+            .annotate(pending_amount=pending_expr)
+            .aggregate(
+                total_general=Coalesce(Sum("pending_amount"), Value(Decimal("0.00")), output_field=decimal_out),
+                monthly=Coalesce(
+                    Sum("pending_amount", filter=Q(criado_em__month=selected_month, criado_em__year=selected_year)),
+                    Value(Decimal("0.00")),
+                    output_field=decimal_out,
+                ),
+            )
         )
-
-        total_general = Decimal("0.00")
-        monthly = Decimal("0.00")
-        for workorder in draft_workorders:
-            pending_value = resolve_decimal_amount(workorder.pending_payment_value)
-            total_general += pending_value
-            if workorder.criado_em and workorder.criado_em.month == selected_month and workorder.criado_em.year == selected_year:
-                monthly += pending_value
-
+        total_general = aggregates["total_general"] or Decimal("0.00")
+        monthly = aggregates["monthly"] or Decimal("0.00")
         return PendingReceivableMetrics(
             total_general=total_general,
             monthly=monthly,
@@ -752,19 +971,32 @@ class DashboardQueryService:
         )
 
     @staticmethod
-    def _get_pending_budget_metrics(*, workshop_id: int, selected_month: int, selected_year: int) -> PendingBudgetMetrics:
-        pending_budgets = list(
-            Budget.objects.filter(
-                workshop_id=workshop_id,
-                budget_type=BudgetType.SALE,
-                status__in=OPEN_BUDGET_STATUSES,
-            ).prefetch_related(_BUDGET_ITEMS_PREFETCH)
+    def _get_pending_budget_metrics(
+        *,
+        workshop_id: int,
+        selected_month: int,
+        selected_year: int,
+        pricing_context: SimpleNamespace | None = None,
+    ) -> PendingBudgetMetrics:
+        del pricing_context  # Totals come from stored denormalized amounts.
+        decimal_out = DecimalField(max_digits=14, decimal_places=2)
+        aggregates = Budget.objects.filter(
+            workshop_id=workshop_id,
+            budget_type=BudgetType.SALE,
+            status__in=OPEN_BUDGET_STATUSES,
+        ).aggregate(
+            total_general=Coalesce(Sum("stored_total_amount"), Value(Decimal("0.00")), output_field=decimal_out),
+            monthly=Coalesce(
+                Sum(
+                    "stored_total_amount",
+                    filter=Q(entry_date__month=selected_month, entry_date__year=selected_year),
+                ),
+                Value(Decimal("0.00")),
+                output_field=decimal_out,
+            ),
         )
-        total_general = sum((b.total_budget_value.amount for b in pending_budgets), Decimal("0.00"))
-        monthly = sum(
-            (b.total_budget_value.amount for b in pending_budgets if b.entry_date and b.entry_date.month == selected_month and b.entry_date.year == selected_year),
-            Decimal("0.00"),
-        )
+        total_general = aggregates["total_general"] or Decimal("0.00")
+        monthly = aggregates["monthly"] or Decimal("0.00")
         return PendingBudgetMetrics(
             total_general=total_general,
             monthly=monthly,
@@ -772,19 +1004,22 @@ class DashboardQueryService:
         )
 
     @staticmethod
-    def _get_rejected_budget_total(*, workshop_id: int, selected_month: int, selected_year: int) -> Decimal:
-        rejected_budgets = list(
-            Budget.objects.filter(
-                workshop_id=workshop_id,
-                status__in=REJECTED_BUDGET_STATUS_VALUES,
-                entry_date__month=selected_month,
-                entry_date__year=selected_year,
-            ).prefetch_related(_BUDGET_ITEMS_PREFETCH)
-        )
-        return sum(
-            (resolve_decimal_amount(b.display_total_budget_value) for b in rejected_budgets),
-            Decimal("0.00"),
-        )
+    def _get_rejected_budget_total(
+        *,
+        workshop_id: int,
+        selected_month: int,
+        selected_year: int,
+        pricing_context: SimpleNamespace | None = None,
+    ) -> Decimal:
+        del pricing_context  # Totals come from stored denormalized amounts.
+        decimal_out = DecimalField(max_digits=14, decimal_places=2)
+        result = Budget.objects.filter(
+            workshop_id=workshop_id,
+            status__in=REJECTED_BUDGET_STATUS_VALUES,
+            entry_date__month=selected_month,
+            entry_date__year=selected_year,
+        ).aggregate(total=Coalesce(Sum("stored_total_amount"), Value(Decimal("0.00")), output_field=decimal_out))
+        return result["total"] or Decimal("0.00")
 
 
 # ─── Indicator query config ───────────────────────────────────────────────────
@@ -891,7 +1126,7 @@ def get_financial_indicator_data(
         return items, is_budget_report, total_label
 
     total = sum(
-        (resolve_decimal_amount(getattr(item, value_field)) for item in items),
+        (resolve_indicator_row_amount(item=item, indicator=indicator, is_budget_report=is_budget_report) for item in items),
         Decimal("0.00"),
     )
     return items, is_budget_report, _format_brl(total)

@@ -106,8 +106,17 @@ O projeto usa `os.getenv(...)` diretamente em `config/settings.py` e em alguns p
 | `BUDGET_POLL_INTERVAL_SECONDS` | polling do budget event stream |
 | `BUDGET_SSE_CHECK_INTERVAL_SECONDS` | intervalo de verificacao SSE |
 | `PERF_LOGGING_ENABLED` | habilita middleware de performance |
-| `PERF_LOG_QUERIES` | registra queries no log de performance |
-| `PERF_LOG_MIN_MS` | threshold minimo para logar request lenta |
+| `PERF_LOG_QUERIES` | registra queries no log de performance via `SqlTimingWrapper` |
+| `PERF_LOG_MIN_MS` | threshold minimo para logar request lenta em `WARNING` |
+| `NFSE_DEBUG_LOGS` | libera logs debug de NFS-e (default off) |
+| `TAX_CLASS_DEBUG_LOGS` | libera logs debug de classes fiscais (default off) |
+| `ENVIRONMENT` | ambiente (`development`, `staging`, `production`) |
+| `GUNICORN_WORKERS` | quantidade de workers Gunicorn |
+| `GUNICORN_THREADS` | threads por worker |
+| `GUNICORN_TIMEOUT` | timeout do worker em segundos |
+| `GUNICORN_GRACEFUL_TIMEOUT` | graceful timeout |
+| `GUNICORN_MAX_REQUESTS` | reciclagem de worker apos N requests |
+| `GUNICORN_MAX_REQUESTS_JITTER` | jitter da reciclagem |
 | `FIPE_SYNC_EVERY_ACCESS` | sincroniza catalogo FIPE em todo acesso relevante de cadastro de veiculo |
 | `FIPE_SYNC_ACCESS_INTERVAL` | sincroniza catalogo FIPE a cada N acessos relevantes quando o modo sempre ativo estiver desligado |
 | `FIPE_FUEL_CACHE_TTL_HOURS` | validade do cache local de combustiveis por modelo |
@@ -188,6 +197,11 @@ BUDGET_SSE_CHECK_INTERVAL_SECONDS=3
 PERF_LOGGING_ENABLED=0
 PERF_LOG_QUERIES=0
 PERF_LOG_MIN_MS=300
+NFSE_DEBUG_LOGS=0
+TAX_CLASS_DEBUG_LOGS=0
+ENVIRONMENT=development
+GUNICORN_WORKERS=2
+GUNICORN_THREADS=4
 
 FIPE_SYNC_EVERY_ACCESS=0
 FIPE_SYNC_ACCESS_INTERVAL=500

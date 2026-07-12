@@ -244,6 +244,10 @@ class DependencyCall:
         )
         record_dependency_call(duration_ms=duration_ms, attributes=attributes)
 
+        from apps.core.logging_filters import record_dependency_timing
+
+        record_dependency_timing(duration_ms)
+
         log_extra: dict[str, Any] = {
             "dependency_type": self._dependency_type,
             "dependency_name": self._dependency_name,

@@ -50,23 +50,22 @@ def build_default_service_description_for_workorder(*, workorder: Any) -> str:
 
 
 def _is_debug_enabled() -> bool:
-    return bool(getattr(settings, "NFSE_DEBUG_LOGS", True))
+    return bool(getattr(settings, "NFSE_DEBUG_LOGS", False))
 
 
 def _debug_print(message: str, payload: Any | None = None) -> None:
     if not _is_debug_enabled():
         return
 
-    prefix = "[NFS-E DEBUG]"
     if payload is None:
-        print(f"{prefix} {message}")
+        logger.debug("nfse_debug %s", message)
         return
 
     try:
         serialized = json.dumps(payload, ensure_ascii=False, default=str)
     except TypeError:
         serialized = str(payload)
-    print(f"{prefix} {message}: {serialized}")
+    logger.debug("nfse_debug %s: %s", message, serialized)
 
 
 def _redact_headers(headers: dict[str, str]) -> dict[str, str]:

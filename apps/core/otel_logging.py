@@ -16,11 +16,48 @@ from opentelemetry.sdk._logs import LoggerProvider
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+from opentelemetry.sdk.metrics.view import ExplicitBucketHistogramAggregation, View
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import set_tracer_provider
 
+
+# Default OTEL ms histogram tops out near 10s and caps p95/p99 for slow routes (~97s dashboard).
+_DURATION_MS_BOUNDARIES: tuple[float, ...] = (
+    5.0,
+    10.0,
+    25.0,
+    50.0,
+    75.0,
+    100.0,
+    250.0,
+    500.0,
+    750.0,
+    1000.0,
+    2500.0,
+    5000.0,
+    7500.0,
+    10000.0,
+    15000.0,
+    30000.0,
+    60000.0,
+    90000.0,
+    120000.0,
+    180000.0,
+)
+
+_DURATION_HISTOGRAM_VIEWS: tuple[View, ...] = tuple(
+    View(
+        instrument_name=instrument_name,
+        aggregation=ExplicitBucketHistogramAggregation(boundaries=list(_DURATION_MS_BOUNDARIES)),
+    )
+    for instrument_name in (
+        "http.server.request.duration",
+        "business.operation.duration",
+        "dependency.client.duration",
+    )
+)
 
 _LOG_RECORD_STANDARD_ATTRS: frozenset[str] = frozenset(
     {
@@ -100,7 +137,13 @@ def setup_otel(
         OTLPMetricExporter(headers=headers),
         export_interval_millis=metric_export_interval_millis,
     )
-    metrics.set_meter_provider(MeterProvider(resource=resource, metric_readers=[metric_reader]))
+    metrics.set_meter_provider(
+        MeterProvider(
+            resource=resource,
+            metric_readers=[metric_reader],
+            views=list(_DURATION_HISTOGRAM_VIEWS),
+        )
+    )
 
     # Auto-instrumentation
     DjangoInstrumentor().instrument()

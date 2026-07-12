@@ -1,10 +1,10 @@
 from django import forms
-from django.db.models import Prefetch
 from django.template.loader import render_to_string
 
 from apps.catalog.product_issues import annotate_product_issues
 from apps.budget.review_display import build_budget_review_display
 from apps.budget.service_costs import calculate_mechanic_service_cost
+from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch
 
 MAX_BUDGET_IMAGES = 10
 MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024
@@ -51,23 +51,20 @@ def _get_budget_with_prefetched_items(budget):
     if getattr(budget, "_items_prefetched_for_render", False):
         return budget
 
-    from apps.budget.models import Budget, BudgetItem
+    # Reuse already-prefetched items on the same instance when present.
+    if getattr(budget, "_prefetched_objects_cache", {}).get("items") is not None:
+        setattr(budget, "_items_prefetched_for_render", True)
+        setattr(budget, "_read_only_pricing_context", True)
+        return budget
+
+    from apps.budget.models import Budget
 
     prefetched_budget = (
         Budget.objects.filter(pk=budget.pk)
         .select_related("customer", "vehicle")
         .prefetch_related(
             "collaborators",
-            Prefetch(
-                "items",
-                queryset=BudgetItem.objects.select_related("product", "service", "kit")
-                .prefetch_related(
-                    "kit_overrides",
-                    "kit__kit_products__product",
-                    "kit__kit_services__service",
-                )
-                .order_by("id"),
-            ),
+            budget_items_with_kit_prefetch(with_kit_tree=True),
         )
         .first()
     )
@@ -76,6 +73,7 @@ def _get_budget_with_prefetched_items(budget):
         return budget
 
     setattr(prefetched_budget, "_items_prefetched_for_render", True)
+    setattr(prefetched_budget, "_read_only_pricing_context", True)
     return prefetched_budget
 
 

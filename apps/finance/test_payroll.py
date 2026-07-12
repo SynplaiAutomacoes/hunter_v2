@@ -93,6 +93,45 @@ class PayrollListViewTests(TestCase):
         self.assertEqual(pending_row["commission_amount"], Money(150, "BRL"))
         self.assertEqual(pending_row["total_amount"], Money(2150, "BRL"))
 
+    def test_pending_collaborator_rows_query_count_does_not_scale_per_collaborator(self) -> None:
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from apps.collaborators.models import CollaboratorBenefit
+
+        workshop = create_workshop(suffix=92)
+        collaborators = [create_collaborator(workshop=workshop, suffix=200 + index) for index in range(5)]
+        for index, collaborator in enumerate(collaborators):
+            CollaboratorBenefit.objects.create(
+                collaborator=collaborator,
+                name=f"Beneficio {index}",
+                monthly_amount=Money(50, "BRL"),
+                is_active=True,
+            )
+            workorder = create_workorder(workshop=workshop, budget_type="sale")
+            CollaboratorCommissionEntry.objects.create(
+                workshop=workshop,
+                collaborator=collaborator,
+                workorder=workorder,
+                reference_year=2026,
+                reference_month=11,
+                base_amount=Money(1000, "BRL"),
+                commission_amount=Money(100, "BRL"),
+                percentage=0.1,
+            )
+
+        view = PayrollListView()
+        view.request = RequestFactory().get("/finance/folha-pagamento/", {"mes": 11, "ano": 2026})
+        view.workshop = workshop
+        filters = view._get_filter_params()
+
+        with CaptureQueriesContext(connection) as ctx:
+            rows = view._get_pending_collaborator_rows(filters=filters, existing_collaborator_ids=set())
+
+        self.assertEqual(len(rows), 5)
+        # Prefetch benefits + one commission batch + one WorkshopCost lookup — not N per collaborator.
+        self.assertLessEqual(len(ctx), 12)
+
     def test_monthly_sync_skips_collaborators_with_existing_payroll_and_financial_movement(self) -> None:
         workshop = create_workshop(suffix=20)
         synced_collaborator = create_collaborator(workshop=workshop, suffix=20)

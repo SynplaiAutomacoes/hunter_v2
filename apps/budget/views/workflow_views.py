@@ -10,7 +10,6 @@ from django.conf import settings
 from django import forms
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Prefetch
 from django.db.models import Q
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
@@ -24,7 +23,12 @@ from djmoney.money import Money
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
 from apps.budget.documents.provider import build_budget_status_report_pdf_render_request, render_budget_status_report_pdf_document
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
-from apps.budget.models import Budget, BudgetHistory, BudgetItem, BudgetStatus, SignatureStatus, BudgetType, PricingMethod
+from apps.budget.models import Budget, BudgetHistory, BudgetStatus, SignatureStatus, BudgetType, PricingMethod
+from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch
+from apps.core.infrastructure.services.dashboard_query_service import (
+    _build_injected_pricing_context,
+    _prepare_budget_for_dashboard_pricing,
+)
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.budget.service import SuperSignError, send_budget_for_signature
 from apps.budget.views.shared import reset_steps_after_step_4
@@ -320,23 +324,25 @@ class BudgetStatusReportDataMixin:
 
         return urlencode(query_params, doseq=True)
 
-    def _get_budget_base_queryset(self):
+    def _get_budget_base_queryset(self, *, for_pricing: bool = False):
+        queryset = (
+            Budget.objects.filter(workshop=self.workshop)
+            .select_related("customer", "vehicle", "reference_budget")
+            .prefetch_related("collaborators")
+        )
+        if not for_pricing:
+            return queryset
+
+        # List/report pricing needs items + kit_overrides (with catalog FKs).
+        # Kit catalog tree is only needed for incomplete snapshots / deep reports.
+        return queryset.prefetch_related(budget_items_with_kit_prefetch(with_kit_tree=False))
+
+    def _get_budget_report_queryset(self):
         return (
             Budget.objects.filter(workshop=self.workshop)
-            .select_related("customer", "vehicle")
+            .select_related("customer", "vehicle", "reference_budget")
             .prefetch_related("collaborators")
-            .prefetch_related(
-                Prefetch(
-                    "items",
-                    queryset=BudgetItem.objects.select_related("product", "service", "kit")
-                    .prefetch_related(
-                        "kit_overrides",
-                        "kit__kit_products__product",
-                        "kit__kit_services__service",
-                    )
-                    .order_by("id"),
-                )
-            )
+            .prefetch_related(budget_items_with_kit_prefetch(with_kit_tree=True))
         )
 
     def _get_budget_table_fields(self) -> list[TableColumn]:
@@ -351,8 +357,8 @@ class BudgetStatusReportDataMixin:
             TableColumn(str(Budget.status.field.verbose_name), attr="budget_status_badge", search_by="status", format="status_badge"),
         ]
 
-    def _get_filtered_budget_queryset(self):
-        queryset = self._get_budget_base_queryset()
+    def _get_filtered_budget_queryset(self, *, for_pricing: bool = True, for_report: bool = False):
+        queryset = self._get_budget_report_queryset() if for_report else self._get_budget_base_queryset(for_pricing=for_pricing)
 
         queryset = apply_query_param_filters(
             queryset,
@@ -364,12 +370,26 @@ class BudgetStatusReportDataMixin:
 
         return queryset.order_by("-pk", "-entry_date")
 
+    def _get_list_pricing_context(self):
+        today = timezone.localdate()
+        workshop_cost = WorkshopCost.objects.filter(workshop=self.workshop, month=today.month, year=today.year).first()
+        return _build_injected_pricing_context(workshop=self.workshop, workshop_cost=workshop_cost)
+
+    def _prepare_budgets_for_list_pricing(self, budgets: list[Budget], *, for_totals_only: bool = True) -> list[Budget]:
+        pricing_context = self._get_list_pricing_context()
+        for budget in budgets:
+            _prepare_budget_for_dashboard_pricing(budget, pricing_context=pricing_context, for_totals_only=for_totals_only)
+        return budgets
+
     def _get_selection_report_items(self) -> list[Budget]:
         cached = getattr(self, "_selection_report_items_cache", None)
         if cached is not None:
             return cached
 
-        items = list(self._get_filtered_budget_queryset())
+        items = self._prepare_budgets_for_list_pricing(
+            list(self._get_filtered_budget_queryset(for_report=True)),
+            for_totals_only=True,
+        )
         self._selection_report_items_cache = items
         return items
 
@@ -446,7 +466,7 @@ class BudgetListView(LoginRequiredMixin, BudgetStatusReportDataMixin, WorkshopSc
     paginate_by = 20
 
     def get_queryset(self):
-        return self._get_filtered_budget_queryset()
+        return self._get_filtered_budget_queryset(for_pricing=True, for_report=False)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -454,7 +474,8 @@ class BudgetListView(LoginRequiredMixin, BudgetStatusReportDataMixin, WorkshopSc
         # com paginate_by fatia o queryset antes de expô-lo no contexto, o que
         # impede o render_table de chamar .filter() depois. Passamos o queryset
         # completo para que o render_table gerencie paginação e busca corretamente.
-        context["budget"] = self.object_list
+        # Read-only pricing flags avoid freeze_pricing_snapshot write-on-read per row.
+        context["budget"] = self._prepare_budgets_for_list_pricing(list(self.get_queryset()), for_totals_only=True)
         context["fields"] = self._get_budget_table_fields()
         context["actions"] = [
             TableActionDefaults.edit("budget:budget_update"),
