@@ -398,7 +398,25 @@ class WorkOrderStatusReportDataMixin:
             TableColumn("Status", attr="workorder_status_badge", search_by="status", format="status_badge"),
         ]
 
-    def _get_workorder_base_queryset(self):
+    def _get_workorder_base_queryset(self, *, for_pricing: bool = True):
+        queryset = WorkOrder.objects.filter(workshop=self.workshop).select_related(
+            "budget",
+            "budget__customer",
+            "budget__vehicle",
+        )
+        if not for_pricing:
+            return queryset
+
+        return queryset.prefetch_related(
+            Prefetch(
+                "items",
+                queryset=WorkOrderItem.objects.select_related("product", "service", "kit")
+                .prefetch_related("kit_overrides")
+                .order_by("id"),
+            )
+        )
+
+    def _get_workorder_report_queryset(self):
         return (
             WorkOrder.objects.filter(workshop=self.workshop)
             .select_related("budget", "budget__customer", "budget__vehicle")
@@ -416,8 +434,8 @@ class WorkOrderStatusReportDataMixin:
             )
         )
 
-    def _get_filtered_workorder_queryset(self):
-        queryset = self._get_workorder_base_queryset()
+    def _get_filtered_workorder_queryset(self, *, for_report: bool = False):
+        queryset = self._get_workorder_report_queryset() if for_report else self._get_workorder_base_queryset(for_pricing=True)
 
         queryset = apply_query_param_filters(
             queryset,
@@ -432,7 +450,10 @@ class WorkOrderStatusReportDataMixin:
         if cached is not None:
             return cached
 
-        items = list(self._get_filtered_workorder_queryset())
+        items = list(self._get_filtered_workorder_queryset(for_report=True))
+        for workorder in items:
+            if workorder.budget_id:
+                setattr(workorder.budget, "_read_only_pricing_context", True)
         self._selection_report_items_cache = items
         return items
 

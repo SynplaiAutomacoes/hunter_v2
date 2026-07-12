@@ -234,11 +234,18 @@ def _get_workorder_ids_from_payments(*, workshop_id: int, month: int, year: int)
     )
 
 
+def _mark_budget_read_only(budget: Budget | None) -> None:
+    if budget is not None:
+        setattr(budget, "_read_only_pricing_context", True)
+
+
 def _calculate_dre_local_cost(workorder: WorkOrder) -> Decimal:
     budget = workorder.budget
     if budget is None:
         return Decimal("0.00")
-    snapshot = budget.pricing_snapshot
+    _mark_budget_read_only(budget)
+    # Prefer workorder snapshot (items already prefetched on WO) over budget.pricing_snapshot.
+    snapshot = workorder.pricing_snapshot
     total = Decimal("0.00")
     for line in snapshot.service_lines:
         if line.third_party:
@@ -254,7 +261,7 @@ def _calculate_dre_local_cost(workorder: WorkOrder) -> Decimal:
     return total
 
 
-def _aggregate_costs(*, workorder_ids: list[int]) -> tuple[int, int, int, int]:
+def _aggregate_costs(*, workorder_ids: list[int]) -> tuple[Decimal, Decimal, Decimal, Decimal]:
     workorders = list(
         WorkOrder.objects.filter(
             pk__in=workorder_ids,
@@ -263,6 +270,8 @@ def _aggregate_costs(*, workorder_ids: list[int]) -> tuple[int, int, int, int]:
         .select_related("budget")
         .prefetch_related(_WORKORDER_ITEMS_PREFETCH)
     )
+    for workorder in workorders:
+        _mark_budget_read_only(workorder.budget)
     total_pcost = sum(resolve_decimal_amount(wo.total_costs_products_value) for wo in workorders)
     total_third_party = sum(resolve_decimal_amount(wo.total_third_party_services_cost) for wo in workorders)
     total_mechanic = sum(_calculate_dre_local_cost(wo) for wo in workorders)
@@ -724,10 +733,14 @@ class DashboardQueryService:
                 delivered_at__month=selected_month,
                 delivered_at__year=selected_year,
             )
-            .select_related("budget__customer", "budget__vehicle")
+            .select_related("budget__customer", "budget__vehicle", "budget__reference_budget")
             .prefetch_related(_WORKORDER_ITEMS_PREFETCH)
             .order_by("delivered_at", "pk")
         )
+        for workorder in all_workorders:
+            _mark_budget_read_only(workorder.budget)
+            # Cache display total once so the template does not rebuild pricing repeatedly.
+            setattr(workorder, "dashboard_display_total", workorder.total_budget_value)
         sale_workorders = [wo for wo in all_workorders if wo.budget_type == "sale"]
         warranty_workorders = [wo for wo in all_workorders if wo.budget_type in ("warranty", "courtesy")]
         return sale_workorders, warranty_workorders
@@ -742,7 +755,12 @@ class DashboardQueryService:
                 entry_date__year=selected_year,
             ).prefetch_related(_BUDGET_ITEMS_PREFETCH)
         )
-        profitabilities = [b.rentability for b in approved_budgets if b.rentability is not None]
+        profitabilities: list[Any] = []
+        for budget in approved_budgets:
+            _mark_budget_read_only(budget)
+            rentability = budget.rentability
+            if rentability is not None:
+                profitabilities.append(rentability)
         accumulated_profitability = sum(profitabilities) / len(profitabilities) if profitabilities else 0
         accumulated_markup = calculate_aggregate_markup(workshop_id=workshop_id, month=selected_month, year=selected_year)
         return ApprovedBudgetMetrics(
@@ -773,9 +791,7 @@ class DashboardQueryService:
 
     @staticmethod
     def _get_pending_receivable_metrics(*, workshop_id: int, selected_month: int, selected_year: int) -> PendingReceivableMetrics:
-        """Computes total pending receivable for all draft OSs, split by current vs previous months.
-        Requires items and payments prefetched to calculate pending_payment_value without N+1 queries.
-        """
+        """Computes total pending receivable for draft OSs, split by current vs previous months."""
         draft_workorders = list(
             WorkOrder.objects.filter(
                 workshop_id=workshop_id,
@@ -788,6 +804,7 @@ class DashboardQueryService:
         total_general = Decimal("0.00")
         monthly = Decimal("0.00")
         for workorder in draft_workorders:
+            _mark_budget_read_only(workorder.budget)
             pending_value = resolve_decimal_amount(workorder.pending_payment_value)
             total_general += pending_value
             if workorder.criado_em and workorder.criado_em.month == selected_month and workorder.criado_em.year == selected_year:
@@ -808,11 +825,14 @@ class DashboardQueryService:
                 status__in=OPEN_BUDGET_STATUSES,
             ).prefetch_related(_BUDGET_ITEMS_PREFETCH)
         )
-        total_general = sum((b.total_budget_value.amount for b in pending_budgets), Decimal("0.00"))
-        monthly = sum(
-            (b.total_budget_value.amount for b in pending_budgets if b.entry_date and b.entry_date.month == selected_month and b.entry_date.year == selected_year),
-            Decimal("0.00"),
-        )
+        total_general = Decimal("0.00")
+        monthly = Decimal("0.00")
+        for budget in pending_budgets:
+            _mark_budget_read_only(budget)
+            amount = budget.total_budget_value.amount
+            total_general += amount
+            if budget.entry_date and budget.entry_date.month == selected_month and budget.entry_date.year == selected_year:
+                monthly += amount
         return PendingBudgetMetrics(
             total_general=total_general,
             monthly=monthly,
@@ -829,10 +849,11 @@ class DashboardQueryService:
                 entry_date__year=selected_year,
             ).prefetch_related(_BUDGET_ITEMS_PREFETCH)
         )
-        return sum(
-            (resolve_decimal_amount(b.display_total_budget_value) for b in rejected_budgets),
-            Decimal("0.00"),
-        )
+        total = Decimal("0.00")
+        for budget in rejected_budgets:
+            _mark_budget_read_only(budget)
+            total += resolve_decimal_amount(budget.display_total_budget_value)
+        return total
 
 
 # ─── Indicator query config ───────────────────────────────────────────────────

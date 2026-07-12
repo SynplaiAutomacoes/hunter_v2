@@ -1025,22 +1025,34 @@ class WorkOrderItem(TimeStampedModel):
 
         return f"{hours:02d}h {minutes:02d}m"
 
+    def _cached_kit_overrides(self) -> list["WorkOrderKitItemOverride"]:
+        """Return kit overrides using prefetch cache when available (no write-on-read)."""
+        prefetched = getattr(self, "_prefetched_objects_cache", {}).get("kit_overrides")
+        if prefetched is not None:
+            return list(prefetched)
+
+        cached = getattr(self, "_kit_overrides_list_cache", None)
+        if cached is not None:
+            return cached
+
+        cached = list(self.kit_overrides.all())
+        setattr(self, "_kit_overrides_list_cache", cached)
+        return cached
+
     def _iter_frozen_kit_product_overrides(self):
-        """Yield non-zero-quantity product overrides, creating snapshot if needed."""
+        """Yield non-zero-quantity product overrides without ensure_kit_snapshot on read."""
         if not self.kit_id:
             return
-        self.ensure_kit_snapshot()
-        for override in self.kit_overrides.filter(product__isnull=False).select_related("product").all():
-            if override.quantity > 0:
+        for override in self._cached_kit_overrides():
+            if override.product_id and override.quantity > 0:
                 yield override
 
     def _iter_frozen_kit_service_overrides(self):
-        """Yield non-zero-quantity service overrides, creating snapshot if needed."""
+        """Yield non-zero-quantity service overrides without ensure_kit_snapshot on read."""
         if not self.kit_id:
             return
-        self.ensure_kit_snapshot()
-        for override in self.kit_overrides.filter(service__isnull=False).select_related("service").all():
-            if override.quantity > 0:
+        for override in self._cached_kit_overrides():
+            if override.service_id and override.quantity > 0:
                 yield override
 
     def _get_kit_override_maps(self) -> tuple[dict[int, "WorkOrderKitItemOverride"], dict[int, "WorkOrderKitItemOverride"]]:
@@ -1049,13 +1061,10 @@ class WorkOrderItem(TimeStampedModel):
         if cache is not None:
             return cache
 
-        if self.kit_id:
-            self.ensure_kit_snapshot()
-
         product_overrides: dict[int, "WorkOrderKitItemOverride"] = {}
         service_overrides: dict[int, "WorkOrderKitItemOverride"] = {}
 
-        for override in self.kit_overrides.all():
+        for override in self._cached_kit_overrides():
             if override.product_id:
                 product_overrides[override.product_id] = override
             if override.service_id:

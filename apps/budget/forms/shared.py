@@ -51,6 +51,12 @@ def _get_budget_with_prefetched_items(budget):
     if getattr(budget, "_items_prefetched_for_render", False):
         return budget
 
+    # Reuse already-prefetched items on the same instance when present.
+    if getattr(budget, "_prefetched_objects_cache", {}).get("items") is not None:
+        setattr(budget, "_items_prefetched_for_render", True)
+        setattr(budget, "_read_only_pricing_context", True)
+        return budget
+
     from apps.budget.models import Budget, BudgetItem
 
     prefetched_budget = (
@@ -76,6 +82,7 @@ def _get_budget_with_prefetched_items(budget):
         return budget
 
     setattr(prefetched_budget, "_items_prefetched_for_render", True)
+    setattr(prefetched_budget, "_read_only_pricing_context", True)
     return prefetched_budget
 
 

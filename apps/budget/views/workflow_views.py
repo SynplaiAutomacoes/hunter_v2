@@ -320,10 +320,30 @@ class BudgetStatusReportDataMixin:
 
         return urlencode(query_params, doseq=True)
 
-    def _get_budget_base_queryset(self):
+    def _get_budget_base_queryset(self, *, for_pricing: bool = False):
+        queryset = (
+            Budget.objects.filter(workshop=self.workshop)
+            .select_related("customer", "vehicle", "reference_budget")
+            .prefetch_related("collaborators")
+        )
+        if not for_pricing:
+            return queryset
+
+        # List/report pricing needs items + kit_overrides. Kit catalog tree is only needed for
+        # incomplete snapshots; prefer overrides to keep list queries bounded.
+        return queryset.prefetch_related(
+            Prefetch(
+                "items",
+                queryset=BudgetItem.objects.select_related("product", "service", "kit")
+                .prefetch_related("kit_overrides")
+                .order_by("id"),
+            )
+        )
+
+    def _get_budget_report_queryset(self):
         return (
             Budget.objects.filter(workshop=self.workshop)
-            .select_related("customer", "vehicle")
+            .select_related("customer", "vehicle", "reference_budget")
             .prefetch_related("collaborators")
             .prefetch_related(
                 Prefetch(
@@ -351,8 +371,8 @@ class BudgetStatusReportDataMixin:
             TableColumn(str(Budget.status.field.verbose_name), attr="budget_status_badge", search_by="status", format="status_badge"),
         ]
 
-    def _get_filtered_budget_queryset(self):
-        queryset = self._get_budget_base_queryset()
+    def _get_filtered_budget_queryset(self, *, for_pricing: bool = True, for_report: bool = False):
+        queryset = self._get_budget_report_queryset() if for_report else self._get_budget_base_queryset(for_pricing=for_pricing)
 
         queryset = apply_query_param_filters(
             queryset,
@@ -369,7 +389,9 @@ class BudgetStatusReportDataMixin:
         if cached is not None:
             return cached
 
-        items = list(self._get_filtered_budget_queryset())
+        items = list(self._get_filtered_budget_queryset(for_report=True))
+        for budget in items:
+            setattr(budget, "_read_only_pricing_context", True)
         self._selection_report_items_cache = items
         return items
 
@@ -446,7 +468,7 @@ class BudgetListView(LoginRequiredMixin, BudgetStatusReportDataMixin, WorkshopSc
     paginate_by = 20
 
     def get_queryset(self):
-        return self._get_filtered_budget_queryset()
+        return self._get_filtered_budget_queryset(for_pricing=True, for_report=False)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
