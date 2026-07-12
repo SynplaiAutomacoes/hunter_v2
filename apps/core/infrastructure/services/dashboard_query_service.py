@@ -2,26 +2,25 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from typing import Any
+from typing import Any, TypeVar
 
-from _decimal import Decimal
 from django.db.models import DecimalField, ExpressionWrapper, F, Prefetch, Sum
 from django.utils import timezone
 
 from apps.budget.models import Budget, BudgetItem, BudgetStatus, BudgetType
-from apps.budget.pdf_context import calculate_markup_multiplier
 from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.core.domain.services.dashboard_service import DashboardMetrics
 from apps.core.observability import build_business_metric_attributes, record_business_operation
-from apps.finance.models import FinancialGroup, FinancialMovement
 from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
 
 logger = logging.getLogger(__name__)
+_T = TypeVar("_T")
 
 # ─── Module-level constants ───────────────────────────────────────────────────
 
@@ -445,15 +444,37 @@ class DashboardQueryService:
 
     def compute(self, workshop: Workshop, selected_month: int, selected_year: int) -> DashboardMetrics:
         started_at = time.perf_counter()
+        section_timings_ms: dict[str, float] = {}
         hoje = timezone.localdate()
         workshop_id = workshop.pk
 
-        workshop_cost = WorkshopCost.objects.filter(workshop_id=workshop_id, month=selected_month, year=selected_year).first()
+        def _run_section(section_name: str, callback: Callable[[], _T]) -> _T:
+            section_started_at = time.perf_counter()
+            result = callback()
+            section_timings_ms[section_name] = round((time.perf_counter() - section_started_at) * 1000, 2)
+            return result
 
-        approved_budget_metrics = self._get_approved_budget_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
-        sale_workorders, warranty_workorders = self._get_delivered_workorders(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
-        total_sold = self._calculate_total_sold(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
-        today_sales = self._calculate_today_sales(workshop_id=workshop_id, today=hoje)
+        workshop_cost = _run_section(
+            "workshop_cost",
+            lambda: WorkshopCost.objects.filter(workshop_id=workshop_id, month=selected_month, year=selected_year).first(),
+        )
+
+        approved_budget_metrics = _run_section(
+            "approved_budget_metrics",
+            lambda: self._get_approved_budget_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
+        )
+        sale_workorders, warranty_workorders = _run_section(
+            "delivered_workorders",
+            lambda: self._get_delivered_workorders(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
+        )
+        total_sold = _run_section(
+            "total_sold",
+            lambda: self._calculate_total_sold(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
+        )
+        today_sales = _run_section(
+            "today_sales",
+            lambda: self._calculate_today_sales(workshop_id=workshop_id, today=hoje),
+        )
 
         logger.info(
             "Dashboard total vendido calculado | workshop_id=%s mes=%s ano=%s total_vendido=%s",
@@ -463,21 +484,44 @@ class DashboardQueryService:
             str(total_sold),
         )
 
-        approval_rate_metrics = self._get_approval_rate_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
-        pending_receivable_metrics = self._get_pending_receivable_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
-        pending_budget_metrics = self._get_pending_budget_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
-        total_rejected_budgets = self._get_rejected_budget_total(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year)
+        approval_rate_metrics = _run_section(
+            "approval_rate_metrics",
+            lambda: self._get_approval_rate_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
+        )
+        pending_receivable_metrics = _run_section(
+            "pending_receivable_metrics",
+            lambda: self._get_pending_receivable_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
+        )
+        pending_budget_metrics = _run_section(
+            "pending_budget_metrics",
+            lambda: self._get_pending_budget_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
+        )
+        total_rejected_budgets = _run_section(
+            "rejected_budget_total",
+            lambda: self._get_rejected_budget_total(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
+        )
 
-        cars_this_month, warranty_courtesy_cars, warranty_return_rate = self._compute_delivery_counts(sale_workorders=sale_workorders, warranty_workorders=warranty_workorders)
+        cars_this_month, warranty_courtesy_cars, warranty_return_rate = self._compute_delivery_counts(
+            sale_workorders=sale_workorders,
+            warranty_workorders=warranty_workorders,
+        )
         average_ticket = total_sold / cars_this_month if cars_this_month > 0 else Decimal("0.00")
-        approval_rate = (approval_rate_metrics.approved_count / approval_rate_metrics.created_count * 100) if approval_rate_metrics.created_count > 0 else 0
+        approval_rate = (
+            (approval_rate_metrics.approved_count / approval_rate_metrics.created_count * 100) if approval_rate_metrics.created_count > 0 else 0
+        )
 
-        projection_data = self._compute_projection(workshop_cost=workshop_cost, total_sold=total_sold, today=hoje)
-        target_data = self._compute_target_metrics(
-            workshop_cost=workshop_cost,
-            total_sold=total_sold,
-            projection=projection_data["projection"],
-            elapsed_days=projection_data["elapsed_days"],
+        projection_data = _run_section(
+            "projection",
+            lambda: self._compute_projection(workshop_cost=workshop_cost, total_sold=total_sold, today=hoje),
+        )
+        target_data = _run_section(
+            "target_metrics",
+            lambda: self._compute_target_metrics(
+                workshop_cost=workshop_cost,
+                total_sold=total_sold,
+                projection=projection_data["projection"],
+                elapsed_days=projection_data["elapsed_days"],
+            ),
         )
 
         duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
@@ -497,6 +541,7 @@ class DashboardQueryService:
                 "workshop_id": workshop_id,
                 "selected_month": selected_month,
                 "selected_year": selected_year,
+                "section_timings_ms": section_timings_ms,
             },
         )
 
