@@ -45,7 +45,11 @@ def _normalize_cost_name(value: str) -> str:
 
 
 def get_mechanic_salary_monthly_cost(*, workshop: Workshop) -> MonthlyCost | None:
-    return get_monthly_cost_by_name(workshop=workshop, name=MECHANIC_SALARY_MONTHLY_COST_NAME)
+    if hasattr(workshop, "_mechanic_salary_monthly_cost_cache"):
+        return getattr(workshop, "_mechanic_salary_monthly_cost_cache")
+    result = get_monthly_cost_by_name(workshop=workshop, name=MECHANIC_SALARY_MONTHLY_COST_NAME)
+    setattr(workshop, "_mechanic_salary_monthly_cost_cache", result)
+    return result
 
 
 def get_admin_salary_monthly_cost(*, workshop: Workshop) -> MonthlyCost | None:

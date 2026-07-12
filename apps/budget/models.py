@@ -302,6 +302,10 @@ class Budget(TimeStampedModel):
             setattr(self, field_name, value)
 
     def get_frozen_pricing_context(self):
+        injected = getattr(self, "_injected_pricing_context", None)
+        if injected is not None:
+            return injected
+
         if not self.has_frozen_pricing_snapshot:
             # Avoid write-on-read during list/dashboard pricing (N+1 freezes).
             if getattr(self, "_read_only_pricing_context", False):
@@ -319,6 +323,22 @@ class Budget(TimeStampedModel):
         )
 
     def _get_live_pricing_fallback_context(self) -> SimpleNamespace:
+        cached = getattr(self, "_live_pricing_fallback_cache", None)
+        if cached is not None:
+            return cached
+
+        reference_date = self._get_pricing_reference_date()
+        cache_key = (reference_date.month, reference_date.year)
+        workshop = self.workshop
+        workshop_cache = getattr(workshop, "_live_pricing_fallback_by_month", None) if workshop is not None else None
+        if workshop_cache is None and workshop is not None:
+            workshop_cache = {}
+            setattr(workshop, "_live_pricing_fallback_by_month", workshop_cache)
+        if workshop_cache is not None and cache_key in workshop_cache:
+            cached = workshop_cache[cache_key]
+            setattr(self, "_live_pricing_fallback_cache", cached)
+            return cached
+
         workshop_cost = self._get_reference_workshop_cost()
         productive_salary_total = Money(0, "BRL")
         working_hours_per_month = Decimal("0.00")
@@ -336,12 +356,16 @@ class Budget(TimeStampedModel):
                 if salary_item is not None:
                     productive_salary_total = salary_item.amount
 
-        return SimpleNamespace(
+        cached = SimpleNamespace(
             hourly_cost_value=hourly_cost_value,
             profitability_multiplier=profitability_multiplier,
             working_hours_per_month=working_hours_per_month,
             productive_salary_total=productive_salary_total,
         )
+        setattr(self, "_live_pricing_fallback_cache", cached)
+        if workshop_cache is not None:
+            workshop_cache[cache_key] = cached
+        return cached
 
     @property
     def get_mlr(self):
@@ -386,7 +410,7 @@ class Budget(TimeStampedModel):
 
         return (valor_orcamento_hun.amount / divisor_mlo) if divisor_mlo > 0 else Decimal("1.00")
 
-    def calculate_pricing_methods(self):
+    def calculate_pricing_methods(self, *, include_method_extras: bool = True):
         fallback_data = self._build_pricing_fallback_data()
         pricing_context = self.get_frozen_pricing_context()
         salario_mecanicos = pricing_context.productive_salary_total
@@ -458,16 +482,21 @@ class Budget(TimeStampedModel):
             "custo_total_mao_obra": custo_total_mao_obra,
             "duracao_total": self.total_duration_display,
             "lucro_operacional": lucro_operacional_hun,
-            "mlr": self.get_mlr,
             "venda_pecas": venda_pecas,
             "venda_servico_terceiro": venda_servico_terceiro,
             "venda_mao_obra": venda_mao_obra_hun,
             "rentabilidade": rentabilidade_hun,
-            "mlo": self.get_mlo,
             "valor_orcamento": valor_orcamento_hun,
         }
 
-        return data_trad if rentabilidade_trad > rentabilidade_hun else data_hun
+        # Prefer traditional when more profitable; only then attach heavy MLR/MLO extras.
+        if rentabilidade_trad > rentabilidade_hun:
+            return data_trad
+
+        if include_method_extras:
+            data_hun["mlr"] = self.get_mlr
+            data_hun["mlo"] = self.get_mlo
+        return data_hun
 
     def _build_pricing_fallback_data(self) -> dict[str, Any]:
         custo_pecas = self.total_costs_products_value
@@ -564,7 +593,7 @@ class Budget(TimeStampedModel):
 
     @property
     def rentability(self) -> Money:
-        data = self.calculate_pricing_methods()
+        data = self.calculate_pricing_methods(include_method_extras=False)
         return data["rentabilidade"]
 
     def _is_local_product_item(self, item: "BudgetItem") -> bool:
@@ -632,6 +661,9 @@ class Budget(TimeStampedModel):
 
     @property
     def total_labor_cost_value(self) -> Money:
+        # Dashboard/list total-only paths: with slider==0, labor cost does not change total_budget_value.
+        if getattr(self, "_skip_mechanic_labor_cost", False):
+            return Money(0, "BRL")
         duracao_em_horas = Decimal(self._raw_labor_duration().total_seconds()) / Decimal(3600)
         return self.mechanic_hour_cost_value * duracao_em_horas
 

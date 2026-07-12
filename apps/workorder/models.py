@@ -183,6 +183,9 @@ class WorkOrder(TimeStampedModel):
 
     @property
     def total_labor_cost_value(self) -> Money:
+        # Dashboard/list total-only paths: with slider==0, labor cost does not change total_budget_value.
+        if getattr(self, "_skip_mechanic_labor_cost", False):
+            return Money(0, "BRL")
         duracao_em_horas = Decimal(self._raw_labor_duration().total_seconds()) / Decimal(3600)
         return self.mechanic_hour_cost_value * duracao_em_horas
 
