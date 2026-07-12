@@ -303,6 +303,9 @@ class Budget(TimeStampedModel):
 
     def get_frozen_pricing_context(self):
         if not self.has_frozen_pricing_snapshot:
+            # Avoid write-on-read during list/dashboard pricing (N+1 freezes).
+            if getattr(self, "_read_only_pricing_context", False):
+                return self._get_live_pricing_fallback_context()
             self.freeze_pricing_snapshot()
 
         return SimpleNamespace(
@@ -1176,19 +1179,31 @@ class BudgetItem(TimeStampedModel):
         self.service_selling_price = service_selling_total
         self.duration = total_duration
 
+    def _cached_kit_overrides(self) -> list["BudgetKitItemOverride"]:
+        """Return kit overrides using prefetch cache when available (no write-on-read)."""
+        prefetched = getattr(self, "_prefetched_objects_cache", {}).get("kit_overrides")
+        if prefetched is not None:
+            return list(prefetched)
+
+        cached = getattr(self, "_kit_overrides_list_cache", None)
+        if cached is not None:
+            return cached
+
+        cached = list(self.kit_overrides.all())
+        setattr(self, "_kit_overrides_list_cache", cached)
+        return cached
+
     def _iter_frozen_kit_product_overrides(self):
         if not self.kit_id:
             return ()
 
-        self.ensure_kit_snapshot()
-        return self.kit_overrides.filter(product__isnull=False).select_related("product").all()
+        return tuple(override for override in self._cached_kit_overrides() if override.product_id)
 
     def _iter_frozen_kit_service_overrides(self):
         if not self.kit_id:
             return ()
 
-        self.ensure_kit_snapshot()
-        return self.kit_overrides.filter(service__isnull=False).select_related("service").all()
+        return tuple(override for override in self._cached_kit_overrides() if override.service_id)
 
     @property
     def duration_display(self):
@@ -1206,13 +1221,10 @@ class BudgetItem(TimeStampedModel):
         if cache is not None:
             return cache
 
-        if self.kit_id:
-            self.ensure_kit_snapshot()
-
         product_overrides: dict[int, "BudgetKitItemOverride"] = {}
         service_overrides: dict[int, "BudgetKitItemOverride"] = {}
 
-        for override in self.kit_overrides.all():
+        for override in self._cached_kit_overrides():
             if override.product_id:
                 product_overrides[override.product_id] = override
             if override.service_id:

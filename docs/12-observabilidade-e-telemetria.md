@@ -53,10 +53,9 @@ Dashboard versionado: `grafana/dashboards/hunter-observability.json` (**Hunter -
 5. Nos explorers de log, use `req=` (`request_id`) para correlacionar com Tempo; `dep=` mostra tempo agregado de dependencias no request.
 6. Registre o baseline apos 24–72h de traffego representativo (ou apos a janela SQL) antes de mudar `GUNICORN_WORKERS` / `GUNICORN_THREADS`.
 
-### Janela SQL em andamento
+### Janela SQL / pos-amostra
 
-Se `PERF_LOG_QUERIES=1` ja estiver ligado em producao/staging: gere trafego nas 4 rotas acima, capture `query_count` / `sql_time_ms` / `% do tempo em SQL` no V2, e **desligue a flag** assim que a amostra for suficiente (minutos a ~1h, nao deixe ligada permanentemente).
-
+Se `PERF_LOG_QUERIES=1` ja estiver ligado: capture a amostra e **volte imediatamente para `PERF_LOG_QUERIES=0` no Railway**. Apos cada PR de remediacao de hotspot, repita uma janela curta so para validar queda de `q`/`sql_time_ms`, depois desligue de novo.
 ## Capacidade Gunicorn (recomendacao inicial)
 
 Defaults em `gunicorn.conf.py`: `2` workers x `4` threads (~8 requests concorrentes).
