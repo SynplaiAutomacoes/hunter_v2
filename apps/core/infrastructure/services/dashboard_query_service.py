@@ -271,10 +271,13 @@ def _aggregate_costs(*, workorder_ids: list[int]) -> tuple[int, int, int, int]:
     total_third_party = sum(resolve_decimal_amount(wo.total_third_party_services_cost) for wo in workorders)
     total_mechanic = sum(_calculate_dre_local_cost(wo) for wo in workorders)
     total_shipping = sum(resolve_decimal_amount(wo.total_products_shipping) for wo in workorders)
-    print(f"total_pcost: {total_pcost}")
-    print(f"total_third_party: {total_third_party}")
-    print(f"total_mechanic: {total_mechanic}")
-    print(f"total_shipping: {total_shipping}")
+    logger.debug(
+        "aggregate_costs total_pcost=%s total_third_party=%s total_mechanic=%s total_shipping=%s",
+        total_pcost,
+        total_third_party,
+        total_mechanic,
+        total_shipping,
+    )
     return total_pcost, total_third_party, total_mechanic, total_shipping
 
 

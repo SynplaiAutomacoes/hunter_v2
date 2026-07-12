@@ -62,19 +62,18 @@ class TaxClassServiceError(Exception):
 
 
 def _is_debug_enabled() -> bool:
-    return bool(getattr(settings, "TAX_CLASS_DEBUG_LOGS", True))
+    return bool(getattr(settings, "TAX_CLASS_DEBUG_LOGS", False))
 
 
 def _debug_print(message: str, payload: Any | None = None) -> None:
     if not _is_debug_enabled():
         return
 
-    prefix = "[TAX CLASS POST DEBUG]"
     if payload is None:
-        print(f"{prefix} {message}")
+        logger.debug("tax_class_debug %s", message)
         return
 
-    print(f"{prefix} {message}", payload)
+    logger.debug("tax_class_debug %s: %s", message, payload)
 
 
 def _build_headers(*, workshop: Workshop) -> dict[str, str]:

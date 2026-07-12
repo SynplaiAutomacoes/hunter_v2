@@ -40,6 +40,8 @@ BUDGET_SSE_CHECK_INTERVAL_SECONDS = float(os.getenv("BUDGET_SSE_CHECK_INTERVAL_S
 PERF_LOGGING_ENABLED = os.getenv("PERF_LOGGING_ENABLED", "0").lower() in ("1", "true", "yes")
 PERF_LOG_QUERIES = os.getenv("PERF_LOG_QUERIES", "0").lower() in ("1", "true", "yes")
 PERF_LOG_MIN_MS = int(os.getenv("PERF_LOG_MIN_MS", "300"))
+NFSE_DEBUG_LOGS = os.getenv("NFSE_DEBUG_LOGS", "0").lower() in ("1", "true", "yes")
+TAX_CLASS_DEBUG_LOGS = os.getenv("TAX_CLASS_DEBUG_LOGS", "0").lower() in ("1", "true", "yes")
 
 # Environment (required for structured logging)
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
@@ -292,8 +294,9 @@ CURRENCY_DECIMAL_PLACES = 2
 PHONENUMBER_DEFAULT_REGION = "BR"
 PHONENUMBER_DEFAULT_FORMAT = "NATIONAL"
 
-DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "DEBUG").upper()
-DJANGO_ROOT_LOG_LEVEL = os.getenv("DJANGO_ROOT_LOG_LEVEL", "DEBUG").upper()
+_DEFAULT_LOG_LEVEL = "INFO" if ENVIRONMENT == "production" else "DEBUG"
+DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", _DEFAULT_LOG_LEVEL).upper()
+DJANGO_ROOT_LOG_LEVEL = os.getenv("DJANGO_ROOT_LOG_LEVEL", _DEFAULT_LOG_LEVEL).upper()
 
 LOGGING = {
     "version": 1,
