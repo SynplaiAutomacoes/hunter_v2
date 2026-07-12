@@ -9,7 +9,7 @@ from django import forms
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
-from django.db.models import Q, Sum
+from django.db.models import Prefetch, Q, Sum
 from django.http import HttpResponse, QueryDict
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
@@ -22,18 +22,21 @@ from django.db import transaction
 
 from djmoney.money import Money
 
-from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
+from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
 from apps.collaborators.services import (
     PAYROLL_COMPONENT_LABELS,
     build_payroll_projection,
-    calculate_transport_allowance_total,
     ensure_payroll_component_movements_confirmed,
     ensure_payroll_movements_confirmed,
     get_payroll_due_date_for_reference,
     get_payroll_movement_diagnosis,
+    get_payroll_movement_diagnoses,
+    get_reference_work_days,
     mark_payroll_as_paid,
     mark_payroll_as_unpaid,
     mark_payroll_commissions_as_paid,
+    mark_payrolls_as_paid,
+    mark_payrolls_as_unpaid,
     payroll_has_financial_movements,
     recalculate_payroll_from_linked_movements,
     refresh_unpaid_payroll_due_dates,
@@ -199,28 +202,39 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             return []
 
         reference_date = date(filters["year"], filters["month"], 1)
-        rows: list[dict[str, Any]] = []
-        for collaborator in self._get_active_collaborators_queryset(filters=filters).order_by("name", "id"):
-            if collaborator.pk in existing_collaborator_ids:
-                continue
+        collaborators = list(
+            self._get_active_collaborators_queryset(filters=filters)
+            .prefetch_related(Prefetch("benefits", queryset=CollaboratorBenefit.objects.filter(is_active=True)))
+            .order_by("name", "id")
+        )
+        pending_collaborators = [collaborator for collaborator in collaborators if collaborator.pk not in existing_collaborator_ids]
+        if not pending_collaborators:
+            return []
 
+        pending_ids = [collaborator.pk for collaborator in pending_collaborators]
+        commission_by_collaborator_id: dict[int, Decimal] = {collaborator_id: Decimal("0.00") for collaborator_id in pending_ids}
+        for entry in CollaboratorCommissionEntry.objects.filter(
+            collaborator_id__in=pending_ids,
+            reference_year=filters["year"],
+            reference_month=filters["month"],
+        ).only("collaborator_id", "commission_amount", "commission_amount_currency"):
+            commission_by_collaborator_id[entry.collaborator_id] = commission_by_collaborator_id.get(entry.collaborator_id, Decimal("0.00")) + Decimal(
+                str(entry.commission_amount.amount or 0)
+            )
+
+        # All pending collaborators share the same workshop — resolve work days once.
+        work_days = get_reference_work_days(collaborator=pending_collaborators[0], reference_date=reference_date)
+
+        rows: list[dict[str, Any]] = []
+        for collaborator in pending_collaborators:
             benefits_amount = sum(
-                (Decimal(str(benefit.monthly_amount.amount or 0)) for benefit in collaborator.benefits.filter(is_active=True)),
+                (Decimal(str(benefit.monthly_amount.amount or 0)) for benefit in collaborator.benefits.all()),
                 start=Decimal("0.00"),
             )
-            commission_amount = sum(
-                (
-                    Decimal(str(entry.commission_amount.amount or 0))
-                    for entry in CollaboratorCommissionEntry.objects.filter(
-                        collaborator=collaborator,
-                        reference_year=filters["year"],
-                        reference_month=filters["month"],
-                    )
-                ),
-                start=Decimal("0.00"),
-            )
+            commission_amount = commission_by_collaborator_id.get(collaborator.pk, Decimal("0.00"))
             salary_amount = Decimal(str(collaborator.salary.amount or 0))
-            transport_amount = Decimal(str(calculate_transport_allowance_total(collaborator=collaborator, reference_date=reference_date).amount or 0))
+            transport_amount = Decimal(str((collaborator.transport_allowance_daily_amount * Decimal(work_days)) or 0))
+            transport_amount = Money(transport_amount, "BRL").amount
             total_amount = salary_amount + transport_amount + benefits_amount + commission_amount
             missing_components: list[str] = []
             if salary_amount > Decimal("0.00"):
@@ -260,7 +274,12 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 
     def _get_queryset(self):
         filters = self._get_filter_params()
-        queryset = CollaboratorPayroll.objects.filter(workshop=self.workshop).select_related("collaborator", "financial_movement").order_by("collaborator__name", "id")
+        queryset = (
+            CollaboratorPayroll.objects.filter(workshop=self.workshop)
+            .select_related("collaborator", "financial_movement")
+            .prefetch_related("financial_movements")
+            .order_by("collaborator__name", "id")
+        )
         if filters["has_modal_date_filter"]:
             if filters["start_date"]:
                 queryset = queryset.filter(due_date__gte=filters["start_date"])
@@ -284,10 +303,11 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         return Decimal(str(getattr(value, "amount", value) or 0))
 
     def _build_rows(self, payrolls: list[CollaboratorPayroll]) -> list[dict[str, Any]]:
+        diagnoses = get_payroll_movement_diagnoses(payrolls=payrolls)
         rows = []
         for payroll in payrolls:
             is_reconciled = bool(payroll.financial_movement and payroll.financial_movement.is_reconciled)
-            diagnosis = get_payroll_movement_diagnosis(payroll=payroll)
+            diagnosis = diagnoses.get(payroll.pk) or get_payroll_movement_diagnosis(payroll=payroll)
             rows.append(
                 {
                     "id": payroll.pk,
@@ -326,7 +346,8 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         page_obj = paginator.get_page(self.request.GET.get("page") or "1")
         payrolls = list(page_obj.object_list)
         existing_rows = self._build_rows(payrolls)
-        pending_rows = self._get_pending_collaborator_rows(filters=filters, existing_collaborator_ids={payroll.collaborator.pk for payroll in queryset})
+        existing_collaborator_ids = set(queryset.values_list("collaborator_id", flat=True))
+        pending_rows = self._get_pending_collaborator_rows(filters=filters, existing_collaborator_ids=existing_collaborator_ids)
         context["payroll_rows"] = existing_rows + pending_rows
         totals = queryset.aggregate(total_payroll_amount=Sum("total_amount"), paid_amount=Sum("total_amount", filter=Q(financial_movement__is_paid=True)))
         total_amount = self._money_amount(totals.get("total_payroll_amount"))
@@ -783,20 +804,17 @@ class PayrollBulkPayView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if not payroll_ids:
             return HttpResponse("Nenhuma folha selecionada.", status=400)
 
-        payrolls = CollaboratorPayroll.objects.filter(
-            pk__in=payroll_ids,
-            workshop=self.workshop,
-        ).select_related("collaborator", "financial_movement")
+        payrolls = list(
+            CollaboratorPayroll.objects.filter(
+                pk__in=payroll_ids,
+                workshop=self.workshop,
+            )
+            .select_related("collaborator", "financial_movement")
+            .prefetch_related("financial_movements")
+        )
 
-        skipped_collaborators: list[str] = []
         with transaction.atomic():
-            for payroll in payrolls:
-                if not payroll_has_financial_movements(payroll=payroll):
-                    skipped_collaborators.append(payroll.collaborator.name)
-                    continue
-                refreshed_payroll = _mark_payroll_as_paid(payroll=payroll)
-                if not payroll_has_financial_movements(payroll=refreshed_payroll):
-                    skipped_collaborators.append(refreshed_payroll.collaborator.name)
+            _, skipped_collaborators = mark_payrolls_as_paid(payrolls=payrolls, paid_at=timezone.localdate())
 
         if request.headers.get("HX-Request"):
             if skipped_collaborators:
@@ -835,15 +853,17 @@ class PayrollBulkUnpayView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if not payroll_ids:
             return HttpResponse("Nenhuma folha selecionada.", status=400)
 
-        payrolls = CollaboratorPayroll.objects.filter(
-            pk__in=payroll_ids,
-            workshop=self.workshop,
-        ).select_related("collaborator", "financial_movement")
+        payrolls = list(
+            CollaboratorPayroll.objects.filter(
+                pk__in=payroll_ids,
+                workshop=self.workshop,
+            )
+            .select_related("collaborator", "financial_movement")
+            .prefetch_related("financial_movements")
+        )
 
         with transaction.atomic():
-            for payroll in payrolls:
-                _mark_payroll_as_unpaid(payroll=payroll)
-                _unmark_payroll_commissions_as_paid(payroll=payroll)
+            mark_payrolls_as_unpaid(payrolls=payrolls)
 
         if request.headers.get("HX-Request"):
             response = HttpResponse()

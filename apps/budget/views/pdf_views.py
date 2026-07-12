@@ -4,6 +4,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, render
 from django.template.loader import render_to_string
+from django.utils import timezone
 from django.views.decorators.clickjacking import xframe_options_exempt
 
 from apps.budget.documents.provider import render_budget_pdf_document
@@ -12,12 +13,17 @@ from apps.budget.pdf_context import build_budget_pdf_context, build_workshop_log
 from apps.budget.service import BUDGET_SIGNATURE_DOCUMENT_ID_KEY, BUDGET_SIGNATURE_TOKEN_SALT, can_use_signed_budget_pdf, should_default_to_signed_budget_pdf
 from apps.checklist.models import Checklist
 from apps.checklist.services.files import ChecklistFileStorageError, read_checklist_pdf_file
-from apps.core.domain.contracts.documents import DocumentPayload
+from apps.core.domain.contracts.documents import DocumentPayload, SignatureTokenError
+from apps.core.domain.contracts.signature import SignatureServiceError
+from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch
 from apps.core.infrastructure.pdf import render_pdf_from_html
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
-from apps.core.domain.contracts.signature import SignatureServiceError
-from apps.core.domain.contracts.documents import SignatureTokenError
 from apps.core.infrastructure.providers import get_signature_service
+from apps.core.infrastructure.services.dashboard_query_service import (
+    _build_injected_pricing_context,
+    _prepare_budget_for_dashboard_pricing,
+)
+from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 
@@ -27,10 +33,31 @@ SIGNED_PDF_VARIANT = "signed"
 BASE_PDF_VARIANT = "base"
 
 
+def _budget_pdf_queryset():
+    return Budget.objects.select_related("customer", "vehicle", "workshop").prefetch_related(
+        budget_items_with_kit_prefetch(with_kit_tree=True),
+        "collaborators",
+    )
+
+
+def _get_budget_for_pdf(*, pk: int, workshop) -> Budget:
+    budget = get_object_or_404(_budget_pdf_queryset(), pk=pk, workshop=workshop)
+    return _prepare_budget_for_pdf_pricing(budget)
+
+
+def _prepare_budget_for_pdf_pricing(budget: Budget) -> Budget:
+    today = timezone.localdate()
+    workshop = budget.workshop
+    workshop_cost = WorkshopCost.objects.filter(workshop=workshop, month=today.month, year=today.year).first()
+    pricing_context = _build_injected_pricing_context(workshop=workshop, workshop_cost=workshop_cost)
+    _prepare_budget_for_dashboard_pricing(budget, pricing_context=pricing_context, for_totals_only=True)
+    return budget
+
+
 @xframe_options_exempt
 def visualizar_pdf(request, pk):
     workshop = get_active_workshop_or_404(request)
-    budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle", "workshop"), pk=pk, workshop=workshop)
+    budget = _get_budget_for_pdf(pk=pk, workshop=workshop)
     context = build_budget_pdf_context(budget=budget, request=request, presentation="selected_items")
 
     return render(request, "budget/partials/pdf/visualizarPDF.html", context)
@@ -39,7 +66,7 @@ def visualizar_pdf(request, pk):
 @xframe_options_exempt
 def visualizar_pdf_gestor(request, pk):
     workshop = get_active_workshop_or_404(request)
-    budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle", "workshop"), pk=pk, workshop=workshop)
+    budget = _get_budget_for_pdf(pk=pk, workshop=workshop)
     context = build_budget_pdf_context(budget=budget, request=request, presentation="selected_items")
 
     return render(request, "budget/partials/pdf/visualizarPDFGestor.html", context)
@@ -48,7 +75,7 @@ def visualizar_pdf_gestor(request, pk):
 @xframe_options_exempt
 def download_pdf_gestor(request, pk):
     workshop = get_active_workshop_or_404(request)
-    budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle", "workshop"), pk=pk, workshop=workshop)
+    budget = _get_budget_for_pdf(pk=pk, workshop=workshop)
     context = build_budget_pdf_context(budget=budget, request=request, presentation="selected_items")
     html = render_to_string("budget/partials/pdf/visualizarPDFGestor.html", context)
     pdf_bytes = render_pdf_from_html(html)
@@ -59,7 +86,7 @@ def download_pdf_gestor(request, pk):
 @xframe_options_exempt
 def visualizar_pdf_mecanico(request, pk):
     workshop = get_active_workshop_or_404(request)
-    budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle", "workshop"), pk=pk, workshop=workshop)
+    budget = _get_budget_for_pdf(pk=pk, workshop=workshop)
     context = build_budget_pdf_context(budget=budget, request=request, presentation="selected_items")
 
     return render(request, "budget/partials/pdf/visualizarPDFMecanico.html", context)
@@ -68,7 +95,7 @@ def visualizar_pdf_mecanico(request, pk):
 @xframe_options_exempt
 def visualizar_pdf_checklist(request, pk):
     workshop = get_active_workshop_or_404(request)
-    budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle"), pk=pk, workshop=workshop)
+    budget = get_object_or_404(_budget_pdf_queryset(), pk=pk, workshop=workshop)
 
     checklist_id = request.GET.get("checklist")
     if not checklist_id:
@@ -162,7 +189,8 @@ def _get_budget_from_signature_token(token):
     except SignatureTokenError:
         raise Http404("Arquivo não encotrado")
 
-    budget = get_object_or_404(Budget.objects.select_related("workshop", "customer", "vehicle"), pk=payload["document_id"])
+    budget = get_object_or_404(_budget_pdf_queryset(), pk=payload["document_id"])
+    _prepare_budget_for_pdf_pricing(budget)
 
     if not budget.signature_token_active:
         raise Http404("Arquivo não encotrado")
@@ -217,7 +245,7 @@ def _get_requested_pdf_variant(request) -> str | None:
 @xframe_options_exempt
 def visualizar_pdf_assinatura(request, pk):
     workshop = get_active_workshop_or_404(request)
-    budget = get_object_or_404(Budget.objects.select_related("workshop"), pk=pk, workshop=workshop)
+    budget = _get_budget_for_pdf(pk=pk, workshop=workshop)
     should_download = request.GET.get("download") == "1"
     requested_variant = _get_requested_pdf_variant(request)
 

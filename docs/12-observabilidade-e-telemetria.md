@@ -41,19 +41,26 @@ Lacunas remanescentes:
 
 ## Como ler o baseline (p50 / p95 / p99)
 
-1. Confirme `ENVIRONMENT=production`, `PERF_LOGGING_ENABLED=1`, `PERF_LOG_QUERIES=0` e OTLP configurado.
-2. Abra o dashboard `hunter-observability` e selecione `$environment`.
+Dashboard versionado: `grafana/dashboards/hunter-observability.json` (**Hunter - Observability V2**). Reimporte no Grafana Cloud apos puxar o JSON.
+
+1. Confirme `ENVIRONMENT=production`, `PERF_LOGGING_ENABLED=1` e OTLP configurado.
+2. Abra o dashboard V2 e selecione `$environment` (production/staging/development) e `$slow_ms` se quiser ajustar o corte de lentidao.
 3. Na linha **Resumo / HTTP Requests**, leia:
    - p50 / p95 / p99 global a partir de `http.server.request.duration`
    - p95 por `http.route`
-   - error rate 5xx por rota
-4. Para SQL, ligue `PERF_LOG_QUERIES=1` apenas em janela curta e use os paineis Loki de `query_count` / `sql_time_ms`.
-5. Para dependencias externas, use os paineis de `dependency.client.duration`.
-6. Registre o baseline apos 24–72h de traffego representativo antes de mudar `GUNICORN_WORKERS` / `GUNICORN_THREADS`.
+   - **Requests ativas** para cruzar com CPU/RAM do host (Gunicorn)
+4. Para SQL / N+1, use janela curta com `PERF_LOG_QUERIES=1`, recarregue as rotas lentas (`core:dashboard`, `budget:budget_list`, `workorder:workorder_list`, `finance:reports_home`) e leia a row **Database SQL**. Depois volte `PERF_LOG_QUERIES=0` (custo alto em steady-state).
+5. Nos explorers de log, use `req=` (`request_id`) para correlacionar com Tempo; `dep=` mostra tempo agregado de dependencias no request.
+6. Registre o baseline apos 24–72h de traffego representativo (ou apos a janela SQL) antes de mudar `GUNICORN_WORKERS` / `GUNICORN_THREADS`.
 
+### Janela SQL / pos-amostra
+
+Se `PERF_LOG_QUERIES=1` ja estiver ligado: capture a amostra e **volte imediatamente para `PERF_LOG_QUERIES=0` no Railway**. Apos cada PR de remediacao de hotspot, repita uma janela curta so para validar queda de `q`/`sql_time_ms`, depois desligue de novo.
 ## Capacidade Gunicorn (recomendacao inicial)
 
 Defaults em `gunicorn.conf.py`: `2` workers x `4` threads (~8 requests concorrentes).
+
+Baseline observado (workshop 19): `core:dashboard` ~97s, listas ~10–14s, com `dependency_*=0`. Nessas condicoes, **aumentar workers/threads nao corrige** o wall-clock de uma unica request CPU/DB-bound; so ajuda a nao enfileirar outras requests enquanto o dashboard trava um worker.
 
 Heuristica apos o baseline:
 
@@ -63,8 +70,24 @@ Heuristica apos o baseline:
 | CPU ~100% / risco de OOM (PDF) | reduzir threads ou aumentar RAM/CPU |
 | 1 vCPU / 512MB–1GB | manter 2 workers, 4–8 threads |
 | 2 vCPU / 2GB | avaliar 3–4 workers com 4–8 threads |
+| Uma rota >30s com deps=0 | otimizar a rota antes de escalar Gunicorn |
 
-Correlacione Railway CPU/RAM com a metrica `http.server.active_requests`.
+Correlacione Railway CPU/RAM com a metrica `http.server.active_requests` (painel **Requests ativas** no Observability V2).
+
+### Histogramas OTEL (p95/p99)
+
+Buckets de duracao em ms foram estendidos ate 180s em `apps/core/otel_logging.py`. Sem isso, o p95 de business/HTTP podia ficar **artificialmente em ~10s** mesmo com requests de ~97s. Apos deploy, reavalie p50/p95/p99 no V2.
+
+### Diagnostico do dashboard
+
+`DashboardQueryService.compute` emite `section_timings_ms` no log `business_operation_completed` (logger `apps.core.infrastructure.services.dashboard_query_service`). Use isso com o `request_id` do explorer V2 para ver qual secao (ex.: `delivered_workorders`, `pending_receivable_metrics`) domina.
+
+Hotspot conhecido (ws=19): N+1 em `kit_overrides.product` / `kit_overrides.service` dentro de `build_pricing_snapshot`. O prefetch do dashboard/listas deve usar `select_related("product", "service")` nos overrides. Apos deploy de remediacao:
+
+1. Janela curta `PERF_LOG_QUERIES=1`
+2. Recarregar `/core/` na oficina afetada
+3. Confirmar queda de `query_count` / `sql_time_ms` / `duration_ms` em `route=core:dashboard` (alvo: dezenas/centenas de queries, nao milhares)
+4. Voltar `PERF_LOG_QUERIES=0`
 ## Stack recomendada
 
 ### Aplicacao Python

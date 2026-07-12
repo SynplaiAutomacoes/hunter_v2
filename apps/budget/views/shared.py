@@ -24,6 +24,21 @@ def _get_budget_for_workshop(workshop, budget_id):
     return get_object_or_404(Budget, id=budget_id, workshop=workshop)
 
 
+def _get_budget_for_summary(workshop, budget_id):
+    from django.db.models import Count, Q
+
+    from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch
+
+    return get_object_or_404(
+        Budget.objects.annotate(
+            annotated_warranty_items_count=Count("items", filter=Q(items__item_benefit_type="warranty"), distinct=True),
+            annotated_courtesy_items_count=Count("items", filter=Q(items__item_benefit_type="courtesy"), distinct=True),
+        ).prefetch_related(budget_items_with_kit_prefetch(with_kit_tree=False)),
+        id=budget_id,
+        workshop=workshop,
+    )
+
+
 def _get_budget_item_for_workshop(workshop, budget_id, item_id, **extra_filters):
     return get_object_or_404(
         BudgetItem,

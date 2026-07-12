@@ -13,6 +13,7 @@ from apps.catalog.models.services import Service
 from apps.catalog.price_tracking import record_product_last_used_price, record_service_last_used_price
 from apps.catalog.product_issues import ProductIssueSummary, annotate_product_issues
 from apps.catalog.util import calculate_catalog_service_prices
+from apps.core.infrastructure.kit_prefetch import budget_kit_overrides_prefetch
 from apps.core.infrastructure.models import TimeStampedModel
 from djmoney.models.fields import MoneyField
 
@@ -158,6 +159,13 @@ class Budget(TimeStampedModel):
     pricing_hourly_cost_value = MoneyField(verbose_name="Valor hora congelado", max_digits=14, decimal_places=2, null=True, blank=True)
     pricing_profitability_multiplier = models.DecimalField(verbose_name="Multiplicador congelado", max_digits=10, decimal_places=2, null=True, blank=True)
     pricing_method = models.CharField(verbose_name="Método de Precificação", max_length=20, choices=PricingMethod.choices, null=True, blank=True)
+    stored_total_amount = MoneyField(
+        verbose_name="Total armazenado do orçamento",
+        max_digits=14,
+        decimal_places=2,
+        default=0.00,
+        help_text="Total denormalizado para agregações (dashboard). Atualizado no write path.",
+    )
 
     # Token SuperSign
     signature_token_version = models.PositiveIntegerField(verbose_name="ID do PDF do Orçamento", default=1)
@@ -167,14 +175,50 @@ class Budget(TimeStampedModel):
     signature_document_id = models.CharField(max_length=255, blank=True, null=True)
     signature_sent_at = models.DateTimeField(blank=True, null=True)
 
-    def save(self, *args, **kwargs):
-        self.sync_discount_fields()
+    # Fields that do not affect pricing totals — skip sync_discount / stored refresh.
+    _METADATA_UPDATE_FIELDS = frozenset(
+        {
+            "status",
+            "current_step",
+            "step5_calculation_viewed",
+            "signature_token_version",
+            "signature_token_active",
+            "signature_request_status",
+            "signature_external_id",
+            "signature_document_id",
+            "signature_sent_at",
+            "cancellation_reason",
+            "customer_agreed_departure_at",
+            "service_expected_completion_at",
+            "entry_date",
+            "expiration_date",
+            "observations",
+            "notes",
+            "problem_description",
+            "technical_diagnosis",
+            "fuel_level",
+            "current_km",
+            "atualizado_em",
+            "criado_em",
+        }
+    )
 
+    def _is_metadata_only_update(self, update_fields: Iterable[str] | None) -> bool:
+        if update_fields is None:
+            return False
+        return bool(update_fields) and set(update_fields).issubset(self._METADATA_UPDATE_FIELDS)
+
+    def save(self, *args, **kwargs):
         update_fields = kwargs.get("update_fields")
-        if update_fields is not None:
-            update_fields_set = set(update_fields)
-            update_fields_set.update({"discount_value", "discount_value_currency", "discount_percentage", "discount_type"})
-            kwargs["update_fields"] = list(update_fields_set)
+        metadata_only = self._is_metadata_only_update(update_fields)
+        skip_stored_refresh = metadata_only or getattr(self, "_skip_stored_total_refresh", False)
+
+        if not metadata_only:
+            self.sync_discount_fields()
+            if update_fields is not None:
+                update_fields_set = set(update_fields)
+                update_fields_set.update({"discount_value", "discount_value_currency", "discount_percentage", "discount_type"})
+                kwargs["update_fields"] = list(update_fields_set)
 
         is_new = self.pk is None
 
@@ -206,9 +250,27 @@ class Budget(TimeStampedModel):
                 self.signature_token_active = False
                 super().save(update_fields=["signature_token_active"])
 
+            if not skip_stored_refresh:
+                self.refresh_stored_total_amount()
+
+    def refresh_stored_total_amount(self) -> None:
+        """Persist live pricing total for dashboard SQL aggregates."""
+        if self.pk is None:
+            return
+        if getattr(self, "_skip_stored_total_refresh", False):
+            return
+        total = self.total_budget_value
+        type(self).objects.filter(pk=self.pk).update(stored_total_amount=total)
+        self.stored_total_amount = total
+
     class Meta:
         verbose_name = "Orçamento"
         verbose_name_plural = "Orçamentos"
+        indexes = [
+            models.Index(fields=["workshop", "status", "entry_date"], name="budget_ws_status_entry_idx"),
+            models.Index(fields=["workshop", "entry_date"], name="budget_ws_entry_idx"),
+            models.Index(fields=["customer", "criado_em"], name="budget_customer_criado_idx"),
+        ]
 
     @property
     def has_frozen_pricing_snapshot(self) -> bool:
@@ -224,10 +286,22 @@ class Budget(TimeStampedModel):
 
     @property
     def warranty_items_count(self) -> int:
+        prefetched = getattr(self, "_prefetched_objects_cache", None)
+        if prefetched is not None and "items" in prefetched:
+            return sum(1 for item in self.items.all() if item.item_benefit_type == "warranty")
+        annotated = getattr(self, "annotated_warranty_items_count", None)
+        if annotated is not None:
+            return int(annotated)
         return self.items.filter(item_benefit_type="warranty").count()
 
     @property
     def courtesy_items_count(self) -> int:
+        prefetched = getattr(self, "_prefetched_objects_cache", None)
+        if prefetched is not None and "items" in prefetched:
+            return sum(1 for item in self.items.all() if item.item_benefit_type == "courtesy")
+        annotated = getattr(self, "annotated_courtesy_items_count", None)
+        if annotated is not None:
+            return int(annotated)
         return self.items.filter(item_benefit_type="courtesy").count()
 
     @staticmethod
@@ -300,9 +374,19 @@ class Budget(TimeStampedModel):
         type(self).objects.filter(pk=self.pk).update(**snapshot_data)
         for field_name, value in snapshot_data.items():
             setattr(self, field_name, value)
+        self.invalidate_pricing_snapshot_cache()
+        # Avoid nested full pricing while resolving labor costs inside pricing_snapshot.
+        # Full Budget.save() / explicit callers refresh stored totals separately.
 
     def get_frozen_pricing_context(self):
+        injected = getattr(self, "_injected_pricing_context", None)
+        if injected is not None:
+            return injected
+
         if not self.has_frozen_pricing_snapshot:
+            # Avoid write-on-read during list/dashboard pricing (N+1 freezes).
+            if getattr(self, "_read_only_pricing_context", False):
+                return self._get_live_pricing_fallback_context()
             self.freeze_pricing_snapshot()
 
         return SimpleNamespace(
@@ -316,6 +400,22 @@ class Budget(TimeStampedModel):
         )
 
     def _get_live_pricing_fallback_context(self) -> SimpleNamespace:
+        cached = getattr(self, "_live_pricing_fallback_cache", None)
+        if cached is not None:
+            return cached
+
+        reference_date = self._get_pricing_reference_date()
+        cache_key = (reference_date.month, reference_date.year)
+        workshop = self.workshop
+        workshop_cache = getattr(workshop, "_live_pricing_fallback_by_month", None) if workshop is not None else None
+        if workshop_cache is None and workshop is not None:
+            workshop_cache = {}
+            setattr(workshop, "_live_pricing_fallback_by_month", workshop_cache)
+        if workshop_cache is not None and cache_key in workshop_cache:
+            cached = workshop_cache[cache_key]
+            setattr(self, "_live_pricing_fallback_cache", cached)
+            return cached
+
         workshop_cost = self._get_reference_workshop_cost()
         productive_salary_total = Money(0, "BRL")
         working_hours_per_month = Decimal("0.00")
@@ -333,12 +433,16 @@ class Budget(TimeStampedModel):
                 if salary_item is not None:
                     productive_salary_total = salary_item.amount
 
-        return SimpleNamespace(
+        cached = SimpleNamespace(
             hourly_cost_value=hourly_cost_value,
             profitability_multiplier=profitability_multiplier,
             working_hours_per_month=working_hours_per_month,
             productive_salary_total=productive_salary_total,
         )
+        setattr(self, "_live_pricing_fallback_cache", cached)
+        if workshop_cache is not None:
+            workshop_cache[cache_key] = cached
+        return cached
 
     @property
     def get_mlr(self):
@@ -383,7 +487,7 @@ class Budget(TimeStampedModel):
 
         return (valor_orcamento_hun.amount / divisor_mlo) if divisor_mlo > 0 else Decimal("1.00")
 
-    def calculate_pricing_methods(self):
+    def calculate_pricing_methods(self, *, include_method_extras: bool = True):
         fallback_data = self._build_pricing_fallback_data()
         pricing_context = self.get_frozen_pricing_context()
         salario_mecanicos = pricing_context.productive_salary_total
@@ -455,16 +559,21 @@ class Budget(TimeStampedModel):
             "custo_total_mao_obra": custo_total_mao_obra,
             "duracao_total": self.total_duration_display,
             "lucro_operacional": lucro_operacional_hun,
-            "mlr": self.get_mlr,
             "venda_pecas": venda_pecas,
             "venda_servico_terceiro": venda_servico_terceiro,
             "venda_mao_obra": venda_mao_obra_hun,
             "rentabilidade": rentabilidade_hun,
-            "mlo": self.get_mlo,
             "valor_orcamento": valor_orcamento_hun,
         }
 
-        return data_trad if rentabilidade_trad > rentabilidade_hun else data_hun
+        # Prefer traditional when more profitable; only then attach heavy MLR/MLO extras.
+        if rentabilidade_trad > rentabilidade_hun:
+            return data_trad
+
+        if include_method_extras:
+            data_hun["mlr"] = self.get_mlr
+            data_hun["mlo"] = self.get_mlo
+        return data_hun
 
     def _build_pricing_fallback_data(self) -> dict[str, Any]:
         custo_pecas = self.total_costs_products_value
@@ -554,14 +663,14 @@ class Budget(TimeStampedModel):
 
     @property
     def collaborator_name(self):
-        collabs = self.collaborators.all()
-        if collabs.exists():
+        collabs = list(self.collaborators.all())
+        if collabs:
             return ", ".join([c.name for c in collabs])
         return "Sistema"
 
     @property
     def rentability(self) -> Money:
-        data = self.calculate_pricing_methods()
+        data = self.calculate_pricing_methods(include_method_extras=False)
         return data["rentabilidade"]
 
     def _is_local_product_item(self, item: "BudgetItem") -> bool:
@@ -578,6 +687,10 @@ class Budget(TimeStampedModel):
         if not self.pk:
             return ()
 
+        cached_items = getattr(self, "_pricing_items_list_cache", None)
+        if cached_items is not None:
+            return cached_items
+
         prefetched_items = getattr(self, "_prefetched_objects_cache", {}).get("items")
         if prefetched_items is not None:
             return prefetched_items
@@ -585,7 +698,7 @@ class Budget(TimeStampedModel):
         return (
             self.items.select_related("product", "service", "kit")
             .prefetch_related(
-                "kit_overrides",
+                budget_kit_overrides_prefetch(),
                 "kit__kit_products__product",
                 "kit__kit_services__service",
             )
@@ -629,6 +742,9 @@ class Budget(TimeStampedModel):
 
     @property
     def total_labor_cost_value(self) -> Money:
+        # Dashboard/list total-only paths: with slider==0, labor cost does not change total_budget_value.
+        if getattr(self, "_skip_mechanic_labor_cost", False):
+            return Money(0, "BRL")
         duracao_em_horas = Decimal(self._raw_labor_duration().total_seconds()) / Decimal(3600)
         return self.mechanic_hour_cost_value * duracao_em_horas
 
@@ -636,15 +752,21 @@ class Budget(TimeStampedModel):
     def pricing_snapshot(self) -> PricingSnapshot:
         cached_snapshot = getattr(self, "_pricing_snapshot_cache", None)
         if cached_snapshot is None:
-            cached_snapshot = build_pricing_snapshot(
-                items=list(self._iter_items()),
-                slider=int(self.slider or 0),
-                discount_value=self.discount_value,
-                discount_percentage=self.discount_percentage,
-                labor_cost_value=self.total_labor_cost_value,
-                is_local_product_item=self._is_local_product_item,
-                is_local_service_item=self._is_local_service_item,
-            )
+            items = list(self._iter_items())
+            setattr(self, "_pricing_items_list_cache", items)
+            try:
+                cached_snapshot = build_pricing_snapshot(
+                    items=items,
+                    slider=int(self.slider or 0),
+                    discount_value=self.discount_value,
+                    discount_percentage=self.discount_percentage,
+                    labor_cost_value=self.total_labor_cost_value,
+                    is_local_product_item=self._is_local_product_item,
+                    is_local_service_item=self._is_local_service_item,
+                )
+            finally:
+                if hasattr(self, "_pricing_items_list_cache"):
+                    delattr(self, "_pricing_items_list_cache")
             setattr(self, "_pricing_snapshot_cache", cached_snapshot)
         return cached_snapshot
 
@@ -653,6 +775,8 @@ class Budget(TimeStampedModel):
             delattr(self, "_pricing_snapshot_cache")
         if hasattr(self, "_product_issue_summary_cache"):
             delattr(self, "_product_issue_summary_cache")
+        if hasattr(self, "_pricing_items_list_cache"):
+            delattr(self, "_pricing_items_list_cache")
 
     def sync_discount_fields(self) -> None:
         self.invalidate_pricing_snapshot_cache()
@@ -663,6 +787,7 @@ class Budget(TimeStampedModel):
         )
         self.discount_value = resolved_discount_value
         self.discount_percentage = resolved_discount_percentage
+        # Invalidate once so the following refresh_stored_total_amount rebuilds with new discounts.
         self.invalidate_pricing_snapshot_cache()
 
     ## Products
@@ -1086,6 +1211,18 @@ class BudgetItem(TimeStampedModel):
         if self.service_id:
             record_service_last_used_price(service=self.service, price=self.service_selling_price)
 
+        if self.budget_id and not getattr(self.budget, "_skip_stored_total_refresh", False):
+            self.budget.invalidate_pricing_snapshot_cache()
+            self.budget.refresh_stored_total_amount()
+
+    def delete(self, *args, **kwargs):
+        budget = self.budget if self.budget_id else None
+        result = super().delete(*args, **kwargs)
+        if budget is not None and not getattr(budget, "_skip_stored_total_refresh", False):
+            budget.invalidate_pricing_snapshot_cache()
+            budget.refresh_stored_total_amount()
+        return result
+
     def _clear_kit_snapshot_caches(self) -> None:
         for cache_name in ("_kit_override_maps_cache", "_kit_unit_totals_cache"):
             if hasattr(self, cache_name):
@@ -1176,19 +1313,31 @@ class BudgetItem(TimeStampedModel):
         self.service_selling_price = service_selling_total
         self.duration = total_duration
 
+    def _cached_kit_overrides(self) -> list["BudgetKitItemOverride"]:
+        """Return kit overrides using prefetch cache when available (no write-on-read)."""
+        prefetched = getattr(self, "_prefetched_objects_cache", {}).get("kit_overrides")
+        if prefetched is not None:
+            return list(prefetched)
+
+        cached = getattr(self, "_kit_overrides_list_cache", None)
+        if cached is not None:
+            return cached
+
+        cached = list(self.kit_overrides.all())
+        setattr(self, "_kit_overrides_list_cache", cached)
+        return cached
+
     def _iter_frozen_kit_product_overrides(self):
         if not self.kit_id:
             return ()
 
-        self.ensure_kit_snapshot()
-        return self.kit_overrides.filter(product__isnull=False).select_related("product").all()
+        return tuple(override for override in self._cached_kit_overrides() if override.product_id)
 
     def _iter_frozen_kit_service_overrides(self):
         if not self.kit_id:
             return ()
 
-        self.ensure_kit_snapshot()
-        return self.kit_overrides.filter(service__isnull=False).select_related("service").all()
+        return tuple(override for override in self._cached_kit_overrides() if override.service_id)
 
     @property
     def duration_display(self):
@@ -1206,13 +1355,10 @@ class BudgetItem(TimeStampedModel):
         if cache is not None:
             return cache
 
-        if self.kit_id:
-            self.ensure_kit_snapshot()
-
         product_overrides: dict[int, "BudgetKitItemOverride"] = {}
         service_overrides: dict[int, "BudgetKitItemOverride"] = {}
 
-        for override in self.kit_overrides.all():
+        for override in self._cached_kit_overrides():
             if override.product_id:
                 product_overrides[override.product_id] = override
             if override.service_id:
