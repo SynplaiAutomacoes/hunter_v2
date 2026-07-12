@@ -739,7 +739,16 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         km_final = approval_form.cleaned_data["km_final"]
         workorder.set_km_final(km_final)
 
-        return JsonResponse({"ok": True, "km_final": km_final})
+        return JsonResponse(
+            {
+                "ok": True,
+                "km_final": km_final,
+                "has_completion_blockers": workorder.has_completion_blockers,
+                "completion_blockers_display": workorder.completion_blockers_display,
+                "has_signature_blockers": workorder.has_signature_blockers,
+                "signature_blockers_display": workorder.signature_blockers_display,
+            }
+        )
 
 
 class UpdateWorkOrderObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
