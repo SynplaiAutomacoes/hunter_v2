@@ -24,7 +24,7 @@ from djmoney.money import Money
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
 from apps.budget.documents.provider import build_budget_status_report_pdf_render_request, render_budget_status_report_pdf_document
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
-from apps.budget.models import Budget, BudgetHistory, BudgetItem, BudgetStatus, SignatureStatus, BudgetType, PricingMethod
+from apps.budget.models import Budget, BudgetHistory, BudgetItem, BudgetKitItemOverride, BudgetStatus, SignatureStatus, BudgetType, PricingMethod
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.budget.service import SuperSignError, send_budget_for_signature
 from apps.budget.views.shared import reset_steps_after_step_4
@@ -329,13 +329,18 @@ class BudgetStatusReportDataMixin:
         if not for_pricing:
             return queryset
 
-        # List/report pricing needs items + kit_overrides. Kit catalog tree is only needed for
-        # incomplete snapshots; prefer overrides to keep list queries bounded.
+        # List/report pricing needs items + kit_overrides (with catalog FKs).
+        # Kit catalog tree is only needed for incomplete snapshots / deep reports.
         return queryset.prefetch_related(
             Prefetch(
                 "items",
                 queryset=BudgetItem.objects.select_related("product", "service", "kit")
-                .prefetch_related("kit_overrides")
+                .prefetch_related(
+                    Prefetch(
+                        "kit_overrides",
+                        queryset=BudgetKitItemOverride.objects.select_related("product", "service"),
+                    )
+                )
                 .order_by("id"),
             )
         )
@@ -350,7 +355,10 @@ class BudgetStatusReportDataMixin:
                     "items",
                     queryset=BudgetItem.objects.select_related("product", "service", "kit")
                     .prefetch_related(
-                        "kit_overrides",
+                        Prefetch(
+                            "kit_overrides",
+                            queryset=BudgetKitItemOverride.objects.select_related("product", "service"),
+                        ),
                         "kit__kit_products__product",
                         "kit__kit_services__service",
                     )
