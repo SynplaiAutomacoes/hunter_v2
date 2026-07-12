@@ -8,7 +8,8 @@ from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import IntegrityError, transaction
-from django.db.models import Prefetch, Q
+from django.db.models import Prefetch, Q, Sum, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from djmoney.money import Money
 
@@ -285,7 +286,7 @@ def _sum_salary_by_type(*, workshop: Workshop, collaborator_type: str, reference
         admission_date__lte=reference_date,
     ).filter(Q(termination_date__isnull=True) | Q(termination_date__gte=reference_date))
 
-    total = sum((collaborator.salary.amount for collaborator in collaborators), Decimal("0.00"))
+    total = collaborators.aggregate(total=Coalesce(Sum("salary"), Value(Decimal("0.00"))))["total"] or Decimal("0.00")
     return Money(total, "BRL")
 
 
@@ -844,7 +845,8 @@ def get_payroll_movement_diagnosis(*, payroll: CollaboratorPayroll) -> PayrollMo
     expected_specs = _build_payroll_component_specs(payroll=expected_payroll)
     expected_components = [PAYROLL_COMPONENT_LABELS.get(str(spec["component"]), str(spec["component"])) for spec in expected_specs]
     effective_movements = _get_payroll_effective_movements(payroll=payroll)
-    if payroll.financial_movement is not None and not any(movement.pk == payroll.financial_movement.pk for movement in effective_movements):
+    effective_movement_ids = {movement.pk for movement in effective_movements}
+    if payroll.financial_movement is not None and payroll.financial_movement.pk not in effective_movement_ids:
         effective_movements.append(payroll.financial_movement)
 
     if any(movement.payroll_component in (None, "") for movement in effective_movements):
@@ -965,7 +967,8 @@ def _sync_payroll_financial_movements(*, payroll: CollaboratorPayroll, active_be
     inherited_bank_account = representative_movement.bank_account if representative_movement is not None else None
     inherited_nf_number = representative_movement.nf_number if representative_movement is not None else None
     inherited_observation = representative_movement.financial_observation if representative_movement is not None else None
-    representative_consumed = bool(representative_movement and any(movement.pk == representative_movement.pk for movement in existing_movements))
+    existing_movement_ids = {movement.pk for movement in existing_movements}
+    representative_consumed = bool(representative_movement and representative_movement.pk in existing_movement_ids)
     synced_movements: list[FinancialMovement] = []
 
     effective_source_payroll = source_payroll or payroll

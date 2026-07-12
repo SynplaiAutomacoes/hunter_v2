@@ -159,6 +159,13 @@ class Budget(TimeStampedModel):
     pricing_hourly_cost_value = MoneyField(verbose_name="Valor hora congelado", max_digits=14, decimal_places=2, null=True, blank=True)
     pricing_profitability_multiplier = models.DecimalField(verbose_name="Multiplicador congelado", max_digits=10, decimal_places=2, null=True, blank=True)
     pricing_method = models.CharField(verbose_name="Método de Precificação", max_length=20, choices=PricingMethod.choices, null=True, blank=True)
+    stored_total_amount = MoneyField(
+        verbose_name="Total armazenado do orçamento",
+        max_digits=14,
+        decimal_places=2,
+        default=0.00,
+        help_text="Total denormalizado para agregações (dashboard). Atualizado no write path.",
+    )
 
     # Token SuperSign
     signature_token_version = models.PositiveIntegerField(verbose_name="ID do PDF do Orçamento", default=1)
@@ -206,6 +213,16 @@ class Budget(TimeStampedModel):
             if self.status == BudgetStatus.APPROVED or self.status == BudgetStatus.REJECTED or self.status == BudgetStatus.CANCELLED:
                 self.signature_token_active = False
                 super().save(update_fields=["signature_token_active"])
+
+            self.refresh_stored_total_amount()
+
+    def refresh_stored_total_amount(self) -> None:
+        """Persist live pricing total for dashboard SQL aggregates."""
+        if self.pk is None:
+            return
+        total = self.total_budget_value
+        type(self).objects.filter(pk=self.pk).update(stored_total_amount=total)
+        self.stored_total_amount = total
 
     class Meta:
         verbose_name = "Orçamento"
@@ -318,6 +335,8 @@ class Budget(TimeStampedModel):
         type(self).objects.filter(pk=self.pk).update(**snapshot_data)
         for field_name, value in snapshot_data.items():
             setattr(self, field_name, value)
+        self.invalidate_pricing_snapshot_cache()
+        self.refresh_stored_total_amount()
 
     def get_frozen_pricing_context(self):
         injected = getattr(self, "_injected_pricing_context", None)
@@ -1138,6 +1157,18 @@ class BudgetItem(TimeStampedModel):
 
         if self.service_id:
             record_service_last_used_price(service=self.service, price=self.service_selling_price)
+
+        if self.budget_id:
+            self.budget.invalidate_pricing_snapshot_cache()
+            self.budget.refresh_stored_total_amount()
+
+    def delete(self, *args, **kwargs):
+        budget = self.budget if self.budget_id else None
+        result = super().delete(*args, **kwargs)
+        if budget is not None:
+            budget.invalidate_pricing_snapshot_cache()
+            budget.refresh_stored_total_amount()
+        return result
 
     def _clear_kit_snapshot_caches(self) -> None:
         for cache_name in ("_kit_override_maps_cache", "_kit_unit_totals_cache"):
