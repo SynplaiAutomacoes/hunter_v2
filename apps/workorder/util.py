@@ -146,6 +146,56 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
     pricing_snapshot = workorder.pricing_snapshot
     _ = workorder.product_issue_summary
 
+    summary_product_items = list(pricing_snapshot.product_lines)
+
+    for p_item in product_items:
+        if p_item.item_benefit_type not in ("normal", ""):
+            product = p_item.product
+            if product is None:
+                continue
+            summary_product_items.append(
+                SimpleNamespace(
+                    entity_id=product.id,
+                    code=product.code or "",
+                    product=SimpleNamespace(
+                        name=product.name,
+                        description=product.description,
+                    ),
+                    application=product.application or "-",
+                    quantity=p_item.quantity,
+                    unit_price=p_item.product_selling_price,
+                    total_price=(p_item.product_selling_price * p_item.quantity) + p_item.shipping,
+                    is_customer_supplied=p_item.is_customer_supplied,
+                    has_product_issues=False,
+                    product_issue_tooltip="",
+                )
+            )
+
+    for kit_item in kit_items:
+        if kit_item.item_benefit_type not in ("normal", ""):
+            for override in kit_item._iter_frozen_kit_product_overrides():
+                product = override.product
+                if product is None:
+                    continue
+                qty = override.quantity * kit_item.quantity
+                summary_product_items.append(
+                    SimpleNamespace(
+                        entity_id=product.id,
+                        code=product.code or "",
+                        product=SimpleNamespace(
+                            name=product.name,
+                            description=product.description,
+                        ),
+                        application=product.application or "-",
+                        quantity=qty,
+                        unit_price=override.product_selling_price,
+                        total_price=(override.product_selling_price * qty) + override.shipping,
+                        is_customer_supplied=False,
+                        has_product_issues=False,
+                        product_issue_tooltip="",
+                    )
+                )
+
     summary_service_items = list(service_items)
 
     for kit_item in kit_items:
@@ -194,7 +244,7 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
         "workorder": workorder,
         "product_items": product_items,
         "service_items": service_items,
-        "summary_product_items": pricing_snapshot.product_lines,
+        "summary_product_items": summary_product_items,
         "summary_service_items": summary_service_items,
         "kit_items": kit_items,
         "benefit_map": benefit_map,

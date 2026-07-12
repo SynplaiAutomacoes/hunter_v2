@@ -507,6 +507,11 @@ class WorkOrderListView(LoginRequiredMixin, WorkOrderStatusReportDataMixin, Work
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        # render_table faz sua própria paginação e filtragem. O Django ListView
+        # com paginate_by fatia o queryset antes de expô-lo no contexto, o que
+        # impede o render_table de chamar .filter() depois. Passamos o queryset
+        # completo para que o render_table gerencie paginação e busca corretamente.
+        context["workorder"] = self.object_list
         context["fields"] = self._get_workorder_table_fields()
 
         context["actions"] = [
