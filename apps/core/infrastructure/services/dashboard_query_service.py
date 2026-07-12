@@ -262,7 +262,10 @@ def _aggregate_costs(*, workorder_ids: list[int]) -> tuple[int, int, int, int]:
             delivered_at__isnull=False,
         )
         .select_related("budget")
-        .prefetch_related(_WORKORDER_ITEMS_PREFETCH)
+        .prefetch_related(
+            _WORKORDER_ITEMS_PREFETCH,
+            Prefetch("budget__items", queryset=_BUDGET_ITEMS_PREFETCH.queryset)
+        )
     )
     total_pcost = sum(resolve_decimal_amount(wo.total_costs_products_value) for wo in workorders)
     total_third_party = sum(resolve_decimal_amount(wo.total_third_party_services_cost) for wo in workorders)

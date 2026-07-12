@@ -405,6 +405,9 @@ def _fetch_delivered_workorders_with_costs(*, payments: list[WorkOrderPaymentMet
     if not workorder_ids:
         return []
 
+    from apps.budget.models import BudgetItem
+    from django.db.models import Prefetch
+
     workorders = list(
         WorkOrder.objects.filter(pk__in=workorder_ids)
         .select_related("budget", "budget__customer", "workshop")
@@ -416,6 +419,14 @@ def _fetch_delivered_workorders_with_costs(*, payments: list[WorkOrderPaymentMet
             "items__kit_overrides",
             "items__kit__kit_products__product",
             "items__kit__kit_services__service",
+            Prefetch(
+                "budget__items",
+                queryset=BudgetItem.objects.select_related("product", "service", "kit").prefetch_related(
+                    "kit_overrides",
+                    "kit__kit_products__product",
+                    "kit__kit_services__service",
+                ),
+            )
         )
     )
 
