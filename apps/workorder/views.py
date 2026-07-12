@@ -523,7 +523,7 @@ class WorkOrderListView(LoginRequiredMixin, WorkOrderStatusReportDataMixin, Work
     template_name = "workorder/workorder_list.html"
     context_object_name = "workorder"
     htmx_template_name = "workorder/partials/workorder_table.html"
-    paginate_by = 20
+    # Pagination is owned by render_table; keep ListView from counting/slicing.
 
     def get_queryset(self):
         return self._get_filtered_workorder_queryset(for_pricing=False, for_report=False)
@@ -852,14 +852,20 @@ class WorkOrderAddItemsBatchView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 )
 
         try:
-            for item_id in selected_ids:
-                item_filter = {f"{item_type}_id": item_id}
-                WorkOrderItem.objects.get_or_create(
-                    workshop=self.workshop,
-                    workorder=workorder,
-                    **item_filter,
-                    defaults={"quantity": 1},
-                )
+            workorder._skip_stored_total_refresh = True
+            try:
+                for item_id in selected_ids:
+                    item_filter = {f"{item_type}_id": item_id}
+                    WorkOrderItem.objects.get_or_create(
+                        workshop=self.workshop,
+                        workorder=workorder,
+                        **item_filter,
+                        defaults={"quantity": 1},
+                    )
+            finally:
+                workorder._skip_stored_total_refresh = False
+                workorder.invalidate_pricing_snapshot_cache()
+                workorder.refresh_stored_total_amount()
         except Exception:
             active_tab = {
                 "product": "products",

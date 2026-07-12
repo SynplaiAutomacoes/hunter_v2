@@ -857,6 +857,7 @@ class DashboardQueryService:
         selected_year: int,
         pricing_context: SimpleNamespace | None = None,
     ) -> tuple[list[WorkOrder], list[WorkOrder]]:
+        del pricing_context  # Display totals use stored denormalized amounts.
         all_workorders = list(
             WorkOrder.objects.filter(
                 workshop_id=workshop_id,
@@ -864,14 +865,13 @@ class DashboardQueryService:
                 delivered_at__month=selected_month,
                 delivered_at__year=selected_year,
             )
-            .select_related("budget__customer", "budget__vehicle", "budget__reference_budget", "budget__workshop")
-            .prefetch_related(_WORKORDER_ITEMS_PREFETCH)
+            .select_related("budget__customer", "budget__vehicle", "budget__reference_budget")
             .order_by("delivered_at", "pk")
         )
         for workorder in all_workorders:
-            _prepare_workorder_for_dashboard_pricing(workorder, pricing_context=pricing_context, for_totals_only=True)
-            # Cache display total once so the template does not rebuild pricing repeatedly.
-            setattr(workorder, "dashboard_display_total", workorder.total_budget_value)
+            stored_total = getattr(workorder, "stored_total_amount", None)
+            display_total = stored_total if stored_total is not None else Money(0, "BRL")
+            setattr(workorder, "dashboard_display_total", display_total)
         sale_workorders = [wo for wo in all_workorders if wo.budget_type == "sale"]
         warranty_workorders = [wo for wo in all_workorders if wo.budget_type in ("warranty", "courtesy")]
         return sale_workorders, warranty_workorders
@@ -884,30 +884,36 @@ class DashboardQueryService:
         selected_year: int,
         pricing_context: SimpleNamespace | None = None,
     ) -> ApprovedBudgetMetrics:
-        approved_budgets = list(
-            Budget.objects.filter(
-                workshop_id=workshop_id,
-                status=BudgetStatus.APPROVED,
-                entry_date__month=selected_month,
-                entry_date__year=selected_year,
-            )
-            .select_related("workshop")
-            .prefetch_related(_BUDGET_ITEMS_PREFETCH)
+        del pricing_context  # Profitability derived from stored totals + DRE cost aggregates.
+        approved_qs = Budget.objects.filter(
+            workshop_id=workshop_id,
+            status=BudgetStatus.APPROVED,
+            entry_date__month=selected_month,
+            entry_date__year=selected_year,
         )
-        profitabilities: list[Any] = []
-        for budget in approved_budgets:
-            # Injected pricing context covers WorkshopCost; markup is aggregated separately.
-            # totals-only is enough for rentability averages (no per-budget markup rebuild).
-            _prepare_budget_for_dashboard_pricing(budget, pricing_context=pricing_context, for_totals_only=True)
-            rentability = budget.rentability
-            if rentability is not None:
-                profitabilities.append(rentability)
-        accumulated_profitability = sum(profitabilities) / len(profitabilities) if profitabilities else 0
+        approved_count = approved_qs.count()
+        revenue = approved_qs.aggregate(
+            total=Coalesce(Sum("stored_total_amount"), Value(Decimal("0.00")), output_field=DecimalField(max_digits=14, decimal_places=2))
+        )["total"] or Decimal("0.00")
+
+        # Approximate month rentability from (revenue - cost) / revenue using the same cost base as markup.
+        workorder_ids = list(
+            WorkOrder.objects.filter(
+                workshop_id=workshop_id,
+                budget_id__in=approved_qs.values("pk"),
+            ).values_list("pk", flat=True)
+        )
+        accumulated_profitability: Decimal = Decimal("0.00")
+        if revenue > Decimal("0.00") and workorder_ids:
+            total_product_cost, total_third_party_cost, total_mechanic_cost, total_shipping = _aggregate_costs(workorder_ids=workorder_ids)
+            total_cost = total_product_cost + total_third_party_cost + total_mechanic_cost + total_shipping
+            accumulated_profitability = (((revenue - total_cost) / revenue) * Decimal("100")).quantize(TWO_DECIMAL_PLACES)
+
         accumulated_markup = calculate_aggregate_markup(workshop_id=workshop_id, month=selected_month, year=selected_year)
         return ApprovedBudgetMetrics(
             accumulated_profitability=accumulated_profitability,
             accumulated_markup=accumulated_markup,
-            approved_count=len(approved_budgets),
+            approved_count=approved_count,
         )
 
     @staticmethod

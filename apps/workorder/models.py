@@ -231,6 +231,8 @@ class WorkOrder(TimeStampedModel):
     def refresh_stored_total_amount(self) -> None:
         if self.pk is None:
             return
+        if getattr(self, "_skip_stored_total_refresh", False):
+            return
         total = self.total_budget_value
         type(self).objects.filter(pk=self.pk).update(stored_total_amount=total)
         self.stored_total_amount = total
@@ -1062,7 +1064,8 @@ class WorkOrderItem(TimeStampedModel):
             self.ensure_kit_snapshot()
 
         self.workorder.invalidate_pricing_snapshot_cache()
-        self.workorder.refresh_stored_total_amount()
+        if not getattr(self.workorder, "_skip_stored_total_refresh", False):
+            self.workorder.refresh_stored_total_amount()
 
         if self.product_id and not self.is_customer_supplied:
             record_product_last_used_price(product=self.product, price=self.product_selling_price)
@@ -1070,7 +1073,7 @@ class WorkOrderItem(TimeStampedModel):
     def delete(self, *args, **kwargs):
         workorder = self.workorder if self.workorder_id else None
         result = super().delete(*args, **kwargs)
-        if workorder is not None:
+        if workorder is not None and not getattr(workorder, "_skip_stored_total_refresh", False):
             workorder.invalidate_pricing_snapshot_cache()
             workorder.refresh_stored_total_amount()
         return result
