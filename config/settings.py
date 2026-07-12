@@ -201,6 +201,13 @@ RABBITMQ_PASSWORD = os.getenv("RABBITMQ_PASSWORD", "guest")
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+# Reuse DB connections within each Gunicorn worker (seconds). 0 = close after each request.
+_CONN_MAX_AGE_RAW = os.getenv("CONN_MAX_AGE", "0").strip()
+try:
+    CONN_MAX_AGE = int(_CONN_MAX_AGE_RAW)
+except ValueError:
+    CONN_MAX_AGE = 0
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
@@ -209,6 +216,8 @@ DATABASES = {
         "PASSWORD": os.getenv("DB_PASSWORD", "senha_secreta"),
         "HOST": os.getenv("DB_HOST", "localhost"),
         "PORT": os.getenv("DB_PORT", "5432"),
+        "CONN_MAX_AGE": CONN_MAX_AGE,
+        "CONN_HEALTH_CHECKS": True,
     }
 }
 

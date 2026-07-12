@@ -30,10 +30,13 @@ from apps.collaborators.services import (
     ensure_payroll_movements_confirmed,
     get_payroll_due_date_for_reference,
     get_payroll_movement_diagnosis,
+    get_payroll_movement_diagnoses,
     get_reference_work_days,
     mark_payroll_as_paid,
     mark_payroll_as_unpaid,
     mark_payroll_commissions_as_paid,
+    mark_payrolls_as_paid,
+    mark_payrolls_as_unpaid,
     payroll_has_financial_movements,
     recalculate_payroll_from_linked_movements,
     refresh_unpaid_payroll_due_dates,
@@ -271,7 +274,12 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 
     def _get_queryset(self):
         filters = self._get_filter_params()
-        queryset = CollaboratorPayroll.objects.filter(workshop=self.workshop).select_related("collaborator", "financial_movement").order_by("collaborator__name", "id")
+        queryset = (
+            CollaboratorPayroll.objects.filter(workshop=self.workshop)
+            .select_related("collaborator", "financial_movement")
+            .prefetch_related("financial_movements")
+            .order_by("collaborator__name", "id")
+        )
         if filters["has_modal_date_filter"]:
             if filters["start_date"]:
                 queryset = queryset.filter(due_date__gte=filters["start_date"])
@@ -295,10 +303,11 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         return Decimal(str(getattr(value, "amount", value) or 0))
 
     def _build_rows(self, payrolls: list[CollaboratorPayroll]) -> list[dict[str, Any]]:
+        diagnoses = get_payroll_movement_diagnoses(payrolls=payrolls)
         rows = []
         for payroll in payrolls:
             is_reconciled = bool(payroll.financial_movement and payroll.financial_movement.is_reconciled)
-            diagnosis = get_payroll_movement_diagnosis(payroll=payroll)
+            diagnosis = diagnoses.get(payroll.pk) or get_payroll_movement_diagnosis(payroll=payroll)
             rows.append(
                 {
                     "id": payroll.pk,
@@ -337,7 +346,8 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         page_obj = paginator.get_page(self.request.GET.get("page") or "1")
         payrolls = list(page_obj.object_list)
         existing_rows = self._build_rows(payrolls)
-        pending_rows = self._get_pending_collaborator_rows(filters=filters, existing_collaborator_ids={payroll.collaborator.pk for payroll in queryset})
+        existing_collaborator_ids = set(queryset.values_list("collaborator_id", flat=True))
+        pending_rows = self._get_pending_collaborator_rows(filters=filters, existing_collaborator_ids=existing_collaborator_ids)
         context["payroll_rows"] = existing_rows + pending_rows
         totals = queryset.aggregate(total_payroll_amount=Sum("total_amount"), paid_amount=Sum("total_amount", filter=Q(financial_movement__is_paid=True)))
         total_amount = self._money_amount(totals.get("total_payroll_amount"))
@@ -794,20 +804,17 @@ class PayrollBulkPayView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if not payroll_ids:
             return HttpResponse("Nenhuma folha selecionada.", status=400)
 
-        payrolls = CollaboratorPayroll.objects.filter(
-            pk__in=payroll_ids,
-            workshop=self.workshop,
-        ).select_related("collaborator", "financial_movement")
+        payrolls = list(
+            CollaboratorPayroll.objects.filter(
+                pk__in=payroll_ids,
+                workshop=self.workshop,
+            )
+            .select_related("collaborator", "financial_movement")
+            .prefetch_related("financial_movements")
+        )
 
-        skipped_collaborators: list[str] = []
         with transaction.atomic():
-            for payroll in payrolls:
-                if not payroll_has_financial_movements(payroll=payroll):
-                    skipped_collaborators.append(payroll.collaborator.name)
-                    continue
-                refreshed_payroll = _mark_payroll_as_paid(payroll=payroll)
-                if not payroll_has_financial_movements(payroll=refreshed_payroll):
-                    skipped_collaborators.append(refreshed_payroll.collaborator.name)
+            _, skipped_collaborators = mark_payrolls_as_paid(payrolls=payrolls, paid_at=timezone.localdate())
 
         if request.headers.get("HX-Request"):
             if skipped_collaborators:
@@ -846,15 +853,17 @@ class PayrollBulkUnpayView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if not payroll_ids:
             return HttpResponse("Nenhuma folha selecionada.", status=400)
 
-        payrolls = CollaboratorPayroll.objects.filter(
-            pk__in=payroll_ids,
-            workshop=self.workshop,
-        ).select_related("collaborator", "financial_movement")
+        payrolls = list(
+            CollaboratorPayroll.objects.filter(
+                pk__in=payroll_ids,
+                workshop=self.workshop,
+            )
+            .select_related("collaborator", "financial_movement")
+            .prefetch_related("financial_movements")
+        )
 
         with transaction.atomic():
-            for payroll in payrolls:
-                _mark_payroll_as_unpaid(payroll=payroll)
-                _unmark_payroll_commissions_as_paid(payroll=payroll)
+            mark_payrolls_as_unpaid(payrolls=payrolls)
 
         if request.headers.get("HX-Request"):
             response = HttpResponse()

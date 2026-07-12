@@ -11,6 +11,8 @@ from urllib.parse import urlencode
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Count, DecimalField, Sum, Value
+from django.db.models.functions import Coalesce
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.urls import reverse
 from django.shortcuts import get_object_or_404, render
@@ -400,11 +402,11 @@ class WorkOrderStatusReportDataMixin:
             TableColumn("Entregue em", attr="delivered_at"),
             TableColumn("Veículo", attr="budget.vehicle", search_by=("budget__vehicle__plate", "budget__vehicle__model", "budget__vehicle__brand")),
             TableColumn("Tipo", attr="type_badge", searchable=False, format="status_badge"),
-            TableColumn("Valor Total", attr="total_budget_value", searchable=False),
+            TableColumn("Valor Total", attr="stored_total_amount", searchable=False),
             TableColumn("Status", attr="workorder_status_badge", search_by="status", format="status_badge"),
         ]
 
-    def _get_workorder_base_queryset(self, *, for_pricing: bool = True):
+    def _get_workorder_base_queryset(self, *, for_pricing: bool = False):
         queryset = WorkOrder.objects.filter(workshop=self.workshop).select_related(
             "budget",
             "budget__customer",
@@ -422,8 +424,8 @@ class WorkOrderStatusReportDataMixin:
             .prefetch_related(workorder_items_with_kit_prefetch(with_kit_tree=True))
         )
 
-    def _get_filtered_workorder_queryset(self, *, for_report: bool = False):
-        queryset = self._get_workorder_report_queryset() if for_report else self._get_workorder_base_queryset(for_pricing=True)
+    def _get_filtered_workorder_queryset(self, *, for_pricing: bool = False, for_report: bool = False):
+        queryset = self._get_workorder_report_queryset() if for_report else self._get_workorder_base_queryset(for_pricing=for_pricing)
 
         queryset = apply_query_param_filters(
             queryset,
@@ -449,10 +451,8 @@ class WorkOrderStatusReportDataMixin:
         if cached is not None:
             return cached
 
-        items = self._prepare_workorders_for_list_pricing(
-            list(self._get_filtered_workorder_queryset(for_report=True)),
-            for_totals_only=True,
-        )
+        # PDF/list report rows use stored totals — no items/kit pricing prefetch.
+        items = list(self._get_filtered_workorder_queryset(for_pricing=False, for_report=False))
         self._selection_report_items_cache = items
         return items
 
@@ -488,12 +488,15 @@ class WorkOrderStatusReportDataMixin:
         if not selected_status_choices:
             return None
 
-        report_items = self._get_selection_report_items()
-        total_value = sum((workorder.total_budget_value.amount for workorder in report_items), Decimal("0.00"))
+        decimal_out = DecimalField(max_digits=14, decimal_places=2)
+        aggregates = self._get_filtered_workorder_queryset(for_pricing=False, for_report=False).aggregate(
+            count=Count("pk"),
+            total=Coalesce(Sum("stored_total_amount"), Value(Decimal("0.00")), output_field=decimal_out),
+        )
 
         return {
-            "count": len(report_items),
-            "total_value": total_value,
+            "count": int(aggregates["count"] or 0),
+            "total_value": aggregates["total"] or Decimal("0.00"),
             "badges": [{"text": str(status_choice.label), "class": WORKORDER_STATUS_BADGE_CLASSES.get(status_choice, "badge-ghost min-w-sm")} for status_choice in selected_status_choices],
             "filters_summary": self._build_selection_report_filters_summary(),
         }
@@ -520,19 +523,19 @@ class WorkOrderListView(LoginRequiredMixin, WorkOrderStatusReportDataMixin, Work
     template_name = "workorder/workorder_list.html"
     context_object_name = "workorder"
     htmx_template_name = "workorder/partials/workorder_table.html"
-    paginate_by = 20
+    # Pagination is owned by render_table; keep ListView from counting/slicing.
 
     def get_queryset(self):
-        return self._get_filtered_workorder_queryset()
+        return self._get_filtered_workorder_queryset(for_pricing=False, for_report=False)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         # render_table faz sua própria paginação e filtragem. O Django ListView
         # com paginate_by fatia o queryset antes de expô-lo no contexto, o que
         # impede o render_table de chamar .filter() depois. Passamos o queryset
-        # completo para que o render_table gerencie paginação e busca corretamente.
-        # Read-only pricing flags avoid freeze_pricing_snapshot write-on-read per row.
-        context["workorder"] = self._prepare_workorders_for_list_pricing(list(self.get_queryset()), for_totals_only=True)
+        # completo (sem materializar/precificar) para o render_table paginar no ORM.
+        # Valor Total usa stored_total_amount — sem build_pricing_snapshot por linha.
+        context["workorder"] = self._get_filtered_workorder_queryset(for_pricing=False, for_report=False)
         context["fields"] = self._get_workorder_table_fields()
 
         context["actions"] = [
@@ -849,14 +852,20 @@ class WorkOrderAddItemsBatchView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 )
 
         try:
-            for item_id in selected_ids:
-                item_filter = {f"{item_type}_id": item_id}
-                WorkOrderItem.objects.get_or_create(
-                    workshop=self.workshop,
-                    workorder=workorder,
-                    **item_filter,
-                    defaults={"quantity": 1},
-                )
+            workorder._skip_stored_total_refresh = True
+            try:
+                for item_id in selected_ids:
+                    item_filter = {f"{item_type}_id": item_id}
+                    WorkOrderItem.objects.get_or_create(
+                        workshop=self.workshop,
+                        workorder=workorder,
+                        **item_filter,
+                        defaults={"quantity": 1},
+                    )
+            finally:
+                workorder._skip_stored_total_refresh = False
+                workorder.invalidate_pricing_snapshot_cache()
+                workorder.refresh_stored_total_amount()
         except Exception:
             active_tab = {
                 "product": "products",

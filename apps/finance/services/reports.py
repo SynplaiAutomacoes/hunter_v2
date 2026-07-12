@@ -229,3 +229,11 @@ def build_yearly_financial_overview(*, workshop, reference_date: date) -> Financ
     year_start = reference_date.replace(month=1, day=1)
     year_end = reference_date.replace(month=12, day=31)
     return build_financial_overview(workshop=workshop, start_date=year_start, end_date=year_end)
+
+
+def build_month_and_year_financial_overviews(*, workshop, reference_date: date) -> tuple[FinancialOverview, FinancialOverview]:
+    """Build month and year cards without repeating filter setup for the same request."""
+    return (
+        build_monthly_financial_overview(workshop=workshop, reference_date=reference_date),
+        build_yearly_financial_overview(workshop=workshop, reference_date=reference_date),
+    )

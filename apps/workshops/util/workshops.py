@@ -77,7 +77,9 @@ def get_active_workshop_or_404(request) -> Workshop:
         request.session.pop("active_workshop_id", None)
         raise Http404
 
-    request.session["active_workshop_id"] = workshop.pk
+    # Only dirty the session when the active workshop actually changes.
+    if request.session.get("active_workshop_id") != workshop.pk:
+        request.session["active_workshop_id"] = workshop.pk
     setattr(request, "_active_workshop_obj", workshop)
     return workshop
 

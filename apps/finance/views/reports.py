@@ -26,7 +26,7 @@ from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
-from apps.finance.services.reports import FinancialOverview, build_monthly_financial_overview, build_yearly_financial_overview
+from apps.finance.services.reports import FinancialOverview, build_month_and_year_financial_overviews
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod
 from apps.workshops.mixin import WorkshopScopedMixin
 
@@ -137,6 +137,10 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         return "Múltiplos"
 
     def _get_financial_movements_queryset(self):
+        cached = getattr(self, "_financial_movements_queryset_cache", None)
+        if cached is not None:
+            return cached
+
         queryset = (
             FinancialMovement.objects.filter(workshop=self.workshop)
             .filter(due_date__isnull=False)
@@ -149,11 +153,16 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
                 "budget_plan",
                 "bank_account",
                 "payment_method",
+                "movement_group",
                 "workorder",
                 "workorder__budget",
                 "workorder__budget__customer",
             )
-            .prefetch_related("workorder__payments", "workorder__payments__payment_method")
+            .prefetch_related(
+                "workorder__payments",
+                "workorder__payments__payment_method",
+                "movement_group__financial_movements",
+            )
             .annotate(
                 agent_name_sort=Coalesce(
                     "collaborator__name",
@@ -165,7 +174,27 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             )
             .order_by("-pk")
         )
-        return self._apply_report_filters(queryset)
+        queryset = self._apply_report_filters(queryset)
+        self._financial_movements_queryset_cache = queryset
+        return queryset
+
+    def _get_month_payrolls(self):
+        cached = getattr(self, "_month_payrolls_cache", None)
+        if cached is not None:
+            return cached
+        reference_date = timezone.localdate()
+        payrolls = list(
+            CollaboratorPayroll.objects.filter(
+                workshop=self.workshop,
+                reference_year=reference_date.year,
+                reference_month=reference_date.month,
+            )
+            .select_related("collaborator", "financial_movement")
+            .prefetch_related("financial_movements")
+            .order_by("collaborator__name", "id")
+        )
+        self._month_payrolls_cache = payrolls
+        return payrolls
 
     def _parse_date_param(self, raw_value: str | None) -> date | None:
         value = str(raw_value or "").strip()
@@ -460,7 +489,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         }
 
     def _get_financial_groups_queryset(self):
-        return FinancialGroup.objects.filter(workshop=self.workshop).order_by("sort_key", "id")
+        return FinancialGroup.objects.filter(workshop=self.workshop).prefetch_related("children").order_by("sort_key", "id")
 
     def _get_bank_accounts_queryset(self):
         return BankAccount.objects.filter(workshop=self.workshop).order_by("bank_name", "account_number", "id")
@@ -538,20 +567,37 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
 
     def _build_collaborator_payroll_summary_card(self) -> dict[str, object]:
         reference_date = timezone.localdate()
-        payrolls = CollaboratorPayroll.objects.filter(workshop=self.workshop, reference_year=reference_date.year, reference_month=reference_date.month).select_related("financial_movement")
-        commissions = CollaboratorCommissionEntry.objects.filter(workshop=self.workshop, reference_year=reference_date.year, reference_month=reference_date.month)
+        payrolls = self._get_month_payrolls()
+        commissions = list(
+            CollaboratorCommissionEntry.objects.filter(
+                workshop=self.workshop,
+                reference_year=reference_date.year,
+                reference_month=reference_date.month,
+            )
+        )
 
         total_forecast = sum((self._resolve_money_amount(payroll.total_amount) for payroll in payrolls), start=Decimal("0.00"))
-        total_paid = sum((self._resolve_money_amount(payroll.total_amount) for payroll in payrolls if payroll.financial_movement and payroll.financial_movement.is_paid), start=Decimal("0.00"))
+        total_paid = sum(
+            (self._resolve_money_amount(payroll.total_amount) for payroll in payrolls if payroll.financial_movement and payroll.financial_movement.is_paid),
+            start=Decimal("0.00"),
+        )
         commissions_forecast = sum((self._resolve_money_amount(entry.commission_amount) for entry in commissions), start=Decimal("0.00"))
-        commissions_paid = sum((self._resolve_money_amount(entry.commission_amount) for entry in commissions if entry.status == CollaboratorCommissionEntry.Status.PAID), start=Decimal("0.00"))
+        commissions_paid = sum(
+            (self._resolve_money_amount(entry.commission_amount) for entry in commissions if entry.status == CollaboratorCommissionEntry.Status.PAID),
+            start=Decimal("0.00"),
+        )
 
         return {
             "title": "Folha e Comissões do Mês",
             "is_placeholder": False,
             "rows": [
-                {"label": "Folhas previstas", "value": str(payrolls.count()), "small": False, "tone": "neutral"},
-                {"label": "Folhas pagas", "value": str(sum(1 for payroll in payrolls if payroll.financial_movement and payroll.financial_movement.is_paid)), "small": True, "tone": "neutral"},
+                {"label": "Folhas previstas", "value": str(len(payrolls)), "small": False, "tone": "neutral"},
+                {
+                    "label": "Folhas pagas",
+                    "value": str(sum(1 for payroll in payrolls if payroll.financial_movement and payroll.financial_movement.is_paid)),
+                    "small": True,
+                    "tone": "neutral",
+                },
                 {"label": "Comissões previstas", "value": format_money(commissions_forecast), "small": False, "tone": "debit"},
                 {"label": "Comissões pagas", "value": format_money(commissions_paid), "small": True, "tone": "debit"},
             ],
@@ -562,8 +608,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         }
 
     def _build_collaborator_payroll_rows(self) -> list[dict[str, object]]:
-        reference_date = timezone.localdate()
-        payrolls = CollaboratorPayroll.objects.filter(workshop=self.workshop, reference_year=reference_date.year, reference_month=reference_date.month).select_related("collaborator", "financial_movement").order_by("collaborator__name", "id")
+        payrolls = self._get_month_payrolls()
         rows: list[dict[str, object]] = []
         for payroll in payrolls:
             rows.append(
@@ -826,8 +871,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         reference_date = timezone.localdate()
-        monthly_overview = build_monthly_financial_overview(workshop=self.workshop, reference_date=reference_date)
-        yearly_overview = build_yearly_financial_overview(workshop=self.workshop, reference_date=reference_date)
+        monthly_overview, yearly_overview = build_month_and_year_financial_overviews(workshop=self.workshop, reference_date=reference_date)
         filter_params = self._get_filter_params()
         report_entry_refs = self._get_report_entry_refs()
         page_obj, paginator = self._get_financial_movements_page(entry_refs=report_entry_refs)

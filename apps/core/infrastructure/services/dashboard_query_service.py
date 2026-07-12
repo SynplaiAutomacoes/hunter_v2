@@ -864,6 +864,7 @@ class DashboardQueryService:
         selected_year: int,
         pricing_context: SimpleNamespace | None = None,
     ) -> tuple[list[WorkOrder], list[WorkOrder]]:
+        del pricing_context  # Display totals use stored denormalized amounts.
         all_workorders = list(
             WorkOrder.objects.filter(
                 workshop_id=workshop_id,
@@ -876,9 +877,9 @@ class DashboardQueryService:
             .order_by("delivered_at", "pk")
         )
         for workorder in all_workorders:
-            _prepare_workorder_for_dashboard_pricing(workorder, pricing_context=pricing_context, for_totals_only=True)
-            # Cache display total once so the template does not rebuild pricing repeatedly.
-            setattr(workorder, "dashboard_display_total", workorder.total_budget_value)
+            stored_total = getattr(workorder, "stored_total_amount", None)
+            display_total = stored_total if stored_total is not None else Money(0, "BRL")
+            setattr(workorder, "dashboard_display_total", display_total)
         sale_workorders = [wo for wo in all_workorders if wo.budget_type == "sale"]
         warranty_workorders = [wo for wo in all_workorders if wo.budget_type in ("warranty", "courtesy")]
         return sale_workorders, warranty_workorders
@@ -904,8 +905,6 @@ class DashboardQueryService:
         )
         profitabilities: list[Any] = []
         for budget in approved_budgets:
-            # Injected pricing context covers WorkshopCost; markup is aggregated separately.
-            # totals-only is enough for rentability averages (no per-budget markup rebuild).
             _prepare_budget_for_dashboard_pricing(budget, pricing_context=pricing_context, for_totals_only=True)
             rentability = budget.rentability
             if rentability is not None:
