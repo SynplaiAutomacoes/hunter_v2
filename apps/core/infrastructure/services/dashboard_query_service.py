@@ -6,18 +6,21 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any, TypeVar
 
 from django.db.models import DecimalField, ExpressionWrapper, F, Prefetch, Sum
 from django.utils import timezone
+from djmoney.money import Money
 
 from apps.budget.models import Budget, BudgetItem, BudgetStatus, BudgetType
 from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.core.domain.services.dashboard_service import DashboardMetrics
 from apps.core.observability import build_business_metric_attributes, record_business_operation
 from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderPaymentMethod, WorkOrderStatus
-from apps.workshops.models.workshop_costs import WorkshopCost
+from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.models.workshops import Workshop
+from apps.workshops.util.monthly_costs import get_mechanic_salary_monthly_cost
 
 logger = logging.getLogger(__name__)
 _T = TypeVar("_T")
@@ -239,6 +242,70 @@ def _mark_budget_read_only(budget: Budget | None) -> None:
         setattr(budget, "_read_only_pricing_context", True)
 
 
+def _build_injected_pricing_context(*, workshop: Workshop, workshop_cost: WorkshopCost | None) -> SimpleNamespace:
+    productive_salary_total = Money(0, "BRL")
+    working_hours_per_month = Decimal("0.00")
+    hourly_cost_value = Money(0, "BRL")
+    profitability_multiplier = Decimal("1.00")
+    minimum_hourly_cost = Money(0, "BRL")
+    month = None
+    year = None
+
+    if workshop_cost is not None:
+        month = workshop_cost.month
+        year = workshop_cost.year
+        working_hours_per_month = workshop_cost.working_hours_per_month or Decimal("0.00")
+        hourly_cost_value = workshop_cost.hourly_cost_value or Money(0, "BRL")
+        profitability_multiplier = workshop_cost.profitability_multiplier or Decimal("1.00")
+        minimum_hourly_cost = workshop_cost.minimum_hourly_cost or Money(0, "BRL")
+        mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=workshop)
+        if mechanic_salary_obj is not None:
+            salary_item = WorkshopCostItem.objects.filter(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).first()
+            if salary_item is not None:
+                productive_salary_total = salary_item.amount
+
+    return SimpleNamespace(
+        minimum_hourly_cost=minimum_hourly_cost,
+        hourly_cost_value=hourly_cost_value,
+        profitability_multiplier=profitability_multiplier,
+        working_hours_per_month=working_hours_per_month,
+        productive_salary_total=productive_salary_total,
+        month=month,
+        year=year,
+    )
+
+
+def _prepare_budget_for_dashboard_pricing(
+    budget: Budget | None,
+    *,
+    pricing_context: SimpleNamespace | None = None,
+    for_totals_only: bool = False,
+) -> None:
+    if budget is None:
+        return
+    _mark_budget_read_only(budget)
+    if pricing_context is not None:
+        setattr(budget, "_injected_pricing_context", pricing_context)
+    # Slider 0: labor cost does not change total_budget_value (see build_pricing_snapshot).
+    if for_totals_only and int(getattr(budget, "slider", 0) or 0) == 0:
+        setattr(budget, "_skip_mechanic_labor_cost", True)
+
+
+def _prepare_workorder_for_dashboard_pricing(
+    workorder: WorkOrder,
+    *,
+    pricing_context: SimpleNamespace | None = None,
+    for_totals_only: bool = False,
+) -> None:
+    _prepare_budget_for_dashboard_pricing(
+        workorder.budget,
+        pricing_context=pricing_context,
+        for_totals_only=for_totals_only,
+    )
+    if for_totals_only and workorder.budget is not None and int(getattr(workorder.budget, "slider", 0) or 0) == 0:
+        setattr(workorder, "_skip_mechanic_labor_cost", True)
+
+
 def _calculate_dre_local_cost(workorder: WorkOrder) -> Decimal:
     budget = workorder.budget
     if budget is None:
@@ -267,11 +334,11 @@ def _aggregate_costs(*, workorder_ids: list[int]) -> tuple[Decimal, Decimal, Dec
             pk__in=workorder_ids,
             delivered_at__isnull=False,
         )
-        .select_related("budget")
+        .select_related("budget__workshop")
         .prefetch_related(_WORKORDER_ITEMS_PREFETCH)
     )
     for workorder in workorders:
-        _mark_budget_read_only(workorder.budget)
+        _prepare_workorder_for_dashboard_pricing(workorder, for_totals_only=False)
     total_pcost = sum(resolve_decimal_amount(wo.total_costs_products_value) for wo in workorders)
     total_third_party = sum(resolve_decimal_amount(wo.total_third_party_services_cost) for wo in workorders)
     total_mechanic = sum(_calculate_dre_local_cost(wo) for wo in workorders)
@@ -467,14 +534,25 @@ class DashboardQueryService:
             "workshop_cost",
             lambda: WorkshopCost.objects.filter(workshop_id=workshop_id, month=selected_month, year=selected_year).first(),
         )
+        pricing_context = _build_injected_pricing_context(workshop=workshop, workshop_cost=workshop_cost)
 
         approved_budget_metrics = _run_section(
             "approved_budget_metrics",
-            lambda: self._get_approved_budget_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
+            lambda: self._get_approved_budget_metrics(
+                workshop_id=workshop_id,
+                selected_month=selected_month,
+                selected_year=selected_year,
+                pricing_context=pricing_context,
+            ),
         )
         sale_workorders, warranty_workorders = _run_section(
             "delivered_workorders",
-            lambda: self._get_delivered_workorders(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
+            lambda: self._get_delivered_workorders(
+                workshop_id=workshop_id,
+                selected_month=selected_month,
+                selected_year=selected_year,
+                pricing_context=pricing_context,
+            ),
         )
         total_sold = _run_section(
             "total_sold",
@@ -499,15 +577,30 @@ class DashboardQueryService:
         )
         pending_receivable_metrics = _run_section(
             "pending_receivable_metrics",
-            lambda: self._get_pending_receivable_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
+            lambda: self._get_pending_receivable_metrics(
+                workshop_id=workshop_id,
+                selected_month=selected_month,
+                selected_year=selected_year,
+                pricing_context=pricing_context,
+            ),
         )
         pending_budget_metrics = _run_section(
             "pending_budget_metrics",
-            lambda: self._get_pending_budget_metrics(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
+            lambda: self._get_pending_budget_metrics(
+                workshop_id=workshop_id,
+                selected_month=selected_month,
+                selected_year=selected_year,
+                pricing_context=pricing_context,
+            ),
         )
         total_rejected_budgets = _run_section(
             "rejected_budget_total",
-            lambda: self._get_rejected_budget_total(workshop_id=workshop_id, selected_month=selected_month, selected_year=selected_year),
+            lambda: self._get_rejected_budget_total(
+                workshop_id=workshop_id,
+                selected_month=selected_month,
+                selected_year=selected_year,
+                pricing_context=pricing_context,
+            ),
         )
 
         cars_this_month, warranty_courtesy_cars, warranty_return_rate = self._compute_delivery_counts(
@@ -725,7 +818,13 @@ class DashboardQueryService:
         return result["total"] or Decimal("0.00")
 
     @staticmethod
-    def _get_delivered_workorders(*, workshop_id: int, selected_month: int, selected_year: int) -> tuple[list[WorkOrder], list[WorkOrder]]:
+    def _get_delivered_workorders(
+        *,
+        workshop_id: int,
+        selected_month: int,
+        selected_year: int,
+        pricing_context: SimpleNamespace | None = None,
+    ) -> tuple[list[WorkOrder], list[WorkOrder]]:
         all_workorders = list(
             WorkOrder.objects.filter(
                 workshop_id=workshop_id,
@@ -733,12 +832,12 @@ class DashboardQueryService:
                 delivered_at__month=selected_month,
                 delivered_at__year=selected_year,
             )
-            .select_related("budget__customer", "budget__vehicle", "budget__reference_budget")
+            .select_related("budget__customer", "budget__vehicle", "budget__reference_budget", "budget__workshop")
             .prefetch_related(_WORKORDER_ITEMS_PREFETCH)
             .order_by("delivered_at", "pk")
         )
         for workorder in all_workorders:
-            _mark_budget_read_only(workorder.budget)
+            _prepare_workorder_for_dashboard_pricing(workorder, pricing_context=pricing_context, for_totals_only=True)
             # Cache display total once so the template does not rebuild pricing repeatedly.
             setattr(workorder, "dashboard_display_total", workorder.total_budget_value)
         sale_workorders = [wo for wo in all_workorders if wo.budget_type == "sale"]
@@ -746,18 +845,26 @@ class DashboardQueryService:
         return sale_workorders, warranty_workorders
 
     @staticmethod
-    def _get_approved_budget_metrics(*, workshop_id: int, selected_month: int, selected_year: int) -> ApprovedBudgetMetrics:
+    def _get_approved_budget_metrics(
+        *,
+        workshop_id: int,
+        selected_month: int,
+        selected_year: int,
+        pricing_context: SimpleNamespace | None = None,
+    ) -> ApprovedBudgetMetrics:
         approved_budgets = list(
             Budget.objects.filter(
                 workshop_id=workshop_id,
                 status=BudgetStatus.APPROVED,
                 entry_date__month=selected_month,
                 entry_date__year=selected_year,
-            ).prefetch_related(_BUDGET_ITEMS_PREFETCH)
+            )
+            .select_related("workshop")
+            .prefetch_related(_BUDGET_ITEMS_PREFETCH)
         )
         profitabilities: list[Any] = []
         for budget in approved_budgets:
-            _mark_budget_read_only(budget)
+            _prepare_budget_for_dashboard_pricing(budget, pricing_context=pricing_context, for_totals_only=False)
             rentability = budget.rentability
             if rentability is not None:
                 profitabilities.append(rentability)
@@ -790,21 +897,27 @@ class DashboardQueryService:
         return ApprovalRateMetrics(created_count=created_count, approved_count=approved_count)
 
     @staticmethod
-    def _get_pending_receivable_metrics(*, workshop_id: int, selected_month: int, selected_year: int) -> PendingReceivableMetrics:
+    def _get_pending_receivable_metrics(
+        *,
+        workshop_id: int,
+        selected_month: int,
+        selected_year: int,
+        pricing_context: SimpleNamespace | None = None,
+    ) -> PendingReceivableMetrics:
         """Computes total pending receivable for draft OSs, split by current vs previous months."""
         draft_workorders = list(
             WorkOrder.objects.filter(
                 workshop_id=workshop_id,
                 status=WorkOrderStatus.DRAFT,
             )
-            .select_related("budget")
+            .select_related("budget__workshop")
             .prefetch_related(_WORKORDER_ITEMS_PREFETCH, "payments")
         )
 
         total_general = Decimal("0.00")
         monthly = Decimal("0.00")
         for workorder in draft_workorders:
-            _mark_budget_read_only(workorder.budget)
+            _prepare_workorder_for_dashboard_pricing(workorder, pricing_context=pricing_context, for_totals_only=True)
             pending_value = resolve_decimal_amount(workorder.pending_payment_value)
             total_general += pending_value
             if workorder.criado_em and workorder.criado_em.month == selected_month and workorder.criado_em.year == selected_year:
@@ -817,18 +930,26 @@ class DashboardQueryService:
         )
 
     @staticmethod
-    def _get_pending_budget_metrics(*, workshop_id: int, selected_month: int, selected_year: int) -> PendingBudgetMetrics:
+    def _get_pending_budget_metrics(
+        *,
+        workshop_id: int,
+        selected_month: int,
+        selected_year: int,
+        pricing_context: SimpleNamespace | None = None,
+    ) -> PendingBudgetMetrics:
         pending_budgets = list(
             Budget.objects.filter(
                 workshop_id=workshop_id,
                 budget_type=BudgetType.SALE,
                 status__in=OPEN_BUDGET_STATUSES,
-            ).prefetch_related(_BUDGET_ITEMS_PREFETCH)
+            )
+            .select_related("workshop")
+            .prefetch_related(_BUDGET_ITEMS_PREFETCH)
         )
         total_general = Decimal("0.00")
         monthly = Decimal("0.00")
         for budget in pending_budgets:
-            _mark_budget_read_only(budget)
+            _prepare_budget_for_dashboard_pricing(budget, pricing_context=pricing_context, for_totals_only=True)
             amount = budget.total_budget_value.amount
             total_general += amount
             if budget.entry_date and budget.entry_date.month == selected_month and budget.entry_date.year == selected_year:
@@ -840,18 +961,26 @@ class DashboardQueryService:
         )
 
     @staticmethod
-    def _get_rejected_budget_total(*, workshop_id: int, selected_month: int, selected_year: int) -> Decimal:
+    def _get_rejected_budget_total(
+        *,
+        workshop_id: int,
+        selected_month: int,
+        selected_year: int,
+        pricing_context: SimpleNamespace | None = None,
+    ) -> Decimal:
         rejected_budgets = list(
             Budget.objects.filter(
                 workshop_id=workshop_id,
                 status__in=REJECTED_BUDGET_STATUS_VALUES,
                 entry_date__month=selected_month,
                 entry_date__year=selected_year,
-            ).prefetch_related(_BUDGET_ITEMS_PREFETCH)
+            )
+            .select_related("workshop")
+            .prefetch_related(_BUDGET_ITEMS_PREFETCH)
         )
         total = Decimal("0.00")
         for budget in rejected_budgets:
-            _mark_budget_read_only(budget)
+            _prepare_budget_for_dashboard_pricing(budget, pricing_context=pricing_context, for_totals_only=True)
             total += resolve_decimal_amount(budget.display_total_budget_value)
         return total
 
