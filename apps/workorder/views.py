@@ -411,7 +411,12 @@ class WorkOrderStatusReportDataMixin:
             Prefetch(
                 "items",
                 queryset=WorkOrderItem.objects.select_related("product", "service", "kit")
-                .prefetch_related("kit_overrides")
+                .prefetch_related(
+                    Prefetch(
+                        "kit_overrides",
+                        queryset=WorkOrderKitItemOverride.objects.select_related("product", "service"),
+                    )
+                )
                 .order_by("id"),
             )
         )
@@ -425,7 +430,10 @@ class WorkOrderStatusReportDataMixin:
                     "items",
                     queryset=WorkOrderItem.objects.select_related("product", "service", "kit")
                     .prefetch_related(
-                        "kit_overrides",
+                        Prefetch(
+                            "kit_overrides",
+                            queryset=WorkOrderKitItemOverride.objects.select_related("product", "service"),
+                        ),
                         "kit__kit_products__product",
                         "kit__kit_services__service",
                     )
@@ -594,7 +602,10 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
                     "items",
                     queryset=WorkOrderItem.objects.select_related("product", "service", "kit")
                     .prefetch_related(
-                        "kit_overrides",
+                        Prefetch(
+                            "kit_overrides",
+                            queryset=WorkOrderKitItemOverride.objects.select_related("product", "service"),
+                        ),
                         "kit__kit_products__product",
                         "kit__kit_services__service",
                     )

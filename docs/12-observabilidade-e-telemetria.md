@@ -81,6 +81,13 @@ Buckets de duracao em ms foram estendidos ate 180s em `apps/core/otel_logging.py
 ### Diagnostico do dashboard
 
 `DashboardQueryService.compute` emite `section_timings_ms` no log `business_operation_completed` (logger `apps.core.infrastructure.services.dashboard_query_service`). Use isso com o `request_id` do explorer V2 para ver qual secao (ex.: `delivered_workorders`, `pending_receivable_metrics`) domina.
+
+Hotspot conhecido (ws=19): N+1 em `kit_overrides.product` / `kit_overrides.service` dentro de `build_pricing_snapshot`. O prefetch do dashboard/listas deve usar `select_related("product", "service")` nos overrides. Apos deploy de remediacao:
+
+1. Janela curta `PERF_LOG_QUERIES=1`
+2. Recarregar `/core/` na oficina afetada
+3. Confirmar queda de `query_count` / `sql_time_ms` / `duration_ms` em `route=core:dashboard` (alvo: dezenas/centenas de queries, nao milhares)
+4. Voltar `PERF_LOG_QUERIES=0`
 ## Stack recomendada
 
 ### Aplicacao Python

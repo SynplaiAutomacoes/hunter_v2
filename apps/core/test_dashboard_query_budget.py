@@ -1,18 +1,24 @@
 from __future__ import annotations
 
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 from djmoney.money import Money
 
-from apps.budget.models import Budget
+from apps.budget.models import Budget, BudgetItem, BudgetKitItemOverride
+from apps.catalog.models.groups import CatalogGroup
+from apps.catalog.models.kits import Kit
+from apps.catalog.models.products import Product
 from apps.core.infrastructure.services.dashboard_query_service import (
+    _BUDGET_ITEMS_PREFETCH,
     _build_injected_pricing_context,
     _mark_budget_read_only,
     _prepare_budget_for_dashboard_pricing,
     _prepare_workorder_for_dashboard_pricing,
 )
+from apps.workshops.models.workshops import Workshop
 
 
 class KitOverrideReadPathTests(SimpleTestCase):
@@ -113,3 +119,90 @@ class ReadOnlyPricingContextTests(SimpleTestCase):
         context = _build_injected_pricing_context(workshop=workshop, workshop_cost=None)
         self.assertEqual(context.working_hours_per_month, 0)
         self.assertEqual(context.productive_salary_total, Money(0, "BRL"))
+
+
+class DashboardKitOverridePrefetchShapeTests(SimpleTestCase):
+    def test_budget_and_workorder_prefetch_select_related_override_catalog_fks(self) -> None:
+        from apps.core.infrastructure.services.dashboard_query_service import (
+            _BUDGET_ITEMS_PREFETCH,
+            _BUDGET_KIT_OVERRIDES_PREFETCH,
+            _WORKORDER_ITEMS_PREFETCH,
+            _WORKORDER_KIT_OVERRIDES_PREFETCH,
+        )
+
+        self.assertIn("product", _BUDGET_KIT_OVERRIDES_PREFETCH.queryset.query.select_related)
+        self.assertIn("service", _BUDGET_KIT_OVERRIDES_PREFETCH.queryset.query.select_related)
+        self.assertIn("product", _WORKORDER_KIT_OVERRIDES_PREFETCH.queryset.query.select_related)
+        self.assertIn("service", _WORKORDER_KIT_OVERRIDES_PREFETCH.queryset.query.select_related)
+
+        budget_lookups = list(_BUDGET_ITEMS_PREFETCH.queryset._prefetch_related_lookups)
+        workorder_lookups = list(_WORKORDER_ITEMS_PREFETCH.queryset._prefetch_related_lookups)
+        self.assertIn(_BUDGET_KIT_OVERRIDES_PREFETCH, budget_lookups)
+        self.assertIn(_WORKORDER_KIT_OVERRIDES_PREFETCH, workorder_lookups)
+
+
+class DashboardKitOverrideNumQueriesTests(TestCase):
+    def setUp(self) -> None:
+        self.workshop = Workshop.objects.create(
+            name="Oficina Kit Prefetch",
+            cnpj="11.222.333/0001-44",
+            phone="+5511999999999",
+            address="Rua Teste, 123",
+        )
+        self.group = CatalogGroup.objects.create(workshop=self.workshop, name="Grupo Kit")
+        self.kit = Kit.objects.create(workshop=self.workshop, name="Kit Dashboard")
+        self.budget = Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=date(2026, 7, 1),
+            current_step=4,
+            slider=0,
+        )
+        self.item = BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=self.budget,
+            kit=self.kit,
+            quantity=1,
+        )
+        for index in range(5):
+            product = Product.objects.create(
+                workshop=self.workshop,
+                group=self.group,
+                code=f"KIT-P-{index}",
+                name=f"Componente {index}",
+                unit=Product.Unit.UND,
+                cost_price=Money("5.00", "BRL"),
+                selling_price=Money("10.00", "BRL"),
+            )
+            BudgetKitItemOverride.objects.create(
+                workshop=self.workshop,
+                budget_item=self.item,
+                product=product,
+                quantity=1,
+                product_cost_price=Money("5.00", "BRL"),
+                product_selling_price=Money("10.00", "BRL"),
+            )
+
+    def test_prefetched_overrides_do_not_lazy_load_product_fk(self) -> None:
+        budget = Budget.objects.filter(pk=self.budget.pk).prefetch_related(_BUDGET_ITEMS_PREFETCH).get()
+        item = next(iter(budget._iter_items()))
+        overrides = list(item._iter_frozen_kit_product_overrides())
+        self.assertEqual(len(overrides), 5)
+
+        with self.assertNumQueries(0):
+            for override in overrides:
+                self.assertEqual(override.product.workshop_id, self.workshop.pk)
+                _ = override.product.name
+                _ = override.product.code
+
+    def test_dashboard_total_after_prefetch_avoids_override_fk_queries(self) -> None:
+        budget = Budget.objects.filter(pk=self.budget.pk).prefetch_related(_BUDGET_ITEMS_PREFETCH).get()
+        _prepare_budget_for_dashboard_pricing(
+            budget,
+            pricing_context=_build_injected_pricing_context(workshop=self.workshop, workshop_cost=None),
+            for_totals_only=True,
+        )
+
+        with self.assertNumQueries(0):
+            total = budget.total_budget_value
+
+        self.assertEqual(total.amount, Money("50.00", "BRL").amount)
