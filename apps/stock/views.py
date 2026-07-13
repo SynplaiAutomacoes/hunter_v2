@@ -8,6 +8,7 @@ from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.http import Http404, HttpRequest, HttpResponse
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -45,6 +46,7 @@ from .models import StockImport, StockMovement, StockProduct, StockTransfer
 from ..catalog.models.groups import CatalogGroup
 from ..catalog.models.products import Product
 from ..core.infrastructure.pdf.renderer import build_pdf_http_response
+from ..budget.pdf_context import build_workshop_logo_data_uri
 from ..core.infrastructure import apply_text_search, apply_query_param_filters, QueryParamFilter
 from ..core.presentation import TableActionDefaults, STOCK_IMPORT_CREATE_FAVORITE_PAGE, MultiStepFormMixin
 from ..core.templatetags.table_tags import TableColumn
@@ -57,7 +59,7 @@ from ..workshops.mixin import WorkshopScopedMixin
 from ..workshops.models.workshops import Workshop
 from ..workshops.util.workshops import get_active_workshop_or_404, has_workshop_perm
 from .report_documents import build_stock_report_excel_document, build_stock_report_pdf_render_request, render_stock_report_pdf_document
-from .reporting import build_stock_report_column_options, build_stock_report_summary, get_stock_report_columns
+from .reporting import build_stock_report_column_options, build_stock_report_pdf_rows, build_stock_report_summary, get_stock_report_columns
 
 
 @dataclass(frozen=True)
@@ -340,8 +342,51 @@ class StockReportDataMixin:
     def _get_stock_report_querystring(self) -> str:
         return self.request.GET.urlencode()
 
-    def _get_stock_report_items(self) -> list[StockProduct]:
-        return list(self._get_stock_report_queryset())
+    def _build_stock_report_filter_descriptions(self) -> list[str]:
+        labels: list[str] = []
+
+        piece = str(self.request.GET.get("piece") or "").strip()
+        if piece:
+            labels.append(f"Peça contém: {piece}")
+
+        code = str(self.request.GET.get("code") or "").strip()
+        if code:
+            labels.append(f"Código contém: {code}")
+
+        group = self._get_selected_group()
+        if group is not None:
+            labels.append(f"Grupo: {group.name}")
+
+        supplier = self._get_selected_supplier()
+        if supplier is not None:
+            labels.append(f"Fornecedor: {supplier.name}")
+
+        quantity_min = self._parse_quantity_param("quantity_min")
+        if quantity_min is not None:
+            labels.append(f"Quantidade mínima: {quantity_min}")
+
+        quantity_max = self._parse_quantity_param("quantity_max")
+        if quantity_max is not None:
+            labels.append(f"Quantidade máxima: {quantity_max}")
+
+        return labels
+
+    def _build_stock_report_export_context(self) -> dict[str, object]:
+        items = self._get_stock_report_items()
+        selected_columns = self._get_selected_columns()
+
+        return {
+            "stock_report_items": items,
+            "stock_report_filter_descriptions": self._build_stock_report_filter_descriptions(),
+            "stock_report_totals": self._get_stock_report_totals(),
+            "stock_report_pdf_title": self.stock_report_pdf_title,
+            "selected_columns": selected_columns,
+            "workshop": self.workshop,
+            "generated_at_label": timezone.now().strftime("%d/%m/%Y às %H:%M"),
+            "workshop_logo_data_uri": build_workshop_logo_data_uri(workshop=self.workshop),
+            "auto_print": True,
+            "stock_report_rows": build_stock_report_pdf_rows(items=items, selected_columns=selected_columns),
+        }
 
     def _get_full_stock_report_queryset(self):
         return self._get_stock_report_base_queryset()
@@ -372,22 +417,6 @@ class StockReportListView(LoginRequiredMixin, StockReportDataMixin, WorkshopScop
 
     def get_queryset(self):
         return self._get_stock_report_queryset()
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["stock_report_items"] = self.object_list
-        selected_columns = self._get_selected_columns()
-        context["fields"] = [column.table_column for column in selected_columns]
-        context["actions"] = []
-        context["stock_report_column_options"] = build_stock_report_column_options(self.request.GET.getlist("columns"))
-        context["stock_report_selected_column_labels"] = [column.label for column in selected_columns]
-        context["stock_report_group_choices"] = [(str(group_id), name) for group_id, name in CatalogGroup.objects.filter(workshop=self.workshop).order_by("name").values_list("id", "name")]
-        context["stock_report_supplier_choices"] = [(str(supplier_id), name) for supplier_id, name in Supplier.objects.filter(workshop=self.workshop, is_active=True).order_by("name").values_list("id", "name")]
-        context["stock_report_totals"] = self._get_stock_report_totals()
-        context["stock_report_querystring"] = self._get_stock_report_querystring()
-        context["stock_report_filter_descriptions"] = self._build_stock_report_filter_descriptions()
-        context["stock_report_pdf_title"] = self.stock_report_pdf_title
-        return context
 
 
 @method_decorator(xframe_options_exempt, name="dispatch")
