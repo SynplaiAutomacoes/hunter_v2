@@ -84,38 +84,99 @@
 
                 {% for tab in component_tabs %}
                     <section x-show="activeTab === '{{ tab.key }}'" x-cloak class="space-y-4">
-                        <div class="flex items-center justify-between gap-3">
-                            <h3 class="flex items-center gap-2 text-base font-semibold text-base-content"><span class="material-icons text-sm">payments</span>{{ tab.label }}</h3>
-                            {% if tab.movements|length > 1 %}
-                                <div class="flex flex-wrap gap-2">
-                                    {% for movement_option in tab.movements %}
-                                        <button type="button" class="btn btn-xs" hx-get="{{ modal_url }}?tab={{ tab.key }}&movement_id={{ movement_option.pk }}&continue_without_create=true" hx-target="closest .modal" hx-swap="outerHTML">{{ movement_option.description|default:tab.label }}</button>
+                        {% if tab.is_benefit_tab %}
+                            <div class="flex items-center justify-between gap-3">
+                                <h3 class="flex items-center gap-2 text-base font-semibold text-base-content"><span class="material-icons text-sm">payments</span>{{ tab.label }}</h3>
+                            </div>
+
+                            {% if tab.is_missing and not tab.movements %}
+                                <div class="rounded-xl border border-warning/40 bg-warning/10 p-5 text-warning-content">
+                                    <p class="font-semibold text-base-content">Esta movimentação ainda não foi criada.</p>
+                                    <p class="mt-1 text-sm text-base-content/70">Se quiser gerar {{ tab.label|lower }}, confirme a criação. Se preferir não criar agora, você pode continuar editando as outras abas.</p>
+                                    <div class="mt-4 flex gap-2">
+                                        <button type="button" class="btn btn-warning" hx-get="{{ modal_url }}?tab={{ tab.key }}&prompt_create_component={{ tab.key }}&continue_without_create=true" hx-target="closest .modal" hx-swap="outerHTML"><span class="material-icons text-sm">add_task</span>Criar esta movimentação</button>
+                                    </div>
+                                </div>
+                            {% elif tab.benefit_items %}
+                                <div class="rounded-xl border border-base-300 bg-base-200/60 p-4">
+                                    <p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Total de benefícios</p>
+                                    <p class="mt-1 text-xl font-black text-base-content">{{ tab.benefits_total }}</p>
+                                </div>
+
+                                <div class="space-y-3">
+                                    {% for item in tab.benefit_items %}
+                                        <div class="collapse collapse-arrow border border-base-300 bg-base-100">
+                                            <input type="checkbox" />
+                                            <div class="collapse-title pr-12 font-semibold">
+                                                <div class="flex items-center gap-3">
+                                                    <span class="min-w-0 flex-1 truncate">{{ item.benefit_name }}</span>
+                                                    <span class="shrink-0 text-sm font-bold text-primary">{{ item.amount }}</span>
+                                                    <button
+                                                        type="button"
+                                                        class="btn btn-ghost btn-xs btn-square relative z-20 shrink-0 text-error hover:bg-error/10"
+                                                        title="Excluir {{ item.benefit_name }}"
+                                                        aria-label="Excluir {{ item.benefit_name }}"
+                                                        hx-get="{% url 'finance:financial_movement_remove_payroll_link' item.movement_id %}"
+                                                        hx-target="body"
+                                                        hx-swap="beforeend"
+                                                        onclick="event.stopPropagation()"
+                                                    >
+                                                        <span class="material-icons pointer-events-none text-sm">delete</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="collapse-content">
+                                                <input type="hidden" name="tab_{{ tab.key }}_movement_id_{{ item.movement_id }}" value="{{ item.movement_id }}">
+                                                <div class="grid grid-cols-12 gap-4 pt-2">
+                                                    <div class="col-span-12 lg:col-span-4">{{ item.form.due_date|as_crispy_field }}</div>
+                                                    <div class="col-span-12 lg:col-span-4">{{ item.form.amount|as_crispy_field }}</div>
+                                                    <div class="col-span-12 lg:col-span-4">{{ item.form.is_paid|as_crispy_field }}</div>
+                                                    <div class="col-span-12 lg:col-span-4">{{ item.form.is_reconciled|as_crispy_field }}</div>
+                                                    <div class="col-span-12 lg:col-span-4">{{ item.form.payment_method|as_crispy_field }}</div>
+                                                    <div class="col-span-12 lg:col-span-4">{{ item.form.budget_plan|as_crispy_field }}</div>
+                                                    <div class="col-span-12 lg:col-span-4">{{ item.form.bank_account|as_crispy_field }}</div>
+                                                    <div class="col-span-12 lg:col-span-4">{{ item.form.nf_number|as_crispy_field }}</div>
+                                                    <div class="col-span-12">{{ item.form.financial_observation|as_crispy_field }}</div>
+                                                </div>
+                                            </div>
+                                        </div>
                                     {% endfor %}
                                 </div>
                             {% endif %}
-                        </div>
+                        {% else %}
+                            <div class="flex items-center justify-between gap-3">
+                                <h3 class="flex items-center gap-2 text-base font-semibold text-base-content"><span class="material-icons text-sm">payments</span>{{ tab.label }}</h3>
+                                {% if tab.movements|length > 1 %}
+                                    <div class="flex flex-wrap gap-2">
+                                        {% for movement_option in tab.movements %}
+                                            <button type="button" class="btn btn-xs" hx-get="{{ modal_url }}?tab={{ tab.key }}&movement_id={{ movement_option.pk }}&continue_without_create=true" hx-target="closest .modal" hx-swap="outerHTML">{{ movement_option.description|default:tab.label }}</button>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
 
-                        {% if tab.is_missing and not tab.movements %}
-                            <div class="rounded-xl border border-warning/40 bg-warning/10 p-5 text-warning-content">
-                                <p class="font-semibold text-base-content">Esta movimentação ainda não foi criada.</p>
-                                <p class="mt-1 text-sm text-base-content/70">Se quiser gerar {{ tab.label|lower }}, confirme a criação. Se preferir não criar agora, você pode continuar editando as outras abas.</p>
-                                <div class="mt-4 flex gap-2">
-                                    <button type="button" class="btn btn-warning" hx-get="{{ modal_url }}?tab={{ tab.key }}&prompt_create_component={{ tab.key }}&continue_without_create=true" hx-target="closest .modal" hx-swap="outerHTML"><span class="material-icons text-sm">add_task</span>Criar esta movimentação</button>
+                            {% if tab.is_missing and not tab.movements %}
+                                <div class="rounded-xl border border-warning/40 bg-warning/10 p-5 text-warning-content">
+                                    <p class="font-semibold text-base-content">Esta movimentação ainda não foi criada.</p>
+                                    <p class="mt-1 text-sm text-base-content/70">Se quiser gerar {{ tab.label|lower }}, confirme a criação. Se preferir não criar agora, você pode continuar editando as outras abas.</p>
+                                    <div class="mt-4 flex gap-2">
+                                        <button type="button" class="btn btn-warning" hx-get="{{ modal_url }}?tab={{ tab.key }}&prompt_create_component={{ tab.key }}&continue_without_create=true" hx-target="closest .modal" hx-swap="outerHTML"><span class="material-icons text-sm">add_task</span>Criar esta movimentação</button>
+                                    </div>
                                 </div>
-                            </div>
-                        {% elif tab.form %}
-                            <input type="hidden" name="tab_{{ tab.key }}_movement_id" value="{{ tab.default_movement_id }}">
-                            <div class="grid grid-cols-12 gap-4">
-                                <div class="col-span-12 lg:col-span-4">{{ tab.form.due_date|as_crispy_field }}</div>
-                                <div class="col-span-12 lg:col-span-4">{{ tab.form.amount|as_crispy_field }}</div>
-                                <div class="col-span-12 lg:col-span-4">{{ tab.form.is_paid|as_crispy_field }}</div>
-                                <div class="col-span-12 lg:col-span-4">{{ tab.form.is_reconciled|as_crispy_field }}</div>
-                                <div class="col-span-12 lg:col-span-4">{{ tab.form.payment_method|as_crispy_field }}</div>
-                                <div class="col-span-12 lg:col-span-4">{{ tab.form.budget_plan|as_crispy_field }}</div>
-                                <div class="col-span-12 lg:col-span-4">{{ tab.form.bank_account|as_crispy_field }}</div>
-                                <div class="col-span-12 lg:col-span-4">{{ tab.form.nf_number|as_crispy_field }}</div>
-                                <div class="col-span-12">{{ tab.form.financial_observation|as_crispy_field }}</div>
-                            </div>
+                            {% elif tab.form %}
+                                <input type="hidden" name="tab_{{ tab.key }}_movement_id" value="{{ tab.default_movement_id }}">
+                                <div class="grid grid-cols-12 gap-4">
+                                    <div class="col-span-12 lg:col-span-4">{{ tab.form.due_date|as_crispy_field }}</div>
+                                    <div class="col-span-12 lg:col-span-4">{{ tab.form.amount|as_crispy_field }}</div>
+                                    <div class="col-span-12 lg:col-span-4">{{ tab.form.is_paid|as_crispy_field }}</div>
+                                    <div class="col-span-12 lg:col-span-4">{{ tab.form.is_reconciled|as_crispy_field }}</div>
+                                    <div class="col-span-12 lg:col-span-4">{{ tab.form.payment_method|as_crispy_field }}</div>
+                                    <div class="col-span-12 lg:col-span-4">{{ tab.form.budget_plan|as_crispy_field }}</div>
+                                    <div class="col-span-12 lg:col-span-4">{{ tab.form.bank_account|as_crispy_field }}</div>
+                                    <div class="col-span-12 lg:col-span-4">{{ tab.form.nf_number|as_crispy_field }}</div>
+                                    <div class="col-span-12">{{ tab.form.financial_observation|as_crispy_field }}</div>
+                                </div>
+                            {% endif %}
                         {% endif %}
                     </section>
                 {% endfor %}
@@ -128,7 +189,7 @@
                      removeUrl: '{% url 'finance:financial_movement_remove_payroll_link' 0 %}',
                      removeUrlForTab(tab) { return this.removeUrl.replace('/0/', '/' + (this.tabMovementIds[tab] || '') + '/'); }
                  }">
-                <div>
+                <div x-show="activeTab !== 'BENEFIT' && tabMovementIds[activeTab]" x-cloak>
                     <span class="text-sm text-base-content/70">Ações para <span class="font-semibold" x-text="tabLabels[activeTab] || ''"></span>:</span>
                     <button type="button" class="btn btn-error btn-outline btn-sm ml-2"
                             hx-target="body" hx-swap="beforeend"
@@ -137,7 +198,7 @@
                         Excluir <span x-text="tabLabels[activeTab] || ''"></span>
                     </button>
                 </div>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2" :class="activeTab === 'BENEFIT' || !tabMovementIds[activeTab] ? 'ml-auto' : ''">
                     <button type="button" class="btn-form-cancel" @click="$refs.payrollEditModal.close()">Cancelar</button>
                     <button type="submit" class="btn btn-primary"><span class="material-icons text-sm">save</span>Salvar</button>
                 </div>

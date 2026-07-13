@@ -696,6 +696,7 @@ def _build_payroll_component_specs(
                 "amount": amount,
                 "description": f"{PAYROLL_COMPONENT_LABELS[component]} {payroll.collaborator.name} - {payroll.reference_month:02d}/{payroll.reference_year}",
                 "budget_plan": budget_plan,
+                "payroll_benefit": None,
             }
         )
 
@@ -703,7 +704,6 @@ def _build_payroll_component_specs(
     if effective_benefits is None:
         effective_benefits = list(CollaboratorBenefit.objects.filter(collaborator=payroll.collaborator, is_active=True).select_related("budget_plan").order_by("id"))
 
-    benefits_by_budget_plan_id: dict[int, dict[str, object]] = {}
     for benefit in effective_benefits:
         benefit_amount = Decimal(str(benefit.monthly_amount.amount or ZERO))
         if benefit_amount <= ZERO:
@@ -714,25 +714,14 @@ def _build_payroll_component_specs(
             budget_plan = resolve_component_group(FinancialMovement.PayrollComponent.BENEFIT)
         else:
             budget_plan = _resolve_benefit_budget_plan(collaborator=payroll.collaborator, benefit=benefit)
-        bucket = benefits_by_budget_plan_id.setdefault(
-            budget_plan.pk,
-            {
-                "budget_plan": budget_plan,
-                "amount": ZERO,
-            },
-        )
-        bucket["amount"] = Decimal(str(bucket["amount"])) + benefit_amount
-
-    for benefit_bucket in benefits_by_budget_plan_id.values():
-        amount = Money(_quantize(Decimal(str(benefit_bucket["amount"]))), "BRL")
-        if Decimal(str(amount.amount or ZERO)) <= ZERO:
-            continue
+        amount = Money(_quantize(benefit_amount), "BRL")
         resolved_specs.append(
             {
                 "component": FinancialMovement.PayrollComponent.BENEFIT,
                 "amount": amount,
-                "description": f"{PAYROLL_COMPONENT_LABELS[FinancialMovement.PayrollComponent.BENEFIT]} {payroll.collaborator.name} - {payroll.reference_month:02d}/{payroll.reference_year}",
-                "budget_plan": benefit_bucket["budget_plan"],
+                "description": f"{benefit.name} - {payroll.collaborator.name} - {payroll.reference_month:02d}/{payroll.reference_year}",
+                "budget_plan": budget_plan,
+                "payroll_benefit": benefit,
             }
         )
 
@@ -792,8 +781,38 @@ def _get_payroll_representative_movement(*, payroll: CollaboratorPayroll, existi
     return payroll.financial_movement
 
 
-def _build_payroll_component_key(*, component: str | None, budget_plan_id: int | None) -> tuple[str, int | None]:
-    return (str(component or ""), budget_plan_id)
+def _build_payroll_component_key(*, component: str | None, budget_plan_id: int | None = None, payroll_benefit_id: int | None = None) -> tuple[str, int | None]:
+    component_key = str(component or "")
+    if component_key == FinancialMovement.PayrollComponent.BENEFIT:
+        return (component_key, payroll_benefit_id)
+    return (component_key, budget_plan_id)
+
+
+def _movement_component_key(*, movement: FinancialMovement) -> tuple[str, int | None]:
+    return _build_payroll_component_key(
+        component=movement.payroll_component,
+        budget_plan_id=movement.budget_plan_id,
+        payroll_benefit_id=movement.payroll_benefit_id,
+    )
+
+
+def _spec_component_key(*, spec: dict[str, object]) -> tuple[str, int | None]:
+    payroll_benefit = spec.get("payroll_benefit")
+    return _build_payroll_component_key(
+        component=str(spec.get("component") or ""),
+        budget_plan_id=getattr(spec.get("budget_plan"), "pk", None),
+        payroll_benefit_id=getattr(payroll_benefit, "pk", None),
+    )
+
+
+def _spec_missing_component_label(*, spec: dict[str, object]) -> str:
+    component = str(spec.get("component") or "")
+    payroll_benefit = spec.get("payroll_benefit")
+    if component == FinancialMovement.PayrollComponent.BENEFIT and payroll_benefit is not None:
+        benefit_name = str(getattr(payroll_benefit, "name", "") or "").strip()
+        if benefit_name:
+            return benefit_name
+    return PAYROLL_COMPONENT_LABELS.get(component, component)
 
 
 @dataclass(slots=True)
@@ -943,7 +962,7 @@ def get_payroll_movement_diagnoses(*, payrolls: list[CollaboratorPayroll]) -> di
                 component=component,
             ),
         )
-        expected_components = [PAYROLL_COMPONENT_LABELS.get(str(spec["component"]), str(spec["component"])) for spec in expected_specs]
+        expected_components = [_spec_missing_component_label(spec=spec) for spec in expected_specs]
         effective_movements = list(_get_payroll_effective_movements(payroll=payroll))
         effective_movement_ids = {movement.pk for movement in effective_movements}
         if payroll.financial_movement is not None and payroll.financial_movement.pk not in effective_movement_ids:
@@ -957,16 +976,8 @@ def get_payroll_movement_diagnoses(*, payrolls: list[CollaboratorPayroll]) -> di
             )
             continue
 
-        existing_keys = {
-            _build_payroll_component_key(component=movement.payroll_component, budget_plan_id=movement.budget_plan_id)
-            for movement in effective_movements
-            if movement.payroll_component
-        }
-        missing_components = [
-            PAYROLL_COMPONENT_LABELS.get(str(spec["component"]), str(spec["component"]))
-            for spec in expected_specs
-            if _build_payroll_component_key(component=str(spec["component"]), budget_plan_id=getattr(spec["budget_plan"], "pk", None)) not in existing_keys
-        ]
+        existing_keys = {_movement_component_key(movement=movement) for movement in effective_movements if movement.payroll_component}
+        missing_components = [_spec_missing_component_label(spec=spec) for spec in expected_specs if _spec_component_key(spec=spec) not in existing_keys]
         diagnoses[payroll.pk] = PayrollMovementDiagnosis(
             payroll_exists=payroll.pk is not None,
             missing_components=missing_components,
@@ -1069,7 +1080,7 @@ def recalculate_payroll_from_linked_movements(*, payroll: CollaboratorPayroll) -
 
 def _sync_payroll_financial_movements(*, payroll: CollaboratorPayroll, active_benefits: list[CollaboratorBenefit] | None = None, source_payroll: CollaboratorPayroll | None = None, allowed_components: set[str] | None = None, prune_stale: bool = True) -> list[FinancialMovement]:
     existing_movements = list(payroll.financial_movements.all().order_by("id"))
-    existing_by_component = {_build_payroll_component_key(component=movement.payroll_component, budget_plan_id=movement.budget_plan_id): movement for movement in existing_movements if movement.payroll_component}
+    existing_by_component = {_movement_component_key(movement=movement): movement for movement in existing_movements if movement.payroll_component}
     representative_movement = _get_payroll_representative_movement(payroll=payroll, existing_by_component={key[0]: movement for key, movement in existing_by_component.items()})
     inherited_paid = bool(representative_movement and representative_movement.is_paid)
     inherited_reconciled = bool(representative_movement and representative_movement.is_reconciled)
@@ -1087,8 +1098,8 @@ def _sync_payroll_financial_movements(*, payroll: CollaboratorPayroll, active_be
         if allowed_components is not None and component not in allowed_components:
             continue
         budget_plan = spec["budget_plan"]
-        budget_plan_id = getattr(budget_plan, "pk", None)
-        movement = existing_by_component.get(_build_payroll_component_key(component=component, budget_plan_id=budget_plan_id))
+        payroll_benefit = spec.get("payroll_benefit")
+        movement = existing_by_component.get(_spec_component_key(spec=spec))
         if movement is None and representative_movement is not None and not representative_consumed:
             movement = representative_movement
             representative_consumed = True
@@ -1109,6 +1120,7 @@ def _sync_payroll_financial_movements(*, payroll: CollaboratorPayroll, active_be
         movement.collaborator = payroll.collaborator
         movement.payroll = payroll
         movement.payroll_component = component
+        movement.payroll_benefit = payroll_benefit if isinstance(payroll_benefit, CollaboratorBenefit) else None
         movement.direction = FinancialMovement.MovementDirection.DEBIT
         movement.description = str(spec["description"])
         movement.amount = spec["amount"]
@@ -1125,9 +1137,9 @@ def _sync_payroll_financial_movements(*, payroll: CollaboratorPayroll, active_be
         synced_movements.append(movement)
 
     if prune_stale:
-        synced_keys = {_build_payroll_component_key(component=movement.payroll_component, budget_plan_id=movement.budget_plan_id) for movement in synced_movements}
+        synced_keys = {_movement_component_key(movement=movement) for movement in synced_movements}
         synced_ids = {synced.pk for synced in synced_movements}
-        stale_movements = [movement for movement in existing_movements if _build_payroll_component_key(component=movement.payroll_component, budget_plan_id=movement.budget_plan_id) not in synced_keys and movement.pk not in synced_ids]
+        stale_movements = [movement for movement in existing_movements if _movement_component_key(movement=movement) not in synced_keys and movement.pk not in synced_ids]
         for stale_movement in stale_movements:
             if stale_movement.is_paid:
                 continue
