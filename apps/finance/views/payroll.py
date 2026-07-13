@@ -275,7 +275,7 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     def _get_queryset(self):
         filters = self._get_filter_params()
         queryset = (
-            CollaboratorPayroll.objects.filter(workshop=self.workshop)
+            CollaboratorPayroll.objects.filter(workshop=self.workshop, collaborator__is_active=True)
             .select_related("collaborator", "financial_movement")
             .prefetch_related("financial_movements")
             .order_by("collaborator__name", "id")
@@ -481,7 +481,12 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def _get_payroll(self) -> CollaboratorPayroll:
         return get_object_or_404(
-            CollaboratorPayroll.objects.select_related("collaborator", "financial_movement").prefetch_related("items", "commission_entries__workorder__budget"),
+            CollaboratorPayroll.objects.select_related("collaborator", "financial_movement").prefetch_related(
+                "items",
+                "commission_entries__workorder__budget",
+                "financial_movements__payroll_benefit",
+                "financial_movements__budget_plan",
+            ),
             pk=self.kwargs["pk"],
             workshop=self.workshop,
         )
@@ -493,7 +498,12 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         reference_date = self._get_reference_date()
         return (
             CollaboratorPayroll.objects.select_related("collaborator", "financial_movement")
-            .prefetch_related("items", "commission_entries__workorder__budget")
+            .prefetch_related(
+                "items",
+                "commission_entries__workorder__budget",
+                "financial_movements__payroll_benefit",
+                "financial_movements__budget_plan",
+            )
             .filter(
                 workshop=self.workshop,
                 collaborator=collaborator,
@@ -561,6 +571,10 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
             amount = component_amounts.get(component)
             expected = Decimal(str(amount.amount or 0)) > 0 if amount is not None else False
             movements = grouped_movements.get(component, [])
+            benefits_total = payroll.benefits_amount if component == FinancialMovement.PayrollComponent.BENEFIT else None
+            if component == FinancialMovement.PayrollComponent.BENEFIT and movements:
+                movement_total = sum((Decimal(str(movement.amount.amount or 0)) for movement in movements), start=Decimal("0.00"))
+                benefits_total = Money(movement_total, "BRL")
             tabs.append(
                 {
                     "key": component,
@@ -568,6 +582,11 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "movements": movements,
                     "has_expected_value": expected,
                     "is_missing": expected and not movements,
+                    "is_benefit_tab": component == FinancialMovement.PayrollComponent.BENEFIT,
+                    "benefits_total": benefits_total,
+                    "benefit_items": [],
+                    "form": None,
+                    "default_movement_id": None,
                 }
             )
         return tabs
@@ -616,8 +635,50 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         )
 
     @staticmethod
-    def _component_form_prefix(component: str) -> str:
+    def _component_form_prefix(component: str, movement_id: int | None = None) -> str:
+        if component == FinancialMovement.PayrollComponent.BENEFIT and movement_id is not None:
+            return f"comp_{component}_{movement_id}"
         return f"comp_{component}"
+
+    @staticmethod
+    def _benefit_display_name(*, movement: FinancialMovement) -> str:
+        benefit = getattr(movement, "payroll_benefit", None)
+        benefit_name = str(getattr(benefit, "name", "") or "").strip()
+        if benefit_name:
+            return benefit_name
+        description = str(movement.description or "").strip()
+        if description:
+            return description.split(" - ")[0].strip() or PAYROLL_COMPONENT_LABELS[FinancialMovement.PayrollComponent.BENEFIT]
+        return PAYROLL_COMPONENT_LABELS[FinancialMovement.PayrollComponent.BENEFIT]
+
+    def _build_benefit_items(
+        self,
+        *,
+        payroll: CollaboratorPayroll,
+        movements: list[FinancialMovement],
+        post_data: Any | None = None,
+        failed_forms: dict[int, PayrollPaymentForm] | None = None,
+    ) -> list[dict[str, Any]]:
+        benefit_items: list[dict[str, Any]] = []
+        for movement in movements:
+            prefix = self._component_form_prefix(FinancialMovement.PayrollComponent.BENEFIT, movement.pk)
+            if failed_forms is not None and movement.pk in failed_forms:
+                form = failed_forms[movement.pk]
+            elif post_data is not None:
+                form = PayrollPaymentForm(post_data, instance=movement, workshop=self.workshop, payroll=payroll, prefix=prefix)
+            else:
+                form = PayrollPaymentForm(instance=movement, workshop=self.workshop, payroll=payroll, prefix=prefix)
+            benefit_items.append(
+                {
+                    "movement": movement,
+                    "movement_id": movement.pk,
+                    "benefit_name": self._benefit_display_name(movement=movement),
+                    "amount": movement.amount,
+                    "form": form,
+                    "prefix": prefix,
+                }
+            )
+        return benefit_items
 
     def _open_edit_modal(self, *, request: Any, payroll: CollaboratorPayroll) -> HttpResponse:
         component_tabs = self._build_component_tabs(payroll=payroll)
@@ -645,10 +706,17 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         for tab in component_tabs:
             movement_id = default_movement_ids.get(tab["key"])
+            tab["default_movement_id"] = movement_id
+            if tab["is_benefit_tab"]:
+                tab["benefit_items"] = self._build_benefit_items(payroll=payroll, movements=tab["movements"])
+                tab["form"] = None
+                continue
             movement = next((m for m in tab["movements"] if m.pk == movement_id), None) if movement_id is not None else None
             prefix = self._component_form_prefix(str(tab["key"]))
-            tab["default_movement_id"] = movement_id
             tab["form"] = PayrollPaymentForm(instance=movement, workshop=self.workshop, payroll=payroll, prefix=prefix) if movement is not None else None
+
+        benefit_tab = next((tab for tab in component_tabs if tab["is_benefit_tab"]), None)
+        default_benefit_movement_id = benefit_tab["default_movement_id"] if benefit_tab is not None else None
 
         return render(
             request,
@@ -660,6 +728,7 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "modal_url": modal_url,
                 "fallback_tab": fallback_tab,
                 "continue_without_create": True,
+                "default_benefit_movement_id": default_benefit_movement_id,
             },
         )
 
@@ -707,7 +776,9 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     refresh=True,
                     status=400,
                 )
-            return self._open_edit_modal(request=request, payroll=target_payroll)
+            response = self._open_edit_modal(request=request, payroll=target_payroll)
+            response["HX-Trigger"] = json.dumps({"payrollListRefresh": True})
+            return response
 
         if payroll is None or not payroll_has_financial_movements(payroll=payroll) or payroll.financial_movement is None:
             return self._build_confirmation_response(request=request, collaborator=collaborator, payroll=payroll)
@@ -715,10 +786,25 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         component_tabs = self._build_component_tabs(payroll=payroll)
         all_forms: list[tuple[str, PayrollPaymentForm]] = []
         invalid_forms: list[tuple[str, PayrollPaymentForm]] = []
+        failed_benefit_forms: dict[int, PayrollPaymentForm] = {}
 
         for tab in component_tabs:
             if not tab["movements"]:
                 continue
+            if tab["is_benefit_tab"]:
+                for movement in tab["movements"]:
+                    prefix = self._component_form_prefix(str(tab["key"]), movement.pk)
+                    form = PayrollPaymentForm(request.POST, instance=movement, workshop=self.workshop, payroll=payroll, prefix=prefix)
+                    has_tab_data = any(str(key).startswith(prefix) for key in request.POST.keys())
+                    if not has_tab_data:
+                        continue
+                    if form.is_valid():
+                        all_forms.append((tab["key"], form))
+                    else:
+                        invalid_forms.append((tab["key"], form))
+                        failed_benefit_forms[movement.pk] = form
+                continue
+
             movement = tab["movements"][0]
             prefix = self._component_form_prefix(str(tab["key"]))
             form = PayrollPaymentForm(request.POST, instance=movement, workshop=self.workshop, payroll=payroll, prefix=prefix)
@@ -741,13 +827,20 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
             for tab in component_tabs:
                 if not tab["movements"]:
                     continue
+                tab["default_movement_id"] = tab["movements"][0].pk
+                if tab["is_benefit_tab"]:
+                    tab["benefit_items"] = self._build_benefit_items(
+                        payroll=payroll,
+                        movements=tab["movements"],
+                        failed_forms=failed_benefit_forms,
+                    )
+                    tab["form"] = None
+                    continue
                 prefix = self._component_form_prefix(str(tab["key"]))
                 failed_form = next((f for key, f in invalid_forms if key == tab["key"]), None)
                 if failed_form is not None:
                     tab["form"] = failed_form
-                    tab["default_movement_id"] = tab["movements"][0].pk
                 else:
-                    tab["default_movement_id"] = tab["movements"][0].pk
                     tab["form"] = PayrollPaymentForm(instance=tab["movements"][0], workshop=self.workshop, payroll=payroll, prefix=prefix)
             return render(
                 request,
@@ -759,6 +852,7 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "modal_url": modal_url,
                     "fallback_tab": fallback_tab,
                     "continue_without_create": True,
+                    "default_benefit_movement_id": next((tab["default_movement_id"] for tab in component_tabs if tab["is_benefit_tab"]), None),
                 },
             )
 

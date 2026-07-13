@@ -76,23 +76,31 @@ def create_financial_group_path(*, workshop: Workshop, code_segments: list[int],
 
 
 class CollaboratorCommissionSyncTests(TestCase):
-    def test_payroll_groups_benefits_by_budget_plan(self) -> None:
+    def test_payroll_creates_one_financial_movement_per_benefit(self) -> None:
         workshop = create_workshop(suffix=41)
         collaborator = create_collaborator(workshop=workshop, suffix=41)
         root_group = create_financial_group_path(workshop=workshop, code_segments=[1], names=["Despesas"])
         meal_plan = FinancialGroup.objects.create(workshop=workshop, parent=root_group, name="Vale Alimentacao")
         health_plan = FinancialGroup.objects.create(workshop=workshop, parent=root_group, name="Plano de Saude")
-        CollaboratorBenefit.objects.create(collaborator=collaborator, name="Vale", monthly_amount=Money(100, "BRL"), budget_plan=meal_plan)
-        CollaboratorBenefit.objects.create(collaborator=collaborator, name="Auxilio", monthly_amount=Money(50, "BRL"), budget_plan=meal_plan)
-        CollaboratorBenefit.objects.create(collaborator=collaborator, name="Saude", monthly_amount=Money(75, "BRL"), budget_plan=health_plan)
+        vale = CollaboratorBenefit.objects.create(collaborator=collaborator, name="Vale", monthly_amount=Money(100, "BRL"), budget_plan=meal_plan)
+        auxilio = CollaboratorBenefit.objects.create(collaborator=collaborator, name="Auxilio", monthly_amount=Money(50, "BRL"), budget_plan=meal_plan)
+        saude = CollaboratorBenefit.objects.create(collaborator=collaborator, name="Saude", monthly_amount=Money(75, "BRL"), budget_plan=health_plan)
 
         payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 9, 1), lock_reference=True)
 
-        benefit_movements = list(payroll.financial_movements.filter(payroll_component=FinancialMovement.PayrollComponent.BENEFIT).order_by("budget_plan__sort_key", "id"))
+        benefit_movements = list(payroll.financial_movements.filter(payroll_component=FinancialMovement.PayrollComponent.BENEFIT).order_by("id"))
 
-        self.assertEqual(len(benefit_movements), 2)
+        self.assertEqual(len(benefit_movements), 3)
         self.assertEqual(payroll.benefits_amount, Money(225, "BRL"))
-        self.assertEqual([(movement.budget_plan_id, movement.amount) for movement in benefit_movements], [(meal_plan.pk, Money(150, "BRL")), (health_plan.pk, Money(75, "BRL"))])
+        self.assertEqual(
+            [(movement.payroll_benefit_id, movement.budget_plan_id, movement.amount) for movement in benefit_movements],
+            [
+                (vale.pk, meal_plan.pk, Money(100, "BRL")),
+                (auxilio.pk, meal_plan.pk, Money(50, "BRL")),
+                (saude.pk, health_plan.pk, Money(75, "BRL")),
+            ],
+        )
+        self.assertIn(vale.name, str(benefit_movements[0].description))
 
     def test_payroll_uses_temporary_fallback_plan_for_legacy_benefit_without_budget_plan(self) -> None:
         workshop = create_workshop(suffix=42)
@@ -102,13 +110,14 @@ class CollaboratorCommissionSyncTests(TestCase):
             code_segments=[5, 1, 5],
             names=["Despesas Trabalhistas", "Subgrupo", "Comissao"],
         )
-        CollaboratorBenefit.objects.create(collaborator=collaborator, name="Legado", monthly_amount=Money(80, "BRL"))
+        benefit = CollaboratorBenefit.objects.create(collaborator=collaborator, name="Legado", monthly_amount=Money(80, "BRL"))
 
         payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 10, 1), lock_reference=True)
 
         benefit_movement = payroll.financial_movements.get(payroll_component=FinancialMovement.PayrollComponent.BENEFIT)
 
         self.assertEqual(benefit_movement.amount, Money(80, "BRL"))
+        self.assertEqual(benefit_movement.payroll_benefit_id, benefit.pk)
         self.assertEqual(getattr(benefit_movement.budget_plan, "code", None), "5.1.5")
 
     def test_sale_workorder_generates_commission_but_courtesy_and_warranty_do_not(self) -> None:
