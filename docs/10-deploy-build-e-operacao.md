@@ -126,7 +126,7 @@ Antes de liberar trafego, confirme o valor atual no Railway/host versus o alvo:
 | `TAX_CLASS_DEBUG_LOGS` | `0` | Dump de API fiscal |
 | `PERF_LOGGING_ENABLED` | `1` | Necessario para baseline e paineis Loki de request |
 | `PERF_LOG_QUERIES` | `0` | Ligar so em janela curta de diagnostico |
-| `PERF_LOG_MIN_MS` | `300` | Warning de lentidao; requests rapidas vao em `INFO` |
+| `PERF_LOG_MIN_MS` | `300` | Warning so de lentidao (status &lt; 500); 5xx vao em `ERROR`; requests rapidas em `INFO` |
 | `OTLP_AUTH_HEADER` / `OTEL_EXPORTER_OTLP_ENDPOINT` | configurados | Necessarios para metrics/traces OTEL |
 | `GUNICORN_WORKERS` | medir e ajustar | Default `2` via `gunicorn.conf.py` |
 | `GUNICORN_THREADS` | medir e ajustar | Default `4` |

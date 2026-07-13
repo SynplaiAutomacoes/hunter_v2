@@ -107,7 +107,7 @@ O projeto usa `os.getenv(...)` diretamente em `config/settings.py` e em alguns p
 | `BUDGET_SSE_CHECK_INTERVAL_SECONDS` | intervalo de verificacao SSE |
 | `PERF_LOGGING_ENABLED` | habilita middleware de performance |
 | `PERF_LOG_QUERIES` | registra queries no log de performance via `SqlTimingWrapper` |
-| `PERF_LOG_MIN_MS` | threshold minimo para logar request lenta em `WARNING` |
+| `PERF_LOG_MIN_MS` | threshold minimo para logar request lenta (status &lt; 500) em `WARNING`; 5xx sempre vao em `ERROR` |
 | `NFSE_DEBUG_LOGS` | libera logs debug de NFS-e (default off) |
 | `TAX_CLASS_DEBUG_LOGS` | libera logs debug de classes fiscais (default off) |
 | `ENVIRONMENT` | ambiente (`development`, `staging`, `production`) |

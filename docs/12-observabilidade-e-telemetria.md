@@ -33,6 +33,14 @@ Contrato do log final de request (quando `PERF_LOGGING_ENABLED=1`):
 - `dependency_time_ms` e `dependency_call_count`
 - `request_id` / correlacao OTEL (`trace_id`, `span_id`)
 
+Severidade do log `performance.request` / `request_completed`:
+
+- `status_code >= 500` → `ERROR` (com `exc_info` quando a excecao propagar ate o middleware)
+- request lenta (`duration_ms >= PERF_LOG_MIN_MS`) com status &lt; 500 → `WARNING`
+- demais → `INFO`
+
+O painel **Requests com erro 5xx** do dashboard versionado mostra o resumo da request e o `exc_info` quando presente. Reimporte `grafana/dashboards/hunter-observability.json` apos atualizar.
+
 Lacunas remanescentes:
 
 - instrumentacao de RabbitMQ e alguns providers ainda parcial

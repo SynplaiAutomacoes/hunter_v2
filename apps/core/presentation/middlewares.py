@@ -129,6 +129,7 @@ class RequestPerformanceLoggingMiddleware:
         change_active_requests(1, attributes=active_attributes)
 
         response = None
+        caught_exc: Exception | None = None
         try:
             with ExitStack() as stack:
                 if sql_wrapper is not None:
@@ -136,6 +137,9 @@ class RequestPerformanceLoggingMiddleware:
                         stack.enter_context(connections[alias].execute_wrapper(sql_wrapper))
                 response = self.get_response(request)
             return response
+        except Exception as exc:
+            caught_exc = exc
+            raise
         finally:
             duration_ms = round((time.perf_counter() - start) * 1000, 2)
             status_code = int(getattr(response, "status_code", 500))
@@ -197,7 +201,16 @@ class RequestPerformanceLoggingMiddleware:
             }
 
             log_message = "request_completed"
-            if is_error or duration_ms >= min_duration_ms:
+            if is_error:
+                if caught_exc is not None:
+                    logger.error(
+                        log_message,
+                        extra=log_extra,
+                        exc_info=(type(caught_exc), caught_exc, caught_exc.__traceback__),
+                    )
+                else:
+                    logger.error(log_message, extra=log_extra)
+            elif duration_ms >= min_duration_ms:
                 logger.warning(log_message, extra=log_extra)
             else:
                 logger.info(log_message, extra=log_extra)
