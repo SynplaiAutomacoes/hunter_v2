@@ -30,3 +30,16 @@ class SearchableSelectInputTests(SimpleTestCase):
         html = widget.render("customer", None, attrs={"id": "id_customer"})
 
         self.assertIn("minSearchLength: Number('2'", html)
+
+    def test_render_preserves_search_query_while_dropdown_is_open(self) -> None:
+        """Empty value must not clear search while open (remote fetch race)."""
+        widget = SearchableSelectInput(choices=(), attrs={"data-source-url": "/scheduling/get-customers/"})
+
+        html = widget.render("customer", None, attrs={"id": "id_customer"})
+
+        self.assertIn("if (!this.value)", html)
+        self.assertIn("if (!this.open)", html)
+        self.assertNotIn(
+            "if (!this.value) {\n                this.label = '';\n                this.search = '';",
+            html,
+        )

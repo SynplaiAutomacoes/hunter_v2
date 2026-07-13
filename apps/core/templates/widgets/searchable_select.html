@@ -104,7 +104,11 @@
         updateLabelFromValue() {
             if (!this.value) {
                 this.label = '';
-                this.search = '';
+                // Keep the typed query while the dropdown is open; remote fetch
+                // calls setOptions -> updateLabelFromValue and must not wipe search.
+                if (!this.open) {
+                    this.search = '';
+                }
                 return;
             }
             this.$nextTick(() => {
