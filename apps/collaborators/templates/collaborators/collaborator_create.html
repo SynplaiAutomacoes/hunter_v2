@@ -15,11 +15,7 @@
         workDays: {{ current_work_days }},
         transportTotalDisplay: '{{ current_transport_total }}',
         parseMoney(value) {
-            let normalized = String(value || '').trim().replace(/[^0-9,.-]/g, '');
-            if (normalized.includes(',')) {
-                normalized = normalized.replace(/\./g, '').replace(',', '.');
-            }
-            const parsed = Number.parseFloat(normalized);
+            const parsed = Number.parseFloat(String(value || '').trim());
             return Number.isFinite(parsed) ? parsed : 0;
         },
         formatMoney(value) {
@@ -29,25 +25,24 @@
             const total = this.parseMoney(this.transportDailyDisplay) * this.workDays;
             this.transportTotalDisplay = this.formatMoney(total);
         },
-        init() {
-            const displayInput = document.getElementById('id_transport_allowance_daily_0_display');
-            const amountInput = document.getElementById('id_transport_allowance_daily_0');
-            const initialValue = (displayInput && displayInput.value) || (amountInput && amountInput.value) || '';
-
-            this.transportDailyDisplay = initialValue;
+        syncTransportDailyFromAmount(amountInput, detailValue) {
+            const raw = detailValue !== undefined && detailValue !== null ? detailValue : (amountInput && amountInput.value);
+            this.transportDailyDisplay = raw || '';
             this.updateTransportTotal();
+        },
+        init() {
+            const amountInput = document.getElementById('id_transport_allowance_daily_0');
+            this.syncTransportDailyFromAmount(amountInput);
 
-            if (!displayInput) {
+            if (!amountInput) {
                 return;
             }
-            displayInput.addEventListener('input', (event) => {
-                this.transportDailyDisplay = event.target.value || '';
-                this.updateTransportTotal();
+            amountInput.addEventListener('widget:formatted-change', (event) => {
+                const detailValue = event.detail && event.detail.value;
+                this.syncTransportDailyFromAmount(amountInput, detailValue);
             });
-            displayInput.addEventListener('change', (event) => {
-                this.transportDailyDisplay = event.target.value || '';
-                this.updateTransportTotal();
-            });
+            amountInput.addEventListener('input', () => this.syncTransportDailyFromAmount(amountInput));
+            amountInput.addEventListener('change', () => this.syncTransportDailyFromAmount(amountInput));
         }
     }"
     class="space-y-6"
