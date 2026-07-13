@@ -107,8 +107,17 @@ class RequestIdMiddleware:
 
 
 class RequestPerformanceLoggingMiddleware:
+    _EXCEPTION_ATTR = "_performance_log_exception"
+
     def __init__(self, get_response):
         self.get_response = get_response
+
+    def process_exception(self, request, exception: BaseException):
+        # Django wraps each middleware with convert_exception_to_response, so view
+        # exceptions become HttpResponse(500) before __call__ can catch them.
+        # process_exception still runs and lets us attach the stack to the 5xx log.
+        setattr(request, self._EXCEPTION_ATTR, exception)
+        return None
 
     def __call__(self, request):
         if not getattr(settings, "PERF_LOGGING_ENABLED", False):
@@ -129,7 +138,6 @@ class RequestPerformanceLoggingMiddleware:
         change_active_requests(1, attributes=active_attributes)
 
         response = None
-        caught_exc: Exception | None = None
         try:
             with ExitStack() as stack:
                 if sql_wrapper is not None:
@@ -138,7 +146,7 @@ class RequestPerformanceLoggingMiddleware:
                 response = self.get_response(request)
             return response
         except Exception as exc:
-            caught_exc = exc
+            setattr(request, self._EXCEPTION_ATTR, exc)
             raise
         finally:
             duration_ms = round((time.perf_counter() - start) * 1000, 2)
@@ -201,13 +209,17 @@ class RequestPerformanceLoggingMiddleware:
             }
 
             log_message = "request_completed"
+            caught_exc = getattr(request, self._EXCEPTION_ATTR, None)
+            if isinstance(caught_exc, BaseException):
+                annotate_current_span(
+                    {
+                        "exception.type": type(caught_exc).__name__,
+                        "exception.message": str(caught_exc)[:500],
+                    }
+                )
             if is_error:
-                if caught_exc is not None:
-                    logger.error(
-                        log_message,
-                        extra=log_extra,
-                        exc_info=(type(caught_exc), caught_exc, caught_exc.__traceback__),
-                    )
+                if isinstance(caught_exc, BaseException):
+                    logger.error(log_message, extra=log_extra, exc_info=caught_exc)
                 else:
                     logger.error(log_message, extra=log_extra)
             elif duration_ms >= min_duration_ms:
