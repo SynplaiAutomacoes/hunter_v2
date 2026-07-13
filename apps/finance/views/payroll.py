@@ -176,21 +176,8 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         return collaborators
 
     def _get_collaborators_to_sync(self, *, filters: dict[str, Any]):
-        collaborators = self._get_active_collaborators_queryset(filters=filters)
-        collaborator_ids = list(collaborators.values_list("pk", flat=True))
-        if not collaborator_ids:
-            return collaborators.none()
-
-        synced_collaborator_ids = set(
-            CollaboratorPayroll.objects.filter(
-                workshop=self.workshop,
-                collaborator_id__in=collaborator_ids,
-                reference_month=filters["month"],
-                reference_year=filters["year"],
-                financial_movement_id__isnull=False,
-            ).values_list("collaborator_id", flat=True)
-        )
-        return collaborators.exclude(pk__in=synced_collaborator_ids)
+        """Active collaborators eligible for create/refresh of the month's payroll."""
+        return self._get_active_collaborators_queryset(filters=filters)
 
     def _sync_monthly_payrolls(self, *, filters: dict[str, Any]) -> None:
         reference_date = date(filters["year"], filters["month"], 1)

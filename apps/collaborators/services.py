@@ -326,17 +326,19 @@ def _resolve_payroll_reference_date_from_lookup(
     return resolved
 
 
+def _count_weekdays_in_month(*, year: int, month: int) -> int:
+    days_in_month = calendar.monthrange(year, month)[1]
+    return sum(1 for day in range(1, days_in_month + 1) if date(year, month, day).weekday() < 5)
+
+
 def get_reference_work_days(*, collaborator: WorkshopCollaborator, reference_date: date | None = None) -> int:
     resolved = _resolve_reference_date(reference_date)
     workshop_cost = WorkshopCost.objects.filter(workshop=collaborator.workshop, year=resolved.year, month=resolved.month).only("work_days_per_month").first()
     if workshop_cost is not None:
         return int(workshop_cost.work_days_per_month or 0)
 
-    latest_workshop_cost = WorkshopCost.objects.filter(workshop=collaborator.workshop).order_by("-year", "-month", "-id").only("work_days_per_month").first()
-    if latest_workshop_cost is not None:
-        return int(latest_workshop_cost.work_days_per_month or 0)
-
-    return 0
+    # Do not reuse another month's configured days — that skews VT for the reference month.
+    return _count_weekdays_in_month(year=resolved.year, month=resolved.month)
 
 
 def calculate_transport_allowance_total(*, collaborator: WorkshopCollaborator, reference_date: date | None = None) -> Money:
@@ -1487,15 +1489,9 @@ def sync_collaborator_payrolls_batch(*, collaborators: list[WorkshopCollaborator
     work_days_by_workshop_id: dict[int, int] = {}
     workshop_ids = {collaborator.workshop_id for collaborator in collaborators}
     workshop_costs = {workshop_cost.workshop_id: int(workshop_cost.work_days_per_month or 0) for workshop_cost in WorkshopCost.objects.filter(workshop_id__in=workshop_ids, year=resolved.year, month=resolved.month).only("workshop_id", "work_days_per_month")}
-    latest_workshop_costs: dict[int, int] = {}
+    weekday_fallback = _count_weekdays_in_month(year=resolved.year, month=resolved.month)
     for workshop_id in workshop_ids:
-        work_days_by_workshop_id[workshop_id] = workshop_costs.get(workshop_id, 0)
-        if workshop_id in workshop_costs:
-            continue
-        if workshop_id not in latest_workshop_costs:
-            latest_workshop_cost = WorkshopCost.objects.filter(workshop_id=workshop_id).order_by("-year", "-month", "-id").only("work_days_per_month").first()
-            latest_workshop_costs[workshop_id] = int(latest_workshop_cost.work_days_per_month or 0) if latest_workshop_cost is not None else 0
-        work_days_by_workshop_id[workshop_id] = latest_workshop_costs[workshop_id]
+        work_days_by_workshop_id[workshop_id] = workshop_costs.get(workshop_id, weekday_fallback)
 
     return [
         _sync_collaborator_payroll_internal(

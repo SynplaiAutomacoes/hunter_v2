@@ -168,7 +168,7 @@ class PayrollListViewTests(TestCase):
         # Prefetch benefits + one commission batch + one WorkshopCost lookup — not N per collaborator.
         self.assertLessEqual(len(ctx), 12)
 
-    def test_monthly_sync_skips_collaborators_with_existing_payroll_and_financial_movement(self) -> None:
+    def test_monthly_sync_includes_collaborators_with_existing_unpaid_payroll(self) -> None:
         workshop = create_workshop(suffix=20)
         synced_collaborator = create_collaborator(workshop=workshop, suffix=20)
         collaborator_without_movement = create_collaborator(workshop=workshop, suffix=21)
@@ -212,7 +212,7 @@ class PayrollListViewTests(TestCase):
 
         sync_mock.assert_called_once()
         synced_ids = {collaborator.pk for collaborator in sync_mock.call_args.kwargs["collaborators"]}
-        self.assertNotIn(synced_collaborator.pk, synced_ids)
+        self.assertIn(synced_collaborator.pk, synced_ids)
         self.assertIn(collaborator_without_movement.pk, synced_ids)
         self.assertIn(missing_payroll_collaborator.pk, synced_ids)
 
