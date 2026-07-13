@@ -47,10 +47,9 @@ class WhatsAppConnectView(LoginRequiredMixin, WorkshopScopedMixin, View):
             )
             return JsonResponse({"ok": False, "message": str(exc)}, status=503)
         except WhatsAppServiceError as exc:
-            logger.warning(
-                "whatsapp_connect_failed workshop_id=%s error=%s",
-                workshop.pk,
-                str(exc),
+            logger.exception(
+                "whatsapp_connect_failed",
+                extra={"workshop_id": workshop.pk},
             )
             return JsonResponse({"ok": False, "message": str(exc)}, status=502)
 
@@ -91,10 +90,9 @@ class WhatsAppStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
             )
             return JsonResponse({"ok": False, "connected": False, "message": str(exc)}, status=503)
         except WhatsAppServiceError as exc:
-            logger.warning(
-                "whatsapp_status_failed workshop_id=%s error=%s",
-                workshop.pk,
-                str(exc),
+            logger.exception(
+                "whatsapp_status_failed",
+                extra={"workshop_id": workshop.pk},
             )
             return JsonResponse({"ok": False, "connected": False, "message": str(exc)}, status=502)
 
@@ -133,10 +131,9 @@ class WhatsAppDisconnectView(LoginRequiredMixin, WorkshopScopedMixin, View):
             )
             return JsonResponse({"ok": False, "message": str(exc)}, status=503)
         except WhatsAppServiceError as exc:
-            logger.warning(
-                "whatsapp_disconnect_failed workshop_id=%s error=%s",
-                workshop.pk,
-                str(exc),
+            logger.exception(
+                "whatsapp_disconnect_failed",
+                extra={"workshop_id": workshop.pk},
             )
             return JsonResponse({"ok": False, "message": str(exc)}, status=502)
 

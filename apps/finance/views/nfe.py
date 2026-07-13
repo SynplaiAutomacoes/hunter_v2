@@ -284,6 +284,10 @@ class NfeDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
         try:
             downloaded = service.download_document(workshop=self.workshop, url=document_url)
         except FiscalServiceError as exc:
+            logger.exception(
+                "nfe_document_download_failed",
+                extra={"nfe_request_id": nfe_request.pk, "workshop_id": self.workshop.pk, "document_kind": document_kind},
+            )
             return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
 
         response = HttpResponse(downloaded.content, content_type=downloaded.content_type)
@@ -310,6 +314,10 @@ class NfePreviewPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
         try:
             downloaded = service.download_nfe_preview_document(nfe_request=nfe_request, request=request)
         except FiscalServiceError as exc:
+            logger.exception(
+                "nfe_preview_download_failed",
+                extra={"nfe_request_id": nfe_request.pk, "workshop_id": self.workshop.pk},
+            )
             return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
 
         response = HttpResponse(downloaded.content, content_type=downloaded.content_type)

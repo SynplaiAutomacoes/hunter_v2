@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -49,6 +50,7 @@ class RequestPerformanceLoggingMiddlewareTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         logger_mock.info.assert_called_once()
         logger_mock.warning.assert_not_called()
+        logger_mock.error.assert_not_called()
         record_http_request_mock.assert_called_once()
         annotate_current_span_mock.assert_called_once()
         self.assertEqual(change_active_requests_mock.call_count, 2)
@@ -64,7 +66,7 @@ class RequestPerformanceLoggingMiddlewareTests(SimpleTestCase):
     @patch("apps.core.presentation.middlewares.record_http_request")
     @patch("apps.core.presentation.middlewares.change_active_requests")
     @patch("apps.core.presentation.middlewares.logger")
-    def test_logs_warning_for_server_error_request(
+    def test_logs_error_for_server_error_request(
         self,
         logger_mock: Mock,
         change_active_requests_mock: Mock,
@@ -79,7 +81,8 @@ class RequestPerformanceLoggingMiddlewareTests(SimpleTestCase):
         response = middleware(request)
 
         self.assertEqual(response.status_code, 503)
-        logger_mock.warning.assert_called_once()
+        logger_mock.error.assert_called_once()
+        logger_mock.warning.assert_not_called()
         logger_mock.info.assert_not_called()
         annotate_current_span_mock.assert_called_once()
         self.assertEqual(change_active_requests_mock.call_count, 2)
@@ -87,9 +90,84 @@ class RequestPerformanceLoggingMiddlewareTests(SimpleTestCase):
         record_kwargs = record_http_request_mock.call_args.kwargs
         self.assertTrue(record_kwargs["attributes"]["error"])
 
+        _, error_kwargs = logger_mock.error.call_args
+        self.assertEqual(error_kwargs["extra"]["route"], "finance:nfe_emit")
+        self.assertEqual(error_kwargs["extra"]["status_code"], 503)
+        self.assertNotIn("exc_info", error_kwargs)
+
+    @override_settings(PERF_LOGGING_ENABLED=True, PERF_LOG_QUERIES=False, PERF_LOG_MIN_MS=300)
+    @patch("apps.core.presentation.middlewares.annotate_current_span")
+    @patch("apps.core.presentation.middlewares.record_http_request")
+    @patch("apps.core.presentation.middlewares.change_active_requests")
+    @patch("apps.core.presentation.middlewares.logger")
+    def test_logs_error_with_exc_info_when_request_raises(
+        self,
+        logger_mock: Mock,
+        change_active_requests_mock: Mock,
+        record_http_request_mock: Mock,
+        annotate_current_span_mock: Mock,
+    ) -> None:
+        request = self.factory.get("/collaborators/1/update/")
+        setattr(
+            request,
+            "resolver_match",
+            SimpleNamespace(view_name="collaborators:collaborator_update", route="collaborators/<int:pk>/update/"),
+        )
+        setattr(request, "request_id", "req-exc")
+
+        def _raise(_request: object) -> HttpResponse:
+            raise RuntimeError("boom")
+
+        middleware = RequestPerformanceLoggingMiddleware(_raise)
+
+        with self.assertRaises(RuntimeError):
+            middleware(request)
+
+        logger_mock.error.assert_called_once()
+        logger_mock.warning.assert_not_called()
+        logger_mock.info.assert_not_called()
+
+        _, error_kwargs = logger_mock.error.call_args
+        self.assertEqual(error_kwargs["extra"]["route"], "collaborators:collaborator_update")
+        self.assertEqual(error_kwargs["extra"]["status_code"], 500)
+        exc_info = error_kwargs["exc_info"]
+        self.assertIsInstance(exc_info, tuple)
+        self.assertIs(exc_info[0], RuntimeError)
+        self.assertIsInstance(exc_info[1], RuntimeError)
+        self.assertEqual(str(exc_info[1]), "boom")
+
+    @override_settings(PERF_LOGGING_ENABLED=True, PERF_LOG_QUERIES=False, PERF_LOG_MIN_MS=50)
+    @patch("apps.core.presentation.middlewares.annotate_current_span")
+    @patch("apps.core.presentation.middlewares.record_http_request")
+    @patch("apps.core.presentation.middlewares.change_active_requests")
+    @patch("apps.core.presentation.middlewares.logger")
+    def test_logs_warning_for_slow_successful_request(
+        self,
+        logger_mock: Mock,
+        change_active_requests_mock: Mock,
+        record_http_request_mock: Mock,
+        annotate_current_span_mock: Mock,
+    ) -> None:
+        request = self.factory.get("/accounts/login/")
+        setattr(request, "resolver_match", SimpleNamespace(view_name="accounts:login", route="accounts/login/"))
+        setattr(request, "request_id", "req-slow")
+
+        def _slow_ok(_request: object) -> HttpResponse:
+            time.sleep(0.06)
+            return HttpResponse("ok", status=200)
+
+        middleware = RequestPerformanceLoggingMiddleware(_slow_ok)
+
+        response = middleware(request)
+
+        self.assertEqual(response.status_code, 200)
+        logger_mock.warning.assert_called_once()
+        logger_mock.error.assert_not_called()
+        logger_mock.info.assert_not_called()
+
         _, warning_kwargs = logger_mock.warning.call_args
-        self.assertEqual(warning_kwargs["extra"]["route"], "finance:nfe_emit")
-        self.assertEqual(warning_kwargs["extra"]["status_code"], 503)
+        self.assertEqual(warning_kwargs["extra"]["status_code"], 200)
+        self.assertGreaterEqual(warning_kwargs["extra"]["duration_ms"], 50)
 
     @override_settings(PERF_LOGGING_ENABLED=True, PERF_LOG_QUERIES=False, PERF_LOG_MIN_MS=300)
     @patch("apps.core.presentation.middlewares.annotate_current_span")
