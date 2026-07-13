@@ -130,11 +130,41 @@ class RequestPerformanceLoggingMiddlewareTests(SimpleTestCase):
         _, error_kwargs = logger_mock.error.call_args
         self.assertEqual(error_kwargs["extra"]["route"], "collaborators:collaborator_update")
         self.assertEqual(error_kwargs["extra"]["status_code"], 500)
-        exc_info = error_kwargs["exc_info"]
-        self.assertIsInstance(exc_info, tuple)
-        self.assertIs(exc_info[0], RuntimeError)
-        self.assertIsInstance(exc_info[1], RuntimeError)
-        self.assertEqual(str(exc_info[1]), "boom")
+        self.assertIsInstance(error_kwargs["exc_info"], RuntimeError)
+        self.assertEqual(str(error_kwargs["exc_info"]), "boom")
+
+    @override_settings(PERF_LOGGING_ENABLED=True, PERF_LOG_QUERIES=False, PERF_LOG_MIN_MS=300)
+    @patch("apps.core.presentation.middlewares.annotate_current_span")
+    @patch("apps.core.presentation.middlewares.record_http_request")
+    @patch("apps.core.presentation.middlewares.change_active_requests")
+    @patch("apps.core.presentation.middlewares.logger")
+    def test_logs_error_with_exc_info_when_django_converts_exception_to_500(
+        self,
+        logger_mock: Mock,
+        change_active_requests_mock: Mock,
+        record_http_request_mock: Mock,
+        annotate_current_span_mock: Mock,
+    ) -> None:
+        """Mirrors Django convert_exception_to_response: exception becomes 500 without re-raising."""
+        request = self.factory.post("/collaborators/50/edit/")
+        setattr(
+            request,
+            "resolver_match",
+            SimpleNamespace(view_name="collaborators:collaborator_update", route="collaborators/<int:pk>/edit/"),
+        )
+        setattr(request, "request_id", "req-django-500")
+        boom = RuntimeError("null value in column transport_allowance_daily")
+
+        middleware = RequestPerformanceLoggingMiddleware(lambda _: HttpResponse("erro", status=500))
+        middleware.process_exception(request, boom)
+
+        response = middleware(request)
+
+        self.assertEqual(response.status_code, 500)
+        logger_mock.error.assert_called_once()
+        _, error_kwargs = logger_mock.error.call_args
+        self.assertIs(error_kwargs["exc_info"], boom)
+        self.assertEqual(error_kwargs["extra"]["status_code"], 500)
 
     @override_settings(PERF_LOGGING_ENABLED=True, PERF_LOG_QUERIES=False, PERF_LOG_MIN_MS=50)
     @patch("apps.core.presentation.middlewares.annotate_current_span")

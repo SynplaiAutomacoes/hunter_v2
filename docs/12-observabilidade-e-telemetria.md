@@ -35,11 +35,11 @@ Contrato do log final de request (quando `PERF_LOGGING_ENABLED=1`):
 
 Severidade do log `performance.request` / `request_completed`:
 
-- `status_code >= 500` → `ERROR` (com `exc_info` quando a excecao propagar ate o middleware)
+- `status_code >= 500` → `ERROR` (com `exception_stacktrace` via OTEL quando houver excecao; capturada por `process_exception` porque o Django converte a exception em Response 500 antes do middleware)
 - request lenta (`duration_ms >= PERF_LOG_MIN_MS`) com status &lt; 500 → `WARNING`
 - demais → `INFO`
 
-O painel **Requests com erro 5xx** do dashboard versionado mostra o resumo da request e o `exc_info` quando presente. Reimporte `grafana/dashboards/hunter-observability.json` apos atualizar.
+O painel **Requests com erro 5xx** mostra o resumo + `exception_type` / `exception_message` / `exception_stacktrace`. Reimporte ou faça push do dashboard apos atualizar.
 
 Lacunas remanescentes:
 

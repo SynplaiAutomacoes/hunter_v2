@@ -2251,7 +2251,7 @@
                     "group": "loki",
                     "kind": "DataQuery",
                     "spec": {
-                      "expr": "{service_name=\"hunter-web\", deployment_environment=~\"$environment\"} | scope_name=\"performance.request\" | route != \"/favicon.ico\" | status_code >= 500 | line_format \"[{{.method}}]  {{.route}}  ws={{.workshop_id}}  status={{.status_code}}  {{.duration_ms}}ms  q={{.query_count}}  sql={{.sql_time_ms}}ms  req={{.request_id}}\\n{{.exc_info}}\""
+                      "expr": "{service_name=\"hunter-web\", deployment_environment=~\"$environment\"} | scope_name=\"performance.request\" | route != \"/favicon.ico\" | status_code >= 500 | line_format \"[{{.method}}]  {{.route}}  ws={{.workshop_id}}  status={{.status_code}}  {{.duration_ms}}ms  q={{.query_count}}  sql={{.sql_time_ms}}ms  req={{.request_id}}\\n{{.exception_type}} {{.exception_message}}\\n{{.exception_stacktrace}}\""
                     },
                     "version": "v0"
                   },
@@ -2288,7 +2288,7 @@
               "sortOrder": "Descending",
               "timestampResolution": "ms",
               "unwrappedColumns": false,
-              "wrapLogMessage": false
+              "wrapLogMessage": true
             }
           },
           "version": "13.2.0-28926505616"
