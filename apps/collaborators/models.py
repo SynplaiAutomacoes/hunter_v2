@@ -114,6 +114,10 @@ class WorkshopCollaborator(TimeStampedModel):
             self.name = name_case(self.name)
         if self.position:
             self.position = sentence_case(self.position)
+        if self.salary is None:
+            self.salary = Money(0, "BRL")
+        if self.transport_allowance_daily is None:
+            self.transport_allowance_daily = Money(0, "BRL")
         super().save(*args, **kwargs)
 
     @property
