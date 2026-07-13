@@ -12,6 +12,12 @@ from django.forms import formset_factory
 from apps.core.presentation.widgets import CheckboxInput, DecimalInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models import TaxClassPreset
 from apps.core.presentation.forms import CoreForm, CoreModelForm
+from apps.finance.services.tax_classes import (
+    NFSE_CODIGO_SERVICO_HELP_TEXT,
+    NFSE_CODIGO_SERVICO_INVALID_FORMAT,
+    format_nfse_service_code_for_api,
+    is_valid_nfse_service_code,
+)
 
 
 NFE_SCENARIO_CHOICES = (
@@ -96,27 +102,22 @@ def _service_code_digits(value: object) -> str:
     return "".join(char for char in str(value or "") if char.isdigit())
 
 
-def _format_service_code_for_api(value: object) -> str:
-    digits = _service_code_digits(value)
-    if len(digits) == 4:
-        return f"{digits[:2]}.{digits[2:]}"
-    return str(value or "").strip()
-
-
-def _is_service_code_xx_xx(value: str) -> bool:
-    return len(value) == 5 and value[2] == "." and value.replace(".", "").isdigit()
-
-
-def _is_service_code_xxxxx(value: str) -> bool:
-    return len(value) == 5 and value.isdigit()
-
-
 class TaxClassFormBase(CoreForm):
-    referencia = forms.CharField(label="Referência", required=False, max_length=30, widget=TextInput())
+    referencia = forms.CharField(
+        label="Referência",
+        required=False,
+        max_length=30,
+        help_text="Gerada automaticamente e não pode ser alterada.",
+        widget=TextInput(attrs={"readonly": True, "placeholder": "Gerada automaticamente"}),
+    )
     descricao = forms.CharField(label="Descrição", required=True, max_length=255, widget=TextInput())
     informacoes_fisco = forms.CharField(label="Informações ao Fisco", required=False, widget=TextareaInput(rows=3))
     informacoes_complementares = forms.CharField(label="Informações complementares", required=False, widget=TextareaInput(rows=3))
     base_payload_json = forms.CharField(required=False, widget=forms.HiddenInput())
+
+    def clean_referencia(self) -> str:
+        # Reference is API-generated and immutable; ignore any client-submitted override.
+        return str(self.initial.get("referencia") or "").strip()
 
     def get_base_payload(self) -> dict[str, Any]:
         raw_payload = self.cleaned_data.get("base_payload_json")
@@ -181,7 +182,12 @@ class NfeTaxClassForm(TaxClassFormBase):
 
 
 class NfseTaxClassForm(TaxClassFormBase):
-    codigo_servico = forms.CharField(label="Código do serviço", required=True, widget=TextInput())
+    codigo_servico = forms.CharField(
+        label="Código do serviço",
+        required=True,
+        help_text=NFSE_CODIGO_SERVICO_HELP_TEXT,
+        widget=TextInput(),
+    )
     tipo_emissao = forms.ChoiceField(label="Tipo de emissão", required=False, choices=TIPO_EMISSAO_NFSE_CHOICES, widget=SearchableSelectInput(choices=TIPO_EMISSAO_NFSE_CHOICES))
     codigo_tributacao_municipio = forms.CharField(label="Código tributação município", required=False, widget=TextInput())
     tributacao_iss = forms.ChoiceField(label="Tributação ISS", required=False, choices=TRIBUTACAO_ISS_CHOICES, widget=SearchableSelectInput(choices=TRIBUTACAO_ISS_CHOICES))
@@ -241,7 +247,7 @@ class NfseTaxClassForm(TaxClassFormBase):
             if field_name in payload and payload.get(field_name) not in (None, ""):
                 value = payload.get(field_name)
                 if field_name == "codigo_servico":
-                    initial[field_name] = _format_service_code_for_api(value)
+                    initial[field_name] = format_nfse_service_code_for_api(value)
                 else:
                     initial[field_name] = str(value)
 
@@ -350,9 +356,9 @@ class NfseTaxClassForm(TaxClassFormBase):
     def clean(self) -> dict[str, Any]:
         cleaned_data = super().clean() or {}
 
-        codigo_servico = _format_service_code_for_api(cleaned_data.get("codigo_servico"))
-        if codigo_servico and not (_is_service_code_xx_xx(codigo_servico) or _is_service_code_xxxxx(codigo_servico)):
-            self.add_error("codigo_servico", "Informe o código do serviço no formato XX.XX ou XXXXX.")
+        codigo_servico = format_nfse_service_code_for_api(cleaned_data.get("codigo_servico"))
+        if codigo_servico and not is_valid_nfse_service_code(codigo_servico):
+            self.add_error("codigo_servico", NFSE_CODIGO_SERVICO_INVALID_FORMAT)
         elif codigo_servico:
             cleaned_data["codigo_servico"] = codigo_servico
 
