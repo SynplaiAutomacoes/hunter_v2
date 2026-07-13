@@ -77,13 +77,13 @@ def create_financial_group_path(*, workshop: Workshop, code_segments: list[int],
 
 
 class CollaboratorCommissionSyncTests(TestCase):
-    def test_transport_payroll_uses_reference_month_weekdays_instead_of_other_month_cost(self) -> None:
+    def test_transport_payroll_requires_workshop_cost_for_reference_month(self) -> None:
         workshop = create_workshop(suffix=43)
         collaborator = create_collaborator(workshop=workshop, suffix=43)
         collaborator.transport_allowance_daily = Money(10, "BRL")
         collaborator.save(update_fields=["transport_allowance_daily"])
 
-        # Previous month configured with fewer days than July's weekday count (23 in 2026).
+        # Previous month must not be reused when the reference month has no WorkshopCost.
         WorkshopCost.objects.create(
             workshop=workshop,
             year=2026,
@@ -92,10 +92,23 @@ class CollaboratorCommissionSyncTests(TestCase):
             work_days_per_month=21,
         )
 
+        self.assertEqual(get_reference_work_days(collaborator=collaborator, reference_date=date(2026, 7, 1)), 0)
+
+        payroll_without_cost = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 7, 1), lock_reference=True)
+        self.assertEqual(payroll_without_cost.transport_allowance_amount, Money(0, "BRL"))
+        self.assertFalse(payroll_without_cost.financial_movements.filter(payroll_component=FinancialMovement.PayrollComponent.TRANSPORT).exists())
+
+        WorkshopCost.objects.create(
+            workshop=workshop,
+            year=2026,
+            month=7,
+            mechanic_quantity=1,
+            work_days_per_month=23,
+        )
+
         self.assertEqual(get_reference_work_days(collaborator=collaborator, reference_date=date(2026, 7, 1)), 23)
 
         payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 7, 1), lock_reference=True)
-
         self.assertEqual(payroll.transport_allowance_amount, Money(230, "BRL"))
         transport_movement = payroll.financial_movements.get(payroll_component=FinancialMovement.PayrollComponent.TRANSPORT)
         self.assertEqual(transport_movement.amount, Money(230, "BRL"))
