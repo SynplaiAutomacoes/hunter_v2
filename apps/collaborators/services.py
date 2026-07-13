@@ -326,19 +326,12 @@ def _resolve_payroll_reference_date_from_lookup(
     return resolved
 
 
-def _count_weekdays_in_month(*, year: int, month: int) -> int:
-    days_in_month = calendar.monthrange(year, month)[1]
-    return sum(1 for day in range(1, days_in_month + 1) if date(year, month, day).weekday() < 5)
-
-
 def get_reference_work_days(*, collaborator: WorkshopCollaborator, reference_date: date | None = None) -> int:
     resolved = _resolve_reference_date(reference_date)
     workshop_cost = WorkshopCost.objects.filter(workshop=collaborator.workshop, year=resolved.year, month=resolved.month).only("work_days_per_month").first()
-    if workshop_cost is not None:
-        return int(workshop_cost.work_days_per_month or 0)
-
-    # Do not reuse another month's configured days — that skews VT for the reference month.
-    return _count_weekdays_in_month(year=resolved.year, month=resolved.month)
+    if workshop_cost is None:
+        return 0
+    return int(workshop_cost.work_days_per_month or 0)
 
 
 def calculate_transport_allowance_total(*, collaborator: WorkshopCollaborator, reference_date: date | None = None) -> Money:
@@ -1489,9 +1482,8 @@ def sync_collaborator_payrolls_batch(*, collaborators: list[WorkshopCollaborator
     work_days_by_workshop_id: dict[int, int] = {}
     workshop_ids = {collaborator.workshop_id for collaborator in collaborators}
     workshop_costs = {workshop_cost.workshop_id: int(workshop_cost.work_days_per_month or 0) for workshop_cost in WorkshopCost.objects.filter(workshop_id__in=workshop_ids, year=resolved.year, month=resolved.month).only("workshop_id", "work_days_per_month")}
-    weekday_fallback = _count_weekdays_in_month(year=resolved.year, month=resolved.month)
     for workshop_id in workshop_ids:
-        work_days_by_workshop_id[workshop_id] = workshop_costs.get(workshop_id, weekday_fallback)
+        work_days_by_workshop_id[workshop_id] = workshop_costs.get(workshop_id, 0)
 
     return [
         _sync_collaborator_payroll_internal(
