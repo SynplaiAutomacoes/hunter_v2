@@ -329,7 +329,11 @@ def _build_snapshot_product_line(line: Any) -> ProductEmissionLine:
 
 def _extract_product_lines(*, workorder: WorkOrder) -> list[ProductEmissionLine]:
     snapshot = build_emission_pricing_snapshot_for_workorder(workorder=workorder)
-    lines = [_build_snapshot_product_line(line) for line in snapshot.product_lines]
+    lines = [
+        _build_snapshot_product_line(line)
+        for line in snapshot.product_lines
+        if not line.is_customer_supplied
+    ]
     return [line for line in lines if line.quantity > 0 and line.base_total > 0]
 
 
@@ -391,6 +395,8 @@ def build_nfe_preview_warning_messages(*, workorder: WorkOrder, persisted_slider
     seen_messages: set[str] = set()
 
     for line in snapshot.product_lines:
+        if line.is_customer_supplied:
+            continue
         warning_message = _build_preview_validation_message(line)
         if not warning_message or warning_message in seen_messages:
             continue
@@ -865,7 +871,12 @@ def build_nfe_preview_rows(
         persisted_slider=persisted_slider,
         slider_override=slider_override,
     )
-    lines = [preview_line for line in snapshot.product_lines if (preview_line := _build_snapshot_preview_product_line(line)) is not None]
+    lines = [
+        preview_line
+        for line in snapshot.product_lines
+        if not line.is_customer_supplied
+        and (preview_line := _build_snapshot_preview_product_line(line)) is not None
+    ]
     allocation = build_slider_allocation_for_workorder(
         workorder=workorder,
         persisted_slider=persisted_slider,
