@@ -16,7 +16,7 @@ from opentelemetry.sdk._logs import LoggerProvider
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-from opentelemetry.sdk.metrics.view import ExplicitBucketHistogramAggregation, View
+from opentelemetry.sdk.metrics.view import DropAggregation, ExplicitBucketHistogramAggregation, View
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -47,17 +47,49 @@ _DURATION_MS_BOUNDARIES: tuple[float, ...] = (
     180000.0,
 )
 
-_DURATION_HISTOGRAM_VIEWS: tuple[View, ...] = tuple(
-    View(
-        instrument_name=instrument_name,
-        aggregation=ExplicitBucketHistogramAggregation(boundaries=list(_DURATION_MS_BOUNDARIES)),
-    )
-    for instrument_name in (
-        "http.server.request.duration",
-        "business.operation.duration",
-        "dependency.client.duration",
-    )
+# Drop Django/http instrumentation legacy metric (high cardinality before Prom rename).
+_DROP_LEGACY_HTTP_SERVER_DURATION_VIEW = View(
+    instrument_name="http.server.duration",
+    aggregation=DropAggregation(),
 )
+
+_DURATION_HISTOGRAM_VIEWS: tuple[View, ...] = (
+    _DROP_LEGACY_HTTP_SERVER_DURATION_VIEW,
+    *(
+        View(
+            instrument_name=instrument_name,
+            aggregation=ExplicitBucketHistogramAggregation(boundaries=list(_DURATION_MS_BOUNDARIES)),
+        )
+        for instrument_name in (
+            "http.server.request.duration",
+            "business.operation.duration",
+            "dependency.client.duration",
+        )
+    ),
+)
+
+
+def build_otel_resource(
+    *,
+    service_name: str,
+    environment: str,
+    service_namespace: str | None = None,
+    service_version: str | None = None,
+) -> Resource:
+    """Build OTEL Resource without service.instance.id (UUID-per-process series explosion)."""
+    resource_attributes: dict[str, str] = {
+        "service.name": service_name,
+        "deployment.environment": environment,
+    }
+    if service_namespace:
+        resource_attributes["service.namespace"] = service_namespace
+    if service_version:
+        resource_attributes["service.version"] = service_version
+
+    resource = Resource.create(resource_attributes)
+    filtered = {key: value for key, value in resource.attributes.items() if key != "service.instance.id"}
+    return Resource(attributes=filtered)
+
 
 _LOG_RECORD_STANDARD_ATTRS: frozenset[str] = frozenset(
     {
@@ -102,16 +134,12 @@ def setup_otel(
 
     headers = {"Authorization": auth_header} if auth_header else None
 
-    resource_attributes: dict[str, str] = {
-        "service.name": service_name,
-        "deployment.environment": environment,
-    }
-    if service_namespace:
-        resource_attributes["service.namespace"] = service_namespace
-    if service_version:
-        resource_attributes["service.version"] = service_version
-
-    resource = Resource.create(resource_attributes)
+    resource = build_otel_resource(
+        service_name=service_name,
+        environment=environment,
+        service_namespace=service_namespace,
+        service_version=service_version,
+    )
 
     # Logs
     logger_provider = LoggerProvider(resource=resource)

@@ -7,8 +7,16 @@ from unittest.mock import Mock, patch
 from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
+from opentelemetry.sdk.metrics.view import DropAggregation
+from opentelemetry.sdk.resources import Resource
+
 from apps.core.logging_filters import clear_request_context, get_dependency_timing, record_dependency_timing, reset_dependency_timing
 from apps.core.observability import observe_dependency_call
+from apps.core.otel_logging import (
+    _DROP_LEGACY_HTTP_SERVER_DURATION_VIEW,
+    _DURATION_HISTOGRAM_VIEWS,
+    build_otel_resource,
+)
 from apps.core.presentation.middlewares import RequestIdMiddleware, RequestPerformanceLoggingMiddleware
 
 
@@ -309,3 +317,33 @@ class DependencyObservabilityTests(SimpleTestCase):
         record_kwargs = record_dependency_call_mock.call_args.kwargs
         self.assertEqual(record_kwargs["attributes"]["dependency.name"], "fipe")
         self.assertEqual(record_kwargs["attributes"]["result"], "error")
+
+
+class OtelResourceAndViewsTests(SimpleTestCase):
+    def test_build_otel_resource_omits_service_instance_id(self) -> None:
+        created = Resource.create({"service.name": "hunter-web"})
+        self.assertIn("service.instance.id", created.attributes)
+
+        resource = build_otel_resource(
+            service_name="hunter-web",
+            environment="production",
+            service_namespace="synplai",
+            service_version="1.2.3",
+        )
+
+        self.assertNotIn("service.instance.id", resource.attributes)
+        self.assertEqual(resource.attributes["service.name"], "hunter-web")
+        self.assertEqual(resource.attributes["deployment.environment"], "production")
+        self.assertEqual(resource.attributes["service.namespace"], "synplai")
+        self.assertEqual(resource.attributes["service.version"], "1.2.3")
+
+    def test_meter_views_drop_legacy_http_server_duration(self) -> None:
+        self.assertIn(_DROP_LEGACY_HTTP_SERVER_DURATION_VIEW, _DURATION_HISTOGRAM_VIEWS)
+        self.assertEqual(
+            _DROP_LEGACY_HTTP_SERVER_DURATION_VIEW._instrument_name,  # noqa: SLF001
+            "http.server.duration",
+        )
+        self.assertIsInstance(
+            _DROP_LEGACY_HTTP_SERVER_DURATION_VIEW._aggregation,  # noqa: SLF001
+            DropAggregation,
+        )

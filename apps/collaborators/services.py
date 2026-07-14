@@ -442,6 +442,12 @@ def apply_collaborator_work_days_for_reference(
         reference_month=resolved.month,
     ).first()
     if payroll is None:
+        payroll = sync_collaborator_payroll(
+            collaborator=collaborator,
+            reference_date=resolved,
+            lock_reference=True,
+        )
+    if payroll.pk is None:
         return None
     return update_payroll_work_days(payroll=payroll, work_days=work_days)
 
