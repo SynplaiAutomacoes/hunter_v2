@@ -1,17 +1,34 @@
 from __future__ import annotations
 
+import base64
+import gzip
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
 
 from django.utils import timezone
+from lxml.etree import fromstring
 
 from apps.core.infrastructure.services.storage import StorageConfigurationError, StorageServiceError, get_storage_service
 
 
 class StockImportFileStorageError(Exception):
     pass
+
+
+NFE_NAMESPACE = {"ns": "http://www.portalfiscal.inf.br/nfe"}
+
+
+def _extract_nfe_xml_from_sefaz_response(raw_content: bytes) -> bytes:
+    try:
+        tree = fromstring(raw_content)
+        doc_zip = tree.xpath("//ns:docZip", namespaces=NFE_NAMESPACE)
+        if doc_zip:
+            return gzip.decompress(base64.b64decode(doc_zip[0].text))
+    except Exception:
+        pass
+    return raw_content
 
 
 @dataclass(frozen=True)
