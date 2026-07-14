@@ -517,11 +517,11 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         return super().get_queryset().order_by("-criado_em")
 
     def _build_history_rows(self) -> list[StockHistoryRow]:
-        import_rows = self._build_import_history_rows()[:50]
-        transfer_rows = self._build_transfer_history_rows()[:50]
+        import_rows = self._build_import_history_rows()
+        transfer_rows = self._build_transfer_history_rows()
         combined = [*import_rows, *transfer_rows]
         combined.sort(key=lambda row: row.criado_em, reverse=True)
-        return combined[:50]
+        return combined
 
     def _build_import_history_rows(self) -> list[StockHistoryRow]:
         imports = self.get_queryset().select_related("user")
@@ -570,15 +570,8 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        all_history_rows = self._build_history_rows()
-        page_number = self.request.GET.get("page") or "1"
-        paginator = Paginator(all_history_rows, 10)
-        page_obj = paginator.get_page(page_number)
 
-        context["stock"] = page_obj.object_list
-        context["page_obj"] = page_obj
-        context["paginator"] = paginator
-        context["is_paginated"] = paginator.num_pages > 1
+        context["stock"] = self._build_history_rows()
         context["fields"] = [
             TableColumn("ID", attr="id"),
             TableColumn(StockImport.nf_number.field.verbose_name, attr="nf_number"),
