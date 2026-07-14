@@ -31,7 +31,12 @@ from apps.messaging.infrastructure.repositories.django_message_group_repository 
     DjangoMessageGroupRepository,
 )
 from apps.messaging.infrastructure.services.segment_query_builder import resolve_segment
-from apps.messaging.models import CustomerMessageGroup, CustomerMessageGroupMembership, MessageTemplate
+from apps.messaging.models import (
+    CustomerMessageGroup,
+    CustomerMessageGroupMembership,
+    MessageDispatchBatch,
+    MessageTemplate,
+)
 from apps.messaging.rendering import format_phone_value, format_variable_value
 from apps.messaging.variables import get_variable_groups
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -227,6 +232,8 @@ class CustomerMessageGroupCreateView(LoginRequiredMixin, WorkshopScopedMixin, Cr
         context["variable_groups"] = get_variable_groups()
         context["customer_picker_url"] = reverse("messaging:customer_message_group_customer_picker")
         context["segment_preview_url"] = reverse("messaging:customer_message_group_segment_preview")
+        context["dispatch_history_batches"] = []
+        context["message_dispatch_ws_base_url"] = str(getattr(settings, "MESSAGE_DISPATCH_WS_BASE_URL", "") or "")
         return context
 
     def form_valid(self, form: CustomerMessageGroupForm) -> HttpResponse:
@@ -271,6 +278,13 @@ class CustomerMessageGroupUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         context["variable_groups"] = get_variable_groups()
         context["customer_picker_url"] = reverse("messaging:customer_message_group_customer_picker")
         context["segment_preview_url"] = reverse("messaging:customer_message_group_segment_preview")
+        context["dispatch_history_batches"] = (
+            MessageDispatchBatch.objects.filter(workshop=self.workshop, group=self.object)
+            .prefetch_related("logs")
+            .order_by("-criado_em")[:50]
+        )
+        context["message_dispatch_ws_base_url"] = str(getattr(settings, "MESSAGE_DISPATCH_WS_BASE_URL", "") or "")
+        context["show_dispatch_button"] = True
         return context
 
     def form_valid(self, form: CustomerMessageGroupForm) -> HttpResponse:
@@ -348,20 +362,39 @@ class CustomerMessageGroupDispatchView(LoginRequiredMixin, WorkshopScopedMixin, 
 
     def get(self, request, *args: Any, **kwargs: Any) -> HttpResponse:
         group = get_object_or_404(CustomerMessageGroup, pk=kwargs["pk"], workshop=self.workshop)
-        group.members_count = CustomerMessageGroupMembership.objects.filter(group=group).count()
-        return render(request, "messaging/partials/customer_message_group_dispatch_modal.html", {"group": group})
+        customers = _resolve_group_customers_for_dispatch(group)
+        customer_ids = list(customers.values_list("pk", flat=True))
+        group.members_count = len(customer_ids)
+        return render(
+            request,
+            "messaging/partials/customer_message_group_dispatch_modal.html",
+            {
+                "group": group,
+                "dispatch_customer_ids": customer_ids,
+            },
+        )
 
     def post(self, request, *args: Any, **kwargs: Any) -> HttpResponse:
         group = get_object_or_404(CustomerMessageGroup, pk=kwargs["pk"], workshop=self.workshop)
+        client_message_ids = _parse_client_message_ids(request.POST.get("client_message_ids"))
 
         try:
             use_case = self._build_use_case()
-            result = use_case.execute(DispatchGroupsRequest(group_id=group.pk))
+            result = use_case.execute(
+                DispatchGroupsRequest(
+                    group_id=group.pk,
+                    triggered_by_id=getattr(request.user, "pk", None),
+                    source=MessageDispatchBatch.Source.GROUP_MANUAL,
+                    client_message_ids=client_message_ids,
+                )
+            )
+            batch_id = result.batch_ids[0] if result.batch_ids else None
 
             response = HttpResponse()
             response["HX-Trigger"] = json.dumps(
                 {
                     "customer-message-groups-table-refresh": True,
+                    "message-group-history-refresh": {"batch_id": batch_id},
                     "showToast": {
                         "message": f'Disparo do grupo "{group.name}" concluído. {result.total_customers} cliente(s) na fila.',
                         "type": "success",
@@ -381,3 +414,37 @@ class CustomerMessageGroupDispatchView(LoginRequiredMixin, WorkshopScopedMixin, 
                 }
             )
             return response
+
+
+def _parse_client_message_ids(raw_value: str | None) -> dict[int, str] | None:
+    if not raw_value:
+        return None
+    try:
+        payload = json.loads(raw_value)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    parsed: dict[int, str] = {}
+    for key, value in payload.items():
+        try:
+            parsed[int(key)] = str(value)
+        except (TypeError, ValueError):
+            continue
+    return parsed or None
+
+
+def _resolve_group_customers_for_dispatch(group: CustomerMessageGroup) -> QuerySet[Customer]:
+    from apps.messaging.domain.value_objects import FilterCriteria
+
+    repo = DjangoMessageGroupRepository()
+    manual = repo.get_group_members(group)
+    if not group.filter_criteria:
+        return manual
+    try:
+        criteria = FilterCriteria.from_dict(group.filter_criteria)
+        dynamic = resolve_segment(workshop=group.workshop, filter_criteria=criteria)
+        return (manual | dynamic).distinct()
+    except Exception:
+        logger.exception("dispatch_modal_filter_resolve_failed", extra={"group_id": group.pk})
+        return manual

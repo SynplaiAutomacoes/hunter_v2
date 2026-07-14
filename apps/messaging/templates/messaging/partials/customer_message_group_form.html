@@ -8,14 +8,22 @@
     x-data="customerMessageGroupForm({
         selectedCustomersElementId: 'customer-message-group-selected-customers-data',
         messageTemplatesElementId: 'customer-message-group-message-templates-data',
-        pickerTableId: 'customer-message-group-customer-picker-table'
+        pickerTableId: 'customer-message-group-customer-picker-table',
+        wsBaseUrl: '{{ message_dispatch_ws_base_url|default:""|escapejs }}'
     })"
     x-init="init()"
     @change="handlePickerTableChange($event)"
     @message-template-added.window="handleTemplateAdded($event.detail)"
+    @message-group-history-refresh.window="handleHistoryRefresh($event.detail)"
     class="space-y-8"
 >
-    <form id="customer-message-group-form" method="post" action="{% if object and object.pk %}{% url 'messaging:customer_message_group_update' object.pk %}{% else %}{% url 'messaging:customer_message_group_create' %}{% endif %}" class="flex flex-col gap-6 xl:flex-row xl:items-start">
+    <div class="tabs tabs-bordered" role="tablist">
+        <button type="button" class="tab" :class="{ 'tab-active': mainTab === 'dados' }" @click="mainTab = 'dados'" role="tab">Dados do Grupo</button>
+        <button type="button" class="tab" :class="{ 'tab-active': mainTab === 'contatos' }" @click="mainTab = 'contatos'" role="tab">Contatos</button>
+        <button type="button" class="tab" :class="{ 'tab-active': mainTab === 'historico' }" @click="mainTab = 'historico'; openLatestLiveBatch()" role="tab">Histórico</button>
+    </div>
+
+    <form id="customer-message-group-form" method="post" action="{% if object and object.pk %}{% url 'messaging:customer_message_group_update' object.pk %}{% else %}{% url 'messaging:customer_message_group_create' %}{% endif %}" class="flex flex-col gap-6 xl:flex-row xl:items-start" x-show="mainTab === 'dados'" x-cloak>
         {% csrf_token %}
 
         <div class="w-full xl:min-w-0 xl:flex-1">
@@ -113,7 +121,7 @@
         </div>
     </form>
 
-    <section class="card border border-base-300 bg-base-100 shadow-sm">
+    <section class="card border border-base-300 bg-base-100 shadow-sm" x-show="mainTab === 'contatos'" x-cloak>
         <div class="card-body gap-4 p-5">
             <div class="flex items-center justify-between">
                 <h2 class="text-lg font-bold text-base-content">Selecionar clientes</h2>
@@ -160,9 +168,15 @@
         </div>
     </section>
 
-    <div class="divider my-6"></div>
+    <section class="card border border-base-300 bg-base-100 shadow-sm" x-show="mainTab === 'historico'" x-cloak>
+        <div class="card-body gap-4 p-5">
+            {% include 'messaging/partials/customer_message_group_history.html' %}
+        </div>
+    </section>
 
-    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+    <div class="divider my-6" x-show="mainTab !== 'historico'" x-cloak></div>
+
+    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end" x-show="mainTab !== 'historico'" x-cloak>
         <a href="{% url 'messaging:customer_message_group_list' %}" class="btn-form-cancel">Cancelar</a>
         <button type="submit" form="customer-message-group-form" class="btn-form-save">Salvar</button>
     </div>
@@ -182,9 +196,14 @@
                 pickerSelectionIds: [],
                 messageTemplates: [],
                 activeTab: 'manual',
+                mainTab: 'dados',
                 pickerTableId: config.pickerTableId,
                 selectedCustomersElementId: config.selectedCustomersElementId,
                 messageTemplatesElementId: config.messageTemplatesElementId,
+                wsBaseUrl: config.wsBaseUrl || '',
+                liveSocket: null,
+                liveBatchId: null,
+                liveLogsById: {},
                 init() {
                     this.selectedCustomers = this.parseJsonScript(this.selectedCustomersElementId);
                     this.messageTemplates = this.parseJsonScript(this.messageTemplatesElementId);
@@ -197,6 +216,92 @@
                             }
                         } catch (e) {
                             // ignore
+                        }
+                    }
+                },
+                buildWsUrl(batchId) {
+                    if (this.wsBaseUrl) {
+                        return `${this.wsBaseUrl.replace(/\/$/, '')}/ws/dispatch/${batchId}/`;
+                    }
+                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    return `${protocol}//${window.location.host}/ws/dispatch/${batchId}/`;
+                },
+                handleHistoryRefresh(detail) {
+                    this.mainTab = 'historico';
+                    const batchId = detail && detail.batch_id;
+                    if (batchId) {
+                        this.connectLiveBatch(batchId);
+                    }
+                },
+                openLatestLiveBatch() {
+                    const firstBatch = document.querySelector('[data-batch-id]');
+                    if (firstBatch) {
+                        this.connectLiveBatch(Number(firstBatch.getAttribute('data-batch-id')));
+                    }
+                },
+                connectLiveBatch(batchId) {
+                    if (!batchId) {
+                        return;
+                    }
+                    this.liveBatchId = Number(batchId);
+                    if (this.liveSocket) {
+                        this.liveSocket.close();
+                        this.liveSocket = null;
+                    }
+                    try {
+                        this.liveSocket = new WebSocket(this.buildWsUrl(this.liveBatchId));
+                    } catch (error) {
+                        return;
+                    }
+                    this.liveSocket.onmessage = (event) => {
+                        let payload = null;
+                        try {
+                            payload = JSON.parse(event.data || '{}');
+                        } catch (error) {
+                            return;
+                        }
+                        if (payload.type === 'batch.snapshot' && payload.batch) {
+                            (payload.batch.logs || []).forEach((log) => {
+                                this.liveLogsById[log.client_message_id] = log;
+                            });
+                            this.applyLiveStatusToDom(payload.batch);
+                            return;
+                        }
+                        if (payload.type === 'dispatch.status') {
+                            this.liveLogsById[payload.client_message_id] = payload;
+                            this.applyLiveStatusToDom(payload);
+                        }
+                    };
+                },
+                applyLiveStatusToDom(payload) {
+                    const batchId = payload.batch_id || payload.id || this.liveBatchId;
+                    if (!batchId) {
+                        return;
+                    }
+                    const statusEl = document.querySelector(`[data-batch-status="${batchId}"]`);
+                    if (statusEl && (payload.batch_status || payload.status)) {
+                        statusEl.textContent = payload.batch_status || payload.status;
+                    }
+                    const counters = [
+                        ['queued', payload.queued_count],
+                        ['pending', payload.pending_count],
+                        ['sent', payload.sent_count],
+                        ['failed', payload.failed_count],
+                        ['total', payload.total_count],
+                    ];
+                    counters.forEach(([key, value]) => {
+                        if (value === undefined || value === null) {
+                            return;
+                        }
+                        const el = document.querySelector(`[data-batch-count="${batchId}-${key}"]`);
+                        if (el) {
+                            el.textContent = String(value);
+                        }
+                    });
+                    if (payload.client_message_id) {
+                        const logStatusEl = document.querySelector(`[data-log-status="${payload.client_message_id}"]`);
+                        if (logStatusEl) {
+                            logStatusEl.textContent = payload.status || '';
                         }
                     }
                 },

@@ -15,6 +15,7 @@ from apps.workshops.services.evolution_api import (
     WhatsAppConfigurationError,
     WhatsAppServiceError,
 )
+from apps.workshops.services.whatsapp_connection_cleanup import cleanup_whatsapp_connection
 
 
 logger = logging.getLogger(__name__)
@@ -99,6 +100,27 @@ class WhatsAppStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
         connected = bool(status_data.get("connected", False))
         state = str(status_data.get("state", "unknown"))
 
+        if not connected and instance_name:
+            cleanup_result = cleanup_whatsapp_connection(workshop=workshop, cancel_worker=True)
+            logger.info(
+                "whatsapp_status_triggered_cleanup",
+                extra={
+                    "workshop_id": workshop.pk,
+                    "cancelled_worker": cleanup_result.cancelled_worker,
+                    "deleted_instance": cleanup_result.deleted_instance,
+                    "warnings": list(cleanup_result.warnings),
+                },
+            )
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "connected": False,
+                    "state": state,
+                    "instance": status_data.get("instance", instance_name),
+                    "cleaned_up": True,
+                }
+            )
+
         return JsonResponse(
             {
                 "ok": True,
@@ -118,26 +140,18 @@ class WhatsAppDisconnectView(LoginRequiredMixin, WorkshopScopedMixin, View):
         instance_name = str(workshop.whatsapp_instance_name or "").strip()
 
         if not instance_name:
+            # Still attempt worker cancel in case a dispatch is running without a local instance name.
+            cleanup_whatsapp_connection(workshop=workshop, cancel_worker=True)
             return JsonResponse({"ok": True, "message": "Nenhuma instancia para desconectar."})
 
-        try:
-            service = EvolutionAPIServiceFactory.get_service()
-            service.delete_instance(instance_name=instance_name)
-        except WhatsAppConfigurationError as exc:
-            logger.warning(
-                "whatsapp_disconnect_not_configured workshop_id=%s error=%s",
-                workshop.pk,
-                str(exc),
+        result = cleanup_whatsapp_connection(workshop=workshop, cancel_worker=True)
+        if result.warnings and not result.deleted_instance and not result.cleared_local:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "message": result.warnings[0],
+                },
+                status=502,
             )
-            return JsonResponse({"ok": False, "message": str(exc)}, status=503)
-        except WhatsAppServiceError as exc:
-            logger.exception(
-                "whatsapp_disconnect_failed",
-                extra={"workshop_id": workshop.pk},
-            )
-            return JsonResponse({"ok": False, "message": str(exc)}, status=502)
-
-        workshop.whatsapp_instance_name = ""
-        workshop.save(update_fields=["whatsapp_instance_name"])
 
         return JsonResponse({"ok": True, "message": "WhatsApp desconectado com sucesso."})

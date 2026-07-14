@@ -98,6 +98,22 @@ O projeto usa `os.getenv(...)` diretamente em `config/settings.py` e em alguns p
 | `DB_HOST` | host do banco |
 | `DB_PORT` | porta do banco |
 
+### Messaging, worker e realtime
+
+| Variavel | Uso |
+| --- | --- |
+| `APP_PROCESS` | define o processo do container: `web` (Gunicorn, default) ou `realtime` (Daphne ASGI) |
+| `MESSAGE_WORKER_BASE_URL` | base URL do worker de envio WhatsApp; o cancelamento usa `POST {BASE}/stop` |
+| `MESSAGE_DISPATCH_STATUS_TOKEN` | token esperado no header `X-Dispatch-Status-Token` na ingestao de status do worker |
+| `MESSAGE_DISPATCH_WS_BASE_URL` | base URL do servico ASGI de WebSocket (ex.: `wss://realtime.example.com`); se vazio, o front usa o host atual |
+
+No Railway, use a **mesma imagem** em dois services:
+
+1. Servico web: `APP_PROCESS=web` (ou omita a env)
+2. Servico realtime: `APP_PROCESS=realtime` e **1 replica** (InMemoryChannelLayer). Coloque a URL publica desse service em `MESSAGE_DISPATCH_WS_BASE_URL` no web.
+
+O cron operacional recomendado na Railway e `python manage.py run_due_outbound_messages` a cada 1 minuto.
+
 ### Eventos de orcamento e performance
 
 | Variavel | Uso |
