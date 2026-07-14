@@ -40,6 +40,8 @@ BUDGET_SSE_CHECK_INTERVAL_SECONDS = float(os.getenv("BUDGET_SSE_CHECK_INTERVAL_S
 PERF_LOGGING_ENABLED = os.getenv("PERF_LOGGING_ENABLED", "0").lower() in ("1", "true", "yes")
 PERF_LOG_QUERIES = os.getenv("PERF_LOG_QUERIES", "0").lower() in ("1", "true", "yes")
 PERF_LOG_MIN_MS = int(os.getenv("PERF_LOG_MIN_MS", "300"))
+NFSE_DEBUG_LOGS = os.getenv("NFSE_DEBUG_LOGS", "0").lower() in ("1", "true", "yes")
+TAX_CLASS_DEBUG_LOGS = os.getenv("TAX_CLASS_DEBUG_LOGS", "0").lower() in ("1", "true", "yes")
 
 # Environment (required for structured logging)
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
@@ -199,6 +201,13 @@ RABBITMQ_PASSWORD = os.getenv("RABBITMQ_PASSWORD", "guest")
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+# Reuse DB connections within each Gunicorn worker (seconds). 0 = close after each request.
+_CONN_MAX_AGE_RAW = os.getenv("CONN_MAX_AGE", "0").strip()
+try:
+    CONN_MAX_AGE = int(_CONN_MAX_AGE_RAW)
+except ValueError:
+    CONN_MAX_AGE = 0
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
@@ -207,6 +216,8 @@ DATABASES = {
         "PASSWORD": os.getenv("DB_PASSWORD", "senha_secreta"),
         "HOST": os.getenv("DB_HOST", "localhost"),
         "PORT": os.getenv("DB_PORT", "5432"),
+        "CONN_MAX_AGE": CONN_MAX_AGE,
+        "CONN_HEALTH_CHECKS": True,
     }
 }
 
@@ -292,8 +303,9 @@ CURRENCY_DECIMAL_PLACES = 2
 PHONENUMBER_DEFAULT_REGION = "BR"
 PHONENUMBER_DEFAULT_FORMAT = "NATIONAL"
 
-DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "DEBUG").upper()
-DJANGO_ROOT_LOG_LEVEL = os.getenv("DJANGO_ROOT_LOG_LEVEL", "DEBUG").upper()
+_DEFAULT_LOG_LEVEL = "INFO" if ENVIRONMENT == "production" else "DEBUG"
+DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", _DEFAULT_LOG_LEVEL).upper()
+DJANGO_ROOT_LOG_LEVEL = os.getenv("DJANGO_ROOT_LOG_LEVEL", _DEFAULT_LOG_LEVEL).upper()
 
 LOGGING = {
     "version": 1,

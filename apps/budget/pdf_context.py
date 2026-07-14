@@ -137,6 +137,7 @@ def _merge_selected_pdf_rows(*, produtos: list[dict], servicos: list[dict]) -> t
 
 
 def _build_snapshot_product_rows(*, snapshot) -> list[dict[str, Any]]:
+    ZERO = zero_money()
     return [
         {
             "id": line.entity_id,
@@ -146,18 +147,18 @@ def _build_snapshot_product_rows(*, snapshot) -> list[dict[str, Any]]:
             "application": line.application or "-",
             "code": line.code or "-",
             "location": line.location or "-",
-            "unit_price": line.unit_price,
-            "adjusted_unit_price": line.adjusted_unit_price,
-            "display_unit_price": money_div(line.raw_total, line.quantity) if line.quantity > 0 else zero_money(),
-            "shipping": line.shipping,
-            "total_price": line.total_price,
-            "product_cost_price": line.cost_total,
-            "profit_value": line.profit_value,
+            "unit_price": ZERO if line.is_customer_supplied else line.unit_price,
+            "adjusted_unit_price": ZERO if line.is_customer_supplied else line.adjusted_unit_price,
+            "display_unit_price": ZERO if line.is_customer_supplied else (money_div(line.raw_total, line.quantity) if line.quantity > 0 else ZERO),
+            "shipping": ZERO if line.is_customer_supplied else line.shipping,
+            "total_price": ZERO if line.is_customer_supplied else line.total_price,
+            "product_cost_price": ZERO if line.is_customer_supplied else line.cost_total,
+            "profit_value": ZERO if line.is_customer_supplied else line.profit_value,
             "show_kit_duplicate_warning": line.show_kit_duplicate_warning,
             "item_benefit_type": getattr(line, "item_benefit_type", "normal"),
         }
         for line in snapshot.product_lines
-        if is_visible_pdf_pricing_line(line)
+        if is_visible_pdf_pricing_line(line) or line.is_customer_supplied
     ]
 
 
@@ -417,16 +418,16 @@ def build_budget_pdf_context(*, budget, request=None, observacao: str | None = N
         servicos = _build_snapshot_service_rows(budget=budget, snapshot=snapshot)
         kits = []
 
-    total_produtos = sum((p["total_price"] for p in produtos if p.get("item_benefit_type", "normal") in ("normal", "")), Money(0, "BRL"))
+    total_produtos = sum((p["total_price"] for p in produtos if p.get("item_benefit_type", "normal") in ("normal", "") and not p.get("is_customer_supplied", False)), Money(0, "BRL"))
     total_servicos = sum((s["total_price"] for s in servicos if s.get("item_benefit_type", "normal") in ("normal", "")), Money(0, "BRL"))
     workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=budget.workshop)
     total_services_cost_original_value = sum((line["service_cost_price"] for line in servicos), Money(0, "BRL"))
     total_services_mechanic_cost_value = sum((line["service_mechanic_cost_price"] for line in servicos), Money(0, "BRL"))
     total_services_shipping_value = sum((line["shipping"] for line in servicos), Money(0, "BRL"))
     total_profit_service_value = sum((line["profit_value"] for line in servicos), Money(0, "BRL"))
-    total_products_cost_value = sum((line["product_cost_price"] for line in produtos), Money(0, "BRL"))
-    total_products_shipping_value = sum((line["shipping"] for line in produtos), Money(0, "BRL"))
-    total_profit_product_value = sum((line["profit_value"] for line in produtos), Money(0, "BRL"))
+    total_products_cost_value = sum((line["product_cost_price"] for line in produtos if not line.get("is_customer_supplied", False)), Money(0, "BRL"))
+    total_products_shipping_value = sum((line["shipping"] for line in produtos if not line.get("is_customer_supplied", False)), Money(0, "BRL"))
+    total_profit_product_value = sum((line["profit_value"] for line in produtos if not line.get("is_customer_supplied", False)), Money(0, "BRL"))
     soma_markup = _calculate_soma_markup(
         total_budget_value=total_geral,
         total_costs_products_value=total_products_cost_value,

@@ -3,20 +3,27 @@ import logging
 from django.core.exceptions import ObjectDoesNotExist
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, render
+from django.template.loader import render_to_string
+from django.utils import timezone
 from django.views.decorators.clickjacking import xframe_options_exempt
 
 from apps.budget.documents.provider import render_budget_pdf_document
-from apps.budget.models import Budget, BudgetPdfRenderJob
-from apps.budget.pdf_jobs import get_or_queue_budget_pdf_job
+from apps.budget.models import Budget
 from apps.budget.pdf_context import build_budget_pdf_context, build_workshop_logo_data_uri
 from apps.budget.service import BUDGET_SIGNATURE_DOCUMENT_ID_KEY, BUDGET_SIGNATURE_TOKEN_SALT, can_use_signed_budget_pdf, should_default_to_signed_budget_pdf
 from apps.checklist.models import Checklist
 from apps.checklist.services.files import ChecklistFileStorageError, read_checklist_pdf_file
-from apps.core.domain.contracts.documents import DocumentPayload
-from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
+from apps.core.domain.contracts.documents import DocumentPayload, SignatureTokenError
 from apps.core.domain.contracts.signature import SignatureServiceError
-from apps.core.domain.contracts.documents import SignatureTokenError
+from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch
+from apps.core.infrastructure.pdf import render_pdf_from_html
+from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.infrastructure.providers import get_signature_service
+from apps.core.infrastructure.services.dashboard_query_service import (
+    _build_injected_pricing_context,
+    _prepare_budget_for_dashboard_pricing,
+)
+from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
 
@@ -26,58 +33,31 @@ SIGNED_PDF_VARIANT = "signed"
 BASE_PDF_VARIANT = "base"
 
 
-def _build_budget_pdf_processing_response(*, request, title: str, message: str, error_message: str = "") -> HttpResponse:
-    response = render(
-        request,
-        "budget/pdf/pdf_generation_pending.html",
-        {
-            "title": title,
-            "message": message,
-            "error_message": error_message,
-            "refresh_seconds": 3,
-        },
+def _budget_pdf_queryset():
+    return Budget.objects.select_related("customer", "vehicle", "workshop").prefetch_related(
+        budget_items_with_kit_prefetch(with_kit_tree=True),
+        "collaborators",
     )
-    response.status_code = 202
-    return response
 
 
-def _build_budget_pdf_file_response_from_job(*, budget: Budget, download: bool, use_signed_name: bool, job: BudgetPdfRenderJob) -> HttpResponse:
-    with job.output_file.open("rb") as output_file:
-        return _build_budget_pdf_file_response(
-            budget=budget,
-            download=download,
-            use_signed_name=use_signed_name,
-            pdf_bytes=output_file.read(),
-        )
+def _get_budget_for_pdf(*, pk: int, workshop) -> Budget:
+    budget = get_object_or_404(_budget_pdf_queryset(), pk=pk, workshop=workshop)
+    return _prepare_budget_for_pdf_pricing(budget)
 
 
-def _serve_background_budget_pdf(*, request, budget: Budget, variant: str, download: bool, use_signed_name: bool, title: str, message: str) -> HttpResponse:
-    job = get_or_queue_budget_pdf_job(
-        budget=budget,
-        variant=variant,
-        requested_by=request.user if getattr(request.user, "is_authenticated", False) else None,
-    )
-    if job.status == BudgetPdfRenderJob.Status.COMPLETED and job.output_file:
-        return _build_budget_pdf_file_response_from_job(
-            budget=budget,
-            download=download,
-            use_signed_name=use_signed_name,
-            job=job,
-        )
-
-    error_message = job.error_message if job.status == BudgetPdfRenderJob.Status.FAILED else ""
-    return _build_budget_pdf_processing_response(
-        request=request,
-        title=title,
-        message=message,
-        error_message=error_message,
-    )
+def _prepare_budget_for_pdf_pricing(budget: Budget) -> Budget:
+    today = timezone.localdate()
+    workshop = budget.workshop
+    workshop_cost = WorkshopCost.objects.filter(workshop=workshop, month=today.month, year=today.year).first()
+    pricing_context = _build_injected_pricing_context(workshop=workshop, workshop_cost=workshop_cost)
+    _prepare_budget_for_dashboard_pricing(budget, pricing_context=pricing_context, for_totals_only=True)
+    return budget
 
 
 @xframe_options_exempt
 def visualizar_pdf(request, pk):
     workshop = get_active_workshop_or_404(request)
-    budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle", "workshop"), pk=pk, workshop=workshop)
+    budget = _get_budget_for_pdf(pk=pk, workshop=workshop)
     context = build_budget_pdf_context(budget=budget, request=request, presentation="selected_items")
 
     return render(request, "budget/partials/pdf/visualizarPDF.html", context)
@@ -86,7 +66,7 @@ def visualizar_pdf(request, pk):
 @xframe_options_exempt
 def visualizar_pdf_gestor(request, pk):
     workshop = get_active_workshop_or_404(request)
-    budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle", "workshop"), pk=pk, workshop=workshop)
+    budget = _get_budget_for_pdf(pk=pk, workshop=workshop)
     context = build_budget_pdf_context(budget=budget, request=request, presentation="selected_items")
 
     return render(request, "budget/partials/pdf/visualizarPDFGestor.html", context)
@@ -95,22 +75,18 @@ def visualizar_pdf_gestor(request, pk):
 @xframe_options_exempt
 def download_pdf_gestor(request, pk):
     workshop = get_active_workshop_or_404(request)
-    budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle", "workshop"), pk=pk, workshop=workshop)
-    return _serve_background_budget_pdf(
-        request=request,
-        budget=budget,
-        variant=BudgetPdfRenderJob.Variant.MANAGER,
-        download=True,
-        use_signed_name=False,
-        title="Gerando PDF do gestor",
-        message="O PDF do gestor foi enviado para processamento em background.",
-    )
+    budget = _get_budget_for_pdf(pk=pk, workshop=workshop)
+    context = build_budget_pdf_context(budget=budget, request=request, presentation="selected_items")
+    html = render_to_string("budget/partials/pdf/visualizarPDFGestor.html", context)
+    pdf_bytes = render_pdf_from_html(html)
+    document = DocumentPayload(content=pdf_bytes, filename=f"orcamento_{budget.id}_gestor.pdf")
+    return build_pdf_http_response(document=document, download=True)
 
 
 @xframe_options_exempt
 def visualizar_pdf_mecanico(request, pk):
     workshop = get_active_workshop_or_404(request)
-    budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle", "workshop"), pk=pk, workshop=workshop)
+    budget = _get_budget_for_pdf(pk=pk, workshop=workshop)
     context = build_budget_pdf_context(budget=budget, request=request, presentation="selected_items")
 
     return render(request, "budget/partials/pdf/visualizarPDFMecanico.html", context)
@@ -119,7 +95,7 @@ def visualizar_pdf_mecanico(request, pk):
 @xframe_options_exempt
 def visualizar_pdf_checklist(request, pk):
     workshop = get_active_workshop_or_404(request)
-    budget = get_object_or_404(Budget.objects.select_related("customer", "vehicle"), pk=pk, workshop=workshop)
+    budget = get_object_or_404(_budget_pdf_queryset(), pk=pk, workshop=workshop)
 
     checklist_id = request.GET.get("checklist")
     if not checklist_id:
@@ -213,7 +189,8 @@ def _get_budget_from_signature_token(token):
     except SignatureTokenError:
         raise Http404("Arquivo não encotrado")
 
-    budget = get_object_or_404(Budget.objects.select_related("workshop", "customer", "vehicle"), pk=payload["document_id"])
+    budget = get_object_or_404(_budget_pdf_queryset(), pk=payload["document_id"])
+    _prepare_budget_for_pdf_pricing(budget)
 
     if not budget.signature_token_active:
         raise Http404("Arquivo não encotrado")
@@ -268,7 +245,7 @@ def _get_requested_pdf_variant(request) -> str | None:
 @xframe_options_exempt
 def visualizar_pdf_assinatura(request, pk):
     workshop = get_active_workshop_or_404(request)
-    budget = get_object_or_404(Budget.objects.select_related("workshop"), pk=pk, workshop=workshop)
+    budget = _get_budget_for_pdf(pk=pk, workshop=workshop)
     should_download = request.GET.get("download") == "1"
     requested_variant = _get_requested_pdf_variant(request)
 
@@ -290,12 +267,14 @@ def visualizar_pdf_assinatura(request, pk):
         except SignatureServiceError:
             logger.warning("budget_signed_pdf_load_failed", extra={"budget_id": budget.id, "document_id": budget.signature_document_id, "envelope_id": budget.signature_external_id})
 
-    return _serve_background_budget_pdf(
-        request=request,
-        budget=budget,
-        variant=BudgetPdfRenderJob.Variant.BASE,
-        download=should_download,
-        use_signed_name=False,
-        title="Gerando PDF do orçamento",
-        message="O PDF do orçamento foi enviado para processamento em background.",
-    )
+    try:
+        document = render_budget_pdf_document(
+            budget=budget,
+            request=request,
+            filename=f"orcamento_{budget.id}_base.pdf",
+        )
+    except Exception:
+        logger.exception("budget_pdf_base_generation_failed", extra={"budget_id": budget.id, "pdf_type": "view"})
+        return HttpResponse("Erro ao gerar PDF", status=500)
+
+    return build_pdf_http_response(document=document, download=should_download)

@@ -655,11 +655,25 @@ def emit_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None = N
         raise NfeEmissionError(str(exc)) from exc
 
     payload = build_nfe_payload(nfe_request=nfe_request, request=request, slider_override=slider_override)
-    print("363 - payload enviado:", payload)
+    logger.debug(
+        "nfe_emit_request_started",
+        extra={
+            "nfe_request_id": nfe_request.pk,
+            "workshop_id": nfe_request.workshop_id,
+            "emit_url": emit_url,
+        },
+    )
 
     try:
         response = requests.post(emit_url, json=payload, headers=headers, timeout=30)
-        print("367 - response:", response)
+        logger.debug(
+            "nfe_emit_http_response",
+            extra={
+                "nfe_request_id": nfe_request.pk,
+                "workshop_id": nfe_request.workshop_id,
+                "status_code": response.status_code,
+            },
+        )
         response.raise_for_status()
     except requests.RequestException as exc:
         message = build_webmania_request_exception_message(exc, default="Falha ao emitir Nota Fiscal", scope="nfe")
@@ -667,7 +681,6 @@ def emit_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None = N
 
     try:
         data = response.json()
-        print("375 - data:", data)
     except ValueError as exc:
         raise NfeEmissionError("Resposta invalida da API de emissao de Nota Fiscal.") from exc
 

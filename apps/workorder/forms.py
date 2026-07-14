@@ -11,7 +11,7 @@ from django.utils import timezone
 from djmoney.forms import MoneyField
 from djmoney.money import Money
 
-from django.forms import RadioSelect
+from django.forms import CheckboxInput, RadioSelect
 
 from apps.budget.pricing import money_from_decimal, resolve_discount_fields
 from apps.collaborators.models import WorkshopCollaborator
@@ -914,10 +914,11 @@ class WorkOrderStatusReasonForm(CoreForm):
 class WorkOrderItemEditForm(CoreModelForm):
     class Meta:
         model = WorkOrderItem
-        fields = ["description", "quantity", "product_selling_price", "product_cost_price", "shipping", "service_selling_price", "service_cost_price", "duration", "item_benefit_type"]
+        fields = ["description", "quantity", "is_customer_supplied", "product_selling_price", "product_cost_price", "shipping", "service_selling_price", "service_cost_price", "duration", "item_benefit_type"]
         widgets = {
             "description": TextInput(),
             "quantity": NumberInput(),
+            "is_customer_supplied": CheckboxInput(),
             "product_selling_price": MoneyInput(),
             "product_cost_price": MoneyInput(),
             "shipping": MoneyInput(),
@@ -932,7 +933,7 @@ class WorkOrderItemEditForm(CoreModelForm):
         item = self.instance
 
         if item.kit:
-            fields_to_remove = ["service_selling_price", "service_cost_price", "duration", "product_selling_price", "product_cost_price", "shipping"]
+            fields_to_remove = ["service_selling_price", "service_cost_price", "duration", "product_selling_price", "product_cost_price", "shipping", "is_customer_supplied"]
             for field in fields_to_remove:
                 if field in self.fields:
                     self.fields.pop(field)
@@ -945,6 +946,7 @@ class WorkOrderItemEditForm(CoreModelForm):
             self.fields.pop("product_selling_price")
             self.fields.pop("product_cost_price")
             self.fields.pop("shipping")
+            self.fields.pop("is_customer_supplied")
 
         budget_type = getattr(getattr(item, "workorder", None), "budget_type", "sale")
         if budget_type in ("warranty", "courtesy"):

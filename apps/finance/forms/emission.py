@@ -65,7 +65,10 @@ def _build_step3_rows(*, workorder: WorkOrder) -> tuple[list[dict[str, Any]], li
     product_rows: list[dict[str, Any]] = []
     service_rows: list[dict[str, Any]] = []
 
-    workorder_items = list(workorder.items.select_related("product", "service", "kit").prefetch_related("kit_overrides", "kit__kit_products__product", "kit__kit_services__service").order_by("id"))
+    # Prefer WorkOrder._iter_items() so we reuse the nested kit Prefetch from
+    # EmissionRequestCreateView._selected_workorder. Chaining prefetch_related
+    # on workorder.items after that load raises ValueError (duplicate kit_overrides).
+    workorder_items = list(workorder._iter_items())
 
     for item in workorder_items:
         if item.product_id:

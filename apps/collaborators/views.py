@@ -117,6 +117,8 @@ class WorkshopCollaboratorCreateView(PageFavoriteMixin, LoginRequiredMixin, Work
 
             if form.instance.salary is None:
                 form.instance.salary = 0
+            if form.instance.transport_allowance_daily is None:
+                form.instance.transport_allowance_daily = 0
 
             if form.cleaned_data.get("system_access"):
                 username = form.cleaned_data["system_username"]
@@ -265,6 +267,8 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         with transaction.atomic():
             if form.instance.salary is None:
                 form.instance.salary = 0
+            if form.instance.transport_allowance_daily is None:
+                form.instance.transport_allowance_daily = 0
 
             response = super().form_valid(form)
             collaborator = self.object
@@ -592,6 +596,8 @@ class WorkshopCollaboratorModalCreateView(LoginRequiredMixin, WorkshopScopedMixi
 
             if self.object.salary is None:
                 self.object.salary = 0
+            if self.object.transport_allowance_daily is None:
+                self.object.transport_allowance_daily = 0
 
             self.object.save()
             freeze_existing_pricing_history(workshop=self.workshop, cutoff=self.object.criado_em)
@@ -613,6 +619,8 @@ class WorkshopCollaboratorModalUpdateView(LoginRequiredMixin, WorkshopScopedMixi
 
             if self.object.salary is None:
                 self.object.salary = 0
+            if self.object.transport_allowance_daily is None:
+                self.object.transport_allowance_daily = 0
 
             self.object.save()
             sync_current_month_salary_costs(workshop=self.workshop)

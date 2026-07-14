@@ -111,7 +111,7 @@ class KitListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseM
     def get_queryset(self):
         queryset = super().get_queryset()
         queryset = queryset.annotate(
-            has_usage=Exists(BudgetItem.objects.filter(kit=OuterRef("pk")).only("pk")) | Exists(WorkOrderItem.objects.filter(kit=OuterRef("pk")).only("pk")) | Exists(BudgetKitItemOverride.objects.filter(kit=OuterRef("pk")).only("pk")) | Exists(WorkOrderKitItemOverride.objects.filter(kit=OuterRef("pk")).only("pk")),
+            has_usage=Exists(BudgetItem.objects.filter(kit=OuterRef("pk")).only("pk")) | Exists(WorkOrderItem.objects.filter(kit=OuterRef("pk")).only("pk")),
         )
         queryset = apply_is_active_filter(queryset, params=self.request.GET)
         queryset = apply_query_param_filters(

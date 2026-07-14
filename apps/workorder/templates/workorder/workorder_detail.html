@@ -110,6 +110,8 @@
         if (!data) return;
         if (e.detail.kmBlocked !== undefined) data.kb = e.detail.kmBlocked;
         if (e.detail.kmBlockedReason !== undefined) data.kbr = e.detail.kmBlockedReason;
+        if (e.detail.signatureBlocked !== undefined) data.sb = e.detail.signatureBlocked;
+        if (e.detail.signatureBlockedReason !== undefined) data.sr = e.detail.signatureBlockedReason;
     });
 
     async function sendBudgetForSignature(btn) {

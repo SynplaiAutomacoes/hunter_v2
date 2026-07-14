@@ -15,23 +15,87 @@ O foco e responder rapidamente perguntas como:
 
 ## Estado atual do projeto
 
-Hoje o repositorio ja possui uma base importante:
+Hoje o repositorio ja possui uma base operacional:
 
-- exportacao OTLP de logs e traces em `apps/core/otel_logging.py`
-- auto-instrumentacao de Django e `requests` em `apps/core/otel_logging.py`
+- exportacao OTLP de logs, traces e metrics em `apps/core/otel_logging.py` (quando `OTLP_AUTH_HEADER` e `OTEL_EXPORTER_OTLP_ENDPOINT` estao configurados)
+- auto-instrumentacao de Django, `requests` e `psycopg`
 - logging JSON estruturado em `config/settings.py`
-- contexto de request com `request_id`, `workshop_id` e `user_id` em `apps/core/logging_filters.py`
-- middleware de performance de request em `apps/core/presentation/middlewares.py`
-- alguns logs de duracao em chamadas externas e operacoes especificas
+- contexto de request com `request_id`, `workshop_id`, `user_id` e `account_id` em `apps/core/logging_filters.py`
+- middleware de performance estruturado em `apps/core/presentation/middlewares.py` (logger `performance.request`)
+- helper padrao `observe_dependency_call` / `observe_business_operation` em `apps/core/observability.py`
+- dashboard Grafana versionado em `grafana/dashboards/hunter-observability.json`
 
-As principais lacunas atuais sao:
+Contrato do log final de request (quando `PERF_LOGGING_ENABLED=1`):
 
-- metrics ainda nao sao exportadas via OTLP
-- o middleware atual depende de logging por threshold, nao de series temporais completas
-- a medicao de queries via `connection.queries` nao e a estrategia ideal para prod
-- nao existe uma camada padrao para spans e metrics de operacoes de negocio
-- nao existe taxonomia padrao para atributos, nomes de metricas, dashboards e alertas
+- `route`, `method`, `path`, `status_code`, `duration_ms`
+- `workshop_id` (quando disponivel ao final da request)
+- `query_count` e `sql_time_ms` (quando `PERF_LOG_QUERIES=1`, via `SqlTimingWrapper`)
+- `dependency_time_ms` e `dependency_call_count`
+- `request_id` / correlacao OTEL (`trace_id`, `span_id`)
 
+Severidade do log `performance.request` / `request_completed`:
+
+- `status_code >= 500` → `ERROR` (com `exception_stacktrace` via OTEL quando houver excecao; capturada por `process_exception` porque o Django converte a exception em Response 500 antes do middleware)
+- request lenta (`duration_ms >= PERF_LOG_MIN_MS`) com status &lt; 500 → `WARNING`
+- demais → `INFO`
+
+O painel **Requests com erro 5xx** mostra o resumo + `exception_type` / `exception_message` / `exception_stacktrace`. Reimporte ou faça push do dashboard apos atualizar.
+
+Lacunas remanescentes:
+
+- instrumentacao de RabbitMQ e alguns providers ainda parcial
+- `PERF_LOG_QUERIES` continua opt-in por custo e deve ficar off no steady-state
+- baseline de p50/p95/p99 depende de trafego real apos ativar perf logging + OTLP
+
+## Como ler o baseline (p50 / p95 / p99)
+
+Dashboard versionado: `grafana/dashboards/hunter-observability.json` (**Hunter - Observability V2**). Reimporte no Grafana Cloud apos puxar o JSON.
+
+1. Confirme `ENVIRONMENT=production`, `PERF_LOGGING_ENABLED=1` e OTLP configurado.
+2. Abra o dashboard V2 e selecione `$environment` (production/staging/development) e `$slow_ms` se quiser ajustar o corte de lentidao.
+3. Na linha **Resumo / HTTP Requests**, leia:
+   - p50 / p95 / p99 global a partir de `http.server.request.duration`
+   - p95 por `http.route`
+   - **Requests ativas** para cruzar com CPU/RAM do host (Gunicorn)
+4. Para SQL / N+1, use janela curta com `PERF_LOG_QUERIES=1`, recarregue as rotas lentas (`core:dashboard`, `budget:budget_list`, `workorder:workorder_list`, `finance:reports_home`) e leia a row **Database SQL**. Depois volte `PERF_LOG_QUERIES=0` (custo alto em steady-state).
+5. Nos explorers de log, use `req=` (`request_id`) para correlacionar com Tempo; `dep=` mostra tempo agregado de dependencias no request.
+6. Registre o baseline apos 24–72h de traffego representativo (ou apos a janela SQL) antes de mudar `GUNICORN_WORKERS` / `GUNICORN_THREADS`.
+
+### Janela SQL / pos-amostra
+
+Se `PERF_LOG_QUERIES=1` ja estiver ligado: capture a amostra e **volte imediatamente para `PERF_LOG_QUERIES=0` no Railway**. Apos cada PR de remediacao de hotspot, repita uma janela curta so para validar queda de `q`/`sql_time_ms`, depois desligue de novo.
+## Capacidade Gunicorn (recomendacao inicial)
+
+Defaults em `gunicorn.conf.py`: `2` workers x `4` threads (~8 requests concorrentes).
+
+Baseline observado (workshop 19): `core:dashboard` ~97s, listas ~10–14s, com `dependency_*=0`. Nessas condicoes, **aumentar workers/threads nao corrige** o wall-clock de uma unica request CPU/DB-bound; so ajuda a nao enfileirar outras requests enquanto o dashboard trava um worker.
+
+Heuristica apos o baseline:
+
+| Sintoma | Acao sugerida |
+| --- | --- |
+| p95 alto + CPU baixa | aumentar threads (mais concorrencia I/O) |
+| CPU ~100% / risco de OOM (PDF) | reduzir threads ou aumentar RAM/CPU |
+| 1 vCPU / 512MB–1GB | manter 2 workers, 4–8 threads |
+| 2 vCPU / 2GB | avaliar 3–4 workers com 4–8 threads |
+| Uma rota >30s com deps=0 | otimizar a rota antes de escalar Gunicorn |
+
+Correlacione Railway CPU/RAM com a metrica `http.server.active_requests` (painel **Requests ativas** no Observability V2).
+
+### Histogramas OTEL (p95/p99)
+
+Buckets de duracao em ms foram estendidos ate 180s em `apps/core/otel_logging.py`. Sem isso, o p95 de business/HTTP podia ficar **artificialmente em ~10s** mesmo com requests de ~97s. Apos deploy, reavalie p50/p95/p99 no V2.
+
+### Diagnostico do dashboard
+
+`DashboardQueryService.compute` emite `section_timings_ms` no log `business_operation_completed` (logger `apps.core.infrastructure.services.dashboard_query_service`). Use isso com o `request_id` do explorer V2 para ver qual secao (ex.: `delivered_workorders`, `pending_receivable_metrics`) domina.
+
+Hotspot conhecido (ws=19): N+1 em `kit_overrides.product` / `kit_overrides.service` dentro de `build_pricing_snapshot`. O prefetch do dashboard/listas deve usar `select_related("product", "service")` nos overrides. Apos deploy de remediacao:
+
+1. Janela curta `PERF_LOG_QUERIES=1`
+2. Recarregar `/core/` na oficina afetada
+3. Confirmar queda de `query_count` / `sql_time_ms` / `duration_ms` em `route=core:dashboard` (alvo: dezenas/centenas de queries, nao milhares)
+4. Voltar `PERF_LOG_QUERIES=0`
 ## Stack recomendada
 
 ### Aplicacao Python

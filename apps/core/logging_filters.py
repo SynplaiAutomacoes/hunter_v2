@@ -23,6 +23,26 @@ def clear_request_context() -> None:
     _context.workshop_id = None
     _context.user_id = None
     _context.account_id = None
+    reset_dependency_timing()
+
+
+def reset_dependency_timing() -> None:
+    _context.dependency_time_ms = 0.0
+    _context.dependency_call_count = 0
+
+
+def record_dependency_timing(duration_ms: float) -> None:
+    current_time = float(getattr(_context, "dependency_time_ms", 0.0) or 0.0)
+    current_count = int(getattr(_context, "dependency_call_count", 0) or 0)
+    _context.dependency_time_ms = current_time + float(duration_ms)
+    _context.dependency_call_count = current_count + 1
+
+
+def get_dependency_timing() -> tuple[float, int]:
+    return (
+        round(float(getattr(_context, "dependency_time_ms", 0.0) or 0.0), 2),
+        int(getattr(_context, "dependency_call_count", 0) or 0),
+    )
 
 
 class ContextFilter(logging.Filter):

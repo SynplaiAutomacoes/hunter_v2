@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import logging
 import re
 import zipfile
 from datetime import date
@@ -23,6 +24,9 @@ from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.finance.views.navigation import append_query_params, build_issued_documents_origin_params
 from apps.workshops.mixin import WorkshopScopedMixin
+
+
+logger = logging.getLogger(__name__)
 
 
 class IssuedDocumentsFilterMixin:
@@ -406,6 +410,10 @@ class IssuedDocumentsArchiveDownloadView(LoginRequiredMixin, WorkshopScopedMixin
                 for entry, downloaded in downloaded_entries:
                     archive_file.writestr(entry["archive_name"], downloaded.content)
         except FiscalServiceError as exc:
+            logger.exception(
+                "issued_documents_archive_download_failed",
+                extra={"workshop_id": self.workshop.pk, "document_group": document_group},
+            )
             return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
 
         archive_filename = self._build_archive_filename(state=state, document_group=document_group)
@@ -426,7 +434,9 @@ class IssuedDocumentsArchiveDownloadView(LoginRequiredMixin, WorkshopScopedMixin
         downloaded_entries: list[tuple[dict[str, str], Any]] = []
         max_workers = min(8, len(entries))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_map = {executor.submit(download_webmania_document, workshop=self.workshop, url=entry["url"]): entry for entry in entries}
+            future_map = {
+                executor.submit(get_fiscal_service().download_document, workshop=self.workshop, url=entry["url"]): entry for entry in entries
+            }
             for future in as_completed(future_map):
                 entry = future_map[future]
                 downloaded_entries.append((entry, future.result()))

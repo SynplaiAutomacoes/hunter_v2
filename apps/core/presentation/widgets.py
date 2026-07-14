@@ -94,8 +94,9 @@ class SearchableSelectInput(SelectInput):
 
     def get_context(self, name, value, attrs):
         ctx = super().get_context(name, value, attrs)
-        ctx["widget"]["data_source_url"] = (attrs or {}).get("data-source-url", "")
-        ctx["widget"]["data_min_search_length"] = (attrs or {}).get("data-min-search-length", "0")
+        merged_attrs = ctx["widget"].get("attrs") or {}
+        ctx["widget"]["data_source_url"] = merged_attrs.get("data-source-url", "") or ""
+        ctx["widget"]["data_min_search_length"] = merged_attrs.get("data-min-search-length", "0")
         return ctx
 
 

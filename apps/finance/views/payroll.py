@@ -9,7 +9,7 @@ from django import forms
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
-from django.db.models import Q, Sum
+from django.db.models import Prefetch, Q, Sum
 from django.http import HttpResponse, QueryDict
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
@@ -22,18 +22,21 @@ from django.db import transaction
 
 from djmoney.money import Money
 
-from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
+from apps.collaborators.models import CollaboratorBenefit, CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
 from apps.collaborators.services import (
     PAYROLL_COMPONENT_LABELS,
     build_payroll_projection,
-    calculate_transport_allowance_total,
     ensure_payroll_component_movements_confirmed,
     ensure_payroll_movements_confirmed,
     get_payroll_due_date_for_reference,
     get_payroll_movement_diagnosis,
+    get_payroll_movement_diagnoses,
+    get_reference_work_days,
     mark_payroll_as_paid,
     mark_payroll_as_unpaid,
     mark_payroll_commissions_as_paid,
+    mark_payrolls_as_paid,
+    mark_payrolls_as_unpaid,
     payroll_has_financial_movements,
     recalculate_payroll_from_linked_movements,
     refresh_unpaid_payroll_due_dates,
@@ -173,21 +176,8 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         return collaborators
 
     def _get_collaborators_to_sync(self, *, filters: dict[str, Any]):
-        collaborators = self._get_active_collaborators_queryset(filters=filters)
-        collaborator_ids = list(collaborators.values_list("pk", flat=True))
-        if not collaborator_ids:
-            return collaborators.none()
-
-        synced_collaborator_ids = set(
-            CollaboratorPayroll.objects.filter(
-                workshop=self.workshop,
-                collaborator_id__in=collaborator_ids,
-                reference_month=filters["month"],
-                reference_year=filters["year"],
-                financial_movement_id__isnull=False,
-            ).values_list("collaborator_id", flat=True)
-        )
-        return collaborators.exclude(pk__in=synced_collaborator_ids)
+        """Active collaborators eligible for create/refresh of the month's payroll."""
+        return self._get_active_collaborators_queryset(filters=filters)
 
     def _sync_monthly_payrolls(self, *, filters: dict[str, Any]) -> None:
         reference_date = date(filters["year"], filters["month"], 1)
@@ -199,28 +189,39 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             return []
 
         reference_date = date(filters["year"], filters["month"], 1)
-        rows: list[dict[str, Any]] = []
-        for collaborator in self._get_active_collaborators_queryset(filters=filters).order_by("name", "id"):
-            if collaborator.pk in existing_collaborator_ids:
-                continue
+        collaborators = list(
+            self._get_active_collaborators_queryset(filters=filters)
+            .prefetch_related(Prefetch("benefits", queryset=CollaboratorBenefit.objects.filter(is_active=True)))
+            .order_by("name", "id")
+        )
+        pending_collaborators = [collaborator for collaborator in collaborators if collaborator.pk not in existing_collaborator_ids]
+        if not pending_collaborators:
+            return []
 
+        pending_ids = [collaborator.pk for collaborator in pending_collaborators]
+        commission_by_collaborator_id: dict[int, Decimal] = {collaborator_id: Decimal("0.00") for collaborator_id in pending_ids}
+        for entry in CollaboratorCommissionEntry.objects.filter(
+            collaborator_id__in=pending_ids,
+            reference_year=filters["year"],
+            reference_month=filters["month"],
+        ).only("collaborator_id", "commission_amount", "commission_amount_currency"):
+            commission_by_collaborator_id[entry.collaborator_id] = commission_by_collaborator_id.get(entry.collaborator_id, Decimal("0.00")) + Decimal(
+                str(entry.commission_amount.amount or 0)
+            )
+
+        # All pending collaborators share the same workshop — resolve work days once.
+        work_days = get_reference_work_days(collaborator=pending_collaborators[0], reference_date=reference_date)
+
+        rows: list[dict[str, Any]] = []
+        for collaborator in pending_collaborators:
             benefits_amount = sum(
-                (Decimal(str(benefit.monthly_amount.amount or 0)) for benefit in collaborator.benefits.filter(is_active=True)),
+                (Decimal(str(benefit.monthly_amount.amount or 0)) for benefit in collaborator.benefits.all()),
                 start=Decimal("0.00"),
             )
-            commission_amount = sum(
-                (
-                    Decimal(str(entry.commission_amount.amount or 0))
-                    for entry in CollaboratorCommissionEntry.objects.filter(
-                        collaborator=collaborator,
-                        reference_year=filters["year"],
-                        reference_month=filters["month"],
-                    )
-                ),
-                start=Decimal("0.00"),
-            )
+            commission_amount = commission_by_collaborator_id.get(collaborator.pk, Decimal("0.00"))
             salary_amount = Decimal(str(collaborator.salary.amount or 0))
-            transport_amount = Decimal(str(calculate_transport_allowance_total(collaborator=collaborator, reference_date=reference_date).amount or 0))
+            transport_amount = Decimal(str((collaborator.transport_allowance_daily_amount * Decimal(work_days)) or 0))
+            transport_amount = Money(transport_amount, "BRL").amount
             total_amount = salary_amount + transport_amount + benefits_amount + commission_amount
             missing_components: list[str] = []
             if salary_amount > Decimal("0.00"):
@@ -260,7 +261,12 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
 
     def _get_queryset(self):
         filters = self._get_filter_params()
-        queryset = CollaboratorPayroll.objects.filter(workshop=self.workshop).select_related("collaborator", "financial_movement").order_by("collaborator__name", "id")
+        queryset = (
+            CollaboratorPayroll.objects.filter(workshop=self.workshop, collaborator__is_active=True)
+            .select_related("collaborator", "financial_movement")
+            .prefetch_related("financial_movements")
+            .order_by("collaborator__name", "id")
+        )
         if filters["has_modal_date_filter"]:
             if filters["start_date"]:
                 queryset = queryset.filter(due_date__gte=filters["start_date"])
@@ -284,10 +290,11 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         return Decimal(str(getattr(value, "amount", value) or 0))
 
     def _build_rows(self, payrolls: list[CollaboratorPayroll]) -> list[dict[str, Any]]:
+        diagnoses = get_payroll_movement_diagnoses(payrolls=payrolls)
         rows = []
         for payroll in payrolls:
             is_reconciled = bool(payroll.financial_movement and payroll.financial_movement.is_reconciled)
-            diagnosis = get_payroll_movement_diagnosis(payroll=payroll)
+            diagnosis = diagnoses.get(payroll.pk) or get_payroll_movement_diagnosis(payroll=payroll)
             rows.append(
                 {
                     "id": payroll.pk,
@@ -326,7 +333,8 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         page_obj = paginator.get_page(self.request.GET.get("page") or "1")
         payrolls = list(page_obj.object_list)
         existing_rows = self._build_rows(payrolls)
-        pending_rows = self._get_pending_collaborator_rows(filters=filters, existing_collaborator_ids={payroll.collaborator.pk for payroll in queryset})
+        existing_collaborator_ids = set(queryset.values_list("collaborator_id", flat=True))
+        pending_rows = self._get_pending_collaborator_rows(filters=filters, existing_collaborator_ids=existing_collaborator_ids)
         context["payroll_rows"] = existing_rows + pending_rows
         totals = queryset.aggregate(total_payroll_amount=Sum("total_amount"), paid_amount=Sum("total_amount", filter=Q(financial_movement__is_paid=True)))
         total_amount = self._money_amount(totals.get("total_payroll_amount"))
@@ -460,7 +468,12 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def _get_payroll(self) -> CollaboratorPayroll:
         return get_object_or_404(
-            CollaboratorPayroll.objects.select_related("collaborator", "financial_movement").prefetch_related("items", "commission_entries__workorder__budget"),
+            CollaboratorPayroll.objects.select_related("collaborator", "financial_movement").prefetch_related(
+                "items",
+                "commission_entries__workorder__budget",
+                "financial_movements__payroll_benefit",
+                "financial_movements__budget_plan",
+            ),
             pk=self.kwargs["pk"],
             workshop=self.workshop,
         )
@@ -472,7 +485,12 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         reference_date = self._get_reference_date()
         return (
             CollaboratorPayroll.objects.select_related("collaborator", "financial_movement")
-            .prefetch_related("items", "commission_entries__workorder__budget")
+            .prefetch_related(
+                "items",
+                "commission_entries__workorder__budget",
+                "financial_movements__payroll_benefit",
+                "financial_movements__budget_plan",
+            )
             .filter(
                 workshop=self.workshop,
                 collaborator=collaborator,
@@ -540,6 +558,10 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
             amount = component_amounts.get(component)
             expected = Decimal(str(amount.amount or 0)) > 0 if amount is not None else False
             movements = grouped_movements.get(component, [])
+            benefits_total = payroll.benefits_amount if component == FinancialMovement.PayrollComponent.BENEFIT else None
+            if component == FinancialMovement.PayrollComponent.BENEFIT and movements:
+                movement_total = sum((Decimal(str(movement.amount.amount or 0)) for movement in movements), start=Decimal("0.00"))
+                benefits_total = Money(movement_total, "BRL")
             tabs.append(
                 {
                     "key": component,
@@ -547,6 +569,11 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "movements": movements,
                     "has_expected_value": expected,
                     "is_missing": expected and not movements,
+                    "is_benefit_tab": component == FinancialMovement.PayrollComponent.BENEFIT,
+                    "benefits_total": benefits_total,
+                    "benefit_items": [],
+                    "form": None,
+                    "default_movement_id": None,
                 }
             )
         return tabs
@@ -595,8 +622,50 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         )
 
     @staticmethod
-    def _component_form_prefix(component: str) -> str:
+    def _component_form_prefix(component: str, movement_id: int | None = None) -> str:
+        if component == FinancialMovement.PayrollComponent.BENEFIT and movement_id is not None:
+            return f"comp_{component}_{movement_id}"
         return f"comp_{component}"
+
+    @staticmethod
+    def _benefit_display_name(*, movement: FinancialMovement) -> str:
+        benefit = getattr(movement, "payroll_benefit", None)
+        benefit_name = str(getattr(benefit, "name", "") or "").strip()
+        if benefit_name:
+            return benefit_name
+        description = str(movement.description or "").strip()
+        if description:
+            return description.split(" - ")[0].strip() or PAYROLL_COMPONENT_LABELS[FinancialMovement.PayrollComponent.BENEFIT]
+        return PAYROLL_COMPONENT_LABELS[FinancialMovement.PayrollComponent.BENEFIT]
+
+    def _build_benefit_items(
+        self,
+        *,
+        payroll: CollaboratorPayroll,
+        movements: list[FinancialMovement],
+        post_data: Any | None = None,
+        failed_forms: dict[int, PayrollPaymentForm] | None = None,
+    ) -> list[dict[str, Any]]:
+        benefit_items: list[dict[str, Any]] = []
+        for movement in movements:
+            prefix = self._component_form_prefix(FinancialMovement.PayrollComponent.BENEFIT, movement.pk)
+            if failed_forms is not None and movement.pk in failed_forms:
+                form = failed_forms[movement.pk]
+            elif post_data is not None:
+                form = PayrollPaymentForm(post_data, instance=movement, workshop=self.workshop, payroll=payroll, prefix=prefix)
+            else:
+                form = PayrollPaymentForm(instance=movement, workshop=self.workshop, payroll=payroll, prefix=prefix)
+            benefit_items.append(
+                {
+                    "movement": movement,
+                    "movement_id": movement.pk,
+                    "benefit_name": self._benefit_display_name(movement=movement),
+                    "amount": movement.amount,
+                    "form": form,
+                    "prefix": prefix,
+                }
+            )
+        return benefit_items
 
     def _open_edit_modal(self, *, request: Any, payroll: CollaboratorPayroll) -> HttpResponse:
         component_tabs = self._build_component_tabs(payroll=payroll)
@@ -624,10 +693,17 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         for tab in component_tabs:
             movement_id = default_movement_ids.get(tab["key"])
+            tab["default_movement_id"] = movement_id
+            if tab["is_benefit_tab"]:
+                tab["benefit_items"] = self._build_benefit_items(payroll=payroll, movements=tab["movements"])
+                tab["form"] = None
+                continue
             movement = next((m for m in tab["movements"] if m.pk == movement_id), None) if movement_id is not None else None
             prefix = self._component_form_prefix(str(tab["key"]))
-            tab["default_movement_id"] = movement_id
             tab["form"] = PayrollPaymentForm(instance=movement, workshop=self.workshop, payroll=payroll, prefix=prefix) if movement is not None else None
+
+        benefit_tab = next((tab for tab in component_tabs if tab["is_benefit_tab"]), None)
+        default_benefit_movement_id = benefit_tab["default_movement_id"] if benefit_tab is not None else None
 
         return render(
             request,
@@ -639,6 +715,7 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "modal_url": modal_url,
                 "fallback_tab": fallback_tab,
                 "continue_without_create": True,
+                "default_benefit_movement_id": default_benefit_movement_id,
             },
         )
 
@@ -686,7 +763,9 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     refresh=True,
                     status=400,
                 )
-            return self._open_edit_modal(request=request, payroll=target_payroll)
+            response = self._open_edit_modal(request=request, payroll=target_payroll)
+            response["HX-Trigger"] = json.dumps({"payrollListRefresh": True})
+            return response
 
         if payroll is None or not payroll_has_financial_movements(payroll=payroll) or payroll.financial_movement is None:
             return self._build_confirmation_response(request=request, collaborator=collaborator, payroll=payroll)
@@ -694,10 +773,25 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         component_tabs = self._build_component_tabs(payroll=payroll)
         all_forms: list[tuple[str, PayrollPaymentForm]] = []
         invalid_forms: list[tuple[str, PayrollPaymentForm]] = []
+        failed_benefit_forms: dict[int, PayrollPaymentForm] = {}
 
         for tab in component_tabs:
             if not tab["movements"]:
                 continue
+            if tab["is_benefit_tab"]:
+                for movement in tab["movements"]:
+                    prefix = self._component_form_prefix(str(tab["key"]), movement.pk)
+                    form = PayrollPaymentForm(request.POST, instance=movement, workshop=self.workshop, payroll=payroll, prefix=prefix)
+                    has_tab_data = any(str(key).startswith(prefix) for key in request.POST.keys())
+                    if not has_tab_data:
+                        continue
+                    if form.is_valid():
+                        all_forms.append((tab["key"], form))
+                    else:
+                        invalid_forms.append((tab["key"], form))
+                        failed_benefit_forms[movement.pk] = form
+                continue
+
             movement = tab["movements"][0]
             prefix = self._component_form_prefix(str(tab["key"]))
             form = PayrollPaymentForm(request.POST, instance=movement, workshop=self.workshop, payroll=payroll, prefix=prefix)
@@ -720,13 +814,20 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
             for tab in component_tabs:
                 if not tab["movements"]:
                     continue
+                tab["default_movement_id"] = tab["movements"][0].pk
+                if tab["is_benefit_tab"]:
+                    tab["benefit_items"] = self._build_benefit_items(
+                        payroll=payroll,
+                        movements=tab["movements"],
+                        failed_forms=failed_benefit_forms,
+                    )
+                    tab["form"] = None
+                    continue
                 prefix = self._component_form_prefix(str(tab["key"]))
                 failed_form = next((f for key, f in invalid_forms if key == tab["key"]), None)
                 if failed_form is not None:
                     tab["form"] = failed_form
-                    tab["default_movement_id"] = tab["movements"][0].pk
                 else:
-                    tab["default_movement_id"] = tab["movements"][0].pk
                     tab["form"] = PayrollPaymentForm(instance=tab["movements"][0], workshop=self.workshop, payroll=payroll, prefix=prefix)
             return render(
                 request,
@@ -738,6 +839,7 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "modal_url": modal_url,
                     "fallback_tab": fallback_tab,
                     "continue_without_create": True,
+                    "default_benefit_movement_id": next((tab["default_movement_id"] for tab in component_tabs if tab["is_benefit_tab"]), None),
                 },
             )
 
@@ -783,20 +885,17 @@ class PayrollBulkPayView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if not payroll_ids:
             return HttpResponse("Nenhuma folha selecionada.", status=400)
 
-        payrolls = CollaboratorPayroll.objects.filter(
-            pk__in=payroll_ids,
-            workshop=self.workshop,
-        ).select_related("collaborator", "financial_movement")
+        payrolls = list(
+            CollaboratorPayroll.objects.filter(
+                pk__in=payroll_ids,
+                workshop=self.workshop,
+            )
+            .select_related("collaborator", "financial_movement")
+            .prefetch_related("financial_movements")
+        )
 
-        skipped_collaborators: list[str] = []
         with transaction.atomic():
-            for payroll in payrolls:
-                if not payroll_has_financial_movements(payroll=payroll):
-                    skipped_collaborators.append(payroll.collaborator.name)
-                    continue
-                refreshed_payroll = _mark_payroll_as_paid(payroll=payroll)
-                if not payroll_has_financial_movements(payroll=refreshed_payroll):
-                    skipped_collaborators.append(refreshed_payroll.collaborator.name)
+            _, skipped_collaborators = mark_payrolls_as_paid(payrolls=payrolls, paid_at=timezone.localdate())
 
         if request.headers.get("HX-Request"):
             if skipped_collaborators:
@@ -835,15 +934,17 @@ class PayrollBulkUnpayView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if not payroll_ids:
             return HttpResponse("Nenhuma folha selecionada.", status=400)
 
-        payrolls = CollaboratorPayroll.objects.filter(
-            pk__in=payroll_ids,
-            workshop=self.workshop,
-        ).select_related("collaborator", "financial_movement")
+        payrolls = list(
+            CollaboratorPayroll.objects.filter(
+                pk__in=payroll_ids,
+                workshop=self.workshop,
+            )
+            .select_related("collaborator", "financial_movement")
+            .prefetch_related("financial_movements")
+        )
 
         with transaction.atomic():
-            for payroll in payrolls:
-                _mark_payroll_as_unpaid(payroll=payroll)
-                _unmark_payroll_commissions_as_paid(payroll=payroll)
+            mark_payrolls_as_unpaid(payrolls=payrolls)
 
         if request.headers.get("HX-Request"):
             response = HttpResponse()

@@ -68,6 +68,42 @@ class PayrollListViewTests(TestCase):
         self.assertFalse(pending_row["can_select"])
         self.assertIn(reverse("finance:payroll_edit_modal_for_collaborator", kwargs={"collaborator_pk": collaborator.pk}), pending_row["edit_url"])
 
+    def test_list_hides_inactive_collaborator_payrolls(self) -> None:
+        workshop = create_workshop(suffix=93)
+        active_collaborator = create_collaborator(workshop=workshop, suffix=93)
+        inactive_collaborator = create_collaborator(workshop=workshop, suffix=94)
+        inactive_collaborator.is_active = False
+        inactive_collaborator.save(update_fields=["is_active"])
+
+        CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=active_collaborator,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2000, "BRL"),
+            total_amount=Money(2000, "BRL"),
+        )
+        CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=inactive_collaborator,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(1800, "BRL"),
+            total_amount=Money(1800, "BRL"),
+        )
+
+        view = PayrollListView()
+        view.request = RequestFactory().get("/finance/folha-pagamento/", {"mes": 8, "ano": 2026})
+        view.workshop = workshop
+
+        context = view.get_context_data()
+        row_names = [row["collaborator_name"] for row in context["payroll_rows"]]
+
+        self.assertIn(active_collaborator.name, row_names)
+        self.assertNotIn(inactive_collaborator.name, row_names)
+
     def test_list_includes_pending_collaborator_commission_amount_without_moneyfield_error(self) -> None:
         workshop = create_workshop(suffix=91)
         collaborator = create_collaborator(workshop=workshop, suffix=91)
@@ -93,7 +129,46 @@ class PayrollListViewTests(TestCase):
         self.assertEqual(pending_row["commission_amount"], Money(150, "BRL"))
         self.assertEqual(pending_row["total_amount"], Money(2150, "BRL"))
 
-    def test_monthly_sync_skips_collaborators_with_existing_payroll_and_financial_movement(self) -> None:
+    def test_pending_collaborator_rows_query_count_does_not_scale_per_collaborator(self) -> None:
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from apps.collaborators.models import CollaboratorBenefit
+
+        workshop = create_workshop(suffix=92)
+        collaborators = [create_collaborator(workshop=workshop, suffix=200 + index) for index in range(5)]
+        for index, collaborator in enumerate(collaborators):
+            CollaboratorBenefit.objects.create(
+                collaborator=collaborator,
+                name=f"Beneficio {index}",
+                monthly_amount=Money(50, "BRL"),
+                is_active=True,
+            )
+            workorder = create_workorder(workshop=workshop, budget_type="sale")
+            CollaboratorCommissionEntry.objects.create(
+                workshop=workshop,
+                collaborator=collaborator,
+                workorder=workorder,
+                reference_year=2026,
+                reference_month=11,
+                base_amount=Money(1000, "BRL"),
+                commission_amount=Money(100, "BRL"),
+                percentage=0.1,
+            )
+
+        view = PayrollListView()
+        view.request = RequestFactory().get("/finance/folha-pagamento/", {"mes": 11, "ano": 2026})
+        view.workshop = workshop
+        filters = view._get_filter_params()
+
+        with CaptureQueriesContext(connection) as ctx:
+            rows = view._get_pending_collaborator_rows(filters=filters, existing_collaborator_ids=set())
+
+        self.assertEqual(len(rows), 5)
+        # Prefetch benefits + one commission batch + one WorkshopCost lookup — not N per collaborator.
+        self.assertLessEqual(len(ctx), 12)
+
+    def test_monthly_sync_includes_collaborators_with_existing_unpaid_payroll(self) -> None:
         workshop = create_workshop(suffix=20)
         synced_collaborator = create_collaborator(workshop=workshop, suffix=20)
         collaborator_without_movement = create_collaborator(workshop=workshop, suffix=21)
@@ -137,7 +212,7 @@ class PayrollListViewTests(TestCase):
 
         sync_mock.assert_called_once()
         synced_ids = {collaborator.pk for collaborator in sync_mock.call_args.kwargs["collaborators"]}
-        self.assertNotIn(synced_collaborator.pk, synced_ids)
+        self.assertIn(synced_collaborator.pk, synced_ids)
         self.assertIn(collaborator_without_movement.pk, synced_ids)
         self.assertIn(missing_payroll_collaborator.pk, synced_ids)
 
@@ -733,6 +808,7 @@ class PayrollEditModalViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(FinancialMovement.objects.filter(payroll=payroll).exists())
         self.assertIn("Editar Folha de Pagamento", response.content.decode())
+        self.assertIn("payrollListRefresh", response.headers.get("HX-Trigger", ""))
 
     def test_edit_modal_confirms_missing_component_without_recreating_automatically(self) -> None:
         workshop = create_workshop(suffix=29)

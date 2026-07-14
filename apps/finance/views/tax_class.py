@@ -7,8 +7,9 @@ from typing import Any
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpRequest, HttpResponse
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.views import View
 from django.views.generic import TemplateView
 
 from apps.core.infrastructure.query_filters import apply_is_active_filter
@@ -27,7 +28,14 @@ from apps.finance.forms import (
 )
 from apps.finance.models.finance import NfseRequest, TaxClassPreset, TaxClassPresetKind, TaxClassSyncState
 from apps.finance.services.tax_class_presets import normalize_tax_class_preset_payload
-from apps.finance.services.tax_classes import TaxClassServiceError, delete_tax_class, list_tax_classes, save_tax_class, sync_tax_classes
+from apps.finance.services.tax_classes import (
+    TaxClassServiceError,
+    delete_tax_class,
+    list_tax_classes,
+    map_nfse_codigo_servico_api_error,
+    save_tax_class,
+    sync_tax_classes,
+)
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
@@ -175,6 +183,33 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
         if editing_tax_class is not None:
             return NfseTaxClassForm(initial=NfseTaxClassForm.initial_from_tax_class(editing_tax_class))
         return NfseTaxClassForm()
+
+    def _handle_tax_class_save_error(
+        self,
+        *,
+        request: HttpRequest,
+        exc: TaxClassServiceError,
+        form: NfeTaxClassForm | NfseTaxClassForm | None,
+        log_event: str,
+        active_tab: str,
+        reference: str,
+    ) -> None:
+        error_message = str(exc)
+        logger.warning(
+            "%s workshop_id=%s user_id=%s tab=%s reference=%s error=%s",
+            log_event,
+            getattr(self.workshop, "pk", None),
+            getattr(request.user, "id", None),
+            active_tab,
+            reference,
+            error_message,
+        )
+        mapped_codigo_servico_error = map_nfse_codigo_servico_api_error(error_message)
+        if mapped_codigo_servico_error is not None and form is not None and "codigo_servico" in form.fields:
+            form.add_error("codigo_servico", mapped_codigo_servico_error)
+            messages.error(request, mapped_codigo_servico_error)
+            return
+        messages.error(request, error_message)
 
     def _build_nfe_formsets(self, *, data: Any | None, editing_tax_class: dict[str, object] | None) -> dict[str, Any]:
         formsets: dict[str, Any] = {}
@@ -449,15 +484,14 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
                 try:
                     saved_tax_class = save_tax_class(workshop=self.workshop, payload=payload)
                 except TaxClassServiceError as exc:
-                    logger.warning(
-                        "tax_class_save_failed workshop_id=%s user_id=%s tab=%s reference=%s error=%s",
-                        getattr(self.workshop, "pk", None),
-                        getattr(request.user, "id", None),
-                        active_tab,
-                        str(payload.get("referencia") or ""),
-                        str(exc),
+                    self._handle_tax_class_save_error(
+                        request=request,
+                        exc=exc,
+                        form=nfe_form,
+                        log_event="tax_class_save_failed",
+                        active_tab=active_tab,
+                        reference=str(payload.get("referencia") or ""),
                     )
-                    messages.error(request, str(exc))
                 else:
                     reference = str(saved_tax_class.get("referencia") or payload.get("referencia") or "").strip()
                     logger.info(
@@ -498,15 +532,14 @@ class TaxClassManagerView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView)
             try:
                 saved_tax_class = save_tax_class(workshop=self.workshop, payload=payload)
             except TaxClassServiceError as exc:
-                logger.warning(
-                    "tax_class_save_failed workshop_id=%s user_id=%s tab=%s reference=%s error=%s",
-                    getattr(self.workshop, "pk", None),
-                    getattr(request.user, "id", None),
-                    active_tab,
-                    str(payload.get("referencia") or ""),
-                    str(exc),
+                self._handle_tax_class_save_error(
+                    request=request,
+                    exc=exc,
+                    form=nfse_form,
+                    log_event="tax_class_save_failed",
+                    active_tab=active_tab,
+                    reference=str(payload.get("referencia") or ""),
                 )
-                messages.error(request, str(exc))
             else:
                 reference = str(saved_tax_class.get("referencia") or payload.get("referencia") or "").strip()
                 logger.info(
@@ -629,6 +662,80 @@ class TaxClassListView(TaxClassManagerView):
         return redirect(f"{reverse('finance:tax_class_list')}?tab={active_tab}")
 
 
+class TaxClassDeleteView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = NfseRequest
+    workshop_permission_codename = "view_nfserequest"
+    htmx_template_name = "finance/partials/tax_class_delete_modal.html"
+
+    def _normalize_tab(self, value: object) -> str:
+        return "nfse" if str(value or "").strip().lower() == "nfse" else "nfe"
+
+    def _list_redirect_url(self, *, tab: str) -> str:
+        return f"{reverse('finance:tax_class_list')}?tab={tab}"
+
+    def get(self, request: HttpRequest, reference: str, *args: object, **kwargs: object) -> HttpResponse:
+        normalized_reference = str(reference or "").strip()
+        if not normalized_reference:
+            messages.error(request, "Informe a referencia da classe de imposto para excluir.")
+            return redirect(self._list_redirect_url(tab=self._normalize_tab(request.GET.get("tab"))))
+
+        tax_classes = list_tax_classes(workshop=self.workshop)
+        tax_class = next(
+            (item for item in tax_classes if str(item.get("referencia") or "").strip() == normalized_reference),
+            None,
+        )
+        if tax_class is None:
+            messages.error(request, "Classe de imposto nao encontrada para exclusao.")
+            return redirect(self._list_redirect_url(tab=self._normalize_tab(request.GET.get("tab"))))
+
+        description = str(tax_class.get("descricao") or "").strip()
+        object_label = f"{normalized_reference} - {description}" if description else normalized_reference
+        context = {
+            "object": object_label,
+            "hx_post": f"{reverse('finance:tax_class_delete', kwargs={'reference': normalized_reference})}?tab={self._normalize_tab(request.GET.get('tab') or tax_class.get('type') or tax_class.get('tipo'))}",
+        }
+        return render(request, self.htmx_template_name, context)
+
+    def post(self, request: HttpRequest, reference: str, *args: object, **kwargs: object) -> HttpResponse:
+        active_tab = self._normalize_tab(request.GET.get("tab") or request.POST.get("tab"))
+        normalized_reference = str(reference or "").strip()
+        redirect_url = self._list_redirect_url(tab=active_tab)
+
+        if not normalized_reference:
+            messages.error(request, "Informe a referencia da classe de imposto para excluir.")
+            if bool(getattr(request, "htmx", False)):
+                response = HttpResponse(status=204)
+                response["HX-Redirect"] = redirect_url
+                return response
+            return redirect(redirect_url)
+
+        try:
+            delete_tax_class(workshop=self.workshop, reference=normalized_reference)
+        except TaxClassServiceError as exc:
+            logger.warning(
+                "tax_class_delete_failed workshop_id=%s user_id=%s reference=%s error=%s",
+                getattr(self.workshop, "pk", None),
+                getattr(request.user, "id", None),
+                normalized_reference,
+                str(exc),
+            )
+            messages.error(request, str(exc))
+        else:
+            logger.info(
+                "tax_class_delete_succeeded workshop_id=%s user_id=%s reference=%s",
+                getattr(self.workshop, "pk", None),
+                getattr(request.user, "id", None),
+                normalized_reference,
+            )
+            messages.success(request, f"Classe de imposto {normalized_reference} excluida com sucesso.")
+
+        if bool(getattr(request, "htmx", False)):
+            response = HttpResponse(status=204)
+            response["HX-Redirect"] = redirect_url
+            return response
+        return redirect(redirect_url)
+
+
 class TaxClassFormBaseView(TaxClassManagerView):
     template_name = "finance/tax_class_form.html"
     is_update = False
@@ -740,15 +847,14 @@ class TaxClassFormBaseView(TaxClassManagerView):
                 try:
                     saved_tax_class = save_tax_class(workshop=self.workshop, payload=payload)
                 except TaxClassServiceError as exc:
-                    logger.warning(
-                        "tax_class_form_save_failed workshop_id=%s user_id=%s tab=%s reference=%s error=%s",
-                        getattr(self.workshop, "pk", None),
-                        getattr(request.user, "id", None),
-                        active_tab,
-                        str(payload.get("referencia") or ""),
-                        str(exc),
+                    self._handle_tax_class_save_error(
+                        request=request,
+                        exc=exc,
+                        form=nfe_form,
+                        log_event="tax_class_form_save_failed",
+                        active_tab=active_tab,
+                        reference=str(payload.get("referencia") or ""),
                     )
-                    messages.error(request, str(exc))
                 else:
                     reference = str(saved_tax_class.get("referencia") or payload.get("referencia") or "").strip()
                     logger.info(
@@ -789,15 +895,14 @@ class TaxClassFormBaseView(TaxClassManagerView):
             try:
                 saved_tax_class = save_tax_class(workshop=self.workshop, payload=payload)
             except TaxClassServiceError as exc:
-                logger.warning(
-                    "tax_class_form_save_failed workshop_id=%s user_id=%s tab=%s reference=%s error=%s",
-                    getattr(self.workshop, "pk", None),
-                    getattr(request.user, "id", None),
-                    active_tab,
-                    str(payload.get("referencia") or ""),
-                    str(exc),
+                self._handle_tax_class_save_error(
+                    request=request,
+                    exc=exc,
+                    form=nfse_form,
+                    log_event="tax_class_form_save_failed",
+                    active_tab=active_tab,
+                    reference=str(payload.get("referencia") or ""),
                 )
-                messages.error(request, str(exc))
             else:
                 reference = str(saved_tax_class.get("referencia") or payload.get("referencia") or "").strip()
                 logger.info(

@@ -22,6 +22,16 @@ def navbar(request: HttpRequest) -> dict[str, object]:
         setattr(request, "_navbar_context_payload", payload)
         return payload
 
+    # HTMX partials do not render the navbar; skip the favorites query.
+    if getattr(request, "htmx", False):
+        payload = {
+            "navbar_menus": navbar_menus,
+            "navbar_favorites": [],
+            "navbar_favorite_urls": set(),
+        }
+        setattr(request, "_navbar_context_payload", payload)
+        return payload
+
     all_favorites = list(list_favorite_pages_for_user(user=request.user))
     favorite_urls = {favorite.url for favorite in all_favorites}
     visible_pages = get_favoritable_pages(request)

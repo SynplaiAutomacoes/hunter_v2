@@ -59,7 +59,7 @@
                                         </div>
                                         <div class="text-right">
                                             <p class="text-xs text-base-content/60">{{ os.delivered_at|date:"d/m/Y" }}</p>
-                                            <p class="text-sm font-semibold">{{ os.total_budget_value }}</p>
+                                            <p class="text-sm font-semibold">{{ os.dashboard_display_total|default:os.total_budget_value }}</p>
                                             {% if os.budget.reference_budget %}
                                             <span class="badge badge-xs badge-warning">Filha</span>
                                             {% endif %}
@@ -110,7 +110,7 @@
                                         </div>
                                         <div class="text-right">
                                             <p class="text-xs text-base-content/60">{{ os.delivered_at|date:"d/m/Y" }}</p>
-                                            <p class="text-sm font-semibold">{{ os.total_budget_value }}</p>
+                                            <p class="text-sm font-semibold">{{ os.dashboard_display_total|default:os.total_budget_value }}</p>
                                             {% if os.budget.reference_budget %}
                                             <span class="badge badge-xs badge-warning">Filha</span>
                                             {% endif %}

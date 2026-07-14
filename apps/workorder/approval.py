@@ -6,6 +6,7 @@ from collections import defaultdict
 from django.db import transaction
 
 from apps.catalog.product_issues import has_invalid_ncm
+from apps.core.infrastructure.kit_prefetch import workorder_kit_overrides_prefetch
 from apps.stock.models import StockMovement, StockProduct
 from apps.workorder.models import WorkOrderItem
 from apps.workorder.models import WorkOrder, WorkOrderSignatureStatus, WorkOrderStatus
@@ -23,7 +24,11 @@ def _collect_required_products(workorder: WorkOrder) -> tuple[dict[int, int], di
     product_names: dict[int, str] = {}
     invalid_ncm_products: list[str] = []
 
-    items = list(WorkOrderItem.objects.filter(workorder=workorder).select_related("product", "kit").prefetch_related("kit_overrides__product"))
+    items = list(
+        WorkOrderItem.objects.filter(workorder=workorder)
+        .select_related("product", "kit")
+        .prefetch_related(workorder_kit_overrides_prefetch())
+    )
 
     logger.info(
         "workorder_stock_collection_started",
@@ -36,6 +41,9 @@ def _collect_required_products(workorder: WorkOrder) -> tuple[dict[int, int], di
 
     for item in items:
         if item.quantity <= 0:
+            continue
+
+        if getattr(item, "is_customer_supplied", False):
             continue
 
         product_id = getattr(item, "product_id", None)

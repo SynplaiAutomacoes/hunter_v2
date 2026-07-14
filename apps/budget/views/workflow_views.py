@@ -10,8 +10,8 @@ from django.conf import settings
 from django import forms
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Prefetch
-from django.db.models import Q
+from django.db.models import Count, DecimalField, Q, Sum, Value
+from django.db.models.functions import Coalesce
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse, reverse_lazy
@@ -24,7 +24,12 @@ from djmoney.money import Money
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
 from apps.budget.documents.provider import build_budget_status_report_pdf_render_request, render_budget_status_report_pdf_document
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
-from apps.budget.models import Budget, BudgetHistory, BudgetItem, BudgetStatus, SignatureStatus, BudgetType, PricingMethod
+from apps.budget.models import Budget, BudgetHistory, BudgetStatus, SignatureStatus, BudgetType, PricingMethod
+from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch
+from apps.core.infrastructure.services.dashboard_query_service import (
+    _build_injected_pricing_context,
+    _prepare_budget_for_dashboard_pricing,
+)
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.budget.service import SuperSignError, send_budget_for_signature
 from apps.budget.views.shared import reset_steps_after_step_4
@@ -320,23 +325,25 @@ class BudgetStatusReportDataMixin:
 
         return urlencode(query_params, doseq=True)
 
-    def _get_budget_base_queryset(self):
+    def _get_budget_base_queryset(self, *, for_pricing: bool = False):
+        queryset = (
+            Budget.objects.filter(workshop=self.workshop)
+            .select_related("customer", "vehicle", "reference_budget")
+            .prefetch_related("collaborators")
+        )
+        if not for_pricing:
+            return queryset
+
+        # List/report pricing needs items + kit_overrides (with catalog FKs).
+        # Kit catalog tree is only needed for incomplete snapshots / deep reports.
+        return queryset.prefetch_related(budget_items_with_kit_prefetch(with_kit_tree=False))
+
+    def _get_budget_report_queryset(self):
         return (
             Budget.objects.filter(workshop=self.workshop)
-            .select_related("customer", "vehicle")
+            .select_related("customer", "vehicle", "reference_budget")
             .prefetch_related("collaborators")
-            .prefetch_related(
-                Prefetch(
-                    "items",
-                    queryset=BudgetItem.objects.select_related("product", "service", "kit")
-                    .prefetch_related(
-                        "kit_overrides",
-                        "kit__kit_products__product",
-                        "kit__kit_services__service",
-                    )
-                    .order_by("id"),
-                )
-            )
+            .prefetch_related(budget_items_with_kit_prefetch(with_kit_tree=True))
         )
 
     def _get_budget_table_fields(self) -> list[TableColumn]:
@@ -347,12 +354,12 @@ class BudgetStatusReportDataMixin:
             TableColumn("Vinculado à", attr="reference_budget_id", search_by="reference_budget__id"),
             TableColumn(str(Budget.budget_type.field.verbose_name), attr="type_budget_badge", searchable=False, format="status_badge"),
             TableColumn(str(Budget.entry_date.field.verbose_name), attr=Budget.entry_date.field.name, search_by="entry_date"),
-            TableColumn("Valor Total", attr="total_budget_value", searchable=False),
+            TableColumn("Valor Total", attr="stored_total_amount", searchable=False),
             TableColumn(str(Budget.status.field.verbose_name), attr="budget_status_badge", search_by="status", format="status_badge"),
         ]
 
-    def _get_filtered_budget_queryset(self):
-        queryset = self._get_budget_base_queryset()
+    def _get_filtered_budget_queryset(self, *, for_pricing: bool = True, for_report: bool = False):
+        queryset = self._get_budget_report_queryset() if for_report else self._get_budget_base_queryset(for_pricing=for_pricing)
 
         queryset = apply_query_param_filters(
             queryset,
@@ -364,12 +371,24 @@ class BudgetStatusReportDataMixin:
 
         return queryset.order_by("-pk", "-entry_date")
 
+    def _get_list_pricing_context(self):
+        today = timezone.localdate()
+        workshop_cost = WorkshopCost.objects.filter(workshop=self.workshop, month=today.month, year=today.year).first()
+        return _build_injected_pricing_context(workshop=self.workshop, workshop_cost=workshop_cost)
+
+    def _prepare_budgets_for_list_pricing(self, budgets: list[Budget], *, for_totals_only: bool = True) -> list[Budget]:
+        pricing_context = self._get_list_pricing_context()
+        for budget in budgets:
+            _prepare_budget_for_dashboard_pricing(budget, pricing_context=pricing_context, for_totals_only=for_totals_only)
+        return budgets
+
     def _get_selection_report_items(self) -> list[Budget]:
         cached = getattr(self, "_selection_report_items_cache", None)
         if cached is not None:
             return cached
 
-        items = list(self._get_filtered_budget_queryset())
+        # PDF/list report rows use stored totals — no items/kit pricing prefetch.
+        items = list(self._get_filtered_budget_queryset(for_pricing=False, for_report=False))
         self._selection_report_items_cache = items
         return items
 
@@ -411,12 +430,15 @@ class BudgetStatusReportDataMixin:
         if not self._get_selected_status_choices() and not self._get_selected_budget_type_choices():
             return None
 
-        report_items = self._get_selection_report_items()
-        total_value = sum((budget.total_budget_value.amount for budget in report_items), Decimal("0.00"))
+        decimal_out = DecimalField(max_digits=14, decimal_places=2)
+        aggregates = self._get_filtered_budget_queryset(for_pricing=False, for_report=False).aggregate(
+            count=Count("pk"),
+            total=Coalesce(Sum("stored_total_amount"), Value(Decimal("0.00")), output_field=decimal_out),
+        )
 
         return {
-            "count": len(report_items),
-            "total_value": total_value,
+            "count": int(aggregates["count"] or 0),
+            "total_value": aggregates["total"] or Decimal("0.00"),
             "badges": self._build_selection_badges(),
             "filters_summary": self._build_selection_report_filters_summary(),
         }
@@ -443,13 +465,19 @@ class BudgetListView(LoginRequiredMixin, BudgetStatusReportDataMixin, WorkshopSc
     template_name = "budget/budget_list.html"
     context_object_name = "budget"
     htmx_template_name = "budget/partials/budget_table.html"
-    paginate_by = 20
+    # Pagination is owned by render_table; keep ListView from counting/slicing.
 
     def get_queryset(self):
-        return self._get_filtered_budget_queryset()
+        return self._get_filtered_budget_queryset(for_pricing=False, for_report=False)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        # render_table faz sua própria paginação e filtragem. O Django ListView
+        # com paginate_by fatia o queryset antes de expô-lo no contexto, o que
+        # impede o render_table de chamar .filter() depois. Passamos o queryset
+        # completo (sem materializar/precificar) para o render_table paginar no ORM.
+        # Valor Total usa stored_total_amount — sem build_pricing_snapshot por linha.
+        context["budget"] = self._get_filtered_budget_queryset(for_pricing=False, for_report=False)
         context["fields"] = self._get_budget_table_fields()
         context["actions"] = [
             TableActionDefaults.edit("budget:budget_update"),
@@ -466,6 +494,7 @@ class BudgetListView(LoginRequiredMixin, BudgetStatusReportDataMixin, WorkshopSc
         context["budget_events_enabled"] = getattr(settings, "BUDGET_EVENTS_ENABLED", False)
         context["budget_poll_interval_seconds"] = getattr(settings, "BUDGET_POLL_INTERVAL_SECONDS", 20)
         return context
+
 
 
 @method_decorator(xframe_options_exempt, name="dispatch")
@@ -691,9 +720,17 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         if current_step == 1:
             self._sync_originating_appointment()
 
-        # Aplicar status automático configurado para esta etapa (se houver)
+        # Aplicar status automático em memória; coalesce com current_step abaixo.
+        status_changed = False
         try:
-            self.apply_step_status(budget=self.object, current_step=self.get_current_step(), actor=self.request.user)
+            status_changed = bool(
+                self.apply_step_status(
+                    budget=self.object,
+                    current_step=self.get_current_step(),
+                    actor=self.request.user,
+                    save=False,
+                )
+            )
         except Exception:
             logger.exception("budget_auto_status_failed", extra={"budget_id": self.object.pk, "step": self.get_current_step(), "user_id": self.request.user.pk, "action": "create"})
 
@@ -705,9 +742,14 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         total_steps = len(self.steps_definition)
         next_step_value = min(current_step + 1, total_steps)
 
+        update_fields: list[str] = []
+        if status_changed:
+            update_fields.append("status")
         if self.object.current_step < next_step_value:
             self.object.current_step = next_step_value
-            self.object.save(update_fields=["current_step"])
+            update_fields.append("current_step")
+        if update_fields:
+            self.object.save(update_fields=update_fields)
 
         if current_step == total_steps:
             review_url = self._build_create_flow_url(step=current_step, budget_id=self.object.pk)
@@ -813,9 +855,18 @@ class BudgetUpdateView(BudgetCreateView):
                 self.object.sync_items_benefit_type_to_budget_type()
                 reset_steps_after_step_4(self.object)
 
-        # Aplicar status automático configurado para esta etapa (se houver)
+        # Aplicar status automático em memória; coalesce com current_step abaixo.
+        status_changed = False
         try:
-            self.apply_step_status(budget=self.object, current_step=self.get_current_step(), actor=self.request.user, isUpdate=True)
+            status_changed = bool(
+                self.apply_step_status(
+                    budget=self.object,
+                    current_step=self.get_current_step(),
+                    actor=self.request.user,
+                    isUpdate=True,
+                    save=False,
+                )
+            )
         except Exception:
             logger.exception("budget_auto_status_failed", extra={"budget_id": self.object.pk, "step": self.get_current_step(), "user_id": self.request.user.pk, "action": "update"})
 
@@ -829,9 +880,14 @@ class BudgetUpdateView(BudgetCreateView):
         total_steps = len(self.steps_definition)
         next_step_value = min(current_step + 1, total_steps)
 
+        update_fields: list[str] = []
+        if status_changed:
+            update_fields.append("status")
         if self.object.current_step < next_step_value:
             self.object.current_step = next_step_value
-            self.object.save(update_fields=["current_step"])
+            update_fields.append("current_step")
+        if update_fields:
+            self.object.save(update_fields=update_fields)
 
         if current_step == total_steps:
             success_url = f"{reverse('budget:budget_update', kwargs={'pk': self.object.pk})}?step={current_step}"

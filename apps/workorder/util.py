@@ -14,6 +14,7 @@ from django.utils import timezone
 from djmoney.money import Money
 
 from apps.budget.fields import DurationField
+from apps.core.infrastructure.kit_prefetch import workorder_kit_overrides_prefetch
 from apps.finance.services.pricing import distribute_total_proportionally
 from apps.core.domain.contracts.documents import DocumentPayload
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
@@ -121,15 +122,22 @@ def _is_workorder_edit_locked(workorder: WorkOrder) -> bool:
 
 
 def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products") -> dict[str, object]:
-    items = list(
-        workorder.items.select_related("product", "service", "kit")
-        .prefetch_related(
-            "kit_overrides",
-            "kit__kit_products__product",
-            "kit__kit_services__service",
+    prefetched_items = getattr(workorder, "_prefetched_objects_cache", {}).get("items")
+    if prefetched_items is not None:
+        items = list(prefetched_items)
+    else:
+        items = list(
+            workorder.items.select_related("product", "service", "kit")
+            .prefetch_related(
+                workorder_kit_overrides_prefetch(),
+                "kit__kit_products__product",
+                "kit__kit_services__service",
+            )
+            .order_by("id")
         )
-        .order_by("id")
-    )
+
+    if workorder.budget_id:
+        setattr(workorder.budget, "_read_only_pricing_context", True)
 
     product_items: list[WorkOrderItem] = []
     service_items: list[WorkOrderItem] = []
@@ -145,6 +153,56 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
 
     pricing_snapshot = workorder.pricing_snapshot
     _ = workorder.product_issue_summary
+
+    summary_product_items = list(pricing_snapshot.product_lines)
+
+    for p_item in product_items:
+        if p_item.item_benefit_type not in ("normal", ""):
+            product = p_item.product
+            if product is None:
+                continue
+            summary_product_items.append(
+                SimpleNamespace(
+                    entity_id=product.id,
+                    code=product.code or "",
+                    product=SimpleNamespace(
+                        name=product.name,
+                        description=product.description,
+                    ),
+                    application=product.application or "-",
+                    quantity=p_item.quantity,
+                    unit_price=p_item.product_selling_price,
+                    total_price=(p_item.product_selling_price * p_item.quantity) + p_item.shipping,
+                    is_customer_supplied=p_item.is_customer_supplied,
+                    has_product_issues=False,
+                    product_issue_tooltip="",
+                )
+            )
+
+    for kit_item in kit_items:
+        if kit_item.item_benefit_type not in ("normal", ""):
+            for override in kit_item._iter_frozen_kit_product_overrides():
+                product = override.product
+                if product is None:
+                    continue
+                qty = override.quantity * kit_item.quantity
+                summary_product_items.append(
+                    SimpleNamespace(
+                        entity_id=product.id,
+                        code=product.code or "",
+                        product=SimpleNamespace(
+                            name=product.name,
+                            description=product.description,
+                        ),
+                        application=product.application or "-",
+                        quantity=qty,
+                        unit_price=override.product_selling_price,
+                        total_price=(override.product_selling_price * qty) + override.shipping,
+                        is_customer_supplied=False,
+                        has_product_issues=False,
+                        product_issue_tooltip="",
+                    )
+                )
 
     summary_service_items = list(service_items)
 
@@ -194,7 +252,7 @@ def _build_edit_items_context(workorder: WorkOrder, active_tab: str = "products"
         "workorder": workorder,
         "product_items": product_items,
         "service_items": service_items,
-        "summary_product_items": pricing_snapshot.product_lines,
+        "summary_product_items": summary_product_items,
         "summary_service_items": summary_service_items,
         "kit_items": kit_items,
         "benefit_map": benefit_map,
