@@ -11,12 +11,19 @@ from django.urls import reverse
 
 from apps.accounts.models import Account
 from apps.collaborators.forms import CollaboratorBenefitFormSet, WorkshopCollaboratorCreateForm
-from apps.collaborators.models import CollaboratorPayroll, WorkshopCollaborator
+from apps.collaborators.models import CollaboratorBenefit, CollaboratorPayroll, WorkshopCollaborator
+from apps.collaborators.services import (
+    delete_collaborator_benefit_and_sync_payrolls,
+    delete_payroll_linked_financial_movement,
+    delete_selected_pending_collaborator_movements,
+    get_payroll_due_date_for_reference,
+    sync_collaborator_payroll,
+    sync_repeated_collaborator_payrolls,
+)
+from apps.collaborators.views import WorkshopCollaboratorPendingMovementDeleteView, WorkshopCollaboratorUpdateView
 from apps.core.presentation.widgets import SearchableSelectInput
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
-from apps.collaborators.views import WorkshopCollaboratorPendingMovementDeleteView, WorkshopCollaboratorUpdateView
-from apps.collaborators.services import delete_payroll_linked_financial_movement, get_payroll_due_date_for_reference, sync_collaborator_payroll, sync_repeated_collaborator_payrolls
 from apps.workshops.models.workshops import Workshop
 
 
@@ -273,7 +280,8 @@ class CollaboratorPayrollRepetitionTests(TestCase):
         payroll.refresh_from_db()
         synced_payroll.refresh_from_db()
         self.assertEqual(payroll.pk, synced_payroll.pk)
-        self.assertEqual(payroll.due_date, date(2026, 7, 10))
+        self.assertEqual(payroll.due_date, date(2026, 8, 10))
+        self.assertEqual(synced_payroll.financial_movement.due_date, date(2026, 8, 10))
 
     def test_sync_preserves_paid_existing_payroll_due_date_in_same_month(self) -> None:
         account = create_account(suffix=13)
@@ -365,13 +373,16 @@ class CollaboratorPayrollRepetitionTests(TestCase):
         )
 
         payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 8, 1), lock_reference=True)
-        old_due_date = collaborator.get_due_date_for_reference(reference_date=date(2026, 8, 1))
-        payroll.due_date = old_due_date
+        legacy_due_date = collaborator.get_legacy_same_month_due_date_for_reference(reference_date=date(2026, 8, 1))
+        payroll.due_date = legacy_due_date
         payroll.save(update_fields=["due_date"])
+        FinancialMovement.objects.filter(payroll=payroll).update(due_date=legacy_due_date)
 
         synced_payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 8, 1), lock_reference=True)
 
+        self.assertEqual(legacy_due_date, date(2026, 8, 10))
         self.assertEqual(synced_payroll.due_date, date(2026, 9, 10))
+        self.assertEqual(synced_payroll.financial_movement.due_date, date(2026, 9, 10))
 
     def test_sync_preserves_manual_due_date_for_unpaid_payroll(self) -> None:
         account = create_account(suffix=11)
@@ -423,6 +434,64 @@ class CollaboratorPayrollRepetitionTests(TestCase):
 
         self.assertFalse(CollaboratorPayroll.objects.filter(pk=payroll.pk).exists())
         self.assertFalse(payroll.financial_movement.__class__.objects.filter(pk=payroll_movement_id).exists())
+
+    def test_delete_selected_benefit_movement_recalculates_payroll_without_wiping_other_components(self) -> None:
+        account = create_account(suffix=20)
+        workshop = create_workshop(account=account, suffix=20)
+        collaborator = create_collaborator(
+            workshop=workshop,
+            cpf="12345678920",
+            payment_day_type=WorkshopCollaborator.PaymentDayType.FIXED_DAY,
+            payment_day_of_month=10,
+        )
+        benefit = CollaboratorBenefit.objects.create(
+            collaborator=collaborator,
+            name="Bonificacao",
+            monthly_amount=Decimal("300.00"),
+        )
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 7, 1), lock_reference=True)
+        benefit_movement = payroll.financial_movements.get(payroll_component=FinancialMovement.PayrollComponent.BENEFIT)
+        salary_movement = payroll.financial_movements.get(payroll_component=FinancialMovement.PayrollComponent.SALARY)
+
+        deleted_count = delete_selected_pending_collaborator_movements(
+            collaborator=collaborator,
+            workshop=workshop,
+            movement_ids=[benefit_movement.pk],
+        )
+
+        payroll.refresh_from_db()
+        self.assertEqual(deleted_count, 1)
+        self.assertTrue(CollaboratorPayroll.objects.filter(pk=payroll.pk).exists())
+        self.assertFalse(FinancialMovement.objects.filter(pk=benefit_movement.pk).exists())
+        self.assertTrue(FinancialMovement.objects.filter(pk=salary_movement.pk).exists())
+        self.assertEqual(Decimal(str(payroll.benefits_amount.amount)), Decimal("0.00"))
+        self.assertGreater(Decimal(str(payroll.salary_amount.amount)), Decimal("0.00"))
+        self.assertTrue(CollaboratorBenefit.objects.filter(pk=benefit.pk).exists())
+
+    def test_delete_collaborator_benefit_removes_unpaid_movements_and_recalculates(self) -> None:
+        account = create_account(suffix=21)
+        workshop = create_workshop(account=account, suffix=21)
+        collaborator = create_collaborator(
+            workshop=workshop,
+            cpf="12345678921",
+            payment_day_type=WorkshopCollaborator.PaymentDayType.FIXED_DAY,
+            payment_day_of_month=10,
+        )
+        benefit = CollaboratorBenefit.objects.create(
+            collaborator=collaborator,
+            name="Bonificacao",
+            monthly_amount=Decimal("250.00"),
+        )
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 7, 1), lock_reference=True)
+        benefit_movement_id = payroll.financial_movements.get(payroll_component=FinancialMovement.PayrollComponent.BENEFIT).pk
+
+        delete_collaborator_benefit_and_sync_payrolls(benefit=benefit)
+
+        payroll.refresh_from_db()
+        self.assertFalse(CollaboratorBenefit.objects.filter(pk=benefit.pk).exists())
+        self.assertFalse(FinancialMovement.objects.filter(pk=benefit_movement_id).exists())
+        self.assertEqual(Decimal(str(payroll.benefits_amount.amount)), Decimal("0.00"))
+        self.assertGreater(Decimal(str(payroll.salary_amount.amount)), Decimal("0.00"))
 
     def test_update_view_redirects_back_to_edit_page(self) -> None:
         account = create_account(suffix=6)

@@ -32,6 +32,7 @@ from apps.collaborators.services import (
     get_payroll_movement_diagnosis,
     get_payroll_movement_diagnoses,
     get_reference_work_days,
+    get_workshop_work_days,
     mark_payroll_as_paid,
     mark_payroll_as_unpaid,
     mark_payroll_commissions_as_paid,
@@ -43,6 +44,7 @@ from apps.collaborators.services import (
     sync_collaborator_payroll,
     sync_collaborator_payrolls_batch,
     unmark_payroll_commissions_as_paid,
+    update_payroll_work_days,
 )
 from apps.core.presentation.widgets import CalendarDateInput, MoneyInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.finance.models.bank_account import BankAccount
@@ -295,16 +297,45 @@ class PayrollListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
         for payroll in payrolls:
             is_reconciled = bool(payroll.financial_movement and payroll.financial_movement.is_reconciled)
             diagnosis = diagnoses.get(payroll.pk) or get_payroll_movement_diagnosis(payroll=payroll)
+            movements = payroll.get_financial_movements()
+            if movements:
+                salary_total = Decimal("0.00")
+                transport_total = Decimal("0.00")
+                benefits_total = Decimal("0.00")
+                commission_total = Decimal("0.00")
+                for movement in movements:
+                    amount = Decimal(str(movement.amount.amount if movement.amount is not None else 0))
+                    if movement.payroll_component == FinancialMovement.PayrollComponent.SALARY:
+                        salary_total += amount
+                    elif movement.payroll_component == FinancialMovement.PayrollComponent.TRANSPORT:
+                        transport_total += amount
+                    elif movement.payroll_component == FinancialMovement.PayrollComponent.BENEFIT:
+                        benefits_total += amount
+                    elif movement.payroll_component == FinancialMovement.PayrollComponent.COMMISSION:
+                        commission_total += amount
+                    else:
+                        salary_total += amount
+                salary_amount = Money(salary_total, "BRL")
+                transport_amount = Money(transport_total, "BRL")
+                benefits_amount = Money(benefits_total, "BRL")
+                commission_amount = Money(commission_total, "BRL")
+                total_amount = Money(salary_total + transport_total + benefits_total + commission_total, "BRL")
+            else:
+                salary_amount = payroll.salary_amount
+                transport_amount = payroll.transport_allowance_amount
+                benefits_amount = payroll.benefits_amount
+                commission_amount = payroll.commission_amount
+                total_amount = payroll.total_amount
             rows.append(
                 {
                     "id": payroll.pk,
                     "collaborator_name": payroll.collaborator.name,
                     "due_date": payroll.due_date,
-                    "salary_amount": payroll.salary_amount,
-                    "transport_allowance_amount": payroll.transport_allowance_amount,
-                    "benefits_amount": payroll.benefits_amount,
-                    "commission_amount": payroll.commission_amount,
-                    "total_amount": payroll.total_amount,
+                    "salary_amount": salary_amount,
+                    "transport_allowance_amount": transport_amount,
+                    "benefits_amount": benefits_amount,
+                    "commission_amount": commission_amount,
+                    "total_amount": total_amount,
                     "paid_amount": payroll.paid_amount,
                     "status": payroll.status,
                     "status_label": payroll.status_label,
@@ -716,6 +747,10 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 "fallback_tab": fallback_tab,
                 "continue_without_create": True,
                 "default_benefit_movement_id": default_benefit_movement_id,
+                "workshop_default_work_days": get_workshop_work_days(
+                    workshop=payroll.workshop,
+                    reference_date=date(payroll.reference_year, payroll.reference_month, 1),
+                ),
             },
         )
 
@@ -769,6 +804,17 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         if payroll is None or not payroll_has_financial_movements(payroll=payroll) or payroll.financial_movement is None:
             return self._build_confirmation_response(request=request, collaborator=collaborator, payroll=payroll)
+
+        work_days_changed = False
+        raw_work_days = str(request.POST.get("work_days") or "").strip()
+        if raw_work_days != "":
+            try:
+                parsed_work_days = int(raw_work_days)
+            except (TypeError, ValueError):
+                parsed_work_days = None
+            if parsed_work_days is not None and parsed_work_days >= 0 and parsed_work_days != int(payroll.work_days or 0):
+                payroll = update_payroll_work_days(payroll=payroll, work_days=parsed_work_days)
+                work_days_changed = True
 
         component_tabs = self._build_component_tabs(payroll=payroll)
         all_forms: list[tuple[str, PayrollPaymentForm]] = []
@@ -840,14 +886,19 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "fallback_tab": fallback_tab,
                     "continue_without_create": True,
                     "default_benefit_movement_id": next((tab["default_movement_id"] for tab in component_tabs if tab["is_benefit_tab"]), None),
+                    "workshop_default_work_days": get_workshop_work_days(
+                        workshop=payroll.workshop,
+                        reference_date=date(payroll.reference_year, payroll.reference_month, 1),
+                    ),
                 },
             )
 
-        if all_forms:
+        if all_forms or work_days_changed:
             with transaction.atomic():
                 for _component_key, form in all_forms:
                     form.save()
-                recalculate_payroll_from_linked_movements(payroll=payroll)
+                if all_forms:
+                    recalculate_payroll_from_linked_movements(payroll=payroll)
                 payroll.refresh_from_db()
 
                 movements = payroll.get_financial_movements()

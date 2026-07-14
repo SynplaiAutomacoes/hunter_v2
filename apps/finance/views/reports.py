@@ -19,7 +19,7 @@ from typing import List, Tuple
 from apps.core.infrastructure.search import build_text_search_query
 from apps.accounts.models import User
 from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
-from apps.collaborators.services import recalculate_payroll_from_linked_movements, sync_workorder_collaborator_payrolls
+from apps.collaborators.services import delete_payroll_component_and_recalculate, recalculate_payroll_from_linked_movements, sync_workorder_collaborator_payrolls
 from apps.core.presentation.widgets import SearchableSelectInput
 from apps.finance.forms.emission_ui import format_money
 from apps.finance.models.bank_account import BankAccount
@@ -1028,9 +1028,14 @@ class ReportMovementDeleteView(LoginRequiredMixin, WorkshopScopedMixin, DeleteVi
 
     def form_valid(self, form):
         linked_payroll = self.object.payroll if getattr(self.object, "payroll_id", None) else None
-        self.object.delete()
+        if linked_payroll is None and getattr(self.object, "collaborator_payroll", None) is not None:
+            linked_payroll = self.object.collaborator_payroll
+
         if linked_payroll is not None:
-            recalculate_payroll_from_linked_movements(payroll=linked_payroll)
+            delete_payroll_component_and_recalculate(movement=self.object)
+        else:
+            self.object.delete()
+
         if self.request.htmx:
             response = HttpResponse()
             response["HX-Refresh"] = "true"

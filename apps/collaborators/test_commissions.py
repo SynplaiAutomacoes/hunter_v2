@@ -113,6 +113,39 @@ class CollaboratorCommissionSyncTests(TestCase):
         transport_movement = payroll.financial_movements.get(payroll_component=FinancialMovement.PayrollComponent.TRANSPORT)
         self.assertEqual(transport_movement.amount, Money(230, "BRL"))
 
+    def test_payroll_work_days_override_does_not_change_workshop_cost(self) -> None:
+        from apps.collaborators.services import update_payroll_work_days
+
+        workshop = create_workshop(suffix=44)
+        collaborator = create_collaborator(workshop=workshop, suffix=44)
+        collaborator.transport_allowance_daily = Money(10, "BRL")
+        collaborator.save(update_fields=["transport_allowance_daily"])
+        workshop_cost = WorkshopCost.objects.create(
+            workshop=workshop,
+            year=2026,
+            month=8,
+            mechanic_quantity=1,
+            work_days_per_month=22,
+        )
+
+        payroll = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 8, 1), lock_reference=True)
+        self.assertEqual(payroll.work_days, 22)
+        self.assertFalse(payroll.work_days_is_custom)
+        self.assertEqual(payroll.transport_allowance_amount, Money(220, "BRL"))
+
+        payroll = update_payroll_work_days(payroll=payroll, work_days=15)
+        workshop_cost.refresh_from_db()
+        payroll.refresh_from_db()
+
+        self.assertEqual(workshop_cost.work_days_per_month, 22)
+        self.assertEqual(payroll.work_days, 15)
+        self.assertTrue(payroll.work_days_is_custom)
+        self.assertEqual(payroll.transport_allowance_amount, Money(150, "BRL"))
+
+        refreshed = sync_collaborator_payroll(collaborator=collaborator, reference_date=date(2026, 8, 1), lock_reference=True)
+        self.assertEqual(refreshed.work_days, 15)
+        self.assertEqual(refreshed.transport_allowance_amount, Money(150, "BRL"))
+
     def test_payroll_creates_one_financial_movement_per_benefit(self) -> None:
         workshop = create_workshop(suffix=41)
         collaborator = create_collaborator(workshop=workshop, suffix=41)
