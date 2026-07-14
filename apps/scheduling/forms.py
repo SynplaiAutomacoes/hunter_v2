@@ -330,10 +330,10 @@ class AppointmentForm(CoreModelForm):
         self.fields["guest_vehicle_plate"].error_messages["required"] = "Informe a placa do veiculo."
         self.fields["guest_vehicle_brand"].error_messages["required"] = "Informe a marca do veiculo."
         self.fields["guest_vehicle_model"].error_messages["required"] = "Informe o modelo do veiculo."
-        self.fields["guest_vehicle_year_fabrication"].error_messages["required"] = "Informe o ano de fabricacao."
+        self.fields["guest_vehicle_year_fabrication"].error_messages["required"] = "Informe o ano de fabricação."
         self.fields["guest_vehicle_year_model"].error_messages["required"] = "Informe o ano do modelo."
-        self.fields["guest_vehicle_engine"].error_messages["required"] = "Informe a motorizacao."
-        self.fields["guest_vehicle_fuel"].error_messages["required"] = "Informe o combustivel."
+        self.fields["guest_vehicle_engine"].error_messages["required"] = "Informe a motorização ou selecione uma opção."
+        self.fields["guest_vehicle_fuel"].error_messages["required"] = "Informe o combustivel ou selecione uma opção."
 
         selected_customer_id = ""
         selected_vehicle_id = ""
@@ -419,6 +419,11 @@ class AppointmentForm(CoreModelForm):
         self.helper = FormHelper()
         self.helper.form_tag = False
 
+        _all_engine_choices = [{"id": choice[0], "label": choice[1]} for choice in vehicle_engine_form_choices()]
+        _all_fuel_choices = [{"id": choice[0], "label": choice[1]} for choice in vehicle_fuel_form_choices()]
+        all_engine_choices_json = json.dumps(_all_engine_choices)
+        all_fuel_choices_json = json.dumps(_all_fuel_choices)
+
         customer_vehicle_x_data = json.dumps({"customerId": selected_customer_id, "vehicleId": selected_vehicle_id, "isCustomerRegistered": is_customer_registered})
         registered_vehicle_fields_html = "".join(
             [
@@ -468,6 +473,12 @@ class AppointmentForm(CoreModelForm):
         )
 
         self.helper.layout = Layout(
+            HTML(
+                f"""<script>
+                    var allEngineChoices = {all_engine_choices_json};
+                    var allFuelChoices = {all_fuel_choices_json};
+                </script>"""
+            ),
             HTML(
                 r"""
                 <script>
@@ -632,17 +643,30 @@ class AppointmentForm(CoreModelForm):
                         if (!fuelInput) return;
 
                         if (!brand || !model) {
-                            setSearchableSelection(fuelInput, '', '', [], { silent });
+                            setSearchableSelection(fuelInput, '', '', allFuelChoices, { silent });
                             return;
                         }
 
-                        const fuelPayload = await fetchFuelOptions(`/customer/vehicle-catalog/fuels/?brand=${encodeURIComponent(brand)}&model=${encodeURIComponent(model)}`);
-                        const fuelOptions = normalizeOptions(fuelPayload.options, preserveFuel);
+                        let fuelOptions;
+                        let fuelWarning = '';
+                        try {
+                            const fuelPayload = await fetchFuelOptions(`/customer/vehicle-catalog/fuels/?brand=${encodeURIComponent(brand)}&model=${encodeURIComponent(model)}`);
+                            fuelOptions = normalizeOptions(fuelPayload.options, preserveFuel);
+                            fuelWarning = fuelPayload.warning;
+                        } catch (error) {
+                            console.warn('Erro ao carregar combustiveis do catalogo, usando fallback:', error);
+                            fuelOptions = allFuelChoices;
+                        }
+
+                        if (!fuelOptions.length) {
+                            fuelOptions = allFuelChoices;
+                        }
+
                         setSearchableSelection(fuelInput, preserveFuel, preserveFuel, fuelOptions, { silent });
 
-                        if (fuelPayload.warning) {
+                        if (fuelWarning) {
                             document.body.dispatchEvent(new CustomEvent('showToast', {
-                                detail: { message: fuelPayload.warning, type: 'warning' },
+                                detail: { message: fuelWarning, type: 'warning' },
                             }));
                         }
                     }
@@ -817,10 +841,25 @@ class AppointmentForm(CoreModelForm):
 
                             await loadGuestModelOptions(brand, model, { silent: true });
                             await loadGuestFuelOptions(brand, model, fuel, { silent: true });
-                            setSearchableSelection(engineInput, engine, engine, engine ? [{ id: engine, label: engine }] : [], { silent: true });
+
+                            var engineOptions = engine ? [{ id: engine, label: engine }] : allEngineChoices;
+                            setSearchableSelection(engineInput, engine, engine, engineOptions, { silent: true });
 
                             setInputValue('id_guest_vehicle_year_fabrication', data.year_fabrication, { uppercase: false });
                             setInputValue('id_guest_vehicle_year_model', data.year_model, { uppercase: false });
+
+                            var missingFields = [];
+                            if (!data.engine) missingFields.push('Motorização');
+                            if (!data.fuel) missingFields.push('Combustível');
+
+                            if (missingFields.length) {
+                                document.body.dispatchEvent(new CustomEvent('showToast', {
+                                    detail: {
+                                        message: 'Preencha manualmente: ' + missingFields.join(' e ') + '.',
+                                        type: 'warning',
+                                    },
+                                }));
+                            }
                         } catch (error) {
                             console.warn('Erro ao buscar placa do agendamento:', error);
                         } finally {
