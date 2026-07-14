@@ -38,7 +38,7 @@ from apps.stock.models import StockTransfer
 from apps.core.text_normalization import name_case, sentence_case
 
 from apps.core.infrastructure.providers.sefaz_provider import get_sefaz_service
-from apps.stock.services.files import StockImportFileStorageError, save_import_xml_file
+from apps.stock.services.files import StockImportFileStorageError, _extract_nfe_xml_from_sefaz_response, save_import_xml_file
 from apps.stock.utils import NFParser, extract_nf_number_from_access_key, parse_sefaz_distribution_doc_metadata
 from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
@@ -235,8 +235,9 @@ class ImportStep1Form(CoreModelForm):
 
                     if nf_data:
                         try:
+                            nfe_xml = _extract_nfe_xml_from_sefaz_response(content)
                             stored = save_import_xml_file(
-                                content=content,
+                                content=nfe_xml,
                                 filename=f"NF-{nf_key}.xml",
                                 content_type="application/xml",
                                 workshop_id=self.workshop.id,
@@ -1118,8 +1119,9 @@ class ImportSefazListForm(CoreModelForm):
                 if not _has_importable_nf_items(nf_data):
                     raise forms.ValidationError(NF_WITHOUT_ITEMS_MESSAGE)
 
+                nfe_xml = _extract_nfe_xml_from_sefaz_response(xml_completo)
                 stored = save_import_xml_file(
-                    content=xml_completo,
+                    content=nfe_xml,
                     filename=f"NF-{key}.xml",
                     content_type="application/xml",
                     workshop_id=self.workshop.id,
