@@ -19,10 +19,13 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView, V
 from apps.collaborators.forms import CollaboratorBenefitFormSet, WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorPayroll, WorkshopCollaborator, WorkshopMember
 from apps.collaborators.services import (
+    apply_collaborator_work_days_for_reference,
     calculate_transport_allowance_total,
+    delete_collaborator_benefit_and_sync_payrolls,
     delete_selected_pending_collaborator_movements,
     freeze_existing_pricing_history,
     get_reference_work_days,
+    get_workshop_work_days,
     mark_payroll_as_paid,
     sync_collaborator_payroll_range,
     sync_current_month_salary_costs,
@@ -209,7 +212,12 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
             messages.success(self.request, f"{deleted_count} lançamento(s) removido(s) com sucesso.")
 
     def get_success_url(self):
-        return f"{reverse('collaborators:collaborator_update', kwargs={'pk': clean_id(self.object.pk)})}?tab=cadastro"
+        params = ["tab=cadastro"]
+        request = getattr(self, "request", None)
+        open_from_query = bool(request is not None and request.GET.get("open_pending_delete") == "1")
+        if open_from_query or getattr(self, "_open_pending_delete", False):
+            params.append("open_pending_delete=1")
+        return f"{reverse('collaborators:collaborator_update', kwargs={'pk': clean_id(self.object.pk)})}?{'&'.join(params)}"
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -244,6 +252,7 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         context["benefit_empty_form"] = benefit_formset.empty_form
         context["payroll_history"] = payroll_history[:24]
         context["current_work_days"] = get_reference_work_days(collaborator=self.object)
+        context["workshop_default_work_days"] = get_workshop_work_days(workshop=self.workshop)
         context["current_transport_total"] = calculate_transport_allowance_total(collaborator=self.object)
         context["active_tab"] = self.request.POST.get("tab") or self.request.GET.get("tab") or "cadastro"
         context["reference_date"] = reference_date
@@ -253,6 +262,7 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         context["selected_history_year"] = history_year
         context["selected_history_status"] = history_status
         context["pending_financial_movements"] = pending_financial_movements
+        context["open_pending_delete"] = str(self.request.GET.get("open_pending_delete") or "").strip() == "1"
         return context
 
     def post(self, request, *args, **kwargs):
@@ -264,6 +274,7 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         return self.forms_invalid(form, benefit_formset)
 
     def forms_valid(self, form, benefit_formset: BaseInlineFormSet):
+        previous_termination_date = WorkshopCollaborator.objects.filter(pk=self.object.pk).values_list("termination_date", flat=True).first()
         with transaction.atomic():
             if form.instance.salary is None:
                 form.instance.salary = 0
@@ -275,6 +286,12 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
 
             benefit_formset.instance = collaborator
             benefit_formset.save()
+
+            raw_work_days = str(self.request.POST.get("work_days") or "").strip()
+            if raw_work_days == "":
+                apply_collaborator_work_days_for_reference(collaborator=collaborator, work_days=None)
+            elif raw_work_days.isdigit():
+                apply_collaborator_work_days_for_reference(collaborator=collaborator, work_days=int(raw_work_days))
 
             if collaborator.system_access:
                 role = form.cleaned_data["role"]
@@ -316,6 +333,12 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
                 collaborator.user.save(update_fields=["is_active"])
 
             sync_current_month_salary_costs(workshop=self.workshop)
+
+            termination_newly_set = previous_termination_date is None and collaborator.termination_date is not None
+            has_pending = FinancialMovement.objects.filter(workshop=self.workshop, collaborator=collaborator, is_paid=False).exists()
+            self._open_pending_delete = bool(termination_newly_set and has_pending)
+            if self._open_pending_delete:
+                return HttpResponseRedirect(self.get_success_url())
             return response
 
     def forms_invalid(self, form, benefit_formset: BaseInlineFormSet):
@@ -580,7 +603,9 @@ class CollaboratorBenefitDeleteView(LoginRequiredMixin, WorkshopScopedMixin, Vie
     def post(self, request, pk, benefit_id):
         collaborator = get_object_or_404(WorkshopCollaborator, pk=clean_id(pk), workshop=self.workshop)
         benefit = get_object_or_404(CollaboratorBenefit, pk=clean_id(benefit_id), collaborator=collaborator)
-        benefit.delete()
+        with transaction.atomic():
+            delete_collaborator_benefit_and_sync_payrolls(benefit=benefit)
+            sync_current_month_salary_costs(workshop=self.workshop)
         return HttpResponseRedirect(f"{reverse('collaborators:collaborator_update', kwargs={'pk': clean_id(collaborator.pk)})}?tab=cadastro")
 
 
