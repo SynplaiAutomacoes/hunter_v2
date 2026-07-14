@@ -25,10 +25,18 @@
     </div>
 
     {% if issued_note_rows %}
-        <div class="overflow-x-auto">
+        <div class="overflow-x-auto" id="issued-documents-table">
             <table class="table table-zebra w-full">
                 <thead>
                     <tr>
+                        <th class="w-10">
+                            <input
+                                type="checkbox"
+                                id="select-all-issued-documents"
+                                class="checkbox checkbox-primary checkbox-sm"
+                                aria-label="Selecionar todas as notas"
+                            />
+                        </th>
                         <th class="min-w-[200px]">Tipo</th>
                         <th>Nº da Nota</th>
                         <th>Referência</th>
@@ -43,6 +51,20 @@
                 <tbody>
                     {% for row in issued_note_rows %}
                         <tr>
+                            <td>
+                                <input
+                                    type="checkbox"
+                                    class="checkbox checkbox-primary checkbox-sm issued-document-checkbox"
+                                    name="note_selection"
+                                    value="{{ row.selection_key }}"
+                                    data-note-type="{{ row.note_type }}"
+                                    data-request-id="{{ row.request_id }}"
+                                    data-has-xml="{{ row.has_xml|yesno:'true,false' }}"
+                                    data-has-pdf="{{ row.has_pdf|yesno:'true,false' }}"
+                                    {% if not row.is_selectable %}disabled{% endif %}
+                                    aria-label="Selecionar nota {{ row.number }}"
+                                />
+                            </td>
                             <td class="w-32">
                                 <span class="badge {{ row.note_type_badge_class }}">{{ row.note_type_label }}</span>
                             </td>
