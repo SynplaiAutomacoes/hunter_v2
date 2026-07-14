@@ -21,6 +21,10 @@ from django.db.models import F, ExpressionWrapper, IntegerField, Q
 from djmoney.money import Money
 from typing_extensions import Any
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from .forms import (
     AdditionalChargeSessionForm,
     ManualLinkItemEditForm,
@@ -41,6 +45,7 @@ from .forms import (
     TransferStepOperationForm,
     TransferStepReasonForm,
 )
+from .services.files import delete_import_xml_file, get_stock_import_file_service
 from .financial_entries import calculate_import_totals, get_next_entry_id
 from .models import StockImport, StockMovement, StockProduct, StockTransfer
 from ..catalog.models.groups import CatalogGroup
@@ -49,6 +54,7 @@ from ..core.infrastructure.pdf.renderer import build_pdf_http_response
 from ..budget.pdf_context import build_workshop_logo_data_uri
 from ..core.infrastructure import apply_text_search, apply_query_param_filters, QueryParamFilter
 from ..core.presentation import TableActionDefaults, STOCK_IMPORT_CREATE_FAVORITE_PAGE, MultiStepFormMixin
+from ..core.presentation.tables import TableAction
 from ..core.templatetags.table_tags import TableColumn
 from ..core.utils import clean_id
 from ..core.presentation.mixins import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, PageFavoriteMixin
@@ -72,6 +78,7 @@ class StockHistoryRow:
     user: object
     criado_em: object
     history_status_badge: dict[str, str]
+    xml_file_key: str = ""
 
     @property
     def record_edit_url(self) -> str:
@@ -80,6 +87,10 @@ class StockHistoryRow:
     @property
     def can_delete(self) -> bool:
         return self.record_type == "import"
+
+    @property
+    def has_xml(self) -> bool:
+        return bool(self.xml_file_key)
 
 
 class StockAlertsListView(LoginRequiredMixin, WorkshopScopedMixin, ListView):
@@ -524,6 +535,7 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
                 user=stock_import.user,
                 criado_em=stock_import.criado_em,
                 history_status_badge=stock_import.stockimport_status_badge,
+                xml_file_key=stock_import.xml_file_key or "",
             )
             for stock_import in imports
         ]
@@ -578,6 +590,16 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         context["actions"] = [
             TableActionDefaults.edit(url_name="stock:history_edit", args=(), kwargs={"record_type": "record_type", "pk": "pk"}),
             TableActionDefaults.delete(url_name="stock:stock_delete", visible=lambda row: getattr(row, "can_delete", False)),
+            TableAction(
+                label="Download XML",
+                icon="download",
+                a_class="btn-table-view",
+                aria_label="Baixar XML da NF-e",
+                url_name="stock:xml_download",
+                args=(),
+                kwargs={"pk": "pk"},
+                visible=lambda row: getattr(row, "has_xml", False),
+            ),
         ]
         return context
 
@@ -833,6 +855,12 @@ class StockImportDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteR
         self.object = self.get_object()
         self._revert_stock_import(self.object)
 
+        if self.object.xml_file_key:
+            try:
+                delete_import_xml_file(file_id=self.object.xml_file_key)
+            except Exception:
+                logger.warning("Erro ao remover XML do bucket para importação %s key=%s", self.object.pk, self.object.xml_file_key, exc_info=True)
+
         if bool(getattr(self.request, "htmx", False)):
             self.object.delete()
             response = HttpResponse()
@@ -843,6 +871,24 @@ class StockImportDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteR
         success_url = self.get_success_url()
         self.object.delete()
         return redirect(success_url)
+
+
+class StockImportXmlDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = StockImport
+    workshop_permission_codename = "view_stockimport"
+
+    def get(self, request, pk):
+        stock_import = get_object_or_404(StockImport, pk=pk, workshop=self.workshop)
+
+        if not stock_import.xml_file_key:
+            raise Http404("XML não disponível para esta importação.")
+
+        try:
+            presigned_url = get_stock_import_file_service().generate_presigned_url(file_id=stock_import.xml_file_key)
+            return redirect(presigned_url)
+        except Exception:
+            messages.error(request, "Erro ao gerar link para download do XML.")
+            return redirect("stock:stock_list")
 
 
 class StockHistoryEditRedirectView(LoginRequiredMixin, WorkshopScopedMixin, View):
