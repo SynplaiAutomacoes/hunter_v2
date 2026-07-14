@@ -288,7 +288,9 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
             benefit_formset.save()
 
             raw_work_days = str(self.request.POST.get("work_days") or "").strip()
-            if raw_work_days.isdigit():
+            if raw_work_days == "":
+                apply_collaborator_work_days_for_reference(collaborator=collaborator, work_days=None)
+            elif raw_work_days.isdigit():
                 apply_collaborator_work_days_for_reference(collaborator=collaborator, work_days=int(raw_work_days))
 
             if collaborator.system_access:

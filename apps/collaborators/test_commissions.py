@@ -146,6 +146,15 @@ class CollaboratorCommissionSyncTests(TestCase):
         self.assertEqual(refreshed.work_days, 15)
         self.assertEqual(refreshed.transport_allowance_amount, Money(150, "BRL"))
 
+        payroll = update_payroll_work_days(payroll=payroll, work_days=None)
+        workshop_cost.refresh_from_db()
+        payroll.refresh_from_db()
+
+        self.assertEqual(workshop_cost.work_days_per_month, 22)
+        self.assertEqual(payroll.work_days, 22)
+        self.assertFalse(payroll.work_days_is_custom)
+        self.assertEqual(payroll.transport_allowance_amount, Money(220, "BRL"))
+
     def test_payroll_creates_one_financial_movement_per_benefit(self) -> None:
         workshop = create_workshop(suffix=41)
         collaborator = create_collaborator(workshop=workshop, suffix=41)

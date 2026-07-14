@@ -396,17 +396,27 @@ def _calculate_transport_allowance_total_from_work_days(*, collaborator: Worksho
 
 
 @transaction.atomic
-def update_payroll_work_days(*, payroll: CollaboratorPayroll, work_days: int) -> CollaboratorPayroll:
+def update_payroll_work_days(*, payroll: CollaboratorPayroll, work_days: int | None) -> CollaboratorPayroll:
+    """Update payroll work days. Pass ``None`` to restore the workshop monthly cost default."""
     if _is_paid_payroll(payroll=payroll):
         return payroll
 
-    resolved_work_days = max(0, int(work_days))
+    if work_days is None:
+        resolved_work_days = get_workshop_work_days(
+            workshop=payroll.workshop,
+            reference_date=date(payroll.reference_year, payroll.reference_month, 1),
+        )
+        is_custom = False
+    else:
+        resolved_work_days = max(0, int(work_days))
+        is_custom = True
+
     update_fields: list[str] = []
     if int(payroll.work_days or 0) != resolved_work_days:
         payroll.work_days = resolved_work_days
         update_fields.append("work_days")
-    if not payroll.work_days_is_custom:
-        payroll.work_days_is_custom = True
+    if bool(payroll.work_days_is_custom) != is_custom:
+        payroll.work_days_is_custom = is_custom
         update_fields.append("work_days_is_custom")
     if update_fields:
         payroll.save(update_fields=update_fields)
@@ -422,7 +432,7 @@ def update_payroll_work_days(*, payroll: CollaboratorPayroll, work_days: int) ->
 def apply_collaborator_work_days_for_reference(
     *,
     collaborator: WorkshopCollaborator,
-    work_days: int,
+    work_days: int | None,
     reference_date: date | None = None,
 ) -> CollaboratorPayroll | None:
     resolved = _resolve_reference_date(reference_date)

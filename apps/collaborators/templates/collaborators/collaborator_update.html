@@ -37,8 +37,17 @@
             return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
         },
         updateTransportTotal() {
-            const total = this.parseMoney(this.transportDailyDisplay) * Number(this.workDays || 0);
+            const resolvedDays = (this.workDays === null || this.workDays === '' || Number.isNaN(Number(this.workDays)))
+                ? Number(this.workshopDefaultWorkDays || 0)
+                : Number(this.workDays || 0);
+            const total = this.parseMoney(this.transportDailyDisplay) * resolvedDays;
             this.transportTotalDisplay = this.formatMoney(total);
+        },
+        fillWorkDaysFromWorkshopDefault() {
+            if (this.workDays === null || this.workDays === '' || Number.isNaN(Number(this.workDays))) {
+                this.workDays = Number(this.workshopDefaultWorkDays || 0);
+            }
+            this.updateTransportTotal();
         },
         syncTransportDailyFromAmount(amountInput, detailValue) {
             const raw = detailValue !== undefined && detailValue !== null ? detailValue : (amountInput && amountInput.value);
@@ -223,8 +232,9 @@
                         x-model.number="workDays"
                         @input="updateTransportTotal()"
                         @change="updateTransportTotal()"
+                        @blur="fillWorkDaysFromWorkshopDefault()"
                     >
-                    <p class="mt-1 text-xs text-base-content/60">Padrão da oficina: {{ workshop_default_work_days|default:current_work_days }} dias. Não altera o custo do mês da oficina.</p>
+                    <p class="mt-1 text-xs text-base-content/60">Não altera o custo do mês da oficina.</p>
                 </div>
                 <div class="col-span-12 lg:col-span-4">
                     <label class="label pb-1"><span class="label-text text-xs">Total previsto do vale transporte</span></label>

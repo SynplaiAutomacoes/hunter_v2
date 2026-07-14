@@ -57,8 +57,14 @@
                                 max="31"
                                 class="input input-bordered w-full"
                                 value="{{ payroll.work_days|default:0|unlocalize }}"
+                                data-workshop-default-work-days="{{ workshop_default_work_days|default:0|unlocalize }}"
+                                @blur="
+                                    if ($el.value === '' || $el.value == null) {
+                                        $el.value = String($el.dataset.workshopDefaultWorkDays || '0');
+                                    }
+                                "
                             >
-                            <p class="mt-2 text-xs text-base-content/60">Padrão da oficina: {{ workshop_default_work_days|default:0|unlocalize }} dias. Alterar aqui não muda o custo do mês da oficina.</p>
+                            <p class="mt-2 text-xs text-base-content/60">Não altera o custo do mês da oficina.</p>
                         </div>
                         <div class="rounded-xl border border-base-300 bg-base-200/60 p-4">
                             <p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Vale transporte</p>

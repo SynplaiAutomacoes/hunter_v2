@@ -807,12 +807,19 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         work_days_changed = False
         raw_work_days = str(request.POST.get("work_days") or "").strip()
-        if raw_work_days != "":
+        if raw_work_days == "":
+            previous_work_days = int(payroll.work_days or 0)
+            previous_is_custom = bool(payroll.work_days_is_custom)
+            payroll = update_payroll_work_days(payroll=payroll, work_days=None)
+            work_days_changed = previous_is_custom or previous_work_days != int(payroll.work_days or 0)
+        else:
             try:
                 parsed_work_days = int(raw_work_days)
             except (TypeError, ValueError):
                 parsed_work_days = None
-            if parsed_work_days is not None and parsed_work_days >= 0 and parsed_work_days != int(payroll.work_days or 0):
+            if parsed_work_days is not None and parsed_work_days >= 0 and (
+                parsed_work_days != int(payroll.work_days or 0) or not payroll.work_days_is_custom
+            ):
                 payroll = update_payroll_work_days(payroll=payroll, work_days=parsed_work_days)
                 work_days_changed = True
 
