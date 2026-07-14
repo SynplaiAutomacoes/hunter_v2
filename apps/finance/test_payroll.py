@@ -906,6 +906,65 @@ class PayrollEditModalViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payroll.salary_amount, Money(0, "BRL"))
         self.assertEqual(payroll.total_amount, Money(0, "BRL"))
+        self.assertFalse(payroll.items.filter(item_type="SALARY").exists())
+
+    def test_financial_movement_delete_recalculates_linked_payroll(self) -> None:
+        from apps.finance.views.financial_movement import FinancialMovementDeleteView
+
+        workshop = create_workshop(suffix=32)
+        collaborator = create_collaborator(workshop=workshop, suffix=32)
+        payroll = CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            reference_year=2026,
+            reference_month=9,
+            due_date=date(2026, 9, 5),
+            salary_amount=Money(1800, "BRL"),
+            benefits_amount=Money(200, "BRL"),
+            total_amount=Money(2000, "BRL"),
+        )
+        salary_movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll=payroll,
+            payroll_component=FinancialMovement.PayrollComponent.SALARY,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Salário",
+            amount=Money(1800, "BRL"),
+            due_date=date(2026, 9, 5),
+        )
+        benefit_movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            payroll=payroll,
+            payroll_component=FinancialMovement.PayrollComponent.BENEFIT,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Benefício",
+            amount=Money(200, "BRL"),
+            due_date=date(2026, 9, 5),
+        )
+        payroll.financial_movement = salary_movement
+        payroll.save(update_fields=["financial_movement"])
+
+        request = RequestFactory().post(f"/finance/movimentacoes/{benefit_movement.pk}/delete/")
+        request.user = SimpleNamespace(is_authenticated=False)
+        request.htmx = True
+        view = FinancialMovementDeleteView()
+        view.request = request
+        view.kwargs = {"pk": benefit_movement.pk}
+        view.workshop = workshop
+        view.object = benefit_movement
+        view.htmx_trigger = "financial_movement-table-refresh"
+
+        response = view.form_valid(form=None)
+
+        payroll.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(CollaboratorPayroll.objects.filter(pk=payroll.pk).exists())
+        self.assertEqual(payroll.benefits_amount, Money(0, "BRL"))
+        self.assertEqual(payroll.salary_amount, Money(1800, "BRL"))
+        self.assertEqual(payroll.total_amount, Money(1800, "BRL"))
+        self.assertFalse(FinancialMovement.objects.filter(pk=benefit_movement.pk).exists())
 
 
 class ReportMovementEditRedirectTests(TestCase):

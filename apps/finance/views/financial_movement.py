@@ -4,11 +4,11 @@ from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db.models import Q, QuerySet
-from django.http import HttpRequest, HttpResponse, JsonResponse
-from django.contrib.auth.decorators import login_required
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import redirect, get_object_or_404, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
@@ -31,7 +31,7 @@ from apps.finance.forms.financial_movement import MovementStep1Form, MovementSte
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.views.navigation import append_query_params
 from apps.accounts.models import User
-from apps.collaborators.services import recalculate_payroll_from_linked_movements
+from apps.collaborators.services import delete_payroll_component_and_recalculate, recalculate_payroll_from_linked_movements
 from apps.collaborators.models import WorkshopCollaborator
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
@@ -752,24 +752,36 @@ class FinancialMovementDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxD
     htmx_template_name = "finance/partials/financial_movement/financial_movement_delete_modal.html"
     htmx_trigger = "financial_movement-table-refresh"
 
+    def form_valid(self, form):
+        linked_payroll = None
+        if getattr(self.object, "payroll_id", None):
+            linked_payroll = self.object.payroll
+        else:
+            linked_payroll = getattr(self.object, "collaborator_payroll", None)
+
+        if linked_payroll is not None:
+            delete_payroll_component_and_recalculate(movement=self.object)
+            if bool(getattr(self.request, "htmx", False)):
+                response = HttpResponse()
+                response["HX-Refresh"] = "true"
+                if self.htmx_trigger:
+                    response["HX-Trigger"] = self.htmx_trigger
+                return response
+            return HttpResponseRedirect(self.get_success_url())
+
+        return super().form_valid(form)
+
 
 class FinancialMovementRemovePayrollLinkView(FinancialMovementDeleteView):
     htmx_template_name = "finance/partials/financial_movement/financial_movement_remove_payroll_link_modal.html"
 
     def form_valid(self, form):
-        linked_payroll = self.object.payroll if getattr(self.object, "payroll_id", None) else None
+        delete_payroll_component_and_recalculate(movement=self.object)
         if bool(getattr(self.request, "htmx", False)):
-            self.object.delete()
-            if linked_payroll is not None:
-                recalculate_payroll_from_linked_movements(payroll=linked_payroll)
             response = HttpResponse()
             response["HX-Refresh"] = "true"
             return response
-
-        response = super().form_valid(form)
-        if linked_payroll is not None:
-            recalculate_payroll_from_linked_movements(payroll=linked_payroll)
-        return response
+        return HttpResponseRedirect(self.get_success_url())
 
 
 class EntityListView(LoginRequiredMixin, WorkshopScopedMixin, View):

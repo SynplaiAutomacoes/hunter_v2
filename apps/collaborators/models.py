@@ -134,8 +134,9 @@ class WorkshopCollaborator(TimeStampedModel):
             return date(base_date.year + 1, 1, 1)
         return date(base_date.year, base_date.month + 1, 1)
 
-    def get_due_date_for_reference(self, *, reference_date: date | None = None) -> date:
-        target_month = self.get_payment_reference_date(reference_date=reference_date)
+    def get_due_date_for_payment_month(self, *, payment_month: date) -> date:
+        """Compute the due date inside the given payment month (year/month)."""
+        target_month = date(payment_month.year, payment_month.month, 1)
         if self.payment_day_type == self.PaymentDayType.FIXED_DAY and self.payment_day_of_month:
             last_day = calendar.monthrange(target_month.year, target_month.month)[1]
             return date(target_month.year, target_month.month, min(self.payment_day_of_month, last_day))
@@ -149,6 +150,15 @@ class WorkshopCollaborator(TimeStampedModel):
                 if business_days == 5:
                     return current_date
             day += 1
+
+    def get_due_date_for_reference(self, *, reference_date: date | None = None) -> date:
+        target_month = self.get_payment_reference_date(reference_date=reference_date)
+        return self.get_due_date_for_payment_month(payment_month=target_month)
+
+    def get_legacy_same_month_due_date_for_reference(self, *, reference_date: date | None = None) -> date:
+        """Previous rule: due date inside the competence month (not the following month)."""
+        base_date = reference_date or timezone.localdate()
+        return self.get_due_date_for_payment_month(payment_month=date(base_date.year, base_date.month, 1))
 
 
 class CollaboratorBenefit(TimeStampedModel):
@@ -186,6 +196,8 @@ class CollaboratorPayroll(TimeStampedModel):
     reference_year = models.PositiveIntegerField(verbose_name="Ano de referência")
     reference_month = models.PositiveSmallIntegerField(verbose_name="Mês de referência")
     due_date = models.DateField(verbose_name="Data prevista para pagamento")
+    work_days = models.PositiveSmallIntegerField(verbose_name="Dias úteis", default=0)
+    work_days_is_custom = models.BooleanField(verbose_name="Dias úteis personalizados", default=False)
     salary_amount = MoneyField(verbose_name="Salário", max_digits=14, decimal_places=2, default=Decimal("0.00"))
     transport_allowance_amount = MoneyField(verbose_name="Vale Transporte", max_digits=14, decimal_places=2, default=Decimal("0.00"))
     benefits_amount = MoneyField(verbose_name="Benefícios", max_digits=14, decimal_places=2, default=Decimal("0.00"))
