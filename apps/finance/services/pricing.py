@@ -110,11 +110,15 @@ def build_emission_pricing_snapshot_for_workorder(
         slider=nfe_slider,
     )
 
+    chargeable_product_lines = [
+        line for line in adjusted_snapshot.product_lines
+        if not line.is_customer_supplied
+    ]
     product_line_totals = distribute_total_proportionally(
-        base_values=[_to_decimal_money(line.raw_total) for line in adjusted_snapshot.product_lines],
+        base_values=[_to_decimal_money(line.raw_total) for line in chargeable_product_lines],
         target_total=products_target,
     )
-    for line, line_total in zip(adjusted_snapshot.product_lines, product_line_totals, strict=False):
+    for line, line_total in zip(chargeable_product_lines, product_line_totals, strict=False):
         line.shipping = zero_money()
         line.adjusted_total = money_from_decimal(line_total)
 
