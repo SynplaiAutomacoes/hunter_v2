@@ -112,13 +112,16 @@ class StockMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplat
     htmx_template_name = "stock/partials/movement_table.html"
 
     def get_queryset(self):
-        return super().get_queryset().select_related("stock_product__product", "supplier").order_by("-criado_em")
+        return super().get_queryset().select_related(
+            "stock_product__product", "supplier", "workorder__budget"
+        ).order_by("-criado_em")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["movements"] = self.object_list
         context["fields"] = [
-            TableColumn(StockMovement.criado_em.field.verbose_name, attr=StockMovement.criado_em.field.name),
+            TableColumn("Data", attr="display_date", searchable=False),
+            TableColumn("Documento", attr="workorder_reference", search_by="workorder__budget_id"),
             TableColumn(StockMovement.status.field.verbose_name, attr="stockmovement_status_badge", search_by="status", format="status_badge"),
             TableColumn(StockMovement.type.field.verbose_name, attr="stockmovement_type_badge", search_by="type", format="status_badge"),
             TableColumn(StockMovement.stock_product.field.verbose_name, attr="get_product_reference", search_by=("stock_product__product__code", "stock_product__product__name", "stock_product__product__brand")),
