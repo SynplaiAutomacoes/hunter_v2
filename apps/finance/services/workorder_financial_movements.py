@@ -113,9 +113,6 @@ def sync_workorder_card_fee_movements(*, workorder: WorkOrder) -> None:
 
 @transaction.atomic
 def sync_workorder_financial_movement(*, workorder: WorkOrder) -> FinancialMovement | None:
-    if workorder.budget.status != "approved":
-        return None
-
     if workorder.budget_type in ("warranty", "courtesy"):
         return None
 

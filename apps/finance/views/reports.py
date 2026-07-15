@@ -19,7 +19,7 @@ from typing import List, Tuple
 from apps.core.infrastructure.search import build_text_search_query
 from apps.accounts.models import User
 from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
-from apps.collaborators.services import sync_workorder_collaborator_payrolls
+from apps.collaborators.services import delete_payroll_component_and_recalculate, recalculate_payroll_from_linked_movements, sync_workorder_collaborator_payrolls
 from apps.core.presentation.widgets import SearchableSelectInput
 from apps.finance.forms.emission_ui import format_money
 from apps.finance.models.bank_account import BankAccount
@@ -27,7 +27,7 @@ from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
 from apps.finance.services.payroll_visibility import resolve_payroll_movement_display
-from apps.finance.services.reports import FinancialOverview, build_monthly_financial_overview, build_yearly_financial_overview
+from apps.finance.services.reports import FinancialOverview, build_month_and_year_financial_overviews
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod
 from apps.workshops.mixin import WorkshopScopedMixin
 
@@ -138,6 +138,10 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         return "Múltiplos"
 
     def _get_financial_movements_queryset(self):
+        cached = getattr(self, "_financial_movements_queryset_cache", None)
+        if cached is not None:
+            return cached
+
         queryset = (
             FinancialMovement.objects.filter(workshop=self.workshop)
             .filter(due_date__isnull=False)
@@ -150,11 +154,16 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
                 "budget_plan",
                 "bank_account",
                 "payment_method",
+                "movement_group",
                 "workorder",
                 "workorder__budget",
                 "workorder__budget__customer",
             )
-            .prefetch_related("workorder__payments", "workorder__payments__payment_method")
+            .prefetch_related(
+                "workorder__payments",
+                "workorder__payments__payment_method",
+                "movement_group__financial_movements",
+            )
             .annotate(
                 agent_name_sort=Coalesce(
                     "collaborator__name",
@@ -166,7 +175,27 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             )
             .order_by("-pk")
         )
-        return self._apply_report_filters(queryset)
+        queryset = self._apply_report_filters(queryset)
+        self._financial_movements_queryset_cache = queryset
+        return queryset
+
+    def _get_month_payrolls(self):
+        cached = getattr(self, "_month_payrolls_cache", None)
+        if cached is not None:
+            return cached
+        reference_date = timezone.localdate()
+        payrolls = list(
+            CollaboratorPayroll.objects.filter(
+                workshop=self.workshop,
+                reference_year=reference_date.year,
+                reference_month=reference_date.month,
+            )
+            .select_related("collaborator", "financial_movement")
+            .prefetch_related("financial_movements")
+            .order_by("collaborator__name", "id")
+        )
+        self._month_payrolls_cache = payrolls
+        return payrolls
 
     def _parse_date_param(self, raw_value: str | None) -> date | None:
         value = str(raw_value or "").strip()
@@ -462,7 +491,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         }
 
     def _get_financial_groups_queryset(self):
-        return FinancialGroup.objects.filter(workshop=self.workshop).order_by("sort_key", "id")
+        return FinancialGroup.objects.filter(workshop=self.workshop).prefetch_related("children").order_by("sort_key", "id")
 
     def _get_bank_accounts_queryset(self):
         return BankAccount.objects.filter(workshop=self.workshop).order_by("bank_name", "account_number", "id")
@@ -525,6 +554,8 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
 
     def _build_selection_summary_card(self, *, rows: list[dict[str, object]]) -> dict[str, object]:
         title = "Créditos e Débitos da Filtragem"
+        if self._has_active_filters():
+            title = "Créditos e Débitos da Página Filtrada"
         if not self._has_active_filters():
             return {
                 "title": title,
@@ -538,20 +569,37 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
 
     def _build_collaborator_payroll_summary_card(self) -> dict[str, object]:
         reference_date = timezone.localdate()
-        payrolls = CollaboratorPayroll.objects.filter(workshop=self.workshop, reference_year=reference_date.year, reference_month=reference_date.month).select_related("financial_movement")
-        commissions = CollaboratorCommissionEntry.objects.filter(workshop=self.workshop, reference_year=reference_date.year, reference_month=reference_date.month)
+        payrolls = self._get_month_payrolls()
+        commissions = list(
+            CollaboratorCommissionEntry.objects.filter(
+                workshop=self.workshop,
+                reference_year=reference_date.year,
+                reference_month=reference_date.month,
+            )
+        )
 
         total_forecast = sum((self._resolve_money_amount(payroll.total_amount) for payroll in payrolls), start=Decimal("0.00"))
-        total_paid = sum((self._resolve_money_amount(payroll.total_amount) for payroll in payrolls if payroll.financial_movement and payroll.financial_movement.is_paid), start=Decimal("0.00"))
+        total_paid = sum(
+            (self._resolve_money_amount(payroll.total_amount) for payroll in payrolls if payroll.financial_movement and payroll.financial_movement.is_paid),
+            start=Decimal("0.00"),
+        )
         commissions_forecast = sum((self._resolve_money_amount(entry.commission_amount) for entry in commissions), start=Decimal("0.00"))
-        commissions_paid = sum((self._resolve_money_amount(entry.commission_amount) for entry in commissions if entry.status == CollaboratorCommissionEntry.Status.PAID), start=Decimal("0.00"))
+        commissions_paid = sum(
+            (self._resolve_money_amount(entry.commission_amount) for entry in commissions if entry.status == CollaboratorCommissionEntry.Status.PAID),
+            start=Decimal("0.00"),
+        )
 
         return {
             "title": "Folha e Comissões do Mês",
             "is_placeholder": False,
             "rows": [
-                {"label": "Folhas previstas", "value": str(payrolls.count()), "small": False, "tone": "neutral"},
-                {"label": "Folhas pagas", "value": str(sum(1 for payroll in payrolls if payroll.financial_movement and payroll.financial_movement.is_paid)), "small": True, "tone": "neutral"},
+                {"label": "Folhas previstas", "value": str(len(payrolls)), "small": False, "tone": "neutral"},
+                {
+                    "label": "Folhas pagas",
+                    "value": str(sum(1 for payroll in payrolls if payroll.financial_movement and payroll.financial_movement.is_paid)),
+                    "small": True,
+                    "tone": "neutral",
+                },
                 {"label": "Comissões previstas", "value": format_money(commissions_forecast), "small": False, "tone": "debit"},
                 {"label": "Comissões pagas", "value": format_money(commissions_paid), "small": True, "tone": "debit"},
             ],
@@ -562,8 +610,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         }
 
     def _build_collaborator_payroll_rows(self) -> list[dict[str, object]]:
-        reference_date = timezone.localdate()
-        payrolls = CollaboratorPayroll.objects.filter(workshop=self.workshop, reference_year=reference_date.year, reference_month=reference_date.month).select_related("collaborator", "financial_movement").order_by("collaborator__name", "id")
+        payrolls = self._get_month_payrolls()
         rows: list[dict[str, object]] = []
         for payroll in payrolls:
             rows.append(
@@ -660,17 +707,74 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         querystring = params.urlencode()
         return f"{self.request.path}?{querystring}" if querystring else self.request.path
 
-    def _get_financial_movements_page(self, *, rows: list[dict[str, object]]) -> tuple[Any, Paginator]:
+    def _get_financial_movements_page(self, *, entry_refs: list[tuple[str, int]]) -> tuple[Any, Paginator]:
         page_number = self.request.GET.get("page") or "1"
 
         if self._has_active_filters():
-            # Fix C: Limita a 50 resultados por página mesmo com filtros ativos
-            paginator = Paginator(rows, 50)
+            paginator = Paginator(entry_refs, 50)
             return paginator.get_page(page_number), paginator
 
-        paginator = Paginator(rows, self.MOVEMENTS_PER_PAGE)
+        paginator = Paginator(entry_refs, self.MOVEMENTS_PER_PAGE)
         page_obj = paginator.get_page(page_number)
         return page_obj, paginator
+
+    def _build_fallback_payment_movements_queryset(self, *, excluded_workorder_ids: set[int]):
+        queryset = self._apply_report_filters(
+            FinancialMovement.objects.filter(
+                workshop=self.workshop,
+                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
+                workorder__isnull=False,
+                workorder_payment__isnull=False,
+            )
+            .exclude(workorder_id__in=excluded_workorder_ids)
+            .select_related(
+                "source",
+                "supplier",
+                "collaborator",
+                "budget_plan",
+                "bank_account",
+                "payment_method",
+                "workorder",
+                "workorder__budget",
+                "workorder__budget__customer",
+                "workorder_payment",
+                "workorder_payment__payment_method",
+            )
+            .order_by("-pk")
+        )
+        return queryset
+
+    def _get_report_entry_refs(self) -> list[tuple[str, int]]:
+        cached = getattr(self, "_report_entry_refs_cache", None)
+        if cached is not None:
+            return cached
+
+        base_queryset = self._get_financial_movements_queryset()
+        base_entries = list(base_queryset.values_list("pk", "workorder_id", "movement_kind"))
+        parent_workorder_ids = {int(workorder_id) for _, workorder_id, movement_kind in base_entries if movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT and workorder_id is not None}
+        entry_refs = [("movement", int(pk)) for pk, _, _ in base_entries]
+
+        fallback_ids = list(self._build_fallback_payment_movements_queryset(excluded_workorder_ids=parent_workorder_ids).values_list("pk", flat=True))
+        entry_refs.extend(("fallback", int(pk)) for pk in fallback_ids)
+        entry_refs.sort(key=lambda item: item[1], reverse=True)
+        self._report_entry_refs_cache = entry_refs
+        return entry_refs
+
+    def _get_paginated_report_movements(self, *, entry_refs: list[tuple[str, int]]) -> list[FinancialMovement]:
+        movement_ids = [entry_id for entry_type, entry_id in entry_refs if entry_type == "movement"]
+        fallback_ids = [entry_id for entry_type, entry_id in entry_refs if entry_type == "fallback"]
+
+        movements_by_id: dict[tuple[str, int], FinancialMovement] = {}
+        if movement_ids:
+            base_queryset = self._get_financial_movements_queryset().filter(pk__in=movement_ids)
+            for movement in base_queryset:
+                movements_by_id[("movement", int(movement.pk))] = movement
+
+        if fallback_ids:
+            for movement in self._build_fallback_payment_movements_queryset(excluded_workorder_ids=set()).filter(pk__in=fallback_ids):
+                movements_by_id[("fallback", int(movement.pk))] = movement
+
+        return [movements_by_id[key] for key in entry_refs if key in movements_by_id]
 
     def _get_agent_filter_choices(self) -> List[Tuple[str, str]]:
         collaborators = WorkshopCollaborator.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
@@ -742,9 +846,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         seen_components: set[str] = set()
         filter_params = self._get_filter_params()
         movement_list = list(movements)
-        workorder_ids_with_parent: set[int] = {movement.workorder_id for movement in movement_list if movement.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT and movement.workorder_id is not None}
 
-        # Fix B4: Pré-carrega o cache antes do loop principal para evitar N+1
         self._preload_payment_movement_cache(movement_list)
 
         for movement in movement_list:
@@ -765,59 +867,25 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
                 continue
             rows.append(financial_row)
             seen_components.add(component)
-
-        fallback_payment_movements = self._apply_report_filters(
-            FinancialMovement.objects.filter(
-                workshop=self.workshop,
-                movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT,
-                workorder__isnull=False,
-                workorder_payment__isnull=False,
-            )
-            .exclude(workorder_id__in=workorder_ids_with_parent)
-            .select_related(
-                "source",
-                "supplier",
-                "collaborator",
-                "budget_plan",
-                "bank_account",
-                "payment_method",
-                "workorder",
-                "workorder__budget",
-                "workorder__budget__customer",
-                "workorder_payment",
-                "workorder_payment__payment_method",
-            )
-            .order_by("-pk")
-        )
-        for movement in fallback_payment_movements:
-            payment = getattr(movement, "workorder_payment", None)
-            workorder = getattr(movement, "workorder", None)
-            if payment is None or workorder is None:
-                continue
-            payment_row = self._build_workorder_payment_row(movement=movement, payment=payment)
-            component = str(payment_row.get("component") or "")
-            if component in seen_components:
-                continue
-            rows.append(payment_row)
-            seen_components.add(component)
         return rows
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         context = super().get_context_data(**kwargs)
         reference_date = timezone.localdate()
-        monthly_overview = build_monthly_financial_overview(workshop=self.workshop, reference_date=reference_date)
-        yearly_overview = build_yearly_financial_overview(workshop=self.workshop, reference_date=reference_date)
+        monthly_overview, yearly_overview = build_month_and_year_financial_overviews(workshop=self.workshop, reference_date=reference_date)
         filter_params = self._get_filter_params()
-        all_report_rows = self._get_financial_movement_report_rows(movements=self._get_financial_movements_queryset())
-        page_obj, paginator = self._get_financial_movements_page(rows=all_report_rows)
+        report_entry_refs = self._get_report_entry_refs()
+        page_obj, paginator = self._get_financial_movements_page(entry_refs=report_entry_refs)
+        paginated_movements = self._get_paginated_report_movements(entry_refs=list(page_obj.object_list))
+        page_rows = self._get_financial_movement_report_rows(movements=paginated_movements)
 
         context["top_summary_cards"] = [
             self._build_summary_card(title="Créditos e Débitos deste Mês", overview=monthly_overview),
             self._build_summary_card(title=f"Balanço Geral {reference_date.year}", overview=yearly_overview),
             self._build_collaborator_payroll_summary_card(),
         ]
-        context["selection_summary"] = self._build_selection_summary_card(rows=all_report_rows)
-        context["financial_movement_report_rows"] = page_obj.object_list
+        context["selection_summary"] = self._build_selection_summary_card(rows=page_rows)
+        context["financial_movement_report_rows"] = page_rows
         context["collaborator_payroll_rows"] = self._build_collaborator_payroll_rows()
         context["financial_group_filters"] = self._get_financial_groups_queryset()
         context["bank_account_filters"] = self._get_bank_accounts_queryset()
@@ -927,6 +995,9 @@ class ReportMovementEditView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView
 
     def form_valid(self, form):
         self.object = form.save()
+        payroll = getattr(self.object, "payroll", None) or getattr(self.object, "collaborator_payroll", None)
+        if payroll is not None:
+            recalculate_payroll_from_linked_movements(payroll=payroll)
         if self.object.workorder_id:
             sync_workorder_collaborator_payrolls(workorder=self.object.workorder, reference_date=self.object.due_date)
         if self.request.htmx:
@@ -957,7 +1028,15 @@ class ReportMovementDeleteView(LoginRequiredMixin, WorkshopScopedMixin, DeleteVi
         return render(request, "finance/partials/financial_movement/financial_movement_delete_modal.html", context)
 
     def form_valid(self, form):
-        self.object.delete()
+        linked_payroll = self.object.payroll if getattr(self.object, "payroll_id", None) else None
+        if linked_payroll is None and getattr(self.object, "collaborator_payroll", None) is not None:
+            linked_payroll = self.object.collaborator_payroll
+
+        if linked_payroll is not None:
+            delete_payroll_component_and_recalculate(movement=self.object)
+        else:
+            self.object.delete()
+
         if self.request.htmx:
             response = HttpResponse()
             response["HX-Refresh"] = "true"

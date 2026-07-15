@@ -38,6 +38,7 @@ from apps.stock.models import StockTransfer
 from apps.core.text_normalization import name_case, sentence_case
 
 from apps.core.infrastructure.providers.sefaz_provider import get_sefaz_service
+from apps.stock.services.files import StockImportFileStorageError, _extract_nfe_xml_from_sefaz_response, save_import_xml_file
 from apps.stock.utils import NFParser, extract_nf_number_from_access_key, parse_sefaz_distribution_doc_metadata
 from apps.suppliers.models import Supplier
 from apps.workshops.models.workshops import Workshop
@@ -150,6 +151,7 @@ class ImportStep1Form(CoreModelForm):
             obj.supplier_name = data.get("supplier_name")
             obj.items_data = data.get("items", [])
             obj.payments_data = data.get("payments", [])
+            obj.xml_file_key = data.get("xml_file_key", "")
 
         if method in ["XML", "KEY"] and not obj.nf_key:
             raise ValueError("A chave da NF-e é obrigatória para este método de importação.")
@@ -177,10 +179,24 @@ class ImportStep1Form(CoreModelForm):
             if not xml_file:
                 self.add_error("xml_file", "O arquivo XML é obrigatório para este método.")
             else:
+                xml_content = xml_file.read()
                 try:
-                    nf_data = NFParser.parse_nfe_xml_to_dict(self.workshop, xml_file)
+                    nf_data = NFParser.parse_nfe_xml_to_dict(self.workshop, xml_content)
                 except Exception:
                     self.add_error("xml_file", "Erro ao ler o arquivo XML.")
+
+                if nf_data and nf_data.get("nf_key"):
+                    try:
+                        stored = save_import_xml_file(
+                            content=xml_content,
+                            filename=xml_file.name,
+                            content_type=xml_file.content_type,
+                            workshop_id=self.workshop.id,
+                            nf_key=nf_data["nf_key"],
+                        )
+                        nf_data["xml_file_key"] = stored.file_id
+                    except StockImportFileStorageError:
+                        self.add_error("xml_file", "Erro ao salvar o XML no bucket. Verifique as configurações de storage.")
 
         if method == "KEY":
             key = cleaned_data.get("access_key")
@@ -216,6 +232,21 @@ class ImportStep1Form(CoreModelForm):
                         return cleaned_data
 
                     nf_data = NFParser.parse_nfe_xml_to_dict(self.workshop, content)
+
+                    if nf_data:
+                        try:
+                            nfe_xml = _extract_nfe_xml_from_sefaz_response(content)
+                            stored = save_import_xml_file(
+                                content=nfe_xml,
+                                filename=f"NF-{nf_key}.xml",
+                                content_type="application/xml",
+                                workshop_id=self.workshop.id,
+                                nf_key=nf_key,
+                            )
+                            nf_data["xml_file_key"] = stored.file_id
+                        except StockImportFileStorageError:
+                            self.add_error("access_key", "Erro ao salvar o XML no bucket. Verifique as configurações de storage.")
+                            return cleaned_data
                 except Exception:
                     self.add_error("access_key", "Erro ao buscar chave na SEFAZ ou chave inválida.")
 
@@ -1082,24 +1113,37 @@ class ImportSefazListForm(CoreModelForm):
 
                 nf_data = NFParser.parse_nfe_xml_to_dict(self.workshop, xml_completo)
 
-                if nf_data:
-                    if not _has_importable_nf_items(nf_data):
-                        raise forms.ValidationError(NF_WITHOUT_ITEMS_MESSAGE)
+                if not nf_data:
+                    raise forms.ValidationError("Não foi possível interpretar o XML retornado pela SEFAZ.")
 
-                    resolved_nf_number = nf_data.get("nf_number") or extract_nf_number_from_access_key(nf_data.get("nf_key"))
-                    instance.nf_number = resolved_nf_number
-                    instance.nf_key = nf_data["nf_key"]
-                    instance.supplier_cnpj = nf_data["supplier_cnpj"]
-                    instance.supplier_name = nf_data["supplier_name"]
-                    instance.items_data = nf_data["items"]
-                    instance.payments_data = nf_data["payments"]
-                    instance.method = "SEFAZ"
+                if not _has_importable_nf_items(nf_data):
+                    raise forms.ValidationError(NF_WITHOUT_ITEMS_MESSAGE)
 
-                    SefazZipCache.objects.filter(workshop=self.workshop, key=instance.nf_key).update(
-                        nf_number=resolved_nf_number or None,
-                        issuer_name=instance.supplier_name,
-                        issuer_cnpj=instance.supplier_cnpj,
-                    )
+                nfe_xml = _extract_nfe_xml_from_sefaz_response(xml_completo)
+                stored = save_import_xml_file(
+                    content=nfe_xml,
+                    filename=f"NF-{key}.xml",
+                    content_type="application/xml",
+                    workshop_id=self.workshop.id,
+                    nf_key=key,
+                )
+
+                nf_data["xml_file_key"] = stored.file_id
+                resolved_nf_number = nf_data.get("nf_number") or extract_nf_number_from_access_key(nf_data.get("nf_key"))
+                instance.nf_number = resolved_nf_number
+                instance.nf_key = nf_data["nf_key"]
+                instance.supplier_cnpj = nf_data["supplier_cnpj"]
+                instance.supplier_name = nf_data["supplier_name"]
+                instance.items_data = nf_data["items"]
+                instance.payments_data = nf_data["payments"]
+                instance.xml_file_key = nf_data.get("xml_file_key", "")
+                instance.method = "SEFAZ"
+
+                SefazZipCache.objects.filter(workshop=self.workshop, key=instance.nf_key).update(
+                    nf_number=resolved_nf_number or None,
+                    issuer_name=instance.supplier_name,
+                    issuer_cnpj=instance.supplier_cnpj,
+                )
             except forms.ValidationError:
                 raise
             except Exception as e:
@@ -2714,7 +2758,9 @@ class QuickProductForm(CoreModelForm):
                 **{
                     "x-data": """{
                         priceError: false,
+                        _calculatingMargin: false,
                         calculateMargin() {
+                            if (this._calculatingMargin) return;
                             const getVal = (id) => parseFloat(document.getElementById(id)?.value) || 0;
                             let cost = getVal("id_cost_price_0");
                             let sell = getVal("id_selling_price_0");
@@ -2723,7 +2769,9 @@ class QuickProductForm(CoreModelForm):
                             if (sell > 0) {
                                 let m = ((sell - cost) / sell) * 100;
                                 marginEl.value = m.toFixed(2).replace(".", ",");
+                                this._calculatingMargin = true;
                                 marginEl.dispatchEvent(new Event('input'));
+                                this._calculatingMargin = false;
                             }
                         }
                     }""",

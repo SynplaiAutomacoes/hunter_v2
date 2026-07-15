@@ -342,6 +342,9 @@ def build_pricing_snapshot(
         if item_quantity <= 0:
             continue
 
+        if getattr(item, "item_benefit_type", "normal") not in ("normal", ""):
+            continue
+
         item_id = getattr(item, "id", None)
         product_id = getattr(item, "product_id", None)
         service_id = getattr(item, "service_id", None)

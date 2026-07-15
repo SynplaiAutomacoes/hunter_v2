@@ -1,4 +1,5 @@
 {% extends 'crud/page.html' %}
+{% load l10n %}
 
 {% block crud_content %}
     <div class="space-y-6">
@@ -28,14 +29,14 @@
                             </select>
                             <select name="ano" class="select select-sm bg-base-100 font-medium" {% if has_modal_date_filter %}disabled{% endif %}>
                                 {% for value in year_choices %}
-                                    <option value="{{ value }}" {% if selected_year == value %}selected{% endif %}>{{ value }}</option>
+                                    <option value="{{ value|unlocalize }}" {% if selected_year == value %}selected{% endif %}>{{ value|unlocalize }}</option>
                                 {% endfor %}
                             </select>
                         </div>
                         {% if has_modal_date_filter %}
                             <p class="mt-1 text-xs text-warning">Ignorado enquanto o filtro por data estiver ativo.</p>
-                            <input type="hidden" name="mes" value="{{ selected_month }}">
-                            <input type="hidden" name="ano" value="{{ selected_year }}">
+                            <input type="hidden" name="mes" value="{{ selected_month|unlocalize }}">
+                            <input type="hidden" name="ano" value="{{ selected_year|unlocalize }}">
                         {% endif %}
                     </div>
 

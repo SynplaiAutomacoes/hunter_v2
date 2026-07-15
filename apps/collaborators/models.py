@@ -114,6 +114,10 @@ class WorkshopCollaborator(TimeStampedModel):
             self.name = name_case(self.name)
         if self.position:
             self.position = sentence_case(self.position)
+        if self.salary is None:
+            self.salary = Money(0, "BRL")
+        if self.transport_allowance_daily is None:
+            self.transport_allowance_daily = Money(0, "BRL")
         super().save(*args, **kwargs)
 
     @property
@@ -126,10 +130,13 @@ class WorkshopCollaborator(TimeStampedModel):
 
     def get_payment_reference_date(self, *, reference_date: date | None = None) -> date:
         base_date = reference_date or timezone.localdate()
-        return date(base_date.year, base_date.month, 1)
+        if base_date.month == 12:
+            return date(base_date.year + 1, 1, 1)
+        return date(base_date.year, base_date.month + 1, 1)
 
-    def get_due_date_for_reference(self, *, reference_date: date | None = None) -> date:
-        target_month = self.get_payment_reference_date(reference_date=reference_date)
+    def get_due_date_for_payment_month(self, *, payment_month: date) -> date:
+        """Compute the due date inside the given payment month (year/month)."""
+        target_month = date(payment_month.year, payment_month.month, 1)
         if self.payment_day_type == self.PaymentDayType.FIXED_DAY and self.payment_day_of_month:
             last_day = calendar.monthrange(target_month.year, target_month.month)[1]
             return date(target_month.year, target_month.month, min(self.payment_day_of_month, last_day))
@@ -143,6 +150,15 @@ class WorkshopCollaborator(TimeStampedModel):
                 if business_days == 5:
                     return current_date
             day += 1
+
+    def get_due_date_for_reference(self, *, reference_date: date | None = None) -> date:
+        target_month = self.get_payment_reference_date(reference_date=reference_date)
+        return self.get_due_date_for_payment_month(payment_month=target_month)
+
+    def get_legacy_same_month_due_date_for_reference(self, *, reference_date: date | None = None) -> date:
+        """Previous rule: due date inside the competence month (not the following month)."""
+        base_date = reference_date or timezone.localdate()
+        return self.get_due_date_for_payment_month(payment_month=date(base_date.year, base_date.month, 1))
 
 
 class CollaboratorBenefit(TimeStampedModel):
@@ -180,6 +196,8 @@ class CollaboratorPayroll(TimeStampedModel):
     reference_year = models.PositiveIntegerField(verbose_name="Ano de referência")
     reference_month = models.PositiveSmallIntegerField(verbose_name="Mês de referência")
     due_date = models.DateField(verbose_name="Data prevista para pagamento")
+    work_days = models.PositiveSmallIntegerField(verbose_name="Dias úteis", default=0)
+    work_days_is_custom = models.BooleanField(verbose_name="Dias úteis personalizados", default=False)
     salary_amount = MoneyField(verbose_name="Salário", max_digits=14, decimal_places=2, default=Decimal("0.00"))
     transport_allowance_amount = MoneyField(verbose_name="Vale Transporte", max_digits=14, decimal_places=2, default=Decimal("0.00"))
     benefits_amount = MoneyField(verbose_name="Benefícios", max_digits=14, decimal_places=2, default=Decimal("0.00"))
@@ -196,6 +214,9 @@ class CollaboratorPayroll(TimeStampedModel):
         ]
         constraints = [
             models.UniqueConstraint(fields=("collaborator", "reference_year", "reference_month"), name="unique_collaborator_payroll_reference"),
+        ]
+        indexes = [
+            models.Index(fields=["workshop", "reference_year", "reference_month"], name="collab_payroll_ws_ref_idx"),
         ]
 
     def __str__(self) -> str:
@@ -311,6 +332,10 @@ class CollaboratorCommissionEntry(TimeStampedModel):
         ordering = ["-reference_year", "-reference_month", "-id"]
         constraints = [
             models.UniqueConstraint(fields=("collaborator", "workorder"), name="unique_collaborator_commission_workorder"),
+        ]
+        indexes = [
+            models.Index(fields=["collaborator", "reference_year", "reference_month"], name="collab_comm_ref_idx"),
+            models.Index(fields=["workshop", "reference_year", "reference_month"], name="collab_comm_ws_ref_idx"),
         ]
 
     def __str__(self) -> str:

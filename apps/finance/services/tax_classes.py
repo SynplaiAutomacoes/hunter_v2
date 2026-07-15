@@ -62,19 +62,18 @@ class TaxClassServiceError(Exception):
 
 
 def _is_debug_enabled() -> bool:
-    return bool(getattr(settings, "TAX_CLASS_DEBUG_LOGS", True))
+    return bool(getattr(settings, "TAX_CLASS_DEBUG_LOGS", False))
 
 
 def _debug_print(message: str, payload: Any | None = None) -> None:
     if not _is_debug_enabled():
         return
 
-    prefix = "[TAX CLASS POST DEBUG]"
     if payload is None:
-        print(f"{prefix} {message}")
+        logger.debug("tax_class_debug %s", message)
         return
 
-    print(f"{prefix} {message}", payload)
+    logger.debug("tax_class_debug %s: %s", message, payload)
 
 
 def _build_headers(*, workshop: Workshop) -> dict[str, str]:
@@ -193,12 +192,47 @@ def _normalize_tax_class_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return normalized_payload
 
 
-def _format_nfse_service_code_for_api(value: Any) -> str:
+NFSE_CODIGO_SERVICO_HELP_TEXT = "ABRASF: XX.XX ou XXXXX. Padrão Nacional: XX.XX.XX ou XXXXXX (6 dígitos)."
+NFSE_CODIGO_SERVICO_INVALID_FORMAT = "Informe o código do serviço no formato XX.XX, XXXXX, XX.XX.XX ou XXXXXX."
+NFSE_CODIGO_SERVICO_NATIONAL_LENGTH_ERROR = (
+    "Para este município o código do serviço precisa ter 6 dígitos no formato XX.XX.XX (ex.: 01.05.01). "
+    "O valor informado tem formato incompleto para o Padrão Nacional."
+)
+
+
+def format_nfse_service_code_for_api(value: Any) -> str:
     raw_value = _clean_string(value)
     code_digits = _digits_only(raw_value)
     if len(code_digits) == 4:
         return f"{code_digits[:2]}.{code_digits[2:]}"
+    if len(code_digits) == 6:
+        return f"{code_digits[:2]}.{code_digits[2:4]}.{code_digits[4:]}"
     return raw_value
+
+
+def _format_nfse_service_code_for_api(value: Any) -> str:
+    return format_nfse_service_code_for_api(value)
+
+
+def is_valid_nfse_service_code(value: str) -> bool:
+    if not value:
+        return False
+    if len(value) == 5 and value[2] == "." and value.replace(".", "").isdigit() and len(value.replace(".", "")) == 4:
+        return True
+    if len(value) == 5 and value.isdigit():
+        return True
+    if len(value) == 8 and value[2] == "." and value[5] == "." and value.replace(".", "").isdigit() and len(value.replace(".", "")) == 6:
+        return True
+    if len(value) == 6 and value.isdigit():
+        return True
+    return False
+
+
+def map_nfse_codigo_servico_api_error(message: object) -> str | None:
+    normalized_message = str(message or "").strip().lower()
+    if "codigo_servico" in normalized_message and "6 caracteres" in normalized_message:
+        return NFSE_CODIGO_SERVICO_NATIONAL_LENGTH_ERROR
+    return None
 
 
 def _normalize_payload_for_api(payload: dict[str, Any]) -> dict[str, Any]:
@@ -206,7 +240,7 @@ def _normalize_payload_for_api(payload: dict[str, Any]) -> dict[str, Any]:
     if _looks_like_nfse(normalized_payload):
         service_code = normalized_payload.get("codigo_servico")
         if service_code not in (None, ""):
-            normalized_payload["codigo_servico"] = _format_nfse_service_code_for_api(service_code)
+            normalized_payload["codigo_servico"] = format_nfse_service_code_for_api(service_code)
     return normalized_payload
 
 

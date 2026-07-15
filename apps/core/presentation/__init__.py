@@ -1,3 +1,10 @@
+"""Presentation package.
+
+Keep this module lightweight: Django MIDDLEWARE imports submodules under this
+package during startup. Eagerly re-exporting views/widgets here can deadlock
+under Python 3.14 + StatReloader — import those from their own modules.
+"""
+
 from apps.core.presentation.mixins import (
     BaseModalFormView,
     HtmxDeleteResponseMixin,
@@ -9,9 +16,7 @@ from apps.core.presentation.favorites import *  # noqa: F401, F403
 from apps.core.presentation.context_processors import *  # noqa: F401, F403
 from apps.core.presentation.tables import *  # noqa: F401, F403
 from apps.core.presentation.middlewares import *  # noqa: F401, F403
-from apps.core.presentation.views import *  # noqa: F401, F403
 from apps.core.presentation.forms import *  # noqa: F401, F403
-from apps.core.presentation.widgets import *  # noqa: F401, F403
 from apps.core.utils import alert_confirm_layout
 
 __all__ = [
@@ -48,37 +53,11 @@ __all__ = [
     "TableActionDefaults",
     "RequestPerformanceLoggingMiddleware",
     "RequireFirstWorkshopMiddleware",
-    "DashboardView",
-    "CEPLookupView",
-    "FavoritePageToggleView",
-    "FavoritePageReorderView",
-    "DashboardFinancialReportView",
-    "MESES_PT",
-    "permission_denied",
     "TextNormalizationFormMixin",
     "CoreForm",
     "CoreModelForm",
     "AddressFormMixin",
     "address_layout",
     "MultiStepFormMixin",
-    "MoneyInput",
-    "CPForCNPJInput",
-    "RGInput",
-    "PhoneInput",
-    "CEPInput",
-    "DurationInput",
-    "EmailInput",
-    "SelectInput",
-    "SearchableSelectInput",
-    "CalendarDateInput",
-    "TextInput",
-    "PlateInput",
-    "TextareaInput",
-    "PasswordInput",
-    "CheckboxInput",
-    "NumberInput",
-    "DecimalInput",
-    "PercentageInput",
-    "ImageInput",
     "alert_confirm_layout",
 ]

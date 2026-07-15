@@ -51,6 +51,14 @@ class FinancialMovement(TimeStampedModel):
     movement_group = models.ForeignKey("finance.MovementGroup", on_delete=models.CASCADE, null=True, blank=True, related_name="financial_movements")
     payroll = models.ForeignKey("collaborators.CollaboratorPayroll", on_delete=models.CASCADE, null=True, blank=True, related_name="financial_movements")
     payroll_component = models.CharField(max_length=32, choices=PayrollComponent.choices, null=True, blank=True)
+    payroll_benefit = models.ForeignKey(
+        "collaborators.CollaboratorBenefit",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="payroll_financial_movements",
+        verbose_name="Benefício da folha",
+    )
 
     # Origem
     source = models.ForeignKey(to="sources.Source", verbose_name="Origem", null=True, blank=True, on_delete=models.PROTECT)
@@ -78,13 +86,21 @@ class FinancialMovement(TimeStampedModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["payroll", "payroll_component", "budget_plan"],
-                condition=models.Q(payroll__isnull=False, payroll_component__isnull=False),
+                condition=models.Q(payroll__isnull=False, payroll_component__isnull=False, payroll_benefit__isnull=True),
                 name="unique_payroll_component_movement",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["payroll", "payroll_benefit"],
+                condition=models.Q(payroll__isnull=False, payroll_component="BENEFIT", payroll_benefit__isnull=False),
+                name="unique_payroll_benefit_movement",
+            ),
         ]
         indexes = [
             models.Index(fields=["workshop", "payroll"]),
             models.Index(fields=["workshop", "payroll_component"]),
+            models.Index(fields=["workshop", "due_date"], name="fin_mov_ws_due_idx"),
+            models.Index(fields=["workshop", "direction", "movement_kind"], name="fin_mov_ws_dir_kind_idx"),
+            models.Index(fields=["workshop", "is_paid", "due_date"], name="fin_mov_ws_paid_due_idx"),
         ]
 
     def save(self, *args: Any, **kwargs: Any) -> None:

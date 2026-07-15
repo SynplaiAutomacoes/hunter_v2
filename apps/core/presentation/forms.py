@@ -225,7 +225,12 @@ class MultiStepFormMixin:
             return render(self.request, self.get_step_template_name(), context)
         return redirect(next_url)
 
-    def apply_step_status(self, budget=None, current_step=None, actor=None, isUpdate=False):
+    def apply_step_status(self, budget=None, current_step=None, actor=None, isUpdate=False, *, save: bool = True):
+        """Apply auto status for the current step.
+
+        When ``save=False``, only mutates ``budget.status`` in memory so the
+        caller can coalesce with other metadata fields (e.g. ``current_step``).
+        """
         steps = self.get_steps_config()
         if budget is None:
             budget = getattr(self, "object", None) or getattr(self, "budget_object", None)
@@ -256,6 +261,9 @@ class MultiStepFormMixin:
         if budget.status == new_status:
             return False
         actor = actor or getattr(self, "request", None) and getattr(self.request, "user", None)
+        if not save:
+            budget.status = new_status
+            return True
         with transaction.atomic():
             try:
                 locked = budget.__class__.objects.select_for_update().get(pk=budget.pk)
@@ -263,4 +271,5 @@ class MultiStepFormMixin:
                 locked = budget
             locked.status = new_status
             locked.save(update_fields=["status"])
+            budget.status = new_status
         return True

@@ -112,6 +112,7 @@
                             <tr class="border-b">
                                 <th class="p-2 font-semibold">Código</th>
                                 <th class="p-2 font-semibold">Nome</th>
+                                <th class="p-2 font-semibold">Peça do Cliente</th>
                                 <th class="p-2 font-semibold">Descrição</th>
                                 <th class="p-2 font-semibold">Aplicação</th>
                                 <th class="p-2 font-semibold text-center">Qtd.</th>
@@ -120,28 +121,46 @@
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
-                            {% for item in product_items %}
-                                <tr class="{% if item.item_benefit_type == "warranty" or item.item_benefit_type == "courtesy" %}opacity-[0.85]{% endif %}">
-                                    <td class="p-2">{{ item.product.code|default:"-" }}</td>
+                            {% for item in summary_product_items %}
+                                {% with benefit_type=benefit_map|dict_lookup:item.entity_id %}
+                                <tr class="{% if benefit_type == 'warranty' or benefit_type == 'courtesy' or item.is_customer_supplied %}opacity-[0.85]{% endif %}">
+                                    <td class="p-2">{{ item.code|default:"-" }}</td>
                                     <td class="p-2">
                                         <div class="flex items-center gap-2 min-w-0">
                                             <span>{{ item.product.name }}</span>
-                                            {% if item.item_benefit_type == "warranty" %}
+                                            {% if benefit_type == "warranty" %}
                                                 <span class="badge badge-error badge-xs gap-1 shrink-0">Garantia</span>
-                                            {% elif item.item_benefit_type == "courtesy" %}
+                                            {% elif benefit_type == "courtesy" %}
                                                 <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
                                             {% endif %}
                                         </div>
                                     </td>
+                                    <td class="p-2 text-center">
+                                        {% if item.is_customer_supplied %}
+                                            <span class="badge badge-success badge-outline shrink-0">Sim</span>
+                                        {% else %}
+                                            <span class="badge badge-ghost badge-outline shrink-0">Não</span>
+                                        {% endif %}
+                                    </td>
                                     <td class="p-2">{{ item.product.description }}</td>
-                                    <td class="p-2 whitespace-normal break-words">{{ item.product.application|default:"-" }}</td>
-                                    <td class="p-2 text-center">{{ item.quantity }}</td>
-                                    <td class="p-2">{{ item.product_selling_price }}</td>
-                                    <td class="p-2 font-semibold">{{ item.total_price }}</td>
+                                    <td class="p-2 whitespace-normal break-words">{{ item.application|default:"-" }}</td>
+                                    <td class="p-2 text-center">
+                                        <span class="inline-flex items-center justify-center gap-1">
+                                            <span>{{ item.quantity }}</span>
+                                            {% if item.has_product_issues %}
+                                                <span class="tooltip tooltip-left shrink-0" data-tip="{{ item.product_issue_tooltip }}">
+                                                    <span class="material-icons text-warning" style="font-size: 18px;">warning</span>
+                                                </span>
+                                            {% endif %}
+                                        </span>
+                                    </td>
+                                    <td class="p-2">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.unit_price }}{% endif %}</td>
+                                    <td class="p-2 font-semibold">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.total_price }}{% endif %}</td>
                                 </tr>
+                                {% endwith %}
                             {% empty %}
                                 <tr>
-                                    <td class="p-2 text-center text-base-content/60" colspan="7">Nenhuma peça adicionada.</td>
+                                    <td class="p-2 text-center text-base-content/60" colspan="8">Nenhuma peça adicionada.</td>
                                 </tr>
                             {% endfor %}
                         </tbody>

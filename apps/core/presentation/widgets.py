@@ -92,6 +92,13 @@ class SearchableSelectInput(SelectInput):
         super().__init__(*args, **kwargs)
         self.choices = choices or []
 
+    def get_context(self, name, value, attrs):
+        ctx = super().get_context(name, value, attrs)
+        merged_attrs = ctx["widget"].get("attrs") or {}
+        ctx["widget"]["data_source_url"] = merged_attrs.get("data-source-url", "") or ""
+        ctx["widget"]["data_min_search_length"] = merged_attrs.get("data-min-search-length", "0")
+        return ctx
+
 
 class CalendarDateInput(forms.DateInput):
     template_name = "widgets/calendar_date_input.html"

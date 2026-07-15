@@ -11,12 +11,14 @@ from urllib.parse import urlencode
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Prefetch
+from django.db.models import Count, DecimalField, Sum, Value
+from django.db.models.functions import Coalesce
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.urls import reverse
 from django.shortcuts import get_object_or_404, render
 from django.utils.decorators import method_decorator
 from django.utils.html import escape
+from django.utils import timezone
 from django.views import View
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import DetailView, ListView, TemplateView
@@ -32,7 +34,12 @@ from apps.budget.models import BudgetType
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.collaborators.services import sync_workorder_collaborator_payrolls
 from apps.core.domain.services.editing_lock_service import get_lock_info
+from apps.core.infrastructure.kit_prefetch import workorder_items_with_kit_prefetch
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_query_param_filters
+from apps.core.infrastructure.services.dashboard_query_service import (
+    _build_injected_pricing_context,
+    _prepare_workorder_for_dashboard_pricing,
+)
 from apps.core.presentation.tables import TableActionDefaults
 from apps.core.infrastructure.pdf.renderer import build_pdf_http_response
 from apps.core.domain.contracts.signature import SignatureServiceError
@@ -85,6 +92,7 @@ from apps.workorder.util import (
     _build_concurrent_lock_response,
 )
 from apps.workshops.mixin import WorkshopScopedMixin
+from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.workshops import get_active_workshop_or_404
 
@@ -394,30 +402,30 @@ class WorkOrderStatusReportDataMixin:
             TableColumn("Entregue em", attr="delivered_at"),
             TableColumn("Veículo", attr="budget.vehicle", search_by=("budget__vehicle__plate", "budget__vehicle__model", "budget__vehicle__brand")),
             TableColumn("Tipo", attr="type_badge", searchable=False, format="status_badge"),
-            TableColumn("Valor Total", attr="total_budget_value", searchable=False),
+            TableColumn("Valor Total", attr="stored_total_amount", searchable=False),
             TableColumn("Status", attr="workorder_status_badge", search_by="status", format="status_badge"),
         ]
 
-    def _get_workorder_base_queryset(self):
+    def _get_workorder_base_queryset(self, *, for_pricing: bool = False):
+        queryset = WorkOrder.objects.filter(workshop=self.workshop).select_related(
+            "budget",
+            "budget__customer",
+            "budget__vehicle",
+        )
+        if not for_pricing:
+            return queryset
+
+        return queryset.prefetch_related(workorder_items_with_kit_prefetch(with_kit_tree=False))
+
+    def _get_workorder_report_queryset(self):
         return (
             WorkOrder.objects.filter(workshop=self.workshop)
             .select_related("budget", "budget__customer", "budget__vehicle")
-            .prefetch_related(
-                Prefetch(
-                    "items",
-                    queryset=WorkOrderItem.objects.select_related("product", "service", "kit")
-                    .prefetch_related(
-                        "kit_overrides",
-                        "kit__kit_products__product",
-                        "kit__kit_services__service",
-                    )
-                    .order_by("id"),
-                )
-            )
+            .prefetch_related(workorder_items_with_kit_prefetch(with_kit_tree=True))
         )
 
-    def _get_filtered_workorder_queryset(self):
-        queryset = self._get_workorder_base_queryset()
+    def _get_filtered_workorder_queryset(self, *, for_pricing: bool = False, for_report: bool = False):
+        queryset = self._get_workorder_report_queryset() if for_report else self._get_workorder_base_queryset(for_pricing=for_pricing)
 
         queryset = apply_query_param_filters(
             queryset,
@@ -427,12 +435,24 @@ class WorkOrderStatusReportDataMixin:
 
         return queryset.order_by("-budget__pk", "-criado_em")
 
+    def _get_list_pricing_context(self):
+        today = timezone.localdate()
+        workshop_cost = WorkshopCost.objects.filter(workshop=self.workshop, month=today.month, year=today.year).first()
+        return _build_injected_pricing_context(workshop=self.workshop, workshop_cost=workshop_cost)
+
+    def _prepare_workorders_for_list_pricing(self, workorders: list[WorkOrder], *, for_totals_only: bool = True) -> list[WorkOrder]:
+        pricing_context = self._get_list_pricing_context()
+        for workorder in workorders:
+            _prepare_workorder_for_dashboard_pricing(workorder, pricing_context=pricing_context, for_totals_only=for_totals_only)
+        return workorders
+
     def _get_selection_report_items(self) -> list[WorkOrder]:
         cached = getattr(self, "_selection_report_items_cache", None)
         if cached is not None:
             return cached
 
-        items = list(self._get_filtered_workorder_queryset())
+        # PDF/list report rows use stored totals — no items/kit pricing prefetch.
+        items = list(self._get_filtered_workorder_queryset(for_pricing=False, for_report=False))
         self._selection_report_items_cache = items
         return items
 
@@ -468,12 +488,15 @@ class WorkOrderStatusReportDataMixin:
         if not selected_status_choices:
             return None
 
-        report_items = self._get_selection_report_items()
-        total_value = sum((workorder.total_budget_value.amount for workorder in report_items), Decimal("0.00"))
+        decimal_out = DecimalField(max_digits=14, decimal_places=2)
+        aggregates = self._get_filtered_workorder_queryset(for_pricing=False, for_report=False).aggregate(
+            count=Count("pk"),
+            total=Coalesce(Sum("stored_total_amount"), Value(Decimal("0.00")), output_field=decimal_out),
+        )
 
         return {
-            "count": len(report_items),
-            "total_value": total_value,
+            "count": int(aggregates["count"] or 0),
+            "total_value": aggregates["total"] or Decimal("0.00"),
             "badges": [{"text": str(status_choice.label), "class": WORKORDER_STATUS_BADGE_CLASSES.get(status_choice, "badge-ghost min-w-sm")} for status_choice in selected_status_choices],
             "filters_summary": self._build_selection_report_filters_summary(),
         }
@@ -500,12 +523,19 @@ class WorkOrderListView(LoginRequiredMixin, WorkOrderStatusReportDataMixin, Work
     template_name = "workorder/workorder_list.html"
     context_object_name = "workorder"
     htmx_template_name = "workorder/partials/workorder_table.html"
+    # Pagination is owned by render_table; keep ListView from counting/slicing.
 
     def get_queryset(self):
-        return self._get_filtered_workorder_queryset()
+        return self._get_filtered_workorder_queryset(for_pricing=False, for_report=False)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        # render_table faz sua própria paginação e filtragem. O Django ListView
+        # com paginate_by fatia o queryset antes de expô-lo no contexto, o que
+        # impede o render_table de chamar .filter() depois. Passamos o queryset
+        # completo (sem materializar/precificar) para o render_table paginar no ORM.
+        # Valor Total usa stored_total_amount — sem build_pricing_snapshot por linha.
+        context["workorder"] = self._get_filtered_workorder_queryset(for_pricing=False, for_report=False)
         context["fields"] = self._get_workorder_table_fields()
 
         context["actions"] = [
@@ -563,16 +593,7 @@ class WorkOrderDetailView(LoginRequiredMixin, WorkshopScopedMixin, DetailView):
                 "collaborators",
                 "payments",
                 "attachments",
-                Prefetch(
-                    "items",
-                    queryset=WorkOrderItem.objects.select_related("product", "service", "kit")
-                    .prefetch_related(
-                        "kit_overrides",
-                        "kit__kit_products__product",
-                        "kit__kit_services__service",
-                    )
-                    .order_by("id"),
-                ),
+                workorder_items_with_kit_prefetch(with_kit_tree=True),
             )
         )
 
@@ -718,7 +739,16 @@ class UpdateWorkOrderKmFinalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         km_final = approval_form.cleaned_data["km_final"]
         workorder.set_km_final(km_final)
 
-        return JsonResponse({"ok": True, "km_final": km_final})
+        return JsonResponse(
+            {
+                "ok": True,
+                "km_final": km_final,
+                "has_completion_blockers": workorder.has_completion_blockers,
+                "completion_blockers_display": workorder.completion_blockers_display,
+                "has_signature_blockers": workorder.has_signature_blockers,
+                "signature_blockers_display": workorder.signature_blockers_display,
+            }
+        )
 
 
 class UpdateWorkOrderObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -831,14 +861,20 @@ class WorkOrderAddItemsBatchView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 )
 
         try:
-            for item_id in selected_ids:
-                item_filter = {f"{item_type}_id": item_id}
-                WorkOrderItem.objects.get_or_create(
-                    workshop=self.workshop,
-                    workorder=workorder,
-                    **item_filter,
-                    defaults={"quantity": 1},
-                )
+            workorder._skip_stored_total_refresh = True
+            try:
+                for item_id in selected_ids:
+                    item_filter = {f"{item_type}_id": item_id}
+                    WorkOrderItem.objects.get_or_create(
+                        workshop=self.workshop,
+                        workorder=workorder,
+                        **item_filter,
+                        defaults={"quantity": 1},
+                    )
+            finally:
+                workorder._skip_stored_total_refresh = False
+                workorder.invalidate_pricing_snapshot_cache()
+                workorder.refresh_stored_total_amount()
         except Exception:
             active_tab = {
                 "product": "products",
@@ -1358,7 +1394,19 @@ class ReopenWorkOrderView(LoginRequiredMixin, WorkshopScopedMixin, View):
 @xframe_options_exempt
 def visualizar_pdf_workorder(request, pk):
     workshop = get_active_workshop_or_404(request)
-    workorder = get_object_or_404(WorkOrder.objects.select_related("workshop", "budget"), pk=pk, workshop=workshop)
+    workorder = get_object_or_404(
+        WorkOrder.objects.select_related("workshop", "budget", "budget__customer", "budget__vehicle").prefetch_related(
+            workorder_items_with_kit_prefetch(with_kit_tree=True),
+            "payments",
+            "payments__payment_method",
+        ),
+        pk=pk,
+        workshop=workshop,
+    )
+    today = timezone.localdate()
+    workshop_cost = WorkshopCost.objects.filter(workshop=workshop, month=today.month, year=today.year).first()
+    pricing_context = _build_injected_pricing_context(workshop=workshop, workshop_cost=workshop_cost)
+    _prepare_workorder_for_dashboard_pricing(workorder, pricing_context=pricing_context, for_totals_only=True)
     should_download = request.GET.get("download") == "1"
     requested_variant = _get_requested_pdf_variant(request)
 

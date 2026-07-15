@@ -329,7 +329,11 @@ def _build_snapshot_product_line(line: Any) -> ProductEmissionLine:
 
 def _extract_product_lines(*, workorder: WorkOrder) -> list[ProductEmissionLine]:
     snapshot = build_emission_pricing_snapshot_for_workorder(workorder=workorder)
-    lines = [_build_snapshot_product_line(line) for line in snapshot.product_lines]
+    lines = [
+        _build_snapshot_product_line(line)
+        for line in snapshot.product_lines
+        if not line.is_customer_supplied
+    ]
     return [line for line in lines if line.quantity > 0 and line.base_total > 0]
 
 
@@ -391,6 +395,8 @@ def build_nfe_preview_warning_messages(*, workorder: WorkOrder, persisted_slider
     seen_messages: set[str] = set()
 
     for line in snapshot.product_lines:
+        if line.is_customer_supplied:
+            continue
         warning_message = _build_preview_validation_message(line)
         if not warning_message or warning_message in seen_messages:
             continue
@@ -655,11 +661,25 @@ def emit_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None = N
         raise NfeEmissionError(str(exc)) from exc
 
     payload = build_nfe_payload(nfe_request=nfe_request, request=request, slider_override=slider_override)
-    print("363 - payload enviado:", payload)
+    logger.debug(
+        "nfe_emit_request_started",
+        extra={
+            "nfe_request_id": nfe_request.pk,
+            "workshop_id": nfe_request.workshop_id,
+            "emit_url": emit_url,
+        },
+    )
 
     try:
         response = requests.post(emit_url, json=payload, headers=headers, timeout=30)
-        print("367 - response:", response)
+        logger.debug(
+            "nfe_emit_http_response",
+            extra={
+                "nfe_request_id": nfe_request.pk,
+                "workshop_id": nfe_request.workshop_id,
+                "status_code": response.status_code,
+            },
+        )
         response.raise_for_status()
     except requests.RequestException as exc:
         message = build_webmania_request_exception_message(exc, default="Falha ao emitir Nota Fiscal", scope="nfe")
@@ -667,7 +687,6 @@ def emit_nfe_request(*, nfe_request: NfeRequest, request: HttpRequest | None = N
 
     try:
         data = response.json()
-        print("375 - data:", data)
     except ValueError as exc:
         raise NfeEmissionError("Resposta invalida da API de emissao de Nota Fiscal.") from exc
 
@@ -852,7 +871,12 @@ def build_nfe_preview_rows(
         persisted_slider=persisted_slider,
         slider_override=slider_override,
     )
-    lines = [preview_line for line in snapshot.product_lines if (preview_line := _build_snapshot_preview_product_line(line)) is not None]
+    lines = [
+        preview_line
+        for line in snapshot.product_lines
+        if not line.is_customer_supplied
+        and (preview_line := _build_snapshot_preview_product_line(line)) is not None
+    ]
     allocation = build_slider_allocation_for_workorder(
         workorder=workorder,
         persisted_slider=persisted_slider,

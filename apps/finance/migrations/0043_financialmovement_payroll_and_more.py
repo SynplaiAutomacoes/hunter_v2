@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
         ('finance', '0042_alter_taxclassnfecofinsscenario_tax_class_and_more'),
         ('sources', '0001_initial'),
         ('suppliers', '0009_alter_supplier_cnpj'),
-        ('workorder', '0034_merge_20260708_0001'),
+        ('workorder', '0034_merge_0032_service_shipping_0033_backfill'),
         ('workshops', '0027_workshop_whatsapp_phone'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]

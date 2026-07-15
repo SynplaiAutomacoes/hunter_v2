@@ -59,6 +59,9 @@ class Customer(TimeStampedModel, Address):
         return self.cpf_or_cnpj
 
     def vehicles_count(self) -> str:
+        cached_count = getattr(self, "vehicle_count", None)
+        if cached_count is not None:
+            return str(cached_count)
         return str(self.vehicles.count())
 
     if TYPE_CHECKING:

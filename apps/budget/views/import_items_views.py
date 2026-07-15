@@ -4,6 +4,7 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views import View
 from apps.budget.models import Budget, BudgetItem
+from apps.core.infrastructure.kit_prefetch import budget_kit_overrides_prefetch
 from apps.workshops.mixin import WorkshopScopedMixin
 from .shared import _get_budget_for_workshop, _is_budget_edit_locked, LOCKED_BUDGET_EDIT_MESSAGE, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
 from apps.core.presentation.widgets import SearchableSelectInput
@@ -99,7 +100,7 @@ class BudgetImportItemsProcessView(LoginRequiredMixin, WorkshopScopedMixin, View
         if not selected_item_ids:
             return HttpResponse(status=204)
 
-        source_items = BudgetItem.objects.filter(id__in=selected_item_ids, workshop=self.workshop).select_related("product", "service", "kit").prefetch_related("kit_overrides")
+        source_items = BudgetItem.objects.filter(id__in=selected_item_ids, workshop=self.workshop).select_related("product", "service", "kit").prefetch_related(budget_kit_overrides_prefetch())
 
         for source_item in source_items:
             existing_item = None

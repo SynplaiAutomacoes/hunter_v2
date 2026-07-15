@@ -1,17 +1,25 @@
 from typing import Any
 
-from django.db.models import Prefetch
+from django.db.models import Count, Prefetch
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse, JsonResponse
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
 from apps.catalog.models import FipeModelFuelCache, FipeVehicleBrand, FipeVehicleModel, FipeVehicleType
 from apps.budget.models import Budget
+from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch, workorder_items_with_kit_prefetch
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.infrastructure.search import apply_text_search
+from apps.core.infrastructure.services.dashboard_query_service import (
+    _build_injected_pricing_context,
+    _prepare_budget_for_dashboard_pricing,
+    _prepare_workorder_for_dashboard_pricing,
+)
 from apps.workshops.mixin import WorkshopScopedMixin
+from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.core.presentation.navigation import CREATE_CLIENT_FAVORITE_PAGE
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, BaseModalFormView, PageFavoriteMixin
 from apps.workorder.models import WorkOrder
@@ -84,13 +92,34 @@ def _build_customer_workorder_history_entry(workorder: WorkOrder) -> dict[str, A
 
 
 def _build_customer_history_context(customer: Customer) -> dict[str, Any]:
-    budgets = Budget.objects.filter(customer=customer).select_related("vehicle").prefetch_related(Prefetch("workorders", queryset=WorkOrder.objects.select_related("budget__vehicle").order_by("pk"))).order_by("-criado_em")
+    today = timezone.localdate()
+    workshop = customer.workshop
+    workshop_cost = WorkshopCost.objects.filter(workshop=workshop, month=today.month, year=today.year).first()
+    pricing_context = _build_injected_pricing_context(workshop=workshop, workshop_cost=workshop_cost)
+
+    workorder_qs = (
+        WorkOrder.objects.select_related("budget", "budget__vehicle")
+        .prefetch_related(workorder_items_with_kit_prefetch(with_kit_tree=False))
+        .order_by("pk")
+    )
+    budgets = (
+        Budget.objects.filter(customer=customer)
+        .select_related("vehicle", "workshop")
+        .prefetch_related(
+            budget_items_with_kit_prefetch(with_kit_tree=False),
+            Prefetch("workorders", queryset=workorder_qs),
+        )
+        .order_by("-criado_em")
+    )
 
     history_rows: list[dict[str, Any]] = []
     for budget in budgets:
-        workorders = list(getattr(budget, "workorders").all())
+        _prepare_budget_for_dashboard_pricing(budget, pricing_context=pricing_context, for_totals_only=True)
+        workorders = list(budget.workorders.all())
         if workorders:
-            history_rows.append(_build_customer_workorder_history_entry(workorders[0]))
+            workorder = workorders[0]
+            _prepare_workorder_for_dashboard_pricing(workorder, pricing_context=pricing_context, for_totals_only=True)
+            history_rows.append(_build_customer_workorder_history_entry(workorder))
             continue
         history_rows.append(_build_customer_budget_history_entry(budget))
 
@@ -105,14 +134,16 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
     htmx_template_name = "customer/partials/customer_table.html"
 
     def get_queryset(self):
-        queryset = super().get_queryset()
+        queryset = super().get_queryset().annotate(vehicle_count=Count("vehicles"))
 
         search_query = self.request.GET.get("q", "").strip()
 
         if search_query:
             queryset = apply_text_search(queryset, search_value=search_query, lookups=("name", "fantasy_name", "cpf_or_cnpj", "phone", "rg", "email"))
 
-        queryset = apply_is_active_filter(queryset, params=self.request.GET)
+        is_active = self.request.GET.get("is_active", "").strip()
+        if is_active:
+            queryset = apply_is_active_filter(queryset, params=self.request.GET)
 
         queryset = apply_query_param_filters(
             queryset,
@@ -306,6 +337,9 @@ class CustomerHistoryListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
     template_name = "history/customer-history_list.html"
     context_object_name = "customer"
     htmx_template_name = "history/partial/customer-history_table.html"
+
+    def get_queryset(self):
+        return super().get_queryset().annotate(vehicle_count=Count("vehicles"))
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

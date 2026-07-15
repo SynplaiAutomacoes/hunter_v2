@@ -3,13 +3,13 @@
 <dialog
     id="payroll-edit-modal"
     class="modal"
-    x-data="{ activeTab: 'payment' }"
+    x-data="{ activeTab: '{{ selected_tab }}' }"
     x-ref="payrollEditModal"
     x-init="$nextTick(() => $el.showModal())"
     @click="if ($event.target === $el) $el.close()"
     @close="$el.remove()"
 >
-    <div class="modal-box w-[95vw] max-w-7xl border border-base-300 bg-base-100 p-6 shadow-2xl md:p-10">
+    <div class="modal-box w-[95vw] max-w-7xl border border-base-300 bg-base-100 p-6 pb-0 shadow-2xl md:p-10 md:pb-0">
         <div class="mb-4 flex items-center justify-between gap-4">
             <div>
                 <h3 class="flex items-center gap-3 text-2xl font-bold text-base-content">
@@ -23,54 +23,81 @@
             </button>
         </div>
 
-        <div class="tabs tabs-boxed mb-6 flex w-full flex-wrap gap-2 bg-base-200/70 p-2">
+        <div class="mb-6 flex flex-wrap gap-2 rounded-2xl bg-base-200/70 p-2">
             <button type="button" class="btn btn-sm" :class="activeTab === 'collaborator' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'collaborator'">Dados do colaborador</button>
-            <button type="button" class="btn btn-sm" :class="activeTab === 'commissions' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'commissions'">Comissões</button>
-            <button type="button" class="btn btn-sm" :class="activeTab === 'payment' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'payment'">Sobre o pagamento</button>
+            <button type="button" class="btn btn-sm" :class="activeTab === 'commissions_history' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'commissions_history'">Histórico de comissões</button>
+            {% for tab in component_tabs %}
+                <button type="button" class="btn btn-sm" :class="activeTab === '{{ tab.key }}' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = '{{ tab.key }}'">
+                    {{ tab.label }}
+                    {% if tab.is_missing %}<span class="badge badge-warning badge-xs ml-1">faltando</span>{% endif %}
+                </button>
+            {% endfor %}
             <button type="button" class="btn btn-sm" :class="activeTab === 'summary' ? 'btn-primary' : 'btn-ghost'" @click="activeTab = 'summary'">Resumo</button>
         </div>
 
-        <form method="post" hx-post="{% url 'finance:payroll_edit_modal' payroll.pk %}" hx-target="closest .modal" hx-swap="outerHTML">
+        <form method="post" hx-post="{{ modal_url }}" hx-target="closest .modal" hx-swap="outerHTML">
             {% csrf_token %}
+
             <div class="max-h-[60vh] overflow-y-auto px-1 py-2">
                 <section x-show="activeTab === 'collaborator'" x-cloak class="space-y-4">
                     <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4">
-                            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Nome</p>
-                            <p class="mt-1 font-semibold">{{ payroll.collaborator.name }}</p>
+                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Nome</p><p class="mt-1 font-semibold">{{ payroll.collaborator.name }}</p></div>
+                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Cargo</p><p class="mt-1 font-semibold">{{ payroll.collaborator.position|default:"-" }}</p></div>
+                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Admissão</p><p class="mt-1 font-semibold">{{ payroll.collaborator.admission_date|date:"d/m/Y" }}</p></div>
+                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Salário</p><p class="mt-1 font-semibold">{{ payroll.salary_amount }}</p></div>
+                    </div>
+                    <div
+                        class="grid gap-4 md:grid-cols-2"
+                        x-data="{
+                            workDays: {{ payroll.work_days|default:0|unlocalize }},
+                            workshopDefaultWorkDays: {{ workshop_default_work_days|default:0|unlocalize }},
+                            transportDaily: {{ transport_daily_amount|default:0|unlocalize }},
+                            formatMoney(value) {
+                                return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value) || 0);
+                            },
+                            resolvedWorkDays() {
+                                if (this.workDays === null || this.workDays === '' || Number.isNaN(Number(this.workDays))) {
+                                    return Number(this.workshopDefaultWorkDays || 0);
+                                }
+                                return Number(this.workDays || 0);
+                            },
+                            transportTotalDisplay() {
+                                return this.formatMoney(this.transportDaily * this.resolvedWorkDays());
+                            },
+                            fillWorkDaysFromWorkshopDefault() {
+                                if (this.workDays === null || this.workDays === '' || Number.isNaN(Number(this.workDays))) {
+                                    this.workDays = Number(this.workshopDefaultWorkDays || 0);
+                                }
+                            }
+                        }"
+                    >
+                        <div class="rounded-xl border border-base-300 bg-base-100 p-4">
+                            <label class="label pb-1" for="id_payroll_work_days"><span class="label-text text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Dias úteis deste mês</span></label>
+                            <input
+                                id="id_payroll_work_days"
+                                type="number"
+                                name="work_days"
+                                min="0"
+                                max="31"
+                                class="input input-bordered w-full"
+                                x-model.number="workDays"
+                                @blur="fillWorkDaysFromWorkshopDefault()"
+                            >
+                            <p class="mt-2 text-xs text-base-content/60">Não altera o custo do mês da oficina.</p>
                         </div>
                         <div class="rounded-xl border border-base-300 bg-base-200/60 p-4">
-                            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Cargo</p>
-                            <p class="mt-1 font-semibold">{{ payroll.collaborator.position|default:"-" }}</p>
-                        </div>
-                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4">
-                            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Admissão</p>
-                            <p class="mt-1 font-semibold">{{ payroll.collaborator.admission_date|date:"d/m/Y" }}</p>
-                        </div>
-                        <div class="rounded-xl border border-base-300 bg-base-200/60 p-4">
-                            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Salário</p>
-                            <p class="mt-1 font-semibold">{{ payroll.salary_amount }}</p>
+                            <p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Vale transporte</p>
+                            <p class="mt-1 font-semibold" x-text="transportTotalDisplay()"></p>
+                            <p class="mt-2 text-xs text-base-content/60">Recalculado com base nos dias úteis.</p>
                         </div>
                     </div>
-                    <a href="{% url 'collaborators:collaborator_update' payroll.collaborator.pk %}" class="btn btn-outline">
-                        <span class="material-icons text-sm">open_in_new</span>
-                        Editar Colaborador
-                    </a>
+                    <a href="{% url 'collaborators:collaborator_update' payroll.collaborator.pk %}" class="btn btn-outline"><span class="material-icons text-sm">open_in_new</span>Editar Colaborador</a>
                 </section>
 
-                <section x-show="activeTab === 'commissions'" x-cloak class="space-y-4">
+                <section x-show="activeTab === 'commissions_history'" x-cloak class="space-y-4">
                     <div class="overflow-x-auto rounded-xl border border-base-300">
                         <table class="table table-sm">
-                            <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
-                                <tr>
-                                    <th>O.S.</th>
-                                    <th>Competência</th>
-                                    <th>Base</th>
-                                    <th>%</th>
-                                    <th>Valor</th>
-                                    <th>Status</th>
-                                </tr>
-                            </thead>
+                            <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55"><tr><th>O.S.</th><th>Competência</th><th>Base</th><th>%</th><th>Valor</th><th>Status</th></tr></thead>
                             <tbody>
                                 {% for commission in payroll.commission_entries.all %}
                                     <tr>
@@ -89,21 +116,6 @@
                     </div>
                 </section>
 
-                <section x-show="activeTab === 'payment'" x-cloak class="space-y-4">
-                    <h3 class="flex items-center gap-2 text-base font-semibold text-base-content"><span class="material-icons text-sm">payments</span> Sobre o pagamento</h3>
-                    <div class="grid grid-cols-12 gap-4">
-                        <div class="col-span-12 lg:col-span-4">{{ form.due_date|as_crispy_field }}</div>
-                        <div class="col-span-12 lg:col-span-4">{{ form.amount|as_crispy_field }}</div>
-                        <div class="col-span-12 lg:col-span-4">{{ form.is_paid|as_crispy_field }}</div>
-                        <div class="col-span-12 lg:col-span-4">{{ form.is_reconciled|as_crispy_field }}</div>
-                        <div class="col-span-12 lg:col-span-4">{{ form.payment_method|as_crispy_field }}</div>
-                        <div class="col-span-12 lg:col-span-4">{{ form.budget_plan|as_crispy_field }}</div>
-                        <div class="col-span-12 lg:col-span-4">{{ form.bank_account|as_crispy_field }}</div>
-                        <div class="col-span-12 lg:col-span-4">{{ form.nf_number|as_crispy_field }}</div>
-                        <div class="col-span-12">{{ form.financial_observation|as_crispy_field }}</div>
-                    </div>
-                </section>
-
                 <section x-show="activeTab === 'summary'" x-cloak class="space-y-4">
                     <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
                         <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Salário</p><p class="mt-1 font-bold">{{ payroll.salary_amount }}</p></div>
@@ -112,19 +124,129 @@
                         <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Comissões</p><p class="mt-1 font-bold">{{ payroll.commission_amount }}</p></div>
                         <div class="rounded-xl border border-base-300 bg-base-200/60 p-4"><p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Total</p><p class="mt-1 font-black text-success">{{ payroll.total_amount }}</p></div>
                     </div>
-                    <button type="button" class="btn btn-secondary" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{% url 'collaborators:collaborator_payroll_receipt' payroll.collaborator.pk payroll.pk %}', downloadUrl: '{% url 'collaborators:collaborator_payroll_receipt' payroll.collaborator.pk payroll.pk %}?download=1' } }))">
-                        <span class="material-icons text-sm">picture_as_pdf</span>
-                        Imprimir PDF
-                    </button>
+                    <button type="button" class="btn btn-secondary" onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{% url 'collaborators:collaborator_payroll_receipt' payroll.collaborator.pk payroll.pk %}', downloadUrl: '{% url 'collaborators:collaborator_payroll_receipt' payroll.collaborator.pk payroll.pk %}?download=1' } }))"><span class="material-icons text-sm">picture_as_pdf</span>Imprimir PDF</button>
                 </section>
+
+                {% for tab in component_tabs %}
+                    <section x-show="activeTab === '{{ tab.key }}'" x-cloak class="space-y-4">
+                        {% if tab.is_benefit_tab %}
+                            <div class="flex items-center justify-between gap-3">
+                                <h3 class="flex items-center gap-2 text-base font-semibold text-base-content"><span class="material-icons text-sm">payments</span>{{ tab.label }}</h3>
+                            </div>
+
+                            {% if tab.is_missing and not tab.movements %}
+                                <div class="rounded-xl border border-warning/40 bg-warning/10 p-5 text-warning-content">
+                                    <p class="font-semibold text-base-content">Esta movimentação ainda não foi criada.</p>
+                                    <p class="mt-1 text-sm text-base-content/70">Se quiser gerar {{ tab.label|lower }}, confirme a criação. Se preferir não criar agora, você pode continuar editando as outras abas.</p>
+                                    <div class="mt-4 flex gap-2">
+                                        <button type="button" class="btn btn-warning" hx-get="{{ modal_url }}?tab={{ tab.key }}&prompt_create_component={{ tab.key }}&continue_without_create=true" hx-target="closest .modal" hx-swap="outerHTML"><span class="material-icons text-sm">add_task</span>Criar esta movimentação</button>
+                                    </div>
+                                </div>
+                            {% elif tab.benefit_items %}
+                                <div class="rounded-xl border border-base-300 bg-base-200/60 p-4">
+                                    <p class="text-xs font-semibold uppercase tracking-[0.16em] text-base-content/55">Total de benefícios</p>
+                                    <p class="mt-1 text-xl font-black text-base-content">{{ tab.benefits_total }}</p>
+                                </div>
+
+                                <div class="space-y-3">
+                                    {% for item in tab.benefit_items %}
+                                        <div class="collapse collapse-arrow border border-base-300 bg-base-100">
+                                            <input type="checkbox" />
+                                            <div class="collapse-title pr-12 font-semibold">
+                                                <div class="flex items-center gap-3">
+                                                    <span class="min-w-0 flex-1 truncate">{{ item.benefit_name }}</span>
+                                                    <span class="shrink-0 text-sm font-bold text-primary">{{ item.amount }}</span>
+                                                    <button
+                                                        type="button"
+                                                        class="btn btn-ghost btn-xs btn-square relative z-20 shrink-0 text-error hover:bg-error/10"
+                                                        title="Excluir {{ item.benefit_name }}"
+                                                        aria-label="Excluir {{ item.benefit_name }}"
+                                                        hx-get="{% url 'finance:financial_movement_remove_payroll_link' item.movement_id %}"
+                                                        hx-target="body"
+                                                        hx-swap="beforeend"
+                                                        onclick="event.stopPropagation()"
+                                                    >
+                                                        <span class="material-icons pointer-events-none text-sm">delete</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="collapse-content">
+                                                <input type="hidden" name="tab_{{ tab.key }}_movement_id_{{ item.movement_id }}" value="{{ item.movement_id }}">
+                                                <div class="grid grid-cols-12 gap-4 pt-2">
+                                                    <div class="col-span-12 lg:col-span-4">{{ item.form.due_date|as_crispy_field }}</div>
+                                                    <div class="col-span-12 lg:col-span-4">{{ item.form.amount|as_crispy_field }}</div>
+                                                    <div class="col-span-12 lg:col-span-4">{{ item.form.is_paid|as_crispy_field }}</div>
+                                                    <div class="col-span-12 lg:col-span-4">{{ item.form.is_reconciled|as_crispy_field }}</div>
+                                                    <div class="col-span-12 lg:col-span-4">{{ item.form.payment_method|as_crispy_field }}</div>
+                                                    <div class="col-span-12 lg:col-span-4">{{ item.form.budget_plan|as_crispy_field }}</div>
+                                                    <div class="col-span-12 lg:col-span-4">{{ item.form.bank_account|as_crispy_field }}</div>
+                                                    <div class="col-span-12 lg:col-span-4">{{ item.form.nf_number|as_crispy_field }}</div>
+                                                    <div class="col-span-12">{{ item.form.financial_observation|as_crispy_field }}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                        {% else %}
+                            <div class="flex items-center justify-between gap-3">
+                                <h3 class="flex items-center gap-2 text-base font-semibold text-base-content"><span class="material-icons text-sm">payments</span>{{ tab.label }}</h3>
+                                {% if tab.movements|length > 1 %}
+                                    <div class="flex flex-wrap gap-2">
+                                        {% for movement_option in tab.movements %}
+                                            <button type="button" class="btn btn-xs" hx-get="{{ modal_url }}?tab={{ tab.key }}&movement_id={{ movement_option.pk }}&continue_without_create=true" hx-target="closest .modal" hx-swap="outerHTML">{{ movement_option.description|default:tab.label }}</button>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+
+                            {% if tab.is_missing and not tab.movements %}
+                                <div class="rounded-xl border border-warning/40 bg-warning/10 p-5 text-warning-content">
+                                    <p class="font-semibold text-base-content">Esta movimentação ainda não foi criada.</p>
+                                    <p class="mt-1 text-sm text-base-content/70">Se quiser gerar {{ tab.label|lower }}, confirme a criação. Se preferir não criar agora, você pode continuar editando as outras abas.</p>
+                                    <div class="mt-4 flex gap-2">
+                                        <button type="button" class="btn btn-warning" hx-get="{{ modal_url }}?tab={{ tab.key }}&prompt_create_component={{ tab.key }}&continue_without_create=true" hx-target="closest .modal" hx-swap="outerHTML"><span class="material-icons text-sm">add_task</span>Criar esta movimentação</button>
+                                    </div>
+                                </div>
+                            {% elif tab.form %}
+                                <input type="hidden" name="tab_{{ tab.key }}_movement_id" value="{{ tab.default_movement_id }}">
+                                <div class="grid grid-cols-12 gap-4">
+                                    <div class="col-span-12 lg:col-span-4">{{ tab.form.due_date|as_crispy_field }}</div>
+                                    <div class="col-span-12 lg:col-span-4">{{ tab.form.amount|as_crispy_field }}</div>
+                                    <div class="col-span-12 lg:col-span-4">{{ tab.form.is_paid|as_crispy_field }}</div>
+                                    <div class="col-span-12 lg:col-span-4">{{ tab.form.is_reconciled|as_crispy_field }}</div>
+                                    <div class="col-span-12 lg:col-span-4">{{ tab.form.payment_method|as_crispy_field }}</div>
+                                    <div class="col-span-12 lg:col-span-4">{{ tab.form.budget_plan|as_crispy_field }}</div>
+                                    <div class="col-span-12 lg:col-span-4">{{ tab.form.bank_account|as_crispy_field }}</div>
+                                    <div class="col-span-12 lg:col-span-4">{{ tab.form.nf_number|as_crispy_field }}</div>
+                                    <div class="col-span-12">{{ tab.form.financial_observation|as_crispy_field }}</div>
+                                </div>
+                            {% endif %}
+                        {% endif %}
+                    </section>
+                {% endfor %}
             </div>
 
-            <div class="modal-action mt-8 flex items-center justify-end gap-3 border-t border-base-200 pt-6">
-                <button type="button" class="btn-form-cancel" @click="$refs.payrollEditModal.close()">Cancelar</button>
-                <button type="submit" class="btn btn-primary">
-                    <span class="material-icons text-sm">save</span>
-                    Salvar
-                </button>
+            <div class="modal-action mt-8 flex items-center justify-between gap-3 border-t border-base-200 py-6"
+                 x-data="{
+                     tabLabels: { {% for tab in component_tabs %}'{{ tab.key }}': '{{ tab.label|escapejs }}'{% if not forloop.last %}, {% endif %}{% endfor %} },
+                     tabMovementIds: { {% for tab in component_tabs %}'{{ tab.key }}': {% if tab.default_movement_id is not None %}{{ tab.default_movement_id|unlocalize }}{% else %}null{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %} },
+                     removeUrl: '{% url 'finance:financial_movement_remove_payroll_link' 0 %}',
+                     removeUrlForTab(tab) { return this.removeUrl.replace('/0/', '/' + (this.tabMovementIds[tab] || '') + '/'); }
+                 }">
+                <div x-show="activeTab !== 'BENEFIT' && tabMovementIds[activeTab]" x-cloak>
+                    <span class="text-sm text-base-content/70">Ações para <span class="font-semibold" x-text="tabLabels[activeTab] || ''"></span>:</span>
+                    <button type="button" class="btn btn-error btn-outline btn-sm ml-2"
+                            hx-target="body" hx-swap="beforeend"
+                            x-bind:hx-get="removeUrlForTab(activeTab)">
+                        <span class="material-icons text-sm">link_off</span>
+                        Excluir <span x-text="tabLabels[activeTab] || ''"></span>
+                    </button>
+                </div>
+                <div class="flex items-center gap-2" :class="activeTab === 'BENEFIT' || !tabMovementIds[activeTab] ? 'ml-auto' : ''">
+                    <button type="button" class="btn-form-cancel" @click="$refs.payrollEditModal.close()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary"><span class="material-icons text-sm">save</span>Salvar</button>
+                </div>
             </div>
         </form>
     </div>

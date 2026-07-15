@@ -30,6 +30,7 @@ from .shared import (
     _calculate_service_prices,
     _check_concurrent_budget_lock,
     _build_concurrent_budget_lock_response,
+    _get_budget_for_summary,
     _get_budget_for_workshop,
     _get_budget_item_for_workshop,
     _get_budget_workshop_cost,
@@ -766,39 +767,45 @@ class AddItemsBatchToBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return HttpResponse(error_html)
 
         try:
-            if item_type == "kit":
-                incompatible_kits = _get_incompatible_budget_kits(workshop=self.workshop, budget=budget, selected_ids=selected_ids)
-                if incompatible_kits:
-                    incompatible_names = ", ".join(kit.name for kit in incompatible_kits[:3])
-                    if len(incompatible_kits) > 3:
-                        incompatible_names = f"{incompatible_names} e mais {len(incompatible_kits) - 3} kit(s)"
-                    return _render_modal_error(
-                        title="Kit indisponível para este veículo",
-                        message=f"Os kits selecionados não correspondem à aplicação do veículo atual: {incompatible_names}.",
-                        icon="error",
-                    )
+            budget._skip_stored_total_refresh = True
+            try:
+                if item_type == "kit":
+                    incompatible_kits = _get_incompatible_budget_kits(workshop=self.workshop, budget=budget, selected_ids=selected_ids)
+                    if incompatible_kits:
+                        incompatible_names = ", ".join(kit.name for kit in incompatible_kits[:3])
+                        if len(incompatible_kits) > 3:
+                            incompatible_names = f"{incompatible_names} e mais {len(incompatible_kits) - 3} kit(s)"
+                        return _render_modal_error(
+                            title="Kit indisponível para este veículo",
+                            message=f"Os kits selecionados não correspondem à aplicação do veículo atual: {incompatible_names}.",
+                            icon="error",
+                        )
 
+                    for item_id in selected_ids:
+                        item, created = BudgetItem.objects.get_or_create(workshop=self.workshop, budget=budget, kit_id=item_id, defaults={"quantity": 1})
+                        if not created:
+                            item.quantity += 1
+                            item.save()
+
+                    # Reset etapas 5 e 6 após modificar a etapa 4
+                    reset_steps_after_step_4(budget)
+
+                    return _step_redirect_response(request, budget, fallback_step=4)
+
+                created_items = []
                 for item_id in selected_ids:
-                    item, created = BudgetItem.objects.get_or_create(workshop=self.workshop, budget=budget, kit_id=item_id, defaults={"quantity": 1})
+                    item_filter = {f"{item_type}_id": item_id}
+
+                    budget_item, created = BudgetItem.objects.get_or_create(workshop=self.workshop, budget=budget, **item_filter, defaults={"quantity": 1})
                     if not created:
-                        item.quantity += 1
-                        item.save()
+                        budget_item.quantity += 1
+                        budget_item.save()
 
-                # Reset etapas 5 e 6 após modificar a etapa 4
-                reset_steps_after_step_4(budget)
-
-                return _step_redirect_response(request, budget, fallback_step=4)
-
-            created_items = []
-            for item_id in selected_ids:
-                item_filter = {f"{item_type}_id": item_id}
-
-                budget_item, created = BudgetItem.objects.get_or_create(workshop=self.workshop, budget=budget, **item_filter, defaults={"quantity": 1})
-                if not created:
-                    budget_item.quantity += 1
-                    budget_item.save()
-
-                created_items.append(budget_item.pk)
+                    created_items.append(budget_item.pk)
+            finally:
+                budget._skip_stored_total_refresh = False
+                budget.invalidate_pricing_snapshot_cache()
+                budget.refresh_stored_total_amount()
         except Exception:
             logger.exception("budget_items_batch_add_failed", extra={"budget_id": budget_id, "item_type": item_type, "selected_count": len(raw_selected_ids), "selected_ids": raw_selected_ids[:20]})
             error_html = """
@@ -841,7 +848,7 @@ class BudgetSummaryView(LoginRequiredMixin, WorkshopScopedMixin, View):
     workshop_permission_codename = "view_budget"
 
     def get(self, request, budget_id):
-        budget = _get_budget_for_workshop(self.workshop, budget_id)
+        budget = _get_budget_for_summary(self.workshop, budget_id)
         return render(request, "budget/partials/components/budget_summary.html", {"budget": budget})
 
 
