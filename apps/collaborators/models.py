@@ -209,6 +209,9 @@ class CollaboratorPayroll(TimeStampedModel):
         verbose_name = "Folha do Colaborador"
         verbose_name_plural = "Folhas dos Colaboradores"
         ordering = ["-reference_year", "-reference_month", "-id"]
+        permissions = [
+            ("view_payroll_details", "Can view payroll details"),
+        ]
         constraints = [
             models.UniqueConstraint(fields=("collaborator", "reference_year", "reference_month"), name="unique_collaborator_payroll_reference"),
         ]

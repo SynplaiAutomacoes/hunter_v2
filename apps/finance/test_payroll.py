@@ -11,8 +11,11 @@ from djmoney.money import Money
 from apps.collaborators.models import CollaboratorCommissionEntry, CollaboratorPayroll, WorkshopCollaborator
 from apps.collaborators.services import sync_collaborator_payroll
 from apps.collaborators.test_commissions import create_financial_group_path, create_workorder
-from apps.finance.models.financial_movement import FinancialMovement
+from apps.core.presentation.navigation import get_navbar_menus
 from apps.finance.models.bank_account import BankAccount
+from apps.finance.models.financial_movement import FinancialMovement
+from apps.finance.services.dre import _agent_label
+from apps.finance.services.payroll_visibility import PAYROLL_REDACTED_LABEL, resolve_payroll_movement_display
 from apps.finance.views.financial_movement import FinancialMovementListView, FinancialMovementRemovePayrollLinkView
 from apps.finance.views.payroll import PayrollBulkConciliateView, PayrollBulkPayView, PayrollBulkUnpayView, PayrollEditModalView, PayrollListView, PayrollRefreshView
 from apps.finance.views.reports import ReportMovementEditView
@@ -41,6 +44,90 @@ def create_collaborator(*, workshop: Workshop, suffix: int) -> WorkshopCollabora
 
 
 class PayrollListViewTests(TestCase):
+    def test_navbar_hides_payroll_menu_without_permission(self) -> None:
+        request = RequestFactory().get("/")
+        request.user = SimpleNamespace(is_authenticated=True, account_id=1)
+
+        with (
+            patch("apps.core.presentation.navigation.active_workshops", return_value={"active_workshops": [SimpleNamespace(pk=1)], "active_workshop_id": 1, "active_workshop_is_director": False, "active_workshop_is_manager": False}),
+            patch("apps.core.presentation.navigation.can_view_payroll_details", return_value=False),
+        ):
+            menus = get_navbar_menus(request)
+
+        finance_menu = next(menu for menu in menus if menu["label"] == "Financeiro")
+        labels = {item["label"] for item in finance_menu["children"]}
+        self.assertNotIn("Folha de Pagamento", labels)
+
+    def test_list_queryset_does_not_trigger_monthly_sync_on_page_load(self) -> None:
+        workshop = create_workshop(suffix=19)
+        collaborator = create_collaborator(workshop=workshop, suffix=19)
+        CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2000, "BRL"),
+            total_amount=Money(2000, "BRL"),
+        )
+
+        view = PayrollListView()
+        view.request = RequestFactory().get("/finance/folha-pagamento/", {"mes": 8, "ano": 2026})
+        view.workshop = workshop
+
+        with patch.object(view, "_sync_monthly_payrolls") as sync_mock:
+            list(view._get_queryset())
+
+        sync_mock.assert_not_called()
+
+    def test_monthly_sync_skips_collaborators_with_existing_payroll_and_financial_movement(self) -> None:
+        workshop = create_workshop(suffix=20)
+        synced_collaborator = create_collaborator(workshop=workshop, suffix=20)
+        collaborator_without_movement = create_collaborator(workshop=workshop, suffix=21)
+        missing_payroll_collaborator = create_collaborator(workshop=workshop, suffix=22)
+
+        synced_movement = FinancialMovement.objects.create(
+            workshop=workshop,
+            collaborator=synced_collaborator,
+            direction=FinancialMovement.MovementDirection.DEBIT,
+            description="Folha sincronizada",
+            amount=Money(2000, "BRL"),
+            due_date=date(2026, 8, 5),
+            is_paid=False,
+        )
+        CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=synced_collaborator,
+            financial_movement=synced_movement,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2000, "BRL"),
+            total_amount=Money(2000, "BRL"),
+        )
+        CollaboratorPayroll.objects.create(
+            workshop=workshop,
+            collaborator=collaborator_without_movement,
+            reference_year=2026,
+            reference_month=8,
+            due_date=date(2026, 8, 5),
+            salary_amount=Money(2000, "BRL"),
+            total_amount=Money(2000, "BRL"),
+        )
+
+        view = PayrollListView()
+        view.request = RequestFactory().get("/finance/folha-pagamento/", {"mes": 8, "ano": 2026})
+        view.workshop = workshop
+
+        with patch("apps.finance.views.payroll.sync_collaborator_payrolls_batch") as sync_mock:
+            view._sync_monthly_payrolls(filters=view._get_filter_params())
+
+        sync_mock.assert_called_once()
+        synced_ids = {collaborator.pk for collaborator in sync_mock.call_args.kwargs["collaborators"]}
+        self.assertNotIn(synced_collaborator.pk, synced_ids)
+        self.assertIn(collaborator_without_movement.pk, synced_ids)
+        self.assertIn(missing_payroll_collaborator.pk, synced_ids)
+
     def test_list_includes_active_collaborator_without_created_payroll(self) -> None:
         workshop = create_workshop(suffix=19)
         collaborator = create_collaborator(workshop=workshop, suffix=19)
@@ -64,7 +151,7 @@ class PayrollListViewTests(TestCase):
         rows = context["payroll_rows"]
         self.assertEqual(len(rows), 2)
         pending_row = next(row for row in rows if row["collaborator_name"] == collaborator.name)
-        self.assertEqual(pending_row["status_label"], "Pendente de criação")
+        self.assertEqual(pending_row["status_label"], "Pendente de cria├º├úo")
         self.assertFalse(pending_row["can_select"])
         self.assertIn(reverse("finance:payroll_edit_modal_for_collaborator", kwargs={"collaborator_pk": collaborator.pk}), pending_row["edit_url"])
 
@@ -165,7 +252,7 @@ class PayrollListViewTests(TestCase):
             rows = view._get_pending_collaborator_rows(filters=filters, existing_collaborator_ids=set())
 
         self.assertEqual(len(rows), 5)
-        # Prefetch benefits + one commission batch + one WorkshopCost lookup — not N per collaborator.
+        # Prefetch benefits + one commission batch + one WorkshopCost lookup ΓÇö not N per collaborator.
         self.assertLessEqual(len(ctx), 12)
 
     def test_monthly_sync_includes_collaborators_with_existing_unpaid_payroll(self) -> None:
@@ -424,6 +511,56 @@ class PayrollEditModalViewTests(TestCase):
         content = response.content.decode()
         self.assertIn("Excluir", content)
 
+    def test_payroll_movements_store_named_agent_and_description(self) -> None:
+        workshop = create_workshop(suffix=24)
+        collaborator = create_collaborator(workshop=workshop, suffix=24)
+
+        payroll = sync_collaborator_payroll(
+            collaborator=collaborator,
+            reference_date=date(2026, 8, 1),
+            lock_reference=True,
+        )
+
+        movements = list(FinancialMovement.objects.filter(payroll=payroll).order_by("id"))
+
+        self.assertTrue(movements)
+        self.assertTrue(all(movement.report_agent_display == collaborator.name for movement in movements))
+        self.assertTrue(all(_agent_label(movement) == collaborator.name for movement in movements))
+        self.assertTrue(all(collaborator.name in str(movement.description or "") for movement in movements))
+        self.assertIn(f"Sal├írio {collaborator.name} - 08/2026", [str(movement.description) for movement in movements])
+
+    def test_payroll_movements_are_redacted_without_permission(self) -> None:
+        workshop = create_workshop(suffix=25)
+        collaborator = create_collaborator(workshop=workshop, suffix=25)
+        payroll = sync_collaborator_payroll(
+            collaborator=collaborator,
+            reference_date=date(2026, 8, 1),
+            lock_reference=True,
+        )
+        movement = FinancialMovement.objects.filter(payroll=payroll).order_by("id")[0]
+
+        with patch("apps.finance.services.payroll_visibility.can_view_payroll_details", return_value=False):
+            agent, description = resolve_payroll_movement_display(movement=movement, user=SimpleNamespace(), workshop=workshop)
+
+        self.assertEqual(agent, PAYROLL_REDACTED_LABEL)
+        self.assertEqual(description, f"{PAYROLL_REDACTED_LABEL} - 08/2026")
+
+    def test_payroll_movements_show_full_data_with_permission(self) -> None:
+        workshop = create_workshop(suffix=26)
+        collaborator = create_collaborator(workshop=workshop, suffix=26)
+        payroll = sync_collaborator_payroll(
+            collaborator=collaborator,
+            reference_date=date(2026, 8, 1),
+            lock_reference=True,
+        )
+        movement = FinancialMovement.objects.filter(payroll=payroll).order_by("id")[0]
+
+        with patch("apps.finance.services.payroll_visibility.can_view_payroll_details", return_value=True):
+            agent, description = resolve_payroll_movement_display(movement=movement, user=SimpleNamespace(), workshop=workshop)
+
+        self.assertEqual(agent, collaborator.name)
+        self.assertIn(collaborator.name, description)
+
     def test_commission_tab_formats_percentage_as_percent(self) -> None:
         workshop = create_workshop(suffix=2)
         collaborator = create_collaborator(workshop=workshop, suffix=2)
@@ -472,7 +609,7 @@ class PayrollEditModalViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("6,00%", response.content.decode())
-        self.assertIn("Não Pago", response.content.decode())
+        self.assertIn("N├úo Pago", response.content.decode())
 
     def test_edit_modal_displays_reconciliation_field(self) -> None:
         workshop = create_workshop(suffix=3)
@@ -509,7 +646,7 @@ class PayrollEditModalViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("Conciliado", response.content.decode())
-        self.assertIn("Aguardando Conciliação", response.content.decode())
+        self.assertIn("Aguardando Concilia├º├úo", response.content.decode())
 
     def test_new_financial_movement_defaults_to_not_reconciled(self) -> None:
         workshop = create_workshop(suffix=4)
@@ -768,7 +905,7 @@ class PayrollEditModalViewTests(TestCase):
         payroll.refresh_from_db()
         self.assertEqual(response.status_code, 200)
         self.assertEqual(FinancialMovement.objects.filter(payroll=payroll).count(), 0)
-        self.assertIn("Criar movimentações faltantes", response.content.decode())
+        self.assertIn("Criar movimenta├º├╡es faltantes", response.content.decode())
 
     def test_edit_modal_for_missing_payroll_requests_confirmation_first(self) -> None:
         workshop = create_workshop(suffix=27)
@@ -884,7 +1021,7 @@ class PayrollEditModalViewTests(TestCase):
             payroll=payroll,
             payroll_component=FinancialMovement.PayrollComponent.SALARY,
             direction=FinancialMovement.MovementDirection.DEBIT,
-            description="Salário folha",
+            description="Sal├írio folha",
             amount=Money(2000, "BRL"),
             due_date=date(2026, 8, 5),
         )
@@ -929,7 +1066,7 @@ class PayrollEditModalViewTests(TestCase):
             payroll=payroll,
             payroll_component=FinancialMovement.PayrollComponent.SALARY,
             direction=FinancialMovement.MovementDirection.DEBIT,
-            description="Salário",
+            description="Sal├írio",
             amount=Money(1800, "BRL"),
             due_date=date(2026, 9, 5),
         )
@@ -939,7 +1076,7 @@ class PayrollEditModalViewTests(TestCase):
             payroll=payroll,
             payroll_component=FinancialMovement.PayrollComponent.BENEFIT,
             direction=FinancialMovement.MovementDirection.DEBIT,
-            description="Benefício",
+            description="Benef├¡cio",
             amount=Money(200, "BRL"),
             due_date=date(2026, 9, 5),
         )
@@ -1010,7 +1147,7 @@ class ReportMovementEditRedirectTests(TestCase):
             workshop=workshop,
             collaborator=collaborator,
             direction=FinancialMovement.MovementDirection.DEBIT,
-            description="Movimentação comum",
+            description="Movimenta├º├úo comum",
             amount=Money(500, "BRL"),
             due_date=date(2026, 8, 5),
             is_paid=False,
@@ -1027,7 +1164,7 @@ class ReportMovementEditRedirectTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         content = response.rendered_content
-        self.assertIn("Editar Movimentação Financeira", content)
+        self.assertIn("Editar Movimenta├º├úo Financeira", content)
 
     def test_secondary_payroll_movement_modal_shows_remove_from_payroll_button(self) -> None:
         workshop = create_workshop(suffix=25)
@@ -1250,7 +1387,7 @@ class PayrollBulkActionsTests(TestCase):
     def test_bulk_conciliate_marks_selected_payroll_movements_as_reconciled(self) -> None:
         workshop = create_workshop(suffix=31)
         collaborator = create_collaborator(workshop=workshop, suffix=31)
-        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[5, 1, 11], names=["Despesas", "Folha", "Salários"])
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[5, 1, 11], names=["Despesas", "Folha", "Sal├írios"])
         bank_account = BankAccount.objects.create(
             workshop=workshop,
             bank_code="001",
@@ -1321,7 +1458,7 @@ class PayrollBulkActionsTests(TestCase):
     def test_bulk_conciliate_warns_when_selected_payroll_has_unpaid_movement(self) -> None:
         workshop = create_workshop(suffix=32)
         collaborator = create_collaborator(workshop=workshop, suffix=32)
-        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[5, 1, 12], names=["Despesas", "Folha", "Comissões"])
+        budget_plan = create_financial_group_path(workshop=workshop, code_segments=[5, 1, 12], names=["Despesas", "Folha", "Comiss├╡es"])
         bank_account = BankAccount.objects.create(
             workshop=workshop,
             bank_code="237",
