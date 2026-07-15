@@ -8,6 +8,7 @@
         <thead>
           <tr class="bg-base-200">
             <th>Data</th>
+            <th>Documento</th>
             <th>Tipo</th>
             <th>Responsável</th>
             <th>Qtd.</th>
@@ -18,7 +19,8 @@
         <tbody>
           {% for m in movements %}
           <tr class="hover">
-            <td>{{ m.criado_em|date:"d/m/Y H:i" }}</td>
+            <td>{{ m.display_date|date:"d/m/Y H:i" }}</td>
+            <td>{{ m.workorder_reference|default:"—" }}</td>
             <td>
               {% if m.type == "ENTRADA" %}
                 <span class="badge badge-success">Entrada</span>
@@ -43,7 +45,7 @@
           </tr>
           {% empty %}
           <tr>
-            <td colspan="6" class="text-center italic opacity-50">Nenhuma movimentação registrada.</td>
+            <td colspan="7" class="text-center italic opacity-50">Nenhuma movimentação registrada.</td>
           </tr>
           {% endfor %}
         </tbody>

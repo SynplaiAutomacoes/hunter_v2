@@ -183,7 +183,9 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         stock_obj, created = StockProduct.objects.get_or_create(workshop=self.workshop, product=product)
 
         context["stock_obj"] = stock_obj
-        context["movements"] = StockMovement.objects.filter(stock_product=stock_obj).order_by("-criado_em")
+        context["movements"] = StockMovement.objects.filter(stock_product=stock_obj).select_related(
+            "workorder__budget"
+        ).order_by("-criado_em")
 
         budget_items = BudgetItem.objects.filter(product=product, workshop=self.workshop).select_related("budget", "budget__customer", "budget__vehicle")
         budget_kit_items = BudgetKitItemOverride.objects.filter(product=product, workshop=self.workshop).select_related("budget_item", "budget_item__budget", "budget_item__budget__customer", "budget_item__budget__vehicle")
