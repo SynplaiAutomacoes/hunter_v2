@@ -52,6 +52,7 @@ from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
+from apps.finance.services.financial_movement import apply_payment_reconciliation_rules
 from apps.finance.views.commissions import MONTH_CHOICES, _parse_int_param, build_paid_status_indicator
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import can_view_payroll_details, get_active_workshop_or_404
@@ -108,6 +109,12 @@ class PayrollPaymentForm(forms.ModelForm):
             self.fields["budget_plan"].widget.choices = [(item.pk, str(item)) for item in groups]
             self.fields["bank_account"].widget.choices = [(item.pk, str(item)) for item in accounts]
             self.fields["payment_method"].widget.choices = [(item.pk, str(item)) for item in methods]
+
+    def clean(self) -> dict[str, Any]:
+        cleaned_data = super().clean()
+        for field, message in apply_payment_reconciliation_rules(cleaned_data):
+            self.add_error(field, message)
+        return cleaned_data
 
 
 class PayrollAccessMixin:

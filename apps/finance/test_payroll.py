@@ -872,7 +872,7 @@ class PayrollEditModalViewTests(TestCase):
         self.assertIn(FinancialMovement.PayrollComponent.SALARY, resulting_movements)
         salary_movement = resulting_movements[FinancialMovement.PayrollComponent.SALARY]
         self.assertFalse(salary_movement.is_paid)
-        self.assertTrue(salary_movement.is_reconciled)
+        self.assertFalse(salary_movement.is_reconciled)
         transport_movement = resulting_movements.get(FinancialMovement.PayrollComponent.TRANSPORT)
         if transport_movement is not None:
             self.assertTrue(transport_movement.is_paid)
