@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Iterable
@@ -20,6 +21,10 @@ from apps.catalog.product_issues import ProductIssueSummary, annotate_product_is
 from apps.core.infrastructure.kit_prefetch import budget_kit_overrides_prefetch, workorder_kit_overrides_prefetch
 from apps.core.infrastructure.models import TimeStampedModel
 from apps.finance.models.payment_method import PaymentMethod
+
+from apps.stock.models import StockMovement
+
+logger = logging.getLogger(__name__)
 
 
 class WorkOrderItemBenefitType(models.TextChoices):
@@ -104,7 +109,19 @@ class WorkOrder(TimeStampedModel):
             self.budget_type = self.budget.budget_type
             if not self.pricing_method and self.budget.pricing_method:
                 self.pricing_method = self.budget.pricing_method
+
+        is_new = self.pk is None
+        if not is_new:
+            old = type(self).objects.filter(pk=self.pk).values("status").first()
+            old_status = old["status"] if old else None
+        else:
+            old_status = None
+
         super().save(*args, **kwargs)
+
+        if not is_new and self.status == WorkOrderStatus.APPROVED and old_status != WorkOrderStatus.APPROVED:
+            if not getattr(self, "_skip_stock_consumption_guard", False):
+                self._ensure_stock_consumed_on_approve(user=getattr(self, "_consumption_user", None))
 
     @property
     def public_number(self) -> int:
@@ -382,11 +399,35 @@ class WorkOrder(TimeStampedModel):
         if self.status == WorkOrderStatus.APPROVED:
             return
         self.status = WorkOrderStatus.APPROVED
+        if self.pk and not getattr(self, "_skip_stock_consumption_guard", False):
+            self._ensure_stock_consumed_on_approve()
         if self.delivered_at is None:
             self.delivered_at = timezone.now()
             self.save(update_fields=["status", "delivered_at"])
         else:
             self.save(update_fields=["status"])
+
+    def _ensure_stock_consumed_on_approve(self, user: object | None = None) -> None:
+        from apps.workorder.approval import approve_workorder_with_stock
+
+        has_movements = StockMovement.objects.filter(
+            workorder=self,
+            type=StockMovement.MovementType.EXIT,
+        ).exists()
+
+        if has_movements:
+            return
+
+        try:
+            approve_workorder_with_stock(workorder=self, user=user)
+        except Exception as exc:
+            logger.exception(
+                "workorder_stock_defensive_guard_failed",
+                extra={
+                    "workorder_id": self.pk,
+                    "error": str(exc),
+                },
+            )
 
     def cancel(self, *, reason: str) -> None:
         if self.is_status_locked:

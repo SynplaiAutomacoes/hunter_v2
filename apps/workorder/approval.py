@@ -107,13 +107,17 @@ def approve_workorder_with_stock(*, workorder: WorkOrder, user: object | None = 
             },
         )
 
-        if locked_workorder.status == WorkOrderStatus.APPROVED:
+        has_exit_movements = StockMovement.objects.filter(
+            workorder=locked_workorder,
+            type=StockMovement.MovementType.EXIT,
+        ).exists()
+
+        if has_exit_movements:
             if signature_approved and locked_workorder.signature_request_status != WorkOrderSignatureStatus.APPROVED:
                 locked_workorder.signature_request_status = WorkOrderSignatureStatus.APPROVED
                 locked_workorder.save(update_fields=["signature_request_status"])
                 logger.info("workorder_stock_approval_signature_updated_for_approved_workorder", extra={"workorder_id": locked_workorder.pk})
             workorder.refresh_from_db(fields=["status", "delivered_at", "signature_request_status"])
-            logger.info("workorder_stock_approval_skipped_already_approved", extra={"workorder_id": locked_workorder.pk})
             return
 
         required_quantities, product_names, invalid_ncm_products = _collect_required_products(locked_workorder)
@@ -194,6 +198,7 @@ def approve_workorder_with_stock(*, workorder: WorkOrder, user: object | None = 
         else:
             logger.info("workorder_stock_approval_no_products_to_decrement", extra={"workorder_id": locked_workorder.pk})
 
+        locked_workorder._skip_stock_consumption_guard = True
         locked_workorder.approve()
         logger.info("workorder_stock_approval_workorder_approved", extra={"workorder_id": locked_workorder.pk, "status": locked_workorder.status})
 
