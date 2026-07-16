@@ -1,5 +1,6 @@
 from typing import Any
 
+from django.db import transaction
 from django.db.models import Count, Prefetch
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -19,6 +20,7 @@ from apps.core.infrastructure.services.dashboard_query_service import (
     _prepare_workorder_for_dashboard_pricing,
 )
 from apps.workshops.mixin import WorkshopScopedMixin
+from apps.workshops.util.workshops import get_active_workshop_or_404
 from apps.workshops.models.workshop_costs import WorkshopCost
 from apps.core.presentation.navigation import CREATE_CLIENT_FAVORITE_PAGE
 from apps.core.presentation.mixins import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, BaseModalFormView, PageFavoriteMixin
@@ -29,6 +31,7 @@ from .vehicle_engine import normalize_vehicle_engine_choice
 from .vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
 from ..core.presentation import TableActionDefaults
 from ..core.templatetags.table_tags import TableColumn
+from ..core.text_normalization import plate_case
 from .forms import CustomerForm, VehicleFormSet
 from .models import Customer, Vehicle
 
@@ -192,6 +195,7 @@ class CustomerCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMi
             data["vehicles"] = VehicleFormSet(prefix="vehicles", form_kwargs={"workshop": self.workshop})
         return data
 
+    @transaction.atomic
     def form_valid(self, form):
         context = self.get_context_data()
         vehicles = context["vehicles"]
@@ -199,10 +203,31 @@ class CustomerCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMi
 
         if form.is_valid() and vehicles.is_valid():
             self.object = form.save()
+
+            transfer_vehicle_ids = self.request.POST.getlist("transfer_plate")
+            transferred_plates: set[str] = set()
+            if transfer_vehicle_ids:
+                qs = Vehicle.objects.filter(
+                    pk__in=transfer_vehicle_ids,
+                    workshop=self.workshop,
+                ).select_for_update()
+                locked = list(qs)
+                transferred_plates = {v.plate for v in locked}
+                Vehicle.objects.filter(pk__in=[v.pk for v in locked]).update(customer=self.object)
+
             vehicles.instance = self.object
-            for v_form in vehicles:
-                v_form.instance.workshop = self.workshop
-            vehicles.save()
+            instances = vehicles.save(commit=False)
+            for instance in instances:
+                if str(instance.pk or "") in transfer_vehicle_ids:
+                    continue
+                if instance.pk is None and instance.plate in transferred_plates:
+                    continue
+                instance.workshop = self.workshop
+                instance.save()
+
+            for obj in vehicles.deleted_objects:
+                obj.delete()
+
             return super().form_valid(form)
         return self.render_to_response(self.get_context_data(form=form))
 
@@ -214,6 +239,29 @@ def api_check_plate(request, plate):
         data["fuel"] = normalize_vehicle_fuel_choice(data.get("fuel"))
         return JsonResponse(data)
     return JsonResponse({"error": "Veículo não encontrado"}, status=404)
+
+
+def api_check_plate_duplicate(request, plate):
+    try:
+        workshop = get_active_workshop_or_404(request)
+    except Exception:
+        return JsonResponse({"exists": False})
+
+    normalized_plate = plate_case(plate)
+    vehicle = (
+        Vehicle.objects
+        .filter(workshop=workshop, plate=normalized_plate)
+        .select_related("customer")
+        .first()
+    )
+    if vehicle:
+        return JsonResponse({
+            "exists": True,
+            "vehicle_id": vehicle.pk,
+            "customer_name": vehicle.customer.name,
+            "customer_id": vehicle.customer.pk,
+        })
+    return JsonResponse({"exists": False})
 
 
 def api_vehicle_catalog_brands(request):
@@ -309,6 +357,7 @@ class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         data.update(_build_customer_history_context(self.object))
         return data
 
+    @transaction.atomic
     def form_valid(self, form):
         context = self.get_context_data()
         vehicles = context["vehicles"]
@@ -316,18 +365,35 @@ class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         form.instance.workshop = self.workshop
 
         if form.is_valid() and vehicles.is_valid():
+            transfer_vehicle_ids = self.request.POST.getlist("transfer_plate")
+            transferred_plates: set[str] = set()
+            if transfer_vehicle_ids:
+                qs = Vehicle.objects.filter(
+                    pk__in=transfer_vehicle_ids,
+                    workshop=self.workshop,
+                ).select_for_update()
+                locked = list(qs)
+                transferred_plates = {v.plate for v in locked}
+                Vehicle.objects.filter(pk__in=[v.pk for v in locked]).update(customer=self.object)
+
             self.object = form.save()
             vehicles.instance = self.object
 
             instances = vehicles.save(commit=False)
             for instance in instances:
+                if str(instance.pk or "") in transfer_vehicle_ids:
+                    continue
+                if instance.pk is None and instance.plate in transferred_plates:
+                    continue
                 instance.workshop = self.workshop
                 instance.save()
 
             for obj in vehicles.deleted_objects:
                 obj.delete()
 
-            return super().form_valid(form)
+            response = super().form_valid(form)
+            response["HX-Trigger"] = "vehicle-section-refresh"
+            return response
 
         return self.render_to_response(self.get_context_data(form=form))
 
@@ -381,6 +447,22 @@ class CustomerDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResp
 
     htmx_template_name = "customer/partials/customer_delete_modal.html"
     htmx_trigger = "customer-table-refresh"
+
+
+class VehicleSectionView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
+    model = Customer
+    template_name = "customer/partials/vehicle_formset_list.html"
+    workshop_permission_codename = "view_customer"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        customer = get_object_or_404(Customer, pk=self.kwargs["pk"], workshop=self.workshop)
+        context["vehicles"] = VehicleFormSet(
+            instance=customer,
+            prefix="vehicles",
+            form_kwargs={"workshop": self.workshop},
+        )
+        return context
 
 
 class AddVehicleFormView(LoginRequiredMixin, TemplateView):

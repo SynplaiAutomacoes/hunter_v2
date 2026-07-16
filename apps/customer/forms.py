@@ -129,13 +129,6 @@ class VehicleInlineForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
         if not plate or not workshop:
             return plate
 
-        queryset = Vehicle.objects.filter(workshop=workshop, plate=plate)
-        if self.instance.pk:
-            queryset = queryset.exclude(pk=self.instance.pk)
-
-        if queryset.exists():
-            raise forms.ValidationError("Já existe um veículo com esta placa nesta oficina.")
-
         return plate
 
     def clean_fuel(self):
@@ -424,7 +417,7 @@ class CustomerForm(AddressFormMixin, CoreModelForm):
                     ),
                     css_class="col-span-12",
                 ),
-                Div(HTML('<div id="vehicle-formset-container" class="space-y-4">{% include "customer/partials/vehicle_formset_list.html" %}</div>'), css_class="col-span-12"),
+                Div(HTML('<div id="vehicle-section" class="space-y-4">{% include "customer/partials/vehicle_formset_list.html" %}</div>'), css_class="col-span-12"),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
             ),
             #
