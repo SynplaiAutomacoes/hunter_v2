@@ -247,10 +247,22 @@ def api_check_plate_duplicate(request, plate):
     except Exception:
         return JsonResponse({"exists": False})
 
-    normalized_plate = plate_case(plate)
+    import re
+
+    search_plates = set()
+
+    stripped = re.sub(r"[^a-zA-Z0-9]", "", plate).upper()
+    search_plates.add(stripped)
+
+    original = plate_case(plate)
+    search_plates.add(original)
+
+    if re.match(r"^[A-Z]{3}\d{4}$", stripped):
+        search_plates.add(f"{stripped[:3]}-{stripped[3:]}")
+
     vehicle = (
         Vehicle.objects
-        .filter(workshop=workshop, plate=normalized_plate)
+        .filter(workshop=workshop, plate__in=list(search_plates))
         .select_related("customer")
         .first()
     )
@@ -258,8 +270,8 @@ def api_check_plate_duplicate(request, plate):
         return JsonResponse({
             "exists": True,
             "vehicle_id": vehicle.pk,
-            "customer_name": vehicle.customer.name,
-            "customer_id": vehicle.customer.pk,
+            "customer_name": vehicle.customer.name if vehicle.customer else "",
+            "customer_id": vehicle.customer.pk if vehicle.customer else None,
         })
     return JsonResponse({"exists": False})
 
@@ -545,16 +557,40 @@ class QuickVehicleCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalF
         context["customer_id_persist"] = self.request.GET.get("customer_id") or self.request.POST.get("customer_id_persist")
         return context
 
+    @transaction.atomic
     def form_valid(self, form):
         if not bool(getattr(self.request, "htmx", False)):
             return super().form_valid(form)
 
+        target_customer = form.customer
+
+        transfer_vehicle_ids = self.request.POST.getlist("transfer_plate")
+        transferred_plates: set[str] = set()
+        if transfer_vehicle_ids and target_customer is not None:
+            qs = Vehicle.objects.filter(
+                pk__in=transfer_vehicle_ids,
+                workshop=self.workshop,
+            ).select_for_update()
+            locked = list(qs)
+            transferred_plates = {v.plate for v in locked}
+            Vehicle.objects.filter(pk__in=[v.pk for v in locked]).update(customer=target_customer)
+
         form.instance.workshop = self.workshop
-        vehicle = form.save()
-        self.object = vehicle
+        vehicle = form.save(commit=False)
+
+        is_transferred = (
+            str(vehicle.pk or "") in transfer_vehicle_ids
+            or (vehicle.pk is None and vehicle.plate in transferred_plates)
+        )
+
+        if not is_transferred:
+            vehicle.save()
+            self.object = vehicle
+        else:
+            self.object = Vehicle.objects.filter(plate=vehicle.plate, workshop=self.workshop).first()
 
         response = HttpResponse(status=204)
-        response["HX-Trigger"] = build_vehicle_saved_trigger(vehicle)
+        response["HX-Trigger"] = build_vehicle_saved_trigger(self.object)
         return response
 
 
@@ -568,9 +604,21 @@ class QuickVehicleUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalF
         kwargs["workshop"] = self.workshop
         return kwargs
 
+    @transaction.atomic
     def form_valid(self, form):
         if not bool(getattr(self.request, "htmx", False)):
             return super().form_valid(form)
+
+        target_customer = form.customer
+
+        transfer_vehicle_ids = self.request.POST.getlist("transfer_plate")
+        if transfer_vehicle_ids and target_customer is not None:
+            qs = Vehicle.objects.filter(
+                pk__in=transfer_vehicle_ids,
+                workshop=self.workshop,
+            ).select_for_update()
+            locked = list(qs)
+            Vehicle.objects.filter(pk__in=[v.pk for v in locked]).update(customer=target_customer)
 
         form.instance.workshop = self.workshop
         vehicle = form.save()
