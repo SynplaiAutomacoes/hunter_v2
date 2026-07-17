@@ -420,12 +420,12 @@ def update_payroll_work_days(*, payroll: CollaboratorPayroll, work_days: int | N
         update_fields.append("work_days_is_custom")
     if update_fields:
         payroll.save(update_fields=update_fields)
-
-    return sync_collaborator_payroll(
-        collaborator=payroll.collaborator,
-        reference_date=date(payroll.reference_year, payroll.reference_month, 1),
-        lock_reference=True,
-    )
+        return sync_collaborator_payroll(
+            collaborator=payroll.collaborator,
+            reference_date=date(payroll.reference_year, payroll.reference_month, 1),
+            lock_reference=True,
+        )
+    return payroll
 
 
 @transaction.atomic

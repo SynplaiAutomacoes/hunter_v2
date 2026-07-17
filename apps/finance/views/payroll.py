@@ -926,8 +926,18 @@ class PayrollEditModalView(LoginRequiredMixin, PayrollAccessMixin, WorkshopScope
                 if work_days_requested:
                     previous_work_days = int(payroll.work_days or 0)
                     previous_is_custom = bool(payroll.work_days_is_custom)
-                    payroll = update_payroll_work_days(payroll=payroll, work_days=parsed_work_days)
-                    work_days_changed = previous_is_custom != bool(payroll.work_days_is_custom) or previous_work_days != int(payroll.work_days or 0)
+                    if parsed_work_days is None:
+                        resolved_work_days = get_workshop_work_days(
+                            workshop=payroll.workshop,
+                            reference_date=date(payroll.reference_year, payroll.reference_month, 1),
+                        )
+                        proposed_is_custom = False
+                    else:
+                        resolved_work_days = max(0, int(parsed_work_days))
+                        proposed_is_custom = True
+                    work_days_changed = previous_is_custom != proposed_is_custom or previous_work_days != resolved_work_days
+                    if work_days_changed:
+                        payroll = update_payroll_work_days(payroll=payroll, work_days=parsed_work_days)
                 payroll.refresh_from_db()
 
                 movements = payroll.get_financial_movements()
