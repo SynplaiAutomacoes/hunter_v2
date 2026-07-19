@@ -25,6 +25,7 @@
             whatsappInstanceName: '',
             whatsappConnected: false,
             whatsappChecking: false,
+            whatsappRefreshingQr: false,
             whatsappPolling: null,
             init() {
                 this.initWhatsappStatus();
@@ -34,10 +35,39 @@
                 fetch('{% url "workshops:whatsapp_status" workshop.pk %}')
                     .then(r => r.json())
                     .then(data => {
-                        this.whatsappConnected = data.connected === true;
+                        this.handleWhatsappStatus(data, { fromInit: true });
                     })
                     .catch(() => {})
                     .finally(() => { this.whatsappChecking = false; });
+            },
+            handleWhatsappStatus(data, options = {}) {
+                if (!data || data.ok === false) {
+                    return;
+                }
+                if (data.connected === true) {
+                    this.whatsappConnected = true;
+                    if (this.whatsappModal) {
+                        this.whatsappModal = false;
+                        this.stopPolling();
+                        document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'WhatsApp conectado com sucesso!', type: 'success' } }));
+                    }
+                    return;
+                }
+                if (data.cleaned_up === true || data.state === 'close') {
+                    this.whatsappConnected = false;
+                    this.whatsappInstanceName = '';
+                    this.whatsappQrCode = '';
+                    if (this.whatsappModal || !options.fromInit) {
+                        this.whatsappModal = false;
+                        this.stopPolling();
+                        if (!options.fromInit) {
+                            document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'WhatsApp desconectado. A instancia foi removida.', type: 'error' } }));
+                        }
+                    }
+                    return;
+                }
+                // connecting / unknown: keep waiting while modal/polling is active
+                this.whatsappConnected = false;
             },
             connectWhatsapp() {
                 this.whatsappChecking = true;
@@ -58,18 +88,46 @@
                     })
                     .finally(() => { this.whatsappChecking = false; });
             },
+            refreshWhatsappQr() {
+                if (this.whatsappRefreshingQr) {
+                    return;
+                }
+                this.whatsappRefreshingQr = true;
+                fetch('{% url "workshops:whatsapp_qrcode_refresh" workshop.pk %}', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } })
+                    .then(r => r.json().then(data => ({ status: r.status, data })))
+                    .then(({ data }) => {
+                        if (data.ok) {
+                            this.whatsappQrCode = data.qrcode;
+                            this.whatsappInstanceName = data.instance_name || this.whatsappInstanceName;
+                            document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'QR Code atualizado.', type: 'success' } }));
+                            return;
+                        }
+                        if (data.cleaned_up === true || data.state === 'close') {
+                            this.whatsappConnected = false;
+                            this.whatsappInstanceName = '';
+                            this.whatsappQrCode = '';
+                            this.whatsappModal = false;
+                            this.stopPolling();
+                        }
+                        if (data.connected === true) {
+                            this.whatsappConnected = true;
+                            this.whatsappModal = false;
+                            this.stopPolling();
+                        }
+                        document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: data.message || 'Nao foi possivel atualizar o QR Code.', type: 'error' } }));
+                    })
+                    .catch(() => {
+                        document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Erro ao atualizar o QR Code.', type: 'error' } }));
+                    })
+                    .finally(() => { this.whatsappRefreshingQr = false; });
+            },
             startPolling() {
                 if (this.whatsappPolling) clearInterval(this.whatsappPolling);
                 this.whatsappPolling = setInterval(() => {
                     fetch('{% url "workshops:whatsapp_status" workshop.pk %}')
                         .then(r => r.json())
                         .then(data => {
-                            if (data.connected === true) {
-                                this.whatsappConnected = true;
-                                this.whatsappModal = false;
-                                this.stopPolling();
-                                document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'WhatsApp conectado com sucesso!', type: 'success' } }));
-                            }
+                            this.handleWhatsappStatus(data);
                         })
                         .catch(() => {});
                 }, 3000);
@@ -88,6 +146,9 @@
                     .then(data => {
                         if (data.ok) {
                             this.whatsappConnected = false;
+                            this.whatsappInstanceName = '';
+                            this.whatsappQrCode = '';
+                            this.stopPolling();
                             document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: data.message, type: 'success' } }));
                         } else {
                             document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: data.message, type: 'error' } }));
@@ -491,15 +552,29 @@
                                     <li class="step step-primary text-sm">Aponte a camera para o QR Code ao lado</li>
                                 </ol>
                                 <p class="text-xs text-base-content/60 mt-2">A pagina verificara automaticamente a conexao.</p>
+                                <button
+                                    type="button"
+                                    class="btn btn-outline btn-sm mt-2"
+                                    @click="refreshWhatsappQr()"
+                                    :disabled="whatsappRefreshingQr || whatsappChecking"
+                                >
+                                    <template x-if="whatsappRefreshingQr">
+                                        <span class="loading loading-spinner loading-xs"></span>
+                                    </template>
+                                    <span x-text="whatsappRefreshingQr ? 'Atualizando...' : 'Atualizar QR Code'"></span>
+                                </button>
                             </div>
 
-                            <div class="flex items-center justify-center">
+                            <div class="flex flex-col items-center justify-center gap-3">
                                 <template x-if="whatsappQrCode">
                                     <img :src="whatsappQrCode" alt="QR Code WhatsApp" class="w-48 h-48 object-contain border border-base-300 rounded-lg p-2">
                                 </template>
                                 <template x-if="!whatsappQrCode">
                                     <span class="loading loading-spinner loading-lg"></span>
                                 </template>
+                                <p class="text-xs text-base-content/60 text-center" x-show="whatsappInstanceName">
+                                    Instancia: <span x-text="whatsappInstanceName"></span>
+                                </p>
                             </div>
                         </div>
                     </div>
