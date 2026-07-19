@@ -13,6 +13,7 @@ from apps.messaging.application.services.dispatch_history import (
     record_queue_failure,
     record_queued_log,
 )
+from apps.messaging.application.services.outbound_business_hours import is_within_outbound_business_hours
 from apps.messaging.domain.value_objects import DispatchItem
 from apps.messaging.infrastructure.queue.rabbitmq_publisher import RabbitMQPublisher
 from apps.messaging.models import MessageDispatchBatch, ScheduledOutboundMessage
@@ -25,9 +26,14 @@ class DueOutboundResult:
     claimed: int
     sent: int
     failed: int
+    skipped_outside_hours: bool = False
 
 
-def process_due_outbound_messages(*, limit: int = 100) -> DueOutboundResult:
+def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> DueOutboundResult:
+    if not force and not is_within_outbound_business_hours():
+        logger.info("outbound_dispatch_skipped_outside_business_hours")
+        return DueOutboundResult(claimed=0, sent=0, failed=0, skipped_outside_hours=True)
+
     now = timezone.now()
     claimed_ids: list[int] = []
 

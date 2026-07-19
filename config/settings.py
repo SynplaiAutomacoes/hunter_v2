@@ -206,6 +206,13 @@ MESSAGE_WORKER_BASE_URL = os.getenv("MESSAGE_WORKER_BASE_URL", "").strip()
 MESSAGE_DISPATCH_STATUS_TOKEN = os.getenv("MESSAGE_DISPATCH_STATUS_TOKEN", "").strip()
 MESSAGE_DISPATCH_WS_BASE_URL = os.getenv("MESSAGE_DISPATCH_WS_BASE_URL", "").strip()
 
+# Outbound appointment-alert send window (America/Sao_Paulo via TIME_ZONE).
+# End hour is exclusive: default 8–18 means 08:00 <= now < 18:00, Mon–Fri.
+OUTBOUND_BUSINESS_HOURS_ENABLED = os.getenv("OUTBOUND_BUSINESS_HOURS_ENABLED", "1").lower() in ("1", "true", "yes")
+OUTBOUND_BUSINESS_WEEKDAYS = os.getenv("OUTBOUND_BUSINESS_WEEKDAYS", "0,1,2,3,4").strip()
+OUTBOUND_BUSINESS_START_HOUR = int(os.getenv("OUTBOUND_BUSINESS_START_HOUR", "8"))
+OUTBOUND_BUSINESS_END_HOUR = int(os.getenv("OUTBOUND_BUSINESS_END_HOUR", "18"))
+
 RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "localhost")
 RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", "5672"))
 RABBITMQ_USER = os.getenv("RABBITMQ_USER", "guest")

@@ -243,7 +243,7 @@ class OutboundTickerTests(TestCase):
             source=ScheduledOutboundMessage.Source.APPOINTMENT_ALERT,
         )
 
-        result = process_due_outbound_messages(limit=10)
+        result = process_due_outbound_messages(limit=10, force=True)
         row.refresh_from_db()
 
         self.assertEqual(result.claimed, 1)
@@ -251,6 +251,103 @@ class OutboundTickerTests(TestCase):
         self.assertEqual(row.status, ScheduledOutboundMessage.Status.SENT)
         self.assertEqual(len(publisher.published), 1)
         self.assertEqual(publisher.published[0].client_message_id, str(row.client_message_id))
+
+    @override_settings(
+        OUTBOUND_BUSINESS_HOURS_ENABLED=True,
+        OUTBOUND_BUSINESS_WEEKDAYS="0,1,2,3,4",
+        OUTBOUND_BUSINESS_START_HOUR=8,
+        OUTBOUND_BUSINESS_END_HOUR=18,
+        TIME_ZONE="America/Sao_Paulo",
+    )
+    @patch("apps.messaging.application.services.outbound_dispatch.RabbitMQPublisher")
+    @patch("apps.messaging.application.services.outbound_dispatch.is_within_outbound_business_hours", return_value=False)
+    def test_process_due_skips_outside_business_hours(
+        self,
+        _hours: MagicMock,
+        publisher_cls: MagicMock,
+    ) -> None:
+        workshop = _workshop(41)
+        customer = _customer(workshop, 41)
+        publisher = FakeQueuePublisher()
+        publisher_cls.return_value = publisher
+        row = ScheduledOutboundMessage.objects.create(
+            workshop=workshop,
+            customer=customer,
+            phone="5511999999999",
+            message="Lembrete",
+            run_at=timezone.now() - timedelta(minutes=1),
+            status=ScheduledOutboundMessage.Status.PENDING,
+            source=ScheduledOutboundMessage.Source.APPOINTMENT_ALERT,
+        )
+
+        result = process_due_outbound_messages(limit=10)
+        row.refresh_from_db()
+
+        self.assertTrue(result.skipped_outside_hours)
+        self.assertEqual(result.claimed, 0)
+        self.assertEqual(row.status, ScheduledOutboundMessage.Status.PENDING)
+        self.assertEqual(len(publisher.published), 0)
+
+
+class OutboundBusinessHoursTests(SimpleTestCase):
+    @override_settings(
+        OUTBOUND_BUSINESS_HOURS_ENABLED=True,
+        OUTBOUND_BUSINESS_WEEKDAYS="0,1,2,3,4",
+        OUTBOUND_BUSINESS_START_HOUR=8,
+        OUTBOUND_BUSINESS_END_HOUR=18,
+        TIME_ZONE="America/Sao_Paulo",
+    )
+    def test_weekday_inside_window(self) -> None:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        from apps.messaging.application.services.outbound_business_hours import is_within_outbound_business_hours
+
+        # Wednesday 10:00 São Paulo
+        moment = datetime(2026, 7, 15, 10, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
+        self.assertTrue(is_within_outbound_business_hours(moment))
+
+    @override_settings(
+        OUTBOUND_BUSINESS_HOURS_ENABLED=True,
+        OUTBOUND_BUSINESS_WEEKDAYS="0,1,2,3,4",
+        OUTBOUND_BUSINESS_START_HOUR=8,
+        OUTBOUND_BUSINESS_END_HOUR=18,
+        TIME_ZONE="America/Sao_Paulo",
+    )
+    def test_weekday_before_window(self) -> None:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        from apps.messaging.application.services.outbound_business_hours import is_within_outbound_business_hours
+
+        moment = datetime(2026, 7, 15, 7, 59, tzinfo=ZoneInfo("America/Sao_Paulo"))
+        self.assertFalse(is_within_outbound_business_hours(moment))
+
+    @override_settings(
+        OUTBOUND_BUSINESS_HOURS_ENABLED=True,
+        OUTBOUND_BUSINESS_WEEKDAYS="0,1,2,3,4",
+        OUTBOUND_BUSINESS_START_HOUR=8,
+        OUTBOUND_BUSINESS_END_HOUR=18,
+        TIME_ZONE="America/Sao_Paulo",
+    )
+    def test_saturday_outside(self) -> None:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        from apps.messaging.application.services.outbound_business_hours import is_within_outbound_business_hours
+
+        moment = datetime(2026, 7, 18, 12, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
+        self.assertFalse(is_within_outbound_business_hours(moment))
+
+    @override_settings(OUTBOUND_BUSINESS_HOURS_ENABLED=False)
+    def test_disabled_always_allows(self) -> None:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        from apps.messaging.application.services.outbound_business_hours import is_within_outbound_business_hours
+
+        moment = datetime(2026, 7, 18, 23, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
+        self.assertTrue(is_within_outbound_business_hours(moment))
 
 
 class DispatchWebSocketTokenTests(TestCase):
