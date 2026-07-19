@@ -213,6 +213,16 @@
                     this.$watch('selectedCustomers', () => {
                         this.syncSelectedCustomersSubmitInputs();
                     });
+                    this._onPickerAfterSwap = (event) => {
+                        const target = event && event.target;
+                        if (!target || target.id !== 'customer-message-group-customer-picker') {
+                            return;
+                        }
+                        this.$nextTick(() => {
+                            this.syncPickerSelectionFromTable();
+                        });
+                    };
+                    document.body.addEventListener('htmx:afterSwap', this._onPickerAfterSwap);
                     const filterCriteriaEl = document.getElementById('customer-message-group-filter-criteria-data');
                     if (filterCriteriaEl) {
                         try {
@@ -223,6 +233,11 @@
                         } catch (e) {
                             // ignore
                         }
+                    }
+                },
+                destroy() {
+                    if (this._onPickerAfterSwap) {
+                        document.body.removeEventListener('htmx:afterSwap', this._onPickerAfterSwap);
                     }
                 },
                 buildWsUrl(batchId) {
