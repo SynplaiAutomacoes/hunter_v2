@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from apps.messaging.application.services.dispatch_history import cancel_in_flight_dispatch_logs
 from apps.messaging.infrastructure.services.worker_control import MessageWorkerControlError, stop_workshop_dispatch
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.services.evolution_api import (
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True, slots=True)
 class WhatsAppCleanupResult:
     cancelled_worker: bool
+    cancelled_messages: int
     deleted_instance: bool
     cleared_local: bool
     warnings: tuple[str, ...] = ()
@@ -25,16 +27,19 @@ class WhatsAppCleanupResult:
 def cleanup_whatsapp_connection(*, workshop: Workshop, cancel_worker: bool = True) -> WhatsAppCleanupResult:
     """Idempotent cleanup when WhatsApp becomes disconnected.
 
-    1. POST cancelled to message worker (if configured)
-    2. Delete Evolution instance when name is present
-    3. Clear local whatsapp_instance_name
+    1. Cancel in-flight dispatch logs (queued/processing -> cancelled)
+    2. POST cancelled to message worker (if configured)
+    3. Delete Evolution instance when name is present
+    4. Clear local whatsapp_instance_name
     """
     warnings: list[str] = []
     cancelled_worker = False
     deleted_instance = False
+    cancelled_messages = 0
     instance_name = str(workshop.whatsapp_instance_name or "").strip()
 
     if cancel_worker:
+        cancelled_messages = cancel_in_flight_dispatch_logs(workshop_id=workshop.pk)
         try:
             cancelled_worker = bool(stop_workshop_dispatch(workshop_id=workshop.pk))
         except MessageWorkerControlError as exc:
@@ -70,6 +75,7 @@ def cleanup_whatsapp_connection(*, workshop: Workshop, cancel_worker: bool = Tru
 
     return WhatsAppCleanupResult(
         cancelled_worker=cancelled_worker,
+        cancelled_messages=cancelled_messages,
         deleted_instance=deleted_instance,
         cleared_local=cleared_local,
         warnings=tuple(warnings),

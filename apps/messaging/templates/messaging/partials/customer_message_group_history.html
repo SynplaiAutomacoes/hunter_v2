@@ -27,7 +27,8 @@
                                 total <span data-batch-count="{{ batch.pk }}-total">{{ batch.total_count }}</span>
                                 · enviadas <span data-batch-count="{{ batch.pk }}-sent">{{ batch.sent_count }}</span>
                                 · falhas <span data-batch-count="{{ batch.pk }}-failed">{{ batch.failed_count }}</span>
-                                · pendentes <span data-batch-count="{{ batch.pk }}-pending">{{ batch.pending_count }}</span>
+                                · processando <span data-batch-count="{{ batch.pk }}-processing">{{ batch.processing_count }}</span>
+                                · canceladas <span data-batch-count="{{ batch.pk }}-cancelled">{{ batch.cancelled_count }}</span>
                                 · fila <span data-batch-count="{{ batch.pk }}-queued">{{ batch.queued_count }}</span>
                             </span>
                         </div>
@@ -48,7 +49,16 @@
                                         <tr>
                                             <td>{{ log.customer.name|default:"-" }}</td>
                                             <td>{{ log.phone|default:"-" }}</td>
-                                            <td data-log-status="{{ log.client_message_id }}">{{ log.get_status_display }}</td>
+                                            <td data-log-status="{{ log.client_message_id }}" data-log-status-value="{{ log.status }}">
+                                                {% if log.status == "processing" %}
+                                                    <span class="inline-flex items-center gap-2">
+                                                        <span class="loading loading-spinner loading-xs text-primary"></span>
+                                                        <span>Processando</span>
+                                                    </span>
+                                                {% else %}
+                                                    {{ log.get_status_display }}
+                                                {% endif %}
+                                            </td>
                                             <td class="font-mono text-xs">{{ log.client_message_id }}</td>
                                         </tr>
                                     {% empty %}

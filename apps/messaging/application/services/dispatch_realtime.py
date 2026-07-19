@@ -43,9 +43,10 @@ def _broadcast_status(*, log: MessageDispatchLog, batch: MessageDispatchBatch) -
         "error": log.error,
         "batch_status": batch.status,
         "queued_count": batch.queued_count,
-        "pending_count": batch.pending_count,
+        "processing_count": batch.processing_count,
         "sent_count": batch.sent_count,
         "failed_count": batch.failed_count,
+        "cancelled_count": batch.cancelled_count,
         "total_count": batch.total_count,
     }
     async_to_sync(channel_layer.group_send)(

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Mapping
 from typing import Any
 from uuid import UUID, uuid4
 
 from django.db import transaction
 from django.db.models import F
+from django.utils import timezone
 
 from apps.messaging.models import MessageDispatchBatch, MessageDispatchLog
 
@@ -90,19 +92,7 @@ def record_queue_failure(
 
 
 def finalize_batch_after_queue(batch: MessageDispatchBatch) -> MessageDispatchBatch:
-    batch.refresh_from_db()
-    if batch.total_count == 0:
-        batch.status = MessageDispatchBatch.Status.FAILED
-    elif batch.failed_count == batch.total_count:
-        batch.status = MessageDispatchBatch.Status.FAILED
-    elif batch.queued_count + batch.pending_count + batch.sent_count + batch.failed_count == batch.total_count:
-        if batch.sent_count + batch.failed_count == batch.total_count:
-            batch.status = MessageDispatchBatch.Status.COMPLETED
-        else:
-            batch.status = MessageDispatchBatch.Status.PROCESSING
-    else:
-        batch.status = MessageDispatchBatch.Status.PROCESSING
-    batch.save(update_fields=["status", "atualizado_em"])
+    _refresh_batch_status(batch)
     return batch
 
 
@@ -115,9 +105,10 @@ def apply_dispatch_status_update(
     batch_id: int | None = None,
 ) -> tuple[MessageDispatchLog, MessageDispatchBatch]:
     normalized_status = str(status or "").strip().lower()
-    allowed = {choice.value for choice in MessageDispatchLog.Status}
-    if normalized_status not in allowed:
-        raise ValueError(f"Status inválido: {status}")
+    if normalized_status in {MessageDispatchLog.Status.QUEUED, MessageDispatchLog.Status.CANCELLED}:
+        raise ValueError(f"Status '{normalized_status}' é interno do hunter e não pode ser enviado pelo worker.")
+    if normalized_status not in MessageDispatchLog.WORKER_REPORTABLE_STATUSES:
+        raise ValueError(f"Status inválido: {status}. Aceitos: processing, sent, failed.")
 
     queryset = MessageDispatchLog.objects.select_for_update().select_related("batch")
     if batch_id is not None:
@@ -125,6 +116,8 @@ def apply_dispatch_status_update(
 
     log = queryset.get(client_message_id=client_message_id)
     previous = log.status
+    if previous == MessageDispatchLog.Status.CANCELLED:
+        return log, log.batch
     if previous == normalized_status and (not error or log.error == error):
         return log, log.batch
 
@@ -146,24 +139,80 @@ def apply_dispatch_status_update(
     return log, batch
 
 
+@transaction.atomic
+def cancel_in_flight_dispatch_logs(*, workshop_id: int) -> int:
+    """Mark queued/processing logs as cancelled for a workshop and refresh batch counters."""
+    logs = list(
+        MessageDispatchLog.objects.select_for_update()
+        .filter(
+            batch__workshop_id=workshop_id,
+            status__in=sorted(MessageDispatchLog.IN_FLIGHT_STATUSES),
+        )
+        .only("pk", "batch_id", "status")
+    )
+    if not logs:
+        return 0
+
+    by_batch_previous: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    log_ids: list[int] = []
+    for log in logs:
+        by_batch_previous[log.batch_id][log.status] += 1
+        log_ids.append(log.pk)
+
+    MessageDispatchLog.objects.filter(pk__in=log_ids).update(
+        status=MessageDispatchLog.Status.CANCELLED,
+        error="",
+        atualizado_em=timezone.now(),
+    )
+
+    for batch_id, previous_counts in by_batch_previous.items():
+        cancelled_delta = sum(previous_counts.values())
+        updates: dict[str, Any] = {
+            "cancelled_count": F("cancelled_count") + cancelled_delta,
+        }
+        for previous_status, count in previous_counts.items():
+            field = _count_field_for_status(previous_status)
+            updates[field] = F(field) - count
+        MessageDispatchBatch.objects.filter(pk=batch_id).update(**updates)
+        batch = MessageDispatchBatch.objects.select_for_update().get(pk=batch_id)
+        _refresh_batch_status(batch)
+
+    return len(log_ids)
+
+
 def _count_field_for_status(status: str) -> str:
     mapping = {
         MessageDispatchLog.Status.QUEUED: "queued_count",
-        MessageDispatchLog.Status.PENDING: "pending_count",
+        MessageDispatchLog.Status.PROCESSING: "processing_count",
         MessageDispatchLog.Status.SENT: "sent_count",
         MessageDispatchLog.Status.FAILED: "failed_count",
+        MessageDispatchLog.Status.CANCELLED: "cancelled_count",
     }
     return mapping[status]
 
 
 def _refresh_batch_status(batch: MessageDispatchBatch) -> None:
     batch.refresh_from_db()
-    finished = batch.sent_count + batch.failed_count
-    if batch.total_count > 0 and finished >= batch.total_count:
-        batch.status = MessageDispatchBatch.Status.COMPLETED
-    elif batch.failed_count == batch.total_count and batch.total_count > 0:
+    if batch.total_count == 0:
         batch.status = MessageDispatchBatch.Status.FAILED
-    elif batch.pending_count > 0 or batch.sent_count > 0 or batch.failed_count > 0:
+        batch.save(update_fields=["status", "atualizado_em"])
+        return
+
+    in_flight = batch.queued_count + batch.processing_count
+    finished = batch.sent_count + batch.failed_count + batch.cancelled_count
+
+    if in_flight > 0:
+        batch.status = MessageDispatchBatch.Status.PROCESSING
+    elif finished >= batch.total_count:
+        if batch.cancelled_count > 0:
+            batch.status = MessageDispatchBatch.Status.CANCELLED
+        elif batch.failed_count == batch.total_count:
+            batch.status = MessageDispatchBatch.Status.FAILED
+        else:
+            batch.status = MessageDispatchBatch.Status.COMPLETED
+    elif batch.cancelled_count > 0:
+        batch.status = MessageDispatchBatch.Status.CANCELLED
+    elif batch.sent_count > 0 or batch.failed_count > 0:
         batch.status = MessageDispatchBatch.Status.PROCESSING
     else:
         batch.status = MessageDispatchBatch.Status.QUEUED

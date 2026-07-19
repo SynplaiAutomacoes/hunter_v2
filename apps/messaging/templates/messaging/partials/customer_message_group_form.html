@@ -263,6 +263,11 @@
                         if (payload.type === 'batch.snapshot' && payload.batch) {
                             (payload.batch.logs || []).forEach((log) => {
                                 this.liveLogsById[log.client_message_id] = log;
+                                const logStatusEl = document.querySelector(`[data-log-status="${log.client_message_id}"]`);
+                                if (logStatusEl) {
+                                    logStatusEl.setAttribute('data-log-status-value', log.status || '');
+                                    logStatusEl.innerHTML = this.renderLogStatusHtml(log.status || '');
+                                }
                             });
                             this.applyLiveStatusToDom(payload.batch);
                             return;
@@ -280,13 +285,14 @@
                     }
                     const statusEl = document.querySelector(`[data-batch-status="${batchId}"]`);
                     if (statusEl && (payload.batch_status || payload.status)) {
-                        statusEl.textContent = payload.batch_status || payload.status;
+                        statusEl.textContent = this.formatBatchStatus(payload.batch_status || payload.status);
                     }
                     const counters = [
                         ['queued', payload.queued_count],
-                        ['pending', payload.pending_count],
+                        ['processing', payload.processing_count],
                         ['sent', payload.sent_count],
                         ['failed', payload.failed_count],
+                        ['cancelled', payload.cancelled_count],
                         ['total', payload.total_count],
                     ];
                     counters.forEach(([key, value]) => {
@@ -301,9 +307,34 @@
                     if (payload.client_message_id) {
                         const logStatusEl = document.querySelector(`[data-log-status="${payload.client_message_id}"]`);
                         if (logStatusEl) {
-                            logStatusEl.textContent = payload.status || '';
+                            logStatusEl.setAttribute('data-log-status-value', payload.status || '');
+                            logStatusEl.innerHTML = this.renderLogStatusHtml(payload.status || '');
                         }
                     }
+                },
+                formatBatchStatus(status) {
+                    const labels = {
+                        queued: 'Na fila',
+                        processing: 'Processando',
+                        completed: 'Concluído',
+                        failed: 'Falhou',
+                        cancelled: 'Cancelado',
+                    };
+                    return labels[status] || status || '';
+                },
+                renderLogStatusHtml(status) {
+                    const labels = {
+                        queued: 'Na fila',
+                        processing: 'Processando',
+                        sent: 'Enviada',
+                        failed: 'Falhou',
+                        cancelled: 'Cancelada',
+                    };
+                    const label = labels[status] || status || '';
+                    if (status === 'processing') {
+                        return `<span class="inline-flex items-center gap-2"><span class="loading loading-spinner loading-xs text-primary"></span><span>${label}</span></span>`;
+                    }
+                    return label;
                 },
                 parseJsonScript(elementId) {
                     const element = document.getElementById(elementId);

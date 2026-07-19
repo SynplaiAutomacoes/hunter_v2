@@ -116,9 +116,10 @@ class MessageDispatchBatch(TimeStampedModel):
     status = models.CharField(verbose_name="Status", max_length=20, choices=Status.choices, default=Status.QUEUED)
     total_count = models.PositiveIntegerField(verbose_name="Total", default=0)
     queued_count = models.PositiveIntegerField(verbose_name="Na fila", default=0)
-    pending_count = models.PositiveIntegerField(verbose_name="Pendentes", default=0)
+    processing_count = models.PositiveIntegerField(verbose_name="Processando", default=0)
     sent_count = models.PositiveIntegerField(verbose_name="Enviadas", default=0)
     failed_count = models.PositiveIntegerField(verbose_name="Falhas", default=0)
+    cancelled_count = models.PositiveIntegerField(verbose_name="Canceladas", default=0)
 
     class Meta(TimeStampedModel.Meta):
         verbose_name = "Lote de disparo"
@@ -141,9 +142,28 @@ class MessageDispatchBatch(TimeStampedModel):
 class MessageDispatchLog(TimeStampedModel):
     class Status(models.TextChoices):
         QUEUED = "queued", "Na fila"
-        PENDING = "pending", "Pendente"
+        PROCESSING = "processing", "Processando"
         SENT = "sent", "Enviada"
         FAILED = "failed", "Falhou"
+        CANCELLED = "cancelled", "Cancelada"
+
+    # Statuses the external worker may report via HTTP ingest.
+    # `queued` is local-only (set when hunter publishes).
+    # `cancelled` is local-only (set when hunter cancels in-flight sends).
+    WORKER_REPORTABLE_STATUSES: frozenset[str] = frozenset(
+        {
+            Status.PROCESSING,
+            Status.SENT,
+            Status.FAILED,
+        }
+    )
+
+    IN_FLIGHT_STATUSES: frozenset[str] = frozenset(
+        {
+            Status.QUEUED,
+            Status.PROCESSING,
+        }
+    )
 
     batch = models.ForeignKey(MessageDispatchBatch, verbose_name="Lote", on_delete=models.CASCADE, related_name="logs")
     client_message_id = models.UUIDField(verbose_name="ID da mensagem", default=uuid.uuid4, unique=True, db_index=True)

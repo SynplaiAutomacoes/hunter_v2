@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from apps.customer.models import Customer
 from apps.messaging.application.services.appointment_alert import sync_appointment_alert_schedule
-from apps.messaging.application.services.dispatch_history import apply_dispatch_status_update
+from apps.messaging.application.services.dispatch_history import apply_dispatch_status_update, cancel_in_flight_dispatch_logs
 from apps.messaging.application.services.outbound_dispatch import process_due_outbound_messages
 from apps.messaging.application.use_cases.dispatch_message_groups import (
     DispatchGroupsRequest,
@@ -116,6 +116,87 @@ class DispatchStatusUpdateTests(TestCase):
         self.assertEqual(updated_batch.sent_count, 1)
         self.assertEqual(updated_batch.status, MessageDispatchBatch.Status.COMPLETED)
 
+    def test_processing_status_updates_counter_and_rejects_queued_from_worker(self) -> None:
+        workshop = _workshop(21)
+        batch = MessageDispatchBatch.objects.create(
+            workshop=workshop,
+            source=MessageDispatchBatch.Source.GROUP_MANUAL,
+            total_count=1,
+            queued_count=1,
+            status=MessageDispatchBatch.Status.QUEUED,
+        )
+        log = MessageDispatchLog.objects.create(
+            batch=batch,
+            client_message_id=uuid4(),
+            phone="5511999999999",
+            message="oi",
+            status=MessageDispatchLog.Status.QUEUED,
+        )
+
+        with self.assertRaises(ValueError):
+            apply_dispatch_status_update(client_message_id=log.client_message_id, status="queued", batch_id=batch.pk)
+
+        updated_log, updated_batch = apply_dispatch_status_update(
+            client_message_id=log.client_message_id,
+            status="processing",
+            batch_id=batch.pk,
+        )
+        self.assertEqual(updated_log.status, MessageDispatchLog.Status.PROCESSING)
+        self.assertEqual(updated_batch.queued_count, 0)
+        self.assertEqual(updated_batch.processing_count, 1)
+        self.assertEqual(updated_batch.status, MessageDispatchBatch.Status.PROCESSING)
+
+
+class CancelInFlightDispatchLogsTests(TestCase):
+    def test_cancel_marks_queued_and_processing_as_cancelled(self) -> None:
+        workshop = _workshop(22)
+        batch = MessageDispatchBatch.objects.create(
+            workshop=workshop,
+            source=MessageDispatchBatch.Source.GROUP_MANUAL,
+            total_count=3,
+            queued_count=1,
+            processing_count=1,
+            sent_count=1,
+            status=MessageDispatchBatch.Status.PROCESSING,
+        )
+        queued = MessageDispatchLog.objects.create(
+            batch=batch,
+            client_message_id=uuid4(),
+            phone="5511999999991",
+            message="a",
+            status=MessageDispatchLog.Status.QUEUED,
+        )
+        processing = MessageDispatchLog.objects.create(
+            batch=batch,
+            client_message_id=uuid4(),
+            phone="5511999999992",
+            message="b",
+            status=MessageDispatchLog.Status.PROCESSING,
+        )
+        sent = MessageDispatchLog.objects.create(
+            batch=batch,
+            client_message_id=uuid4(),
+            phone="5511999999993",
+            message="c",
+            status=MessageDispatchLog.Status.SENT,
+        )
+
+        cancelled = cancel_in_flight_dispatch_logs(workshop_id=workshop.pk)
+        queued.refresh_from_db()
+        processing.refresh_from_db()
+        sent.refresh_from_db()
+        batch.refresh_from_db()
+
+        self.assertEqual(cancelled, 2)
+        self.assertEqual(queued.status, MessageDispatchLog.Status.CANCELLED)
+        self.assertEqual(processing.status, MessageDispatchLog.Status.CANCELLED)
+        self.assertEqual(sent.status, MessageDispatchLog.Status.SENT)
+        self.assertEqual(batch.queued_count, 0)
+        self.assertEqual(batch.processing_count, 0)
+        self.assertEqual(batch.cancelled_count, 2)
+        self.assertEqual(batch.sent_count, 1)
+        self.assertEqual(batch.status, MessageDispatchBatch.Status.CANCELLED)
+
 
 class AppointmentAlertScheduleTests(TestCase):
     def test_sync_creates_and_cancels_scheduled_outbound(self) -> None:
@@ -194,20 +275,20 @@ class DispatchStatusIngestViewTests(TestCase):
         url = reverse("messaging:dispatch_status_ingest")
         unauthorized = self.client.post(
             url,
-            data={"client_message_id": str(log.client_message_id), "status": "pending", "batch_id": batch.pk},
+            data={"client_message_id": str(log.client_message_id), "status": "processing", "batch_id": batch.pk},
             content_type="application/json",
         )
         self.assertEqual(unauthorized.status_code, 401)
 
         response = self.client.post(
             url,
-            data={"client_message_id": str(log.client_message_id), "status": "pending", "batch_id": batch.pk},
+            data={"client_message_id": str(log.client_message_id), "status": "processing", "batch_id": batch.pk},
             content_type="application/json",
             HTTP_X_DISPATCH_STATUS_TOKEN="secret-token",
         )
         self.assertEqual(response.status_code, 200)
         log.refresh_from_db()
-        self.assertEqual(log.status, MessageDispatchLog.Status.PENDING)
+        self.assertEqual(log.status, MessageDispatchLog.Status.PROCESSING)
 
 
 class WorkerControlTests(SimpleTestCase):

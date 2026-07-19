@@ -62,9 +62,10 @@ class MessageDispatchBatchConsumer(AsyncJsonWebsocketConsumer):
             "status": batch.status,
             "total_count": batch.total_count,
             "queued_count": batch.queued_count,
-            "pending_count": batch.pending_count,
+            "processing_count": batch.processing_count,
             "sent_count": batch.sent_count,
             "failed_count": batch.failed_count,
+            "cancelled_count": batch.cancelled_count,
             "logs": [
                 {
                     "client_message_id": str(log.client_message_id),
