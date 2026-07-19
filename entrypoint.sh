@@ -15,11 +15,10 @@ case "$APP_PROCESS" in
     echo "Syncronizing webhook"
     uv run python manage.py webhook
 
+    echo "Running migrations..."
+    uv run python manage.py migrate --noinput
+
     echo "Starting gunicorn (APP_PROCESS=web) on 0.0.0.0:${PORT}..."
-    # gunicorn.conf.py binds 0.0.0.0:8000 by default; override via GUNICORN_BIND if needed.
-    if [ -n "${PORT}" ] && [ "${PORT}" != "8000" ]; then
-      export GUNICORN_BIND="0.0.0.0:${PORT}"
-    fi
     exec uv run gunicorn config.wsgi:application --config gunicorn.conf.py
     ;;
   realtime)
