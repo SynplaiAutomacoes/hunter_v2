@@ -24,7 +24,10 @@
         <button type="button" class="tab tab-sm" :class="{ 'tab-active': mainTab === 'historico' }" @click="mainTab = 'historico'; openLatestLiveBatch()" role="tab">Histórico</button>
     </div>
 
-    <form id="customer-message-group-form" method="post" action="{% if object and object.pk %}{% url 'messaging:customer_message_group_update' object.pk %}{% else %}{% url 'messaging:customer_message_group_create' %}{% endif %}" class="flex flex-col gap-6 xl:flex-row xl:items-start" x-show="mainTab === 'dados'" x-cloak @submit="flushPickerSelectionIntoGroup()">
+    {# Outside x-show so POST/HTMX always see current IDs; form-associated to the group form. #}
+    <div id="selected-customers-submit-inputs" class="hidden" aria-hidden="true"></div>
+
+    <form id="customer-message-group-form" method="post" action="{% if object and object.pk %}{% url 'messaging:customer_message_group_update' object.pk %}{% else %}{% url 'messaging:customer_message_group_create' %}{% endif %}" class="flex flex-col gap-6 xl:flex-row xl:items-start" x-show="mainTab === 'dados'" x-cloak @submit.prevent="submitMessageGroupForm()">
         {% csrf_token %}
 
         <div class="w-full xl:min-w-0 xl:flex-1">
@@ -110,11 +113,6 @@
                 </div>
             </div>
 
-            <div class="hidden">
-                <template x-for="customer in selectedCustomers" :key="`selected-customer-input-${customer.id}`">
-                    <input type="hidden" name="selected_customers" :value="customer.id">
-                </template>
-            </div>
         </div>
 
         <div class="w-full xl:w-[24rem] xl:shrink-0">
@@ -124,8 +122,13 @@
 
     <section class="card border border-base-300 bg-base-100 shadow-sm" x-show="mainTab === 'contatos'" x-cloak>
         <div class="card-body gap-4 p-5">
-            <div class="flex items-center justify-between">
-                <h2 class="text-lg font-bold text-base-content">Selecionar clientes</h2>
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div class="flex flex-col gap-1">
+                    <h2 class="text-lg font-bold text-base-content">Selecionar clientes</h2>
+                    <p class="text-sm text-base-content/70">
+                        <span class="font-semibold text-base-content" x-text="selectedCustomers.length"></span> cliente(s) no grupo
+                    </p>
+                </div>
                 <div class="tabs tabs-box" role="tablist">
                     <button
                         type="button"
@@ -155,7 +158,7 @@
                     hx-trigger="load"
                     hx-target="this"
                     hx-swap="innerHTML"
-                    hx-include="#customer-message-group-root [name='selected_customers'], #customer-message-group-root [name='customer_picker_selection']"
+                    hx-include="#selected-customers-submit-inputs, #customer-message-group-root [name='customer_picker_selection']"
                 >
                     <div class="flex min-h-60 items-center justify-center rounded-box border border-dashed border-base-300 bg-base-200/40 p-6 text-sm text-base-content/60">
                         Carregando clientes disponiveis...
@@ -179,7 +182,7 @@
 
     <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end" x-show="mainTab !== 'historico'" x-cloak>
         <a href="{% url 'messaging:customer_message_group_list' %}" class="btn-form-cancel">Cancelar</a>
-        <button type="submit" form="customer-message-group-form" class="btn-form-save" @click="flushPickerSelectionIntoGroup()">Salvar</button>
+        <button type="button" class="btn-form-save" @click="submitMessageGroupForm()">Salvar</button>
     </div>
 
     <div id="modal-container"></div>
@@ -187,10 +190,6 @@
 
 <script>
     (function () {
-        if (window.customerMessageGroupForm) {
-            return;
-        }
-
         window.customerMessageGroupForm = function customerMessageGroupForm(config) {
             return {
                 selectedCustomers: [],
@@ -206,10 +205,14 @@
                 liveSocket: null,
                 liveBatchId: null,
                 liveLogsById: {},
-                _pickerRefreshTimer: null,
+                _isSubmittingMessageGroup: false,
                 init() {
                     this.selectedCustomers = this.parseJsonScript(this.selectedCustomersElementId);
                     this.messageTemplates = this.parseJsonScript(this.messageTemplatesElementId);
+                    this.syncSelectedCustomersSubmitInputs();
+                    this.$watch('selectedCustomers', () => {
+                        this.syncSelectedCustomersSubmitInputs();
+                    });
                     const filterCriteriaEl = document.getElementById('customer-message-group-filter-criteria-data');
                     if (filterCriteriaEl) {
                         try {
@@ -443,15 +446,6 @@
                         .map((checkbox) => Number.parseInt(String(checkbox.value || ''), 10))
                         .filter((customerId) => Number.isInteger(customerId));
                 },
-                clearCheckedRows(table) {
-                    if (!table) {
-                        return;
-                    }
-
-                    Array.from(table.querySelectorAll('input.row-checkbox:checked, input[aria-label="Selecionar todos"]:checked')).forEach((checkbox) => {
-                        checkbox.checked = false;
-                    });
-                },
                 getVisibleCustomerIds(table) {
                     if (!table) {
                         return [];
@@ -508,7 +502,8 @@
                         }
                     }
 
-                    this.schedulePickerRefresh();
+                    // Keep submit inputs current without HTMX refresh (HTMX swaps kill Alpine bindings).
+                    this.syncSelectedCustomersSubmitInputs();
                 },
                 addCustomerToGroup(customerId) {
                     const normalizedId = Number(customerId);
@@ -534,57 +529,44 @@
                         this.addCustomerToGroup(customerId);
                     });
                 },
-                schedulePickerRefresh() {
-                    if (this._pickerRefreshTimer) {
-                        clearTimeout(this._pickerRefreshTimer);
+                getSelectedCustomerIds() {
+                    return [...new Set(
+                        this.selectedCustomers
+                            .map((customer) => Number(customer.id))
+                            .filter((customerId) => Number.isInteger(customerId))
+                    )];
+                },
+                syncSelectedCustomersSubmitInputs() {
+                    const container = document.getElementById('selected-customers-submit-inputs');
+                    if (!container) {
+                        return;
                     }
-                    this._pickerRefreshTimer = setTimeout(() => {
-                        this.refreshCustomerPicker();
-                    }, 150);
+                    const ids = this.getSelectedCustomerIds();
+                    container.innerHTML = ids
+                        .map(
+                            (customerId) =>
+                                `<input type="hidden" name="selected_customers" form="customer-message-group-form" value="${customerId}">`
+                        )
+                        .join('');
                 },
-                refreshCustomerPicker() {
-                    this.$nextTick(() => {
-                        const controlsForm = document.getElementById(`${this.pickerTableId}-controls-form`);
-                        if (!controlsForm) {
-                            return;
-                        }
+                submitMessageGroupForm() {
+                    if (this._isSubmittingMessageGroup) {
+                        return;
+                    }
+                    this.flushPickerSelectionIntoGroup();
+                    this.syncSelectedCustomersSubmitInputs();
 
-                        const pageInput = controlsForm.querySelector('input[name="page"]');
-                        if (pageInput) {
-                            pageInput.value = '1';
-                        }
-
-                        controlsForm.requestSubmit();
-                    });
-                },
-                addSelectedCustomersFromTable() {
-                    if (this.pickerSelectionIds.length === 0) {
+                    const form = document.getElementById('customer-message-group-form');
+                    if (!(form instanceof HTMLFormElement)) {
                         return;
                     }
 
-                    const table = this.getPickerTable();
-
-                    this.pickerSelectionIds.forEach((customerId) => {
-                        this.addCustomerToGroup(customerId);
-                    });
-
-                    this.pickerSelectionIds = [];
-                    this.clearCheckedRows(table);
-                    this.refreshCustomerPicker();
-                },
-                removeSelectedCustomersFromTable() {
-                    if (this.pickerSelectionIds.length === 0) {
-                        return;
-                    }
-
-                    const table = this.getPickerTable();
-                    const idsToRemove = new Set(this.pickerSelectionIds.map((customerId) => String(customerId)));
-                    this.selectedCustomers = this.selectedCustomers.filter((customer) => !idsToRemove.has(String(customer.id)));
-                    this.pickerSelectionIds = [];
-                    this.clearCheckedRows(table);
-                    this.refreshCustomerPicker();
+                    this._isSubmittingMessageGroup = true;
+                    // Native submit bypasses Alpine @submit.prevent and uses the synced hidden inputs.
+                    HTMLFormElement.prototype.submit.call(form);
                 },
             };
         };
     })();
 </script>
+
