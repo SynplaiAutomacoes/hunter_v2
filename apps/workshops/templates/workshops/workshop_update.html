@@ -27,8 +27,57 @@
             whatsappChecking: false,
             whatsappRefreshingQr: false,
             whatsappPolling: null,
+            whatsappPhoneSaving: false,
+            _whatsappPhoneLastSaved: '',
             init() {
                 this.initWhatsappStatus();
+                this.initWhatsappPhoneAutosave();
+            },
+            initWhatsappPhoneAutosave() {
+                this.$nextTick(() => {
+                    const input = document.getElementById('{{ company_form.whatsapp_phone.id_for_label }}');
+                    if (!input) {
+                        return;
+                    }
+                    this._whatsappPhoneLastSaved = String(input.value || '').trim();
+                    input.addEventListener('blur', () => this.autosaveWhatsappPhone(input));
+                });
+            },
+            autosaveWhatsappPhone(input) {
+                if (!input || this.whatsappPhoneSaving) {
+                    return;
+                }
+                const value = String(input.value || '').trim();
+                if (value === this._whatsappPhoneLastSaved) {
+                    return;
+                }
+                this.whatsappPhoneSaving = true;
+                const body = new FormData();
+                body.append('whatsapp_phone', value);
+                fetch('{% url "workshops:autosave_whatsapp_phone" workshop.pk %}', {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+                    body,
+                })
+                    .then(r => r.json().then(data => ({ okHttp: r.ok, data })))
+                    .then(({ okHttp, data }) => {
+                        if (okHttp && data.ok) {
+                            this._whatsappPhoneLastSaved = String(data.whatsapp_phone || value);
+                            document.body.dispatchEvent(new CustomEvent('showToast', {
+                                detail: { message: data.message || 'Telefone Assistente Virtual salvo.', type: 'success' },
+                            }));
+                            return;
+                        }
+                        document.body.dispatchEvent(new CustomEvent('showToast', {
+                            detail: { message: (data && data.message) || 'Erro ao salvar o telefone.', type: 'error' },
+                        }));
+                    })
+                    .catch(() => {
+                        document.body.dispatchEvent(new CustomEvent('showToast', {
+                            detail: { message: 'Erro ao salvar o telefone.', type: 'error' },
+                        }));
+                    })
+                    .finally(() => { this.whatsappPhoneSaving = false; });
             },
             initWhatsappStatus() {
                 this.whatsappChecking = true;

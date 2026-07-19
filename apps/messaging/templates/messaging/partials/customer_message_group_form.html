@@ -18,13 +18,13 @@
     @message-group-history-refresh.window="handleHistoryRefresh($event.detail)"
     class="space-y-8"
 >
-    <div class="tabs tabs-bordered" role="tablist">
-        <button type="button" class="tab" :class="{ 'tab-active': mainTab === 'dados' }" @click="mainTab = 'dados'" role="tab">Dados do Grupo</button>
-        <button type="button" class="tab" :class="{ 'tab-active': mainTab === 'contatos' }" @click="mainTab = 'contatos'" role="tab">Contatos</button>
-        <button type="button" class="tab" :class="{ 'tab-active': mainTab === 'historico' }" @click="mainTab = 'historico'; openLatestLiveBatch()" role="tab">Histórico</button>
+    <div class="tabs tabs-box" role="tablist">
+        <button type="button" class="tab tab-sm" :class="{ 'tab-active': mainTab === 'dados' }" @click="mainTab = 'dados'" role="tab">Dados do Grupo</button>
+        <button type="button" class="tab tab-sm" :class="{ 'tab-active': mainTab === 'contatos' }" @click="mainTab = 'contatos'" role="tab">Contatos</button>
+        <button type="button" class="tab tab-sm" :class="{ 'tab-active': mainTab === 'historico' }" @click="mainTab = 'historico'; openLatestLiveBatch()" role="tab">Histórico</button>
     </div>
 
-    <form id="customer-message-group-form" method="post" action="{% if object and object.pk %}{% url 'messaging:customer_message_group_update' object.pk %}{% else %}{% url 'messaging:customer_message_group_create' %}{% endif %}" class="flex flex-col gap-6 xl:flex-row xl:items-start" x-show="mainTab === 'dados'" x-cloak>
+    <form id="customer-message-group-form" method="post" action="{% if object and object.pk %}{% url 'messaging:customer_message_group_update' object.pk %}{% else %}{% url 'messaging:customer_message_group_create' %}{% endif %}" class="flex flex-col gap-6 xl:flex-row xl:items-start" x-show="mainTab === 'dados'" x-cloak @submit="flushPickerSelectionIntoGroup()">
         {% csrf_token %}
 
         <div class="w-full xl:min-w-0 xl:flex-1">
@@ -179,7 +179,7 @@
 
     <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end" x-show="mainTab !== 'historico'" x-cloak>
         <a href="{% url 'messaging:customer_message_group_list' %}" class="btn-form-cancel">Cancelar</a>
-        <button type="submit" form="customer-message-group-form" class="btn-form-save">Salvar</button>
+        <button type="submit" form="customer-message-group-form" class="btn-form-save" @click="flushPickerSelectionIntoGroup()">Salvar</button>
     </div>
 
     <div id="modal-container"></div>
@@ -206,6 +206,7 @@
                 liveSocket: null,
                 liveBatchId: null,
                 liveLogsById: {},
+                _pickerRefreshTimer: null,
                 init() {
                     this.selectedCustomers = this.parseJsonScript(this.selectedCustomersElementId);
                     this.messageTemplates = this.parseJsonScript(this.messageTemplatesElementId);
@@ -487,6 +488,59 @@
                     }
 
                     this.syncPickerSelectionFromTable();
+
+                    const isSelectAll = String(target.getAttribute('aria-label') || '') === 'Selecionar todos';
+                    if (isSelectAll) {
+                        const visibleIds = this.getVisibleCustomerIds(table);
+                        if (target.checked) {
+                            visibleIds.forEach((customerId) => this.addCustomerToGroup(customerId));
+                        } else {
+                            visibleIds.forEach((customerId) => this.removeCustomerFromGroup(customerId));
+                        }
+                    } else {
+                        const customerId = Number.parseInt(String(target.value || target.dataset.rowId || ''), 10);
+                        if (Number.isInteger(customerId)) {
+                            if (target.checked) {
+                                this.addCustomerToGroup(customerId);
+                            } else {
+                                this.removeCustomerFromGroup(customerId);
+                            }
+                        }
+                    }
+
+                    this.schedulePickerRefresh();
+                },
+                addCustomerToGroup(customerId) {
+                    const normalizedId = Number(customerId);
+                    if (!Number.isInteger(normalizedId)) {
+                        return;
+                    }
+                    const alreadySelected = this.selectedCustomers.some(
+                        (selectedCustomer) => Number(selectedCustomer.id) === normalizedId
+                    );
+                    if (!alreadySelected) {
+                        this.selectedCustomers.push({ id: normalizedId });
+                    }
+                },
+                removeCustomerFromGroup(customerId) {
+                    const normalizedId = String(customerId);
+                    this.selectedCustomers = this.selectedCustomers.filter(
+                        (customer) => String(customer.id) !== normalizedId
+                    );
+                },
+                flushPickerSelectionIntoGroup() {
+                    this.syncPickerSelectionFromTable();
+                    this.pickerSelectionIds.forEach((customerId) => {
+                        this.addCustomerToGroup(customerId);
+                    });
+                },
+                schedulePickerRefresh() {
+                    if (this._pickerRefreshTimer) {
+                        clearTimeout(this._pickerRefreshTimer);
+                    }
+                    this._pickerRefreshTimer = setTimeout(() => {
+                        this.refreshCustomerPicker();
+                    }, 150);
                 },
                 refreshCustomerPicker() {
                     this.$nextTick(() => {
@@ -511,10 +565,7 @@
                     const table = this.getPickerTable();
 
                     this.pickerSelectionIds.forEach((customerId) => {
-                        const alreadySelected = this.selectedCustomers.some((selectedCustomer) => Number(selectedCustomer.id) === customerId);
-                        if (!alreadySelected) {
-                            this.selectedCustomers.push({ id: customerId });
-                        }
+                        this.addCustomerToGroup(customerId);
                     });
 
                     this.pickerSelectionIds = [];

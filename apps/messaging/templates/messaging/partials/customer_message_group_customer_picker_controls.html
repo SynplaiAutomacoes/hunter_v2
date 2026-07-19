@@ -2,7 +2,7 @@
     <p><span class="font-semibold text-base-content" x-text="selectedCustomers.length"></span> cliente(s) no grupo</p>
 
     <template x-for="customer in selectedCustomers" :key="`picker-hidden-selected-${customer.id}`">
-        <input type="hidden" name="selected_customers" :value="customer.id">
+        <input type="hidden" name="selected_customers" form="customer-message-group-form" :value="customer.id">
     </template>
 
     <template x-for="customerId in pickerSelectionIds" :key="`picker-selection-${customerId}`">

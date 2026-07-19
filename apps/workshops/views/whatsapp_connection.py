@@ -318,3 +318,44 @@ class WhatsAppDisconnectView(LoginRequiredMixin, WorkshopScopedMixin, View):
             )
 
         return JsonResponse({"ok": True, "message": "WhatsApp desconectado com sucesso."})
+
+
+class WhatsAppPhoneAutosaveView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    """Persist Workshop.whatsapp_phone without touching Webmania company sync."""
+
+    model = Workshop
+    workshop_permission_codename = "change_workshop"
+
+    def post(self, request, *args, **kwargs):
+        workshop = self.workshop
+        whatsapp_phone = str(request.POST.get("whatsapp_phone") or "").strip()
+        current_phone = str(workshop.whatsapp_phone or "").strip()
+
+        if whatsapp_phone == current_phone:
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "message": "Nenhuma alteracao detectada.",
+                    "whatsapp_phone": current_phone,
+                }
+            )
+
+        if len(whatsapp_phone) > 20:
+            return JsonResponse(
+                {"ok": False, "message": "Telefone Assistente Virtual invalido."},
+                status=400,
+            )
+
+        workshop.whatsapp_phone = whatsapp_phone
+        workshop.save(update_fields=["whatsapp_phone"])
+        logger.info(
+            "whatsapp_phone_autosaved",
+            extra={"workshop_id": workshop.pk, "user_id": getattr(request.user, "id", None)},
+        )
+        return JsonResponse(
+            {
+                "ok": True,
+                "message": "Telefone Assistente Virtual salvo.",
+                "whatsapp_phone": whatsapp_phone,
+            }
+        )

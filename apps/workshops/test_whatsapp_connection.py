@@ -188,6 +188,29 @@ class WhatsAppConnectionViewTests(TestCase):
         self.workshop.refresh_from_db()
         self.assertEqual(self.workshop.whatsapp_instance_name, "")
 
+    def test_whatsapp_phone_autosave_persists_without_webmania(self) -> None:
+        url = reverse("workshops:autosave_whatsapp_phone", kwargs={"pk": self.workshop.pk})
+
+        with patch("apps.workshops.views.whatsapp_connection.EvolutionAPIServiceFactory.get_service") as get_service:
+            response = self.client.post(url, data={"whatsapp_phone": "5511888777666"})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["whatsapp_phone"], "5511888777666")
+        get_service.assert_not_called()
+        self.workshop.refresh_from_db()
+        self.assertEqual(self.workshop.whatsapp_instance_name, "inst-abc")
+        self.assertEqual(self.workshop.whatsapp_phone, "5511888777666")
+
+    def test_whatsapp_phone_autosave_is_idempotent_when_unchanged(self) -> None:
+        url = reverse("workshops:autosave_whatsapp_phone", kwargs={"pk": self.workshop.pk})
+        response = self.client.post(url, data={"whatsapp_phone": "5511999999999"})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["message"], "Nenhuma alteracao detectada.")
+
     def test_status_404_runs_cleanup(self) -> None:
         service = MagicMock()
         service.get_status.side_effect = WhatsAppServiceError("Instancia 'inst-abc' nao encontrada.")

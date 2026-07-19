@@ -15,6 +15,7 @@ from .views.workshops import (
 from .views.whatsapp_connection import (
     WhatsAppConnectView,
     WhatsAppDisconnectView,
+    WhatsAppPhoneAutosaveView,
     WhatsAppQrcodeRefreshView,
     WhatsAppStatusView,
 )
@@ -70,4 +71,5 @@ urlpatterns = [
     path("<int:pk>/whatsapp/qrcode/", WhatsAppQrcodeRefreshView.as_view(), name="whatsapp_qrcode_refresh"),
     path("<int:pk>/whatsapp/status/", WhatsAppStatusView.as_view(), name="whatsapp_status"),
     path("<int:pk>/whatsapp/disconnect/", WhatsAppDisconnectView.as_view(), name="whatsapp_disconnect"),
+    path("<int:pk>/whatsapp-phone/", WhatsAppPhoneAutosaveView.as_view(), name="autosave_whatsapp_phone"),
 ]
