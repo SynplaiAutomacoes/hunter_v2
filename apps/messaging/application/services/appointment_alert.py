@@ -30,6 +30,16 @@ def build_appointment_alert_message(appointment: Appointment) -> str:
     )
 
 
+def resolve_appointment_whatsapp_phone(appointment: Appointment) -> str:
+    # Same as message-group dispatch: PhoneNumber.as_e164 without leading '+'.
+    if getattr(appointment, "customer_id", None) and appointment.customer and appointment.customer.phone:
+        return appointment.customer.phone.as_e164.lstrip("+")
+    guest_phone = appointment.guest_customer_phone
+    if guest_phone:
+        return guest_phone.as_e164.lstrip("+")
+    return ""
+
+
 def sync_appointment_alert_schedule(appointment: Appointment) -> ScheduledOutboundMessage | None:
     pending_qs = ScheduledOutboundMessage.objects.filter(
         appointment=appointment,
@@ -48,7 +58,7 @@ def sync_appointment_alert_schedule(appointment: Appointment) -> ScheduledOutbou
         return None
 
     run_at = appointment.starts_at - timedelta(minutes=int(appointment.alert_lead_time))
-    phone = str(appointment.display_customer_phone or "").lstrip("+")
+    phone = resolve_appointment_whatsapp_phone(appointment)
     message = build_appointment_alert_message(appointment)
     existing = pending_qs.order_by("-criado_em").first()
 
