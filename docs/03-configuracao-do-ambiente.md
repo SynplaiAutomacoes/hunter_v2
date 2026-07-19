@@ -112,6 +112,10 @@ No Railway, use a **mesma imagem** em dois services:
 1. Servico web: `APP_PROCESS=web` (ou omita a env)
 2. Servico realtime: `APP_PROCESS=realtime` e **1 replica** (InMemoryChannelLayer). Coloque a URL publica desse service em `MESSAGE_DISPATCH_WS_BASE_URL` no web.
 
+O front autentica o WebSocket com um **token assinado** (query `?token=...`), gerado na pagina do grupo. Domínios publicos diferentes entre web e realtime funcionam sem cookie compartilhado; web e realtime precisam do mesmo `DJANGO_SECRET_KEY`.
+
+Portas na Railway: o platform injeta `PORT` em cada service. O `entrypoint.sh` escuta em `0.0.0.0:$PORT`. URL publica (`*.up.railway.app`) nao precisa de porta; URL interna (`*.railway.internal`) usa a porta em que o processo escuta (o valor de `PORT` daquele service). Veja nos logs (`Starting ... on 0.0.0.0:NNNN`) ou em Variables do service.
+
 O cron operacional recomendado na Railway e `python manage.py run_due_outbound_messages` a cada 1 minuto.
 
 ### Eventos de orcamento e performance

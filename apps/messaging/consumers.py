@@ -2,10 +2,16 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import parse_qs
 
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
+from apps.messaging.application.services.dispatch_ws_auth import (
+    DispatchWebSocketAuthError,
+    token_can_access_dispatch_batch,
+    verify_dispatch_ws_token,
+)
 from apps.messaging.models import MessageDispatchBatch
 
 logger = logging.getLogger(__name__)
@@ -16,13 +22,19 @@ class MessageDispatchBatchConsumer(AsyncJsonWebsocketConsumer):
     group_name: str
 
     async def connect(self) -> None:
-        user = self.scope.get("user")
-        if user is None or not getattr(user, "is_authenticated", False):
+        self.batch_id = int(self.scope["url_route"]["kwargs"]["batch_id"])
+        token = self._extract_token()
+        try:
+            user_id, workshop_id = verify_dispatch_ws_token(token)
+        except DispatchWebSocketAuthError:
             await self.close(code=4401)
             return
 
-        self.batch_id = int(self.scope["url_route"]["kwargs"]["batch_id"])
-        allowed = await self._user_can_access_batch(user=user, batch_id=self.batch_id)
+        allowed = await database_sync_to_async(token_can_access_dispatch_batch)(
+            user_id=user_id,
+            workshop_id=workshop_id,
+            batch_id=self.batch_id,
+        )
         if not allowed:
             await self.close(code=4403)
             return
@@ -40,19 +52,13 @@ class MessageDispatchBatchConsumer(AsyncJsonWebsocketConsumer):
     async def dispatch_status(self, event: dict[str, Any]) -> None:
         await self.send_json({"type": "dispatch.status", **event.get("payload", {})})
 
-    @database_sync_to_async
-    def _user_can_access_batch(self, *, user: Any, batch_id: int) -> bool:
-        from apps.collaborators.models import WorkshopMember
-
-        try:
-            batch = MessageDispatchBatch.objects.get(pk=batch_id)
-        except MessageDispatchBatch.DoesNotExist:
-            return False
-
-        if getattr(user, "is_superuser", False):
-            return True
-
-        return WorkshopMember.objects.filter(user=user, workshop_id=batch.workshop_id).exists()
+    def _extract_token(self) -> str:
+        query_string = self.scope.get("query_string", b"")
+        if isinstance(query_string, bytes):
+            query_string = query_string.decode("utf-8", errors="ignore")
+        params = parse_qs(query_string)
+        values = params.get("token") or []
+        return str(values[0]) if values else ""
 
     @database_sync_to_async
     def _batch_snapshot(self, batch_id: int) -> dict[str, Any]:

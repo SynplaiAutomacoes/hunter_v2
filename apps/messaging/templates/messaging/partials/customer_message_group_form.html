@@ -9,7 +9,8 @@
         selectedCustomersElementId: 'customer-message-group-selected-customers-data',
         messageTemplatesElementId: 'customer-message-group-message-templates-data',
         pickerTableId: 'customer-message-group-customer-picker-table',
-        wsBaseUrl: '{{ message_dispatch_ws_base_url|default:""|escapejs }}'
+        wsBaseUrl: '{{ message_dispatch_ws_base_url|default:""|escapejs }}',
+        wsToken: '{{ message_dispatch_ws_token|default:""|escapejs }}'
     })"
     x-init="init()"
     @change="handlePickerTableChange($event)"
@@ -201,6 +202,7 @@
                 selectedCustomersElementId: config.selectedCustomersElementId,
                 messageTemplatesElementId: config.messageTemplatesElementId,
                 wsBaseUrl: config.wsBaseUrl || '',
+                wsToken: config.wsToken || '',
                 liveSocket: null,
                 liveBatchId: null,
                 liveLogsById: {},
@@ -220,11 +222,18 @@
                     }
                 },
                 buildWsUrl(batchId) {
+                    let url;
                     if (this.wsBaseUrl) {
-                        return `${this.wsBaseUrl.replace(/\/$/, '')}/ws/dispatch/${batchId}/`;
+                        url = `${this.wsBaseUrl.replace(/\/$/, '')}/ws/dispatch/${batchId}/`;
+                    } else {
+                        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                        url = `${protocol}//${window.location.host}/ws/dispatch/${batchId}/`;
                     }
-                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                    return `${protocol}//${window.location.host}/ws/dispatch/${batchId}/`;
+                    if (this.wsToken) {
+                        const separator = url.includes('?') ? '&' : '?';
+                        url = `${url}${separator}token=${encodeURIComponent(this.wsToken)}`;
+                    }
+                    return url;
                 },
                 handleHistoryRefresh(detail) {
                     this.mainTab = 'historico';

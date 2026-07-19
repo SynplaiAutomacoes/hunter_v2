@@ -21,6 +21,7 @@ from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateR
 from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableAction, TableColumn
 from apps.customer.models import Customer
+from apps.messaging.application.services.dispatch_ws_auth import issue_dispatch_ws_token
 from apps.messaging.application.use_cases.dispatch_message_groups import (
     DispatchGroupsRequest,
     DispatchMessageGroupsUseCase,
@@ -42,6 +43,19 @@ from apps.messaging.variables import get_variable_groups
 from apps.workshops.mixin import WorkshopScopedMixin
 
 logger = logging.getLogger(__name__)
+
+
+def _message_dispatch_ws_context(*, request: Any, workshop: Any) -> dict[str, str]:
+    user = getattr(request, "user", None)
+    user_id = getattr(user, "id", None)
+    workshop_id = getattr(workshop, "id", None)
+    token = ""
+    if user_id and workshop_id:
+        token = issue_dispatch_ws_token(user_id=int(user_id), workshop_id=int(workshop_id))
+    return {
+        "message_dispatch_ws_base_url": str(getattr(settings, "MESSAGE_DISPATCH_WS_BASE_URL", "") or ""),
+        "message_dispatch_ws_token": token,
+    }
 
 
 CUSTOMER_MESSAGE_GROUP_CUSTOMER_FILTERS: tuple[QueryParamFilter, ...] = (
@@ -233,7 +247,7 @@ class CustomerMessageGroupCreateView(LoginRequiredMixin, WorkshopScopedMixin, Cr
         context["customer_picker_url"] = reverse("messaging:customer_message_group_customer_picker")
         context["segment_preview_url"] = reverse("messaging:customer_message_group_segment_preview")
         context["dispatch_history_batches"] = []
-        context["message_dispatch_ws_base_url"] = str(getattr(settings, "MESSAGE_DISPATCH_WS_BASE_URL", "") or "")
+        context.update(_message_dispatch_ws_context(request=self.request, workshop=self.workshop))
         return context
 
     def form_valid(self, form: CustomerMessageGroupForm) -> HttpResponse:
@@ -283,7 +297,7 @@ class CustomerMessageGroupUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
             .prefetch_related("logs")
             .order_by("-criado_em")[:50]
         )
-        context["message_dispatch_ws_base_url"] = str(getattr(settings, "MESSAGE_DISPATCH_WS_BASE_URL", "") or "")
+        context.update(_message_dispatch_ws_context(request=self.request, workshop=self.workshop))
         context["show_dispatch_button"] = True
         return context
 

@@ -253,6 +253,68 @@ class OutboundTickerTests(TestCase):
         self.assertEqual(publisher.published[0].client_message_id, str(row.client_message_id))
 
 
+class DispatchWebSocketTokenTests(TestCase):
+    def test_issue_and_verify_roundtrip(self) -> None:
+        from apps.messaging.application.services.dispatch_ws_auth import (
+            DispatchWebSocketAuthError,
+            issue_dispatch_ws_token,
+            verify_dispatch_ws_token,
+        )
+
+        token = issue_dispatch_ws_token(user_id=10, workshop_id=20)
+        user_id, workshop_id = verify_dispatch_ws_token(token)
+        self.assertEqual(user_id, 10)
+        self.assertEqual(workshop_id, 20)
+
+        with self.assertRaises(DispatchWebSocketAuthError):
+            verify_dispatch_ws_token("invalid.token.value")
+
+    def test_token_access_requires_membership_and_matching_workshop(self) -> None:
+        from apps.accounts.models import User
+        from apps.collaborators.models import WorkshopMember
+        from apps.messaging.application.services.dispatch_ws_auth import token_can_access_dispatch_batch
+
+        workshop = _workshop(7)
+        other = _workshop(8)
+        user = User.objects.create_user(username="ws-token-user", password="x")
+        WorkshopMember.objects.create(user=user, workshop=workshop)
+        batch = MessageDispatchBatch.objects.create(
+            workshop=workshop,
+            source=MessageDispatchBatch.Source.GROUP_MANUAL,
+            total_count=0,
+            status=MessageDispatchBatch.Status.COMPLETED,
+        )
+        other_batch = MessageDispatchBatch.objects.create(
+            workshop=other,
+            source=MessageDispatchBatch.Source.GROUP_MANUAL,
+            total_count=0,
+            status=MessageDispatchBatch.Status.COMPLETED,
+        )
+
+        self.assertTrue(
+            token_can_access_dispatch_batch(
+                user_id=user.pk,
+                workshop_id=workshop.pk,
+                batch_id=batch.pk,
+            )
+        )
+        self.assertFalse(
+            token_can_access_dispatch_batch(
+                user_id=user.pk,
+                workshop_id=workshop.pk,
+                batch_id=other_batch.pk,
+            )
+        )
+        outsider = User.objects.create_user(username="ws-outsider", password="x")
+        self.assertFalse(
+            token_can_access_dispatch_batch(
+                user_id=outsider.pk,
+                workshop_id=workshop.pk,
+                batch_id=batch.pk,
+            )
+        )
+
+
 class DispatchStatusIngestViewTests(TestCase):
     @override_settings(MESSAGE_DISPATCH_STATUS_TOKEN="secret-token")
     def test_ingest_requires_token_and_updates_status(self) -> None:
