@@ -12,7 +12,7 @@ from apps.customer.models import Customer
 from apps.iam.models import WorkshopRole
 from apps.messaging.infrastructure.forms.message_group_form import CustomerMessageGroupForm
 from apps.messaging.infrastructure.services.segment_query_builder import eligible_customers_queryset
-from apps.messaging.models import CustomerMessageGroup, CustomerMessageGroupMembership
+from apps.messaging.models import CustomerMessageGroup, CustomerMessageGroupMembership, MessageDispatchBatch, MessageDispatchLog
 from apps.messaging.presentation.views.message_group_views import (
     _build_customer_picker_queryset,
     _get_valid_request_selected_customer_ids,
@@ -380,3 +380,27 @@ class CustomerMessageGroupUpdateMembershipTests(TestCase):
             CustomerMessageGroupMembership.objects.filter(group=self.group).values_list("customer_id", flat=True)
         )
         self.assertEqual(member_ids, {self.customers[0].pk})
+
+    def test_history_partial_includes_latest_batch_and_log_status_hooks(self) -> None:
+        batch = MessageDispatchBatch.objects.create(
+            workshop=self.workshop,
+            group=self.group,
+            source=MessageDispatchBatch.Source.GROUP_MANUAL,
+            status=MessageDispatchBatch.Status.PROCESSING,
+            total_count=1,
+            queued_count=0,
+            processing_count=1,
+        )
+        log = MessageDispatchLog.objects.create(
+            batch=batch,
+            customer=self.customers[0],
+            phone="5511988887777",
+            message="Ola",
+            status=MessageDispatchLog.Status.PROCESSING,
+        )
+        url = reverse("messaging:customer_message_group_history", kwargs={"pk": self.group.pk})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'data-batch-id="{batch.pk}"')
+        self.assertContains(response, f'data-log-status="{log.client_message_id}"')
+        self.assertContains(response, "Processando")

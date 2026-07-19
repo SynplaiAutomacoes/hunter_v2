@@ -178,7 +178,16 @@
 
     <section class="card border border-base-300 bg-base-100 shadow-sm" x-show="mainTab === 'historico'" x-cloak>
         <div class="card-body gap-4 p-5">
-            {% include 'messaging/partials/customer_message_group_history.html' %}
+            <div
+                id="customer-message-group-history"
+                {% if object and object.pk %}
+                hx-get="{% url 'messaging:customer_message_group_history' object.pk %}"
+                hx-trigger="message-group-history-reload"
+                hx-swap="innerHTML"
+                {% endif %}
+            >
+                {% include 'messaging/partials/customer_message_group_history.html' %}
+            </div>
         </div>
     </section>
 
@@ -209,6 +218,7 @@
                 liveSocket: null,
                 liveBatchId: null,
                 liveLogsById: {},
+                _pendingLiveBatchId: null,
                 _isSubmittingMessageGroup: false,
                 init() {
                     this.selectedCustomers = this.parseJsonScript(this.selectedCustomersElementId);
@@ -226,7 +236,22 @@
                             this.syncPickerSelectionFromTable();
                         });
                     };
+                    this._onHistoryAfterSwap = (event) => {
+                        const target = event && event.target;
+                        if (!target || target.id !== 'customer-message-group-history') {
+                            return;
+                        }
+                        const batchId = this._pendingLiveBatchId
+                            || Number(document.querySelector('[data-batch-id]')?.getAttribute('data-batch-id') || '');
+                        this._pendingLiveBatchId = null;
+                        if (Number.isInteger(batchId) && batchId > 0) {
+                            this.$nextTick(() => {
+                                this.connectLiveBatch(batchId, { force: true });
+                            });
+                        }
+                    };
                     document.body.addEventListener('htmx:afterSwap', this._onPickerAfterSwap);
+                    document.body.addEventListener('htmx:afterSwap', this._onHistoryAfterSwap);
                     const filterCriteriaEl = document.getElementById('customer-message-group-filter-criteria-data');
                     if (filterCriteriaEl) {
                         try {
@@ -242,6 +267,9 @@
                 destroy() {
                     if (this._onPickerAfterSwap) {
                         document.body.removeEventListener('htmx:afterSwap', this._onPickerAfterSwap);
+                    }
+                    if (this._onHistoryAfterSwap) {
+                        document.body.removeEventListener('htmx:afterSwap', this._onHistoryAfterSwap);
                     }
                 },
                 buildWsUrl(batchId) {
@@ -260,9 +288,22 @@
                 },
                 handleHistoryRefresh(detail) {
                     this.mainTab = 'historico';
-                    const batchId = detail && detail.batch_id;
-                    if (batchId) {
-                        this.connectLiveBatch(batchId);
+                    const batchId = detail && detail.batch_id ? Number(detail.batch_id) : null;
+                    this._pendingLiveBatchId = Number.isInteger(batchId) && batchId > 0 ? batchId : null;
+
+                    const historyEl = document.getElementById('customer-message-group-history');
+                    const historyUrl = historyEl && historyEl.getAttribute('hx-get');
+                    if (historyEl && historyUrl && window.htmx) {
+                        window.htmx.ajax('GET', historyUrl, {
+                            target: '#customer-message-group-history',
+                            swap: 'innerHTML',
+                        });
+                        return;
+                    }
+
+                    if (this._pendingLiveBatchId) {
+                        this.connectLiveBatch(this._pendingLiveBatchId, { force: true });
+                        this._pendingLiveBatchId = null;
                     }
                 },
                 openLatestLiveBatch() {
@@ -271,13 +312,15 @@
                         this.connectLiveBatch(Number(firstBatch.getAttribute('data-batch-id')));
                     }
                 },
-                connectLiveBatch(batchId) {
+                connectLiveBatch(batchId, options = {}) {
                     if (!batchId) {
                         return;
                     }
+                    const force = Boolean(options.force);
                     const normalizedBatchId = Number(batchId);
                     if (
-                        this.liveBatchId === normalizedBatchId
+                        !force
+                        && this.liveBatchId === normalizedBatchId
                         && this.liveSocket
                         && this.liveSocket.readyState === WebSocket.OPEN
                     ) {

@@ -381,6 +381,30 @@ class CustomerMessageGroupCustomerPickerView(LoginRequiredMixin, WorkshopScopedM
         return context
 
 
+class CustomerMessageGroupHistoryView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    """HTMX partial: reload dispatch history so live WS updates have DOM targets."""
+
+    model = CustomerMessageGroup
+    workshop_permission_codename = "view_customermessagegroup"
+    http_method_names = ["get"]
+
+    def get(self, request: Any, *args: Any, **kwargs: Any) -> HttpResponse:
+        group = get_object_or_404(CustomerMessageGroup, pk=kwargs["pk"], workshop=self.workshop)
+        dispatch_history_batches = (
+            MessageDispatchBatch.objects.filter(workshop=self.workshop, group=group)
+            .prefetch_related("logs__customer")
+            .order_by("-criado_em")[:50]
+        )
+        return render(
+            request,
+            "messaging/partials/customer_message_group_history.html",
+            {
+                "object": group,
+                "dispatch_history_batches": dispatch_history_batches,
+            },
+        )
+
+
 class CustomerMessageGroupDispatchView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = CustomerMessageGroup
     workshop_permission_codename = "change_customermessagegroup"
