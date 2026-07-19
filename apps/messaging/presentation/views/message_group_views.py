@@ -31,7 +31,11 @@ from apps.messaging.infrastructure.queue.rabbitmq_publisher import RabbitMQPubli
 from apps.messaging.infrastructure.repositories.django_message_group_repository import (
     DjangoMessageGroupRepository,
 )
-from apps.messaging.infrastructure.services.segment_query_builder import eligible_customers_queryset, resolve_segment
+from apps.messaging.infrastructure.services.segment_query_builder import (
+    eligible_customers_queryset,
+    merge_customer_querysets,
+    resolve_segment,
+)
 from apps.messaging.models import (
     CustomerMessageGroup,
     CustomerMessageGroupMembership,
@@ -479,7 +483,7 @@ def _resolve_group_customers_for_dispatch(group: CustomerMessageGroup) -> QueryS
     try:
         criteria = FilterCriteria.from_dict(group.filter_criteria)
         dynamic = resolve_segment(workshop=group.workshop, filter_criteria=criteria)
-        return (manual | dynamic).distinct()
+        return merge_customer_querysets(manual, dynamic)
     except Exception:
         logger.exception("dispatch_modal_filter_resolve_failed", extra={"group_id": group.pk})
         return manual

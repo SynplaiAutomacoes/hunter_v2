@@ -275,7 +275,15 @@
                     if (!batchId) {
                         return;
                     }
-                    this.liveBatchId = Number(batchId);
+                    const normalizedBatchId = Number(batchId);
+                    if (
+                        this.liveBatchId === normalizedBatchId
+                        && this.liveSocket
+                        && this.liveSocket.readyState === WebSocket.OPEN
+                    ) {
+                        return;
+                    }
+                    this.liveBatchId = normalizedBatchId;
                     if (this.liveSocket) {
                         this.liveSocket.close();
                         this.liveSocket = null;

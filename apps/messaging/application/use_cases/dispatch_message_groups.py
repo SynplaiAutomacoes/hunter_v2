@@ -16,6 +16,7 @@ from apps.messaging.application.services.dispatch_history import (
     resolve_client_message_id,
 )
 from apps.messaging.domain.value_objects import DispatchItem, FilterCriteria
+from apps.messaging.infrastructure.services.segment_query_builder import merge_customer_querysets
 from apps.messaging.models import CustomerMessageGroup, MessageDispatchBatch
 from apps.messaging.rendering import render_message_template
 
@@ -194,7 +195,7 @@ class DispatchMessageGroupsUseCase:
             try:
                 criteria = FilterCriteria.from_dict(group.filter_criteria)
                 dynamic = self._resolve_segment(workshop=group.workshop, filter_criteria=criteria)
-                return (manual | dynamic).distinct()
+                return merge_customer_querysets(manual, dynamic)
             except Exception:
                 logger.exception(
                     "filter_criteria_resolve_failed",
