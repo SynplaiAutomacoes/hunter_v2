@@ -710,7 +710,8 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         page_number = self.request.GET.get("page") or "1"
 
         if self._has_active_filters():
-            paginator = Paginator(entry_refs, 50)
+            per_page = len(entry_refs) or 1
+            paginator = Paginator(entry_refs, per_page)
             return paginator.get_page(page_number), paginator
 
         paginator = Paginator(entry_refs, self.MOVEMENTS_PER_PAGE)

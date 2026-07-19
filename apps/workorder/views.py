@@ -1334,6 +1334,10 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     vehicle.km = km_final
                     vehicle.save(update_fields=["km"])
             except WorkOrderApprovalError as exc:
+                logger.warning(
+                    "workorder_delivery_approval_error",
+                    extra={"workorder_id": workorder.pk, "error": str(exc)},
+                )
                 response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
                 response["HX-Trigger"] = json.dumps({"showToast": {"message": str(exc), "type": "error"}})
                 return response
@@ -1343,6 +1347,14 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 response["HX-Trigger"] = json.dumps({"showToast": {"message": "Erro interno ao concluir a entrega da ordem de serviço.", "type": "error"}})
                 return response
 
+            logger.info(
+                "workorder_delivery_completed",
+                extra={
+                    "workorder_id": workorder.pk,
+                    "km_final": km_final,
+                    "has_unsigned_delivery": bool(unsigned_delivery_reason),
+                },
+            )
             return HttpResponse(headers={"HX-Refresh": "true"})
 
         reason_form = WorkOrderStatusReasonForm(request.POST, workorder=workorder, action=status)

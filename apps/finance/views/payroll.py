@@ -751,6 +751,7 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     workshop=payroll.workshop,
                     reference_date=date(payroll.reference_year, payroll.reference_month, 1),
                 ),
+                "transport_daily_amount": payroll.collaborator.transport_allowance_daily_amount,
             },
         )
 
@@ -805,23 +806,19 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if payroll is None or not payroll_has_financial_movements(payroll=payroll) or payroll.financial_movement is None:
             return self._build_confirmation_response(request=request, collaborator=collaborator, payroll=payroll)
 
-        work_days_changed = False
         raw_work_days = str(request.POST.get("work_days") or "").strip()
+        parsed_work_days: int | None
         if raw_work_days == "":
-            previous_work_days = int(payroll.work_days or 0)
-            previous_is_custom = bool(payroll.work_days_is_custom)
-            payroll = update_payroll_work_days(payroll=payroll, work_days=None)
-            work_days_changed = previous_is_custom or previous_work_days != int(payroll.work_days or 0)
+            parsed_work_days = None
+            work_days_requested = True
         else:
             try:
                 parsed_work_days = int(raw_work_days)
             except (TypeError, ValueError):
                 parsed_work_days = None
-            if parsed_work_days is not None and parsed_work_days >= 0 and (
-                parsed_work_days != int(payroll.work_days or 0) or not payroll.work_days_is_custom
-            ):
-                payroll = update_payroll_work_days(payroll=payroll, work_days=parsed_work_days)
-                work_days_changed = True
+                work_days_requested = False
+            else:
+                work_days_requested = parsed_work_days >= 0
 
         component_tabs = self._build_component_tabs(payroll=payroll)
         all_forms: list[tuple[str, PayrollPaymentForm]] = []
@@ -897,15 +894,33 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
                         workshop=payroll.workshop,
                         reference_date=date(payroll.reference_year, payroll.reference_month, 1),
                     ),
+                    "transport_daily_amount": payroll.collaborator.transport_allowance_daily_amount,
                 },
             )
 
-        if all_forms or work_days_changed:
+        work_days_changed = False
+        if all_forms or work_days_requested:
             with transaction.atomic():
                 for _component_key, form in all_forms:
                     form.save()
                 if all_forms:
                     recalculate_payroll_from_linked_movements(payroll=payroll)
+                # Apply work days after form saves so payment-tab POST data does not overwrite VT.
+                if work_days_requested:
+                    previous_work_days = int(payroll.work_days or 0)
+                    previous_is_custom = bool(payroll.work_days_is_custom)
+                    if parsed_work_days is None:
+                        resolved_work_days = get_workshop_work_days(
+                            workshop=payroll.workshop,
+                            reference_date=date(payroll.reference_year, payroll.reference_month, 1),
+                        )
+                        proposed_is_custom = False
+                    else:
+                        resolved_work_days = max(0, int(parsed_work_days))
+                        proposed_is_custom = True
+                    work_days_changed = previous_is_custom != proposed_is_custom or previous_work_days != resolved_work_days
+                    if work_days_changed:
+                        payroll = update_payroll_work_days(payroll=payroll, work_days=parsed_work_days)
                 payroll.refresh_from_db()
 
                 movements = payroll.get_financial_movements()
@@ -917,7 +932,10 @@ class PayrollEditModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
             response = HttpResponse()
             response["HX-Refresh"] = "true"
-            response["HX-Trigger"] = '{"showToast": {"message": "Folha atualizada com sucesso.", "type": "success"}}'
+            toast_message = "Folha atualizada com sucesso."
+            if work_days_changed and not all_forms:
+                toast_message = "Dias úteis atualizados com sucesso."
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": toast_message, "type": "success"}})
             return response
 
         return self._open_edit_modal(request=request, payroll=payroll)

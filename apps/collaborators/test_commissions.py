@@ -155,6 +155,38 @@ class CollaboratorCommissionSyncTests(TestCase):
         self.assertFalse(payroll.work_days_is_custom)
         self.assertEqual(payroll.transport_allowance_amount, Money(220, "BRL"))
 
+    def test_apply_collaborator_work_days_creates_payroll_for_current_month(self) -> None:
+        from apps.collaborators.services import apply_collaborator_work_days_for_reference
+
+        workshop = create_workshop(suffix=45)
+        collaborator = create_collaborator(workshop=workshop, suffix=45)
+        collaborator.transport_allowance_daily = Money(10, "BRL")
+        collaborator.save(update_fields=["transport_allowance_daily"])
+        WorkshopCost.objects.create(
+            workshop=workshop,
+            year=2026,
+            month=7,
+            mechanic_quantity=1,
+            work_days_per_month=22,
+        )
+
+        self.assertFalse(
+            CollaboratorPayroll.objects.filter(collaborator=collaborator, reference_year=2026, reference_month=7).exists()
+        )
+
+        payroll = apply_collaborator_work_days_for_reference(
+            collaborator=collaborator,
+            work_days=12,
+            reference_date=date(2026, 7, 1),
+        )
+
+        self.assertIsNotNone(payroll)
+        assert payroll is not None
+        payroll.refresh_from_db()
+        self.assertEqual(payroll.work_days, 12)
+        self.assertTrue(payroll.work_days_is_custom)
+        self.assertEqual(payroll.transport_allowance_amount, Money(120, "BRL"))
+
     def test_payroll_creates_one_financial_movement_per_benefit(self) -> None:
         workshop = create_workshop(suffix=41)
         collaborator = create_collaborator(workshop=workshop, suffix=41)
