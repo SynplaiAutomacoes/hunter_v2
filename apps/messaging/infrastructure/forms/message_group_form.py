@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any, cast
 
 from django import forms
@@ -8,6 +9,7 @@ from django.db.models import Q
 from apps.core.presentation.forms import CoreModelForm
 from apps.core.presentation.widgets import CheckboxInput, TextInput, TextareaInput
 from apps.core.text_normalization import sentence_case
+from apps.messaging.domain.value_objects import FilterCriteria
 from apps.messaging.models import CustomerMessageGroup, MessageTemplate
 from apps.workshops.models.workshops import Workshop
 
@@ -113,3 +115,31 @@ class CustomerMessageGroupForm(CoreModelForm):
     def clean_description(self) -> str:
         description = str(self.cleaned_data.get("description") or "").strip()
         return sentence_case(description) if description else description
+
+    def clean_filter_criteria(self) -> dict[str, Any] | None:
+        value = self.cleaned_data.get("filter_criteria")
+        if value in (None, "", {}):
+            return None
+
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                return None
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError as exc:
+                raise forms.ValidationError("Critérios de segmentação inválidos.") from exc
+
+        if not isinstance(value, dict):
+            raise forms.ValidationError("Critérios de segmentação inválidos.")
+
+        rules = value.get("rules") or []
+        if not rules:
+            return None
+
+        try:
+            criteria = FilterCriteria.from_dict(value)
+        except ValueError as exc:
+            raise forms.ValidationError("Critérios de segmentação inválidos.") from exc
+
+        return criteria.to_dict()

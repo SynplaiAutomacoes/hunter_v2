@@ -8,7 +8,7 @@ from django.utils import timezone
 from apps.budget.models import Budget, BudgetStatus
 from apps.customer.models import Customer
 from apps.messaging.domain.value_objects import FilterCriteria, SegmentRule
-from apps.messaging.infrastructure.services.segment_query_builder import resolve_segment
+from apps.messaging.infrastructure.services.segment_query_builder import eligible_customers_queryset, resolve_segment
 from apps.workshops.models.workshops import Workshop
 
 
@@ -234,22 +234,36 @@ class CombinedRuleTests(TestCase):
         self.assertIn(self.match_one_customer, qs)
         self.assertNotIn(self.no_match_customer, qs)
 
-    def test_empty_filter_criteria_returns_all_active(self) -> None:
+    def test_empty_filter_criteria_returns_all_eligible(self) -> None:
         criteria = FilterCriteria(logical_operator="all", rules=())
         qs = resolve_segment(workshop=self.workshop, filter_criteria=criteria)
-        active_count = Customer.objects.filter(workshop=self.workshop, is_active=True).count()
-        self.assertEqual(qs.count(), active_count)
+        eligible_count = eligible_customers_queryset(workshop=self.workshop).count()
+        self.assertEqual(qs.count(), eligible_count)
 
     def test_unknown_rule_type_is_ignored(self) -> None:
         criteria = FilterCriteria(logical_operator="all", rules=(SegmentRule(rule_type="nonexistent", operator="in", value=["x"]),))
         qs = resolve_segment(workshop=self.workshop, filter_criteria=criteria)
-        self.assertEqual(qs.count(), Customer.objects.filter(workshop=self.workshop, is_active=True).count())
+        self.assertEqual(qs.count(), eligible_customers_queryset(workshop=self.workshop).count())
 
     def test_inactive_customers_are_excluded(self) -> None:
         inactive = create_customer(workshop=self.workshop, suffix=9, is_active=False, birth_date=date(1990, self.today.month, self.today.day))
         criteria = FilterCriteria(logical_operator="all", rules=(SegmentRule(rule_type="birthday", operator="is_today"),))
         qs = resolve_segment(workshop=self.workshop, filter_criteria=criteria)
         self.assertNotIn(inactive, qs)
+
+    def test_customers_without_phone_are_excluded(self) -> None:
+        today = timezone.localdate()
+        without_phone = create_customer(
+            workshop=self.workshop,
+            suffix=10,
+            birth_date=date(1990, today.month, today.day),
+        )
+        Customer.objects.filter(pk=without_phone.pk).update(phone="")
+        without_phone.refresh_from_db()
+
+        criteria = FilterCriteria(logical_operator="all", rules=(SegmentRule(rule_type="birthday", operator="is_today"),))
+        qs = resolve_segment(workshop=self.workshop, filter_criteria=criteria)
+        self.assertNotIn(without_phone, qs)
 
     def test_workshop_scoping_excludes_other_workshop(self) -> None:
         other_workshop = create_workshop(suffix=99)

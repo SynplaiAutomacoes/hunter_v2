@@ -31,7 +31,7 @@ from apps.messaging.infrastructure.queue.rabbitmq_publisher import RabbitMQPubli
 from apps.messaging.infrastructure.repositories.django_message_group_repository import (
     DjangoMessageGroupRepository,
 )
-from apps.messaging.infrastructure.services.segment_query_builder import resolve_segment
+from apps.messaging.infrastructure.services.segment_query_builder import eligible_customers_queryset, resolve_segment
 from apps.messaging.models import (
     CustomerMessageGroup,
     CustomerMessageGroupMembership,
@@ -90,8 +90,7 @@ def _annotate_customers_with_latest_os(queryset: QuerySet[Customer]) -> QuerySet
 
 
 def _build_customer_picker_queryset(*, workshop: Any, params: Any) -> QuerySet[Customer]:
-    queryset = _annotate_customers_with_latest_os(Customer.objects.filter(workshop=workshop))
-    queryset = apply_is_active_filter(queryset, params=params)
+    queryset = _annotate_customers_with_latest_os(eligible_customers_queryset(workshop=workshop))
     queryset = apply_query_param_filters(queryset, params=params, filter_configs=CUSTOMER_MESSAGE_GROUP_CUSTOMER_FILTERS)
     return queryset.order_by("name", "pk")
 
@@ -144,6 +143,26 @@ def _build_message_templates_payload(*, workshop: Any, current_template_id: int 
     ]
 
 
+def _get_filter_criteria_context(*, request: Any, current_object: CustomerMessageGroup | None) -> dict[str, Any] | None:
+    if request.method in {"POST", "PUT", "PATCH"}:
+        raw_value = request.POST.get("filter_criteria")
+        if isinstance(raw_value, str) and raw_value.strip():
+            try:
+                parsed = json.loads(raw_value)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, dict) and parsed.get("rules"):
+                return parsed
+        return None
+
+    if current_object is not None:
+        criteria = getattr(current_object, "filter_criteria", None)
+        if isinstance(criteria, dict) and criteria.get("rules"):
+            return criteria
+
+    return None
+
+
 def _get_context_selected_customer_ids(*, request: Any, current_object: CustomerMessageGroup | None) -> list[int]:
     if request.method in {"POST", "PUT", "PATCH"}:
         return _parse_selected_customer_ids(request.POST.getlist("selected_customers"))
@@ -159,7 +178,11 @@ def _get_valid_request_selected_customer_ids(*, workshop: Any, request: Any) -> 
     if not selected_customer_ids:
         return []
 
-    return list(Customer.objects.filter(workshop=workshop, pk__in=selected_customer_ids).values_list("pk", flat=True))
+    return list(
+        eligible_customers_queryset(workshop=workshop)
+        .filter(pk__in=selected_customer_ids)
+        .values_list("pk", flat=True)
+    )
 
 
 def _sync_customer_message_group_memberships(*, group: CustomerMessageGroup, selected_customer_ids: Iterable[int]) -> None:
@@ -246,6 +269,7 @@ class CustomerMessageGroupCreateView(LoginRequiredMixin, WorkshopScopedMixin, Cr
         context["variable_groups"] = get_variable_groups()
         context["customer_picker_url"] = reverse("messaging:customer_message_group_customer_picker")
         context["segment_preview_url"] = reverse("messaging:customer_message_group_segment_preview")
+        context["filter_criteria"] = _get_filter_criteria_context(request=self.request, current_object=None)
         context["dispatch_history_batches"] = []
         context.update(_message_dispatch_ws_context(request=self.request, workshop=self.workshop))
         return context
@@ -264,9 +288,7 @@ class CustomerMessageGroupCreateView(LoginRequiredMixin, WorkshopScopedMixin, Cr
             group.workshop = self.workshop
             group.save()
             self.object = group
-
-            if selected_customer_ids:
-                _sync_customer_message_group_memberships(group=group, selected_customer_ids=selected_customer_ids)
+            _sync_customer_message_group_memberships(group=group, selected_customer_ids=selected_customer_ids)
 
         return HttpResponseRedirect(self.get_success_url())
 
@@ -292,6 +314,7 @@ class CustomerMessageGroupUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         context["variable_groups"] = get_variable_groups()
         context["customer_picker_url"] = reverse("messaging:customer_message_group_customer_picker")
         context["segment_preview_url"] = reverse("messaging:customer_message_group_segment_preview")
+        context["filter_criteria"] = _get_filter_criteria_context(request=self.request, current_object=self.object)
         context["dispatch_history_batches"] = (
             MessageDispatchBatch.objects.filter(workshop=self.workshop, group=self.object)
             .prefetch_related("logs")
@@ -315,9 +338,7 @@ class CustomerMessageGroupUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
             group.workshop = self.workshop
             group.save()
             self.object = group
-
-            if selected_customer_ids:
-                _sync_customer_message_group_memberships(group=group, selected_customer_ids=selected_customer_ids)
+            _sync_customer_message_group_memberships(group=group, selected_customer_ids=selected_customer_ids)
 
         return HttpResponseRedirect(self.get_success_url())
 

@@ -265,15 +265,11 @@
         </div>
     </div>
 
-    <input type="hidden" name="filter_criteria" form="customer-message-group-form" x-model="filterCriteriaJson">
+    <input type="hidden" data-filter-criteria-json x-model="filterCriteriaJson">
 </div>
 
 <script>
     (function () {
-        if (window.segmentBuilder) {
-            return;
-        }
-
         window.segmentBuilder = function segmentBuilder(config) {
             return {
                 criteria: {
@@ -291,7 +287,15 @@
                 init() {
                     const saved = this.parseJsonScript(this.filterCriteriaElementId);
                     if (saved && saved.rules && saved.rules.length > 0) {
-                        this.criteria = saved;
+                        this.criteria = {
+                            logical_operator: saved.logical_operator === 'any' ? 'any' : 'all',
+                            rules: saved.rules.map((rule) => ({
+                                rule_type: rule.rule_type || rule.type || 'birthday',
+                                operator: rule.operator || '',
+                                value: rule.value ?? null,
+                                field: rule.field || null,
+                            })),
+                        };
                     }
                     this.syncHiddenField();
                 },

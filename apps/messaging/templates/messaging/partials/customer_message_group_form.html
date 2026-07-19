@@ -29,6 +29,7 @@
 
     <form id="customer-message-group-form" method="post" action="{% if object and object.pk %}{% url 'messaging:customer_message_group_update' object.pk %}{% else %}{% url 'messaging:customer_message_group_create' %}{% endif %}" class="flex flex-col gap-6 xl:flex-row xl:items-start" x-show="mainTab === 'dados'" x-cloak @submit.prevent="submitMessageGroupForm()">
         {% csrf_token %}
+        <input type="hidden" name="filter_criteria" id="filter-criteria-submit-input" value="">
 
         <div class="w-full xl:min-w-0 xl:flex-1">
             {% if form.non_field_errors %}
@@ -125,6 +126,9 @@
             <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div class="flex flex-col gap-1">
                     <h2 class="text-lg font-bold text-base-content">Selecionar clientes</h2>
+                    <p class="text-sm text-base-content/70">
+                        Manual e segmentação podem ser usados juntos. Só clientes ativos com telefone entram na lista e nos filtros.
+                    </p>
                     <p class="text-sm text-base-content/70">
                         <span class="font-semibold text-base-content" x-text="selectedCustomers.length"></span> cliente(s) no grupo
                     </p>
@@ -564,12 +568,38 @@
                         )
                         .join('');
                 },
+                syncFilterCriteriaSubmitInput() {
+                    const submitInput = document.getElementById('filter-criteria-submit-input');
+                    if (!(submitInput instanceof HTMLInputElement)) {
+                        return;
+                    }
+
+                    let rawValue = '';
+                    const builderInput = document.querySelector('#customer-message-group-segment-builder [data-filter-criteria-json]');
+                    if (builderInput instanceof HTMLInputElement) {
+                        rawValue = String(builderInput.value || '').trim();
+                    }
+
+                    if (!rawValue) {
+                        submitInput.value = '';
+                        return;
+                    }
+
+                    try {
+                        const parsed = JSON.parse(rawValue);
+                        const rules = parsed && Array.isArray(parsed.rules) ? parsed.rules : [];
+                        submitInput.value = rules.length > 0 ? JSON.stringify(parsed) : '';
+                    } catch (error) {
+                        submitInput.value = '';
+                    }
+                },
                 submitMessageGroupForm() {
                     if (this._isSubmittingMessageGroup) {
                         return;
                     }
                     this.flushPickerSelectionIntoGroup();
                     this.syncSelectedCustomersSubmitInputs();
+                    this.syncFilterCriteriaSubmitInput();
 
                     const form = document.getElementById('customer-message-group-form');
                     if (!(form instanceof HTMLFormElement)) {
