@@ -9,6 +9,7 @@
         </div>
 
         <div class="flex items-center gap-2">
+            {% block crud_header_actions %}{% endblock %}
             <a href="{% block crud_back_url %}{% endblock %}" class="hidden md:flex btn btn-ghost gap-2 text-base-content/70">
                 <span class="material-icons text-sm">arrow_back</span>
                 {% block crud_back_label %}Voltar{% endblock %}

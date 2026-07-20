@@ -10,7 +10,7 @@ from django.utils import timezone
 from apps.core.templatetags.format_tags import money_br, phone_br
 
 
-TOKEN_PATTERN = re.compile(r"%%(?P<key>[a-z0-9_]+)%%")
+TOKEN_PATTERN = re.compile(r"%%(?P<key>[a-z0-9_]+)%%", re.IGNORECASE)
 MISSING = object()
 
 
@@ -70,7 +70,7 @@ def render_message_template(template: str, *, customer: Any = None, vehicle: Any
     variable_definitions = get_variable_definition_map()
 
     def replace(match: re.Match[str]) -> str:
-        key = match.group("key")
+        key = match.group("key").lower()
         definition = variable_definitions.get(key)
         if definition is None:
             return match.group(0)
