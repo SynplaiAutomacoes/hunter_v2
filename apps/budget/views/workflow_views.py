@@ -600,7 +600,9 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         if budget_pk and not requested_step:
             budget = self.get_object()
             if budget:
-                target_url = self._build_create_flow_url(step=budget.current_step, budget_id=budget.pk)
+                total_steps = len(self.get_steps_config())
+                target_step = total_steps if budget.is_status_locked else budget.current_step
+                target_url = self._build_create_flow_url(step=target_step, budget_id=budget.pk)
                 return redirect(target_url)
 
         return super().get(request, *args, **kwargs)
@@ -654,6 +656,10 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        budget = self.model_instance
+        total_steps = len(self.get_steps_config())
+        if budget and budget.is_status_locked:
+            context["max_reached_step"] = total_steps
         context["origin_appointment_id"] = self._get_origin_appointment_id()
         return context
 
@@ -803,7 +809,8 @@ class BudgetUpdateView(BudgetCreateView):
         step_na_url = int(request.GET.get("step", 0))
 
         if not step_na_url:
-            target_step = self.object.current_step
+            total_steps = len(self.get_steps_config())
+            target_step = total_steps if self.object.is_status_locked else self.object.current_step
             return redirect(f"{reverse('budget:budget_update', kwargs={'pk': self.object.pk})}?step={target_step}")
 
         return super().get(request, *args, **kwargs)
