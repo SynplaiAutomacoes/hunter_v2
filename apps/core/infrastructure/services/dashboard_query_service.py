@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from calendar import monthrange
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
@@ -19,6 +20,7 @@ from apps.budget.service_costs import calculate_mechanic_service_cost
 from apps.core.domain.services.dashboard_service import DashboardMetrics
 from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch, budget_kit_overrides_prefetch, workorder_items_with_kit_prefetch, workorder_kit_overrides_prefetch
 from apps.core.observability import build_business_metric_attributes, record_business_operation
+from apps.finance.services.dre import COMP_COGS, COMP_COS, COMP_GROSS_REVENUE, build_dre_calculation
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod, WorkOrderStatus
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.models.workshops import Workshop
@@ -168,31 +170,40 @@ def _format_brl(amount: Decimal) -> str:
 
 
 def calculate_aggregate_markup(*, workshop_id: int, month: int, year: int, total_revenue: Decimal | None = None) -> Decimal:
-    """Calculate aggregate markup aligned with DRE methodology.
+    """Calculate aggregate markup from DRE totals for the selected month.
 
-    Formula: SUM(total_paid) / SUM(total_costs_products_value + total_costs_services_value + total_products_shipping)
+    Formula: Receita Bruta de Vendas e Serviços / (CMV + CSV)
+    where CMV = Custos de Mercadorias Vendidas and CSV = Custos de Serviços Vendidos.
 
-    Uses WorkOrderPaymentMethod due_date (same as DRE) instead of Budget entry_date.
+    ``total_revenue`` is accepted for call-site compatibility but ignored; both
+    numerator and denominator always come from ``build_dre_calculation``.
     """
-    if total_revenue is None:
-        total_revenue = _aggregate_revenue(workshop_id=workshop_id, month=month, year=year)
-    if total_revenue == Decimal("0.00"):
+    _ = total_revenue
+
+    workshop = Workshop.objects.filter(pk=workshop_id).first()
+    if workshop is None:
         return Decimal("0.00")
 
-    workorder_ids = _get_workorder_ids_from_payments(workshop_id=workshop_id, month=month, year=year)
-    if not workorder_ids:
+    start_date = date(year, month, 1)
+    end_date = date(year, month, monthrange(year, month)[1])
+    dre = build_dre_calculation(workshops=[workshop], start_date=start_date, end_date=end_date)
+
+    amounts_by_component: dict[str, Decimal] = {}
+    for row in dre.rows:
+        component = row.get("component")
+        if not component:
+            continue
+        amounts_by_component[str(component)] = resolve_decimal_amount(row.get("amount"))
+
+    total_revenue_dre = amounts_by_component.get(COMP_GROSS_REVENUE, Decimal("0.00"))
+    total_cogs = amounts_by_component.get(COMP_COGS, Decimal("0.00"))
+    total_cos = amounts_by_component.get(COMP_COS, Decimal("0.00"))
+    total_cost = total_cogs + total_cos
+
+    if total_revenue_dre == Decimal("0.00") or total_cost <= Decimal("0.00"):
         return Decimal("0.00")
 
-    total_product_cost, total_third_party_cost, total_mechanic_cost, total_shipping = _aggregate_costs(workorder_ids=workorder_ids)
-
-    total_service_cost = total_third_party_cost + total_mechanic_cost
-    total_cost = total_product_cost + total_service_cost + total_shipping
-    if total_cost <= Decimal("0.00"):
-        return Decimal("0.00")
-
-    markup = (total_revenue / total_cost).quantize(TWO_DECIMAL_PLACES)
-
-    return markup
+    return (total_revenue_dre / total_cost).quantize(TWO_DECIMAL_PLACES)
 
 
 def _aggregate_revenue(*, workshop_id: int, month: int, year: int) -> Decimal:

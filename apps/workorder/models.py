@@ -22,8 +22,6 @@ from apps.core.infrastructure.kit_prefetch import budget_kit_overrides_prefetch,
 from apps.core.infrastructure.models import TimeStampedModel
 from apps.finance.models.payment_method import PaymentMethod
 
-from apps.stock.models import StockMovement
-
 logger = logging.getLogger(__name__)
 
 
@@ -408,14 +406,10 @@ class WorkOrder(TimeStampedModel):
             self.save(update_fields=["status"])
 
     def _ensure_stock_consumed_on_approve(self, user: object | None = None) -> None:
+        from apps.stock.services.workorder_stock import has_unreversed_exit_movements
         from apps.workorder.approval import approve_workorder_with_stock
 
-        has_movements = StockMovement.objects.filter(
-            workorder=self,
-            type=StockMovement.MovementType.EXIT,
-        ).exists()
-
-        if has_movements:
+        if has_unreversed_exit_movements(workorder=self):
             return
 
         try:
@@ -473,6 +467,7 @@ class WorkOrder(TimeStampedModel):
     def set_km_final(self, km_final: int) -> None:
         self.km_final = km_final
         self.save(update_fields=["km_final"])
+        self._sync_vehicle_km_from_exit()
 
     def set_unsigned_delivery_reason(self, reason: str) -> None:
         self.unsigned_delivery_reason = reason
@@ -482,6 +477,16 @@ class WorkOrder(TimeStampedModel):
         self.km_final = km_final
         self.unsigned_delivery_reason = unsigned_delivery_reason
         self.save(update_fields=["km_final", "unsigned_delivery_reason"])
+        self._sync_vehicle_km_from_exit()
+
+    def _sync_vehicle_km_from_exit(self) -> None:
+        from apps.customer.services.vehicle_km import sync_vehicle_km_from_exit
+
+        budget = getattr(self, "budget", None)
+        vehicle = getattr(budget, "vehicle", None) if budget is not None else None
+        if vehicle is None:
+            return
+        sync_vehicle_km_from_exit(vehicle=vehicle, km_final=self.km_final)
 
     @property
     def total_products_shipping(self) -> Money:
