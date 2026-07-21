@@ -234,12 +234,6 @@ class Budget(TimeStampedModel):
                 self.sync_items_benefit_type_to_budget_type()
 
             if old_status != BudgetStatus.APPROVED and self.status == BudgetStatus.APPROVED:
-                if self.vehicle_id and self.current_km is not None:
-                    vehicle = self.vehicle
-                    if vehicle and vehicle.km != self.current_km:
-                        vehicle.km = self.current_km
-                        vehicle.save(update_fields=["km"])
-
                 workorder, _ = WorkOrder.objects.get_or_create(
                     budget=self,
                     defaults={"workshop": self.workshop},

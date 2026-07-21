@@ -43,7 +43,6 @@ def configure_budget_step5_form(form):
     discount_display = ctx.discount_display
     step5_loading_hidden_class = ctx.step5_loading_hidden_class
     step5_method_hidden_class = ctx.step5_method_hidden_class
-    step5_should_block_next_button = ctx.step5_should_block_next_button
     step5_calculated_input_value = ctx.step5_calculated_input_value
 
     form.helper = FormHelper()
@@ -52,7 +51,6 @@ def configure_budget_step5_form(form):
         HTML(
             build_step5_assets_html(
                 metodo_precificacao=metodo_precificacao,
-                step5_should_block_next_button=step5_should_block_next_button,
                 mark_step5_calculation_viewed_url=reverse("budget:mark_step5_calculation_viewed", args=[form.instance.pk]),
                 update_budget_discount_url=reverse("budget:update_budget_discount", args=[form.instance.pk]),
             )
