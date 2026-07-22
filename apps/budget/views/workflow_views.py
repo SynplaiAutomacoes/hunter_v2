@@ -22,6 +22,8 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView
 from djmoney.money import Money
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
+from apps.budget.forms.layouts.step5_items_expand import build_step5_products_list_html, build_step5_services_list_html
+from apps.budget.forms.shared import _get_budget_with_prefetched_items
 from apps.budget.documents.provider import build_budget_status_report_pdf_render_request, render_budget_status_report_pdf_document
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
 from apps.budget.models import Budget, BudgetHistory, BudgetStatus, SignatureStatus, BudgetType, PricingMethod
@@ -1343,14 +1345,17 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
         display_products_value = budget.display_total_products_by_slider
         display_third_party_value = budget.display_total_third_party_by_slider
         display_labor_value = budget.display_total_services_by_slider - display_third_party_value
+        budget_for_lists = _get_budget_with_prefetched_items(budget)
+        products_list_html = build_step5_products_list_html(budget=budget_for_lists, oob=True)
+        services_list_html = build_step5_services_list_html(budget=budget_for_lists, oob=True)
         html = f"""
-                <span id="display-venda-pecas" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 whitespace-nowrap step5-accent-text" data-base-val="{display_products_value.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
+                <span id="display-venda-pecas" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{display_products_value.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
                     {display_products_value}
                 </span>
-                <span id="display-venda-terceiros" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300">
+                <span id="display-venda-terceiros" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap">
                     {display_third_party_value}
                 </span>
-                <span id="display-venda-mo" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 step5-accent-text" data-base-val="{display_labor_value.amount}" data-cost-val="{budget.total_labor_cost_value.amount}">
+                <span id="display-venda-mo" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{display_labor_value.amount}" data-cost-val="{budget.total_labor_cost_value.amount}">
                     {display_labor_value}
                 </span>
                 <span id="step5-subtotal-display" hx-swap-oob="true" data-base-total="{budget.display_total_base_value.amount}">
@@ -1362,6 +1367,8 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 <span id="valor-final-display" hx-swap-oob="true">
                     {budget.display_total_budget_value}
                 </span>
+                {products_list_html}
+                {services_list_html}
                 """
         return HttpResponse(html)
 
