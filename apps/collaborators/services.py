@@ -23,6 +23,7 @@ from apps.workorder.models import WorkOrder, WorkOrderDiscountType, WorkOrderSta
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.monthly_costs import (
+    ensure_pro_labore_monthly_cost,
     ensure_transport_allowance_monthly_cost,
     get_admin_salary_monthly_cost,
     get_mechanic_salary_monthly_cost,
@@ -118,6 +119,7 @@ def sync_current_month_salary_costs(*, workshop: Workshop, reference_date=None) 
 
     productive_monthly_cost = get_mechanic_salary_monthly_cost(workshop=workshop)
     administrative_monthly_cost = get_admin_salary_monthly_cost(workshop=workshop)
+    pro_labore_monthly_cost = ensure_pro_labore_monthly_cost(workshop=workshop)
     transport_monthly_cost = ensure_transport_allowance_monthly_cost(workshop=workshop)
 
     if productive_monthly_cost is not None:
@@ -133,6 +135,12 @@ def sync_current_month_salary_costs(*, workshop: Workshop, reference_date=None) 
             monthly_cost=administrative_monthly_cost,
             defaults={"amount": _sum_salary_by_type(workshop=workshop, collaborator_type=WorkshopCollaborator.CollaboratorType.ADMINISTRATIVE, reference_date=today)},
         )
+
+    WorkshopCostItem.objects.update_or_create(
+        workshop_cost=workshop_cost,
+        monthly_cost=pro_labore_monthly_cost,
+        defaults={"amount": _sum_salary_by_type(workshop=workshop, collaborator_type=WorkshopCollaborator.CollaboratorType.PRO_LABORE, reference_date=today)},
+    )
 
     WorkshopCostItem.objects.update_or_create(
         workshop_cost=workshop_cost,

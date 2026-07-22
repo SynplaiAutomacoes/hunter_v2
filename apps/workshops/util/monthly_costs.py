@@ -11,12 +11,13 @@ from apps.workshops.models.workshops import Workshop
 
 MECHANIC_SALARY_MONTHLY_COST_NAME = "Salários mecânicos produtivos"
 ADMIN_SALARY_MONTHLY_COST_NAME = "Total de salários administrativo"
+PRO_LABORE_MONTHLY_COST_NAME = "Pró Labore"
 TRANSPORT_ALLOWANCE_MONTHLY_COST_NAME = "Valor Total do Vale Transporte"
 
 DEFAULT_MONTHLY_COSTS = [
     "Aluguel",
     "Água",
-    "Pró Labore",
+    PRO_LABORE_MONTHLY_COST_NAME,
     MECHANIC_SALARY_MONTHLY_COST_NAME,
     ADMIN_SALARY_MONTHLY_COST_NAME,
     TRANSPORT_ALLOWANCE_MONTHLY_COST_NAME,
@@ -77,6 +78,24 @@ def get_mechanic_salary_monthly_cost(*, workshop: Workshop) -> MonthlyCost | Non
 
 def get_admin_salary_monthly_cost(*, workshop: Workshop) -> MonthlyCost | None:
     return get_monthly_cost_by_name(workshop=workshop, name=ADMIN_SALARY_MONTHLY_COST_NAME)
+
+
+def get_pro_labore_monthly_cost(*, workshop: Workshop) -> MonthlyCost | None:
+    return get_monthly_cost_by_name(workshop=workshop, name=PRO_LABORE_MONTHLY_COST_NAME)
+
+
+def ensure_pro_labore_monthly_cost(*, workshop: Workshop) -> MonthlyCost:
+    """Garante o custo mensal de Pró Labore para oficinas antigas."""
+    existing = get_pro_labore_monthly_cost(workshop=workshop)
+    if existing is not None:
+        return existing
+
+    return MonthlyCost.objects.create(
+        workshop=workshop,
+        name=PRO_LABORE_MONTHLY_COST_NAME,
+        is_active=True,
+        is_editable=False,
+    )
 
 
 def get_transport_allowance_monthly_cost(*, workshop: Workshop) -> MonthlyCost | None:

@@ -88,6 +88,8 @@ class CollaboratorPayrollRepetitionTests(TestCase):
         self.assertIn(WorkshopCollaborator.PaymentDayType.FIFTH_BUSINESS_DAY, payment_day_choices)
         self.assertIn(WorkshopCollaborator.PaymentDayType.FIXED_DAY, payment_day_choices)
         self.assertIn(WorkshopCollaborator.CollaboratorType.PRODUCTIVE, collaborator_type_choices)
+        self.assertIn(WorkshopCollaborator.CollaboratorType.ADMINISTRATIVE, collaborator_type_choices)
+        self.assertIn(WorkshopCollaborator.CollaboratorType.PRO_LABORE, collaborator_type_choices)
 
     def test_benefit_formset_exposes_budget_plan_searchable_select(self) -> None:
         account = create_account(suffix=9)

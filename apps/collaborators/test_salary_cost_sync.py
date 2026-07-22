@@ -14,6 +14,7 @@ from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.monthly_costs import (
     ADMIN_SALARY_MONTHLY_COST_NAME,
     MECHANIC_SALARY_MONTHLY_COST_NAME,
+    PRO_LABORE_MONTHLY_COST_NAME,
     TRANSPORT_ALLOWANCE_MONTHLY_COST_NAME,
     create_default_monthly_costs,
     get_productive_salary_total_including_transport,
@@ -56,6 +57,16 @@ class TransportAllowanceMonthlyCostSyncTests(TestCase):
             admission_date=date(2025, 1, 1),
             collaborator_type=WorkshopCollaborator.CollaboratorType.ADMINISTRATIVE,
         )
+        self.pro_labore = WorkshopCollaborator.objects.create(
+            workshop=self.workshop,
+            name="Socio",
+            cpf="12345678903",
+            birth_date=date(1985, 1, 1),
+            salary=Money(5000, "BRL"),
+            transport_allowance_daily=Money(0, "BRL"),
+            admission_date=date(2025, 1, 1),
+            collaborator_type=WorkshopCollaborator.CollaboratorType.PRO_LABORE,
+        )
 
     def test_sum_transport_allowance_from_payroll_uses_payroll_amounts(self) -> None:
         sync_collaborator_payroll(collaborator=self.productive, reference_date=date(2026, 7, 1), lock_reference=True)
@@ -77,6 +88,7 @@ class TransportAllowanceMonthlyCostSyncTests(TestCase):
 
         mechanic_cost = MonthlyCost.objects.get(workshop=self.workshop, name=MECHANIC_SALARY_MONTHLY_COST_NAME)
         admin_cost = MonthlyCost.objects.get(workshop=self.workshop, name=ADMIN_SALARY_MONTHLY_COST_NAME)
+        pro_labore_cost = MonthlyCost.objects.get(workshop=self.workshop, name=PRO_LABORE_MONTHLY_COST_NAME)
         self.assertEqual(
             WorkshopCostItem.objects.get(workshop_cost=self.workshop_cost, monthly_cost=mechanic_cost).amount,
             Money("3000.00", "BRL"),
@@ -84,6 +96,10 @@ class TransportAllowanceMonthlyCostSyncTests(TestCase):
         self.assertEqual(
             WorkshopCostItem.objects.get(workshop_cost=self.workshop_cost, monthly_cost=admin_cost).amount,
             Money("2000.00", "BRL"),
+        )
+        self.assertEqual(
+            WorkshopCostItem.objects.get(workshop_cost=self.workshop_cost, monthly_cost=pro_labore_cost).amount,
+            Money("5000.00", "BRL"),
         )
 
     def test_productive_salary_total_includes_transport(self) -> None:
@@ -101,6 +117,6 @@ class TransportAllowanceMonthlyCostSyncTests(TestCase):
         sync_current_month_salary_costs(workshop=self.workshop, reference_date=date(2026, 7, 15))
 
         self.workshop_cost.refresh_from_db()
-        # fixed costs without rates: 3000 + 2000 + 550 = 5550 (card/tax/commission 0, risk 1)
-        self.assertEqual(self.workshop_cost.total_monthly_costs, Money("5550.00", "BRL"))
+        # fixed costs without rates: 3000 + 2000 + 5000 + 550 = 10550 (card/tax/commission 0, risk 1)
+        self.assertEqual(self.workshop_cost.total_monthly_costs, Money("10550.00", "BRL"))
         self.assertEqual(self.workshop_cost.profitability_multiplier, Decimal("0.00"))
