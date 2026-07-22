@@ -20,8 +20,8 @@ from djmoney.models.fields import MoneyField
 from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, resolve_discount_fields
 from apps.workorder.models import WorkOrder, WorkOrderDiscountType
 
-from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
-from apps.workshops.util.monthly_costs import get_mechanic_salary_monthly_cost
+from apps.workshops.models.workshop_costs import WorkshopCost
+from apps.workshops.util.monthly_costs import get_productive_salary_total_including_transport
 from django.utils import timezone
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -340,12 +340,10 @@ class Budget(TimeStampedModel):
             minimum_hourly_cost = workshop_cost.minimum_hourly_cost or Money(0, "BRL")
             hourly_cost_value = workshop_cost.hourly_cost_value or Money(0, "BRL")
             profitability_multiplier = workshop_cost.profitability_multiplier or Decimal("0.00")
-
-            mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=self.workshop)
-            if mechanic_salary_obj is not None:
-                salary_item = WorkshopCostItem.objects.filter(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).first()
-                if salary_item is not None:
-                    productive_salary_total = salary_item.amount
+            productive_salary_total = get_productive_salary_total_including_transport(
+                workshop=self.workshop,
+                workshop_cost=workshop_cost,
+            )
 
         return {
             "pricing_reference_month": reference_month,
@@ -420,12 +418,10 @@ class Budget(TimeStampedModel):
             working_hours_per_month = workshop_cost.working_hours_per_month or Decimal("0.00")
             hourly_cost_value = workshop_cost.hourly_cost_value or Money(0, "BRL")
             profitability_multiplier = workshop_cost.profitability_multiplier or Decimal("1.00")
-
-            mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=self.workshop)
-            if mechanic_salary_obj is not None:
-                salary_item = WorkshopCostItem.objects.filter(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).first()
-                if salary_item is not None:
-                    productive_salary_total = salary_item.amount
+            productive_salary_total = get_productive_salary_total_including_transport(
+                workshop=self.workshop,
+                workshop_cost=workshop_cost,
+            )
 
         cached = SimpleNamespace(
             hourly_cost_value=hourly_cost_value,
