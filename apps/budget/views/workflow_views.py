@@ -1341,10 +1341,14 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
             budget.save(update_fields=["slider"])
 
         display_products_value = budget.display_total_products_by_slider
-        display_labor_value = budget.display_total_services_by_slider - budget.total_third_party_services_selling
+        display_third_party_value = budget.display_total_third_party_by_slider
+        display_labor_value = budget.display_total_services_by_slider - display_third_party_value
         html = f"""
                 <span id="display-venda-pecas" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 whitespace-nowrap step5-accent-text" data-base-val="{display_products_value.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
                     {display_products_value}
+                </span>
+                <span id="display-venda-terceiros" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300">
+                    {display_third_party_value}
                 </span>
                 <span id="display-venda-mo" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 step5-accent-text" data-base-val="{display_labor_value.amount}" data-cost-val="{budget.total_labor_cost_value.amount}">
                     {display_labor_value}

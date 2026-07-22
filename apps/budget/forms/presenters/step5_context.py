@@ -57,7 +57,7 @@ def build_step5_context(budget) -> Step5PricingContext:
     duracao_em_horas = _parse_duracao_em_horas(duracao_total)
     custo_total_mao_obra = custo_hora_mecanico * duracao_em_horas
 
-    venda_servico_terceiros = budget.total_third_party_services_selling
+    venda_servico_terceiros = budget.display_total_third_party_by_slider
     venda_pecas = budget.display_total_products_by_slider
     venda_mao_obra = budget.display_total_services_by_slider - venda_servico_terceiros
 

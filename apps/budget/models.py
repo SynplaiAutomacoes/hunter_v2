@@ -815,6 +815,14 @@ class Budget(TimeStampedModel):
         return self.pricing_snapshot.total_third_party_services_selling
 
     @property
+    def get_total_third_party_by_slider(self) -> Money:
+        return self.pricing_snapshot.total_third_party_by_slider
+
+    @property
+    def display_total_third_party_by_slider(self) -> Money:
+        return self.get_total_third_party_by_slider
+
+    @property
     def total_costs_services_value(self) -> Money:
         return self.pricing_snapshot.total_costs_services_value
 
