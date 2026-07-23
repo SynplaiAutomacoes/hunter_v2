@@ -11,7 +11,7 @@ from apps.core.presentation.widgets import SearchableSelectInput, TextInput, Tex
 from apps.finance.models import PaymentMethod, FinancialGroup
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_movement import FinancialMovement
-from apps.finance.services.financial_movement import generate_card_fee_movement
+from apps.finance.services.financial_movement import apply_payment_reconciliation_rules, generate_card_fee_movement
 from apps.suppliers.models import Supplier
 from apps.core.text_normalization import sentence_case
 from apps.core.presentation.forms import CoreModelForm
@@ -376,6 +376,12 @@ class MovementStep3Form(FinancialMovementBaseForm):
     def clean_financial_observation(self):
         value = self.cleaned_data.get("financial_observation")
         return sentence_case(value) if value else value
+
+    def clean(self):
+        cleaned_data = super().clean()
+        for field, message in apply_payment_reconciliation_rules(cleaned_data):
+            self.add_error(field, message)
+        return cleaned_data
 
 
 class MovementStep4Form(FinancialMovementBaseForm):
@@ -831,6 +837,9 @@ class ReportMovementEditForm(FinancialMovementBaseForm):
 
         if self.instance.description != "Pagamento da taxa da maquininha" and payment_method and direction and not self._payment_method_matches_direction(payment_method, direction):
             self.add_error("payment_method", self.PAYMENT_METHOD_DIRECTION_ERROR)
+
+        for field, message in apply_payment_reconciliation_rules(cleaned_data):
+            self.add_error(field, message)
 
         return cleaned_data
 

@@ -1,3 +1,8 @@
+from __future__ import annotations
+
+import uuid
+
+from django.conf import settings
 from django.db import models
 
 from apps.core.infrastructure.models import TimeStampedModel
@@ -75,3 +80,170 @@ class CustomerMessageGroupMembership(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.group} - {self.customer}"
+
+
+class MessageDispatchBatch(TimeStampedModel):
+    class Source(models.TextChoices):
+        GROUP_MANUAL = "group_manual", "Disparo manual de grupo"
+        APPOINTMENT_ALERT = "appointment_alert", "Alerta de agendamento"
+        COMMAND = "command", "Comando"
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Na fila"
+        PROCESSING = "processing", "Processando"
+        COMPLETED = "completed", "Concluído"
+        FAILED = "failed", "Falhou"
+        CANCELLED = "cancelled", "Cancelado"
+
+    workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="message_dispatch_batches")
+    group = models.ForeignKey(
+        CustomerMessageGroup,
+        verbose_name="Grupo",
+        on_delete=models.SET_NULL,
+        related_name="dispatch_batches",
+        null=True,
+        blank=True,
+    )
+    source = models.CharField(verbose_name="Origem", max_length=32, choices=Source.choices)
+    triggered_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        verbose_name="Disparado por",
+        on_delete=models.SET_NULL,
+        related_name="message_dispatch_batches",
+        null=True,
+        blank=True,
+    )
+    status = models.CharField(verbose_name="Status", max_length=20, choices=Status.choices, default=Status.QUEUED)
+    total_count = models.PositiveIntegerField(verbose_name="Total", default=0)
+    queued_count = models.PositiveIntegerField(verbose_name="Na fila", default=0)
+    processing_count = models.PositiveIntegerField(verbose_name="Processando", default=0)
+    sent_count = models.PositiveIntegerField(verbose_name="Enviadas", default=0)
+    failed_count = models.PositiveIntegerField(verbose_name="Falhas", default=0)
+    cancelled_count = models.PositiveIntegerField(verbose_name="Canceladas", default=0)
+
+    class Meta(TimeStampedModel.Meta):
+        verbose_name = "Lote de disparo"
+        verbose_name_plural = "Lotes de disparo"
+        indexes = [
+            models.Index(fields=["workshop", "-criado_em"]),
+            models.Index(fields=["group", "-criado_em"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Batch #{self.pk} ({self.get_source_display()})"
+
+    @property
+    def created_at_display(self) -> str:
+        from django.utils import timezone
+
+        return timezone.localtime(self.criado_em).strftime("%d/%m/%Y %H:%M")
+
+
+class MessageDispatchLog(TimeStampedModel):
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Na fila"
+        PROCESSING = "processing", "Processando"
+        SENT = "sent", "Enviada"
+        FAILED = "failed", "Falhou"
+        CANCELLED = "cancelled", "Cancelada"
+
+    # Statuses the external worker may report via HTTP ingest.
+    # `queued` is local-only (set when hunter publishes).
+    # `cancelled` is local-only (set when hunter cancels in-flight sends).
+    WORKER_REPORTABLE_STATUSES: frozenset[str] = frozenset(
+        {
+            Status.PROCESSING,
+            Status.SENT,
+            Status.FAILED,
+        }
+    )
+
+    IN_FLIGHT_STATUSES: frozenset[str] = frozenset(
+        {
+            Status.QUEUED,
+            Status.PROCESSING,
+        }
+    )
+
+    batch = models.ForeignKey(MessageDispatchBatch, verbose_name="Lote", on_delete=models.CASCADE, related_name="logs")
+    client_message_id = models.UUIDField(verbose_name="ID da mensagem", default=uuid.uuid4, unique=True, db_index=True)
+    customer = models.ForeignKey(
+        Customer,
+        verbose_name="Cliente",
+        on_delete=models.SET_NULL,
+        related_name="message_dispatch_logs",
+        null=True,
+        blank=True,
+    )
+    phone = models.CharField(verbose_name="Telefone", max_length=32, blank=True, default="")
+    message = models.TextField(verbose_name="Mensagem")
+    status = models.CharField(verbose_name="Status", max_length=20, choices=Status.choices, default=Status.QUEUED)
+    error = models.TextField(verbose_name="Erro", blank=True, default="")
+
+    class Meta(TimeStampedModel.Meta):
+        verbose_name = "Histórico de mensagem"
+        verbose_name_plural = "Histórico de mensagens"
+        indexes = [
+            models.Index(fields=["batch", "status"]),
+            models.Index(fields=["client_message_id"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.client_message_id} ({self.get_status_display()})"
+
+
+class ScheduledOutboundMessage(TimeStampedModel):
+    class Source(models.TextChoices):
+        APPOINTMENT_ALERT = "appointment_alert", "Alerta de agendamento"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pendente"
+        PROCESSING = "processing", "Processando"
+        SENT = "sent", "Enviada"
+        CANCELLED = "cancelled", "Cancelada"
+        FAILED = "failed", "Falhou"
+
+    workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="scheduled_outbound_messages")
+    appointment = models.ForeignKey(
+        "scheduling.Appointment",
+        verbose_name="Agendamento",
+        on_delete=models.CASCADE,
+        related_name="scheduled_outbound_messages",
+        null=True,
+        blank=True,
+    )
+    customer = models.ForeignKey(
+        Customer,
+        verbose_name="Cliente",
+        on_delete=models.SET_NULL,
+        related_name="scheduled_outbound_messages",
+        null=True,
+        blank=True,
+    )
+    phone = models.CharField(verbose_name="Telefone", max_length=32, blank=True, default="")
+    message = models.TextField(verbose_name="Mensagem")
+    run_at = models.DateTimeField(verbose_name="Executar em", db_index=True)
+    status = models.CharField(verbose_name="Status", max_length=20, choices=Status.choices, default=Status.PENDING)
+    source = models.CharField(verbose_name="Origem", max_length=32, choices=Source.choices, default=Source.APPOINTMENT_ALERT)
+    client_message_id = models.UUIDField(verbose_name="ID da mensagem", default=uuid.uuid4, unique=True)
+    error = models.TextField(verbose_name="Erro", blank=True, default="")
+    batch = models.ForeignKey(
+        MessageDispatchBatch,
+        verbose_name="Lote",
+        on_delete=models.SET_NULL,
+        related_name="scheduled_messages",
+        null=True,
+        blank=True,
+    )
+
+    class Meta(TimeStampedModel.Meta):
+        verbose_name = "Mensagem agendada"
+        verbose_name_plural = "Mensagens agendadas"
+        indexes = [
+            models.Index(fields=["status", "run_at"]),
+            models.Index(fields=["workshop", "status", "run_at"]),
+            models.Index(fields=["appointment", "status"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Outbound #{self.pk} ({self.get_status_display()})"

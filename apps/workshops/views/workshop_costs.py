@@ -140,29 +140,31 @@ class WorkshopCostCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
     def post(self, request, *args, **kwargs):
         form = WorkshopCostForm(request.POST, workshop=self.workshop)
-
-        try:
-            form.full_clean()
-        except Exception:
-            pass
+        form.is_valid()
 
         instance = form.instance
+        cleaned_data = form.cleaned_data or {}
         cost_items = []
 
         @dataclass
         class MockItem:
             amount: Money
 
-        cleaned_data = getattr(form, "cleaned_data", {})
-
         for cost in form.active_costs:
             field_name = f"cost_item_{cost.id}"
             amount = cleaned_data.get(field_name)
-
+            if amount is None:
+                amount = self._money_from_post(request.POST, field_name)
             if amount is None:
                 amount = Money(0, "BRL")
-
             cost_items.append(MockItem(amount=amount))
+
+        for field_name in ("parts_purchase_cap", "freight_cost", "third_party_service_cap"):
+            value = cleaned_data.get(field_name)
+            if value is None:
+                value = self._money_from_post(request.POST, field_name)
+            if value is not None:
+                setattr(instance, field_name, value)
 
         total_value = instance.calculate_total_value()
         total_monthly_costs = instance.calculate_total_monthly_costs(items=cost_items)
@@ -181,6 +183,22 @@ class WorkshopCostCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         response_form = WorkshopCostForm(instance=instance, workshop=self.workshop)
 
         return render(request, "workshop_costs/partials/workshop_cost_calculation_results.html", {"form": response_form})
+
+    @staticmethod
+    def _money_from_post(post_data, field_name: str) -> Money | None:
+        amount_raw = post_data.get(f"{field_name}_0")
+        currency_raw = post_data.get(f"{field_name}_1") or "BRL"
+        if amount_raw in (None, ""):
+            return None
+        try:
+            from decimal import Decimal, InvalidOperation
+
+            amount = Decimal(str(amount_raw).replace(",", "."))
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+        if str(currency_raw).replace(".", "", 1).replace("-", "", 1).isdigit():
+            currency_raw = "BRL"
+        return Money(amount, str(currency_raw or "BRL"))
 
 
 class WorkshopCostSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, ListView):

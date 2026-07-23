@@ -49,6 +49,22 @@ class Appointment(TimeStampedModel):
     ends_at = models.DateTimeField(verbose_name="Data e hora de saida")
     block_color = models.CharField(verbose_name="Cor do bloco", max_length=7, default="#0ea5e9")
     alert_customer = models.BooleanField(verbose_name="Alertar cliente", default=False)
+    alert_lead_time = models.PositiveIntegerField(
+        verbose_name="Antecedência do alerta",
+        null=True,
+        blank=True,
+        choices=[
+            (30, "30 minutos"),
+            (60, "1 hora"),
+            (120, "2 horas"),
+            (180, "3 horas"),
+            (300, "5 horas"),
+            (1440, "1 dia"),
+            (2880, "2 dias"),
+            (10080, "1 semana"),
+        ],
+        help_text="Minutos antes do início do agendamento para enviar o alerta.",
+    )
     notes = models.TextField(verbose_name="Observacoes", blank=True, default="")
     status = models.CharField(verbose_name="Status", max_length=20, choices=AppointmentStatus.choices, default=AppointmentStatus.SCHEDULED)
     budget = models.ForeignKey("budget.Budget", verbose_name="Orcamento vinculado", on_delete=models.SET_NULL, null=True, blank=True, related_name="appointments")

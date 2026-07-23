@@ -870,6 +870,7 @@ def render_table(
             abaixo da tabela e da paginação.
         show_controls: Se False, oculta os controles superiores (busca/ordenação/filtros).
         preserve_selection: Se True, mantém checkboxes de linha marcados com base na query string atual.
+            Também marca IDs presentes em `preselected_row_ids` ou `highlighted_row_ids` no contexto.
         hierarchical_selection: Se True, sincroniza seleção pai/filhos via metadados de hierarquia.
         htmx_push_url: Se True, atualiza a URL do navegador durante interações HTMX da tabela.
         disable_pagination_when_filtered: Se True, remove a paginação quando houver filtros extras ativos.
@@ -926,6 +927,12 @@ def render_table(
     selected_values: set[str] = set()
     if selectable and preserve_selection:
         selected_values = {str(raw_value) for raw_value in request.GET.getlist(checkbox_name) if str(raw_value).strip() != ""}
+        # Allow views to pre-check rows via context (e.g. members already in a group).
+        context_preselected = parent_context.get("preselected_row_ids")
+        if context_preselected is None:
+            context_preselected = parent_context.get("highlighted_row_ids")
+        if context_preselected:
+            selected_values.update(str(row_id) for row_id in context_preselected if str(row_id).strip() != "")
 
     rows = _render_rows(page_obj=page_obj, columns=columns, actions=action_list, request=request, selected_values=selected_values)
 

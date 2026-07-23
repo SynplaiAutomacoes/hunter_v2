@@ -8,15 +8,28 @@
     x-data="customerMessageGroupForm({
         selectedCustomersElementId: 'customer-message-group-selected-customers-data',
         messageTemplatesElementId: 'customer-message-group-message-templates-data',
-        pickerTableId: 'customer-message-group-customer-picker-table'
+        pickerTableId: 'customer-message-group-customer-picker-table',
+        wsBaseUrl: '{{ message_dispatch_ws_base_url|default:""|escapejs }}',
+        wsToken: '{{ message_dispatch_ws_token|default:""|escapejs }}'
     })"
     x-init="init()"
     @change="handlePickerTableChange($event)"
     @message-template-added.window="handleTemplateAdded($event.detail)"
+    @message-group-history-refresh.window="handleHistoryRefresh($event.detail)"
     class="space-y-8"
 >
-    <form id="customer-message-group-form" method="post" action="{% if object and object.pk %}{% url 'messaging:customer_message_group_update' object.pk %}{% else %}{% url 'messaging:customer_message_group_create' %}{% endif %}" class="flex flex-col gap-6 xl:flex-row xl:items-start">
+    <div class="tabs tabs-box" role="tablist">
+        <button type="button" class="tab tab-sm" :class="{ 'tab-active': mainTab === 'dados' }" @click="mainTab = 'dados'" role="tab">Dados do Grupo</button>
+        <button type="button" class="tab tab-sm" :class="{ 'tab-active': mainTab === 'contatos' }" @click="mainTab = 'contatos'" role="tab">Contatos</button>
+        <button type="button" class="tab tab-sm" :class="{ 'tab-active': mainTab === 'historico' }" @click="mainTab = 'historico'; openLatestLiveBatch()" role="tab">Histórico</button>
+    </div>
+
+    {# Outside x-show so POST/HTMX always see current IDs; form-associated to the group form. #}
+    <div id="selected-customers-submit-inputs" class="hidden" aria-hidden="true"></div>
+
+    <form id="customer-message-group-form" method="post" action="{% if object and object.pk %}{% url 'messaging:customer_message_group_update' object.pk %}{% else %}{% url 'messaging:customer_message_group_create' %}{% endif %}" class="flex flex-col gap-6 xl:flex-row xl:items-start" x-show="mainTab === 'dados'" x-cloak @submit.prevent="submitMessageGroupForm()">
         {% csrf_token %}
+        <input type="hidden" name="filter_criteria" id="filter-criteria-submit-input" value="">
 
         <div class="w-full xl:min-w-0 xl:flex-1">
             {% if form.non_field_errors %}
@@ -101,11 +114,6 @@
                 </div>
             </div>
 
-            <div class="hidden">
-                <template x-for="customer in selectedCustomers" :key="`selected-customer-input-${customer.id}`">
-                    <input type="hidden" name="selected_customers" :value="customer.id">
-                </template>
-            </div>
         </div>
 
         <div class="w-full xl:w-[24rem] xl:shrink-0">
@@ -113,10 +121,18 @@
         </div>
     </form>
 
-    <section class="card border border-base-300 bg-base-100 shadow-sm">
+    <section class="card border border-base-300 bg-base-100 shadow-sm" x-show="mainTab === 'contatos'" x-cloak>
         <div class="card-body gap-4 p-5">
-            <div class="flex items-center justify-between">
-                <h2 class="text-lg font-bold text-base-content">Selecionar clientes</h2>
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div class="flex flex-col gap-1">
+                    <h2 class="text-lg font-bold text-base-content">Selecionar clientes</h2>
+                    <p class="text-sm text-base-content/70">
+                        Manual e segmentação podem ser usados juntos. Só clientes ativos com telefone entram na lista e nos filtros.
+                    </p>
+                    <p class="text-sm text-base-content/70">
+                        <span class="font-semibold text-base-content" x-text="selectedCustomers.length"></span> cliente(s) no grupo
+                    </p>
+                </div>
                 <div class="tabs tabs-box" role="tablist">
                     <button
                         type="button"
@@ -146,7 +162,7 @@
                     hx-trigger="load"
                     hx-target="this"
                     hx-swap="innerHTML"
-                    hx-include="#customer-message-group-root [name='selected_customers'], #customer-message-group-root [name='customer_picker_selection']"
+                    hx-include="#selected-customers-submit-inputs, #customer-message-group-root [name='customer_picker_selection']"
                 >
                     <div class="flex min-h-60 items-center justify-center rounded-box border border-dashed border-base-300 bg-base-200/40 p-6 text-sm text-base-content/60">
                         Carregando clientes disponiveis...
@@ -160,11 +176,26 @@
         </div>
     </section>
 
-    <div class="divider my-6"></div>
+    <section class="card border border-base-300 bg-base-100 shadow-sm" x-show="mainTab === 'historico'" x-cloak>
+        <div class="card-body gap-4 p-5">
+            <div
+                id="customer-message-group-history"
+                {% if object and object.pk %}
+                hx-get="{% url 'messaging:customer_message_group_history' object.pk %}"
+                hx-trigger="message-group-history-reload"
+                hx-swap="innerHTML"
+                {% endif %}
+            >
+                {% include 'messaging/partials/customer_message_group_history.html' %}
+            </div>
+        </div>
+    </section>
 
-    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+    <div class="divider my-6" x-show="mainTab !== 'historico'" x-cloak></div>
+
+    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end" x-show="mainTab !== 'historico'" x-cloak>
         <a href="{% url 'messaging:customer_message_group_list' %}" class="btn-form-cancel">Cancelar</a>
-        <button type="submit" form="customer-message-group-form" class="btn-form-save">Salvar</button>
+        <button type="button" class="btn-form-save" @click="submitMessageGroupForm()">Salvar</button>
     </div>
 
     <div id="modal-container"></div>
@@ -172,22 +203,55 @@
 
 <script>
     (function () {
-        if (window.customerMessageGroupForm) {
-            return;
-        }
-
         window.customerMessageGroupForm = function customerMessageGroupForm(config) {
             return {
                 selectedCustomers: [],
                 pickerSelectionIds: [],
                 messageTemplates: [],
                 activeTab: 'manual',
+                mainTab: 'dados',
                 pickerTableId: config.pickerTableId,
                 selectedCustomersElementId: config.selectedCustomersElementId,
                 messageTemplatesElementId: config.messageTemplatesElementId,
+                wsBaseUrl: config.wsBaseUrl || '',
+                wsToken: config.wsToken || '',
+                liveSocket: null,
+                liveBatchId: null,
+                liveLogsById: {},
+                _pendingLiveBatchId: null,
+                _isSubmittingMessageGroup: false,
                 init() {
                     this.selectedCustomers = this.parseJsonScript(this.selectedCustomersElementId);
                     this.messageTemplates = this.parseJsonScript(this.messageTemplatesElementId);
+                    this.syncSelectedCustomersSubmitInputs();
+                    this.$watch('selectedCustomers', () => {
+                        this.syncSelectedCustomersSubmitInputs();
+                    });
+                    this._onPickerAfterSwap = (event) => {
+                        const target = event && event.target;
+                        if (!target || target.id !== 'customer-message-group-customer-picker') {
+                            return;
+                        }
+                        this.$nextTick(() => {
+                            this.syncPickerSelectionFromTable();
+                        });
+                    };
+                    this._onHistoryAfterSwap = (event) => {
+                        const target = event && event.target;
+                        if (!target || target.id !== 'customer-message-group-history') {
+                            return;
+                        }
+                        const batchId = this._pendingLiveBatchId
+                            || Number(document.querySelector('[data-batch-id]')?.getAttribute('data-batch-id') || '');
+                        this._pendingLiveBatchId = null;
+                        if (Number.isInteger(batchId) && batchId > 0) {
+                            this.$nextTick(() => {
+                                this.connectLiveBatch(batchId, { force: true });
+                            });
+                        }
+                    };
+                    document.body.addEventListener('htmx:afterSwap', this._onPickerAfterSwap);
+                    document.body.addEventListener('htmx:afterSwap', this._onHistoryAfterSwap);
                     const filterCriteriaEl = document.getElementById('customer-message-group-filter-criteria-data');
                     if (filterCriteriaEl) {
                         try {
@@ -199,6 +263,161 @@
                             // ignore
                         }
                     }
+                },
+                destroy() {
+                    if (this._onPickerAfterSwap) {
+                        document.body.removeEventListener('htmx:afterSwap', this._onPickerAfterSwap);
+                    }
+                    if (this._onHistoryAfterSwap) {
+                        document.body.removeEventListener('htmx:afterSwap', this._onHistoryAfterSwap);
+                    }
+                },
+                buildWsUrl(batchId) {
+                    let url;
+                    if (this.wsBaseUrl) {
+                        url = `${this.wsBaseUrl.replace(/\/$/, '')}/ws/dispatch/${batchId}/`;
+                    } else {
+                        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                        url = `${protocol}//${window.location.host}/ws/dispatch/${batchId}/`;
+                    }
+                    if (this.wsToken) {
+                        const separator = url.includes('?') ? '&' : '?';
+                        url = `${url}${separator}token=${encodeURIComponent(this.wsToken)}`;
+                    }
+                    return url;
+                },
+                handleHistoryRefresh(detail) {
+                    this.mainTab = 'historico';
+                    const batchId = detail && detail.batch_id ? Number(detail.batch_id) : null;
+                    this._pendingLiveBatchId = Number.isInteger(batchId) && batchId > 0 ? batchId : null;
+
+                    const historyEl = document.getElementById('customer-message-group-history');
+                    const historyUrl = historyEl && historyEl.getAttribute('hx-get');
+                    if (historyEl && historyUrl && window.htmx) {
+                        window.htmx.ajax('GET', historyUrl, {
+                            target: '#customer-message-group-history',
+                            swap: 'innerHTML',
+                        });
+                        return;
+                    }
+
+                    if (this._pendingLiveBatchId) {
+                        this.connectLiveBatch(this._pendingLiveBatchId, { force: true });
+                        this._pendingLiveBatchId = null;
+                    }
+                },
+                openLatestLiveBatch() {
+                    const firstBatch = document.querySelector('[data-batch-id]');
+                    if (firstBatch) {
+                        this.connectLiveBatch(Number(firstBatch.getAttribute('data-batch-id')));
+                    }
+                },
+                connectLiveBatch(batchId, options = {}) {
+                    if (!batchId) {
+                        return;
+                    }
+                    const force = Boolean(options.force);
+                    const normalizedBatchId = Number(batchId);
+                    if (
+                        !force
+                        && this.liveBatchId === normalizedBatchId
+                        && this.liveSocket
+                        && this.liveSocket.readyState === WebSocket.OPEN
+                    ) {
+                        return;
+                    }
+                    this.liveBatchId = normalizedBatchId;
+                    if (this.liveSocket) {
+                        this.liveSocket.close();
+                        this.liveSocket = null;
+                    }
+                    try {
+                        this.liveSocket = new WebSocket(this.buildWsUrl(this.liveBatchId));
+                    } catch (error) {
+                        return;
+                    }
+                    this.liveSocket.onmessage = (event) => {
+                        let payload = null;
+                        try {
+                            payload = JSON.parse(event.data || '{}');
+                        } catch (error) {
+                            return;
+                        }
+                        if (payload.type === 'batch.snapshot' && payload.batch) {
+                            (payload.batch.logs || []).forEach((log) => {
+                                this.liveLogsById[log.client_message_id] = log;
+                                const logStatusEl = document.querySelector(`[data-log-status="${log.client_message_id}"]`);
+                                if (logStatusEl) {
+                                    logStatusEl.setAttribute('data-log-status-value', log.status || '');
+                                    logStatusEl.innerHTML = this.renderLogStatusHtml(log.status || '');
+                                }
+                            });
+                            this.applyLiveStatusToDom(payload.batch);
+                            return;
+                        }
+                        if (payload.type === 'dispatch.status') {
+                            this.liveLogsById[payload.client_message_id] = payload;
+                            this.applyLiveStatusToDom(payload);
+                        }
+                    };
+                },
+                applyLiveStatusToDom(payload) {
+                    const batchId = payload.batch_id || payload.id || this.liveBatchId;
+                    if (!batchId) {
+                        return;
+                    }
+                    const statusEl = document.querySelector(`[data-batch-status="${batchId}"]`);
+                    if (statusEl && (payload.batch_status || payload.status)) {
+                        statusEl.textContent = this.formatBatchStatus(payload.batch_status || payload.status);
+                    }
+                    const counters = [
+                        ['queued', payload.queued_count],
+                        ['processing', payload.processing_count],
+                        ['sent', payload.sent_count],
+                        ['failed', payload.failed_count],
+                        ['cancelled', payload.cancelled_count],
+                        ['total', payload.total_count],
+                    ];
+                    counters.forEach(([key, value]) => {
+                        if (value === undefined || value === null) {
+                            return;
+                        }
+                        const el = document.querySelector(`[data-batch-count="${batchId}-${key}"]`);
+                        if (el) {
+                            el.textContent = String(value);
+                        }
+                    });
+                    if (payload.client_message_id) {
+                        const logStatusEl = document.querySelector(`[data-log-status="${payload.client_message_id}"]`);
+                        if (logStatusEl) {
+                            logStatusEl.setAttribute('data-log-status-value', payload.status || '');
+                            logStatusEl.innerHTML = this.renderLogStatusHtml(payload.status || '');
+                        }
+                    }
+                },
+                formatBatchStatus(status) {
+                    const labels = {
+                        queued: 'Na fila',
+                        processing: 'Processando',
+                        completed: 'Concluído',
+                        failed: 'Falhou',
+                        cancelled: 'Cancelado',
+                    };
+                    return labels[status] || status || '';
+                },
+                renderLogStatusHtml(status) {
+                    const labels = {
+                        queued: 'Na fila',
+                        processing: 'Processando',
+                        sent: 'Enviada',
+                        failed: 'Falhou',
+                        cancelled: 'Cancelada',
+                    };
+                    const label = labels[status] || status || '';
+                    if (status === 'processing') {
+                        return `<span class="inline-flex items-center gap-2"><span class="loading loading-spinner loading-xs text-primary"></span><span>${label}</span></span>`;
+                    }
+                    return label;
                 },
                 parseJsonScript(elementId) {
                     const element = document.getElementById(elementId);
@@ -297,15 +516,6 @@
                         .map((checkbox) => Number.parseInt(String(checkbox.value || ''), 10))
                         .filter((customerId) => Number.isInteger(customerId));
                 },
-                clearCheckedRows(table) {
-                    if (!table) {
-                        return;
-                    }
-
-                    Array.from(table.querySelectorAll('input.row-checkbox:checked, input[aria-label="Selecionar todos"]:checked')).forEach((checkbox) => {
-                        checkbox.checked = false;
-                    });
-                },
                 getVisibleCustomerIds(table) {
                     if (!table) {
                         return [];
@@ -342,53 +552,117 @@
                     }
 
                     this.syncPickerSelectionFromTable();
-                },
-                refreshCustomerPicker() {
-                    this.$nextTick(() => {
-                        const controlsForm = document.getElementById(`${this.pickerTableId}-controls-form`);
-                        if (!controlsForm) {
-                            return;
-                        }
 
-                        const pageInput = controlsForm.querySelector('input[name="page"]');
-                        if (pageInput) {
-                            pageInput.value = '1';
+                    const isSelectAll = String(target.getAttribute('aria-label') || '') === 'Selecionar todos';
+                    if (isSelectAll) {
+                        const visibleIds = this.getVisibleCustomerIds(table);
+                        if (target.checked) {
+                            visibleIds.forEach((customerId) => this.addCustomerToGroup(customerId));
+                        } else {
+                            visibleIds.forEach((customerId) => this.removeCustomerFromGroup(customerId));
                         }
-
-                        controlsForm.requestSubmit();
-                    });
-                },
-                addSelectedCustomersFromTable() {
-                    if (this.pickerSelectionIds.length === 0) {
-                        return;
+                    } else {
+                        const customerId = Number.parseInt(String(target.value || target.dataset.rowId || ''), 10);
+                        if (Number.isInteger(customerId)) {
+                            if (target.checked) {
+                                this.addCustomerToGroup(customerId);
+                            } else {
+                                this.removeCustomerFromGroup(customerId);
+                            }
+                        }
                     }
 
-                    const table = this.getPickerTable();
-
+                    // Keep submit inputs current without HTMX refresh (HTMX swaps kill Alpine bindings).
+                    this.syncSelectedCustomersSubmitInputs();
+                },
+                addCustomerToGroup(customerId) {
+                    const normalizedId = Number(customerId);
+                    if (!Number.isInteger(normalizedId)) {
+                        return;
+                    }
+                    const alreadySelected = this.selectedCustomers.some(
+                        (selectedCustomer) => Number(selectedCustomer.id) === normalizedId
+                    );
+                    if (!alreadySelected) {
+                        this.selectedCustomers.push({ id: normalizedId });
+                    }
+                },
+                removeCustomerFromGroup(customerId) {
+                    const normalizedId = String(customerId);
+                    this.selectedCustomers = this.selectedCustomers.filter(
+                        (customer) => String(customer.id) !== normalizedId
+                    );
+                },
+                flushPickerSelectionIntoGroup() {
+                    this.syncPickerSelectionFromTable();
                     this.pickerSelectionIds.forEach((customerId) => {
-                        const alreadySelected = this.selectedCustomers.some((selectedCustomer) => Number(selectedCustomer.id) === customerId);
-                        if (!alreadySelected) {
-                            this.selectedCustomers.push({ id: customerId });
-                        }
+                        this.addCustomerToGroup(customerId);
                     });
-
-                    this.pickerSelectionIds = [];
-                    this.clearCheckedRows(table);
-                    this.refreshCustomerPicker();
                 },
-                removeSelectedCustomersFromTable() {
-                    if (this.pickerSelectionIds.length === 0) {
+                getSelectedCustomerIds() {
+                    return [...new Set(
+                        this.selectedCustomers
+                            .map((customer) => Number(customer.id))
+                            .filter((customerId) => Number.isInteger(customerId))
+                    )];
+                },
+                syncSelectedCustomersSubmitInputs() {
+                    const container = document.getElementById('selected-customers-submit-inputs');
+                    if (!container) {
+                        return;
+                    }
+                    const ids = this.getSelectedCustomerIds();
+                    container.innerHTML = ids
+                        .map(
+                            (customerId) =>
+                                `<input type="hidden" name="selected_customers" form="customer-message-group-form" value="${customerId}">`
+                        )
+                        .join('');
+                },
+                syncFilterCriteriaSubmitInput() {
+                    const submitInput = document.getElementById('filter-criteria-submit-input');
+                    if (!(submitInput instanceof HTMLInputElement)) {
                         return;
                     }
 
-                    const table = this.getPickerTable();
-                    const idsToRemove = new Set(this.pickerSelectionIds.map((customerId) => String(customerId)));
-                    this.selectedCustomers = this.selectedCustomers.filter((customer) => !idsToRemove.has(String(customer.id)));
-                    this.pickerSelectionIds = [];
-                    this.clearCheckedRows(table);
-                    this.refreshCustomerPicker();
+                    let rawValue = '';
+                    const builderInput = document.querySelector('#customer-message-group-segment-builder [data-filter-criteria-json]');
+                    if (builderInput instanceof HTMLInputElement) {
+                        rawValue = String(builderInput.value || '').trim();
+                    }
+
+                    if (!rawValue) {
+                        submitInput.value = '';
+                        return;
+                    }
+
+                    try {
+                        const parsed = JSON.parse(rawValue);
+                        const rules = parsed && Array.isArray(parsed.rules) ? parsed.rules : [];
+                        submitInput.value = rules.length > 0 ? JSON.stringify(parsed) : '';
+                    } catch (error) {
+                        submitInput.value = '';
+                    }
+                },
+                submitMessageGroupForm() {
+                    if (this._isSubmittingMessageGroup) {
+                        return;
+                    }
+                    this.flushPickerSelectionIntoGroup();
+                    this.syncSelectedCustomersSubmitInputs();
+                    this.syncFilterCriteriaSubmitInput();
+
+                    const form = document.getElementById('customer-message-group-form');
+                    if (!(form instanceof HTMLFormElement)) {
+                        return;
+                    }
+
+                    this._isSubmittingMessageGroup = true;
+                    // Native submit bypasses Alpine @submit.prevent and uses the synced hidden inputs.
+                    HTMLFormElement.prototype.submit.call(form);
                 },
             };
         };
     })();
 </script>
+
