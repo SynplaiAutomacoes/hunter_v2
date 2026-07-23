@@ -26,6 +26,12 @@ from apps.workshops.views.monthly_costs import (
     MonthlyCostUpdateView,
     MonthlyCostDeleteView,
 )
+from apps.workshops.views.oil_types import (
+    OilTypeCreateView,
+    OilTypeDeleteView,
+    OilTypeListView,
+    OilTypeUpdateView,
+)
 
 from apps.workshops.views.workshop_costs import (
     WorkshopCostCalculateView,
@@ -54,6 +60,11 @@ urlpatterns = [
     path("monthly_costs/create/", MonthlyCostCreateView.as_view(), name="cost_create"),
     path("monthly_costs/<int:pk>/edit/", MonthlyCostUpdateView.as_view(), name="cost_update"),
     path("monthly_costs/<int:pk>/delete/", MonthlyCostDeleteView.as_view(), name="cost_delete"),
+    # Oil types
+    path("oil_types/", OilTypeListView.as_view(), name="oil_type_list"),
+    path("oil_types/create/", OilTypeCreateView.as_view(), name="oil_type_create"),
+    path("oil_types/<int:pk>/edit/", OilTypeUpdateView.as_view(), name="oil_type_update"),
+    path("oil_types/<int:pk>/delete/", OilTypeDeleteView.as_view(), name="oil_type_delete"),
     # Workshop Costs
     path("workshops_costs/", WorkshopCostListView.as_view(), name="workshop_cost_list"),
     path("workshops_costs/create/", WorkshopCostCreateView.as_view(), name="workshop_cost_create"),

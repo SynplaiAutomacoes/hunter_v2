@@ -1329,10 +1329,10 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 approve_workorder_with_stock(workorder=workorder, user=request.user)
                 sync_workorder_financial_movement(workorder=workorder)
 
-                vehicle = getattr(workorder.budget, "vehicle", None)
-                if vehicle and (vehicle.km is None or km_final > vehicle.km):
-                    vehicle.km = km_final
-                    vehicle.save(update_fields=["km"])
+                from apps.customer.services.oil_change import handle_workorder_delivery_oil_and_mileage
+
+                workorder.refresh_from_db()
+                handle_workorder_delivery_oil_and_mileage(workorder=workorder)
             except WorkOrderApprovalError as exc:
                 logger.warning(
                     "workorder_delivery_approval_error",

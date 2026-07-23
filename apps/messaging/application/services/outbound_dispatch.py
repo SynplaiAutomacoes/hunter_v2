@@ -65,11 +65,16 @@ def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> D
     notified_workshops: dict[int, str] = {}
 
     try:
-        rows = list(ScheduledOutboundMessage.objects.select_related("workshop", "appointment").filter(pk__in=claimed_ids))
+        rows = list(ScheduledOutboundMessage.objects.select_related("workshop", "appointment", "vehicle").filter(pk__in=claimed_ids))
         for row in rows:
+            batch_source = (
+                MessageDispatchBatch.Source.OIL_CHANGE_ALERT
+                if row.source == ScheduledOutboundMessage.Source.OIL_CHANGE_ALERT
+                else MessageDispatchBatch.Source.APPOINTMENT_ALERT
+            )
             batch = create_dispatch_batch(
                 workshop_id=row.workshop_id,
-                source=MessageDispatchBatch.Source.APPOINTMENT_ALERT,
+                source=batch_source,
             )
             customer_id = int(row.customer_id or 0)
             item = DispatchItem(

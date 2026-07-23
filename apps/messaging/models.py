@@ -86,6 +86,7 @@ class MessageDispatchBatch(TimeStampedModel):
     class Source(models.TextChoices):
         GROUP_MANUAL = "group_manual", "Disparo manual de grupo"
         APPOINTMENT_ALERT = "appointment_alert", "Alerta de agendamento"
+        OIL_CHANGE_ALERT = "oil_change_alert", "Alerta de troca de óleo"
         COMMAND = "command", "Comando"
 
     class Status(models.TextChoices):
@@ -195,6 +196,7 @@ class MessageDispatchLog(TimeStampedModel):
 class ScheduledOutboundMessage(TimeStampedModel):
     class Source(models.TextChoices):
         APPOINTMENT_ALERT = "appointment_alert", "Alerta de agendamento"
+        OIL_CHANGE_ALERT = "oil_change_alert", "Alerta de troca de óleo"
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pendente"
@@ -207,6 +209,14 @@ class ScheduledOutboundMessage(TimeStampedModel):
     appointment = models.ForeignKey(
         "scheduling.Appointment",
         verbose_name="Agendamento",
+        on_delete=models.CASCADE,
+        related_name="scheduled_outbound_messages",
+        null=True,
+        blank=True,
+    )
+    vehicle = models.ForeignKey(
+        "customer.Vehicle",
+        verbose_name="Veículo",
         on_delete=models.CASCADE,
         related_name="scheduled_outbound_messages",
         null=True,
@@ -243,6 +253,7 @@ class ScheduledOutboundMessage(TimeStampedModel):
             models.Index(fields=["status", "run_at"]),
             models.Index(fields=["workshop", "status", "run_at"]),
             models.Index(fields=["appointment", "status"]),
+            models.Index(fields=["vehicle", "status"]),
         ]
 
     def __str__(self) -> str:

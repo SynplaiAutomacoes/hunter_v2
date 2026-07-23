@@ -10,13 +10,28 @@ class BudgetStep1Form(BudgetStepBaseForm):
 
     class Meta:
         model = Budget
-        fields = ["workshop", "cost_estimator", "entry_date", "budget_type", "customer", "vehicle", "current_km", "fuel_level"]
+        fields = [
+            "workshop",
+            "cost_estimator",
+            "entry_date",
+            "budget_type",
+            "customer",
+            "vehicle",
+            "current_km",
+            "fuel_level",
+            "last_oil_change_date",
+            "last_oil_change_km",
+            "oil_type",
+        ]
         widgets = {
             "entry_date": CalendarDateInput(),
             "budget_type": SearchableSelectInput(),
             "customer": SearchableSelectInput(attrs={"x-model": "customerId", "@change": "customerId = $el.value; vehicleId = '';"}),
             "current_km": NumberInput(),
             "fuel_level": SearchableSelectInput(),
+            "last_oil_change_date": CalendarDateInput(),
+            "last_oil_change_km": NumberInput(),
+            "oil_type": SearchableSelectInput(),
         }
 
     def __init__(self, *args, **kwargs):
@@ -24,6 +39,7 @@ class BudgetStep1Form(BudgetStepBaseForm):
 
         customer_field = cast(forms.ModelChoiceField, self.fields["customer"])
         vehicle_field = cast(forms.ModelChoiceField, self.fields["vehicle"])
+        oil_type_field = cast(forms.ModelChoiceField, self.fields["oil_type"])
 
         customer_field.widget.attrs.update(
             {
@@ -47,6 +63,12 @@ class BudgetStep1Form(BudgetStepBaseForm):
         vehicle_field.widget.attrs.update({"id": "id_vehicle"})
         self.fields["fuel_level"].required = False
         self.fields["current_km"].error_messages["required"] = "Preencha o KM atual para continuar."
+        self.fields["last_oil_change_date"].required = False
+        self.fields["last_oil_change_km"].required = False
+        oil_type_field.required = False
+        oil_type_field.queryset = OilType.objects.none()
+        if self.workshop:
+            oil_type_field.queryset = OilType.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
 
         selected_customer_id = ""
         selected_vehicle_id = ""
@@ -129,6 +151,18 @@ class BudgetStep1Form(BudgetStepBaseForm):
             if selected_customer_id:
                 selected_vehicle_queryset = selected_vehicle_queryset.filter(customer_id=selected_customer_id)
             selected_vehicle = selected_vehicle_queryset.first()
+
+        if selected_vehicle is not None and not self.is_bound:
+            has_budget_oil_data = bool(
+                (self.instance and self.instance.pk and (self.instance.last_oil_change_date or self.instance.last_oil_change_km is not None or self.instance.oil_type_id))
+            )
+            if not has_budget_oil_data:
+                if selected_vehicle.last_oil_change_date and not self.initial.get("last_oil_change_date"):
+                    self.initial["last_oil_change_date"] = selected_vehicle.last_oil_change_date
+                if selected_vehicle.last_oil_change_km is not None and self.initial.get("last_oil_change_km") in (None, ""):
+                    self.initial["last_oil_change_km"] = selected_vehicle.last_oil_change_km
+                if selected_vehicle.oil_type_id and not self.initial.get("oil_type"):
+                    self.initial["oil_type"] = selected_vehicle.oil_type_id
 
         is_locked = bool(getattr(self.instance, "is_status_locked", False))
         customer_vehicle_x_data = json.dumps({"customerId": selected_customer_id, "vehicleId": selected_vehicle_id, "isLocked": is_locked})
@@ -233,19 +267,39 @@ class BudgetStep1Form(BudgetStepBaseForm):
                         if (modal) {
                             modal.close();
                         }
-
                         const vehicle = evt && evt.detail ? evt.detail : null;
-                        if (!vehicle || !vehicle.id) {
-                            return;
-                        }
+                        if (!vehicle || !vehicle.id) return;
+                        const customerId = vehicle.customer_id || document.querySelector('[name="customer"]')?.value;
+                        updateVehicleList(customerId, String(vehicle.id));
+                    });
+                }
 
-                        const customerInput = document.querySelector('[name="customer"]');
-                        const customerId = customerInput && customerInput.value ? customerInput.value : (vehicle.customer_id || '');
-                        if (!customerId) {
-                            return;
+                if (!window.__budgetStep1OilPrefillBound) {
+                    window.__budgetStep1OilPrefillBound = true;
+                    document.body.addEventListener('oilPrefill', function (evt) {
+                        const detail = evt && evt.detail ? evt.detail : null;
+                        if (!detail) return;
+                        const dateInput = document.querySelector('[name="last_oil_change_date"]');
+                        const kmInput = document.querySelector('[name="last_oil_change_km"]');
+                        if (dateInput && detail.last_oil_change_date) {
+                            dateInput.value = detail.last_oil_change_date;
+                            dateInput.dispatchEvent(new Event('change', { bubbles: true }));
                         }
-
-                        updateVehicleList(customerId, vehicle.id);
+                        if (kmInput && detail.last_oil_change_km !== null && detail.last_oil_change_km !== undefined && detail.last_oil_change_km !== '') {
+                            kmInput.value = detail.last_oil_change_km;
+                            kmInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
+                        if (detail.oil_type_id) {
+                            const oilTypeInput = document.querySelector('[name="oil_type"]');
+                            if (!oilTypeInput) return;
+                            const oilEl = oilTypeInput.closest('[x-data]');
+                            if (!oilEl || !window.Alpine) return;
+                            const oilData = Alpine.$data(oilEl);
+                            const option = oilEl.querySelector(`li[data-value='${detail.oil_type_id}']`);
+                            if (option && oilData && typeof oilData.select === 'function') {
+                                oilData.select(option);
+                            }
+                        }
                     });
                 }
             </script>
@@ -379,6 +433,9 @@ class BudgetStep1Form(BudgetStepBaseForm):
                         Div(
                             Field("current_km", wrapper_class="col-span-12 lg:col-span-6"),
                             Field("fuel_level", wrapper_class="col-span-12 lg:col-span-6"),
+                            Field("last_oil_change_date", wrapper_class="col-span-12 lg:col-span-6"),
+                            Field("last_oil_change_km", wrapper_class="col-span-12 lg:col-span-6"),
+                            Field("oil_type", wrapper_class="col-span-12"),
                             css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
                         ),
                         css_class="mb-6 gap-4",
