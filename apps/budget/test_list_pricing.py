@@ -139,3 +139,38 @@ class OperationalListStoredTotalTests(TestCase):
         items = mixin._get_selection_report_items()
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].stored_total_amount.amount, Decimal("10.00"))
+
+    def test_warranty_budget_list_column_reads_non_zero_stored_operational_total(self) -> None:
+        from apps.budget.models import BudgetItem, BudgetItemLocalType
+
+        budget = Budget.objects.create(
+            workshop=self.workshop,
+            entry_date=date(2026, 3, 1),
+            budget_type=BudgetType.WARRANTY,
+            status=BudgetStatus.DRAFT,
+        )
+        BudgetItem.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            is_local=True,
+            local_item_type=BudgetItemLocalType.PRODUCT,
+            description="Peca garantia",
+            quantity=1,
+            product_selling_price=Money(80, "BRL"),
+            shipping=Money(20, "BRL"),
+        )
+        budget.refresh_from_db()
+
+        self.assertEqual(budget.total_budget_value.amount, Decimal("0.00"))
+        self.assertEqual(budget.stored_total_amount.amount, Decimal("100.00"))
+
+        view = BudgetListView()
+        view.request = self.factory.get("/budget/")
+        view.workshop = self.workshop
+        view.kwargs = {}
+        view.object_list = view.get_queryset()
+        context = view.get_context_data()
+        value_column = next(column for column in context["fields"] if column.label == "Valor Total")
+        self.assertEqual(value_column.attr, "stored_total_amount")
+        listed = list(context["budget"])
+        self.assertEqual(listed[0].stored_total_amount.amount, Decimal("100.00"))

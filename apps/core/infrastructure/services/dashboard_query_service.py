@@ -974,6 +974,7 @@ class DashboardQueryService:
             WorkOrder.objects.filter(
                 workshop_id=workshop_id,
                 status=WorkOrderStatus.DRAFT,
+                budget_type="sale",
                 budget__isnull=False,
             )
             .annotate(pending_amount=pending_expr)
@@ -1039,6 +1040,7 @@ class DashboardQueryService:
         decimal_out = DecimalField(max_digits=14, decimal_places=2)
         result = Budget.objects.filter(
             workshop_id=workshop_id,
+            budget_type=BudgetType.SALE,
             status__in=REJECTED_BUDGET_STATUS_VALUES,
             entry_date__month=selected_month,
             entry_date__year=selected_year,
@@ -1051,21 +1053,21 @@ class DashboardQueryService:
 _INDICATOR_QUERIES: dict[str, dict[str, Any]] = {
     "a_receber_em_execucao": {
         "model": "workorder",
-        "filters": {"status": WorkOrderStatus.DRAFT},
+        "filters": {"status": WorkOrderStatus.DRAFT, "budget_type": "sale"},
         "date_field": "criado_em",
         "value_field": "pending_payment_value",
         "exclude_month": False,
     },
     "a_receber_mes_atual": {
         "model": "workorder",
-        "filters": {"status": WorkOrderStatus.DRAFT},
+        "filters": {"status": WorkOrderStatus.DRAFT, "budget_type": "sale"},
         "date_field": "criado_em",
         "value_field": "pending_payment_value",
         "exclude_month": False,
     },
     "a_receber_meses_anteriores": {
         "model": "workorder",
-        "filters": {"status": WorkOrderStatus.DRAFT},
+        "filters": {"status": WorkOrderStatus.DRAFT, "budget_type": "sale"},
         "date_field": "criado_em",
         "value_field": "pending_payment_value",
         "exclude_month": True,
@@ -1093,7 +1095,7 @@ _INDICATOR_QUERIES: dict[str, dict[str, Any]] = {
     },
     "reprovados": {
         "model": "budget",
-        "filters": {"status__in": REJECTED_BUDGET_STATUS_VALUES},
+        "filters": {"budget_type": BudgetType.SALE, "status__in": REJECTED_BUDGET_STATUS_VALUES},
         "date_field": "entry_date",
         "value_field": "display_total_budget_value",
         "exclude_month": False,
