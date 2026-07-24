@@ -12,7 +12,14 @@ from apps.workshops.models.workshops import Workshop
 MECHANIC_SALARY_MONTHLY_COST_NAME = "Salários mecânicos produtivos"
 ADMIN_SALARY_MONTHLY_COST_NAME = "Total de salários administrativo"
 PRO_LABORE_MONTHLY_COST_NAME = "Total de salários Pró Labore"
+PRO_LABORE_MONTHLY_COST_ALIASES: tuple[str, ...] = (
+    "Pró Labore",
+    "Pro Labore",
+)
 TRANSPORT_ALLOWANCE_MONTHLY_COST_NAME = "Total do Vale Transporte"
+TRANSPORT_ALLOWANCE_MONTHLY_COST_ALIASES: tuple[str, ...] = (
+    "Valor Total do Vale Transporte",
+)
 
 DEFAULT_MONTHLY_COSTS = [
     "Aluguel",
@@ -47,20 +54,8 @@ def create_default_monthly_costs(*, workshop: Workshop) -> None:
 
 
 def ensure_transport_allowance_monthly_cost(*, workshop: Workshop) -> MonthlyCost:
-    """Garante o custo mensal de VT para oficinas criadas antes desta feature."""
-    existing = get_transport_allowance_monthly_cost(workshop=workshop)
-    if existing is not None:
-        return existing
-
-    monthly_cost = MonthlyCost.objects.create(
-        workshop=workshop,
-        name=TRANSPORT_ALLOWANCE_MONTHLY_COST_NAME,
-        is_active=True,
-        is_editable=False,
-    )
-    if hasattr(workshop, "_transport_allowance_monthly_cost_cache"):
-        delattr(workshop, "_transport_allowance_monthly_cost_cache")
-    return monthly_cost
+    """Garante o custo mensal canônico de VT (unifica aliases duplicados)."""
+    return unify_transport_allowance_monthly_cost(workshop=workshop)
 
 
 def _normalize_cost_name(value: str) -> str:
@@ -81,27 +76,146 @@ def get_admin_salary_monthly_cost(*, workshop: Workshop) -> MonthlyCost | None:
 
 
 def get_pro_labore_monthly_cost(*, workshop: Workshop) -> MonthlyCost | None:
-    return get_monthly_cost_by_name(workshop=workshop, name=PRO_LABORE_MONTHLY_COST_NAME)
+    return _get_monthly_cost_by_canonical_or_aliases(
+        workshop=workshop,
+        canonical_name=PRO_LABORE_MONTHLY_COST_NAME,
+        aliases=PRO_LABORE_MONTHLY_COST_ALIASES,
+    )
+
+
+def _get_monthly_cost_by_canonical_or_aliases(
+    *,
+    workshop: Workshop,
+    canonical_name: str,
+    aliases: tuple[str, ...],
+) -> MonthlyCost | None:
+    candidates = list(MonthlyCost.objects.filter(workshop=workshop).only("id", "name").order_by("id"))
+    canonical_normalized = _normalize_cost_name(canonical_name)
+    alias_normalized = {_normalize_cost_name(alias) for alias in aliases}
+
+    for monthly_cost in candidates:
+        if _normalize_cost_name(monthly_cost.name) == canonical_normalized:
+            return monthly_cost
+
+    for monthly_cost in candidates:
+        if _normalize_cost_name(monthly_cost.name) in alias_normalized:
+            return monthly_cost
+
+    return None
+
+
+def _merge_monthly_cost_into(*, source: MonthlyCost, target: MonthlyCost) -> None:
+    """Reaponta itens do custo fonte para o alvo e remove o fonte."""
+    if source.pk == target.pk:
+        return
+
+    for item in WorkshopCostItem.objects.filter(monthly_cost=source).select_related("workshop_cost"):
+        existing = WorkshopCostItem.objects.filter(workshop_cost_id=item.workshop_cost_id, monthly_cost=target).first()
+        if existing is None:
+            item.monthly_cost = target
+            item.save(update_fields=["monthly_cost"])
+            continue
+
+        source_amount = getattr(item.amount, "amount", None)
+        existing_amount = getattr(existing.amount, "amount", None)
+        if (existing_amount is None or existing_amount == 0) and source_amount not in (None, 0):
+            existing.amount = item.amount
+            existing.save(update_fields=["amount"])
+        item.delete()
+
+    source.delete()
+
+
+def _unify_named_monthly_cost(
+    *,
+    workshop: Workshop,
+    canonical_name: str,
+    aliases: tuple[str, ...] = (),
+) -> MonthlyCost:
+    """Garante um único custo canônico por oficina, fundindo aliases/duplicatas."""
+    candidates = list(MonthlyCost.objects.filter(workshop=workshop).order_by("id"))
+    canonical_normalized = _normalize_cost_name(canonical_name)
+    alias_normalized = {_normalize_cost_name(alias) for alias in aliases}
+
+    canonical: MonthlyCost | None = None
+    extras: list[MonthlyCost] = []
+    for monthly_cost in candidates:
+        normalized = _normalize_cost_name(monthly_cost.name)
+        if normalized == canonical_normalized:
+            if canonical is None:
+                canonical = monthly_cost
+            else:
+                extras.append(monthly_cost)
+        elif normalized in alias_normalized:
+            extras.append(monthly_cost)
+
+    if canonical is None and extras:
+        canonical = extras.pop(0)
+        canonical.name = canonical_name
+        canonical.is_active = True
+        canonical.is_editable = False
+        canonical.save(update_fields=["name", "is_active", "is_editable"])
+
+    if canonical is None:
+        return MonthlyCost.objects.create(
+            workshop=workshop,
+            name=canonical_name,
+            is_active=True,
+            is_editable=False,
+        )
+
+    update_fields: list[str] = []
+    if canonical.name != canonical_name:
+        canonical.name = canonical_name
+        update_fields.append("name")
+    if not canonical.is_active:
+        canonical.is_active = True
+        update_fields.append("is_active")
+    if canonical.is_editable:
+        canonical.is_editable = False
+        update_fields.append("is_editable")
+    if update_fields:
+        canonical.save(update_fields=update_fields)
+
+    for extra in extras:
+        _merge_monthly_cost_into(source=extra, target=canonical)
+
+    return canonical
+
+
+def unify_pro_labore_monthly_cost(*, workshop: Workshop) -> MonthlyCost:
+    """Garante um único custo canônico de Pró Labore por oficina, fundindo aliases."""
+    return _unify_named_monthly_cost(
+        workshop=workshop,
+        canonical_name=PRO_LABORE_MONTHLY_COST_NAME,
+        aliases=PRO_LABORE_MONTHLY_COST_ALIASES,
+    )
 
 
 def ensure_pro_labore_monthly_cost(*, workshop: Workshop) -> MonthlyCost:
-    """Garante o custo mensal de Pró Labore para oficinas antigas."""
-    existing = get_pro_labore_monthly_cost(workshop=workshop)
-    if existing is not None:
-        return existing
+    """Garante o custo mensal canônico de Pró Labore (unifica aliases duplicados)."""
+    return unify_pro_labore_monthly_cost(workshop=workshop)
 
-    return MonthlyCost.objects.create(
+
+def unify_transport_allowance_monthly_cost(*, workshop: Workshop) -> MonthlyCost:
+    """Garante um único custo canônico de VT por oficina, fundindo aliases."""
+    if hasattr(workshop, "_transport_allowance_monthly_cost_cache"):
+        delattr(workshop, "_transport_allowance_monthly_cost_cache")
+    return _unify_named_monthly_cost(
         workshop=workshop,
-        name=PRO_LABORE_MONTHLY_COST_NAME,
-        is_active=True,
-        is_editable=False,
+        canonical_name=TRANSPORT_ALLOWANCE_MONTHLY_COST_NAME,
+        aliases=TRANSPORT_ALLOWANCE_MONTHLY_COST_ALIASES,
     )
 
 
 def get_transport_allowance_monthly_cost(*, workshop: Workshop) -> MonthlyCost | None:
     if hasattr(workshop, "_transport_allowance_monthly_cost_cache"):
         return getattr(workshop, "_transport_allowance_monthly_cost_cache")
-    result = get_monthly_cost_by_name(workshop=workshop, name=TRANSPORT_ALLOWANCE_MONTHLY_COST_NAME)
+    result = _get_monthly_cost_by_canonical_or_aliases(
+        workshop=workshop,
+        canonical_name=TRANSPORT_ALLOWANCE_MONTHLY_COST_NAME,
+        aliases=TRANSPORT_ALLOWANCE_MONTHLY_COST_ALIASES,
+    )
     setattr(workshop, "_transport_allowance_monthly_cost_cache", result)
     return result
 

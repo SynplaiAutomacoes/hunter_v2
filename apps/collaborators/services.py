@@ -21,6 +21,7 @@ from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.workorder.models import WorkOrder, WorkOrderDiscountType, WorkOrderStatus
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
+from apps.workshops.models.monthly_costs import MonthlyCost
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.monthly_costs import (
     ensure_pro_labore_monthly_cost,
@@ -121,39 +122,65 @@ def compute_salary_monthly_cost_amounts(
     resolved = reference_date or timezone.localdate()
     amounts: dict[int, Money] = {}
 
-    productive_monthly_cost = get_mechanic_salary_monthly_cost(workshop=workshop)
-    if productive_monthly_cost is not None and productive_monthly_cost.pk is not None:
-        amounts[int(productive_monthly_cost.pk)] = _sum_salary_by_type(
+    for cost_kind in ("productive", "administrative", "pro_labore", "transport"):
+        monthly_cost = resolve_salary_monthly_cost(workshop=workshop, cost_kind=cost_kind)
+        if monthly_cost is None or monthly_cost.pk is None:
+            continue
+        amounts[int(monthly_cost.pk)] = compute_salary_cost_amount_for_kind(
             workshop=workshop,
-            collaborator_type=WorkshopCollaborator.CollaboratorType.PRODUCTIVE,
-            reference_date=resolved,
-        )
-
-    administrative_monthly_cost = get_admin_salary_monthly_cost(workshop=workshop)
-    if administrative_monthly_cost is not None and administrative_monthly_cost.pk is not None:
-        amounts[int(administrative_monthly_cost.pk)] = _sum_salary_by_type(
-            workshop=workshop,
-            collaborator_type=WorkshopCollaborator.CollaboratorType.ADMINISTRATIVE,
-            reference_date=resolved,
-        )
-
-    pro_labore_monthly_cost = ensure_pro_labore_monthly_cost(workshop=workshop)
-    if pro_labore_monthly_cost.pk is not None:
-        amounts[int(pro_labore_monthly_cost.pk)] = _sum_salary_by_type(
-            workshop=workshop,
-            collaborator_type=WorkshopCollaborator.CollaboratorType.PRO_LABORE,
-            reference_date=resolved,
-        )
-
-    transport_monthly_cost = ensure_transport_allowance_monthly_cost(workshop=workshop)
-    if transport_monthly_cost.pk is not None:
-        amounts[int(transport_monthly_cost.pk)] = sum_transport_allowance_for_monthly_cost(
-            workshop=workshop,
+            cost_kind=cost_kind,
             reference_date=resolved,
             work_days_override=work_days_override,
         )
 
     return amounts
+
+
+def resolve_salary_monthly_cost(*, workshop: Workshop, cost_kind: str) -> MonthlyCost | None:
+    if cost_kind == "productive":
+        return get_mechanic_salary_monthly_cost(workshop=workshop)
+    if cost_kind == "administrative":
+        return get_admin_salary_monthly_cost(workshop=workshop)
+    if cost_kind == "pro_labore":
+        return ensure_pro_labore_monthly_cost(workshop=workshop)
+    if cost_kind == "transport":
+        return ensure_transport_allowance_monthly_cost(workshop=workshop)
+    return None
+
+
+def compute_salary_cost_amount_for_kind(
+    *,
+    workshop: Workshop,
+    cost_kind: str,
+    reference_date: date | None = None,
+    work_days_override: int | None = None,
+) -> Money:
+    resolved = reference_date or timezone.localdate()
+    if cost_kind == "productive":
+        return _sum_salary_by_type(
+            workshop=workshop,
+            collaborator_type=WorkshopCollaborator.CollaboratorType.PRODUCTIVE,
+            reference_date=resolved,
+        )
+    if cost_kind == "administrative":
+        return _sum_salary_by_type(
+            workshop=workshop,
+            collaborator_type=WorkshopCollaborator.CollaboratorType.ADMINISTRATIVE,
+            reference_date=resolved,
+        )
+    if cost_kind == "pro_labore":
+        return _sum_salary_by_type(
+            workshop=workshop,
+            collaborator_type=WorkshopCollaborator.CollaboratorType.PRO_LABORE,
+            reference_date=resolved,
+        )
+    if cost_kind == "transport":
+        return sum_transport_allowance_for_monthly_cost(
+            workshop=workshop,
+            reference_date=resolved,
+            work_days_override=work_days_override,
+        )
+    return Money(0, "BRL")
 
 
 def sync_current_month_salary_costs(*, workshop: Workshop, reference_date: date | None = None) -> None:
