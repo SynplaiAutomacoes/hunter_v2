@@ -120,15 +120,15 @@ class BudgetStep1Form(BudgetStepBaseForm):
 
         if selected_customer_id:
             selected_customer = customer_queryset.filter(pk=selected_customer_id).first()
-            vehicle_field.queryset = vehicle_queryset.filter(customer_id=selected_customer_id).order_by("plate")
+            vehicle_qs = vehicle_queryset.filter(customer_id=selected_customer_id)
+            if self.instance and self.instance.vehicle_id:
+                vehicle_qs = vehicle_qs | vehicle_queryset.filter(pk=self.instance.vehicle_id)
+            vehicle_field.queryset = vehicle_qs.order_by("plate")
         else:
             vehicle_field.queryset = Vehicle.objects.none()
 
         if selected_vehicle_id:
-            selected_vehicle_queryset = vehicle_queryset.filter(pk=selected_vehicle_id)
-            if selected_customer_id:
-                selected_vehicle_queryset = selected_vehicle_queryset.filter(customer_id=selected_customer_id)
-            selected_vehicle = selected_vehicle_queryset.first()
+            selected_vehicle = vehicle_queryset.filter(pk=selected_vehicle_id).first()
 
         is_locked = bool(getattr(self.instance, "is_status_locked", False))
         customer_vehicle_x_data = json.dumps({"customerId": selected_customer_id, "vehicleId": selected_vehicle_id, "isLocked": is_locked})
@@ -149,15 +149,25 @@ class BudgetStep1Form(BudgetStepBaseForm):
                     }
                     const optionsUl = vehicleContainer.querySelector('ul[role="listbox"]');
 
+                    const currentValue = vehicleData ? vehicleData.value : null;
+
                     vehicleData.clear(); 
                 
                     if (!customerId) {
                         optionsUl.querySelectorAll('li[data-value]').forEach(li => li.remove());
                         return;
                     }
+
+                    const extraIds = new Set();
+                    if (currentValue) extraIds.add(currentValue);
+                    if (selectedVehicleId) extraIds.add(selectedVehicleId);
                 
                     try {
-                        const response = await fetch(`/budget/get-vehicles/?customer=${customerId}`);
+                        let url = `/budget/get-vehicles/?customer=${customerId}`;
+                        if (extraIds.size > 0) {
+                            url += `&selected_vehicle=` + [...extraIds].join(`,`);
+                        }
+                        const response = await fetch(url);
                         const vehicles = await response.json();
                         optionsUl.querySelectorAll('li[data-value]').forEach(li => li.remove());
 
