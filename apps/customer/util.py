@@ -131,7 +131,13 @@ def fetch_vehicle_data(plate):
 
 
 def build_vehicle_saved_trigger(vehicle: Vehicle) -> str:
-    return json.dumps({"vehicleSaved": {"id": str(vehicle.pk), "label": str(vehicle), "customer_id": str(vehicle.customer.pk)}})
+    return json.dumps({
+        "vehicleSaved": {
+            "id": str(vehicle.pk),
+            "label": str(vehicle),
+            "customer_id": str(vehicle.customer.pk) if vehicle.customer else "",
+        }
+    })
 
 
 def build_customer_saved_trigger(customer: Customer) -> str:

@@ -129,13 +129,6 @@ class VehicleInlineForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
         if not plate or not workshop:
             return plate
 
-        queryset = Vehicle.objects.filter(workshop=workshop, plate=plate)
-        if self.instance.pk:
-            queryset = queryset.exclude(pk=self.instance.pk)
-
-        if queryset.exists():
-            raise forms.ValidationError("Já existe um veículo com esta placa nesta oficina.")
-
         return plate
 
     def clean_fuel(self):
@@ -424,7 +417,7 @@ class CustomerForm(AddressFormMixin, CoreModelForm):
                     ),
                     css_class="col-span-12",
                 ),
-                Div(HTML('<div id="vehicle-formset-container" class="space-y-4">{% include "customer/partials/vehicle_formset_list.html" %}</div>'), css_class="col-span-12"),
+                Div(HTML('<div id="vehicle-section" class="space-y-4">{% include "customer/partials/vehicle_formset_list.html" %}</div>'), css_class="col-span-12"),
                 css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
             ),
             #
@@ -1092,7 +1085,8 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                         return;
                     }
 
-                    const plate = String(element.value || '').replace(/[^a-zA-Z0-9]/g, '').trim();
+                    const rawPlate = String(element.value || '').trim();
+                    const plate = rawPlate.toUpperCase();
                     if (plate.length < 7) {
                         return;
                     }
@@ -1102,33 +1096,96 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
                         return;
                     }
 
+                    const form = container.closest('form');
+                    if (form) {
+                        const prevTransferInput = form.querySelector('input[name="transfer_plate"]');
+                        if (prevTransferInput) {
+                            prevTransferInput.remove();
+                        }
+                    }
+
+                    element.classList.add('loading-api');
                     try {
-                        element.classList.add('loading-api');
-                        const response = await fetch(`/customer/check-plate/${plate}/`);
-                        if (!response.ok) {
-                            throw new Error('Placa não encontrada');
+                        const media = rawPlate.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+                        const [checkPlateResult, dupResult] = await Promise.allSettled([
+                            fetch(`/customer/check-plate/${media}/`),
+                            fetch(`/customer/check-plate-duplicate/${rawPlate}/`),
+                        ]);
+
+                        if (checkPlateResult.status === 'fulfilled') {
+                            const response = checkPlateResult.value;
+                            if (response.ok) {
+                                const data = await response.json();
+                                await api.fillFromPlate(container, data);
+
+                                const missingFields = [];
+                                if (!data.engine) missingFields.push('Motor');
+                                if (!data.fuel) missingFields.push('Combustível');
+
+                                if (missingFields.length > 0) {
+                                    document.body.dispatchEvent(new CustomEvent('showToast', {
+                                        detail: {
+                                            message: `Campos não disponíveis: ${missingFields.join(', ')}`,
+                                            type: 'warning'
+                                        }
+                                    }));
+                                }
+                            }
+                        } else {
+                            console.error('Falha ao buscar placa no catálogo:', checkPlateResult.reason);
                         }
 
-                        const data = await response.json();
-                        await api.fillFromPlate(container, data);
+                        if (dupResult.status === 'fulfilled') {
+                            const response = dupResult.value;
+                            if (response.ok) {
+                                const dupData = await response.json();
+                                if (dupData.exists) {
+                                    const targetForm = form || container;
+                                    targetForm.dataset.transferVehicleId = dupData.vehicle_id;
+                                    targetForm.dataset.transferCustomerName = dupData.customer_name;
 
-                        const missingFields = [];
-                        if (!data.engine) missingFields.push('Motor');
-                        if (!data.fuel) missingFields.push('Combustível');
+                                    const plateDisplay = targetForm.querySelector('.transfer-plate-display');
+                                    const customerDisplay = targetForm.querySelector('.transfer-customer-display');
+                                    if (plateDisplay) plateDisplay.textContent = rawPlate;
+                                    if (customerDisplay) customerDisplay.textContent = dupData.customer_name;
 
-                        if (missingFields.length > 0) {
-                            document.body.dispatchEvent(new CustomEvent('showToast', {
-                                detail: {
-                                    message: `Campos não disponíveis: ${missingFields.join(', ')}`,
-                                    type: 'warning'
+                                    const modalToggle = targetForm.querySelector('.transfer-modal-toggle');
+                                    if (modalToggle) modalToggle.checked = true;
                                 }
-                            }));
+                            } else {
+                                console.error('Erro no servidor ao verificar placa duplicada:', response.status, response.statusText);
+                            }
+                        } else {
+                            console.error('Falha ao verificar placa duplicada:', dupResult.reason);
                         }
                     } catch (error) {
-                        console.warn('Erro ao buscar placa:', error);
+                        console.error('Erro ao processar placa:', error);
                     } finally {
                         element.classList.remove('loading-api');
                     }
+                });
+
+                document.addEventListener('click', (event) => {
+                    const confirmBtn = event.target.closest('.transfer-confirm-btn');
+                    if (!confirmBtn) return;
+
+                    const form = confirmBtn.closest('form');
+                    if (!form) return;
+
+                    const vehicleId = form.dataset.transferVehicleId;
+                    if (!vehicleId) return;
+
+                    const existingHidden = form.querySelector('input[name="transfer_plate"]');
+                    if (existingHidden) existingHidden.remove();
+
+                    const hiddenInput = document.createElement('input');
+                    hiddenInput.type = 'hidden';
+                    hiddenInput.name = 'transfer_plate';
+                    hiddenInput.value = vehicleId;
+                    form.appendChild(hiddenInput);
+
+                    const modalToggle = form.querySelector('.transfer-modal-toggle');
+                    if (modalToggle) modalToggle.checked = false;
                 });
 
                 const hydrateAll = (root = document) => {
@@ -1150,13 +1207,6 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
             })();
             </script>"""),
             Div(
-                HTML(
-                    """
-                    <div class="col-span-12 rounded-2xl border border-base-300/80 bg-base-200/30 px-4 py-3 text-sm text-base-content/70">
-                        Preencha os dados principais do veículo para vincular ao cliente. Marca, modelo, motor e combustível usam o catálogo local para evitar inconsistências.
-                    </div>
-                    """
-                ),
                 Field("plate", wrapper_class="col-span-12 md:col-span-6 xl:col-span-3"),
                 Field("brand", wrapper_class="col-span-12 md:col-span-6 xl:col-span-3"),
                 Field("model", wrapper_class="col-span-12 xl:col-span-6"),
@@ -1175,13 +1225,6 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
 
         if not plate or not workshop:
             return plate
-
-        queryset = Vehicle.objects.filter(workshop=workshop, plate=plate)
-        if self.instance.pk:
-            queryset = queryset.exclude(pk=self.instance.pk)
-
-        if queryset.exists():
-            raise forms.ValidationError("Já existe um veículo com esta placa nesta oficina.")
 
         return plate
 
