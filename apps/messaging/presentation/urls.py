@@ -1,6 +1,6 @@
 from django.urls import path
 
-from apps.messaging.presentation.views import message_group_views, message_template_views, segment_preview_view
+from apps.messaging.presentation.views import dispatch_status_views, message_group_views, message_template_views, segment_preview_view
 
 urlpatterns = [
     # Message Templates
@@ -17,4 +17,7 @@ urlpatterns = [
     path("groups/<int:pk>/edit/", message_group_views.CustomerMessageGroupUpdateView.as_view(), name="customer_message_group_update"),
     path("groups/<int:pk>/delete/", message_group_views.CustomerMessageGroupDeleteView.as_view(), name="customer_message_group_delete"),
     path("groups/<int:pk>/dispatch/", message_group_views.CustomerMessageGroupDispatchView.as_view(), name="customer_message_group_dispatch"),
+    path("groups/<int:pk>/history/", message_group_views.CustomerMessageGroupHistoryView.as_view(), name="customer_message_group_history"),
+    # Worker status ingest (also served by dedicated ASGI process)
+    path("dispatch/status/", dispatch_status_views.MessageDispatchStatusIngestView.as_view(), name="dispatch_status_ingest"),
 ]

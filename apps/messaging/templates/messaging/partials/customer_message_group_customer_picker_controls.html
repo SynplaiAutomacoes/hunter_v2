@@ -1,11 +1,6 @@
 <div class="flex flex-col gap-2 text-sm text-base-content/70 sm:items-end">
-    <p><span class="font-semibold text-base-content" x-text="selectedCustomers.length"></span> cliente(s) no grupo</p>
-
-    <template x-for="customer in selectedCustomers" :key="`picker-hidden-selected-${customer.id}`">
-        <input type="hidden" name="selected_customers" :value="customer.id">
-    </template>
-
-    <template x-for="customerId in pickerSelectionIds" :key="`picker-selection-${customerId}`">
-        <input type="hidden" name="customer_picker_selection" :value="customerId">
-    </template>
+    <p class="sm:text-right">
+        Marcados na pagina:
+        <span class="font-semibold text-base-content" x-text="pickerSelectionIds.length"></span>
+    </p>
 </div>

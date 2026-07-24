@@ -1,3 +1,4 @@
+{% load l10n %}
 <div class="hidden md:block">
     <div class="overflow-x-auto">
         <table class="table w-full">
@@ -56,9 +57,9 @@
                                     type="checkbox"
                                     class="checkbox row-checkbox"
                                     name="{{ checkbox_name }}"
-                                    value="{{ row.pk }}"
-                                    data-row-id="{{ row.pk }}"
-                                    {% if row.parent_pk %}data-parent-id="{{ row.parent_pk }}"{% endif %}
+                                    value="{{ row.pk|unlocalize }}"
+                                    data-row-id="{{ row.pk|unlocalize }}"
+                                    {% if row.parent_pk %}data-parent-id="{{ row.parent_pk|unlocalize }}"{% endif %}
                                     {% if row.is_selected %}checked{% endif %}
                                     @change="handleRowCheckboxChange($event)"
                                     aria-label="Selecionar linha"
