@@ -16,6 +16,7 @@ from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.util.monthly_costs import (
     MECHANIC_SALARY_MONTHLY_COST_NAME,
+    PRO_LABORE_MONTHLY_COST_NAME,
     TRANSPORT_ALLOWANCE_MONTHLY_COST_NAME,
     create_default_monthly_costs,
 )
@@ -58,6 +59,16 @@ class WorkshopCostSyncSalaryItemsViewTests(TestCase):
             admission_date=date(2025, 1, 1),
             collaborator_type=WorkshopCollaborator.CollaboratorType.PRODUCTIVE,
         )
+        self.pro_labore = WorkshopCollaborator.objects.create(
+            workshop=self.workshop,
+            name="Socio Sync",
+            cpf="12345678907",
+            birth_date=date(1985, 1, 1),
+            salary=Money(7000, "BRL"),
+            transport_allowance_daily=Money(0, "BRL"),
+            admission_date=date(2025, 1, 1),
+            collaborator_type=WorkshopCollaborator.CollaboratorType.PRO_LABORE,
+        )
         sync_collaborator_payroll(collaborator=self.productive, reference_date=date(2026, 7, 1), lock_reference=True)
 
         self.client = Client()
@@ -97,3 +108,22 @@ class WorkshopCostSyncSalaryItemsViewTests(TestCase):
 
         mechanic_cost = MonthlyCost.objects.get(workshop=self.workshop, name=MECHANIC_SALARY_MONTHLY_COST_NAME)
         self.assertEqual(payload["fields"][f"cost_item_{mechanic_cost.pk}_0"], "4000.00")
+
+    def test_sync_single_pro_labore_field_updates_form_cost_id(self) -> None:
+        pro_labore_cost = MonthlyCost.objects.get(workshop=self.workshop, name=PRO_LABORE_MONTHLY_COST_NAME)
+        response = self.client.post(
+            reverse("workshops:workshop_cost_sync_salary_items"),
+            {
+                "month": 7,
+                "year": 2026,
+                "cost_kind": "pro_labore",
+                "monthly_cost_id": pro_labore_cost.pk,
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["synced"])
+        self.assertEqual(payload["fields"][f"cost_item_{pro_labore_cost.pk}_0"], "7000.00")
+
+        item = WorkshopCostItem.objects.get(workshop_cost=self.workshop_cost, monthly_cost=pro_labore_cost)
+        self.assertEqual(item.amount, Money("7000.00", "BRL"))
