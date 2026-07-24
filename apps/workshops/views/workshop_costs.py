@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import JsonResponse
@@ -11,6 +13,7 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 from djmoney.money import Money
 import holidays
 
+from apps.collaborators.services import compute_salary_monthly_cost_amounts, sync_current_month_salary_costs
 from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
@@ -191,14 +194,51 @@ class WorkshopCostCalculateView(LoginRequiredMixin, WorkshopScopedMixin, View):
         if amount_raw in (None, ""):
             return None
         try:
-            from decimal import Decimal, InvalidOperation
-
             amount = Decimal(str(amount_raw).replace(",", "."))
         except (InvalidOperation, TypeError, ValueError):
             return None
         if str(currency_raw).replace(".", "", 1).replace("-", "", 1).isdigit():
             currency_raw = "BRL"
         return Money(amount, str(currency_raw or "BRL"))
+
+
+class WorkshopCostSyncSalaryItemsView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkshopCost
+    workshop_permission_codename = "change_workshopcost"
+
+    def post(self, request, *args, **kwargs):
+        try:
+            month = int(request.POST.get("month") or 0)
+            year = int(request.POST.get("year") or 0)
+        except (TypeError, ValueError):
+            return JsonResponse({"error": "Mês ou ano inválido."}, status=400)
+
+        if month < 1 or month > 12 or year < 1:
+            return JsonResponse({"error": "Mês ou ano inválido."}, status=400)
+
+        reference_date = date(year, month, 1)
+        workshop_cost = WorkshopCost.objects.filter(workshop=self.workshop, month=month, year=year).first()
+        work_days_override: int | None = None
+        if workshop_cost is None:
+            try:
+                work_days_override = int(request.POST.get("work_days_per_month") or 0)
+            except (TypeError, ValueError):
+                work_days_override = 0
+
+        if workshop_cost is not None:
+            sync_current_month_salary_costs(workshop=self.workshop, reference_date=reference_date)
+
+        amounts = compute_salary_monthly_cost_amounts(
+            workshop=self.workshop,
+            reference_date=reference_date,
+            work_days_override=work_days_override,
+        )
+        fields: dict[str, str] = {}
+        for monthly_cost_id, amount in amounts.items():
+            fields[f"cost_item_{monthly_cost_id}_0"] = str(amount.amount)
+            fields[f"cost_item_{monthly_cost_id}_1"] = str(amount.currency)
+
+        return JsonResponse({"fields": fields, "synced": workshop_cost is not None})
 
 
 class WorkshopCostSelectionModalView(LoginRequiredMixin, WorkshopScopedMixin, ListView):

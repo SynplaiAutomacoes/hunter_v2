@@ -202,7 +202,23 @@ class WorkshopCostForm(CoreModelForm):
                     HTML(self._build_work_days_calendar_html()),
                     Field("productivity_average", wrapper_class="col-span-12 lg:col-span-12"),
                     HTML('<div class="col-span-12 divider my-2"></div>'),
-                    HTML('<h3 class="col-span-12 text-xl font-bold mb-2">Despesas Mensais</h3>'),
+                    HTML(f"""
+                        <div class="col-span-12 flex flex-wrap items-center justify-between gap-3 mb-2">
+                            <h3 class="text-xl font-bold">Despesas Mensais</h3>
+                            <button
+                                type="button"
+                                class="btn btn-outline btn-sm gap-1"
+                                hx-post="{reverse("workshops:workshop_cost_sync_salary_items")}"
+                                hx-trigger="click"
+                                hx-include="closest form"
+                                hx-swap="none"
+                                hx-on::after-request="window.applyWorkshopSalaryCostFields && window.applyWorkshopSalaryCostFields(event)"
+                            >
+                                <span class="material-icons text-sm">sync</span>
+                                Atualizar salários e VT
+                            </button>
+                        </div>
+                    """),
                     Div(
                         *cost_fields_layout,
                         css_class="contents",

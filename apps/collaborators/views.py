@@ -44,6 +44,10 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
+def _should_sync_monthly_costs(request) -> bool:
+    return bool(request.POST.get("sync_monthly_costs") == "1")
+
+
 COLLABORATOR_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
     QueryParamFilter(
         param_name="collaborator_type",
@@ -158,7 +162,8 @@ class WorkshopCollaboratorCreateView(PageFavoriteMixin, LoginRequiredMixin, Work
                 response = super().form_valid(form)
 
             freeze_existing_pricing_history(workshop=self.workshop, cutoff=self.object.criado_em)
-            sync_current_month_salary_costs(workshop=self.workshop)
+            if _should_sync_monthly_costs(self.request):
+                sync_current_month_salary_costs(workshop=self.workshop)
 
         return response
 
@@ -283,15 +288,24 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
 
             response = super().form_valid(form)
             collaborator = self.object
+            should_sync_monthly_costs = _should_sync_monthly_costs(self.request)
 
             benefit_formset.instance = collaborator
             benefit_formset.save()
 
             raw_work_days = str(self.request.POST.get("work_days") or "").strip()
             if raw_work_days == "":
-                apply_collaborator_work_days_for_reference(collaborator=collaborator, work_days=None)
+                apply_collaborator_work_days_for_reference(
+                    collaborator=collaborator,
+                    work_days=None,
+                    sync_salary_costs=should_sync_monthly_costs,
+                )
             elif raw_work_days.isdigit():
-                apply_collaborator_work_days_for_reference(collaborator=collaborator, work_days=int(raw_work_days))
+                apply_collaborator_work_days_for_reference(
+                    collaborator=collaborator,
+                    work_days=int(raw_work_days),
+                    sync_salary_costs=should_sync_monthly_costs,
+                )
 
             if collaborator.system_access:
                 role = form.cleaned_data["role"]
@@ -337,7 +351,8 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
                 collaborator.user.is_active = False
                 collaborator.user.save(update_fields=["is_active"])
 
-            sync_current_month_salary_costs(workshop=self.workshop)
+            if should_sync_monthly_costs:
+                sync_current_month_salary_costs(workshop=self.workshop)
 
             termination_newly_set = previous_termination_date is None and collaborator.termination_date is not None
             has_pending = FinancialMovement.objects.filter(workshop=self.workshop, collaborator=collaborator, is_paid=False).exists()
@@ -631,7 +646,8 @@ class WorkshopCollaboratorModalCreateView(LoginRequiredMixin, WorkshopScopedMixi
 
             self.object.save()
             freeze_existing_pricing_history(workshop=self.workshop, cutoff=self.object.criado_em)
-            sync_current_month_salary_costs(workshop=self.workshop)
+            if _should_sync_monthly_costs(self.request):
+                sync_current_month_salary_costs(workshop=self.workshop)
 
         response = HttpResponse(status=204)
         response["HX-Trigger"] = json.dumps({"collaboratorSaved": {"id": str(self.object.pk), "name": self.object.name}})
@@ -653,7 +669,8 @@ class WorkshopCollaboratorModalUpdateView(LoginRequiredMixin, WorkshopScopedMixi
                 self.object.transport_allowance_daily = 0
 
             self.object.save()
-            sync_current_month_salary_costs(workshop=self.workshop)
+            if _should_sync_monthly_costs(self.request):
+                sync_current_month_salary_costs(workshop=self.workshop)
 
             if self.object.user_id:
                 user = self.object.user

@@ -11,8 +11,8 @@ from apps.workshops.models.workshops import Workshop
 
 MECHANIC_SALARY_MONTHLY_COST_NAME = "Salários mecânicos produtivos"
 ADMIN_SALARY_MONTHLY_COST_NAME = "Total de salários administrativo"
-PRO_LABORE_MONTHLY_COST_NAME = "Pró Labore"
-TRANSPORT_ALLOWANCE_MONTHLY_COST_NAME = "Valor Total do Vale Transporte"
+PRO_LABORE_MONTHLY_COST_NAME = "Total de salários Pró Labore"
+TRANSPORT_ALLOWANCE_MONTHLY_COST_NAME = "Total do Vale Transporte"
 
 DEFAULT_MONTHLY_COSTS = [
     "Aluguel",
