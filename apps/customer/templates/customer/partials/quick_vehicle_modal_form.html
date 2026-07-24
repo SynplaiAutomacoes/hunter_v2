@@ -6,7 +6,6 @@
                 <span class="material-icons">{% if form.instance.pk %}edit_road{% else %}directions_car{% endif %}</span>
                 <span>{% if form.instance.pk %}Editar veículo{% else %}Cadastro rápido de veículo{% endif %}</span>
             </h3>
-            <p class="text-sm text-base-content/70">Layout otimizado para preencher placa, catálogo do veículo e ano sem quebrar o modal.</p>
         </div>
         <button type="button" class="btn btn-sm btn-circle btn-ghost shrink-0" onclick="this.closest('dialog').close()" aria-label="Fechar modal">
             ✕
@@ -40,7 +39,7 @@
                     </button>
                 </div>
             </div>
-            <label class="modal-backdrop" for="transfer-modal-quick">Fechar</label>
+            <div class="modal-backdrop"></div>
         </div>
 
         <div class="flex flex-col-reverse gap-3 border-t border-base-300 pt-5 sm:flex-row sm:items-center sm:justify-end">
