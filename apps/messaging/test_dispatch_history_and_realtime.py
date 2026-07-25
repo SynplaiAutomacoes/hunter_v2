@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import time, timedelta
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
@@ -274,21 +274,12 @@ class OutboundTickerTests(TestCase):
         self.assertEqual(len(publisher.published), 1)
         self.assertEqual(publisher.published[0].client_message_id, str(row.client_message_id))
 
-    @override_settings(
-        OUTBOUND_BUSINESS_HOURS_ENABLED=True,
-        OUTBOUND_BUSINESS_WEEKDAYS="0,1,2,3,4",
-        OUTBOUND_BUSINESS_START_HOUR=8,
-        OUTBOUND_BUSINESS_END_HOUR=18,
-        TIME_ZONE="America/Sao_Paulo",
-    )
+    @override_settings(TIME_ZONE="America/Sao_Paulo")
     @patch("apps.messaging.application.services.outbound_dispatch.RabbitMQPublisher")
-    @patch("apps.messaging.application.services.outbound_dispatch.is_within_outbound_business_hours", return_value=False)
-    def test_process_due_skips_outside_business_hours(
-        self,
-        _hours: MagicMock,
-        publisher_cls: MagicMock,
-    ) -> None:
+    def test_process_due_skips_outside_business_hours(self, publisher_cls: MagicMock) -> None:
         workshop = _workshop(41)
+        workshop.outbound_business_weekdays = ""
+        workshop.save(update_fields=["outbound_business_weekdays"])
         customer = _customer(workshop, 41)
         publisher = FakeQueuePublisher()
         publisher_cls.return_value = publisher
@@ -310,66 +301,154 @@ class OutboundTickerTests(TestCase):
         self.assertEqual(row.status, ScheduledOutboundMessage.Status.PENDING)
         self.assertEqual(len(publisher.published), 0)
 
+    @override_settings(TIME_ZONE="America/Sao_Paulo")
+    @patch("apps.messaging.application.services.outbound_dispatch.RabbitMQPublisher")
+    def test_process_due_sends_only_open_workshops_in_same_tick(self, publisher_cls: MagicMock) -> None:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        open_workshop = _workshop(50)
+        open_workshop.outbound_business_weekdays = "0,1,2,3,4,5,6"
+        open_workshop.outbound_business_start_time = time(8, 0)
+        open_workshop.outbound_business_end_time = time(18, 0)
+        open_workshop.save(
+            update_fields=[
+                "outbound_business_weekdays",
+                "outbound_business_start_time",
+                "outbound_business_end_time",
+            ]
+        )
+        closed_workshop = _workshop(51)
+        closed_workshop.outbound_business_weekdays = ""
+        closed_workshop.save(update_fields=["outbound_business_weekdays"])
+        open_customer = _customer(open_workshop, 50)
+        closed_customer = _customer(closed_workshop, 51)
+        publisher = FakeQueuePublisher()
+        publisher_cls.return_value = publisher
+
+        fixed_now = datetime(2026, 7, 15, 10, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
+        open_row = ScheduledOutboundMessage.objects.create(
+            workshop=open_workshop,
+            customer=open_customer,
+            phone="5511999999999",
+            message="Aberto",
+            run_at=fixed_now - timedelta(minutes=1),
+            status=ScheduledOutboundMessage.Status.PENDING,
+            source=ScheduledOutboundMessage.Source.APPOINTMENT_ALERT,
+        )
+        closed_row = ScheduledOutboundMessage.objects.create(
+            workshop=closed_workshop,
+            customer=closed_customer,
+            phone="5511888888888",
+            message="Fechado",
+            run_at=fixed_now - timedelta(minutes=1),
+            status=ScheduledOutboundMessage.Status.PENDING,
+            source=ScheduledOutboundMessage.Source.APPOINTMENT_ALERT,
+        )
+
+        with patch("apps.messaging.application.services.outbound_dispatch.timezone.now", return_value=fixed_now):
+            result = process_due_outbound_messages(limit=10)
+        open_row.refresh_from_db()
+        closed_row.refresh_from_db()
+
+        self.assertEqual(result.claimed, 1)
+        self.assertEqual(result.sent, 1)
+        self.assertFalse(result.skipped_outside_hours)
+        self.assertEqual(open_row.status, ScheduledOutboundMessage.Status.SENT)
+        self.assertEqual(closed_row.status, ScheduledOutboundMessage.Status.PENDING)
+        self.assertEqual(len(publisher.published), 1)
+
+    @override_settings(TIME_ZONE="America/Sao_Paulo")
+    @patch("apps.messaging.application.services.outbound_dispatch.RabbitMQPublisher")
+    def test_process_due_force_bypasses_workshop_hours(self, publisher_cls: MagicMock) -> None:
+        workshop = _workshop(52)
+        workshop.outbound_business_weekdays = ""
+        workshop.save(update_fields=["outbound_business_weekdays"])
+        customer = _customer(workshop, 52)
+        publisher = FakeQueuePublisher()
+        publisher_cls.return_value = publisher
+        row = ScheduledOutboundMessage.objects.create(
+            workshop=workshop,
+            customer=customer,
+            phone="5511777777777",
+            message="Force",
+            run_at=timezone.now() - timedelta(minutes=1),
+            status=ScheduledOutboundMessage.Status.PENDING,
+            source=ScheduledOutboundMessage.Source.APPOINTMENT_ALERT,
+        )
+
+        result = process_due_outbound_messages(limit=10, force=True)
+        row.refresh_from_db()
+
+        self.assertEqual(result.claimed, 1)
+        self.assertEqual(result.sent, 1)
+        self.assertEqual(row.status, ScheduledOutboundMessage.Status.SENT)
+
 
 class OutboundBusinessHoursTests(SimpleTestCase):
-    @override_settings(
-        OUTBOUND_BUSINESS_HOURS_ENABLED=True,
-        OUTBOUND_BUSINESS_WEEKDAYS="0,1,2,3,4",
-        OUTBOUND_BUSINESS_START_HOUR=8,
-        OUTBOUND_BUSINESS_END_HOUR=18,
-        TIME_ZONE="America/Sao_Paulo",
-    )
+    @override_settings(TIME_ZONE="America/Sao_Paulo")
     def test_weekday_inside_window(self) -> None:
         from datetime import datetime
+        from types import SimpleNamespace
         from zoneinfo import ZoneInfo
 
         from apps.messaging.application.services.outbound_business_hours import is_within_outbound_business_hours
 
+        workshop = SimpleNamespace(
+            outbound_business_weekdays="0,1,2,3,4",
+            outbound_business_start_time=time(8, 0),
+            outbound_business_end_time=time(18, 0),
+        )
         # Wednesday 10:00 São Paulo
         moment = datetime(2026, 7, 15, 10, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
-        self.assertTrue(is_within_outbound_business_hours(moment))
+        self.assertTrue(is_within_outbound_business_hours(workshop, moment))
 
-    @override_settings(
-        OUTBOUND_BUSINESS_HOURS_ENABLED=True,
-        OUTBOUND_BUSINESS_WEEKDAYS="0,1,2,3,4",
-        OUTBOUND_BUSINESS_START_HOUR=8,
-        OUTBOUND_BUSINESS_END_HOUR=18,
-        TIME_ZONE="America/Sao_Paulo",
-    )
+    @override_settings(TIME_ZONE="America/Sao_Paulo")
     def test_weekday_before_window(self) -> None:
         from datetime import datetime
+        from types import SimpleNamespace
         from zoneinfo import ZoneInfo
 
         from apps.messaging.application.services.outbound_business_hours import is_within_outbound_business_hours
 
+        workshop = SimpleNamespace(
+            outbound_business_weekdays="0,1,2,3,4",
+            outbound_business_start_time=time(8, 0),
+            outbound_business_end_time=time(18, 0),
+        )
         moment = datetime(2026, 7, 15, 7, 59, tzinfo=ZoneInfo("America/Sao_Paulo"))
-        self.assertFalse(is_within_outbound_business_hours(moment))
+        self.assertFalse(is_within_outbound_business_hours(workshop, moment))
 
-    @override_settings(
-        OUTBOUND_BUSINESS_HOURS_ENABLED=True,
-        OUTBOUND_BUSINESS_WEEKDAYS="0,1,2,3,4",
-        OUTBOUND_BUSINESS_START_HOUR=8,
-        OUTBOUND_BUSINESS_END_HOUR=18,
-        TIME_ZONE="America/Sao_Paulo",
-    )
+    @override_settings(TIME_ZONE="America/Sao_Paulo")
     def test_saturday_outside(self) -> None:
         from datetime import datetime
+        from types import SimpleNamespace
         from zoneinfo import ZoneInfo
 
         from apps.messaging.application.services.outbound_business_hours import is_within_outbound_business_hours
 
+        workshop = SimpleNamespace(
+            outbound_business_weekdays="0,1,2,3,4",
+            outbound_business_start_time=time(8, 0),
+            outbound_business_end_time=time(18, 0),
+        )
         moment = datetime(2026, 7, 18, 12, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
-        self.assertFalse(is_within_outbound_business_hours(moment))
+        self.assertFalse(is_within_outbound_business_hours(workshop, moment))
 
-    @override_settings(OUTBOUND_BUSINESS_HOURS_ENABLED=False)
-    def test_disabled_always_allows(self) -> None:
+    def test_hours_always_enforced(self) -> None:
         from datetime import datetime
+        from types import SimpleNamespace
         from zoneinfo import ZoneInfo
 
         from apps.messaging.application.services.outbound_business_hours import is_within_outbound_business_hours
 
+        workshop = SimpleNamespace(
+            outbound_business_weekdays="0,1,2,3,4",
+            outbound_business_start_time=time(8, 0),
+            outbound_business_end_time=time(18, 0),
+        )
         moment = datetime(2026, 7, 18, 23, 0, tzinfo=ZoneInfo("America/Sao_Paulo"))
-        self.assertTrue(is_within_outbound_business_hours(moment))
+        self.assertFalse(is_within_outbound_business_hours(workshop, moment))
 
 
 class DispatchWebSocketTokenTests(TestCase):

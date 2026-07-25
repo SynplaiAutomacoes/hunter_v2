@@ -30,21 +30,22 @@ class DueOutboundResult:
 
 
 def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> DueOutboundResult:
-    if not force and not is_within_outbound_business_hours():
-        logger.info("outbound_dispatch_skipped_outside_business_hours")
-        return DueOutboundResult(claimed=0, sent=0, failed=0, skipped_outside_hours=True)
-
     now = timezone.now()
     claimed_ids: list[int] = []
+    had_due_outside_hours = False
 
     with transaction.atomic():
-        due = (
+        due = list(
             ScheduledOutboundMessage.objects.select_for_update(skip_locked=True)
+            .select_related("workshop")
             .filter(status=ScheduledOutboundMessage.Status.PENDING, run_at__lte=now)
             .order_by("run_at", "pk")[:limit]
         )
         for row in due:
-            claimed_ids.append(row.pk)
+            if force or is_within_outbound_business_hours(row.workshop, moment=now):
+                claimed_ids.append(row.pk)
+            else:
+                had_due_outside_hours = True
         if claimed_ids:
             ScheduledOutboundMessage.objects.filter(pk__in=claimed_ids).update(
                 status=ScheduledOutboundMessage.Status.PROCESSING,
@@ -52,7 +53,12 @@ def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> D
             )
 
     if not claimed_ids:
-        return DueOutboundResult(claimed=0, sent=0, failed=0)
+        return DueOutboundResult(
+            claimed=0,
+            sent=0,
+            failed=0,
+            skipped_outside_hours=had_due_outside_hours,
+        )
 
     publisher = RabbitMQPublisher(
         host=settings.RABBITMQ_HOST,

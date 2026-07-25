@@ -302,6 +302,57 @@ class BudgetStep1Form(BudgetStepBaseForm):
                         }
                     });
                 }
+
+                function selectOilTypeFromQuickForm(oilType) {
+                    if (!oilType || !oilType.id) return;
+
+                    const oilTypeInput = document.querySelector('[name="oil_type"]');
+                    if (!oilTypeInput) return;
+                    const oilEl = oilTypeInput.closest('[x-data]');
+                    if (!oilEl || !window.Alpine) return;
+                    const oilData = Alpine.$data(oilEl);
+                    const optionsUl = oilEl.querySelector('ul[role="listbox"]');
+                    if (!optionsUl || !oilData) return;
+
+                    const oilTypeId = String(oilType.id);
+                    const oilTypeName = oilType.name || 'Tipo de óleo';
+                    let option = optionsUl.querySelector(`li[data-value='${oilTypeId}']`);
+
+                    if (!option) {
+                        option = document.createElement('li');
+                        option.className = 'relative cursor-pointer select-none py-2 pl-3 pr-9 hover:bg-primary hover:text-white group transition-colors';
+                        option.setAttribute('data-value', oilTypeId);
+                        option.setAttribute('data-label', oilTypeName);
+                        option.setAttribute('x-show', `!search || '${oilTypeName.replace(/'/g, "\\'")}'.toLowerCase().includes(search.toLowerCase())`);
+                        option.innerHTML = `<span class="block truncate">${oilTypeName}</span>`;
+                        option.addEventListener('click', () => oilData.select(option));
+                        optionsUl.appendChild(option);
+                    } else {
+                        option.setAttribute('data-label', oilTypeName);
+                        option.setAttribute('x-show', `!search || '${oilTypeName.replace(/'/g, "\\'")}'.toLowerCase().includes(search.toLowerCase())`);
+                        const labelSpan = option.querySelector('span');
+                        if (labelSpan) {
+                            labelSpan.textContent = oilTypeName;
+                        }
+                    }
+
+                    if (typeof oilData.select === 'function') {
+                        oilData.select(option);
+                    }
+                    oilTypeInput.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+
+                if (!window.__budgetStep1OilTypeSavedBound) {
+                    window.__budgetStep1OilTypeSavedBound = true;
+                    document.body.addEventListener('oilTypeSaved', function (evt) {
+                        const modal = document.getElementById('form_modal');
+                        if (modal) {
+                            modal.close();
+                        }
+                        const oilType = evt && evt.detail ? evt.detail : null;
+                        selectOilTypeFromQuickForm(oilType);
+                    });
+                }
             </script>
             """),
             Div(
@@ -435,7 +486,25 @@ class BudgetStep1Form(BudgetStepBaseForm):
                             Field("fuel_level", wrapper_class="col-span-12 lg:col-span-6"),
                             Field("last_oil_change_date", wrapper_class="col-span-12 lg:col-span-6"),
                             Field("last_oil_change_km", wrapper_class="col-span-12 lg:col-span-6"),
-                            Field("oil_type", wrapper_class="col-span-12"),
+                            Div(
+                                Field("oil_type", wrapper_class="flex-1 mb-0"),
+                                HTML("""<button type="button" class="btn btn-circle mb-2"
+                                                                :class="oilTypeId ? 'btn-warning' : 'btn-primary'"
+                                                                @click="const url = oilTypeId ? `/workshops/oil_types/quick-update/${oilTypeId}/` : '/workshops/oil_types/quick-create/';
+                                                                        htmx.ajax('GET', url, {target: '#modal-container', swap: 'innerHTML'});
+                                                                        document.getElementById('form_modal').showModal();">
+                                                                <span class="material-icons" x-text="oilTypeId ? 'edit' : 'add'"></span>
+                                                            </button>"""),
+                                x_data=f"{{ oilTypeId: '{getattr(self.instance, 'oil_type_id', '') or self.initial.get('oil_type') or ''}' }}",
+                                **{
+                                    "@change": """
+                                        if ($event.target.name === 'oil_type') {
+                                            oilTypeId = $event.target.value;
+                                        }
+                                    """
+                                },
+                                css_class="col-span-12 flex items-end gap-2 w-full",
+                            ),
                             css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
                         ),
                         css_class="mb-6 gap-4",

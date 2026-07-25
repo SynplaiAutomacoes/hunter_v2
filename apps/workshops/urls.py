@@ -31,6 +31,8 @@ from apps.workshops.views.oil_types import (
     OilTypeDeleteView,
     OilTypeListView,
     OilTypeUpdateView,
+    QuickOilTypeCreateView,
+    QuickOilTypeUpdateView,
 )
 
 from apps.workshops.views.workshop_costs import (
@@ -63,6 +65,8 @@ urlpatterns = [
     # Oil types
     path("oil_types/", OilTypeListView.as_view(), name="oil_type_list"),
     path("oil_types/create/", OilTypeCreateView.as_view(), name="oil_type_create"),
+    path("oil_types/quick-create/", QuickOilTypeCreateView.as_view(), name="oil_type_quick_create"),
+    path("oil_types/quick-update/<int:pk>/", QuickOilTypeUpdateView.as_view(), name="oil_type_quick_update"),
     path("oil_types/<int:pk>/edit/", OilTypeUpdateView.as_view(), name="oil_type_update"),
     path("oil_types/<int:pk>/delete/", OilTypeDeleteView.as_view(), name="oil_type_delete"),
     # Workshop Costs

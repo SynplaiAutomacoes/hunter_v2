@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import re
+from datetime import time
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 from django import forms
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator
 from django.urls import reverse
 
@@ -19,6 +21,7 @@ from apps.core.presentation.widgets import (
     CEPInput,
     CheckboxInput,
     CPForCNPJInput,
+    DurationInput,
     EmailInput,
     ImageInput,
     NumberInput,
@@ -486,6 +489,135 @@ class WorkshopPdfObservationSectionForm(CoreModelForm):
         if field is not None:
             field.label = "Observacao fixa do PDF"
             field.help_text = "Exibida no PDF abaixo das observacoes do orcamento."
+
+
+WEEKDAY_CHOICES: list[tuple[str, str]] = [
+    ("6", "Dom"),
+    ("0", "Seg"),
+    ("1", "Ter"),
+    ("2", "Qua"),
+    ("3", "Qui"),
+    ("4", "Sex"),
+    ("5", "Sáb"),
+]
+
+
+def _format_clock_time_for_widget(value: object) -> str:
+    if isinstance(value, time):
+        return f"{value.hour:02d}:{value.minute:02d}:00"
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if raw.isdigit():
+        hour = max(0, min(int(raw), 23))
+        return f"{hour:02d}:00:00"
+    return raw
+
+
+def _parse_clock_time(value: object, *, field_label: str) -> time:
+    if isinstance(value, time):
+        return value
+
+    raw = str(value or "").strip()
+    if not raw:
+        raise ValidationError(f"Informe {field_label.lower()}.")
+
+    try:
+        parts = [int(part) for part in raw.split(":")]
+    except ValueError as exc:
+        raise ValidationError("Informe um horário válido no formato HH:MM.") from exc
+
+    if len(parts) == 1:
+        hour, minute = parts[0], 0
+    elif len(parts) >= 2:
+        hour, minute = parts[0], parts[1]
+    else:
+        raise ValidationError("Informe um horário válido no formato HH:MM.")
+
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        raise ValidationError("Informe um horário entre 00:00 e 23:59.")
+
+    return time(hour=hour, minute=minute)
+
+
+class WorkshopAssistantVirtualSectionForm(CoreModelForm):
+    """Configurações do assistente virtual da oficina (horário de funcionamento e futuros campos)."""
+
+    weekdays = forms.MultipleChoiceField(
+        label="Dias de envio",
+        choices=WEEKDAY_CHOICES,
+        widget=forms.CheckboxSelectMultiple,
+        required=True,
+        error_messages={"required": "Selecione pelo menos um dia da semana."},
+        help_text="Selecione os dias em que alertas automáticos podem ser enviados.",
+    )
+    outbound_business_start_time = forms.CharField(
+        label="Hora inicial",
+        required=True,
+        widget=DurationInput(mode="hours_minutes"),
+        help_text="Início inclusivo da janela (ex.: 08:00).",
+    )
+    outbound_business_end_time = forms.CharField(
+        label="Hora final",
+        required=True,
+        widget=DurationInput(mode="hours_minutes"),
+        help_text="Fim exclusivo da janela (ex.: 18:00 envia até 17:59).",
+    )
+
+    class Meta:
+        model = Workshop
+        fields = [
+            "outbound_business_start_time",
+            "outbound_business_end_time",
+        ]
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+
+        raw_weekdays = str(getattr(self.instance, "outbound_business_weekdays", "") or "0,1,2,3,4")
+        initial_days = [part.strip() for part in raw_weekdays.split(",") if part.strip()]
+        self.fields["weekdays"].initial = initial_days
+
+        start_value = self.initial.get("outbound_business_start_time", getattr(self.instance, "outbound_business_start_time", None))
+        end_value = self.initial.get("outbound_business_end_time", getattr(self.instance, "outbound_business_end_time", None))
+        self.initial["outbound_business_start_time"] = _format_clock_time_for_widget(start_value or time(8, 0))
+        self.initial["outbound_business_end_time"] = _format_clock_time_for_widget(end_value or time(18, 0))
+
+    def clean_outbound_business_start_time(self) -> time:
+        return _parse_clock_time(self.cleaned_data.get("outbound_business_start_time"), field_label="Hora inicial")
+
+    def clean_outbound_business_end_time(self) -> time:
+        return _parse_clock_time(self.cleaned_data.get("outbound_business_end_time"), field_label="Hora final")
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean()
+        if not isinstance(cleaned, dict):
+            return cleaned
+
+        weekdays = [str(day) for day in (cleaned.get("weekdays") or [])]
+        start_time = cleaned.get("outbound_business_start_time")
+        end_time = cleaned.get("outbound_business_end_time")
+
+        if not weekdays:
+            self.add_error("weekdays", "Selecione pelo menos um dia da semana.")
+
+        if isinstance(start_time, time) and isinstance(end_time, time) and start_time >= end_time:
+            self.add_error(
+                "outbound_business_end_time",
+                "A hora final deve ser maior que a hora inicial.",
+            )
+
+        cleaned["weekdays"] = weekdays
+        return cleaned
+
+    def save(self, commit: bool = True) -> Workshop:
+        workshop = cast(Workshop, super().save(commit=False))
+        weekdays = [str(day) for day in (self.cleaned_data.get("weekdays") or [])]
+        workshop.outbound_business_weekdays = ",".join(sorted(weekdays, key=int)) if weekdays else "0,1,2,3,4"
+        workshop.outbound_business_hours_enabled = True
+        if commit:
+            workshop.save()
+        return workshop
 
 
 class WorkshopCertificateSectionForm(CoreForm):

@@ -257,6 +257,7 @@
         <div class="card-body p-6 md:p-8 space-y-6">
             <div class="app-tabs tabs tabs-lift flex-wrap gap-1">
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'empresa' }" @click="activeTab = 'empresa'">Empresa</button>
+                <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'assistente_virtual' }" @click="activeTab = 'assistente_virtual'">Assistente Virtual</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'endereco' }" @click="activeTab = 'endereco'">Endereco</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'nota_fiscal' }" @click="activeTab = 'nota_fiscal'">Nota Fiscal</button>
                 <button type="button" class="tab" :class="{ 'tab-active': activeTab === 'certificado' }" @click="activeTab = 'certificado'">Certificados</button>
@@ -344,6 +345,74 @@
                         <button type="submit" class="btn-form-save">Salvar alteracoes</button>
                     {% else %}
                         <span class="text-sm text-warning">Voce nao possui permissao para alterar dados de integracao desta oficina.</span>
+                    {% endif %}
+                </div>
+            </form>
+
+            <form method="post" x-show="activeTab === 'assistente_virtual'" x-cloak>
+                {% csrf_token %}
+                <input type="hidden" name="tab" value="assistente_virtual">
+                <input type="hidden" name="nf_tab" :value="nfTab">
+
+                <div class="alert alert-info mb-4 text-sm">
+                    <span>Configure o seu assistente virtual e horário de funcionamento.</span>
+                </div>
+
+                {% if assistant_virtual_form.non_field_errors %}
+                    <div class="alert alert-error mb-4">
+                        {% for error in assistant_virtual_form.non_field_errors %}
+                            <span>{{ error }}</span>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                <div class="mb-4">
+                    <h3 class="text-base font-semibold">Horário de funcionamento</h3>
+                    <p class="text-xs text-base-content/70 mt-1">Define a janela em que mensagens automáticas podem ser enviadas.</p>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    <div class="col-span-12">
+                        <span class="mb-2 block text-sm font-semibold text-base-content">{{ assistant_virtual_form.weekdays.label }}</span>
+                        <p class="mb-3 text-xs text-base-content/60">{{ assistant_virtual_form.weekdays.help_text }}</p>
+                        <div class="flex flex-wrap items-center gap-2">
+                            {% for checkbox in assistant_virtual_form.weekdays %}
+                                <label class="inline-flex cursor-pointer items-center gap-2 rounded-box border border-base-300 bg-base-100 px-3 py-2 transition hover:border-primary/40 hover:bg-base-200/40">
+                                    {{ checkbox.tag }}
+                                    <span class="text-sm text-base-content whitespace-nowrap">{{ checkbox.choice_label }}</span>
+                                </label>
+                            {% endfor %}
+                        </div>
+                        {% if assistant_virtual_form.weekdays.errors %}
+                            <div class="mt-2 text-sm text-error">{{ assistant_virtual_form.weekdays.errors }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="col-span-12 lg:col-span-6">
+                        <label for="{{ assistant_virtual_form.outbound_business_start_time.id_for_label }}" class="mb-2 block text-sm font-semibold text-base-content">{{ assistant_virtual_form.outbound_business_start_time.label }}</label>
+                        {{ assistant_virtual_form.outbound_business_start_time }}
+                        <p class="mt-1 text-xs text-base-content/60">{{ assistant_virtual_form.outbound_business_start_time.help_text }}</p>
+                        {% if assistant_virtual_form.outbound_business_start_time.errors %}
+                            <div class="mt-2 text-sm text-error">{{ assistant_virtual_form.outbound_business_start_time.errors }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="col-span-12 lg:col-span-6">
+                        <label for="{{ assistant_virtual_form.outbound_business_end_time.id_for_label }}" class="mb-2 block text-sm font-semibold text-base-content">{{ assistant_virtual_form.outbound_business_end_time.label }}</label>
+                        {{ assistant_virtual_form.outbound_business_end_time }}
+                        <p class="mt-1 text-xs text-base-content/60">{{ assistant_virtual_form.outbound_business_end_time.help_text }}</p>
+                        {% if assistant_virtual_form.outbound_business_end_time.errors %}
+                            <div class="mt-2 text-sm text-error">{{ assistant_virtual_form.outbound_business_end_time.errors }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="divider"></div>
+                <div class="flex items-center justify-end gap-2">
+                    {% if can_change_workshop %}
+                        <button type="submit" class="btn-form-save">Salvar alterações</button>
+                    {% else %}
+                        <span class="text-sm text-warning">Você não possui permissão para alterar o assistente virtual desta oficina.</span>
                     {% endif %}
                 </div>
             </form>

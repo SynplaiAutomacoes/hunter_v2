@@ -1,16 +1,30 @@
 from __future__ import annotations
 
+import json
+
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import HttpResponse
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from apps.core.infrastructure.query_filters import apply_is_active_filter
-from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
+from apps.core.presentation.mixins import BaseModalFormView, HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
-from apps.workshops.forms.oil_types import OilTypeForm
+from apps.workshops.forms.oil_types import OilTypeForm, QuickOilTypeForm
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.models.oil_types import OilType
+
+
+def build_oil_type_saved_trigger(oil_type: OilType) -> str:
+    return json.dumps(
+        {
+            "oilTypeSaved": {
+                "id": str(oil_type.pk),
+                "name": oil_type.name,
+            }
+        }
+    )
 
 
 class OilTypeListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
@@ -80,3 +94,60 @@ class OilTypeDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteRespo
     success_url = reverse_lazy("workshops:oil_type_list")
     htmx_template_name = "oil_types/partials/oil_type_delete_modal.html"
     htmx_trigger = "oil-types-table-refresh"
+
+
+class QuickOilTypeCreateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, CreateView):
+    model = OilType
+    form_class = QuickOilTypeForm
+    template_name = "oil_types/partials/quick_oil_type_modal_form.html"
+    success_url = reverse_lazy("workshops:oil_type_list")
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["workshop"] = self.workshop
+        return kwargs
+
+    def form_valid(self, form):
+        if not bool(getattr(self.request, "htmx", False)):
+            form.instance.workshop = self.workshop
+            return super().form_valid(form)
+
+        form.instance.workshop = self.workshop
+        oil_type = form.save()
+        self.object = oil_type
+
+        response = HttpResponse(status=204)
+        response["HX-Trigger"] = build_oil_type_saved_trigger(oil_type)
+        return response
+
+
+class QuickOilTypeUpdateView(LoginRequiredMixin, WorkshopScopedMixin, BaseModalFormView, UpdateView):
+    model = OilType
+    form_class = QuickOilTypeForm
+    template_name = "oil_types/partials/quick_oil_type_modal_form.html"
+    success_url = reverse_lazy("workshops:oil_type_list")
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["workshop"] = self.workshop
+        return kwargs
+
+    def form_valid(self, form):
+        if not bool(getattr(self.request, "htmx", False)):
+            response = super().form_valid(form)
+            from apps.customer.services.oil_change import recalculate_oil_forecasts_for_oil_type
+
+            recalculate_oil_forecasts_for_oil_type(oil_type=self.object)
+            return response
+
+        form.instance.workshop = self.workshop
+        oil_type = form.save()
+        self.object = oil_type
+
+        from apps.customer.services.oil_change import recalculate_oil_forecasts_for_oil_type
+
+        recalculate_oil_forecasts_for_oil_type(oil_type=oil_type)
+
+        response = HttpResponse(status=204)
+        response["HX-Trigger"] = build_oil_type_saved_trigger(oil_type)
+        return response

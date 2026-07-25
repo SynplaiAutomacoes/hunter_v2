@@ -61,3 +61,31 @@ class OilTypeForm(CoreModelForm):
             if qs.exists():
                 raise forms.ValidationError("Já existe um tipo de óleo com este nome.")
         return name
+
+
+class QuickOilTypeForm(OilTypeForm):
+    """Oil type form for HTMX quick-create/update modal (no outer form tag/buttons)."""
+
+    class Meta(OilTypeForm.Meta):
+        fields = ["name", "validity_days", "validity_km", "notification_lead_days"]
+
+    def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
+        super().__init__(*args, workshop=workshop, **kwargs)
+        self.helper.form_tag = False
+        self.helper.layout = Layout(
+            Div(
+                Field("name", wrapper_class="col-span-12 md:col-span-6 min-w-[18rem]"),
+                Field("notification_lead_days", wrapper_class="col-span-12 md:col-span-6 min-w-[18rem]"),
+                Field("validity_days", wrapper_class="col-span-12 md:col-span-6 min-w-[18rem]"),
+                Field("validity_km", wrapper_class="col-span-12 md:col-span-6 min-w-[18rem]"),
+                css_class="grid grid-cols-12 gap-x-4 gap-y-3 items-start",
+            ),
+        )
+
+    def save(self, commit: bool = True):
+        instance = super().save(commit=False)
+        instance.is_active = True
+        if commit:
+            instance.save()
+            self.save_m2m()
+        return instance
