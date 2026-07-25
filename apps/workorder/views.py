@@ -1340,6 +1340,14 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                         {"showToast": {"message": "Não foi possível concluir a entrega da ordem de serviço.", "type": "error"}}
                     )
                     return response
+
+                from apps.customer.services.oil_change import handle_workorder_delivery_oil_and_mileage
+
+                handle_workorder_delivery_oil_and_mileage(workorder=workorder)
+
+                from apps.messaging.application.services.satisfaction_survey import schedule_satisfaction_survey_for_workorder
+
+                schedule_satisfaction_survey_for_workorder(workorder)
             except WorkOrderApprovalError as exc:
                 logger.warning(
                     "workorder_delivery_approval_error",

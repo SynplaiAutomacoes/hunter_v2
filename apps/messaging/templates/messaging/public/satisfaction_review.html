@@ -1,0 +1,68 @@
+{% load tailwind_cli %}
+<!DOCTYPE html>
+<html lang="pt-br" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Avaliação — {{ workshop.name }}</title>
+    {% tailwind_css %}
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="min-h-screen bg-base-200">
+    <main class="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-4 py-10">
+        <div class="rounded-2xl border border-base-300 bg-base-100 p-6 shadow-sm sm:p-8">
+            <p class="text-sm font-medium text-primary">{{ workshop.name }}</p>
+            <h1 class="mt-2 text-2xl font-bold text-base-content">Como foi seu atendimento?</h1>
+            <p class="mt-2 text-sm text-base-content/70">
+                Olá{% if customer %} {{ customer.name }}{% endif %}! Sua opinião nos ajuda a melhorar.
+            </p>
+
+            <form method="post" class="mt-6 space-y-5">
+                {% csrf_token %}
+                {% if form.non_field_errors %}
+                    <div class="rounded-box border border-error/30 bg-error/10 p-3 text-sm text-error">
+                        {{ form.non_field_errors }}
+                    </div>
+                {% endif %}
+
+                <fieldset>
+                    <legend class="mb-3 text-sm font-semibold text-base-content">{{ form.rating.label }}</legend>
+                    <div class="flex flex-wrap gap-2">
+                        {% for value, label in form.fields.rating.choices %}
+                            <label class="cursor-pointer">
+                                <input
+                                    type="radio"
+                                    name="{{ form.rating.html_name }}"
+                                    value="{{ value }}"
+                                    class="peer sr-only"
+                                    {% if form.rating.value|stringformat:"s" == value|stringformat:"s" %}checked{% endif %}
+                                    required
+                                >
+                                <span class="inline-flex h-12 w-12 items-center justify-center rounded-full border border-base-300 text-lg font-semibold transition peer-checked:border-primary peer-checked:bg-primary peer-checked:text-primary-content hover:border-primary/50">
+                                    {{ label }}
+                                </span>
+                            </label>
+                        {% endfor %}
+                    </div>
+                    {% if form.rating.errors %}
+                        <div class="mt-2 text-sm text-error">{{ form.rating.errors }}</div>
+                    {% endif %}
+                    <p class="mt-2 text-xs text-base-content/60">1 = ruim · 5 = excelente</p>
+                </fieldset>
+
+                <div>
+                    <label for="{{ form.comment.id_for_label }}" class="mb-2 block text-sm font-semibold text-base-content">{{ form.comment.label }}</label>
+                    {{ form.comment }}
+                    {% if form.comment.errors %}
+                        <div class="mt-2 text-sm text-error">{{ form.comment.errors }}</div>
+                    {% endif %}
+                </div>
+
+                <button type="submit" class="btn btn-primary w-full">Enviar avaliação</button>
+            </form>
+        </div>
+    </main>
+</body>
+</html>

@@ -1,0 +1,27 @@
+{% load crispy_forms_tags %}
+<div class="modal-box w-fit max-w-[95vw] min-w-[40rem] border border-base-300 bg-base-100 p-0 shadow-2xl">
+    <div class="flex items-start justify-between gap-4 border-b border-base-300 px-5 py-4">
+        <div class="space-y-1">
+            <h3 class="flex items-center gap-2 text-xl font-bold text-base-content whitespace-nowrap">
+                <span class="material-icons text-primary">{% if form.instance.pk %}edit{% else %}opacity{% endif %}</span>
+                <span>{% if form.instance.pk %}Editar tipo de óleo{% else %}Cadastro rápido de tipo de óleo{% endif %}</span>
+            </h3>
+            <p class="text-sm text-base-content/70 whitespace-nowrap">
+                Defina o nome, validade e antecedência da notificação.
+            </p>
+        </div>
+        <button type="button" class="btn btn-sm btn-circle btn-ghost shrink-0" onclick="this.closest('dialog').close()" aria-label="Fechar modal">
+            ✕
+        </button>
+    </div>
+
+    <form id="quick-form" hx-post="{{ request.path }}" hx-target="#modal-container" hx-swap="innerHTML" class="px-5 py-4 space-y-4 [&_label]:whitespace-nowrap">
+        {% csrf_token %}
+        {% crispy form %}
+
+        <div class="flex flex-col-reverse gap-2 border-t border-base-300 pt-4 sm:flex-row sm:items-center sm:justify-end">
+            <button type="button" class="btn btn-ghost" onclick="this.closest('dialog').close()">Cancelar</button>
+            <button type="submit" class="btn btn-primary whitespace-nowrap">Salvar tipo de óleo</button>
+        </div>
+    </form>
+</div>

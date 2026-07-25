@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 from datetime import datetime, time
+from typing import Protocol
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.utils import timezone
+
+
+class OutboundBusinessHoursConfig(Protocol):
+    outbound_business_weekdays: str
+    outbound_business_start_time: time
+    outbound_business_end_time: time
 
 
 def _parse_weekdays(raw: str) -> frozenset[int]:
@@ -21,33 +28,30 @@ def _parse_weekdays(raw: str) -> frozenset[int]:
     return frozenset(values)
 
 
-def is_within_outbound_business_hours(moment: datetime | None = None) -> bool:
+def is_within_outbound_business_hours(
+    workshop: OutboundBusinessHoursConfig,
+    moment: datetime | None = None,
+) -> bool:
     """
-    Return whether outbound appointment alerts may be sent now.
+    Return whether outbound appointment alerts may be sent now for a workshop.
 
-    Controlled by settings (env):
-    - OUTBOUND_BUSINESS_HOURS_ENABLED (default True)
-    - OUTBOUND_BUSINESS_WEEKDAYS (default "0,1,2,3,4" = Mon–Fri)
-    - OUTBOUND_BUSINESS_START_HOUR / OUTBOUND_BUSINESS_END_HOUR (default 8–18, end exclusive)
+    Always respects workshop hours:
+    - outbound_business_weekdays (default "0,1,2,3,4" = Mon–Fri)
+    - outbound_business_start_time / outbound_business_end_time (default 08:00–18:00, end exclusive)
     Timezone: Django TIME_ZONE (America/Sao_Paulo).
     """
-    if not getattr(settings, "OUTBOUND_BUSINESS_HOURS_ENABLED", True):
-        return True
-
     when = moment or timezone.now()
     tz_name = str(getattr(settings, "TIME_ZONE", "America/Sao_Paulo") or "America/Sao_Paulo")
     local = timezone.localtime(when, ZoneInfo(tz_name))
 
     try:
-        weekdays = _parse_weekdays(str(getattr(settings, "OUTBOUND_BUSINESS_WEEKDAYS", "0,1,2,3,4")))
+        weekdays = _parse_weekdays(str(getattr(workshop, "outbound_business_weekdays", "0,1,2,3,4")))
     except ValueError:
         weekdays = frozenset({0, 1, 2, 3, 4})
 
     if local.weekday() not in weekdays:
         return False
 
-    start_hour = int(getattr(settings, "OUTBOUND_BUSINESS_START_HOUR", 8))
-    end_hour = int(getattr(settings, "OUTBOUND_BUSINESS_END_HOUR", 18))
-    start = time(hour=max(0, min(start_hour, 23)))
-    end = time(hour=max(0, min(end_hour, 23)))
+    start = getattr(workshop, "outbound_business_start_time", None) or time(8, 0)
+    end = getattr(workshop, "outbound_business_end_time", None) or time(18, 0)
     return start <= local.time() < end

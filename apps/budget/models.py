@@ -134,6 +134,16 @@ class Budget(TimeStampedModel):
     current_km = models.PositiveIntegerField(verbose_name="KM Atual", default=0)
     fuel_level = models.PositiveIntegerField(verbose_name="Nível do Tanque", choices=FuelLevel.choices, null=True, blank=True)
     defect = models.ForeignKey(Defect, on_delete=models.SET_NULL, related_name="budgets", null=True)
+    last_oil_change_date = models.DateField(verbose_name="Data da última troca de óleo", null=True, blank=True)
+    last_oil_change_km = models.PositiveIntegerField(verbose_name="KM da última troca de óleo", null=True, blank=True)
+    oil_type = models.ForeignKey(
+        "workshops.OilType",
+        verbose_name="Tipo de óleo",
+        on_delete=models.SET_NULL,
+        related_name="budgets",
+        null=True,
+        blank=True,
+    )
 
     # Financeiro
     discount_value = MoneyField(verbose_name="Aplicar Desconto (R$)", max_digits=14, decimal_places=2, default=0.00)
@@ -234,6 +244,11 @@ class Budget(TimeStampedModel):
                 self.sync_items_benefit_type_to_budget_type()
 
             if old_status != BudgetStatus.APPROVED and self.status == BudgetStatus.APPROVED:
+                if self.vehicle_id and self.current_km is not None:
+                    from apps.customer.services.oil_change import handle_budget_approved_mileage
+
+                    handle_budget_approved_mileage(budget=self)
+
                 workorder, _ = WorkOrder.objects.get_or_create(
                     budget=self,
                     defaults={"workshop": self.workshop},
