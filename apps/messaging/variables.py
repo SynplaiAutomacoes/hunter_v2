@@ -26,8 +26,10 @@ class VariableDefinition:
 VARIABLE_GROUPS: tuple[tuple[str, str], ...] = (
     ("cliente", "Cliente"),
     ("veiculo", "Veículo"),
+    ("oficina", "Oficina"),
     ("orcamento", "Orçamento"),
     ("os", "O.S."),
+    ("agendamento", "Agendamento"),
 )
 
 
@@ -116,6 +118,23 @@ def _workorder_status_label(ctx: VariableContext) -> object:
     return WorkOrderStatus(status).label
 
 
+def _workshop_name(ctx: VariableContext) -> object:
+    workshop = ctx.workshop
+    if workshop is None:
+        return MISSING
+    return getattr(workshop, "name", "") or ""
+
+
+def _extra(ctx: VariableContext, key: str) -> object:
+    extras = ctx.extras or {}
+    if key in extras:
+        return extras[key]
+    underscore = key.replace("-", "_")
+    if underscore in extras:
+        return extras[underscore]
+    return MISSING
+
+
 VARIABLE_DEFINITIONS: tuple[VariableDefinition, ...] = (
     VariableDefinition(key="nome", group="cliente", label="Nome", description="Nome do cliente.", resolver=lambda ctx: _customer_attr(ctx, "name")),
     VariableDefinition(key="cpf", group="cliente", label="CPF/CNPJ", description="Documento do cliente cadastrado.", resolver=_formatted_customer_document),
@@ -123,6 +142,9 @@ VARIABLE_DEFINITIONS: tuple[VariableDefinition, ...] = (
     VariableDefinition(key="data_nascimento", group="cliente", label="Data de nascimento", description="Data de nascimento do cliente.", resolver=lambda ctx: _customer_attr(ctx, "birth_date")),
     VariableDefinition(key="telefone", group="cliente", label="Telefone", description="Telefone principal do cliente.", resolver=_formatted_customer_phone),
     VariableDefinition(key="email", group="cliente", label="Email", description="Email do cliente.", resolver=lambda ctx: _customer_attr(ctx, "email")),
+    VariableDefinition(key="nome_oficina", group="oficina", label="Nome da oficina", description="Nome da oficina ativa.", resolver=_workshop_name),
+    VariableDefinition(key="data_agendamento", group="agendamento", label="Data do agendamento", description="Data do agendamento (preenchida nos alertas).", resolver=lambda ctx: _extra(ctx, "data_agendamento")),
+    VariableDefinition(key="hora_agendamento", group="agendamento", label="Hora do agendamento", description="Hora do agendamento (preenchida nos alertas).", resolver=lambda ctx: _extra(ctx, "hora_agendamento")),
     VariableDefinition(key="placa", group="veiculo", label="Placa", description="Placa do veículo.", resolver=lambda ctx: _vehicle_attr(ctx, "plate")),
     VariableDefinition(key="marca", group="veiculo", label="Marca", description="Marca do veículo.", resolver=lambda ctx: _vehicle_attr(ctx, "brand")),
     VariableDefinition(key="modelo", group="veiculo", label="Modelo", description="Modelo do veículo.", resolver=lambda ctx: _vehicle_attr(ctx, "model")),

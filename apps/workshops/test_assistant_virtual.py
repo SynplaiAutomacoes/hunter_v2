@@ -28,6 +28,10 @@ class WorkshopAssistantVirtualFormTests(TestCase):
                 "weekdays": ["0", "2", "4"],
                 "outbound_business_start_time": "09:30:00",
                 "outbound_business_end_time": "17:00:00",
+                "satisfaction_survey_enabled": False,
+                "satisfaction_survey_delay_days": 1,
+                "google_review_url": "",
+                "google_review_min_rating": 4,
             },
             instance=workshop,
         )
@@ -51,6 +55,8 @@ class WorkshopAssistantVirtualFormTests(TestCase):
                 "weekdays": [],
                 "outbound_business_start_time": "08:00:00",
                 "outbound_business_end_time": "18:00:00",
+                "satisfaction_survey_delay_days": 1,
+                "google_review_min_rating": 4,
             },
             instance=workshop,
         )
@@ -69,6 +75,8 @@ class WorkshopAssistantVirtualFormTests(TestCase):
                 "weekdays": ["0"],
                 "outbound_business_start_time": "18:00:00",
                 "outbound_business_end_time": "08:00:00",
+                "satisfaction_survey_delay_days": 1,
+                "google_review_min_rating": 4,
             },
             instance=workshop,
         )
@@ -87,11 +95,72 @@ class WorkshopAssistantVirtualFormTests(TestCase):
                 "weekdays": ["0"],
                 "outbound_business_start_time": "25:00:00",
                 "outbound_business_end_time": "18:00:00",
+                "satisfaction_survey_delay_days": 1,
+                "google_review_min_rating": 4,
             },
             instance=workshop,
         )
         self.assertFalse(form.is_valid())
         self.assertIn("outbound_business_start_time", form.errors)
+
+    def test_allows_immediate_toggle_outside_production(self) -> None:
+        from django.test import override_settings
+
+        workshop = Workshop.objects.create(
+            name="Oficina Immediate Delay",
+            cnpj="12.345.678/0001-75",
+            phone="+5511999999999",
+            address="Rua A, 123",
+        )
+        with override_settings(ENVIRONMENT="development"):
+            form = WorkshopAssistantVirtualSectionForm(
+                data={
+                    "weekdays": ["0"],
+                    "outbound_business_start_time": "08:00:00",
+                    "outbound_business_end_time": "18:00:00",
+                    "satisfaction_survey_enabled": True,
+                    "satisfaction_survey_delay_days": 3,
+                    "satisfaction_survey_send_immediately": True,
+                    "google_review_url": "",
+                    "google_review_min_rating": 4,
+                },
+                instance=workshop,
+            )
+            self.assertTrue(form.is_valid(), form.errors)
+            self.assertIn("satisfaction_survey_send_immediately", form.fields)
+            form.save()
+        workshop.refresh_from_db()
+        self.assertTrue(workshop.satisfaction_survey_send_immediately)
+        self.assertEqual(workshop.satisfaction_survey_delay_days, 3)
+
+    def test_hides_immediate_toggle_in_production(self) -> None:
+        from django.test import override_settings
+
+        workshop = Workshop.objects.create(
+            name="Oficina Prod Delay",
+            cnpj="12.345.678/0001-74",
+            phone="+5511999999999",
+            address="Rua A, 123",
+            satisfaction_survey_send_immediately=True,
+        )
+        with override_settings(ENVIRONMENT="production"):
+            form = WorkshopAssistantVirtualSectionForm(
+                data={
+                    "weekdays": ["0"],
+                    "outbound_business_start_time": "08:00:00",
+                    "outbound_business_end_time": "18:00:00",
+                    "satisfaction_survey_enabled": True,
+                    "satisfaction_survey_delay_days": 2,
+                    "google_review_url": "",
+                    "google_review_min_rating": 4,
+                },
+                instance=workshop,
+            )
+            self.assertNotIn("satisfaction_survey_send_immediately", form.fields)
+            self.assertTrue(form.is_valid(), form.errors)
+            form.save()
+        workshop.refresh_from_db()
+        self.assertFalse(workshop.satisfaction_survey_send_immediately)
 
     def test_weekdays_choices_start_on_sunday(self) -> None:
         from apps.workshops.forms.workshops import WEEKDAY_CHOICES
@@ -140,6 +209,10 @@ class WorkshopAssistantVirtualTabTests(TestCase):
                 "weekdays": ["1", "3", "5"],
                 "outbound_business_start_time": "10:15:00",
                 "outbound_business_end_time": "19:00:00",
+                "satisfaction_survey_enabled": "on",
+                "satisfaction_survey_delay_days": 2,
+                "google_review_url": "https://g.page/r/example",
+                "google_review_min_rating": 5,
             },
         )
         self.assertEqual(response.status_code, 302)
@@ -147,3 +220,7 @@ class WorkshopAssistantVirtualTabTests(TestCase):
         self.assertEqual(self.workshop.outbound_business_weekdays, "1,3,5")
         self.assertEqual(self.workshop.outbound_business_start_time, time(10, 15))
         self.assertEqual(self.workshop.outbound_business_end_time, time(19, 0))
+        self.assertTrue(self.workshop.satisfaction_survey_enabled)
+        self.assertEqual(self.workshop.satisfaction_survey_delay_days, 2)
+        self.assertEqual(self.workshop.google_review_url, "https://g.page/r/example")
+        self.assertEqual(self.workshop.google_review_min_rating, 5)

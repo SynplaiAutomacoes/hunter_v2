@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 
 from django.utils import timezone
 
-from apps.messaging.models import ScheduledOutboundMessage
+from apps.messaging.application.services.typed_templates import get_active_template
+from apps.messaging.models import MessageTemplate, ScheduledOutboundMessage
+from apps.messaging.rendering import render_message_template
 from apps.scheduling.models import Appointment, AppointmentStatus
+
+logger = logging.getLogger(__name__)
 
 
 ALERT_LEAD_TIME_CHOICES: list[tuple[int, str]] = [
@@ -20,13 +25,28 @@ ALERT_LEAD_TIME_CHOICES: list[tuple[int, str]] = [
 ]
 
 
-def build_appointment_alert_message(appointment: Appointment) -> str:
-    starts_local = timezone.localtime(appointment.starts_at).strftime("%d/%m/%Y às %H:%M")
-    workshop_name = str(getattr(appointment.workshop, "name", "") or "sua oficina")
-    customer_name = appointment.display_customer_name
-    return (
-        f"Olá {customer_name}! Lembramos do seu agendamento em {workshop_name} "
-        f"previsto para {starts_local}. Em caso de dúvidas, fale conosco."
+def build_appointment_alert_message(appointment: Appointment) -> str | None:
+    template = get_active_template(appointment.workshop_id, MessageTemplate.TemplateType.APPOINTMENT)
+    if template is None:
+        logger.info(
+            "appointment_alert_skipped_no_active_template",
+            extra={"workshop_id": appointment.workshop_id, "appointment_id": appointment.pk},
+        )
+        return None
+
+    starts_local = timezone.localtime(appointment.starts_at)
+    customer = appointment.customer
+    extras: dict[str, str] = {
+        "data_agendamento": starts_local.strftime("%d/%m/%Y"),
+        "hora_agendamento": starts_local.strftime("%H:%M"),
+    }
+    if customer is None:
+        extras["nome"] = appointment.display_customer_name
+    return render_message_template(
+        template.message,
+        customer=customer,
+        workshop=appointment.workshop,
+        extras=extras,
     )
 
 
@@ -47,19 +67,23 @@ def sync_appointment_alert_schedule(appointment: Appointment) -> ScheduledOutbou
         status=ScheduledOutboundMessage.Status.PENDING,
     )
 
-    should_schedule = bool(
-        appointment.alert_customer
-        and appointment.alert_lead_time
-        and appointment.status == AppointmentStatus.SCHEDULED
-    )
+    should_schedule = bool(appointment.alert_customer and appointment.alert_lead_time and appointment.status == AppointmentStatus.SCHEDULED)
 
     if not should_schedule:
         pending_qs.update(status=ScheduledOutboundMessage.Status.CANCELLED)
         return None
 
+    message = build_appointment_alert_message(appointment)
+    if not message:
+        pending_qs.update(status=ScheduledOutboundMessage.Status.CANCELLED)
+        return None
+
     run_at = appointment.starts_at - timedelta(minutes=int(appointment.alert_lead_time))
     phone = resolve_appointment_whatsapp_phone(appointment)
-    message = build_appointment_alert_message(appointment)
+    if not phone:
+        pending_qs.update(status=ScheduledOutboundMessage.Status.CANCELLED)
+        return None
+
     existing = pending_qs.order_by("-criado_em").first()
 
     if existing is None:

@@ -1,21 +1,31 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from apps.customer.models import Vehicle
 from apps.customer.services.oil_change import notification_run_at_for_vehicle
-from apps.messaging.models import ScheduledOutboundMessage
+from apps.messaging.application.services.typed_templates import get_active_template
+from apps.messaging.models import MessageTemplate, ScheduledOutboundMessage
+from apps.messaging.rendering import render_message_template
+
+logger = logging.getLogger(__name__)
 
 
-def build_oil_change_alert_message(vehicle: Vehicle) -> str:
-    workshop_name = str(getattr(vehicle.workshop, "name", "") or "sua oficina")
-    customer_name = str(getattr(vehicle.customer, "name", "") or "cliente")
-    plate = vehicle.plate or "seu veículo"
-    next_date = vehicle.next_oil_change_date
-    next_date_display = next_date.strftime("%d/%m/%Y") if next_date else "em breve"
-    return (
-        f"Olá {customer_name}! Lembramos que a troca de óleo do veículo {plate} "
-        f"está prevista para {next_date_display}. Em caso de dúvidas, fale com {workshop_name}."
+def build_oil_change_alert_message(vehicle: Vehicle) -> str | None:
+    template = get_active_template(vehicle.workshop_id, MessageTemplate.TemplateType.OIL_CHANGE)
+    if template is None:
+        logger.info(
+            "oil_change_alert_skipped_no_active_template",
+            extra={"workshop_id": vehicle.workshop_id, "vehicle_id": vehicle.pk},
+        )
+        return None
+
+    return render_message_template(
+        template.message,
+        customer=vehicle.customer,
+        vehicle=vehicle,
+        workshop=vehicle.workshop,
     )
 
 
@@ -39,14 +49,15 @@ def sync_oil_change_alert_schedule(vehicle: Vehicle, *, now: datetime | None = N
 
     run_at = notification_run_at_for_vehicle(vehicle, now=now)
     phone = resolve_vehicle_whatsapp_phone(vehicle)
-    should_schedule = bool(run_at is not None and phone and vehicle.next_oil_change_date)
+    message = build_oil_change_alert_message(vehicle)
+    should_schedule = bool(run_at is not None and phone and vehicle.next_oil_change_date and message)
 
     if not should_schedule:
         pending_qs.update(status=ScheduledOutboundMessage.Status.CANCELLED)
         return None
 
     assert run_at is not None
-    message = build_oil_change_alert_message(vehicle)
+    assert message is not None
     existing = pending_qs.order_by("-criado_em").first()
     customer_id = vehicle.customer_id
 

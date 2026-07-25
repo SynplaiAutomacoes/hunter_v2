@@ -16,7 +16,6 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
 from apps.core.presentation.forms import CoreForm, CoreModelForm
 from apps.core.infrastructure.providers import get_fiscal_service
-from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.core.presentation.widgets import (
     CEPInput,
     CheckboxInput,
@@ -541,7 +540,7 @@ def _parse_clock_time(value: object, *, field_label: str) -> time:
 
 
 class WorkshopAssistantVirtualSectionForm(CoreModelForm):
-    """Configurações do assistente virtual da oficina (horário de funcionamento e futuros campos)."""
+    """Configurações do assistente virtual da oficina (horário de funcionamento e pesquisa de satisfação)."""
 
     weekdays = forms.MultipleChoiceField(
         label="Dias de envio",
@@ -563,13 +562,32 @@ class WorkshopAssistantVirtualSectionForm(CoreModelForm):
         widget=DurationInput(mode="hours_minutes"),
         help_text="Fim exclusivo da janela (ex.: 18:00 envia até 17:59).",
     )
+    google_review_min_rating = forms.TypedChoiceField(
+        label="Nota mínima para pedir avaliação no Google",
+        choices=[(i, str(i)) for i in range(1, 6)],
+        coerce=int,
+        required=True,
+        widget=forms.Select(attrs={"class": "select select-bordered w-full"}),
+        help_text="Se a nota do cliente for igual ou maior, exibe o link do Google.",
+    )
 
     class Meta:
         model = Workshop
         fields = [
             "outbound_business_start_time",
             "outbound_business_end_time",
+            "satisfaction_survey_enabled",
+            "satisfaction_survey_delay_days",
+            "satisfaction_survey_send_immediately",
+            "google_review_url",
+            "google_review_min_rating",
         ]
+        widgets = {
+            "satisfaction_survey_enabled": CheckboxInput(),
+            "satisfaction_survey_delay_days": NumberInput(mode="positive", attrs={"min": 0, "max": 365}),
+            "satisfaction_survey_send_immediately": CheckboxInput(),
+            "google_review_url": TextInput(attrs={"placeholder": "https://g.page/r/..."}),
+        }
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -583,11 +601,37 @@ class WorkshopAssistantVirtualSectionForm(CoreModelForm):
         self.initial["outbound_business_start_time"] = _format_clock_time_for_widget(start_value or time(8, 0))
         self.initial["outbound_business_end_time"] = _format_clock_time_for_widget(end_value or time(18, 0))
 
+        from apps.messaging.application.services.satisfaction_survey import allows_immediate_satisfaction_survey
+
+        delay_field = self.fields["satisfaction_survey_delay_days"]
+        delay_field.help_text = "Quantidade de dias após o fechamento da O.S. para enviar o link de avaliação."
+        delay_field.widget = NumberInput(mode="positive", attrs={"min": 0, "max": 365})
+
+        if allows_immediate_satisfaction_survey():
+            self.fields["satisfaction_survey_send_immediately"].required = False
+        else:
+            self.fields.pop("satisfaction_survey_send_immediately", None)
+
     def clean_outbound_business_start_time(self) -> time:
         return _parse_clock_time(self.cleaned_data.get("outbound_business_start_time"), field_label="Hora inicial")
 
     def clean_outbound_business_end_time(self) -> time:
         return _parse_clock_time(self.cleaned_data.get("outbound_business_end_time"), field_label="Hora final")
+
+    def clean_satisfaction_survey_delay_days(self) -> int:
+        value = self.cleaned_data.get("satisfaction_survey_delay_days")
+        try:
+            days = int(value)
+        except (TypeError, ValueError) as exc:
+            raise forms.ValidationError("Informe um número válido de dias.") from exc
+        if days < 0:
+            raise forms.ValidationError("Os dias após a entrega não podem ser negativos.")
+        if days > 365:
+            raise forms.ValidationError("Informe no máximo 365 dias.")
+        return days
+
+    def clean_google_review_url(self) -> str:
+        return str(self.cleaned_data.get("google_review_url") or "").strip()
 
     def clean(self) -> dict[str, Any]:
         cleaned = super().clean()
@@ -607,14 +651,23 @@ class WorkshopAssistantVirtualSectionForm(CoreModelForm):
                 "A hora final deve ser maior que a hora inicial.",
             )
 
+        if cleaned.get("satisfaction_survey_enabled") and cleaned.get("google_review_url"):
+            min_rating = cleaned.get("google_review_min_rating")
+            if min_rating is not None and (int(min_rating) < 1 or int(min_rating) > 5):
+                self.add_error("google_review_min_rating", "A nota mínima deve ser entre 1 e 5.")
+
         cleaned["weekdays"] = weekdays
         return cleaned
 
     def save(self, commit: bool = True) -> Workshop:
+        from apps.messaging.application.services.satisfaction_survey import allows_immediate_satisfaction_survey
+
         workshop = cast(Workshop, super().save(commit=False))
         weekdays = [str(day) for day in (self.cleaned_data.get("weekdays") or [])]
         workshop.outbound_business_weekdays = ",".join(sorted(weekdays, key=int)) if weekdays else "0,1,2,3,4"
         workshop.outbound_business_hours_enabled = True
+        if not allows_immediate_satisfaction_survey():
+            workshop.satisfaction_survey_send_immediately = False
         if commit:
             workshop.save()
         return workshop

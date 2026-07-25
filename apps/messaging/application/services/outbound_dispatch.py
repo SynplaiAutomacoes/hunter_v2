@@ -7,6 +7,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from apps.messaging.application.services.birthday_alert import enqueue_birthday_alerts_for_day
 from apps.messaging.application.services.dispatch_history import (
     create_dispatch_batch,
     finalize_batch_after_queue,
@@ -14,11 +15,19 @@ from apps.messaging.application.services.dispatch_history import (
     record_queued_log,
 )
 from apps.messaging.application.services.outbound_business_hours import is_within_outbound_business_hours
+from apps.messaging.application.services.satisfaction_survey import mark_satisfaction_review_sent
 from apps.messaging.domain.value_objects import DispatchItem
 from apps.messaging.infrastructure.queue.rabbitmq_publisher import RabbitMQPublisher
 from apps.messaging.models import MessageDispatchBatch, ScheduledOutboundMessage
 
 logger = logging.getLogger(__name__)
+
+_BATCH_SOURCE_BY_OUTBOUND: dict[str, str] = {
+    ScheduledOutboundMessage.Source.OIL_CHANGE_ALERT: MessageDispatchBatch.Source.OIL_CHANGE_ALERT,
+    ScheduledOutboundMessage.Source.APPOINTMENT_ALERT: MessageDispatchBatch.Source.APPOINTMENT_ALERT,
+    ScheduledOutboundMessage.Source.BIRTHDAY_ALERT: MessageDispatchBatch.Source.BIRTHDAY_ALERT,
+    ScheduledOutboundMessage.Source.SATISFACTION_SURVEY: MessageDispatchBatch.Source.SATISFACTION_SURVEY,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,20 +36,17 @@ class DueOutboundResult:
     sent: int
     failed: int
     skipped_outside_hours: bool = False
+    birthdays_enqueued: int = 0
 
 
 def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> DueOutboundResult:
     now = timezone.now()
+    birthdays_enqueued = enqueue_birthday_alerts_for_day(now=now)
     claimed_ids: list[int] = []
     had_due_outside_hours = False
 
     with transaction.atomic():
-        due = list(
-            ScheduledOutboundMessage.objects.select_for_update(skip_locked=True)
-            .select_related("workshop")
-            .filter(status=ScheduledOutboundMessage.Status.PENDING, run_at__lte=now)
-            .order_by("run_at", "pk")[:limit]
-        )
+        due = list(ScheduledOutboundMessage.objects.select_for_update(skip_locked=True).select_related("workshop").filter(status=ScheduledOutboundMessage.Status.PENDING, run_at__lte=now).order_by("run_at", "pk")[:limit])
         for row in due:
             if force or is_within_outbound_business_hours(row.workshop, moment=now):
                 claimed_ids.append(row.pk)
@@ -58,6 +64,7 @@ def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> D
             sent=0,
             failed=0,
             skipped_outside_hours=had_due_outside_hours,
+            birthdays_enqueued=birthdays_enqueued,
         )
 
     publisher = RabbitMQPublisher(
@@ -73,11 +80,7 @@ def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> D
     try:
         rows = list(ScheduledOutboundMessage.objects.select_related("workshop", "appointment", "vehicle").filter(pk__in=claimed_ids))
         for row in rows:
-            batch_source = (
-                MessageDispatchBatch.Source.OIL_CHANGE_ALERT
-                if row.source == ScheduledOutboundMessage.Source.OIL_CHANGE_ALERT
-                else MessageDispatchBatch.Source.APPOINTMENT_ALERT
-            )
+            batch_source = _BATCH_SOURCE_BY_OUTBOUND.get(row.source, MessageDispatchBatch.Source.APPOINTMENT_ALERT)
             batch = create_dispatch_batch(
                 workshop_id=row.workshop_id,
                 source=batch_source,
@@ -106,6 +109,7 @@ def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> D
                 row.batch = batch
                 row.error = ""
                 row.save(update_fields=["status", "batch", "error", "atualizado_em"])
+                mark_satisfaction_review_sent(row)
                 instance_name = str(getattr(row.workshop, "whatsapp_instance_name", "") or "")
                 notified_workshops[row.workshop_id] = instance_name
                 sent += 1
@@ -131,4 +135,9 @@ def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> D
     finally:
         publisher.close()
 
-    return DueOutboundResult(claimed=len(claimed_ids), sent=sent, failed=failed)
+    return DueOutboundResult(
+        claimed=len(claimed_ids),
+        sent=sent,
+        failed=failed,
+        birthdays_enqueued=birthdays_enqueued,
+    )

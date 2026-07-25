@@ -80,6 +80,32 @@ class Workshop(TimeStampedModel):
         default=time(18, 0),
         help_text="Horário final exclusivo da janela de envio.",
     )
+    satisfaction_survey_enabled = BooleanField(
+        verbose_name="Ativar pesquisa de satisfação",
+        default=False,
+    )
+    satisfaction_survey_delay_days = models.PositiveSmallIntegerField(
+        verbose_name="Dias após entrega para enviar pesquisa",
+        default=1,
+        help_text="Quantidade de dias após o fechamento da O.S. para enviar o link de avaliação.",
+    )
+    satisfaction_survey_send_immediately = BooleanField(
+        verbose_name="Enviar pesquisa imediatamente",
+        default=False,
+        help_text="Disponível apenas fora de produção. Agenda o envio no momento do fechamento da O.S.",
+    )
+    google_review_url = models.URLField(
+        verbose_name="Link de avaliação no Google",
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="URL do Google Maps / Place para pedir avaliação pública.",
+    )
+    google_review_min_rating = models.PositiveSmallIntegerField(
+        verbose_name="Nota mínima para pedir avaliação no Google",
+        default=4,
+        help_text="Se a nota do cliente for igual ou maior que este valor (1–5), exibe o link do Google.",
+    )
 
     class Meta:
         verbose_name = "Oficina"

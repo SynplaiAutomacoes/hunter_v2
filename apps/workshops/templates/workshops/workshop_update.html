@@ -407,6 +407,82 @@
                     </div>
                 </div>
 
+                <div class="divider my-6"></div>
+
+                <div class="mb-4">
+                    <h3 class="text-base font-semibold">Pesquisa de satisfação</h3>
+                    <p class="text-xs text-base-content/70 mt-1">Após a entrega da O.S., envia automaticamente um link público de avaliação via WhatsApp.</p>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    <div class="col-span-12">
+                        <label for="{{ assistant_virtual_form.satisfaction_survey_enabled.id_for_label }}" class="flex min-h-12 cursor-pointer items-center justify-between rounded-box border border-base-300 bg-base-100 px-4 py-3 transition hover:border-primary/40 hover:bg-base-200/40">
+                            <div>
+                                <span class="block text-sm font-semibold text-base-content">{{ assistant_virtual_form.satisfaction_survey_enabled.label }}</span>
+                                <span class="block text-xs text-base-content/60">Usa a mensagem padrão do sistema (não editável por oficina).</span>
+                            </div>
+                            <input
+                                type="checkbox"
+                                name="{{ assistant_virtual_form.satisfaction_survey_enabled.html_name }}"
+                                id="{{ assistant_virtual_form.satisfaction_survey_enabled.id_for_label }}"
+                                class="toggle toggle-primary"
+                                {% if assistant_virtual_form.satisfaction_survey_enabled.value %}checked{% endif %}
+                            >
+                        </label>
+                        {% if assistant_virtual_form.satisfaction_survey_enabled.errors %}
+                            <div class="mt-2 text-sm text-error">{{ assistant_virtual_form.satisfaction_survey_enabled.errors }}</div>
+                        {% endif %}
+                    </div>
+
+                    {% if assistant_virtual_form.satisfaction_survey_send_immediately %}
+                        <div class="col-span-12">
+                            <label for="{{ assistant_virtual_form.satisfaction_survey_send_immediately.id_for_label }}" class="flex min-h-12 cursor-pointer items-center justify-between rounded-box border border-base-300 bg-base-100 px-4 py-3 transition hover:border-primary/40 hover:bg-base-200/40">
+                                <div>
+                                    <span class="block text-sm font-semibold text-base-content">{{ assistant_virtual_form.satisfaction_survey_send_immediately.label }}</span>
+                                    <span class="block text-xs text-base-content/60">Ignora os dias de atraso e agenda o envio no fechamento da O.S.</span>
+                                </div>
+                                <input
+                                    type="checkbox"
+                                    name="{{ assistant_virtual_form.satisfaction_survey_send_immediately.html_name }}"
+                                    id="{{ assistant_virtual_form.satisfaction_survey_send_immediately.id_for_label }}"
+                                    class="toggle toggle-primary"
+                                    {% if assistant_virtual_form.satisfaction_survey_send_immediately.value %}checked{% endif %}
+                                >
+                            </label>
+                            {% if assistant_virtual_form.satisfaction_survey_send_immediately.errors %}
+                                <div class="mt-2 text-sm text-error">{{ assistant_virtual_form.satisfaction_survey_send_immediately.errors }}</div>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+
+                    <div class="col-span-12 lg:col-span-4">
+                        <label for="{{ assistant_virtual_form.satisfaction_survey_delay_days.id_for_label }}" class="mb-2 block text-sm font-semibold text-base-content">{{ assistant_virtual_form.satisfaction_survey_delay_days.label }}</label>
+                        {{ assistant_virtual_form.satisfaction_survey_delay_days }}
+                        <p class="mt-1 text-xs text-base-content/60">{{ assistant_virtual_form.satisfaction_survey_delay_days.help_text }}</p>
+                        {% if assistant_virtual_form.satisfaction_survey_delay_days.errors %}
+                            <div class="mt-2 text-sm text-error">{{ assistant_virtual_form.satisfaction_survey_delay_days.errors }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="col-span-12 lg:col-span-4">
+                        <label for="{{ assistant_virtual_form.google_review_min_rating.id_for_label }}" class="mb-2 block text-sm font-semibold text-base-content">{{ assistant_virtual_form.google_review_min_rating.label }}</label>
+                        {{ assistant_virtual_form.google_review_min_rating }}
+                        <p class="mt-1 text-xs text-base-content/60">{{ assistant_virtual_form.google_review_min_rating.help_text }}</p>
+                        {% if assistant_virtual_form.google_review_min_rating.errors %}
+                            <div class="mt-2 text-sm text-error">{{ assistant_virtual_form.google_review_min_rating.errors }}</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="col-span-12 lg:col-span-12">
+                        <label for="{{ assistant_virtual_form.google_review_url.id_for_label }}" class="mb-2 block text-sm font-semibold text-base-content">{{ assistant_virtual_form.google_review_url.label }}</label>
+                        {{ assistant_virtual_form.google_review_url }}
+                        <p class="mt-1 text-xs text-base-content/60">{{ assistant_virtual_form.google_review_url.help_text }}</p>
+                        {% if assistant_virtual_form.google_review_url.errors %}
+                            <div class="mt-2 text-sm text-error">{{ assistant_virtual_form.google_review_url.errors }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+
                 <div class="divider"></div>
                 <div class="flex items-center justify-end gap-2">
                     {% if can_change_workshop %}
