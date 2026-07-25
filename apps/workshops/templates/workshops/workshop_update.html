@@ -29,32 +29,47 @@
             whatsappPolling: null,
             whatsappPhoneSaving: false,
             _whatsappPhoneLastSaved: '',
+            _whatsappPhoneSavePromise: null,
             init() {
                 this.initWhatsappStatus();
                 this.initWhatsappPhoneAutosave();
             },
+            digitsOnlyPhone(value) {
+                return String(value || '').replace(/\D/g, '');
+            },
+            getWhatsappPhoneHiddenInput() {
+                return document.getElementById('{{ company_form.whatsapp_phone.id_for_label }}');
+            },
             initWhatsappPhoneAutosave() {
                 this.$nextTick(() => {
-                    const input = document.getElementById('{{ company_form.whatsapp_phone.id_for_label }}');
-                    if (!input) {
+                    const hidden = this.getWhatsappPhoneHiddenInput();
+                    if (!hidden) {
                         return;
                     }
-                    this._whatsappPhoneLastSaved = String(input.value || '').trim();
-                    input.addEventListener('blur', () => this.autosaveWhatsappPhone(input));
+                    // PhoneInput uses a visible display field; blur must bind there, not on the hidden value.
+                    const display = hidden.closest('div')?.querySelector('input[type=text]');
+                    this._whatsappPhoneLastSaved = this.digitsOnlyPhone(hidden.value);
+                    if (display) {
+                        display.addEventListener('blur', () => this.autosaveWhatsappPhone());
+                    }
                 });
             },
-            autosaveWhatsappPhone(input) {
-                if (!input || this.whatsappPhoneSaving) {
-                    return;
+            autosaveWhatsappPhone() {
+                const hidden = this.getWhatsappPhoneHiddenInput();
+                if (!hidden) {
+                    return Promise.resolve(false);
                 }
-                const value = String(input.value || '').trim();
+                const value = this.digitsOnlyPhone(hidden.value);
                 if (value === this._whatsappPhoneLastSaved) {
-                    return;
+                    return Promise.resolve(true);
+                }
+                if (this._whatsappPhoneSavePromise) {
+                    return this._whatsappPhoneSavePromise.then(() => this.autosaveWhatsappPhone());
                 }
                 this.whatsappPhoneSaving = true;
                 const body = new FormData();
                 body.append('whatsapp_phone', value);
-                fetch('{% url "workshops:autosave_whatsapp_phone" workshop.pk %}', {
+                this._whatsappPhoneSavePromise = fetch('{% url "workshops:autosave_whatsapp_phone" workshop.pk %}', {
                     method: 'POST',
                     headers: { 'X-CSRFToken': '{{ csrf_token }}' },
                     body,
@@ -62,22 +77,28 @@
                     .then(r => r.json().then(data => ({ okHttp: r.ok, data })))
                     .then(({ okHttp, data }) => {
                         if (okHttp && data.ok) {
-                            this._whatsappPhoneLastSaved = String(data.whatsapp_phone || value);
+                            this._whatsappPhoneLastSaved = this.digitsOnlyPhone(data.whatsapp_phone || value);
                             document.body.dispatchEvent(new CustomEvent('showToast', {
                                 detail: { message: data.message || 'Telefone Assistente Virtual salvo.', type: 'success' },
                             }));
-                            return;
+                            return true;
                         }
                         document.body.dispatchEvent(new CustomEvent('showToast', {
                             detail: { message: (data && data.message) || 'Erro ao salvar o telefone.', type: 'error' },
                         }));
+                        return false;
                     })
                     .catch(() => {
                         document.body.dispatchEvent(new CustomEvent('showToast', {
                             detail: { message: 'Erro ao salvar o telefone.', type: 'error' },
                         }));
+                        return false;
                     })
-                    .finally(() => { this.whatsappPhoneSaving = false; });
+                    .finally(() => {
+                        this.whatsappPhoneSaving = false;
+                        this._whatsappPhoneSavePromise = null;
+                    });
+                return this._whatsappPhoneSavePromise;
             },
             initWhatsappStatus() {
                 this.whatsappChecking = true;
@@ -118,9 +139,32 @@
                 // connecting / unknown: keep waiting while modal/polling is active
                 this.whatsappConnected = false;
             },
-            connectWhatsapp() {
+            async connectWhatsapp() {
                 this.whatsappChecking = true;
-                fetch('{% url "workshops:whatsapp_connect" workshop.pk %}', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } })
+                const phoneSaved = await this.autosaveWhatsappPhone();
+                if (!phoneSaved) {
+                    this.whatsappChecking = false;
+                    return;
+                }
+                const hidden = this.getWhatsappPhoneHiddenInput();
+                const phone = this.digitsOnlyPhone(hidden && hidden.value);
+                if (!phone) {
+                    document.body.dispatchEvent(new CustomEvent('showToast', {
+                        detail: {
+                            message: 'Preencha o campo Telefone Assistente Virtual antes de conectar.',
+                            type: 'error',
+                        },
+                    }));
+                    this.whatsappChecking = false;
+                    return;
+                }
+                const body = new FormData();
+                body.append('whatsapp_phone', phone);
+                fetch('{% url "workshops:whatsapp_connect" workshop.pk %}', {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+                    body,
+                })
                     .then(r => r.json())
                     .then(data => {
                         if (data.ok) {

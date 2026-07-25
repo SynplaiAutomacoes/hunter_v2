@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 from typing import Any
 
@@ -279,6 +280,9 @@ class WorkshopCompanySectionForm(BaseWebmaniaCompanySectionForm):
 
         return cleaned_data
 
+    def clean_whatsapp_phone(self) -> str:
+        return re.sub(r"\D", "", str(self.cleaned_data.get("whatsapp_phone") or ""))
+
     def save(self, commit: bool = True) -> WebmaniaCompany:
         instance = super().save(commit=commit)
 
@@ -287,7 +291,7 @@ class WorkshopCompanySectionForm(BaseWebmaniaCompanySectionForm):
             if self.workshop.is_active != workshop_is_active:
                 self.workshop.is_active = workshop_is_active
                 self.workshop.save(update_fields=["is_active"])
-            whatsapp_phone = str(self.cleaned_data.get("whatsapp_phone") or "").strip()
+            whatsapp_phone = str(self.cleaned_data.get("whatsapp_phone") or "")
             if self.workshop.whatsapp_phone != whatsapp_phone:
                 self.workshop.whatsapp_phone = whatsapp_phone
                 self.workshop.save(update_fields=["whatsapp_phone"])
