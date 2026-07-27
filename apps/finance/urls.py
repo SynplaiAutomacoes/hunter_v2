@@ -59,6 +59,7 @@ from apps.finance.views import (
 
 from apps.finance.views.cash_flow import CashFlowView
 from apps.finance.views.bank_account import BankAccountListView, BankAccountUpdateView, BankAccountCreateView
+from apps.finance.views.emission import EmissionCheckWorkorderView
 from apps.finance.views.financial_movement import (
     FinancialMovementCreateView,
     FinancialMovementDeleteView,
@@ -114,6 +115,7 @@ urlpatterns = [
     path("emissao/preview/", EmissionPreviewView.as_view(), name="emission_preview"),
     path("emissao/workorder/<int:workorder_pk>/item/<int:item_id>/edit/", EmissionWorkOrderItemUpdateView.as_view(), name="emission_workorder_item_edit"),
     path("emissao/workorder/<int:workorder_pk>/kit-item/<int:item_id>/<str:component_type>/<int:component_id>/edit/", EmissionWorkOrderKitComponentUpdateView.as_view(), name="emission_workorder_kit_component_edit"),
+    path("emissao/check-workorder/", EmissionCheckWorkorderView.as_view(), name="emission_check_workorder"),
     path("emissao/", EmissionRequestCreateView.as_view(), name="emission_create"),
     # NFE
     path("nfe/", NfeRequestListView.as_view(), name="nfe_emit"),
