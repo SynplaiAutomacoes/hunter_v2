@@ -54,6 +54,7 @@ from apps.workshops.util.workshops import get_active_workshop_or_404
 
 from .shared import LOCKED_BUDGET_EDIT_MESSAGE, _build_locked_budget_response, _get_budget_for_workshop, _is_budget_edit_locked, logger, _check_concurrent_budget_lock, _build_concurrent_budget_lock_response
 from ...core.utils import clean_id
+from ..services.budget_linking_service import find_oldest_open_budget_for_vehicle
 
 
 def trigger_signature_send_if_needed(*, request, budget: Budget) -> tuple[str, str, str | None]:
@@ -552,6 +553,29 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
 
         return f"{reverse('budget:budget_create')}?{urlencode(query_params)}"
 
+    def _apply_auto_link(self) -> None:
+        auto_ref_id = self.request.POST.get("auto_reference_budget_id", "").strip()
+        if not auto_ref_id or not auto_ref_id.isdigit():
+            return
+        ref_id = int(auto_ref_id)
+        if ref_id == (self.object.pk or 0):
+            return
+
+        budget = find_oldest_open_budget_for_vehicle(
+            workshop_id=self.workshop.pk,
+            vehicle_id=self.object.vehicle_id,
+        )
+        if budget is None or budget.pk != ref_id:
+            return
+
+        if budget.workshop_id != self.workshop.pk:
+            return
+        if self.object.vehicle_id and budget.vehicle_id and budget.vehicle_id != self.object.vehicle_id:
+            return
+
+        self.object.reference_budget = budget
+        self.object.save(update_fields=["reference_budget"])
+
     def _sync_originating_appointment(self) -> None:
         appointment_id = self._get_origin_appointment_id()
         if appointment_id is None or not self.object:
@@ -721,12 +745,15 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         form.instance.workshop = self.workshop
         form.instance.cost_estimator = self.request.user
 
-        self.object = form.save()  # Salva o progresso atual
+        is_creating = form.instance.pk is None
+
+        self.object = form.save()
         assert self.object is not None
         current_step = self.get_current_step()
 
-        if current_step == 1:
+        if current_step == 1 and is_creating:
             self._sync_originating_appointment()
+            self._apply_auto_link()
 
         # Aplicar status automático em memória; coalesce com current_step abaixo.
         status_changed = False
@@ -1410,6 +1437,30 @@ class SaveObservationView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return JsonResponse({"success": True, "observation": budget.observations})
         except (TypeError, ValueError, json.JSONDecodeError, AttributeError):
             return JsonResponse({"success": False}, status=400)
+
+
+class BudgetCheckOpenBudgetView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = Budget
+    workshop_permission_codename = "view_budget"
+
+    def get(self, request):
+        vehicle_id = request.GET.get("vehicle_id", "").strip()
+        if not vehicle_id or not vehicle_id.isdigit():
+            return HttpResponse("")
+
+        budget = find_oldest_open_budget_for_vehicle(
+            workshop_id=self.workshop.pk,
+            vehicle_id=int(vehicle_id),
+        )
+        if budget is None:
+            return HttpResponse("")
+
+        is_workorder = budget.workorders.filter(status=WorkOrderStatus.DRAFT).exists()
+        context = {
+            "reference_budget_id": budget.pk,
+            "is_workorder": is_workorder,
+        }
+        return render(request, "budget/partials/auto_link_warning.html", context)
 
 
 class BudgetReferenceModalView(LoginRequiredMixin, WorkshopScopedMixin, View):
