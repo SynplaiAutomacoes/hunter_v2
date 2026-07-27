@@ -228,6 +228,25 @@ class BudgetStep1Form(BudgetStepBaseForm):
                     } catch (error) {
                         console.error("Erro ao carregar veículos:", error);
                     }
+
+                    checkOpenBudget(selectedVehicleId);
+                }
+
+                async function checkOpenBudget(vehicleId) {
+                    const container = document.getElementById('auto-link-container');
+                    if (!container) return;
+                    if (!vehicleId) {
+                        container.innerHTML = '';
+                        return;
+                    }
+                    try {
+                        const response = await fetch(`/budget/check-open-budget/?vehicle_id=${vehicleId}`);
+                        const html = await response.text();
+                        container.innerHTML = html;
+                    } catch (error) {
+                        console.error("Erro ao verificar orçamento aberto:", error);
+                        container.innerHTML = '';
+                    }
                 }
 
                 function selectCustomerFromQuickForm(customer) {
@@ -472,18 +491,19 @@ class BudgetStep1Form(BudgetStepBaseForm):
                             ),
                             x_data=customer_vehicle_x_data,
                             **{
-                                "@change": """
-                                        if (isLocked) {
-                                            return;
-                                        }
-                                        if ($event.target.name === 'customer') { 
-                                            customerId = $event.target.value; 
-                                            vehicleId = ''; // Reseta veículo se mudar cliente
-                                            updateVehicleList($event.target.value);
-                                        } else if ($event.target.name === 'vehicle') { 
-                                            vehicleId = $event.target.value; 
-                                        }
-                                    """
+                            "@change": """
+                                    if (isLocked) {
+                                        return;
+                                    }
+                                    if ($event.target.name === 'customer') { 
+                                        customerId = $event.target.value; 
+                                        vehicleId = ''; // Reseta veículo se mudar cliente
+                                        updateVehicleList($event.target.value);
+                                    } else if ($event.target.name === 'vehicle') { 
+                                        vehicleId = $event.target.value; 
+                                        checkOpenBudget($event.target.value);
+                                    }
+                                """
                             },
                             css_class="grid grid-cols-1 gap-2",
                         ),
@@ -517,6 +537,7 @@ class BudgetStep1Form(BudgetStepBaseForm):
                             ),
                             css_class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start",
                         ),
+                        Div(id="auto-link-container"),
                         css_class="mb-6 gap-4",
                     ),
                     css_class="col-span-12 lg:col-span-5",

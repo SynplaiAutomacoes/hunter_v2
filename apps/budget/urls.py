@@ -18,6 +18,7 @@ urlpatterns = [
     path("customer-detail/", views.CustomerDetailView.as_view(), name="customer-detail"),
     path("vehicle-detail/", views.VehicleDetailView.as_view(), name="vehicle-detail"),
     path("get-vehicles/", views.VehicleListView.as_view(), name="get-vehicles"),
+    path("check-open-budget/", views.BudgetCheckOpenBudgetView.as_view(), name="check_open_budget"),
     # 04. Itens do orcamento (selecao, adicao, remocao, edicao e calculo)
     path("selection/<int:budget_id>/<str:item_type>/", views.ItemSelectionModalView.as_view(), name="item_selection"),
     path("<int:budget_id>/add-item/<int:item_id>/<str:item_type>/", views.AddItemToBudgetView.as_view(), name="add_item_to_budget"),
