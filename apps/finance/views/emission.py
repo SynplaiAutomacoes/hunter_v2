@@ -94,11 +94,11 @@ class EmissionCheckWorkorderView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
         if has_nfe and not has_nfse:
             return HttpResponse(
-                "<div class='alert alert-warning'>Esta OS ja possui Nota Fiscal de Produto emitida. Apenas a Nota Fiscal de Servico sera processada nesta emissao.</div>"
+                "<div class='alert alert-warning'>Esta OS já possui Nota Fiscal de Produto emitida. Apenas a Nota Fiscal de Serviço será processada nesta emissão.</div>"
             )
         if has_nfse and not has_nfe:
             return HttpResponse(
-                "<div class='alert alert-warning'>Esta OS ja possui Nota Fiscal de Servico emitida. Apenas a Nota Fiscal de Produto sera processada nesta emissao.</div>"
+                "<div class='alert alert-warning'>Esta OS já possui Nota Fiscal de Serviço emitida. Apenas a Nota Fiscal de Produto será processada nesta emissão.</div>"
             )
 
         return HttpResponse("")
@@ -310,12 +310,46 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         has_services = allocation.services_target > 0
 
         if has_products and has_services:
-            return {"nfe", "nfse", "both"}, ""
-        if has_products:
-            return {"nfe"}, "Nao ha saldo de servicos para emitir Nota Fiscal de Serviço com a configuracao atual."
-        if has_services:
-            return {"nfse"}, "Nao ha saldo de produtos para emitir Nota Fiscal de Produto com a configuracao atual."
-        return set(), "Nao ha saldo de produtos ou servicos para emitir nota com a configuracao atual."
+            slider_modes = {"nfe", "nfse", "both"}
+        elif has_products:
+            slider_modes = {"nfe"}
+        elif has_services:
+            slider_modes = {"nfse"}
+        else:
+            return set(), "Não há saldo de produtos ou serviços para emitir nota com a configuração atual."
+
+        has_nfe = NfeRequest.objects.filter(workorder=workorder).exists()
+        has_nfse = NfseRequest.objects.filter(workorder=workorder).exists()
+
+        emission_modes = {"nfe", "nfse", "both"}
+        emission_messages = []
+
+        if has_nfe and has_nfse:
+            return set(), "Esta OS já possui ambas as notas fiscais emitidas."
+
+        if has_nfe:
+            emission_modes.discard("nfe")
+            emission_modes.discard("both")
+            emission_messages.append("Esta OS já possui Nota Fiscal de Produto emitida.")
+
+        if has_nfse:
+            emission_modes.discard("nfse")
+            emission_modes.discard("both")
+            emission_messages.append("Esta OS já possui Nota Fiscal de Serviço emitida.")
+
+        allowed = slider_modes & emission_modes
+
+        if not allowed:
+            return set(), "Não ha opções de emissão disponiveis para esta OS."
+
+        messages_list = list(emission_messages)
+        if not messages_list:
+            if has_products and not has_services:
+                messages_list.append("Não há saldo de serviços para emitir Nota Fiscal de Serviço com a configuração atual.")
+            elif has_services and not has_products:
+                messages_list.append("Não há saldo de produtos para emitir Nota Fiscal de Produto com a configuração atual.")
+
+        return allowed, " ".join(messages_list)
 
     @staticmethod
     def _detect_discount_type_mismatch(*, workorder: WorkOrder, note_mode: str) -> tuple[bool, str]:
