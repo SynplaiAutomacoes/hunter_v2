@@ -14,8 +14,10 @@ from .views.workshops import (
 
 from .views.whatsapp_connection import (
     WhatsAppConnectView,
-    WhatsAppStatusView,
     WhatsAppDisconnectView,
+    WhatsAppPhoneAutosaveView,
+    WhatsAppQrcodeRefreshView,
+    WhatsAppStatusView,
 )
 
 from apps.workshops.views.monthly_costs import (
@@ -23,6 +25,14 @@ from apps.workshops.views.monthly_costs import (
     MonthlyCostCreateView,
     MonthlyCostUpdateView,
     MonthlyCostDeleteView,
+)
+from apps.workshops.views.oil_types import (
+    OilTypeCreateView,
+    OilTypeDeleteView,
+    OilTypeListView,
+    OilTypeUpdateView,
+    QuickOilTypeCreateView,
+    QuickOilTypeUpdateView,
 )
 
 from apps.workshops.views.workshop_costs import (
@@ -53,6 +63,13 @@ urlpatterns = [
     path("monthly_costs/create/", MonthlyCostCreateView.as_view(), name="cost_create"),
     path("monthly_costs/<int:pk>/edit/", MonthlyCostUpdateView.as_view(), name="cost_update"),
     path("monthly_costs/<int:pk>/delete/", MonthlyCostDeleteView.as_view(), name="cost_delete"),
+    # Oil types
+    path("oil_types/", OilTypeListView.as_view(), name="oil_type_list"),
+    path("oil_types/create/", OilTypeCreateView.as_view(), name="oil_type_create"),
+    path("oil_types/quick-create/", QuickOilTypeCreateView.as_view(), name="oil_type_quick_create"),
+    path("oil_types/quick-update/<int:pk>/", QuickOilTypeUpdateView.as_view(), name="oil_type_quick_update"),
+    path("oil_types/<int:pk>/edit/", OilTypeUpdateView.as_view(), name="oil_type_update"),
+    path("oil_types/<int:pk>/delete/", OilTypeDeleteView.as_view(), name="oil_type_delete"),
     # Workshop Costs
     path("workshops_costs/", WorkshopCostListView.as_view(), name="workshop_cost_list"),
     path("workshops_costs/create/", WorkshopCostCreateView.as_view(), name="workshop_cost_create"),
@@ -68,6 +85,8 @@ urlpatterns = [
     path("historico-emissoes/", WorkshopEmissionHistoryView.as_view(), name="emission_history"),
     # WhatsApp
     path("<int:pk>/whatsapp/connect/", WhatsAppConnectView.as_view(), name="whatsapp_connect"),
+    path("<int:pk>/whatsapp/qrcode/", WhatsAppQrcodeRefreshView.as_view(), name="whatsapp_qrcode_refresh"),
     path("<int:pk>/whatsapp/status/", WhatsAppStatusView.as_view(), name="whatsapp_status"),
     path("<int:pk>/whatsapp/disconnect/", WhatsAppDisconnectView.as_view(), name="whatsapp_disconnect"),
+    path("<int:pk>/whatsapp-phone/", WhatsAppPhoneAutosaveView.as_view(), name="autosave_whatsapp_phone"),
 ]

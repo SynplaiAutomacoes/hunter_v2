@@ -17,4 +17,4 @@ class DjangoMessageGroupRepository:
         return queryset
 
     def get_group_members(self, group: CustomerMessageGroup) -> QuerySet[Any]:
-        return group.customers.filter(is_active=True)
+        return group.customers.filter(is_active=True).exclude(phone__isnull=True).exclude(phone="")

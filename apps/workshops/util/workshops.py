@@ -165,9 +165,6 @@ def has_workshop_perm(*, user: User, workshop: Workshop, app_label: str, model: 
     if is_workshop_director(user=user, workshop=workshop, request=request):
         return True
 
-    if is_workshop_manager(user=user, workshop=workshop, request=request):
-        return True
-
     workshop_id = getattr(workshop, "id", None)
     permission_key = (workshop_id, app_label, model, codename)
     cache: dict[tuple[object, ...], bool] | None = None
@@ -186,6 +183,44 @@ def has_workshop_perm(*, user: User, workshop: Workshop, app_label: str, model: 
         role__permissions__content_type__app_label=app_label,
         role__permissions__content_type__model=model,
         role__permissions__codename=codename,
+    ).exists()
+
+    if request is not None and cache is not None:
+        cache[permission_key] = has_permission
+
+    return has_permission
+
+
+def can_view_payroll_details(*, user: User, workshop: Workshop, request=None) -> bool:
+    if getattr(workshop, "account_id", None) != getattr(user, "account_id", None):
+        return False
+
+    if user.is_superuser:
+        return True
+
+    if getattr(user, "is_account_owner", False):
+        return True
+
+    if is_workshop_director(user=user, workshop=workshop, request=request):
+        return True
+
+    permission_key = (getattr(workshop, "id", None), "collaborators", "collaboratorpayroll", "view_payroll_details")
+    cache: dict[tuple[object, ...], bool] | None = None
+    if request is not None:
+        cache = getattr(request, "_workshop_perm_cache", None)
+        if cache is None:
+            cache = {}
+            setattr(request, "_workshop_perm_cache", cache)
+        elif permission_key in cache:
+            return cache[permission_key]
+
+    has_permission = WorkshopMember.objects.filter(
+        user=user,
+        workshop=workshop,
+        is_active=True,
+        role__permissions__content_type__app_label="collaborators",
+        role__permissions__content_type__model="collaboratorpayroll",
+        role__permissions__codename="view_payroll_details",
     ).exists()
 
     if request is not None and cache is not None:

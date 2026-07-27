@@ -355,8 +355,8 @@
                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
                     <div class="col-span-12 lg:col-span-4">{{ form.system_username|as_crispy_field }}</div>
                     <div class="col-span-12 lg:col-span-4">{{ form.role|as_crispy_field }}</div>
-                    {% if form.password1 %}<div class="col-span-12 lg:col-span-4">{{ form.password1|as_crispy_field }}</div>{% endif %}
-                    {% if form.password2 %}<div class="col-span-12 lg:col-span-4">{{ form.password2|as_crispy_field }}</div>{% endif %}
+                    <div class="col-span-12 lg:col-span-4">{{ form.password1|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">{{ form.password2|as_crispy_field }}</div>
                 </div>
             </div>
         </section>

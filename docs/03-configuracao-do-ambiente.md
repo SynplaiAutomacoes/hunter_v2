@@ -98,6 +98,27 @@ O projeto usa `os.getenv(...)` diretamente em `config/settings.py` e em alguns p
 | `DB_HOST` | host do banco |
 | `DB_PORT` | porta do banco |
 
+### Messaging, worker e realtime
+
+| Variavel | Uso |
+| --- | --- |
+| `APP_PROCESS` | define o processo do container: `web` (Gunicorn, default) ou `realtime` (Daphne ASGI + poller de outbound) |
+| `OUTBOUND_POLLER_INTERVAL_SECONDS` | intervalo do poller no realtime (default `60`); processa `run_due_outbound_messages` |
+| `MESSAGE_WORKER_BASE_URL` | base URL do worker de envio WhatsApp; o cancelamento usa `POST {BASE}/stop` |
+| `MESSAGE_DISPATCH_STATUS_TOKEN` | token esperado no header `X-Dispatch-Status-Token` na ingestao de status do worker |
+| `MESSAGE_DISPATCH_WS_BASE_URL` | base URL do servico ASGI de WebSocket (ex.: `wss://realtime.example.com`); se vazio, o front usa o host atual |
+
+No Railway, use a **mesma imagem** em dois services:
+
+1. Servico web: `APP_PROCESS=web` (ou omita a env)
+2. Servico realtime: `APP_PROCESS=realtime` e **1 replica** (InMemoryChannelLayer + poller de outbound/alertas). Coloque a URL publica desse service em `MESSAGE_DISPATCH_WS_BASE_URL` no web.
+
+O front autentica o WebSocket com um **token assinado** (query `?token=...`), gerado na pagina do grupo. Domínios publicos diferentes entre web e realtime funcionam sem cookie compartilhado; web e realtime precisam do mesmo `DJANGO_SECRET_KEY`.
+
+Portas na Railway: o platform injeta `PORT` em cada service. O `entrypoint.sh` escuta em `0.0.0.0:$PORT`. URL publica (`*.up.railway.app`) nao precisa de porta; URL interna (`*.railway.internal`) usa a porta em que o processo escuta (o valor de `PORT` daquele service). Veja nos logs (`Starting ... on 0.0.0.0:NNNN`) ou em Variables do service.
+
+Alertas de agendamento: o realtime roda `run_due_outbound_messages` em loop (default a cada 60s). O horario comercial de envio e configurado por oficina em **Gestao de Oficinas → Assistente Virtual**. Fora da janela da oficina, as mensagens vencidas ficam `PENDING` e sao enviadas no proximo tick dentro da janela. Para forcar (debug): `run_due_outbound_messages --force`. Nao e obrigatorio um Cron service separado.
+
 ### Eventos de orcamento e performance
 
 | Variavel | Uso |
