@@ -8,6 +8,7 @@ from apps.finance.views import (
     EmissionWorkOrderItemUpdateView,
     CommissionReportView,
     CommissionReportPdfView,
+    FinancialGroupBulkDeleteView,
     FinancialGroupCreateView,
     FinancialGroupDeleteView,
     FinancialGroupListView,
@@ -107,6 +108,7 @@ urlpatterns = [
     path("financial-groups/create/", FinancialGroupCreateView.as_view(), name="financial_groups_create"),
     path("financial-groups/<int:pk>/update/", FinancialGroupUpdateView.as_view(), name="financial_groups_update"),
     path("financial-groups/<int:pk>/delete/", FinancialGroupDeleteView.as_view(), name="financial_groups_delete"),
+    path("financial-groups/bulk-delete/", FinancialGroupBulkDeleteView.as_view(), name="financial_groups_bulk_delete"),
     # Payment Method
     path("payment-methods/", PaymentMethodListView.as_view(), name="payment_methods_list"),
     path("payment-methods/create/", PaymentMethodCreateView.as_view(), name="payment_methods_create"),
