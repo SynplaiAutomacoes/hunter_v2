@@ -75,6 +75,35 @@ class NfseCreateRedirectView(EmissionCreateRedirectBaseView):
     emission_note_type = "nfse"
 
 
+class EmissionCheckWorkorderView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "view_nfserequest"
+
+    def get(self, request, *args, **kwargs):
+        workorder_id = request.GET.get("workorder")
+        if not workorder_id:
+            return HttpResponse("")
+
+        workorder = WorkOrder.objects.filter(pk=workorder_id, workshop=self.workshop).first()
+        if workorder is None:
+            return HttpResponse("")
+
+        has_nfe = NfeRequest.objects.filter(workorder=workorder).exists()
+        has_nfse = NfseRequest.objects.filter(workorder=workorder).exists()
+
+        if has_nfe and not has_nfse:
+            return HttpResponse(
+                "<div class='alert alert-warning'>Esta OS ja possui Nota Fiscal de Produto emitida. Apenas a Nota Fiscal de Servico sera processada nesta emissao.</div>"
+            )
+        if has_nfse and not has_nfe:
+            return HttpResponse(
+                "<div class='alert alert-warning'>Esta OS ja possui Nota Fiscal de Servico emitida. Apenas a Nota Fiscal de Produto sera processada nesta emissao.</div>"
+            )
+
+        return HttpResponse("")
+
+
 class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormView):
     template_name: str | None = "finance/emission_request_form.html"
     workshop_permission_app_label = "finance"
@@ -460,6 +489,9 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
         if step_key == "workorder":
             kwargs["workshop"] = self.workshop
+            selected_wo = self._selected_workorder(state)
+            if selected_wo is not None:
+                kwargs["workorder"] = selected_wo
         elif step_key in {"customer", "items", "summary"}:
             kwargs["workorder"] = workorder
         elif step_key == "note_mode":
@@ -784,6 +816,12 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
         if current_step_key == "workorder":
             workorder = form.cleaned_data["workorder"]
+            has_nfe = NfeRequest.objects.filter(workorder=workorder).exists()
+            has_nfse = NfseRequest.objects.filter(workorder=workorder).exists()
+            if has_nfe and not has_nfse:
+                messages.warning(self.request, "Esta OS ja possui Nota Fiscal de Produto emitida. Apenas a Nota Fiscal de Servico sera processada nesta emissao.")
+            elif has_nfse and not has_nfe:
+                messages.warning(self.request, "Esta OS ja possui Nota Fiscal de Servico emitida. Apenas a Nota Fiscal de Produto sera processada nesta emissao.")
             if state.get("workorder_id") != workorder.pk:
                 state.update(
                     {

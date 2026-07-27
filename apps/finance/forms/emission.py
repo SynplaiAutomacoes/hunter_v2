@@ -460,6 +460,7 @@ class EmissionStep1Form(CoreForm):
 
     def __init__(self, *args, **kwargs):
         workshop = kwargs.pop("workshop", None)
+        workorder = kwargs.pop("workorder", None)
         super().__init__(*args, **kwargs)
 
         queryset = WorkOrder.objects.none()
@@ -470,8 +471,11 @@ class EmissionStep1Form(CoreForm):
             queryset = (
                 WorkOrder.objects.filter(workshop=workshop, status=WorkOrderStatus.APPROVED)
                 .select_related("budget", "budget__customer", "budget__vehicle")
-                .annotate(has_emission=Exists(nfe_exists) | Exists(nfse_exists))
-                .filter(has_emission=False)
+                .annotate(
+                    has_nfe=Exists(nfe_exists),
+                    has_nfse=Exists(nfse_exists),
+                )
+                .exclude(has_nfe=True, has_nfse=True)
             )
 
         field = self.fields["workorder"]
@@ -484,6 +488,23 @@ class EmissionStep1Form(CoreForm):
 
         field.label_from_instance = _label_from_instance
         field.widget = SearchableSelectInput(choices=list(field.choices))
+        field.widget.attrs.update(
+            {
+                "hx-get": reverse("finance:emission_check_workorder"),
+                "hx-trigger": "change",
+                "hx-target": "#workorder-warning-container",
+                "hx-swap": "innerHTML",
+            }
+        )
+
+        warning_html = ""
+        if workorder is not None:
+            has_nfe = NfeRequest.objects.filter(workorder=workorder).exists()
+            has_nfse = NfseRequest.objects.filter(workorder=workorder).exists()
+            if has_nfe and not has_nfse:
+                warning_html = "<div class='alert alert-warning'>Esta OS já possui Nota Fiscal de Produto emitida. Apenas a Nota Fiscal de Serviço será processada nesta emissão.</div>"
+            elif has_nfse and not has_nfe:
+                warning_html = "<div class='alert alert-warning'>Esta OS já possui Nota Fiscal de Serviço emitida. Apenas a Nota Fiscal de Produto será processada nesta emissão.</div>"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -492,6 +513,7 @@ class EmissionStep1Form(CoreForm):
                 HTML("<h2 class='text-2xl font-bold'>Selecionar Ordem de Servico</h2>"),
                 HTML("<p class='text-base-content/70 mb-6'>Selecione a OS aprovada que sera usada na emissão fiscal.</p>"),
                 Field("workorder"),
+                HTML(f"<div id='workorder-warning-container'>{warning_html}</div>"),
                 css_class="space-y-4",
             )
         )
