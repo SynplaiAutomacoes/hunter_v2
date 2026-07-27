@@ -1164,5 +1164,5 @@ def _build_indicator_queryset(model_name: str, filters: dict[str, Any]):
     when computing total_budget_value and pending_payment_value per item.
     """
     if model_name == "budget":
-        return Budget.objects.filter(**filters).select_related("customer", "vehicle").prefetch_related(_BUDGET_ITEMS_PREFETCH).order_by("entry_date")
+        return Budget.objects.filter(**filters).select_related("customer", "vehicle").prefetch_related(_BUDGET_ITEMS_PREFETCH, "workorders").order_by("entry_date")
     return WorkOrder.objects.filter(**filters).select_related("budget__customer", "budget__vehicle").prefetch_related(_WORKORDER_ITEMS_PREFETCH, "payments").order_by("criado_em")
