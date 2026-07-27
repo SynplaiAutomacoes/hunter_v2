@@ -100,8 +100,8 @@ class WorkshopCost(TimeStampedModel):
     third_party_service_cap = MoneyField(verbose_name="Teto Serviços Terceiros", max_digits=14, decimal_places=2, null=True, blank=True)
 
     # --- Calculados (Armazenados para histórico, readonly no form) ---
-    total_value = MoneyField(verbose_name="Valor Total", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
-    total_monthly_costs = MoneyField(verbose_name="Total Custos Mensais", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
+    total_value = MoneyField(verbose_name="Total Metas e Indicadores", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
+    total_monthly_costs = MoneyField(verbose_name="Total Despesas Mensais", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
     profit_target = MoneyField(verbose_name="Meta de Lucro", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
     gross_revenue_target = MoneyField(verbose_name="Faturamento Bruto Meta", max_digits=14, decimal_places=2, default=0, null=True, blank=True)
     profitability_multiplier = models.DecimalField(verbose_name="Multiplicador Lucratividade", max_digits=10, decimal_places=2, default=0, null=True, blank=True)
