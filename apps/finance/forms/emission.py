@@ -7,6 +7,7 @@ from typing import Any
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
+from django.db.models import Exists, OuterRef
 from django.urls import reverse
 from djmoney.forms import MoneyField
 from djmoney.money import Money
@@ -25,6 +26,7 @@ from apps.finance.forms.emission_ui import (
 from apps.core.infrastructure.services.webmania.emission import build_default_service_description_for_workorder, compute_service_discount_for_nfse
 from apps.core.infrastructure.services.webmania.nfe_emission import build_nfe_preview_rows, build_nfe_preview_warning_messages, compute_product_discount_for_nfe
 from apps.finance.services.pricing import build_emission_pricing_snapshot_for_workorder, build_nfse_service_preview_rows, build_slider_allocation_for_workorder
+from apps.finance.models.finance import NfeRequest, NfseRequest
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 
 
@@ -462,10 +464,14 @@ class EmissionStep1Form(CoreForm):
 
         queryset = WorkOrder.objects.none()
         if workshop is not None:
-            queryset = WorkOrder.objects.filter(workshop=workshop, status=WorkOrderStatus.APPROVED).select_related(
-                "budget",
-                "budget__customer",
-                "budget__vehicle",
+            nfe_exists = NfeRequest.objects.filter(workorder=OuterRef("pk"))
+            nfse_exists = NfseRequest.objects.filter(workorder=OuterRef("pk"))
+
+            queryset = (
+                WorkOrder.objects.filter(workshop=workshop, status=WorkOrderStatus.APPROVED)
+                .select_related("budget", "budget__customer", "budget__vehicle")
+                .annotate(has_emission=Exists(nfe_exists) | Exists(nfse_exists))
+                .filter(has_emission=False)
             )
 
         field = self.fields["workorder"]

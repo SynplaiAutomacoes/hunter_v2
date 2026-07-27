@@ -4,8 +4,10 @@ from html import escape
 
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
+from django.db.models import Exists, OuterRef
 
 from apps.core.presentation.widgets import SearchableSelectInput
+from apps.finance.models.finance import NfeRequest, NfseRequest
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 from apps.core.presentation.forms import CoreModelForm
 
@@ -23,10 +25,14 @@ class SharedEmissionWorkorderSelectionForm(CoreModelForm):
 
         queryset = WorkOrder.objects.none()
         if workshop is not None:
-            queryset = WorkOrder.objects.filter(workshop=workshop, status=WorkOrderStatus.APPROVED).select_related(
-                "budget",
-                "budget__customer",
-                "budget__vehicle",
+            nfe_exists = NfeRequest.objects.filter(workorder=OuterRef("pk"))
+            nfse_exists = NfseRequest.objects.filter(workorder=OuterRef("pk"))
+
+            queryset = (
+                WorkOrder.objects.filter(workshop=workshop, status=WorkOrderStatus.APPROVED)
+                .select_related("budget", "budget__customer", "budget__vehicle")
+                .annotate(has_emission=Exists(nfe_exists) | Exists(nfse_exists))
+                .filter(has_emission=False)
             )
 
         field = self.fields["workorder"]
