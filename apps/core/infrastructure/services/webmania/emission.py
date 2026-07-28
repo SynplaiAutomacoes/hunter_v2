@@ -18,6 +18,9 @@ from django.http import HttpRequest
 from django.urls import reverse
 
 from apps.finance.models.finance import NfseBatch, NfseItem, NfseRequest
+from apps.finance.services.fiscal_attempts import FiscalEmissionAttemptBlocked, begin_emission_attempt, mark_attempt_failed, mark_attempt_sent, mark_attempt_succeeded, mark_attempt_uncertain, sanitize_fiscal_payload
+from apps.finance.services.nfse_capabilities import NfseCapabilityError, validate_nfse_emission_capability
+from apps.finance.services.nfse_remote_updates import should_apply_nfse_update
 from apps.finance.services.numbering import EmissionNumberReservationError, reserve_nfse_request_rps_number
 from apps.finance.services.mappers import extract_items_from_batch, map_batch_payload, map_item_payload
 from apps.finance.services.pricing import build_nfse_service_preview_rows, build_slider_allocation_for_workorder
@@ -61,11 +64,7 @@ def _debug_print(message: str, payload: Any | None = None) -> None:
         logger.debug("nfse_debug %s", message)
         return
 
-    try:
-        serialized = json.dumps(payload, ensure_ascii=False, default=str)
-    except TypeError:
-        serialized = str(payload)
-    logger.debug("nfse_debug %s: %s", message, serialized)
+    logger.debug("nfse_debug %s payload=%s", message, json.dumps(sanitize_fiscal_payload(payload), ensure_ascii=False, default=str))
 
 
 def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
@@ -121,15 +120,6 @@ def _build_headers(*, workshop=None) -> dict[str, str]:
 def _build_emit_url() -> str:
     base_url = sanitize_webmania_setting(getattr(settings, "WEBMANIA_BASE_URL", "https://api.webmania.com.br/2/")).rstrip("/")
     return f"{base_url}/nfse/emissao/"
-
-
-def _build_cancel_url() -> str:
-    custom_endpoint = sanitize_webmania_setting(getattr(settings, "WEBMANIA_NFSE_CANCEL_ENDPOINT", ""))
-    if custom_endpoint:
-        return f"{custom_endpoint.rstrip('/')}/"
-
-    base_url = sanitize_webmania_setting(getattr(settings, "WEBMANIA_BASE_URL", "https://api.webmania.com.br/2/")).rstrip("/")
-    return f"{base_url}/nfse/cancelar/"
 
 
 def _build_tax_class_url() -> str:
@@ -664,6 +654,12 @@ def download_nfse_preview_document(*, nfse_request: NfseRequest, request: HttpRe
 
 
 def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None = None, slider_override: int | None = None) -> dict[str, Any]:
+    if isinstance(nfse_request, NfseRequest):
+        try:
+            validate_nfse_emission_capability(nfse_request=nfse_request)
+        except NfseCapabilityError as exc:
+            raise NfseEmissionError(str(exc)) from exc
+
     emit_url = _build_emit_url()
     headers = _build_headers(workshop=nfse_request.workshop)
 
@@ -676,6 +672,16 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None 
             raise NfseEmissionError(str(exc)) from exc
 
     payload = build_nfse_payload(nfse_request=nfse_request, request=request, slider_override=slider_override)
+    try:
+        attempt = begin_emission_attempt(
+            workshop=nfse_request.workshop,
+            document_kind="nfse",
+            request_model="NfseRequest",
+            request_id=int(nfse_request.pk),
+            request_payload=payload,
+        )
+    except FiscalEmissionAttemptBlocked as exc:
+        raise NfseEmissionError(str(exc)) from exc
 
     _debug_print(
         "Iniciando emissao de Nota Fiscal de Serviço",
@@ -691,6 +697,7 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None 
 
     started_at = time.monotonic()
     try:
+        mark_attempt_sent(attempt=attempt)
         response = requests.post(
             emit_url,
             json=payload,
@@ -701,9 +708,20 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None 
         _debug_print("Status HTTP da emissao", response.status_code)
         _debug_print("Body bruto da emissao", response.text)
         response.raise_for_status()
+    except requests.Timeout as exc:
+        error_message = build_webmania_request_exception_message(exc, default="Timeout ao emitir Nota Fiscal de Serviço; estado remoto incerto", scope="nfse")
+        mark_attempt_uncertain(attempt=attempt, error_message=error_message)
+        logger.warning(
+            "nfse_emission_uncertain nfse_request_id=%s workshop_id=%s error=%s",
+            getattr(nfse_request, "pk", None),
+            getattr(nfse_request.workshop, "pk", None),
+            error_message,
+        )
+        raise NfseEmissionError(error_message) from exc
     except requests.RequestException as exc:
         elapsed_ms = round((time.monotonic() - started_at) * 1000, 2)
         error_message = build_webmania_request_exception_message(exc, default="Falha ao emitir Nota Fiscal de Serviço", scope="nfse")
+        mark_attempt_failed(attempt=attempt, error_message=error_message)
         _debug_print("Falha HTTP na emissao", error_message)
         logger.exception("nfse_emission_failed", extra={"workorder_id": nfse_request.workorder.pk, "duration_ms": elapsed_ms})
         logger.warning("nfse_emission_http_error", extra={"nfse_request_id": nfse_request.pk, "workshop_id": nfse_request.workshop.pk, "error": error_message, "duration_ms": elapsed_ms})
@@ -713,11 +731,13 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None 
         data = response.json()
     except ValueError as exc:
         _debug_print("Resposta nao e JSON", response.text)
+        mark_attempt_uncertain(attempt=attempt, error_message="Resposta inválida da API de emissão de Nota Fiscal de Serviço.")
         raise NfseEmissionError("Resposta inválida da API de emissão de Nota Fiscal de Serviço.") from exc
 
     _debug_print("JSON parseado da emissao", data)
 
     if not isinstance(data, dict):
+        mark_attempt_uncertain(attempt=attempt, error_message="Resposta inválida da API de emissão de Nota Fiscal de Serviço.")
         raise NfseEmissionError("Resposta inválida da API de emissão de Nota Fiscal de Serviço.")
 
     error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfse")
@@ -810,6 +830,7 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None 
         if not message:
             message = "Resposta da API sem modelo/uuid."
         _debug_print("Resposta sem dados esperados de emissao", data)
+        mark_attempt_uncertain(attempt=attempt, error_message=message)
         raise NfseEmissionError(message)
 
     _debug_print(
@@ -823,46 +844,7 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None 
     )
     logger.info("nfse_emission_succeeded", extra={"nfse_request_id": nfse_request.pk, "workshop_id": nfse_request.workshop.pk, "status": str(data.get("status") or ""), "uuid": str(data.get("uuid") or ""), "duration_ms": elapsed_ms})
 
-    return data
-
-
-def cancel_nfse_document(*, workshop, event_uuid: str, reason_code: int) -> dict[str, Any]:
-    headers = _build_headers(workshop=workshop)
-    cancel_url = _build_cancel_url()
-
-    event_uuid_value = str(event_uuid or "").strip()
-    if not event_uuid_value:
-        raise NfseEmissionError("Nao foi possivel identificar a Nota Fiscal de Serviço para cancelamento.")
-
-    try:
-        motivo = int(reason_code)
-    except (TypeError, ValueError) as exc:
-        raise NfseEmissionError("Motivo de cancelamento invalido.") from exc
-
-    if motivo not in {1, 2, 4}:
-        raise NfseEmissionError("Motivo de cancelamento invalido.")
-
-    payload = {"uuid": event_uuid_value, "motivo": motivo}
-
-    try:
-        response = requests.put(cancel_url, json=payload, headers=headers, timeout=30)
-        response.raise_for_status()
-    except requests.RequestException as exc:
-        message = build_webmania_request_exception_message(exc, default="Falha ao cancelar Nota Fiscal de Serviço", scope="nfse")
-        raise NfseEmissionError(message) from exc
-
-    try:
-        data = response.json()
-    except ValueError as exc:
-        raise NfseEmissionError("Resposta invalida da API de cancelamento de Nota Fiscal de Serviço.") from exc
-
-    if not isinstance(data, dict):
-        raise NfseEmissionError("Resposta invalida da API de cancelamento de Nota Fiscal de Serviço.")
-
-    error_message = extract_webmania_error_message(data.get("error") or data.get("msg") or data.get("message"), scope="nfse")
-    if error_message:
-        raise NfseEmissionError(error_message)
-
+    mark_attempt_succeeded(attempt=attempt, response_payload=data)
     return data
 
 
@@ -871,20 +853,35 @@ def apply_nfse_batch_payload(
     batch: NfseBatch,
     response_payload: dict[str, Any],
     webhook_received_at=None,
+    reconciled_at=None,
+    update_source: str = "",
 ) -> NfseBatch:
-    mapped_batch = map_batch_payload(response_payload)
+    sanitized_response = sanitize_fiscal_payload(response_payload)
+    if not should_apply_nfse_update(
+        model="lote_rps",
+        current_status=batch.status,
+        current_remote_updated_at=batch.remote_updated_at,
+        payload=sanitized_response,
+    ):
+        return batch
+
+    mapped_batch = map_batch_payload(sanitized_response)
     for key, value in mapped_batch.items():
         if key == "uuid":
             continue
         setattr(batch, key, value)
-    batch.raw_payload = response_payload
+    batch.raw_payload = sanitized_response
     if webhook_received_at is not None:
         batch.last_webhook_at = webhook_received_at
+    if reconciled_at is not None:
+        batch.last_reconciled_at = reconciled_at
+    if update_source:
+        batch.last_update_source = update_source
     batch.last_sync_error = ""
     batch.save()
 
     if batch.request:
-        batch.request.update_status_based_on_request(response_payload.get("status"))
+        batch.request.update_status_based_on_request(sanitized_response.get("status"))
 
     return batch
 
@@ -895,22 +892,34 @@ def apply_nfse_item_payload(
     response_payload: dict[str, Any],
     webhook_received_at=None,
     reconciled_at=None,
+    update_source: str = "",
 ) -> NfseItem:
-    mapped_item = map_item_payload(response_payload)
+    sanitized_response = sanitize_fiscal_payload(response_payload)
+    if not should_apply_nfse_update(
+        model="nfse",
+        current_status=item.status,
+        current_remote_updated_at=item.remote_updated_at,
+        payload=sanitized_response,
+    ):
+        return item
+
+    mapped_item = map_item_payload(sanitized_response)
     for key, value in mapped_item.items():
         if key == "uuid":
             continue
         setattr(item, key, value)
-    item.raw_payload = response_payload
+    item.raw_payload = sanitized_response
     if webhook_received_at is not None:
         item.last_webhook_at = webhook_received_at
     if reconciled_at is not None:
         item.last_reconciled_at = reconciled_at
+    if update_source:
+        item.last_update_source = update_source
     item.last_sync_error = ""
     item.save()
 
     if item.request:
-        item.request.update_status_based_on_request(response_payload.get("status"))
+        item.request.update_status_based_on_request(sanitized_response.get("status"))
 
     return item
 
@@ -925,6 +934,7 @@ def _replay_pending_nfse_webhooks_for_uuid(*, model: str, event_uuid: str) -> No
 
 
 def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[str, Any]) -> None:
+    response_payload = sanitize_fiscal_payload(response_payload)
     _debug_print("Iniciando sincronizacao da resposta", response_payload)
     logger.info("nfse_sync_started", extra={"nfse_request_id": nfse_request.pk, "workshop_id": nfse_request.workshop.pk, "model": str(response_payload.get("modelo") or "")})
 
@@ -949,6 +959,7 @@ def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[
                     "workshop": nfse_request.workshop,
                     "request": nfse_request,
                     "raw_payload": response_payload,
+                    "last_update_source": "sync",
                     "last_sync_error": "",
                     **mapped_batch,
                 },
@@ -984,6 +995,7 @@ def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[
                         "request": nfse_request,
                         "batch": batch,
                         "raw_payload": response_payload,
+                        "last_update_source": "sync",
                         "last_sync_error": "",
                         **item_payload,
                     },
@@ -1028,6 +1040,7 @@ def sync_emission_response(*, nfse_request: NfseRequest, response_payload: dict[
                 "workshop": nfse_request.workshop,
                 "request": nfse_request,
                 "raw_payload": response_payload,
+                "last_update_source": "sync",
                 "last_sync_error": "",
                 **mapped_item,
             },

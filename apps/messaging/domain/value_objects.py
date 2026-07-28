@@ -89,11 +89,13 @@ class FilterCriteria:
 
 @dataclass(frozen=True, slots=True)
 class DispatchItem:
-    group_id: int
     workshop_id: int
     customer_id: int
     phone: str
     message: str
+    client_message_id: str
+    group_id: int | None = None
+    batch_id: int | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -102,4 +104,6 @@ class DispatchItem:
             "customer_id": self.customer_id,
             "phone": self.phone,
             "message": self.message,
+            "client_message_id": self.client_message_id,
+            "batch_id": self.batch_id,
         }

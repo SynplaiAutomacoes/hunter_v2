@@ -1,9 +1,10 @@
+{% load l10n %}
 <div class="modal modal-open" x-data="{
     confirmLink(product) {
         htmx.ajax('POST', '{% url 'stock:transfer_destination_link' %}', {
             values: {
                 item_idx: '{{ item_idx|default:'' }}',
-                pk: '{{ pk }}',
+                pk: '{{ pk|unlocalize }}',
                 product_id: product.id
             },
             target: '#modal-container'

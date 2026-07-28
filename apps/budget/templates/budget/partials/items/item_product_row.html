@@ -1,4 +1,5 @@
-<tr id="budget-item-{{ item.id }}"
+{% load l10n %}
+<tr id="budget-item-{{ item.id|unlocalize }}"
     class="{% if item.is_local %}bg-warning/20{% endif %}"
     {% if not is_full_render %}hx-swap-oob="true"{% endif %}>
     {% if not step6 %}
@@ -6,7 +7,7 @@
         <input
             type="checkbox"
             name="selected_product_items"
-            value="{{ item.id|stringformat:'d' }}"
+            value="{{ item.id|unlocalize }}"
             class="checkbox checkbox-primary checkbox-sm budget-product-select"
         >
     </td>

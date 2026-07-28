@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from datetime import date
 from unittest.mock import MagicMock
 
 from django.db.models import QuerySet
 from django.test import TestCase
+from django.utils import timezone
 
 from apps.customer.models import Customer
 from apps.messaging.application.use_cases.dispatch_message_groups import (
@@ -11,6 +13,8 @@ from apps.messaging.application.use_cases.dispatch_message_groups import (
     DispatchMessageGroupsUseCase,
 )
 from apps.messaging.domain.value_objects import DispatchItem, FilterCriteria, SegmentRule
+from apps.messaging.infrastructure.repositories.django_message_group_repository import DjangoMessageGroupRepository
+from apps.messaging.infrastructure.services.segment_query_builder import resolve_segment
 from apps.messaging.models import CustomerMessageGroup, CustomerMessageGroupMembership, MessageTemplate
 from apps.workshops.models.workshops import Workshop
 
@@ -24,7 +28,14 @@ def create_workshop(*, suffix: int = 1) -> Workshop:
     )
 
 
-def create_customer(*, workshop: Workshop, suffix: int, is_active: bool = True) -> Customer:
+def create_customer(
+    *,
+    workshop: Workshop,
+    suffix: int,
+    is_active: bool = True,
+    birth_date: date | None = None,
+    accepts_messages: bool = True,
+) -> Customer:
     return Customer.objects.create(
         workshop=workshop,
         name=f"Cliente {suffix}",
@@ -32,6 +43,8 @@ def create_customer(*, workshop: Workshop, suffix: int, is_active: bool = True) 
         email=f"cliente{suffix}@example.com",
         phone="+5511999999999",
         is_active=is_active,
+        birth_date=birth_date,
+        accepts_messages=accepts_messages,
     )
 
 
@@ -178,6 +191,41 @@ class DispatchMessageGroupsUseCaseTests(TestCase):
 
         self.assertEqual(result.total_customers, 2)
         self.assertEqual(len(publisher.published), 2)
+
+    def test_real_resolve_segment_merges_with_manual_without_distinct_typeerror(self) -> None:
+        today = timezone.localdate()
+        birthday_customer = create_customer(
+            workshop=self.workshop,
+            suffix=10,
+            birth_date=date(1990, today.month, today.day),
+        )
+        manual_only = create_customer(
+            workshop=self.workshop,
+            suffix=11,
+            birth_date=date(1990, 1, 1) if today.month != 1 or today.day != 1 else date(1990, 2, 2),
+        )
+        group = create_group(
+            workshop=self.workshop,
+            suffix=20,
+            filter_criteria=FilterCriteria(
+                logical_operator="all",
+                rules=(SegmentRule(rule_type="birthday", operator="is_today"),),
+            ).to_dict(),
+        )
+        CustomerMessageGroupMembership.objects.create(group=group, customer=manual_only)
+
+        publisher = FakeQueuePublisher()
+        use_case = DispatchMessageGroupsUseCase(
+            group_repo=DjangoMessageGroupRepository(),
+            segment_builder=resolve_segment,
+            queue_publisher=publisher,
+        )
+        result = use_case.execute(DispatchGroupsRequest(group_id=group.pk))
+
+        self.assertIsNone(result.groups[0].error)
+        published_ids = {item.customer_id for item in publisher.published}
+        self.assertEqual(result.total_customers, 2)
+        self.assertEqual(published_ids, {manual_only.pk, birthday_customer.pk})
 
     def test_group_message_is_rendered_with_variable_context(self) -> None:
         group = create_group(workshop=self.workshop, suffix=1, message="Olá %%nome%%!")

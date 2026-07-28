@@ -474,6 +474,9 @@ class AppointmentMoveView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return JsonResponse({"ok": False, "message": message}, status=400)
 
         appointment.save(update_fields=["starts_at", "ends_at", "atualizado_em"])
+        from apps.messaging.application.services.appointment_alert import sync_appointment_alert_schedule
+
+        sync_appointment_alert_schedule(appointment)
         return JsonResponse({"ok": True})
 
 

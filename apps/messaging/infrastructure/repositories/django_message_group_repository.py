@@ -4,6 +4,7 @@ from typing import Any
 
 from django.db.models import QuerySet
 
+from apps.customer.services.messaging_consent import filter_messageable_customers
 from apps.messaging.models import CustomerMessageGroup
 
 
@@ -17,4 +18,4 @@ class DjangoMessageGroupRepository:
         return queryset
 
     def get_group_members(self, group: CustomerMessageGroup) -> QuerySet[Any]:
-        return group.customers.filter(is_active=True)
+        return filter_messageable_customers(group.customers.all()).exclude(phone__isnull=True).exclude(phone="")

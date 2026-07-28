@@ -15,6 +15,7 @@ from apps.messaging.infrastructure.repositories.django_message_group_repository 
     DjangoMessageGroupRepository,
 )
 from apps.messaging.infrastructure.services.segment_query_builder import resolve_segment
+from apps.messaging.models import MessageDispatchBatch
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,11 @@ class Command(BaseCommand):
 
         try:
             use_case = _build_dispatch_use_case()
-            request = DispatchGroupsRequest(workshop_id=options.get("workshop_id"), group_id=options.get("group_id"))
+            request = DispatchGroupsRequest(
+                workshop_id=options.get("workshop_id"),
+                group_id=options.get("group_id"),
+                source=MessageDispatchBatch.Source.COMMAND,
+            )
             result = use_case.execute(request)
 
             self.stdout.write(f"Grupos processados: {result.total_groups}")

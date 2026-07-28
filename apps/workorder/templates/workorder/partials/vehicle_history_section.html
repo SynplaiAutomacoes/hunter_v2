@@ -8,7 +8,7 @@
                 {% if budget.status == 'approved' and budget.workorders.exists %}
                     {% with wo=budget.workorders.first %}
                     <div class="flex-1">
-                        <p class="text-lg font-bold">Ordem de Serviço: #{{ wo.id }}</p>
+                        <p class="text-lg font-bold">Ordem de Serviço: #{{ wo.budget.id }}</p>
                         <p class="text-sm text-base-content/70">Data de Registro: {{ wo.criado_em|date:"d/m/Y H:i" }}</p>
                     </div>
 

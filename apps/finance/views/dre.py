@@ -16,6 +16,7 @@ from apps.core.templatetags.table_tags import TableColumn
 from apps.finance.documents.provider import build_dre_excel_document, render_dre_pdf_document
 from apps.finance.forms.dre import DreForm
 from apps.finance.models import FinancialGroup
+from apps.finance.services.payroll_visibility import apply_payroll_visibility_to_dre_rows
 from apps.finance.services.dre import build_dre_calculation
 from apps.workshops.models.workshops import Workshop
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -150,6 +151,7 @@ class DreBaseView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             tipo_data=tipo_data,
             selected_financial_groups=selected_financial_groups,
         )
+        dre_rows = apply_payroll_visibility_to_dre_rows(rows=dre_calculation.rows, user=self.request.user, workshop=self.workshop, request=self.request)
         workshop_logo_data_uri = build_workshop_logo_data_uri(workshop=selected_workshop) if selected_workshop is not None else ""
 
         return {
@@ -162,7 +164,7 @@ class DreBaseView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             "data_final_label": self._format_date_param(self.request.GET.get("data_final")),
             "tipo_data_label": tipo_data_label,
             "selected_financial_groups": selected_financial_groups,
-            "dre_rows": dre_calculation.rows,
+            "dre_rows": dre_rows,
             "dre_summary_cards": dre_calculation.summary_cards,
             "workshop_logo_data_uri": workshop_logo_data_uri,
         }

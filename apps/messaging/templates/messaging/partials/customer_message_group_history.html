@@ -1,0 +1,78 @@
+{% load l10n %}
+<div class="space-y-4">
+    <div class="flex items-center justify-between gap-3">
+        <div>
+            <h2 class="text-lg font-bold text-base-content">Histórico de mensagens enviadas</h2>
+            <p class="text-sm text-base-content/60">Acompanhe os lotes disparados e o status em tempo real de cada mensagem.</p>
+        </div>
+    </div>
+
+    {% if not object or not object.pk %}
+        <div class="rounded-box border border-dashed border-base-300 bg-base-200/40 p-6 text-sm text-base-content/60">
+            Salve o grupo para começar a acompanhar o histórico de disparos.
+        </div>
+    {% elif not dispatch_history_batches %}
+        <div class="rounded-box border border-dashed border-base-300 bg-base-200/40 p-6 text-sm text-base-content/60">
+            Nenhum disparo registrado para este grupo ainda.
+        </div>
+    {% else %}
+        <div class="space-y-3">
+            {% for batch in dispatch_history_batches %}
+                <div class="collapse collapse-arrow border border-base-300 bg-base-100" data-batch-id="{{ batch.pk|unlocalize }}">
+                    <input type="radio" name="dispatch-history-accordion" {% if forloop.first %}checked{% endif %} @change="connectLiveBatch({{ batch.pk|unlocalize }})" />
+                    <div class="collapse-title text-sm font-semibold">
+                        <div class="flex flex-wrap items-center gap-3">
+                            <span>#{{ batch.pk }} · {{ batch.created_at_display }}</span>
+                            <span class="badge badge-outline" data-batch-status="{{ batch.pk|unlocalize }}">{{ batch.get_status_display }}</span>
+                            <span class="text-xs text-base-content/60">
+                                total <span data-batch-count="{{ batch.pk|unlocalize }}-total">{{ batch.total_count }}</span>
+                                · enviadas <span data-batch-count="{{ batch.pk|unlocalize }}-sent">{{ batch.sent_count }}</span>
+                                · falhas <span data-batch-count="{{ batch.pk|unlocalize }}-failed">{{ batch.failed_count }}</span>
+                                · processando <span data-batch-count="{{ batch.pk|unlocalize }}-processing">{{ batch.processing_count }}</span>
+                                · canceladas <span data-batch-count="{{ batch.pk|unlocalize }}-cancelled">{{ batch.cancelled_count }}</span>
+                                · fila <span data-batch-count="{{ batch.pk|unlocalize }}-queued">{{ batch.queued_count }}</span>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="collapse-content">
+                        <div class="overflow-x-auto">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Cliente</th>
+                                        <th>Telefone</th>
+                                        <th>Status</th>
+                                        <th>ID</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for log in batch.logs.all %}
+                                        <tr>
+                                            <td>{{ log.customer.name|default:"-" }}</td>
+                                            <td>{{ log.phone|default:"-" }}</td>
+                                            <td data-log-status="{{ log.client_message_id }}" data-log-status-value="{{ log.status }}">
+                                                {% if log.status == "processing" %}
+                                                    <span class="inline-flex items-center gap-2">
+                                                        <span class="loading loading-spinner loading-xs text-primary"></span>
+                                                        <span>Processando</span>
+                                                    </span>
+                                                {% else %}
+                                                    {{ log.get_status_display }}
+                                                {% endif %}
+                                            </td>
+                                            <td class="font-mono text-xs">{{ log.client_message_id }}</td>
+                                        </tr>
+                                    {% empty %}
+                                        <tr>
+                                            <td colspan="4" class="text-base-content/60">Nenhuma mensagem neste lote.</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+</div>

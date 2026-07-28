@@ -3,10 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.core.exceptions import PermissionDenied
-from django.http import HttpResponse, HttpResponseBadRequest
+from django.http import HttpResponse
 from django.urls import reverse_lazy
-from django.views.generic import CreateView, DeleteView, ListView, UpdateView
+from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
 
 from apps.core.infrastructure.query_filters import apply_is_active_filter
 from apps.core.presentation.tables import TableActionDefaults
@@ -14,6 +13,7 @@ from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin
 from apps.finance.forms.financial_group import FinancialGroupForm
 from apps.finance.models.financial_group import FinancialGroup
+from apps.finance.services.financial_group import cascade_delete_with_renumber, collect_descendant_ids
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
@@ -75,15 +75,52 @@ class FinancialGroupUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateVi
 
 class FinancialGroupDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):
     model = FinancialGroup
+    workshop_permission_codename = "change_financialgroup"
     success_url = reverse_lazy("finance:financial_groups_list")
     htmx_template_name = "finance/partials/financial_groups/financial_group_delete_modal.html"
     htmx_trigger = "financial-groups-table-refresh"
 
-    def form_valid(self, form: Any) -> HttpResponse:
-        if self.object.children.exists():
-            message = "Não é possível excluir um grupo que possui subgrupos vinculados."
-            if bool(getattr(self.request, "htmx", False)):
-                return HttpResponseBadRequest(message)
-            raise PermissionDenied(message)
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        context["has_children"] = self.object.children.exists()
+        return context
 
-        return super().form_valid(form)
+    def form_valid(self, form: Any) -> HttpResponse:
+        cascade_delete_with_renumber(
+            workshop_id=self.workshop.pk,
+            group_ids=[self.object.pk],
+        )
+        response = HttpResponse()
+        response["HX-Trigger"] = self.htmx_trigger
+        return response
+
+
+class FinancialGroupBulkDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, TemplateView):
+    model = FinancialGroup
+    workshop_permission_codename = "change_financialgroup"
+    template_name = "finance/partials/financial_groups/financial_group_bulk_delete_modal.html"
+    http_method_names = ["get", "post"]
+
+    def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        selected_ids = [int(pk) for pk in self.request.GET.getlist("selected") if pk.strip()]
+        context["selected_ids"] = selected_ids
+        context["selected_count"] = len(selected_ids)
+
+        total_count = context["selected_count"]
+        for gid in selected_ids:
+            total_count += len(collect_descendant_ids(gid))
+        context["total_count"] = total_count
+
+        return context
+
+    def post(self, request, *args: Any, **kwargs: Any) -> HttpResponse:
+        selected_ids = [int(pk) for pk in request.POST.getlist("selected") if pk.strip()]
+        if selected_ids:
+            cascade_delete_with_renumber(
+                workshop_id=self.workshop.pk,
+                group_ids=selected_ids,
+            )
+        response = HttpResponse()
+        response["HX-Trigger"] = "financial-groups-table-refresh"
+        return response
