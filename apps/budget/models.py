@@ -158,6 +158,7 @@ class Budget(TimeStampedModel):
     # Status e Controle
     status = models.CharField(verbose_name="Status", max_length=50, choices=BudgetStatus.choices, default=BudgetStatus.DRAFT)
     cancellation_reason = models.CharField(verbose_name="Motivo do Cancelamento", max_length=255, blank=True, null=True)
+    rejection_reason = models.CharField(verbose_name="Motivo da Reprovação", max_length=255, blank=True, null=True)
     current_step = models.PositiveSmallIntegerField(verbose_name="Etapa Atual", default=1)
     step5_calculation_viewed = models.BooleanField(verbose_name="Calculo da etapa 5 visualizado", default=False)
 
@@ -198,6 +199,7 @@ class Budget(TimeStampedModel):
             "signature_document_id",
             "signature_sent_at",
             "cancellation_reason",
+            "rejection_reason",
             "customer_agreed_departure_at",
             "service_expected_completion_at",
             "entry_date",

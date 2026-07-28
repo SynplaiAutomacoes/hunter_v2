@@ -177,6 +177,31 @@ def build_step6_assets_html() -> str:
                             return;
                         }
 
+                        if (status === 'reject') {
+                            const modal = document.getElementById('rejectBudgetModal');
+                            const input = document.getElementById('rejection-reason-input');
+                            const confirmBtn = document.getElementById('confirm-reject-btn');
+
+                            input.value = '';
+                            modal.showModal();
+
+                            confirmBtn.onclick = async () => {
+                                const reason = input.value.trim();
+                                if (!reason) {
+                                    document.body.dispatchEvent(new CustomEvent('showToast', {
+                                        detail: { type: 'error', message: 'O motivo da reprovação é obrigatório.' },
+                                    }));
+                                    return;
+                                }
+                                modal.close();
+
+                                const formData = new FormData();
+                                formData.append('rejection_reason', reason);
+                                executeStatusUpdate(budgetId, status, formData);
+                            };
+                            return;
+                        }
+
                         if (status === 'reopen') {
                             const reopenForm = document.getElementById('reopen-budget-form');
                             const reopenInput = document.getElementById('reopen-reason-input');
