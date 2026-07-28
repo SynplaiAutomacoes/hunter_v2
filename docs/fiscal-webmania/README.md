@@ -1,5 +1,16 @@
 # Fiscal Webmania - PRDs vivos
 
+## Atualizacao Fase 4.1.3A - Transporte basico na NF-e normal
+
+- A NF-e normal passa a persistir modalidade e snapshot validado de transportador/volumes na propria `NfeRequest`.
+- O default `9 - sem transporte` preserva o payload anterior: `pedido.modalidade_frete=9`, sem grupo `transporte`.
+- Os fluxos legado e unificado usam os mesmos campos, normalizacao e snapshot; preview e emissao continuam convergindo no unico `build_nfe_payload`.
+- Para modalidade diferente de `9`, o builder adiciona somente `pedido.modalidade_frete` e o grupo superior opcional `transporte`.
+- `FiscalEmissionAttempt` continua congelando o corpo final antes do POST, sem alteracao de idempotencia, timeout, webhook ou reconciliacao.
+- Valor de frete, totais fiscais, OS/orcamento, fornecedor, devolucao, CT-e e MDF-e permanecem fora do escopo.
+- Migration: `finance.0080_nferequest_freight_mode_and_more`.
+- OpenAPI e endpoint remoto foram mantidos inalterados.
+
 ## Atualizacao Fase 4.1.3 - Inventario de dados de transporte na NF-e
 
 - O fluxo produtivo da NF-e normal foi mapeado sem alteracao funcional: `NfeRequest`, builder unico `build_nfe_payload`, preview, emissao, tentativa idempotente, webhook, consulta e downloads.
@@ -71,7 +82,7 @@ Transformar a camada fiscal do Hunter V2 em um modulo completo, seguro e extensi
 
 ## Status atual
 
-Fase atual: Fase 4.1.3 - Inventario de dados de transporte na NF-e, concluida documentalmente em 2026-07-27. CC-e e devolucao foram fechadas nos ciclos imediatamente anteriores. A proxima fase recomendada estende a NF-e normal existente com modalidade, snapshot do transportador e volumes, sem iniciar valor monetario de frete, CT-e ou MDF-e.
+Fase atual: Fase 4.1.3A - Transporte basico na NF-e normal, validada tecnicamente em 2026-07-27. A implementacao estende a `NfeRequest` e o builder existentes com modalidade, snapshot do transportador e volumes, sem iniciar valor monetario de frete, CT-e ou MDF-e.
 
 Marco consolidado: NF-e/NFC-e existentes preservadas, NFS-e legada preservada, NFS-e manual com preview, emissao, cancelamento e substituicao, manifestacao NFS-e Padrao Nacional, NFS-e recebida por XML unitario, consulta/reconciliacao GET-only, manifestacao de recebida, lote XML, inbox externa local/manual/assistida, ampliacao operacional da inbox, auditoria tecnica/fiscal geral e saneamento tecnico pos-auditoria. Permanecem confirmadas as ausencias de conectores reais de e-mail/ERP, consulta Webmania automatica, manifestacao automatica, criacao direta de `NfseReceivedDocument` pela inbox, criacao de documento recebido sem XML, `NfseItem`, `FiscalDocument(nfse)`, `FiscalEmissionAttempt`, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
 

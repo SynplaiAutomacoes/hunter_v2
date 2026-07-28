@@ -1066,3 +1066,13 @@ Consequencias:
 - Consequencias: os dois formularios existentes devem editar a mesma intencao. Frete comercial da OS/orcamento nao e fonte automatica de `pedido.frete`; fornecedor nao se torna transportadora por inferencia.
 - Recorte inicial: modalidade, transportador e volumes, sem valor monetario de frete, cadastro mestre, reboque, CT-e ou MDF-e.
 - OpenAPI: mantido inalterado; a lacuna local do grupo `transporte` deve ser revalidada antes de eventual atualizacao.
+
+## ADR - Fase 4.1.3A: snapshot opcional de transporte na NfeRequest
+
+- Status: implementada e validada tecnicamente em 2026-07-27.
+- Contexto: o inventario confirmou `NfeRequest` e `build_nfe_payload` como pontos unicos de extensao para ambos os fluxos e para preview/emissao.
+- Decisao: persistir `freight_mode` com default `9` e `transport_snapshot` opcional na mesma requisicao. Formularios compartilham configuracao/validacao; o builder valida novamente e achata transportador/volumes no grupo Webmania `transporte`.
+- Compatibilidade: modalidade `9` retorna antes de qualquer extensao do builder, mantendo o mesmo `pedido` e omitindo `transporte`.
+- Auditoria: o snapshot nao consulta fornecedor, OS ou outro cadastro. O payload final continua congelado por `FiscalEmissionAttempt` antes do POST.
+- Consequencias: modalidade, transportador e volumes ficam disponiveis; valor de frete e qualquer alteracao de total permanecem proibidos.
+- OpenAPI: inalterado. Nenhum endpoint ou contrato remoto existente foi substituido.

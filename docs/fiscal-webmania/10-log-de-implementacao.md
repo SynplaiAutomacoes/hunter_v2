@@ -756,6 +756,19 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 - Registrada lacuna de testes diretos do payload NF-e normal e do contrato local para o grupo `transporte`.
 - Nenhum codigo funcional, model, migration, service, view, form, template, teste, OpenAPI, endpoint remoto ou payload fiscal foi alterado.
 
+## 2026-07-27 - Fase 4.1.3A - Transporte basico na NF-e normal
+
+- Adicionados a `NfeRequest` modalidade com default `9` e snapshot JSON opcional de transporte.
+- Criada validacao compartilhada de CPF/CNPJ, placa, UF, CEP, quantidade, pesos e lista permitida do snapshot.
+- `NfeRequestStep3Form` e `EmissionNfeConfigForm` passaram a gerar o mesmo snapshot; o wizard unificado persiste somente esse snapshot, sem reconstruir fornecedor/OS.
+- `build_nfe_payload` continua unico e adiciona transporte somente quando a modalidade difere de `9`.
+- Preview, emissao e tentativa idempotente recebem o mesmo grupo; o payload sem transporte permanece com o formato anterior.
+- Migration `0080` contem somente os dois campos de `NfeRequest`.
+- Testes focados cobrem default, compatibilidade, transportador, volumes, equivalencia dos formularios, preview/emissao e congelamento na tentativa.
+- Validacoes aprovadas: migration check, Django check, 7 testes focados, 44 testes de regressao NF-e/CC-e/devolucao, Ruff dos arquivos alterados e diff check.
+- `mypy` complementar foi executado e permaneceu bloqueado pelo baseline preexistente de stubs e managers; os apontamentos locais simples foram saneados.
+- Nenhum valor de frete, total, calculo financeiro, endpoint, OpenAPI, cancelamento, inutilizacao, CC-e, devolucao ou novo documento fiscal foi alterado.
+
 ## 2026-06-23 - Fase 2.6.0 - Reavaliacao documental do roadmap
 
 - Fase 2.5.8 reconhecida como validada no checkpoint `df1a163e`.

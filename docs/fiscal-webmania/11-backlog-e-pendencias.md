@@ -713,6 +713,13 @@ Decisoes pendentes separadas:
 - multiplos volumes heterogeneos, reboque e seguro avancado.
 
 Permanecem proibidos neste ciclo: inferir frete fiscal do custo de frete do orcamento/OS, converter fornecedor automaticamente em transportadora, criar fluxo paralelo, iniciar CT-e, MDF-e, NFCom ou outro documento fiscal.
+
+## Apos a Fase 4.1.3A - Transporte basico implementado
+
+- Homologar em ambiente Webmania modalidade sem transportador, transportadora PJ, transportador PF e volumes.
+- Decidir em fase fiscal propria se `pedido.frete` sera necessario e como participara dos totais.
+- Avaliar cadastro mestre de transportadora somente se houver demanda operacional repetitiva; o snapshot da NF-e deve continuar imutavel.
+- Reboque, seguro avancado, multiplos volumes heterogeneos, CT-e e MDF-e permanecem fora do escopo.
 ## Fase 4.2.0 - Backlog apos fechamento CC-e
 
 - Homologar CC-e em ambiente Webmania com caso real antes de liberar uso amplo em producao.
