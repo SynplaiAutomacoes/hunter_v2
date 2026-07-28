@@ -575,6 +575,10 @@ class NfseDocumentDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
         try:
             downloaded = service.download_document(workshop=self.workshop, url=document_url)
         except FiscalServiceError as exc:
+            logger.exception(
+                "nfse_document_download_failed",
+                extra={"nfse_request_id": nfse_request.pk, "workshop_id": self.workshop.pk, "document_kind": document_kind},
+            )
             return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
 
         response = HttpResponse(downloaded.content, content_type=downloaded.content_type)

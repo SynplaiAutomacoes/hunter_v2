@@ -1,10 +1,8 @@
 import json
-import logging
+import copy
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
-
-logger = logging.getLogger(__name__)
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -12,8 +10,8 @@ from django.conf import settings
 from django import forms
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Prefetch
-from django.db.models import Q
+from django.db.models import Count, DecimalField, Q, Sum, Value
+from django.db.models.functions import Coalesce
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse, reverse_lazy
@@ -24,9 +22,16 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView
 from djmoney.money import Money
 from apps.budget.forms import BudgetStep1Form, BudgetStep2Form, BudgetStep3Form, BudgetStep4Form, BudgetStep5Form, BudgetStep6Form
+from apps.budget.forms.layouts.step5_items_expand import build_step5_products_list_html, build_step5_services_list_html
+from apps.budget.forms.shared import _get_budget_with_prefetched_items
 from apps.budget.documents.provider import build_budget_status_report_pdf_render_request, render_budget_status_report_pdf_document
 from apps.budget.approval import BudgetApprovalError, approve_budget_with_stock
-from apps.budget.models import Budget, BudgetHistory, BudgetItem, BudgetStatus, SignatureStatus, BudgetType, PricingMethod
+from apps.budget.models import Budget, BudgetHistory, BudgetStatus, SignatureStatus, BudgetType, PricingMethod
+from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch
+from apps.core.infrastructure.services.dashboard_query_service import (
+    _build_injected_pricing_context,
+    _prepare_budget_for_dashboard_pricing,
+)
 from apps.budget.pdf_context import build_workshop_logo_data_uri
 from apps.budget.service import SuperSignError, send_budget_for_signature
 from apps.budget.views.shared import reset_steps_after_step_4
@@ -322,23 +327,25 @@ class BudgetStatusReportDataMixin:
 
         return urlencode(query_params, doseq=True)
 
-    def _get_budget_base_queryset(self):
+    def _get_budget_base_queryset(self, *, for_pricing: bool = False):
+        queryset = (
+            Budget.objects.filter(workshop=self.workshop)
+            .select_related("customer", "vehicle", "reference_budget")
+            .prefetch_related("collaborators")
+        )
+        if not for_pricing:
+            return queryset
+
+        # List/report pricing needs items + kit_overrides (with catalog FKs).
+        # Kit catalog tree is only needed for incomplete snapshots / deep reports.
+        return queryset.prefetch_related(budget_items_with_kit_prefetch(with_kit_tree=False))
+
+    def _get_budget_report_queryset(self):
         return (
             Budget.objects.filter(workshop=self.workshop)
-            .select_related("customer", "vehicle")
+            .select_related("customer", "vehicle", "reference_budget")
             .prefetch_related("collaborators")
-            .prefetch_related(
-                Prefetch(
-                    "items",
-                    queryset=BudgetItem.objects.select_related("product", "service", "kit")
-                    .prefetch_related(
-                        "kit_overrides",
-                        "kit__kit_products__product",
-                        "kit__kit_services__service",
-                    )
-                    .order_by("id"),
-                )
-            )
+            .prefetch_related(budget_items_with_kit_prefetch(with_kit_tree=True))
         )
 
     def _get_budget_table_fields(self) -> list[TableColumn]:
@@ -349,12 +356,12 @@ class BudgetStatusReportDataMixin:
             TableColumn("Vinculado à", attr="reference_budget_id", search_by="reference_budget__id"),
             TableColumn(str(Budget.budget_type.field.verbose_name), attr="type_budget_badge", searchable=False, format="status_badge"),
             TableColumn(str(Budget.entry_date.field.verbose_name), attr=Budget.entry_date.field.name, search_by="entry_date"),
-            TableColumn("Valor Total", attr="total_budget_value", searchable=False),
+            TableColumn("Valor Total", attr="stored_total_amount", searchable=False),
             TableColumn(str(Budget.status.field.verbose_name), attr="budget_status_badge", search_by="status", format="status_badge"),
         ]
 
-    def _get_filtered_budget_queryset(self):
-        queryset = self._get_budget_base_queryset()
+    def _get_filtered_budget_queryset(self, *, for_pricing: bool = True, for_report: bool = False):
+        queryset = self._get_budget_report_queryset() if for_report else self._get_budget_base_queryset(for_pricing=for_pricing)
 
         queryset = apply_query_param_filters(
             queryset,
@@ -366,12 +373,24 @@ class BudgetStatusReportDataMixin:
 
         return queryset.order_by("-pk", "-entry_date")
 
+    def _get_list_pricing_context(self):
+        today = timezone.localdate()
+        workshop_cost = WorkshopCost.objects.filter(workshop=self.workshop, month=today.month, year=today.year).first()
+        return _build_injected_pricing_context(workshop=self.workshop, workshop_cost=workshop_cost)
+
+    def _prepare_budgets_for_list_pricing(self, budgets: list[Budget], *, for_totals_only: bool = True) -> list[Budget]:
+        pricing_context = self._get_list_pricing_context()
+        for budget in budgets:
+            _prepare_budget_for_dashboard_pricing(budget, pricing_context=pricing_context, for_totals_only=for_totals_only)
+        return budgets
+
     def _get_selection_report_items(self) -> list[Budget]:
         cached = getattr(self, "_selection_report_items_cache", None)
         if cached is not None:
             return cached
 
-        items = list(self._get_filtered_budget_queryset())
+        # PDF/list report rows use stored totals — no items/kit pricing prefetch.
+        items = list(self._get_filtered_budget_queryset(for_pricing=False, for_report=False))
         self._selection_report_items_cache = items
         return items
 
@@ -413,12 +432,15 @@ class BudgetStatusReportDataMixin:
         if not self._get_selected_status_choices() and not self._get_selected_budget_type_choices():
             return None
 
-        report_items = self._get_selection_report_items()
-        total_value = sum((budget.total_budget_value.amount for budget in report_items), Decimal("0.00"))
+        decimal_out = DecimalField(max_digits=14, decimal_places=2)
+        aggregates = self._get_filtered_budget_queryset(for_pricing=False, for_report=False).aggregate(
+            count=Count("pk"),
+            total=Coalesce(Sum("stored_total_amount"), Value(Decimal("0.00")), output_field=decimal_out),
+        )
 
         return {
-            "count": len(report_items),
-            "total_value": total_value,
+            "count": int(aggregates["count"] or 0),
+            "total_value": aggregates["total"] or Decimal("0.00"),
             "badges": self._build_selection_badges(),
             "filters_summary": self._build_selection_report_filters_summary(),
         }
@@ -445,12 +467,19 @@ class BudgetListView(LoginRequiredMixin, BudgetStatusReportDataMixin, WorkshopSc
     template_name = "budget/budget_list.html"
     context_object_name = "budget"
     htmx_template_name = "budget/partials/budget_table.html"
+    # Pagination is owned by render_table; keep ListView from counting/slicing.
 
     def get_queryset(self):
-        return self._get_filtered_budget_queryset()
+        return self._get_filtered_budget_queryset(for_pricing=False, for_report=False)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        # render_table faz sua própria paginação e filtragem. O Django ListView
+        # com paginate_by fatia o queryset antes de expô-lo no contexto, o que
+        # impede o render_table de chamar .filter() depois. Passamos o queryset
+        # completo (sem materializar/precificar) para o render_table paginar no ORM.
+        # Valor Total usa stored_total_amount — sem build_pricing_snapshot por linha.
+        context["budget"] = self._get_filtered_budget_queryset(for_pricing=False, for_report=False)
         context["fields"] = self._get_budget_table_fields()
         context["actions"] = [
             TableActionDefaults.edit("budget:budget_update"),
@@ -467,6 +496,7 @@ class BudgetListView(LoginRequiredMixin, BudgetStatusReportDataMixin, WorkshopSc
         context["budget_events_enabled"] = getattr(settings, "BUDGET_EVENTS_ENABLED", False)
         context["budget_poll_interval_seconds"] = getattr(settings, "BUDGET_POLL_INTERVAL_SECONDS", 20)
         return context
+
 
 
 @method_decorator(xframe_options_exempt, name="dispatch")
@@ -572,7 +602,9 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         if budget_pk and not requested_step:
             budget = self.get_object()
             if budget:
-                target_url = self._build_create_flow_url(step=budget.current_step, budget_id=budget.pk)
+                total_steps = len(self.get_steps_config())
+                target_step = total_steps if budget.is_status_locked else budget.current_step
+                target_url = self._build_create_flow_url(step=target_step, budget_id=budget.pk)
                 return redirect(target_url)
 
         return super().get(request, *args, **kwargs)
@@ -626,6 +658,10 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        budget = self.model_instance
+        total_steps = len(self.get_steps_config())
+        if budget and budget.is_status_locked:
+            context["max_reached_step"] = total_steps
         context["origin_appointment_id"] = self._get_origin_appointment_id()
         return context
 
@@ -692,9 +728,17 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         if current_step == 1:
             self._sync_originating_appointment()
 
-        # Aplicar status automático configurado para esta etapa (se houver)
+        # Aplicar status automático em memória; coalesce com current_step abaixo.
+        status_changed = False
         try:
-            self.apply_step_status(budget=self.object, current_step=self.get_current_step(), actor=self.request.user)
+            status_changed = bool(
+                self.apply_step_status(
+                    budget=self.object,
+                    current_step=self.get_current_step(),
+                    actor=self.request.user,
+                    save=False,
+                )
+            )
         except Exception:
             logger.exception("budget_auto_status_failed", extra={"budget_id": self.object.pk, "step": self.get_current_step(), "user_id": self.request.user.pk, "action": "create"})
 
@@ -706,9 +750,14 @@ class BudgetCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixi
         total_steps = len(self.steps_definition)
         next_step_value = min(current_step + 1, total_steps)
 
+        update_fields: list[str] = []
+        if status_changed:
+            update_fields.append("status")
         if self.object.current_step < next_step_value:
             self.object.current_step = next_step_value
-            self.object.save(update_fields=["current_step"])
+            update_fields.append("current_step")
+        if update_fields:
+            self.object.save(update_fields=update_fields)
 
         if current_step == total_steps:
             review_url = self._build_create_flow_url(step=current_step, budget_id=self.object.pk)
@@ -762,7 +811,8 @@ class BudgetUpdateView(BudgetCreateView):
         step_na_url = int(request.GET.get("step", 0))
 
         if not step_na_url:
-            target_step = self.object.current_step
+            total_steps = len(self.get_steps_config())
+            target_step = total_steps if self.object.is_status_locked else self.object.current_step
             return redirect(f"{reverse('budget:budget_update', kwargs={'pk': self.object.pk})}?step={target_step}")
 
         return super().get(request, *args, **kwargs)
@@ -814,9 +864,18 @@ class BudgetUpdateView(BudgetCreateView):
                 self.object.sync_items_benefit_type_to_budget_type()
                 reset_steps_after_step_4(self.object)
 
-        # Aplicar status automático configurado para esta etapa (se houver)
+        # Aplicar status automático em memória; coalesce com current_step abaixo.
+        status_changed = False
         try:
-            self.apply_step_status(budget=self.object, current_step=self.get_current_step(), actor=self.request.user, isUpdate=True)
+            status_changed = bool(
+                self.apply_step_status(
+                    budget=self.object,
+                    current_step=self.get_current_step(),
+                    actor=self.request.user,
+                    isUpdate=True,
+                    save=False,
+                )
+            )
         except Exception:
             logger.exception("budget_auto_status_failed", extra={"budget_id": self.object.pk, "step": self.get_current_step(), "user_id": self.request.user.pk, "action": "update"})
 
@@ -830,9 +889,14 @@ class BudgetUpdateView(BudgetCreateView):
         total_steps = len(self.steps_definition)
         next_step_value = min(current_step + 1, total_steps)
 
+        update_fields: list[str] = []
+        if status_changed:
+            update_fields.append("status")
         if self.object.current_step < next_step_value:
             self.object.current_step = next_step_value
-            self.object.save(update_fields=["current_step"])
+            update_fields.append("current_step")
+        if update_fields:
+            self.object.save(update_fields=update_fields)
 
         if current_step == total_steps:
             success_url = f"{reverse('budget:budget_update', kwargs={'pk': self.object.pk})}?step={current_step}"
@@ -923,6 +987,238 @@ class UpdateBudgetDiscountView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return HttpResponse(status=204)
 
 
+def _serialize_budget_state(budget):
+    items = budget.items.select_related("product", "service", "kit")
+    serialized_items = {}
+    for item in items:
+        if item.product_id:
+            key = f"product_{item.product_id}"
+        elif item.service_id:
+            key = f"service_{item.service_id}"
+        elif item.kit_id:
+            key = f"kit_{item.kit_id}"
+        else:
+            key = f"local_{item.description}"
+
+        serialized_items[key] = {
+            "item_type": "product" if item.product_id else ("service" if item.service_id else "kit"),
+            "description": item.description,
+            "quantity": item.quantity,
+            "product_selling_price": str(item.product_selling_price),
+            "product_cost_price": str(item.product_cost_price),
+            "service_selling_price": str(item.service_selling_price),
+            "service_cost_price": str(item.service_cost_price),
+            "shipping": str(item.shipping),
+            "duration": str(item.duration) if item.duration else None,
+            "product_id": item.product_id,
+            "service_id": item.service_id,
+            "kit_id": item.kit_id,
+            "is_local": item.is_local,
+            "is_customer_supplied": item.is_customer_supplied,
+            "total": str(item.total_price),
+        }
+
+    return {
+        "budget_fields": {
+            "discount_value": str(budget.resolved_discount_value),
+            "discount_percentage": str(budget.resolved_discount_percentage),
+            "discount_type": budget.discount_type,
+            "problem_description": budget.problem_description or "",
+            "technical_diagnosis": budget.technical_diagnosis or "",
+            "notes": budget.notes or "",
+            "observations": budget.observations or "",
+            "current_km": budget.current_km,
+            "entry_date": str(budget.entry_date) if budget.entry_date else "",
+            "expiration_date": str(budget.expiration_date) if budget.expiration_date else "",
+            "customer_agreed_departure_at": str(budget.customer_agreed_departure_at) if budget.customer_agreed_departure_at else "",
+            "service_expected_completion_at": str(budget.service_expected_completion_at) if budget.service_expected_completion_at else "",
+            "budget_type": budget.budget_type,
+            "customer": budget.customer.name if budget.customer else "",
+            "vehicle": f"{budget.vehicle.brand} {budget.vehicle.model} ({budget.vehicle.plate})" if budget.vehicle else "",
+        },
+        "items": serialized_items,
+    }
+
+
+def _get_empty_budget_state():
+    return {
+        "budget_fields": {
+            "discount_value": "R$ 0,00",
+            "discount_percentage": "0.00",
+            "discount_type": "both",
+            "problem_description": "",
+            "technical_diagnosis": "",
+            "notes": "",
+            "observations": "",
+            "current_km": 0,
+            "entry_date": "",
+            "expiration_date": "",
+            "customer_agreed_departure_at": "",
+            "service_expected_completion_at": "",
+            "budget_type": "sale",
+            "customer": "",
+            "vehicle": "",
+        },
+        "items": {},
+    }
+
+
+def _compute_budget_diff(state_old, state_new):
+    diff = {"fields": {}, "items": {"added": [], "removed": [], "modified": []}}
+
+    field_labels = {
+        "discount_value": "Valor do Desconto",
+        "discount_percentage": "Percentual do Desconto",
+        "discount_type": "Tipo de Desconto",
+        "problem_description": "Relato Principal do Cliente",
+        "technical_diagnosis": "Observações Técnicas",
+        "notes": "Observações Complementares",
+        "observations": "Observações",
+        "current_km": "KM Atual",
+        "entry_date": "Data de Entrada",
+        "expiration_date": "Data de Validade",
+        "customer_agreed_departure_at": "Data de saída combinada",
+        "service_expected_completion_at": "Data prevista de término",
+        "budget_type": "Tipo de Orçamento",
+        "customer": "Cliente",
+        "vehicle": "Veículo",
+    }
+
+    old_fields = state_old.get("budget_fields", {})
+    new_fields = state_new.get("budget_fields", {})
+
+    for field, label in field_labels.items():
+        val_old = old_fields.get(field)
+        val_new = new_fields.get(field)
+
+        s_old = str(val_old or "").strip()
+        s_new = str(val_new or "").strip()
+
+        if s_old != s_new:
+            diff["fields"][field] = {"label": label, "old": val_old, "new": val_new}
+
+    old_items = state_old.get("items", {})
+    new_items = state_new.get("items", {})
+
+    all_keys = set(old_items.keys()) | set(new_items.keys())
+    for key in all_keys:
+        item_old = old_items.get(key)
+        item_new = new_items.get(key)
+
+        if item_old and not item_new:
+            diff["items"]["removed"].append(item_old)
+        elif not item_old and item_new:
+            diff["items"]["added"].append(item_new)
+        elif item_old and item_new:
+            item_changes = {}
+            item_fields = {
+                "description": "Descrição",
+                "quantity": "Quantidade",
+                "product_selling_price": "Valor Venda (Peça)",
+                "service_selling_price": "Valor Venda (Serviço)",
+                "shipping": "Frete",
+                "is_customer_supplied": "Peça trazida pelo cliente",
+                "total": "Total",
+            }
+            for f, f_label in item_fields.items():
+                v_old = item_old.get(f)
+                v_new = item_new.get(f)
+
+                s_v_old = str(v_old if v_old is not None else "").strip()
+                s_v_new = str(v_new if v_new is not None else "").strip()
+
+                if s_v_old != s_v_new:
+                    item_changes[f] = {"label": f_label, "old": v_old, "new": v_new}
+            if item_changes:
+                diff["items"]["modified"].append({"key": key, "description": item_new.get("description") or item_old.get("description"), "item_type": item_new.get("item_type"), "changes": item_changes})
+
+    return diff
+
+
+def _apply_budget_diff(state, diff):
+    new_state = copy.deepcopy(state)
+
+    if "items" in diff and isinstance(diff["items"], list):
+        new_state["budget_fields"]["discount_value"] = diff.get("discount_value", "R$ 0,00")
+        new_state["budget_fields"]["discount_percentage"] = diff.get("discount_percentage", "0.00")
+        new_state["budget_fields"]["discount_type"] = diff.get("discount_type", "both")
+
+        serialized_items = {}
+        for item in diff["items"]:
+            desc = item.get("description") or ""
+            if item.get("product_id"):
+                key = f"product_{item['product_id']}"
+            elif item.get("service_id"):
+                key = f"service_{item['service_id']}"
+            elif item.get("kit_id"):
+                key = f"kit_{item['kit_id']}"
+            else:
+                key = f"local_{desc}"
+            serialized_items[key] = item
+        new_state["items"] = serialized_items
+        return new_state
+
+    for field, change in diff.get("fields", {}).items():
+        new_state["budget_fields"][field] = change["new"]
+
+    for item in diff.get("items", {}).get("removed", []):
+        key = None
+        if item.get("product_id"):
+            key = f"product_{item['product_id']}"
+        elif item.get("service_id"):
+            key = f"service_{item['service_id']}"
+        elif item.get("kit_id"):
+            key = f"kit_{item['kit_id']}"
+        else:
+            key = f"local_{item.get('description', '')}"
+        if key in new_state["items"]:
+            del new_state["items"][key]
+
+    for item in diff.get("items", {}).get("added", []):
+        key = None
+        if item.get("product_id"):
+            key = f"product_{item['product_id']}"
+        elif item.get("service_id"):
+            key = f"service_{item['service_id']}"
+        elif item.get("kit_id"):
+            key = f"kit_{item['kit_id']}"
+        else:
+            key = f"local_{item.get('description', '')}"
+        new_state["items"][key] = item
+
+    for mod in diff.get("items", {}).get("modified", []):
+        target_key = mod.get("key")
+        if target_key and target_key in new_state["items"]:
+            for field, change in mod.get("changes", {}).items():
+                new_state["items"][target_key][field] = change["new"]
+        else:
+            # Fallback para compatibilidade caso o diff antigo nao tenha key
+            for k, item in new_state["items"].items():
+                if item.get("description") == mod.get("description") and item.get("item_type") == mod.get("item_type"):
+                    for field, change in mod.get("changes", {}).items():
+                        new_state["items"][k][field] = change["new"]
+                    break
+
+    return new_state
+
+
+def _consolidate_budget_revision(budget):
+    # Buscar a ultima reabertura
+    entry = budget.history_entries.filter(action=BudgetHistory.Action.REOPENED).order_by("-criado_em", "-pk").first()
+    if entry and entry.snapshot:
+        snapshot = entry.snapshot
+        # Identificar se ja e um diff. Se nao tiver "fields" e "items" estruturados como diff (ou se "items" for uma lista), e o snapshot completo.
+        is_diff = "fields" in snapshot or (isinstance(snapshot.get("items"), dict) and ("added" in snapshot["items"] or "removed" in snapshot["items"]))
+
+        if not is_diff:
+            # E o snapshot completo original. Vamos calcular o diff em relacao ao estado atual.
+            state_old = snapshot
+            state_new = _serialize_budget_state(budget)
+            diff = _compute_budget_diff(state_old, state_new)
+            entry.snapshot = diff
+            entry.save(update_fields=["snapshot"])
+
+
 class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = Budget
     workshop_permission_codename = "add_budget"
@@ -984,15 +1280,23 @@ class UpdateBudgetStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
 
                 budget.cancellation_reason = ""
                 budget.regenerate_signature_token()
+
+                # Salvar o estado inicial completo no momento da reabertura
+                snapshot = _serialize_budget_state(budget)
+
                 BudgetHistory.objects.create(
                     budget=budget,
                     user=request.user,
                     action=BudgetHistory.Action.REOPENED,
                     reason=reopen_reason,
+                    snapshot=snapshot,
                 )
 
             budget.status = status_map[status]
             budget.save()
+
+        if status in ("approve", "cancel", "reject"):
+            _consolidate_budget_revision(budget)
 
         return JsonResponse({"success": True})
 
@@ -1038,13 +1342,20 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
             budget.slider = int(slider_value)
             budget.save(update_fields=["slider"])
 
-        display_products_value = budget.display_total_products_by_slider_without_shipping
-        display_labor_value = Money(0, "BRL") if budget.is_warranty_budget else budget.display_total_services_by_slider - budget.total_third_party_services_selling
+        display_products_value = budget.display_total_products_by_slider
+        display_third_party_value = budget.display_total_third_party_by_slider
+        display_labor_value = budget.display_total_services_by_slider - display_third_party_value
+        budget_for_lists = _get_budget_with_prefetched_items(budget)
+        products_list_html = build_step5_products_list_html(budget=budget_for_lists, oob=True)
+        services_list_html = build_step5_services_list_html(budget=budget_for_lists, oob=True)
         html = f"""
-                <span id="display-venda-pecas" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 whitespace-nowrap step5-accent-text" data-base-val="{display_products_value.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
+                <span id="display-venda-pecas" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{display_products_value.amount}" data-cost-val="{budget.total_costs_products_value.amount}" data-frete-val="{budget.total_products_shipping.amount}">
                     {display_products_value}
                 </span>
-                <span id="display-venda-mo" hx-swap-oob="true" class="col-span-4 p-2 border-l border-base-300 step5-accent-text" data-base-val="{display_labor_value.amount}" data-cost-val="{budget.total_labor_cost_value.amount}">
+                <span id="display-venda-terceiros" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap">
+                    {display_third_party_value}
+                </span>
+                <span id="display-venda-mo" hx-swap-oob="true" class="font-bold text-success whitespace-nowrap" data-base-val="{display_labor_value.amount}" data-cost-val="{budget.total_labor_cost_value.amount}">
                     {display_labor_value}
                 </span>
                 <span id="step5-subtotal-display" hx-swap-oob="true" data-base-total="{budget.display_total_base_value.amount}">
@@ -1056,6 +1367,8 @@ class UpdateSliderView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 <span id="valor-final-display" hx-swap-oob="true">
                     {budget.display_total_budget_value}
                 </span>
+                {products_list_html}
+                {services_list_html}
                 """
         return HttpResponse(html)
 

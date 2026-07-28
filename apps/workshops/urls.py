@@ -12,6 +12,12 @@ from .views.workshops import (
     WorkshopUpdateView,
 )
 
+from .views.whatsapp_connection import (
+    WhatsAppConnectView,
+    WhatsAppStatusView,
+    WhatsAppDisconnectView,
+)
+
 from apps.workshops.views.monthly_costs import (
     MonthlyCostListView,
     MonthlyCostCreateView,
@@ -28,6 +34,7 @@ from apps.workshops.views.workshop_costs import (
     WorkshopCostDeleteView,
     WorkshopCostCopyView,
     WorkshopCostSelectionModalView,
+    WorkshopCostSyncSalaryItemsView,
 )
 
 app_name = "workshops"
@@ -53,9 +60,14 @@ urlpatterns = [
     path("copy/<int:pk>/", WorkshopCostCopyView.as_view(), name="workshop_cost_copy"),
     path("workshops_costs/<int:pk>/delete/", WorkshopCostDeleteView.as_view(), name="workshop_cost_delete"),
     path("workshops_costs/calculate/", WorkshopCostCalculateView.as_view(), name="workshop_cost_calculate"),
+    path("workshops_costs/sync-salary-items/", WorkshopCostSyncSalaryItemsView.as_view(), name="workshop_cost_sync_salary_items"),
     path("workshops_costs/holidays/", WorkshopCostHolidaysView.as_view(), name="workshop_cost_holidays"),
     path("workshops_costs/copy-selection/", WorkshopCostSelectionModalView.as_view(), name="workshop_cost_copy_selection"),
     #
     path("webmania/empresas/sync/", WorkshopWebmaniaSyncView.as_view(), name="webmania_company_sync"),
     path("historico-emissoes/", WorkshopEmissionHistoryView.as_view(), name="emission_history"),
+    # WhatsApp
+    path("<int:pk>/whatsapp/connect/", WhatsAppConnectView.as_view(), name="whatsapp_connect"),
+    path("<int:pk>/whatsapp/status/", WhatsAppStatusView.as_view(), name="whatsapp_status"),
+    path("<int:pk>/whatsapp/disconnect/", WhatsAppDisconnectView.as_view(), name="whatsapp_disconnect"),
 ]

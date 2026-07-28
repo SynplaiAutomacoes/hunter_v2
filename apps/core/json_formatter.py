@@ -37,6 +37,24 @@ _LOG_RECORD_STANDARD_ATTRS: frozenset[str] = frozenset(
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
+        environment = getattr(record, "environment", None)
+        request_id = getattr(record, "request_id", None)
+        workshop_id = getattr(record, "workshop_id", None)
+        user_id = getattr(record, "user_id", None)
+        account_id = getattr(record, "account_id", None)
+        trace_id = getattr(record, "trace_id", None)
+        span_id = getattr(record, "span_id", None)
+        duration_ms = getattr(record, "duration_ms", None)
+        method = getattr(record, "method", None)
+        path = getattr(record, "path", None)
+        status_code = getattr(record, "status_code", None)
+        route = getattr(record, "route", None)
+        query_count = getattr(record, "query_count", None)
+        sql_time_ms = getattr(record, "sql_time_ms", None)
+        dependency_time_ms = getattr(record, "dependency_time_ms", None)
+        dependency_call_count = getattr(record, "dependency_call_count", None)
+        response_bytes = getattr(record, "response_bytes", None)
+
         log_entry: dict[str, Any] = {
             "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
             "level": record.levelname,
@@ -44,26 +62,44 @@ class JsonFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
 
-        if hasattr(record, "environment"):
-            log_entry["environment"] = record.environment
-        if hasattr(record, "request_id") and record.request_id:
-            log_entry["request_id"] = record.request_id
-        if hasattr(record, "workshop_id") and record.workshop_id:
-            log_entry["workshop_id"] = record.workshop_id
-        if hasattr(record, "user_id") and record.user_id:
-            log_entry["user_id"] = record.user_id
+        if environment:
+            log_entry["environment"] = environment
+        if request_id:
+            log_entry["request_id"] = request_id
+        if workshop_id:
+            log_entry["workshop_id"] = workshop_id
+        if user_id:
+            log_entry["user_id"] = user_id
+        if account_id:
+            log_entry["account_id"] = account_id
+        if trace_id:
+            log_entry["trace_id"] = trace_id
+        if span_id:
+            log_entry["span_id"] = span_id
 
         if record.exc_info:
             log_entry["exc_info"] = self.formatException(record.exc_info)
 
-        if hasattr(record, "duration_ms"):
-            log_entry["duration_ms"] = record.duration_ms
-        if hasattr(record, "method"):
-            log_entry["method"] = record.method
-        if hasattr(record, "path"):
-            log_entry["path"] = record.path
-        if hasattr(record, "status_code"):
-            log_entry["status_code"] = record.status_code
+        if duration_ms is not None:
+            log_entry["duration_ms"] = duration_ms
+        if method is not None:
+            log_entry["method"] = method
+        if path is not None:
+            log_entry["path"] = path
+        if status_code is not None:
+            log_entry["status_code"] = status_code
+        if route is not None:
+            log_entry["route"] = route
+        if query_count is not None:
+            log_entry["query_count"] = query_count
+        if sql_time_ms is not None:
+            log_entry["sql_time_ms"] = sql_time_ms
+        if dependency_time_ms is not None:
+            log_entry["dependency_time_ms"] = dependency_time_ms
+        if dependency_call_count is not None:
+            log_entry["dependency_call_count"] = dependency_call_count
+        if response_bytes is not None:
+            log_entry["response_bytes"] = response_bytes
 
         extra_fields = {key: value for key, value in record.__dict__.items() if key not in _LOG_RECORD_STANDARD_ATTRS and not key.startswith("_") and key not in log_entry}
         if extra_fields:

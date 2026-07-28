@@ -13,14 +13,15 @@ from apps.catalog.models.services import Service
 from apps.catalog.price_tracking import record_product_last_used_price, record_service_last_used_price
 from apps.catalog.product_issues import ProductIssueSummary, annotate_product_issues
 from apps.catalog.util import calculate_catalog_service_prices
+from apps.core.infrastructure.kit_prefetch import budget_kit_overrides_prefetch
 from apps.core.infrastructure.models import TimeStampedModel
 from djmoney.models.fields import MoneyField
 
 from apps.budget.pricing import PricingSnapshot, build_pricing_snapshot, resolve_discount_fields
 from apps.workorder.models import WorkOrder, WorkOrderDiscountType
 
-from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostItem
-from apps.workshops.util.monthly_costs import get_mechanic_salary_monthly_cost
+from apps.workshops.models.workshop_costs import WorkshopCost
+from apps.workshops.util.monthly_costs import get_productive_salary_total_including_transport
 from django.utils import timezone
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -158,6 +159,13 @@ class Budget(TimeStampedModel):
     pricing_hourly_cost_value = MoneyField(verbose_name="Valor hora congelado", max_digits=14, decimal_places=2, null=True, blank=True)
     pricing_profitability_multiplier = models.DecimalField(verbose_name="Multiplicador congelado", max_digits=10, decimal_places=2, null=True, blank=True)
     pricing_method = models.CharField(verbose_name="Método de Precificação", max_length=20, choices=PricingMethod.choices, null=True, blank=True)
+    stored_total_amount = MoneyField(
+        verbose_name="Total armazenado do orçamento",
+        max_digits=14,
+        decimal_places=2,
+        default=0.00,
+        help_text="Total denormalizado para agregações (dashboard). Atualizado no write path.",
+    )
 
     # Token SuperSign
     signature_token_version = models.PositiveIntegerField(verbose_name="ID do PDF do Orçamento", default=1)
@@ -167,14 +175,50 @@ class Budget(TimeStampedModel):
     signature_document_id = models.CharField(max_length=255, blank=True, null=True)
     signature_sent_at = models.DateTimeField(blank=True, null=True)
 
-    def save(self, *args, **kwargs):
-        self.sync_discount_fields()
+    # Fields that do not affect pricing totals — skip sync_discount / stored refresh.
+    _METADATA_UPDATE_FIELDS = frozenset(
+        {
+            "status",
+            "current_step",
+            "step5_calculation_viewed",
+            "signature_token_version",
+            "signature_token_active",
+            "signature_request_status",
+            "signature_external_id",
+            "signature_document_id",
+            "signature_sent_at",
+            "cancellation_reason",
+            "customer_agreed_departure_at",
+            "service_expected_completion_at",
+            "entry_date",
+            "expiration_date",
+            "observations",
+            "notes",
+            "problem_description",
+            "technical_diagnosis",
+            "fuel_level",
+            "current_km",
+            "atualizado_em",
+            "criado_em",
+        }
+    )
 
+    def _is_metadata_only_update(self, update_fields: Iterable[str] | None) -> bool:
+        if update_fields is None:
+            return False
+        return bool(update_fields) and set(update_fields).issubset(self._METADATA_UPDATE_FIELDS)
+
+    def save(self, *args, **kwargs):
         update_fields = kwargs.get("update_fields")
-        if update_fields is not None:
-            update_fields_set = set(update_fields)
-            update_fields_set.update({"discount_value", "discount_value_currency", "discount_percentage", "discount_type"})
-            kwargs["update_fields"] = list(update_fields_set)
+        metadata_only = self._is_metadata_only_update(update_fields)
+        skip_stored_refresh = metadata_only or getattr(self, "_skip_stored_total_refresh", False)
+
+        if not metadata_only:
+            self.sync_discount_fields()
+            if update_fields is not None:
+                update_fields_set = set(update_fields)
+                update_fields_set.update({"discount_value", "discount_value_currency", "discount_percentage", "discount_type"})
+                kwargs["update_fields"] = list(update_fields_set)
 
         is_new = self.pk is None
 
@@ -190,12 +234,6 @@ class Budget(TimeStampedModel):
                 self.sync_items_benefit_type_to_budget_type()
 
             if old_status != BudgetStatus.APPROVED and self.status == BudgetStatus.APPROVED:
-                if self.vehicle_id and self.current_km is not None:
-                    vehicle = self.vehicle
-                    if vehicle and vehicle.km != self.current_km:
-                        vehicle.km = self.current_km
-                        vehicle.save(update_fields=["km"])
-
                 workorder, _ = WorkOrder.objects.get_or_create(
                     budget=self,
                     defaults={"workshop": self.workshop},
@@ -206,9 +244,32 @@ class Budget(TimeStampedModel):
                 self.signature_token_active = False
                 super().save(update_fields=["signature_token_active"])
 
+            if not skip_stored_refresh:
+                self.refresh_stored_total_amount()
+
+    def refresh_stored_total_amount(self) -> None:
+        """Persist list/dashboard total for SQL aggregates.
+
+        Sale budgets store the chargeable pricing total. Warranty/courtesy store the
+        operational catalog total so listings show face value while chargeable
+        pricing (`total_budget_value`) remains zero.
+        """
+        if self.pk is None:
+            return
+        if getattr(self, "_skip_stored_total_refresh", False):
+            return
+        total = self.stored_total_source_value
+        type(self).objects.filter(pk=self.pk).update(stored_total_amount=total)
+        self.stored_total_amount = total
+
     class Meta:
         verbose_name = "Orçamento"
         verbose_name_plural = "Orçamentos"
+        indexes = [
+            models.Index(fields=["workshop", "status", "entry_date"], name="budget_ws_status_entry_idx"),
+            models.Index(fields=["workshop", "entry_date"], name="budget_ws_entry_idx"),
+            models.Index(fields=["customer", "criado_em"], name="budget_customer_criado_idx"),
+        ]
 
     @property
     def has_frozen_pricing_snapshot(self) -> bool:
@@ -224,10 +285,22 @@ class Budget(TimeStampedModel):
 
     @property
     def warranty_items_count(self) -> int:
+        prefetched = getattr(self, "_prefetched_objects_cache", None)
+        if prefetched is not None and "items" in prefetched:
+            return sum(1 for item in self.items.all() if item.item_benefit_type == "warranty")
+        annotated = getattr(self, "annotated_warranty_items_count", None)
+        if annotated is not None:
+            return int(annotated)
         return self.items.filter(item_benefit_type="warranty").count()
 
     @property
     def courtesy_items_count(self) -> int:
+        prefetched = getattr(self, "_prefetched_objects_cache", None)
+        if prefetched is not None and "items" in prefetched:
+            return sum(1 for item in self.items.all() if item.item_benefit_type == "courtesy")
+        annotated = getattr(self, "annotated_courtesy_items_count", None)
+        if annotated is not None:
+            return int(annotated)
         return self.items.filter(item_benefit_type="courtesy").count()
 
     @staticmethod
@@ -272,12 +345,10 @@ class Budget(TimeStampedModel):
             minimum_hourly_cost = workshop_cost.minimum_hourly_cost or Money(0, "BRL")
             hourly_cost_value = workshop_cost.hourly_cost_value or Money(0, "BRL")
             profitability_multiplier = workshop_cost.profitability_multiplier or Decimal("0.00")
-
-            mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=self.workshop)
-            if mechanic_salary_obj is not None:
-                salary_item = WorkshopCostItem.objects.filter(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).first()
-                if salary_item is not None:
-                    productive_salary_total = salary_item.amount
+            productive_salary_total = get_productive_salary_total_including_transport(
+                workshop=self.workshop,
+                workshop_cost=workshop_cost,
+            )
 
         return {
             "pricing_reference_month": reference_month,
@@ -300,9 +371,19 @@ class Budget(TimeStampedModel):
         type(self).objects.filter(pk=self.pk).update(**snapshot_data)
         for field_name, value in snapshot_data.items():
             setattr(self, field_name, value)
+        self.invalidate_pricing_snapshot_cache()
+        # Avoid nested full pricing while resolving labor costs inside pricing_snapshot.
+        # Full Budget.save() / explicit callers refresh stored totals separately.
 
     def get_frozen_pricing_context(self):
+        injected = getattr(self, "_injected_pricing_context", None)
+        if injected is not None:
+            return injected
+
         if not self.has_frozen_pricing_snapshot:
+            # Avoid write-on-read during list/dashboard pricing (N+1 freezes).
+            if getattr(self, "_read_only_pricing_context", False):
+                return self._get_live_pricing_fallback_context()
             self.freeze_pricing_snapshot()
 
         return SimpleNamespace(
@@ -316,6 +397,22 @@ class Budget(TimeStampedModel):
         )
 
     def _get_live_pricing_fallback_context(self) -> SimpleNamespace:
+        cached = getattr(self, "_live_pricing_fallback_cache", None)
+        if cached is not None:
+            return cached
+
+        reference_date = self._get_pricing_reference_date()
+        cache_key = (reference_date.month, reference_date.year)
+        workshop = self.workshop
+        workshop_cache = getattr(workshop, "_live_pricing_fallback_by_month", None) if workshop is not None else None
+        if workshop_cache is None and workshop is not None:
+            workshop_cache = {}
+            setattr(workshop, "_live_pricing_fallback_by_month", workshop_cache)
+        if workshop_cache is not None and cache_key in workshop_cache:
+            cached = workshop_cache[cache_key]
+            setattr(self, "_live_pricing_fallback_cache", cached)
+            return cached
+
         workshop_cost = self._get_reference_workshop_cost()
         productive_salary_total = Money(0, "BRL")
         working_hours_per_month = Decimal("0.00")
@@ -326,19 +423,21 @@ class Budget(TimeStampedModel):
             working_hours_per_month = workshop_cost.working_hours_per_month or Decimal("0.00")
             hourly_cost_value = workshop_cost.hourly_cost_value or Money(0, "BRL")
             profitability_multiplier = workshop_cost.profitability_multiplier or Decimal("1.00")
+            productive_salary_total = get_productive_salary_total_including_transport(
+                workshop=self.workshop,
+                workshop_cost=workshop_cost,
+            )
 
-            mechanic_salary_obj = get_mechanic_salary_monthly_cost(workshop=self.workshop)
-            if mechanic_salary_obj is not None:
-                salary_item = WorkshopCostItem.objects.filter(workshop_cost=workshop_cost, monthly_cost=mechanic_salary_obj).first()
-                if salary_item is not None:
-                    productive_salary_total = salary_item.amount
-
-        return SimpleNamespace(
+        cached = SimpleNamespace(
             hourly_cost_value=hourly_cost_value,
             profitability_multiplier=profitability_multiplier,
             working_hours_per_month=working_hours_per_month,
             productive_salary_total=productive_salary_total,
         )
+        setattr(self, "_live_pricing_fallback_cache", cached)
+        if workshop_cache is not None:
+            workshop_cache[cache_key] = cached
+        return cached
 
     @property
     def get_mlr(self):
@@ -383,7 +482,7 @@ class Budget(TimeStampedModel):
 
         return (valor_orcamento_hun.amount / divisor_mlo) if divisor_mlo > 0 else Decimal("1.00")
 
-    def calculate_pricing_methods(self):
+    def calculate_pricing_methods(self, *, include_method_extras: bool = True):
         fallback_data = self._build_pricing_fallback_data()
         pricing_context = self.get_frozen_pricing_context()
         salario_mecanicos = pricing_context.productive_salary_total
@@ -455,16 +554,21 @@ class Budget(TimeStampedModel):
             "custo_total_mao_obra": custo_total_mao_obra,
             "duracao_total": self.total_duration_display,
             "lucro_operacional": lucro_operacional_hun,
-            "mlr": self.get_mlr,
             "venda_pecas": venda_pecas,
             "venda_servico_terceiro": venda_servico_terceiro,
             "venda_mao_obra": venda_mao_obra_hun,
             "rentabilidade": rentabilidade_hun,
-            "mlo": self.get_mlo,
             "valor_orcamento": valor_orcamento_hun,
         }
 
-        return data_trad if rentabilidade_trad > rentabilidade_hun else data_hun
+        # Prefer traditional when more profitable; only then attach heavy MLR/MLO extras.
+        if rentabilidade_trad > rentabilidade_hun:
+            return data_trad
+
+        if include_method_extras:
+            data_hun["mlr"] = self.get_mlr
+            data_hun["mlo"] = self.get_mlo
+        return data_hun
 
     def _build_pricing_fallback_data(self) -> dict[str, Any]:
         custo_pecas = self.total_costs_products_value
@@ -554,14 +658,14 @@ class Budget(TimeStampedModel):
 
     @property
     def collaborator_name(self):
-        collabs = self.collaborators.all()
-        if collabs.exists():
+        collabs = list(self.collaborators.all())
+        if collabs:
             return ", ".join([c.name for c in collabs])
         return "Sistema"
 
     @property
     def rentability(self) -> Money:
-        data = self.calculate_pricing_methods()
+        data = self.calculate_pricing_methods(include_method_extras=False)
         return data["rentabilidade"]
 
     def _is_local_product_item(self, item: "BudgetItem") -> bool:
@@ -578,6 +682,10 @@ class Budget(TimeStampedModel):
         if not self.pk:
             return ()
 
+        cached_items = getattr(self, "_pricing_items_list_cache", None)
+        if cached_items is not None:
+            return cached_items
+
         prefetched_items = getattr(self, "_prefetched_objects_cache", {}).get("items")
         if prefetched_items is not None:
             return prefetched_items
@@ -585,7 +693,7 @@ class Budget(TimeStampedModel):
         return (
             self.items.select_related("product", "service", "kit")
             .prefetch_related(
-                "kit_overrides",
+                budget_kit_overrides_prefetch(),
                 "kit__kit_products__product",
                 "kit__kit_services__service",
             )
@@ -629,6 +737,9 @@ class Budget(TimeStampedModel):
 
     @property
     def total_labor_cost_value(self) -> Money:
+        # Dashboard/list total-only paths: with slider==0, labor cost does not change total_budget_value.
+        if getattr(self, "_skip_mechanic_labor_cost", False):
+            return Money(0, "BRL")
         duracao_em_horas = Decimal(self._raw_labor_duration().total_seconds()) / Decimal(3600)
         return self.mechanic_hour_cost_value * duracao_em_horas
 
@@ -636,15 +747,21 @@ class Budget(TimeStampedModel):
     def pricing_snapshot(self) -> PricingSnapshot:
         cached_snapshot = getattr(self, "_pricing_snapshot_cache", None)
         if cached_snapshot is None:
-            cached_snapshot = build_pricing_snapshot(
-                items=list(self._iter_items()),
-                slider=int(self.slider or 0),
-                discount_value=self.discount_value,
-                discount_percentage=self.discount_percentage,
-                labor_cost_value=self.total_labor_cost_value,
-                is_local_product_item=self._is_local_product_item,
-                is_local_service_item=self._is_local_service_item,
-            )
+            items = list(self._iter_items())
+            setattr(self, "_pricing_items_list_cache", items)
+            try:
+                cached_snapshot = build_pricing_snapshot(
+                    items=items,
+                    slider=int(self.slider or 0),
+                    discount_value=self.discount_value,
+                    discount_percentage=self.discount_percentage,
+                    labor_cost_value=self.total_labor_cost_value,
+                    is_local_product_item=self._is_local_product_item,
+                    is_local_service_item=self._is_local_service_item,
+                )
+            finally:
+                if hasattr(self, "_pricing_items_list_cache"):
+                    delattr(self, "_pricing_items_list_cache")
             setattr(self, "_pricing_snapshot_cache", cached_snapshot)
         return cached_snapshot
 
@@ -653,16 +770,19 @@ class Budget(TimeStampedModel):
             delattr(self, "_pricing_snapshot_cache")
         if hasattr(self, "_product_issue_summary_cache"):
             delattr(self, "_product_issue_summary_cache")
+        if hasattr(self, "_pricing_items_list_cache"):
+            delattr(self, "_pricing_items_list_cache")
 
     def sync_discount_fields(self) -> None:
         self.invalidate_pricing_snapshot_cache()
         resolved_discount_value, resolved_discount_percentage = resolve_discount_fields(
-            total_base_value=self.display_total_base_value if self.is_warranty_budget else self.total_base_value,
+            total_base_value=self.total_base_value,
             discount_value=self.discount_value,
             discount_percentage=self.discount_percentage,
         )
         self.discount_value = resolved_discount_value
         self.discount_percentage = resolved_discount_percentage
+        # Invalidate once so the following refresh_stored_total_amount rebuilds with new discounts.
         self.invalidate_pricing_snapshot_cache()
 
     ## Products
@@ -698,6 +818,14 @@ class Budget(TimeStampedModel):
     @property
     def total_third_party_services_selling(self) -> Money:
         return self.pricing_snapshot.total_third_party_services_selling
+
+    @property
+    def get_total_third_party_by_slider(self) -> Money:
+        return self.pricing_snapshot.total_third_party_by_slider
+
+    @property
+    def display_total_third_party_by_slider(self) -> Money:
+        return self.get_total_third_party_by_slider
 
     @property
     def total_costs_services_value(self) -> Money:
@@ -740,42 +868,34 @@ class Budget(TimeStampedModel):
 
     @property
     def warranty_total_products_value(self) -> Money:
-        return self.total_costs_products_value + self.total_products_shipping
+        return self.benefit_summary_total_value
 
     @property
     def warranty_total_products_value_without_shipping(self) -> Money:
-        return self.total_costs_products_value
+        return self.benefit_summary_total_value
 
     @property
     def warranty_total_services_value(self) -> Money:
-        return self.total_costs_services_value + self.total_services_shipping
+        return Money(0, "BRL")
 
     @property
     def warranty_total_base_value(self) -> Money:
-        return self.warranty_total_products_value + self.warranty_total_services_value
+        return self.benefit_summary_total_value
 
     @property
     def display_total_products_by_slider(self) -> Money:
-        if self.is_warranty_budget:
-            return self.warranty_total_products_value
         return self.get_total_products_by_slider
 
     @property
     def display_total_products_by_slider_without_shipping(self) -> Money:
-        if self.is_warranty_budget:
-            return self.warranty_total_products_value_without_shipping
         return self.get_total_products_by_slider_without_shipping
 
     @property
     def display_total_services_by_slider(self) -> Money:
-        if self.is_warranty_budget:
-            return self.warranty_total_services_value
         return self.get_total_services_by_slider
 
     @property
     def display_total_base_value(self) -> Money:
-        if self.is_warranty_budget:
-            return self.warranty_total_base_value
         return self.total_base_value
 
     @property
@@ -792,37 +912,45 @@ class Budget(TimeStampedModel):
 
     @property
     def display_resolved_discount_value(self) -> Money:
-        if not self.is_warranty_budget:
-            return self.resolved_discount_value
+        return self.resolved_discount_value
 
-        resolved_discount_value, _ = resolve_discount_fields(
-            total_base_value=self.display_total_base_value,
-            discount_value=self.discount_value,
-            discount_percentage=self.discount_percentage,
-        )
-        return resolved_discount_value
+    @property
+    def stored_total_source_value(self) -> Money:
+        """Canonical value persisted into ``stored_total_amount``."""
+        if self.is_fixed_budget:
+            return self.summary_total_before_benefit_value
+        return self.total_budget_value
 
     @property
     def display_total_budget_value(self) -> Money:
-        return self.display_total_base_value - self.display_resolved_discount_value
+        if self.is_fixed_budget:
+            return self.summary_total_before_benefit_value
+        return self.total_budget_value
 
     @property
     def selected_items_total_products_without_shipping(self) -> Money:
-        if self.is_warranty_budget:
-            return self.warranty_total_products_value_without_shipping
-        return self.total_products_value - self.total_products_shipping
+        total = Money(0, "BRL")
+        for item in self._iter_items():
+            total += item.summary_products_total_without_shipping
+        return total
 
     @property
     def selected_items_total_services_value(self) -> Money:
-        if self.is_warranty_budget:
-            return self.warranty_total_services_value
-        return self.total_services_value
+        total = Money(0, "BRL")
+        for item in self._iter_items():
+            total += item.summary_services_total
+        return total
+
+    @property
+    def selected_items_total_shipping_value(self) -> Money:
+        total = Money(0, "BRL")
+        for item in self._iter_items():
+            total += item.summary_shipping_total
+        return total
 
     @property
     def selected_items_total_base_value(self) -> Money:
-        if self.is_warranty_budget:
-            return self.warranty_total_base_value
-        return self.total_products_value + self.total_services_value
+        return self.selected_items_total_products_without_shipping + self.selected_items_total_services_value + self.selected_items_total_shipping_value
 
     @property
     def selected_items_total_budget_value(self) -> Money:
@@ -834,16 +962,53 @@ class Budget(TimeStampedModel):
         return self.selected_items_total_base_value - resolved_discount_value
 
     @property
-    def display_resolved_discount_percentage(self) -> Decimal:
-        if not self.is_warranty_budget:
-            return self.resolved_discount_percentage
+    def has_benefit_items(self) -> bool:
+        return self.warranty_items_count > 0 or self.courtesy_items_count > 0
 
-        _, resolved_discount_percentage = resolve_discount_fields(
-            total_base_value=self.display_total_base_value,
+    @property
+    def benefit_summary_label(self) -> str:
+        if self.warranty_items_count and self.courtesy_items_count:
+            return "Garantia/Cortesia"
+        if self.warranty_items_count:
+            return "Garantia"
+        if self.courtesy_items_count:
+            return "Cortesia"
+        return ""
+
+    @property
+    def benefit_summary_total_value(self) -> Money:
+        benefit_total = Money(0, "BRL")
+        for item in self._iter_items():
+            if item.is_benefit_item:
+                benefit_total += item.total_price
+        return benefit_total
+
+    @property
+    def summary_chargeable_base_value(self) -> Money:
+        amount = self.selected_items_total_base_value.amount - self.benefit_summary_total_value.amount
+        return Money(max(amount, Decimal("0.00")), "BRL")
+
+    @property
+    def summary_discount_value(self) -> Money:
+        resolved_discount_value, _ = resolve_discount_fields(
+            total_base_value=self.summary_chargeable_base_value,
             discount_value=self.discount_value,
             discount_percentage=self.discount_percentage,
         )
-        return resolved_discount_percentage
+        return resolved_discount_value
+
+    @property
+    def summary_total_before_benefit_value(self) -> Money:
+        return self.selected_items_total_base_value
+
+    @property
+    def summary_amount_due_value(self) -> Money:
+        amount = self.summary_chargeable_base_value.amount - self.summary_discount_value.amount
+        return Money(max(amount, Decimal("0.00")), "BRL")
+
+    @property
+    def display_resolved_discount_percentage(self) -> Decimal:
+        return self.resolved_discount_percentage
 
     @property
     def has_local_items(self):
@@ -982,8 +1147,7 @@ class BudgetItem(TimeStampedModel):
     # Dados
     description = models.CharField(verbose_name="Descrição", max_length=100, default="")
     quantity = models.PositiveIntegerField(verbose_name="Quantidade", default=1)
-    is_local = models.BooleanField(verbose_name="Item Local", default=False,
-                                   help_text="Item criado apenas neste orçamento, não cadastrado no banco de dados")
+    is_local = models.BooleanField(verbose_name="Item Local", default=False, help_text="Item criado apenas neste orçamento, não cadastrado no banco de dados")
     local_item_type = models.CharField(
         verbose_name="Tipo do Item Local",
         max_length=20,
@@ -1004,8 +1168,7 @@ class BudgetItem(TimeStampedModel):
     service_shipping = MoneyField(verbose_name="Frete do Serviço", max_digits=14, decimal_places=2, default=0)
     duration = models.DurationField(verbose_name="Duração", null=True, blank=True)
     kit_snapshot_frozen = models.BooleanField(verbose_name="Snapshot do kit congelado", default=False)
-    item_benefit_type = models.CharField(verbose_name="Tipo de Benefício", max_length=20,
-                                         choices=BudgetItemBenefitType.choices, default=BudgetItemBenefitType.NORMAL)
+    item_benefit_type = models.CharField(verbose_name="Tipo de Benefício", max_length=20, choices=BudgetItemBenefitType.choices, default=BudgetItemBenefitType.NORMAL)
 
     def save(self, *args, **kwargs):
         is_new = not self.pk
@@ -1059,6 +1222,18 @@ class BudgetItem(TimeStampedModel):
 
         if self.service_id:
             record_service_last_used_price(service=self.service, price=self.service_selling_price)
+
+        if self.budget_id and not getattr(self.budget, "_skip_stored_total_refresh", False):
+            self.budget.invalidate_pricing_snapshot_cache()
+            self.budget.refresh_stored_total_amount()
+
+    def delete(self, *args, **kwargs):
+        budget = self.budget if self.budget_id else None
+        result = super().delete(*args, **kwargs)
+        if budget is not None and not getattr(budget, "_skip_stored_total_refresh", False):
+            budget.invalidate_pricing_snapshot_cache()
+            budget.refresh_stored_total_amount()
+        return result
 
     def _clear_kit_snapshot_caches(self) -> None:
         for cache_name in ("_kit_override_maps_cache", "_kit_unit_totals_cache"):
@@ -1150,19 +1325,31 @@ class BudgetItem(TimeStampedModel):
         self.service_selling_price = service_selling_total
         self.duration = total_duration
 
+    def _cached_kit_overrides(self) -> list["BudgetKitItemOverride"]:
+        """Return kit overrides using prefetch cache when available (no write-on-read)."""
+        prefetched = getattr(self, "_prefetched_objects_cache", {}).get("kit_overrides")
+        if prefetched is not None:
+            return list(prefetched)
+
+        cached = getattr(self, "_kit_overrides_list_cache", None)
+        if cached is not None:
+            return cached
+
+        cached = list(self.kit_overrides.all())
+        setattr(self, "_kit_overrides_list_cache", cached)
+        return cached
+
     def _iter_frozen_kit_product_overrides(self):
         if not self.kit_id:
             return ()
 
-        self.ensure_kit_snapshot()
-        return self.kit_overrides.filter(product__isnull=False).select_related("product").all()
+        return tuple(override for override in self._cached_kit_overrides() if override.product_id)
 
     def _iter_frozen_kit_service_overrides(self):
         if not self.kit_id:
             return ()
 
-        self.ensure_kit_snapshot()
-        return self.kit_overrides.filter(service__isnull=False).select_related("service").all()
+        return tuple(override for override in self._cached_kit_overrides() if override.service_id)
 
     @property
     def duration_display(self):
@@ -1180,13 +1367,10 @@ class BudgetItem(TimeStampedModel):
         if cache is not None:
             return cache
 
-        if self.kit_id:
-            self.ensure_kit_snapshot()
-
         product_overrides: dict[int, "BudgetKitItemOverride"] = {}
         service_overrides: dict[int, "BudgetKitItemOverride"] = {}
 
-        for override in self.kit_overrides.all():
+        for override in self._cached_kit_overrides():
             if override.product_id:
                 product_overrides[override.product_id] = override
             if override.service_id:
@@ -1291,6 +1475,32 @@ class BudgetItem(TimeStampedModel):
         return len(self.effective_kit_services)
 
     @property
+    def is_benefit_item(self) -> bool:
+        return self.item_benefit_type != BudgetItemBenefitType.NORMAL
+
+    @property
+    def summary_products_total_without_shipping(self) -> Money:
+        if self.is_customer_supplied:
+            return Money(0, "BRL")
+        if self.kit:
+            return self.get_kit_products_total() - self.get_kit_products_shipping_total()
+        return self.product_selling_price * self.quantity
+
+    @property
+    def summary_services_total(self) -> Money:
+        if self.kit:
+            return self.get_kit_services_total()
+        return self.service_selling_price * self.quantity
+
+    @property
+    def summary_shipping_total(self) -> Money:
+        if self.is_customer_supplied and not self.service_id:
+            return Money(0, "BRL")
+        if self.kit:
+            return self.get_kit_products_shipping_total()
+        return self.shipping + (self.service_shipping * self.quantity)
+
+    @property
     def total_price(self):
         # Se for kit, calcular com base nos overrides
         if self.kit:
@@ -1300,46 +1510,24 @@ class BudgetItem(TimeStampedModel):
 
     @property
     def display_product_selling_price(self) -> Money:
-        if self.budget.is_warranty_budget:
-            return Money(0, "BRL")
         return self.product_selling_price
 
     @property
     def display_service_selling_price(self) -> Money:
-        if self.budget.is_warranty_budget:
-            return Money(0, "BRL")
         return self.service_selling_price
 
     @property
     def display_total_price(self) -> Money:
-        if not self.budget.is_warranty_budget:
-            return self.total_price
         if self.kit:
-            return self.get_kit_products_cost_total() + self.get_kit_products_shipping_total() + self.get_kit_services_cost_total()
-        if self.service_id or (self.is_local and not self.product_id):
-            return (self.service_cost_price * self.quantity) + (self.service_shipping * self.quantity)
-        if (self.product_id or self.is_local) and ((self.product_cost_price and self.product_cost_price.amount > 0) or (self.shipping and self.shipping.amount > 0)):
-            return (self.product_cost_price * self.quantity) + self.shipping
-        return self.service_cost_price * self.quantity
+            return self.get_kit_total_with_overrides()
+        return self.total_price
 
     @property
     def display_unit_price(self) -> Money:
-        if not self.budget.is_warranty_budget:
-            return self.unit_price
-        if self.quantity <= 0:
-            return Money(0, "BRL")
-        if self.kit:
-            return self.kit_unit_cost
-        if self.service_id or (self.is_local and not self.product_id):
-            return self.service_cost_price + self.service_shipping
-        if (self.product_id or self.is_local) and ((self.product_cost_price and self.product_cost_price.amount > 0) or (self.shipping and self.shipping.amount > 0)):
-            return self.product_cost_price
-        return self.service_cost_price
+        return self.unit_price
 
     @property
     def display_kit_unit_price(self) -> Money:
-        if self.budget.is_warranty_budget:
-            return Money(0, "BRL")
         return self.kit_unit_price
 
     def _get_kit_unit_cost_and_price(self) -> tuple[Money, Money]:
@@ -1684,6 +1872,7 @@ class BudgetHistory(TimeStampedModel):
     user = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, related_name="budget_history_entries", null=True, blank=True)
     action = models.CharField(verbose_name="Ação", max_length=30, choices=Action.choices)
     reason = models.TextField(verbose_name="Justificativa", blank=True)
+    snapshot = models.JSONField(verbose_name="Snapshot dos itens", default=dict, blank=True)
 
     class Meta:
         verbose_name = "Histórico do orçamento"
@@ -1692,3 +1881,37 @@ class BudgetHistory(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.get_action_display()} - Orçamento #{self.budget.pk}"
+
+
+class BudgetPdfRenderJob(TimeStampedModel):
+    class Variant(models.TextChoices):
+        BASE = "base", "PDF base"
+        MANAGER = "manager", "PDF gestor"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pendente"
+        PROCESSING = "processing", "Processando"
+        COMPLETED = "completed", "Concluído"
+        FAILED = "failed", "Falhou"
+
+    budget = models.ForeignKey("budget.Budget", on_delete=models.CASCADE, related_name="pdf_render_jobs")
+    variant = models.CharField(max_length=20, choices=Variant.choices)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    requested_by = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, related_name="budget_pdf_render_jobs", null=True, blank=True)
+    budget_updated_at = models.DateTimeField(null=True, blank=True)
+    output_file = models.FileField(upload_to="generated/budget_pdfs/", blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(blank=True, default="")
+
+    class Meta(TimeStampedModel.Meta):
+        verbose_name = "Fila de renderização de PDF do orçamento"
+        verbose_name_plural = "Filas de renderização de PDFs do orçamento"
+        constraints = [
+            models.UniqueConstraint(fields=("budget", "variant"), name="unique_budget_pdf_render_job_per_variant"),
+        ]
+        indexes = [
+            models.Index(fields=("status", "variant"), name="budget_pdf_job_sv_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"PDF {self.variant} do orçamento #{self.budget_id} ({self.status})"

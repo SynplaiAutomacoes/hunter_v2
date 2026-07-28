@@ -4,11 +4,11 @@ from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.db.models import Q, QuerySet
-from django.http import HttpRequest, HttpResponse, JsonResponse
-from django.contrib.auth.decorators import login_required
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, JsonResponse
 from django.shortcuts import redirect, get_object_or_404, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
@@ -24,13 +24,14 @@ from apps.core.infrastructure.pdf.renderer import render_template_request_to_pdf
 from apps.core.presentation.forms import MultiStepFormMixin
 from apps.core.presentation.navigation import FINANCIAL_MOVEMENT_CREATE_FAVORITE_PAGE
 from apps.core.presentation.tables import TableActionDefaults
-from apps.core.templatetags.table_tags import TableColumn, _apply_search, _apply_sort, _ensure_stable_ordering, _paginate, _parse_sort
+from apps.core.templatetags.table_tags import TableAction, TableColumn, _apply_search, _apply_sort, _ensure_stable_ordering, _paginate, _parse_sort
 from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
 from apps.core.utils import clean_id
 from apps.finance.forms.financial_movement import MovementStep1Form, MovementStep2Form, MovementStep3Form, MovementStep4Form
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.views.navigation import append_query_params
 from apps.accounts.models import User
+from apps.collaborators.services import delete_payroll_component_and_recalculate, recalculate_payroll_from_linked_movements
 from apps.collaborators.models import WorkshopCollaborator
 from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
@@ -121,16 +122,7 @@ def _apply_paid_status_filter_to_queryset(queryset: QuerySet[FinancialMovement],
     if not paid_status:
         return queryset
     is_paid_lookup = paid_status == "paid"
-    matched_ids = list(
-        queryset
-        .exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False)
-        .filter(is_paid=is_paid_lookup)
-        .values_list("pk", flat=True)
-    )
-    for movement in queryset.filter(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False):
-        if (is_paid_lookup and movement.is_paid) or (not is_paid_lookup and not movement.is_paid):
-            matched_ids.append(movement.pk)
-    return queryset.filter(pk__in=matched_ids)
+    return queryset.filter(is_paid=is_paid_lookup)
 
 
 def _apply_report_filters_to_queryset(queryset: QuerySet[FinancialMovement], *, params: dict[str, Any]) -> QuerySet[FinancialMovement]:
@@ -227,8 +219,7 @@ def get_financial_movement_visible_page(*, request: HttpRequest, workshop: Any) 
     ordered_queryset, _, _, _ = _apply_sort(filtered_queryset, columns=fields, sort=sort, sort_attr=sort_attr, sort_desc=sort_desc, sort_is_valid=sort_is_valid)
     ordered_queryset = _ensure_stable_ordering(ordered_queryset)
 
-    has_active_filters = any(str(value).strip() != "" for param_name in ("data_inicial", "data_final", "source") for value in request.GET.getlist(param_name))
-    per_page = max(ordered_queryset.count(), 1) if has_active_filters else 10
+    per_page = 10
     page_obj, _ = _paginate(ordered_queryset, per_page=per_page, page_number=request.GET.get("page", "1"))
     return page_obj
 
@@ -344,18 +335,20 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
                 payment_amount = getattr(payment, "total_paid", None) or Money(0, "BRL")
                 payment_movement = per_payment_movements.get(payment.pk) or movement
                 payment_method = getattr(payment, "payment_method", None)
-                rows.append({
-                    "paid_status": "Sim" if payment_movement.is_paid else "Não",
-                    "reconciliation_status": "Conciliado" if payment_movement.is_reconciled else "Aguardando Conciliação",
-                    "direction": FinancialMovement.MovementDirection.CREDIT,
-                    "direction_label": "Crédito",
-                    "due_date": payment.due_date or movement.due_date,
-                    "agent": payment_movement.report_agent_display,
-                    "description": _resolve_workorder_description(workorder),
-                    "budget_plan": payment_movement.report_budget_plan_display,
-                    "payment_type": getattr(payment_method, "description", "-") or "-",
-                    "amount": payment_amount,
-                })
+                rows.append(
+                    {
+                        "paid_status": "Sim" if payment_movement.is_paid else "Não",
+                        "reconciliation_status": "Conciliado" if payment_movement.is_reconciled else "Aguardando Conciliação",
+                        "direction": FinancialMovement.MovementDirection.CREDIT,
+                        "direction_label": "Crédito",
+                        "due_date": payment.due_date or movement.due_date,
+                        "agent": payment_movement.report_agent_display,
+                        "description": _resolve_workorder_description(workorder),
+                        "budget_plan": payment_movement.report_budget_plan_display,
+                        "payment_type": getattr(payment_method, "description", "-") or "-",
+                        "amount": payment_amount,
+                    }
+                )
                 continue
 
             payments = list(workorder.payments.all())
@@ -504,7 +497,20 @@ class FinancialMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTem
         context["fields"] = get_financial_movement_table_columns()
         context["actions"] = [
             TableActionDefaults.edit("finance:financial_movement_update", preserve_current_url_as_next=True),
-            TableActionDefaults.delete("finance:financial_movement_delete"),
+            TableAction(
+                label="Excluir da Folha",
+                url_name="finance:financial_movement_remove_payroll_link",
+                icon="link_off",
+                a_class="btn-table-delete",
+                hx_target="#modal-container",
+                hx_swap="innerHTML",
+                hx_push_url="false",
+                visible=lambda obj: obj.payroll_id is not None,
+            ),
+            TableActionDefaults.delete(
+                "finance:financial_movement_delete",
+                visible=lambda obj: obj.payroll_id is None,
+            ),
         ]
         context["source_filters"] = Source.objects.filter(workshop=self.workshop).order_by("name", "id")
         context["selected_source_id"] = _get_financial_movement_selected_source_id(self.request)
@@ -520,12 +526,7 @@ def financial_movement_pdf(request: HttpRequest) -> HttpResponse:
 
     filter_params = _parse_report_filter_params(request)
 
-    queryset = (
-        FinancialMovement.objects.filter(workshop=workshop)
-        .filter(due_date__isnull=False)
-        .filter(Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT))
-        .exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder_payment__isnull=False)
-    )
+    queryset = FinancialMovement.objects.filter(workshop=workshop).filter(due_date__isnull=False).filter(Q(movement_group__isnull=True) | Q(movement_kind=FinancialMovement.MovementKind.GROUP_PARENT)).exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder_payment__isnull=False)
 
     queryset = _apply_report_filters_to_queryset(queryset, params=filter_params)
 
@@ -542,11 +543,7 @@ def financial_movement_pdf(request: HttpRequest) -> HttpResponse:
     ).prefetch_related("workorder__payments", "workorder__payments__payment_method")
     movements = list(queryset)
 
-    workorder_ids_with_parent = {
-        m.workorder_id for m in movements
-        if m.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT
-        and m.workorder_id is not None
-    }
+    workorder_ids_with_parent = {m.workorder_id for m in movements if m.movement_kind == FinancialMovement.MovementKind.WORKORDER_PARENT and m.workorder_id is not None}
 
     fallback = FinancialMovement.objects.filter(
         workshop=workshop,
@@ -557,10 +554,17 @@ def financial_movement_pdf(request: HttpRequest) -> HttpResponse:
 
     fallback = _apply_report_filters_to_queryset(fallback, params=filter_params)
     fallback = fallback.select_related(
-        "source", "collaborator", "supplier", "payment_method",
-        "budget_plan", "bank_account", "workorder",
-        "workorder__budget", "workorder__budget__customer",
-        "workorder_payment", "workorder_payment__payment_method",
+        "source",
+        "collaborator",
+        "supplier",
+        "payment_method",
+        "budget_plan",
+        "bank_account",
+        "workorder",
+        "workorder__budget",
+        "workorder__budget__customer",
+        "workorder_payment",
+        "workorder_payment__payment_method",
     ).order_by("-pk")
     movements.extend(list(fallback))
 
@@ -649,6 +653,8 @@ class FinancialMovementCreateView(PageFavoriteMixin, LoginRequiredMixin, Worksho
         form.instance.user = self.request.user
 
         self.object = form.save()
+        if getattr(self.object, "payroll_id", None):
+            recalculate_payroll_from_linked_movements(payroll=self.object.payroll)
 
         current_step = self.get_current_step()
         steps_config = self.get_steps_config()
@@ -711,6 +717,8 @@ class FinancialMovementUpdateView(FinancialMovementCreateView):
         form.instance.user = self.request.user
 
         self.object = form.save()
+        if getattr(self.object, "payroll_id", None):
+            recalculate_payroll_from_linked_movements(payroll=self.object.payroll)
 
         current_step = self.get_current_step()
         steps_config = self.get_steps_config()
@@ -743,6 +751,37 @@ class FinancialMovementDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxD
 
     htmx_template_name = "finance/partials/financial_movement/financial_movement_delete_modal.html"
     htmx_trigger = "financial_movement-table-refresh"
+
+    def form_valid(self, form):
+        linked_payroll = None
+        if getattr(self.object, "payroll_id", None):
+            linked_payroll = self.object.payroll
+        else:
+            linked_payroll = getattr(self.object, "collaborator_payroll", None)
+
+        if linked_payroll is not None:
+            delete_payroll_component_and_recalculate(movement=self.object)
+            if bool(getattr(self.request, "htmx", False)):
+                response = HttpResponse()
+                response["HX-Refresh"] = "true"
+                if self.htmx_trigger:
+                    response["HX-Trigger"] = self.htmx_trigger
+                return response
+            return HttpResponseRedirect(self.get_success_url())
+
+        return super().form_valid(form)
+
+
+class FinancialMovementRemovePayrollLinkView(FinancialMovementDeleteView):
+    htmx_template_name = "finance/partials/financial_movement/financial_movement_remove_payroll_link_modal.html"
+
+    def form_valid(self, form):
+        delete_payroll_component_and_recalculate(movement=self.object)
+        if bool(getattr(self.request, "htmx", False)):
+            response = HttpResponse()
+            response["HX-Refresh"] = "true"
+            return response
+        return HttpResponseRedirect(self.get_success_url())
 
 
 class EntityListView(LoginRequiredMixin, WorkshopScopedMixin, View):

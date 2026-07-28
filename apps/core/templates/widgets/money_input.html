@@ -1,6 +1,6 @@
 {% load l10n %}
 
-{% with amount=widget.subwidgets.0 currency=widget.subwidgets.1 %}
+{% with amount=widget.subwidgets.0 currency=widget.subwidgets.1 has_restore=widget.attrs.restore_warning_message has_sync=widget.attrs.salary_sync_url %}
 <div
     x-data="formatters.widget.moneyInput('{{ amount.value|default_if_none:""|unlocalize|escapejs }}', '{{ widget.attrs.restore_original_value|default_if_none:""|escapejs }}', '{{ widget.attrs.restore_warning_message|default_if_none:""|escapejs }}')"
     x-init="init()"
@@ -21,28 +21,48 @@
             inputmode="numeric"
             autocomplete="off"
             placeholder="0,00"
-            class="input-theme pl-8 {% if widget.attrs.restore_warning_message %}pr-10{% else %}pr-2{% endif %} {{ widget.attrs.class }}"
+            class="input-theme pl-8 {% if has_restore and has_sync %}pr-20{% elif has_restore or has_sync %}pr-10{% else %}pr-2{% endif %} {{ widget.attrs.class }}"
             {% if widget.attrs.required %}required{% endif %}
             {% if widget.attrs.disabled %}disabled{% endif %}
             {% if widget.attrs.readonly %}readonly{% endif %}
 
             {% for name, value in widget.attrs.items %}
-                {% if name != 'class' and name != 'type' and name != 'name' and name != 'id' and name != 'value' and name != 'x-ref' and name != 'restore_original_value' and name != 'restore_warning_message' %}
+                {% if name != 'class' and name != 'type' and name != 'name' and name != 'id' and name != 'value' and name != 'x-ref' and name != 'restore_original_value' and name != 'restore_warning_message' and name != 'salary_sync_url' and name != 'salary_sync_vals' and name != 'salary_sync_label' %}
                     {{ name }}="{% if value is True %}{{ name }}{% else %}{{ value }}{% endif %}"
                 {% endif %}
             {% endfor %}
         >
 
-        {% if widget.attrs.restore_warning_message %}
-        <div class="absolute inset-y-0 right-0 flex items-center pr-2" x-show="isDirty" x-cloak>
+        {% if has_sync or has_restore %}
+        <div class="absolute inset-y-0 right-0 flex items-center gap-0.5 pr-1">
+            {% if has_sync %}
+            <button
+                type="button"
+                class="btn btn-ghost btn-xs btn-circle"
+                title="Atualizar valor a partir dos colaboradores"
+                aria-label="{{ widget.attrs.salary_sync_label|default:'Atualizar valor' }}"
+                hx-post="{{ widget.attrs.salary_sync_url }}"
+                hx-trigger="click"
+                hx-include="closest form"
+                hx-vals='{{ widget.attrs.salary_sync_vals }}'
+                hx-swap="none"
+                hx-on::after-request="window.applyWorkshopSalaryCostFields && window.applyWorkshopSalaryCostFields(event)"
+            >
+                <span class="material-icons text-sm">sync</span>
+            </button>
+            {% endif %}
+            {% if has_restore %}
             <button
                 type="button"
                 class="btn btn-ghost btn-xs btn-circle text-warning"
                 title="Restaurar valor original"
+                x-show="isDirty"
+                x-cloak
                 @click="restoreOriginal()"
             >
                 <span class="material-icons text-sm">autorenew</span>
             </button>
+            {% endif %}
         </div>
         {% endif %}
     </div>

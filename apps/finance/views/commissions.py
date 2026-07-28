@@ -6,10 +6,11 @@ from typing import Any
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
-from django.db.models import Q
+from django.db.models import Count, Q, Sum
 from django.http import HttpResponse
 from django.urls import reverse
 from django.utils.decorators import method_decorator
+from django.utils import timezone
 from django.views import View
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.generic import TemplateView
@@ -24,6 +25,40 @@ from apps.workorder.models import WorkOrderStatus
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
+MONTH_CHOICES = (
+    (1, "Janeiro"),
+    (2, "Fevereiro"),
+    (3, "Março"),
+    (4, "Abril"),
+    (5, "Maio"),
+    (6, "Junho"),
+    (7, "Julho"),
+    (8, "Agosto"),
+    (9, "Setembro"),
+    (10, "Outubro"),
+    (11, "Novembro"),
+    (12, "Dezembro"),
+)
+
+
+def _parse_int_param(raw_value: str | None, *, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(str(raw_value or "").strip())
+    except (TypeError, ValueError):
+        return default
+    if value < minimum or value > maximum:
+        return default
+    return value
+
+
+def build_paid_status_indicator(*, is_paid: bool) -> dict[str, str]:
+    return {
+        "icon": "check_circle" if is_paid else "cancel",
+        "class": "text-success" if is_paid else "text-error",
+        "label": "Sim" if is_paid else "Não",
+    }
+
+
 class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
     model = CollaboratorCommissionEntry
     template_name = "finance/commissions/report.html"
@@ -33,7 +68,7 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
     ENTRIES_PER_PAGE = 20
     STATUS_CHOICES = (
         ("", "Todos"),
-        (CollaboratorCommissionEntry.Status.FORECAST, "Previsto"),
+        (CollaboratorCommissionEntry.Status.FORECAST, "Não Pago"),
         (CollaboratorCommissionEntry.Status.PAID, "Pago"),
     )
 
@@ -65,12 +100,26 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
             return ""
         return selected_status
 
+    @classmethod
+    def get_status_label(cls, status: str) -> str | None:
+        labels = {
+            CollaboratorCommissionEntry.Status.FORECAST: "Não Pago",
+            CollaboratorCommissionEntry.Status.PAID: "Pago",
+        }
+        return labels.get(status)
+
     def _get_filter_params(self) -> dict[str, Any]:
+        today = timezone.localdate()
+        start_date = self._parse_date_param(self.request.GET.get("data_inicial"))
+        end_date = self._parse_date_param(self.request.GET.get("data_final"))
         return {
-            "start_date": self._parse_date_param(self.request.GET.get("data_inicial")),
-            "end_date": self._parse_date_param(self.request.GET.get("data_final")),
+            "start_date": start_date,
+            "end_date": end_date,
             "collaborator_id": self._get_selected_collaborator_id(),
             "status": self._get_selected_status(),
+            "month": _parse_int_param(self.request.GET.get("mes"), default=today.month, minimum=1, maximum=12),
+            "year": _parse_int_param(self.request.GET.get("ano"), default=today.year, minimum=2000, maximum=9999),
+            "has_modal_date_filter": bool(start_date or end_date),
         }
 
     def _get_collaborators_queryset(self):
@@ -80,8 +129,14 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
         queryset = (
             CollaboratorCommissionEntry.objects.filter(
                 workshop=self.workshop,
-                workorder__status=WorkOrderStatus.APPROVED,
-                workorder__budget_type="sale",
+            )
+            .filter(
+                Q(status=CollaboratorCommissionEntry.Status.PAID)
+                | Q(
+                    status=CollaboratorCommissionEntry.Status.FORECAST,
+                    workorder__status=WorkOrderStatus.APPROVED,
+                    workorder__budget_type="sale",
+                )
             )
             .select_related("collaborator", "workorder", "workorder__budget", "workorder__budget__customer")
             .order_by("-criado_em", "-id")
@@ -92,6 +147,8 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
             queryset = queryset.filter(criado_em__date__gte=filter_params["start_date"])
         if filter_params["end_date"] is not None:
             queryset = queryset.filter(criado_em__date__lte=filter_params["end_date"])
+        if not filter_params["has_modal_date_filter"]:
+            queryset = queryset.filter(reference_month=filter_params["month"], reference_year=filter_params["year"])
         if filter_params["collaborator_id"] is not None:
             queryset = queryset.filter(collaborator_id=filter_params["collaborator_id"])
         if filter_params["status"]:
@@ -124,31 +181,35 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
             return "-"
         return str(budget.problem_description or budget.notes or "-")
 
-    def _build_summary_cards(self, *, entries: list[CollaboratorCommissionEntry]) -> list[dict[str, str]]:
-        forecast_entries = [entry for entry in entries if entry.status == CollaboratorCommissionEntry.Status.FORECAST]
-        paid_entries = [entry for entry in entries if entry.status == CollaboratorCommissionEntry.Status.PAID]
-        workorder_count = len({entry.workorder_id for entry in entries})
-        collaborator_count = len({entry.collaborator_id for entry in entries})
+    def _build_summary_cards(self, *, queryset) -> list[dict[str, str]]:
+        aggregates = queryset.aggregate(
+            forecast_total=Sum("commission_amount", filter=Q(status=CollaboratorCommissionEntry.Status.FORECAST)),
+            forecast_count=Count("id", filter=Q(status=CollaboratorCommissionEntry.Status.FORECAST)),
+            paid_total=Sum("commission_amount", filter=Q(status=CollaboratorCommissionEntry.Status.PAID)),
+            paid_count=Count("id", filter=Q(status=CollaboratorCommissionEntry.Status.PAID)),
+            workorder_count=Count("workorder", distinct=True),
+            collaborator_count=Count("collaborator", distinct=True),
+        )
 
         return [
             {
-                "title": "Comissões previstas",
-                "value": format_money(self._money_total(forecast_entries, "commission_amount")),
-                "support": f"{len(forecast_entries)} lançamento(s)",
+                "title": "Comissões não pagas",
+                "value": format_money(aggregates.get("forecast_total") or Decimal("0.00")),
+                "support": f"{aggregates.get('forecast_count') or 0} lançamento(s)",
             },
             {
                 "title": "Comissões pagas",
-                "value": format_money(self._money_total(paid_entries, "commission_amount")),
-                "support": f"{len(paid_entries)} lançamento(s)",
+                "value": format_money(aggregates.get("paid_total") or Decimal("0.00")),
+                "support": f"{aggregates.get('paid_count') or 0} lançamento(s)",
             },
             {
-                "title": "O.S. concluídas",
-                "value": str(workorder_count),
+                "title": "O.S. com comissão",
+                "value": str(aggregates.get("workorder_count") or 0),
                 "support": "com comissão apurada",
             },
             {
                 "title": "Colaboradores",
-                "value": str(collaborator_count),
+                "value": str(aggregates.get("collaborator_count") or 0),
                 "support": "com comissão no filtro",
             },
         ]
@@ -167,10 +228,11 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
                     "reference": f"{entry.reference_month:02d}/{entry.reference_year}",
                     "applied_at": entry.criado_em.date() if entry.criado_em else None,
                     "percentage": f"{(entry.percentage * Decimal('100')).quantize(Decimal('0.01'))}%",
-                    "base_amount": entry.workorder.total_services_value,
+                    "base_amount": entry.base_amount,
                     "commission_amount": entry.commission_amount,
                     "status": entry.status,
-                    "status_label": entry.get_status_display(),
+                    "status_label": "Pago" if entry.status == CollaboratorCommissionEntry.Status.PAID else "Não Pago",
+                    "paid_indicator": build_paid_status_indicator(is_paid=entry.status == CollaboratorCommissionEntry.Status.PAID),
                 }
             )
         return rows
@@ -189,14 +251,19 @@ class CommissionReportView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
         visible_entries = list(page_obj.object_list)
         filter_params = self._get_filter_params()
 
-        context["summary_cards"] = self._build_summary_cards(entries=list(queryset))
+        context["summary_cards"] = self._build_summary_cards(queryset=queryset)
         context["commission_rows"] = self._build_rows(entries=visible_entries)
         context["collaborator_filters"] = self._get_collaborators_queryset()
         context["status_choices"] = self.STATUS_CHOICES
         context["selected_collaborator_id"] = filter_params["collaborator_id"]
         context["selected_status"] = filter_params["status"]
+        context["selected_month"] = filter_params["month"]
+        context["selected_year"] = filter_params["year"]
+        context["month_choices"] = MONTH_CHOICES
+        context["year_choices"] = range(timezone.localdate().year - 4, timezone.localdate().year + 2)
+        context["has_modal_date_filter"] = filter_params["has_modal_date_filter"]
         context["clear_filters_url"] = reverse("finance:commission_report")
-        context["has_active_filters"] = bool(filter_params["start_date"] or filter_params["end_date"] or filter_params["collaborator_id"] is not None or filter_params["status"] or str(self.request.GET.get("search") or "").strip())
+        context["has_active_filters"] = bool(filter_params["start_date"] or filter_params["end_date"] or filter_params["collaborator_id"] is not None or filter_params["status"] or str(self.request.GET.get("search") or "").strip() or self.request.GET.get("mes") or self.request.GET.get("ano"))
         context["page_obj"] = page_obj
         context["is_paginated"] = paginator.num_pages > 1
         context["prev_url"] = self._build_pagination_url(page_number=page_obj.previous_page_number()) if page_obj.has_previous() else None
@@ -237,11 +304,22 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
         return selected_status
 
     def _get_queryset(self):
+        today = timezone.localdate()
+        start_date = self._parse_date_param(self.request.GET.get("data_inicial"))
+        end_date = self._parse_date_param(self.request.GET.get("data_final"))
+        selected_month = _parse_int_param(self.request.GET.get("mes"), default=today.month, minimum=1, maximum=12)
+        selected_year = _parse_int_param(self.request.GET.get("ano"), default=today.year, minimum=2000, maximum=9999)
         queryset = (
             CollaboratorCommissionEntry.objects.filter(
                 workshop=self.workshop,
-                workorder__status=WorkOrderStatus.APPROVED,
-                workorder__budget_type="sale",
+            )
+            .filter(
+                Q(status=CollaboratorCommissionEntry.Status.PAID)
+                | Q(
+                    status=CollaboratorCommissionEntry.Status.FORECAST,
+                    workorder__status=WorkOrderStatus.APPROVED,
+                    workorder__budget_type="sale",
+                )
             )
             .select_related(
                 "collaborator",
@@ -253,8 +331,6 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
             .order_by("collaborator__name", "-workorder__delivered_at")
         )
 
-        start_date = self._parse_date_param(self.request.GET.get("data_inicial"))
-        end_date = self._parse_date_param(self.request.GET.get("data_final"))
         collaborator_id = self._get_selected_collaborator_id()
         status = self._get_selected_status()
 
@@ -262,6 +338,8 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
             queryset = queryset.filter(criado_em__date__gte=start_date)
         if end_date is not None:
             queryset = queryset.filter(criado_em__date__lte=end_date)
+        if start_date is None and end_date is None:
+            queryset = queryset.filter(reference_month=selected_month, reference_year=selected_year)
         if collaborator_id is not None:
             queryset = queryset.filter(collaborator_id=collaborator_id)
         if status:
@@ -300,7 +378,7 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
                     "customer": customer.name if customer else "-",
                     "vehicle": str(vehicle) if vehicle else "-",
                     "delivered_at": entry.workorder.delivered_at,
-                    "base_amount": entry.workorder.total_services_value,
+                    "base_amount": entry.base_amount,
                     "percentage": (entry.percentage * Decimal("100")).quantize(Decimal("0.01")),
                     "commission_amount": entry.commission_amount,
                 }
@@ -313,6 +391,7 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
         start_date = self._parse_date_param(request.GET.get("data_inicial"))
         end_date = self._parse_date_param(request.GET.get("data_final"))
         collaborator_id = self._get_selected_collaborator_id()
+        selected_status = self._get_selected_status()
 
         entries = list(self._get_queryset())
         collaborators_data = self._build_collaborators_data(entries)
@@ -332,6 +411,7 @@ class CommissionReportPdfView(LoginRequiredMixin, WorkshopScopedMixin, View):
             "workshop": self.workshop,
             "periodo_label": self._build_periodo_label(start_date, end_date),
             "collaborator_filter": collaborator_filter,
+            "status_filter": CommissionReportView.get_status_label(selected_status),
             "collaborators_data": collaborators_data,
             "total_geral": total_geral,
         }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import requests
@@ -7,10 +8,16 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from apps.finance.models.finance import NfseItem
-from apps.core.infrastructure.services.webmania.emission import apply_nfse_item_payload
+from apps.core.observability import observe_dependency_call
+from apps.finance.models.finance import NfseBatch, NfseItem
+from apps.finance.services.fiscal_attempts import sanitize_fiscal_payload
+from apps.finance.services.nfse_capabilities import NfseCapabilityError, validate_nfse_query_capability
+from apps.core.infrastructure.services.webmania.emission import apply_nfse_batch_payload, apply_nfse_item_payload
 from apps.core.infrastructure.services.webmania.webmania_auth import WebmaniaAuthError, build_webmania_headers, sanitize_webmania_setting
 from apps.core.infrastructure.services.webmania.webmania_errors import build_webmania_request_exception_message, extract_webmania_error_message
+
+
+logger = logging.getLogger(__name__)
 
 
 class NfseConsultaError(Exception):
@@ -39,30 +46,37 @@ def consult_nfse_uuid(*, workshop: Any, event_uuid: str) -> dict[str, Any]:
         raise NfseConsultaError("Nao foi possivel consultar a NFS-e ou lote sem UUID.")
 
     try:
-        response = requests.get(
-            _build_consulta_url(event_uuid=normalized_uuid),
-            headers=_build_headers(workshop=workshop),
-            timeout=30,
-        )
-        response.raise_for_status()
+        with observe_dependency_call(
+            logger=logger,
+            dependency_type="http",
+            dependency_name="webmania",
+            operation="consult_nfse_uuid",
+            log_context={"event_uuid": normalized_uuid, "workshop_id": getattr(workshop, "pk", None)},
+        ) as dependency_call:
+            response = requests.get(
+                _build_consulta_url(event_uuid=normalized_uuid),
+                headers=_build_headers(workshop=workshop),
+                timeout=30,
+            )
+            dependency_call.set_http_status_code(response.status_code)
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise NfseConsultaError("Resposta invalida da API de consulta da Nota Fiscal de Servico.")
+
+            sanitized_payload = sanitize_fiscal_payload(payload)
+            error_message = extract_webmania_error_message(sanitized_payload.get("error") or sanitized_payload.get("msg") or sanitized_payload.get("message"), scope="nfse")
+            if error_message:
+                raise NfseConsultaError(error_message)
+
+            dependency_call.set_attribute("app.payload_type", type(sanitized_payload).__name__)
+            dependency_call.success(extra={"status": str(sanitized_payload.get("status") or "")})
+            return sanitized_payload
     except requests.RequestException as exc:
         message = build_webmania_request_exception_message(exc, default="Falha ao consultar status da Nota Fiscal de Servico", scope="nfse")
         raise NfseConsultaError(message) from exc
-
-    try:
-        payload = response.json()
     except ValueError as exc:
         raise NfseConsultaError("Resposta invalida da API de consulta da Nota Fiscal de Servico.") from exc
-
-    if not isinstance(payload, dict):
-        raise NfseConsultaError("Resposta invalida da API de consulta da Nota Fiscal de Servico.")
-
-    sanitized_payload = sanitize_fiscal_payload(payload)
-    error_message = extract_webmania_error_message(sanitized_payload.get("error") or sanitized_payload.get("msg") or sanitized_payload.get("message"), scope="nfse")
-    if error_message:
-        raise NfseConsultaError(error_message)
-
-    return sanitized_payload
 
 
 def consult_nfse_item(*, item: NfseItem) -> dict[str, Any]:

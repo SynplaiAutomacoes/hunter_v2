@@ -21,6 +21,10 @@ from django.db.models import F, ExpressionWrapper, IntegerField, Q
 from djmoney.money import Money
 from typing_extensions import Any
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from .forms import (
     AdditionalChargeSessionForm,
     ManualLinkItemEditForm,
@@ -41,14 +45,16 @@ from .forms import (
     TransferStepOperationForm,
     TransferStepReasonForm,
 )
+from .services.files import delete_import_xml_file, get_stock_import_file_service
 from .financial_entries import calculate_import_totals, get_next_entry_id
 from .models import StockImport, StockMovement, StockProduct, StockTransfer
 from ..catalog.models.groups import CatalogGroup
 from ..catalog.models.products import Product
-from ..budget.pdf_context import build_workshop_logo_data_uri
 from ..core.infrastructure.pdf.renderer import build_pdf_http_response
+from ..budget.pdf_context import build_workshop_logo_data_uri
 from ..core.infrastructure import apply_text_search, apply_query_param_filters, QueryParamFilter
 from ..core.presentation import TableActionDefaults, STOCK_IMPORT_CREATE_FAVORITE_PAGE, MultiStepFormMixin
+from ..core.presentation.tables import TableAction
 from ..core.templatetags.table_tags import TableColumn
 from ..core.utils import clean_id
 from ..core.presentation.mixins import HtmxTemplateResponseMixin, HtmxDeleteResponseMixin, PageFavoriteMixin
@@ -72,6 +78,7 @@ class StockHistoryRow:
     user: object
     criado_em: object
     history_status_badge: dict[str, str]
+    xml_file_key: str = ""
 
     @property
     def record_edit_url(self) -> str:
@@ -80,6 +87,10 @@ class StockHistoryRow:
     @property
     def can_delete(self) -> bool:
         return self.record_type == "import"
+
+    @property
+    def has_xml(self) -> bool:
+        return bool(self.xml_file_key)
 
 
 class StockAlertsListView(LoginRequiredMixin, WorkshopScopedMixin, ListView):
@@ -101,12 +112,16 @@ class StockMovementListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplat
     htmx_template_name = "stock/partials/movement_table.html"
 
     def get_queryset(self):
-        return super().get_queryset().select_related("stock_product__product", "supplier").order_by("-criado_em")
+        return super().get_queryset().select_related(
+            "stock_product__product", "supplier", "workorder__budget"
+        ).order_by("-criado_em")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        context["movements"] = self.object_list
         context["fields"] = [
-            TableColumn(StockMovement.criado_em.field.verbose_name, attr=StockMovement.criado_em.field.name),
+            TableColumn("Data", attr="display_date", searchable=False),
+            TableColumn("Documento", attr="workorder_reference", search_by="workorder__budget_id"),
             TableColumn(StockMovement.status.field.verbose_name, attr="stockmovement_status_badge", search_by="status", format="status_badge"),
             TableColumn(StockMovement.type.field.verbose_name, attr="stockmovement_type_badge", search_by="type", format="status_badge"),
             TableColumn(StockMovement.stock_product.field.verbose_name, attr="get_product_reference", search_by=("stock_product__product__code", "stock_product__product__name", "stock_product__product__brand")),
@@ -130,9 +145,7 @@ class StockInquiryListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
         }
 
     def _get_queryset(self):
-        queryset = StockProduct.objects.filter(workshop=self.workshop).select_related(
-            "product", "supplier"
-        ).order_by("product__name")
+        queryset = StockProduct.objects.filter(workshop=self.workshop).select_related("product", "supplier").order_by("product__name")
 
         filter_params = self._get_filter_params()
         supplier = filter_params["supplier"]
@@ -181,7 +194,7 @@ class StockInquiryListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         queryset = self._get_queryset()
-        
+
         paginator = Paginator(queryset, self.PRODUCTS_PER_PAGE)
         page_number = self.request.GET.get("page") or "1"
         page_obj = paginator.get_page(page_number)
@@ -194,7 +207,7 @@ class StockInquiryListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
         context["is_paginated"] = paginator.num_pages > 1
         context["prev_url"] = self._build_pagination_url(page_number=page_obj.previous_page_number()) if page_obj.has_previous() else None
         context["next_url"] = self._build_pagination_url(page_number=page_obj.next_page_number()) if page_obj.has_next() else None
-        
+
         context["has_active_filters"] = self._has_active_filters()
         context["clear_filters_url"] = reverse("stock:stock_inquiry")
         context["htmx_target"] = "#stock-inquiry-products-section"
@@ -205,8 +218,6 @@ class StockInquiryListView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView
         context["suppliers"] = Supplier.objects.filter(workshop=self.workshop, is_active=True).order_by("name")
 
         return context
-
-
 
 
 class ReplenishmentListView(LoginRequiredMixin, WorkshopScopedMixin, ListView):
@@ -339,71 +350,60 @@ class StockReportDataMixin:
         return items
 
     def _get_stock_report_totals(self) -> dict[str, object]:
-        cached = getattr(self, "_stock_report_totals_cache", None)
-        if cached is not None:
-            return cached
-
-        totals = build_stock_report_summary(self._get_stock_report_items())
-        self._stock_report_totals_cache = totals
-        return totals
+        items = self.object_list if hasattr(self, "object_list") and self.object_list is not None else self._get_stock_report_queryset()
+        return build_stock_report_summary(items)
 
     def _get_stock_report_querystring(self) -> str:
         return self.request.GET.urlencode()
 
     def _build_stock_report_filter_descriptions(self) -> list[str]:
-        descriptions: list[str] = []
+        labels: list[str] = []
+
         piece = str(self.request.GET.get("piece") or "").strip()
-        code = str(self.request.GET.get("code") or "").strip()
         if piece:
-            descriptions.append(f'Peca: "{piece}"')
+            labels.append(f"Peça contém: {piece}")
+
+        code = str(self.request.GET.get("code") or "").strip()
         if code:
-            descriptions.append(f'Codigo: "{code}"')
+            labels.append(f"Código contém: {code}")
 
-        selected_group = self._get_selected_group()
-        if selected_group is not None:
-            descriptions.append(f"Grupo: {selected_group.name}")
+        group = self._get_selected_group()
+        if group is not None:
+            labels.append(f"Grupo: {group.name}")
 
-        selected_supplier = self._get_selected_supplier()
-        if selected_supplier is not None:
-            descriptions.append(f"Fornecedor: {selected_supplier.name}")
+        supplier = self._get_selected_supplier()
+        if supplier is not None:
+            labels.append(f"Fornecedor: {supplier.name}")
 
         quantity_min = self._parse_quantity_param("quantity_min")
-        quantity_max = self._parse_quantity_param("quantity_max")
-        if quantity_min is not None and quantity_max is not None:
-            descriptions.append(f"Quantidade entre {quantity_min} e {quantity_max}")
-        elif quantity_min is not None:
-            descriptions.append(f"Quantidade a partir de {quantity_min}")
-        elif quantity_max is not None:
-            descriptions.append(f"Quantidade ate {quantity_max}")
+        if quantity_min is not None:
+            labels.append(f"Quantidade mínima: {quantity_min}")
 
-        return descriptions
+        quantity_max = self._parse_quantity_param("quantity_max")
+        if quantity_max is not None:
+            labels.append(f"Quantidade máxima: {quantity_max}")
+
+        return labels
 
     def _build_stock_report_export_context(self) -> dict[str, object]:
+        items = self._get_stock_report_items()
         selected_columns = self._get_selected_columns()
-        stock_report_items = self._get_stock_report_items()
+
         return {
-            "workshop": self.workshop,
-            "selected_columns": selected_columns,
-            "stock_report_items": stock_report_items,
-            "stock_report_rows": build_stock_report_pdf_rows(items=stock_report_items, selected_columns=selected_columns),
-            "stock_report_totals": self._get_stock_report_totals(),
+            "stock_report_items": items,
             "stock_report_filter_descriptions": self._build_stock_report_filter_descriptions(),
+            "stock_report_totals": self._get_stock_report_totals(),
             "stock_report_pdf_title": self.stock_report_pdf_title,
+            "selected_columns": selected_columns,
+            "workshop": self.workshop,
+            "generated_at_label": timezone.now().strftime("%d/%m/%Y às %H:%M"),
             "workshop_logo_data_uri": build_workshop_logo_data_uri(workshop=self.workshop),
-            "generated_at_label": timezone.localtime().strftime("%d/%m/%Y %H:%M"),
-            "auto_print": self.request.GET.get("autoprint") == "1",
+            "auto_print": True,
+            "stock_report_rows": build_stock_report_pdf_rows(items=items, selected_columns=selected_columns),
         }
 
-
-class StockReportListView(LoginRequiredMixin, StockReportDataMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
-    model = StockProduct
-    template_name = "stock/report.html"
-    context_object_name = "stock_report_items"
-    htmx_template_name = "stock/partials/report_table.html"
-    workshop_permission_codename = "view_stockproduct"
-
-    def get_queryset(self):
-        return self._get_stock_report_queryset()
+    def _get_full_stock_report_queryset(self):
+        return self._get_stock_report_base_queryset()
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -419,6 +419,18 @@ class StockReportListView(LoginRequiredMixin, StockReportDataMixin, WorkshopScop
         context["stock_report_filter_descriptions"] = self._build_stock_report_filter_descriptions()
         context["stock_report_pdf_title"] = self.stock_report_pdf_title
         return context
+
+
+class StockReportListView(LoginRequiredMixin, StockReportDataMixin, WorkshopScopedMixin, HtmxTemplateResponseMixin, ListView):
+    model = StockProduct
+    template_name = "stock/report.html"
+    context_object_name = "stock_report_items"
+    htmx_template_name = "stock/partials/report_table.html"
+    workshop_permission_codename = "view_stockproduct"
+    paginate_by = 20
+
+    def get_queryset(self):
+        return self._get_stock_report_queryset()
 
 
 @method_decorator(xframe_options_exempt, name="dispatch")
@@ -508,7 +520,15 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         return super().get_queryset().order_by("-criado_em")
 
     def _build_history_rows(self) -> list[StockHistoryRow]:
-        imports = [
+        import_rows = self._build_import_history_rows()
+        transfer_rows = self._build_transfer_history_rows()
+        combined = [*import_rows, *transfer_rows]
+        combined.sort(key=lambda row: row.criado_em, reverse=True)
+        return combined
+
+    def _build_import_history_rows(self) -> list[StockHistoryRow]:
+        imports = self.get_queryset().select_related("user")
+        return [
             StockHistoryRow(
                 pk=stock_import.pk,
                 record_type="import",
@@ -518,12 +538,15 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
                 user=stock_import.user,
                 criado_em=stock_import.criado_em,
                 history_status_badge=stock_import.stockimport_status_badge,
+                xml_file_key=stock_import.xml_file_key or "",
             )
-            for stock_import in self.get_queryset().select_related("user")
+            for stock_import in imports
         ]
 
+    def _build_transfer_history_rows(self) -> list[StockHistoryRow]:
         transfers_queryset = StockTransfer.objects.filter(Q(source_workshop=self.workshop) | Q(destination_workshop=self.workshop)).select_related("user", "source_workshop", "destination_workshop").order_by("-criado_em")
-        transfers = []
+
+        transfers: list[StockHistoryRow] = []
         for transfer in transfers_queryset:
             if transfer.operation_type == StockTransfer.OperationType.ADJUSTMENT:
                 if transfer.status == StockTransfer.TransferStatus.DRAFT:
@@ -546,11 +569,11 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
                     history_status_badge=transfer.stocktransfer_status_badge,
                 )
             )
-
-        return sorted([*imports, *transfers], key=lambda row: row.criado_em, reverse=True)
+        return transfers
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+
         context["stock"] = self._build_history_rows()
         context["fields"] = [
             TableColumn("ID", attr="id"),
@@ -563,6 +586,16 @@ class StockImportListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateR
         context["actions"] = [
             TableActionDefaults.edit(url_name="stock:history_edit", args=(), kwargs={"record_type": "record_type", "pk": "pk"}),
             TableActionDefaults.delete(url_name="stock:stock_delete", visible=lambda row: getattr(row, "can_delete", False)),
+            TableAction(
+                label="Download XML",
+                icon="download",
+                a_class="btn-table-view",
+                aria_label="Baixar XML da NF-e",
+                url_name="stock:xml_download",
+                args=(),
+                kwargs={"pk": "pk"},
+                visible=lambda row: getattr(row, "has_xml", False),
+            ),
         ]
         return context
 
@@ -818,6 +851,12 @@ class StockImportDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteR
         self.object = self.get_object()
         self._revert_stock_import(self.object)
 
+        if self.object.xml_file_key:
+            try:
+                delete_import_xml_file(file_id=self.object.xml_file_key)
+            except Exception:
+                logger.warning("Erro ao remover XML do bucket para importação %s key=%s", self.object.pk, self.object.xml_file_key, exc_info=True)
+
         if bool(getattr(self.request, "htmx", False)):
             self.object.delete()
             response = HttpResponse()
@@ -828,6 +867,24 @@ class StockImportDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteR
         success_url = self.get_success_url()
         self.object.delete()
         return redirect(success_url)
+
+
+class StockImportXmlDownloadView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = StockImport
+    workshop_permission_codename = "view_stockimport"
+
+    def get(self, request, pk):
+        stock_import = get_object_or_404(StockImport, pk=pk, workshop=self.workshop)
+
+        if not stock_import.xml_file_key:
+            raise Http404("XML não disponível para esta importação.")
+
+        try:
+            presigned_url = get_stock_import_file_service().generate_presigned_url(file_id=stock_import.xml_file_key)
+            return redirect(presigned_url)
+        except Exception:
+            messages.error(request, "Erro ao gerar link para download do XML.")
+            return redirect("stock:stock_list")
 
 
 class StockHistoryEditRedirectView(LoginRequiredMixin, WorkshopScopedMixin, View):
@@ -958,6 +1015,7 @@ class AddPaymentSessionView(LoginRequiredMixin, WorkshopScopedMixin, View):
             return self._htmx_payment_response("Informe valores válidos para o pagamento.", level="warning")
         except Exception as exc:
             import logging
+
             logger = logging.getLogger(__name__)
             logger.exception("Erro ao criar pagamento de importação de estoque: %s", exc)
             return self._htmx_payment_response("Erro ao processar valores do pagamento.", level="error")

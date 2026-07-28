@@ -53,7 +53,7 @@ def build_default_service_description_for_workorder(*, workorder: Any) -> str:
 
 
 def _is_debug_enabled() -> bool:
-    return bool(getattr(settings, "NFSE_DEBUG_LOGS", True))
+    return bool(getattr(settings, "NFSE_DEBUG_LOGS", False))
 
 
 def _debug_print(message: str, payload: Any | None = None) -> None:
@@ -663,7 +663,7 @@ def emit_nfse_request(*, nfse_request: NfseRequest, request: HttpRequest | None 
     emit_url = _build_emit_url()
     headers = _build_headers(workshop=nfse_request.workshop)
 
-    _validate_tax_class_for_emission(nfse_request=nfse_request, headers=headers)
+    tax_class_payload = _validate_tax_class_for_emission(nfse_request=nfse_request, headers=headers)
 
     if isinstance(nfse_request, NfseRequest):
         try:

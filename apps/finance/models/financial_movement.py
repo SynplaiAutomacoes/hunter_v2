@@ -35,6 +35,12 @@ class FinancialMovement(TimeStampedModel):
         WORKORDER_CARD_FEE = "WORKORDER_CARD_FEE", "Taxa da Maquininha"
         GROUP_PARENT = "GROUP_PARENT", "Agrupamento"
 
+    class PayrollComponent(models.TextChoices):
+        SALARY = "SALARY", "Salário"
+        BENEFIT = "BENEFIT", "Benefícios"
+        TRANSPORT = "TRANSPORT", "Vale Transporte"
+        COMMISSION = "COMMISSION", "Comissão"
+
     workshop = models.ForeignKey(to="workshops.Workshop", on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
     current_step = models.PositiveSmallIntegerField(default=1)
@@ -43,6 +49,16 @@ class FinancialMovement(TimeStampedModel):
     workorder_payment = models.ForeignKey("workorder.WorkOrderPaymentMethod", on_delete=models.CASCADE, null=True, blank=True, related_name="financial_movements")
     reversal_of = models.OneToOneField("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="reversal_entry")
     movement_group = models.ForeignKey("finance.MovementGroup", on_delete=models.CASCADE, null=True, blank=True, related_name="financial_movements")
+    payroll = models.ForeignKey("collaborators.CollaboratorPayroll", on_delete=models.CASCADE, null=True, blank=True, related_name="financial_movements")
+    payroll_component = models.CharField(max_length=32, choices=PayrollComponent.choices, null=True, blank=True)
+    payroll_benefit = models.ForeignKey(
+        "collaborators.CollaboratorBenefit",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="payroll_financial_movements",
+        verbose_name="Benefício da folha",
+    )
 
     # Origem
     source = models.ForeignKey(to="sources.Source", verbose_name="Origem", null=True, blank=True, on_delete=models.PROTECT)
@@ -65,6 +81,27 @@ class FinancialMovement(TimeStampedModel):
     bank_account = models.ForeignKey(BankAccount, on_delete=models.PROTECT, verbose_name="Conta Bancária", blank=True, null=True)
     attachment = models.FileField(upload_to="financial/attachments/", null=True, blank=True, verbose_name="Anexo")
     financial_observation = models.TextField(verbose_name="Observação Financeira", blank=True, null=True)
+
+    class Meta(TimeStampedModel.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=["payroll", "payroll_component", "budget_plan"],
+                condition=models.Q(payroll__isnull=False, payroll_component__isnull=False, payroll_benefit__isnull=True),
+                name="unique_payroll_component_movement",
+            ),
+            models.UniqueConstraint(
+                fields=["payroll", "payroll_benefit"],
+                condition=models.Q(payroll__isnull=False, payroll_component="BENEFIT", payroll_benefit__isnull=False),
+                name="unique_payroll_benefit_movement",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["workshop", "payroll"]),
+            models.Index(fields=["workshop", "payroll_component"]),
+            models.Index(fields=["workshop", "due_date"], name="fin_mov_ws_due_idx"),
+            models.Index(fields=["workshop", "direction", "movement_kind"], name="fin_mov_ws_dir_kind_idx"),
+            models.Index(fields=["workshop", "is_paid", "due_date"], name="fin_mov_ws_paid_due_idx"),
+        ]
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         if not self.budget_plan:

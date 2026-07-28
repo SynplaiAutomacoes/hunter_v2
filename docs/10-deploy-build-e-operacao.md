@@ -48,13 +48,23 @@ Se a aplicacao passar a falhar em conversao de SVG no ambiente remoto, revise pr
 
 1. sincroniza o webhook de assinatura com `manage.py webhook`
 2. aplica migrations com `manage.py migrate --noinput`
-3. sobe Gunicorn em `0.0.0.0:8000`
+3. sobe Gunicorn via `gunicorn.conf.py` em `0.0.0.0:8000`
+
+Configuracao operacional do Gunicorn (env vars, defaults entre parenteses):
+
+- `GUNICORN_WORKERS` (`2`)
+- `GUNICORN_THREADS` (`4`)
+- `GUNICORN_TIMEOUT` (`60`)
+- `GUNICORN_GRACEFUL_TIMEOUT` (`30`)
+- `GUNICORN_MAX_REQUESTS` (`1000`)
+- `GUNICORN_MAX_REQUESTS_JITTER` (`100`)
 
 Isso tem algumas implicacoes:
 
 - o startup depende de banco acessivel
 - o startup depende das credenciais necessarias para sincronizar webhook, se o fluxo estiver habilitado
 - migrations fazem parte da subida da aplicacao
+- workers/threads devem ser ajustados apos baseline de p95 e uso de CPU/memoria
 
 ## Railway
 
@@ -86,13 +96,40 @@ uv run python manage.py tailwind build --force
 
 ## Logs e observabilidade basica
 
-O projeto possui configuracao de logging no proprio Django e middleware opcional de performance. Para investigacoes basicas, revise:
+O projeto possui logging JSON estruturado, middleware de performance de request e exportacao OTEL (quando OTLP estiver configurado). Para investigacoes basicas, revise:
 
+- `ENVIRONMENT`
+- `DJANGO_DEBUG`
 - `DJANGO_LOG_LEVEL`
 - `DJANGO_ROOT_LOG_LEVEL`
+- `NFSE_DEBUG_LOGS`
+- `TAX_CLASS_DEBUG_LOGS`
 - `PERF_LOGGING_ENABLED`
 - `PERF_LOG_QUERIES`
 - `PERF_LOG_MIN_MS`
+- `GUNICORN_WORKERS`
+- `GUNICORN_THREADS`
+
+Para a arquitetura alvo de observabilidade, incluindo metrics OTLP, traces correlacionados, padrao de labels e dashboards, consulte tambem [Observabilidade e telemetria](12-observabilidade-e-telemetria.md).
+
+## Checklist de variaveis de producao
+
+Antes de liberar trafego, confirme o valor atual no Railway/host versus o alvo:
+
+| Variavel | Alvo em producao | Observacao |
+| --- | --- | --- |
+| `DJANGO_DEBUG` | `0` | Obrigatorio |
+| `ENVIRONMENT` | `production` | Filtra dashboards e força default de log `INFO` se nivel nao for setado |
+| `DJANGO_LOG_LEVEL` | `INFO` ou `WARNING` | Evitar `DEBUG` em prod |
+| `DJANGO_ROOT_LOG_LEVEL` | `INFO` ou `WARNING` | Idem |
+| `NFSE_DEBUG_LOGS` | `0` | Payload fiscal sensivel |
+| `TAX_CLASS_DEBUG_LOGS` | `0` | Dump de API fiscal |
+| `PERF_LOGGING_ENABLED` | `1` | Necessario para baseline e paineis Loki de request |
+| `PERF_LOG_QUERIES` | `0` | Ligar so em janela curta de diagnostico |
+| `PERF_LOG_MIN_MS` | `300` | Warning so de lentidao (status &lt; 500); 5xx vao em `ERROR`; requests rapidas em `INFO` |
+| `OTLP_AUTH_HEADER` / `OTEL_EXPORTER_OTLP_ENDPOINT` | configurados | Necessarios para metrics/traces OTEL |
+| `GUNICORN_WORKERS` | medir e ajustar | Default `2` via `gunicorn.conf.py` |
+| `GUNICORN_THREADS` | medir e ajustar | Default `4` |
 
 ## Checklist operacional de subida
 
@@ -102,7 +139,9 @@ Antes de considerar o ambiente saudavel, confira:
 - assets estaticos foram gerados
 - webhook de assinatura sincronizou, se o ambiente exigir
 - credenciais externas estao presentes para recursos usados naquele ambiente
-- Gunicorn subiu sem erro
+- checklist de variaveis de producao acima foi validado
+- Gunicorn subiu sem erro (`gunicorn.conf.py`)
+- `PERF_LOGGING_ENABLED=1` e dashboard Grafana recebendo metricas/logs
 
 ## Problemas comuns em deploy
 

@@ -14,12 +14,9 @@
         transportDailyDisplay: '',
         workDays: {{ current_work_days }},
         transportTotalDisplay: '{{ current_transport_total }}',
+        pendingSyncSubmit: false,
         parseMoney(value) {
-            let normalized = String(value || '').trim().replace(/[^0-9,.-]/g, '');
-            if (normalized.includes(',')) {
-                normalized = normalized.replace(/\./g, '').replace(',', '.');
-            }
-            const parsed = Number.parseFloat(normalized);
+            const parsed = Number.parseFloat(String(value || '').trim());
             return Number.isFinite(parsed) ? parsed : 0;
         },
         formatMoney(value) {
@@ -29,31 +26,45 @@
             const total = this.parseMoney(this.transportDailyDisplay) * this.workDays;
             this.transportTotalDisplay = this.formatMoney(total);
         },
-        init() {
-            const displayInput = document.getElementById('id_transport_allowance_daily_0_display');
-            const amountInput = document.getElementById('id_transport_allowance_daily_0');
-            const initialValue = (displayInput && displayInput.value) || (amountInput && amountInput.value) || '';
-
-            this.transportDailyDisplay = initialValue;
+        syncTransportDailyFromAmount(amountInput, detailValue) {
+            const raw = detailValue !== undefined && detailValue !== null ? detailValue : (amountInput && amountInput.value);
+            this.transportDailyDisplay = raw || '';
             this.updateTransportTotal();
-
-            if (!displayInput) {
+        },
+        handleCollaboratorSubmit(event) {
+            if (this.pendingSyncSubmit) {
+                this.pendingSyncSubmit = false;
                 return;
             }
-            displayInput.addEventListener('input', (event) => {
-                this.transportDailyDisplay = event.target.value || '';
-                this.updateTransportTotal();
+            event.preventDefault();
+            this.$refs.syncMonthlyCostsModal.showModal();
+        },
+        confirmSyncMonthlyCosts(shouldSync) {
+            this.$refs.syncMonthlyCostsInput.value = shouldSync ? '1' : '0';
+            this.pendingSyncSubmit = true;
+            this.$refs.syncMonthlyCostsModal.close();
+            this.$nextTick(() => this.$refs.collaboratorForm.requestSubmit());
+        },
+        init() {
+            const amountInput = document.getElementById('id_transport_allowance_daily_0');
+            this.syncTransportDailyFromAmount(amountInput);
+
+            if (!amountInput) {
+                return;
+            }
+            amountInput.addEventListener('widget:formatted-change', (event) => {
+                const detailValue = event.detail && event.detail.value;
+                this.syncTransportDailyFromAmount(amountInput, detailValue);
             });
-            displayInput.addEventListener('change', (event) => {
-                this.transportDailyDisplay = event.target.value || '';
-                this.updateTransportTotal();
-            });
+            amountInput.addEventListener('input', () => this.syncTransportDailyFromAmount(amountInput));
+            amountInput.addEventListener('change', () => this.syncTransportDailyFromAmount(amountInput));
         }
     }"
     class="space-y-6"
 >
-    <form method="post" novalidate>
+    <form method="post" novalidate x-ref="collaboratorForm" @submit="handleCollaboratorSubmit($event)">
         {% csrf_token %}
+        <input type="hidden" name="sync_monthly_costs" value="" x-ref="syncMonthlyCostsInput">
 
         {% if form.non_field_errors %}
             <div class="alert alert-error">
@@ -85,13 +96,15 @@
             <div class="divider">Salários e benefícios</div>
 
             <div class="alert alert-warning text-sm">
-                <span>Quando o salário for inserido, o Contas a Pagar será calculado automaticamente.</span>
+                <span>Após salvar o colaborador, use a ação de gerar movimentações para criar os lançamentos financeiros.</span>
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
                 <div class="col-span-12 lg:col-span-4">{{ form.salary|as_crispy_field }}</div>
                 <div class="col-span-12 lg:col-span-4">{{ form.payment_day_type|as_crispy_field }}</div>
                 <div class="col-span-12 lg:col-span-4" x-show="payment_day_type === 'FIXED_DAY'" x-cloak>{{ form.payment_day_of_month|as_crispy_field }}</div>
+
+                <div class="col-span-12 lg:col-span-4">{{ form.salary_repeat_count|as_crispy_field }}</div>
 
                 <div class="col-span-12 lg:col-span-4">{{ form.transport_allowance_daily|as_crispy_field }}</div>
                 <div class="col-span-12 lg:col-span-4">
@@ -130,5 +143,7 @@
             <button type="submit" class="btn-form-save">Salvar</button>
         </div>
     </form>
+
+    {% include 'collaborators/partials/sync_monthly_costs_confirm_modal.html' %}
 </div>
 {% endblock %}

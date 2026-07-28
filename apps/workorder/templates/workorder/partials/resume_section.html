@@ -1,4 +1,4 @@
-{% load format_tags %}
+{% load format_tags workorder_extras %}
 <div class="card-body">
     <div class="flex w-full justify-end gap-2">
         <a
@@ -112,6 +112,7 @@
                             <tr class="border-b">
                                 <th class="p-2 font-semibold">Código</th>
                                 <th class="p-2 font-semibold">Nome</th>
+                                <th class="p-2 font-semibold">Peça do Cliente</th>
                                 <th class="p-2 font-semibold">Descrição</th>
                                 <th class="p-2 font-semibold">Aplicação</th>
                                 <th class="p-2 font-semibold text-center">Qtd.</th>
@@ -121,9 +122,26 @@
                         </thead>
                         <tbody class="divide-y divide-gray-100">
                             {% for item in summary_product_items %}
-                                <tr>
+                                {% with benefit_type=benefit_map|dict_lookup:item.entity_id %}
+                                <tr class="{% if benefit_type == 'warranty' or benefit_type == 'courtesy' or item.is_customer_supplied %}opacity-[0.85]{% endif %}">
                                     <td class="p-2">{{ item.code|default:"-" }}</td>
-                                    <td class="p-2">{{ item.product.name }}</td>
+                                    <td class="p-2">
+                                        <div class="flex items-center gap-2 min-w-0">
+                                            <span>{{ item.product.name }}</span>
+                                            {% if benefit_type == "warranty" %}
+                                                <span class="badge badge-error badge-xs gap-1 shrink-0">Garantia</span>
+                                            {% elif benefit_type == "courtesy" %}
+                                                <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    <td class="p-2 text-center">
+                                        {% if item.is_customer_supplied %}
+                                            <span class="badge badge-success badge-outline shrink-0">Sim</span>
+                                        {% else %}
+                                            <span class="badge badge-ghost badge-outline shrink-0">Não</span>
+                                        {% endif %}
+                                    </td>
                                     <td class="p-2">{{ item.product.description }}</td>
                                     <td class="p-2 whitespace-normal break-words">{{ item.application|default:"-" }}</td>
                                     <td class="p-2 text-center">
@@ -136,12 +154,13 @@
                                             {% endif %}
                                         </span>
                                     </td>
-                                    <td class="p-2">{{ item.unit_price }}</td>
-                                    <td class="p-2 font-semibold">{{ item.total_price }}</td>
+                                    <td class="p-2">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.unit_price }}{% endif %}</td>
+                                    <td class="p-2 font-semibold">{% if item.is_customer_supplied %}R$ 0,00{% else %}{{ item.total_price }}{% endif %}</td>
                                 </tr>
+                                {% endwith %}
                             {% empty %}
                                 <tr>
-                                    <td class="p-2 text-center text-base-content/60" colspan="7">Nenhuma peça adicionada.</td>
+                                    <td class="p-2 text-center text-base-content/60" colspan="8">Nenhuma peça adicionada.</td>
                                 </tr>
                             {% endfor %}
                         </tbody>
@@ -161,12 +180,21 @@
                             <th class="p-2 font-semibold w-32">R$ Total</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-100">
-                        {% for item in summary_service_items %}
-                            <tr>
-                                <td class="p-2">{{ item.service.name }}</td>
-                                <td class="p-2 font-semibold">{{ item.total_price }}</td>
-                            </tr>
+                        <tbody class="divide-y divide-gray-100">
+                            {% for item in summary_service_items %}
+                                <tr class="{% if item.item_benefit_type == "warranty" or item.item_benefit_type == "courtesy" %}opacity-[0.85]{% endif %}">
+                                    <td class="p-2">
+                                        <div class="flex items-center gap-2 min-w-0">
+                                            <span>{{ item.service.name }}</span>
+                                            {% if item.item_benefit_type == "warranty" %}
+                                                <span class="badge badge-error badge-xs gap-1 shrink-0">Garantia</span>
+                                            {% elif item.item_benefit_type == "courtesy" %}
+                                                <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    <td class="p-2 font-semibold">{{ item.total_price }}</td>
+                                </tr>
                         {% empty %}
                             <tr>
                                 <td class="p-2 text-center text-base-content/60" colspan="2">Nenhum serviço adicionado.</td>
@@ -192,10 +220,19 @@
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100">
-                        {% for item in kit_items %}
-                            <tr>
-                                <td class="p-2">{{ item.kit.name }}</td>
-                                <td class="p-2 text-center">{{ item.quantity }}</td>
+                            {% for item in kit_items %}
+                                <tr class="{% if item.item_benefit_type == "warranty" or item.item_benefit_type == "courtesy" %}opacity-[0.85]{% endif %}">
+                                    <td class="p-2">
+                                        <div class="flex items-center gap-2 min-w-0">
+                                            <span>{{ item.kit.name }}</span>
+                                            {% if item.item_benefit_type == "warranty" %}
+                                                <span class="badge badge-error badge-xs gap-1 shrink-0">Garantia</span>
+                                            {% elif item.item_benefit_type == "courtesy" %}
+                                                <span class="badge badge-info badge-xs gap-1 shrink-0">Cortesia</span>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    <td class="p-2 text-center">{{ item.quantity }}</td>
                                 <td class="p-2 text-center">{{ item.effective_kit_products_count }}</td>
                                 <td class="p-2 text-center">{{ item.effective_kit_services_count }}</td>
                                 <td class="p-2 text-right font-semibold">{{ item.total_price }}</td>

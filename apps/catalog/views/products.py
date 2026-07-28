@@ -5,7 +5,7 @@ import json
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse_lazy
@@ -14,10 +14,13 @@ from django.views import View
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
 from apps.catalog.equivalent_products import get_equivalent_products_queryset, serialize_equivalent_product
-from apps.budget.models import BudgetItem
+from apps.budget.models import BudgetItem, BudgetKitItemOverride
+from apps.workorder.models import WorkOrderItem, WorkOrderKitItemOverride
 from apps.catalog.forms.products import ProductForm
 from apps.catalog.models.groups import CatalogGroup
+from apps.catalog.models.kits import KitProduct
 from apps.catalog.models.products import Product
+from apps.stock.models import StockProduct
 from apps.catalog.util import build_product_kits_assignment_context
 from apps.core.utils import clean_id
 from apps.core.presentation.navigation import PRODUCT_CREATE_FAVORITE_PAGE
@@ -26,8 +29,7 @@ from apps.core.infrastructure.search import apply_text_search, build_text_search
 from apps.core.presentation.tables import TableActionDefaults
 from apps.core.templatetags.table_tags import TableColumn
 from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateResponseMixin, PageFavoriteMixin
-from apps.stock.models import StockMovement, StockProduct
-from apps.workorder.models import WorkOrderItem
+from apps.stock.models import StockMovement
 from apps.workshops.mixin import WorkshopScopedMixin
 
 
@@ -94,6 +96,14 @@ class ProductListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
             filter_configs=product_list_filters,
         )
 
+        queryset = queryset.annotate(
+            has_usage=Exists(BudgetItem.objects.filter(product=OuterRef("pk")).only("pk"))
+            | Exists(WorkOrderItem.objects.filter(product=OuterRef("pk")).only("pk"))
+            | Exists(BudgetKitItemOverride.objects.filter(product=OuterRef("pk")).only("pk"))
+            | Exists(WorkOrderItem.objects.filter(product=OuterRef("pk")).only("pk"))
+            | Exists(KitProduct.objects.filter(product=OuterRef("pk")).only("pk"))
+            | Exists(StockProduct.objects.filter(product=OuterRef("pk"), movements__isnull=False).only("pk")),
+        )
         return queryset.order_by("-criado_em")
 
     def get_context_data(self, **kwargs):
@@ -113,7 +123,7 @@ class ProductListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRespo
 
         context["actions"] = [
             TableActionDefaults.edit("catalog:product_update"),
-            TableActionDefaults.delete("catalog:product_delete", visible=lambda obj: not obj.is_used),
+            TableActionDefaults.delete("catalog:product_delete", visible=lambda obj: not getattr(obj, "has_usage", False)),
         ]
 
         context["group_choices"] = [(str(group_id), name) for group_id, name in CatalogGroup.objects.filter(workshop=self.workshop).order_by("name").values_list("id", "name")]
@@ -173,10 +183,14 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         stock_obj, created = StockProduct.objects.get_or_create(workshop=self.workshop, product=product)
 
         context["stock_obj"] = stock_obj
-        context["movements"] = StockMovement.objects.filter(stock_product=stock_obj).order_by("-criado_em")
+        context["movements"] = StockMovement.objects.filter(stock_product=stock_obj).select_related(
+            "workorder__budget"
+        ).order_by("-criado_em")
 
         budget_items = BudgetItem.objects.filter(product=product, workshop=self.workshop).select_related("budget", "budget__customer", "budget__vehicle")
+        budget_kit_items = BudgetKitItemOverride.objects.filter(product=product, workshop=self.workshop).select_related("budget_item", "budget_item__budget", "budget_item__budget__customer", "budget_item__budget__vehicle")
         workorder_items = WorkOrderItem.objects.filter(product=product, workshop=self.workshop).select_related("workorder", "workorder__budget", "workorder__budget__customer", "workorder__budget__vehicle")
+        workorder_kit_items = WorkOrderKitItemOverride.objects.filter(product=product, workshop=self.workshop).select_related("workorder_item", "workorder_item__workorder", "workorder_item__workorder__budget", "workorder_item__workorder__budget__customer", "workorder_item__workorder__budget__vehicle")
         history_dict = {}
 
         # Orçamento
@@ -193,6 +207,20 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
                 "url": reverse_lazy("budget:budget_update", kwargs={"pk": item.budget.id}),
             }
 
+        # Orçamento (Kit)
+        for item in budget_kit_items:
+            history_dict[item.budget_item.budget.id] = {
+                "type": "budget",
+                "id": clean_id(item.budget_item.budget.id),
+                "obj": item.budget_item.budget,
+                "date": item.budget_item.budget.criado_em,
+                "quantity": item.quantity,
+                "status": item.budget_item.budget.get_status_display(),
+                "label": f"Orçamento #{item.budget_item.budget.id}",
+                "sub_label": "Orçamento",
+                "url": reverse_lazy("budget:budget_update", kwargs={"pk": item.budget_item.budget.id}),
+            }
+
         # Ordem de Serviço
         for item in workorder_items:
             history_dict[item.workorder.budget.id] = {
@@ -202,9 +230,23 @@ class ProductUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
                 "date": item.workorder.criado_em,
                 "quantity": item.quantity,
                 "status": item.workorder.get_status_display(),
-                "label": f"OS #{item.workorder.id}",
+                "label": f"OS #{item.workorder.budget.id}",
                 "sub_label": "Ordem de Serviço",
                 "url": reverse_lazy("workorder:workorder_detail", kwargs={"pk": clean_id(item.workorder.id)}),
+            }
+
+        # Ordem de Serviço (Kit)
+        for item in workorder_kit_items:
+            history_dict[item.workorder_item.workorder.budget.id] = {
+                "type": "workorder",
+                "id": clean_id(item.workorder_item.workorder.id),
+                "obj": item.workorder_item.workorder,
+                "date": item.workorder_item.workorder.criado_em,
+                "quantity": item.quantity,
+                "status": item.workorder_item.workorder.get_status_display(),
+                "label": f"OS #{item.workorder_item.workorder.budget.id}",
+                "sub_label": "Ordem de Serviço",
+                "url": reverse_lazy("workorder:workorder_detail", kwargs={"pk": clean_id(item.workorder_item.workorder.id)}),
             }
 
         history_list = sorted(history_dict.values(), key=lambda x: x["date"], reverse=True)

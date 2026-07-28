@@ -1,7 +1,7 @@
 {% load crispy_forms_tags %}
 {% with modal_id="modal-veiculo-"|add:v_form.prefix %}
 
-<div style="border: 1px solid #d1d5db; border-radius: 12px !important; gap: 3vh;" class="vehicle-item p-4 mb-4 flex flex-col">
+<div style="border: 1px solid #d1d5db; border-radius: 12px !important; gap: 3vh;" class="vehicle-item p-4 mb-4 flex flex-col" data-vehicle-prefix="{{ v_form.prefix }}">
 
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {% for field in v_form %}
@@ -72,6 +72,31 @@
             </div>
         </div>
         <label class="modal-backdrop" for="{{ modal_id }}">Fechar</label>
+    </div>
+
+    <input type="checkbox" id="transfer-modal-{{ v_form.prefix }}" class="modal-toggle transfer-modal-toggle" />
+    <div class="modal" role="dialog">
+        <div class="modal-box">
+            <h3 class="text-lg font-bold text-base-content">Veículo já cadastrado</h3>
+            <p class="text-base-content/70 mt-1">
+                Este veículo (placa <strong class="transfer-plate-display"></strong>) já está vinculado a
+                <strong class="transfer-customer-display"></strong>. Deseja transferir a propriedade?
+            </p>
+            <div class="alert alert-warning mt-4">
+                <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                <div>
+                    <div class="font-semibold">Confirmar transferência</div>
+                    <div class="text-sm">A propriedade do veículo será transferida para o cliente atual.</div>
+                </div>
+            </div>
+            <div class="modal-action">
+                <label for="transfer-modal-{{ v_form.prefix }}" class="btn btn-ghost">Cancelar</label>
+                <button type="button" class="btn btn-warning transfer-confirm-btn">
+                    Confirmar Transferência
+                </button>
+            </div>
+        </div>
+        <div class="modal-backdrop"></div>
     </div>
 </div>
 

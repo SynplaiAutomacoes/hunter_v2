@@ -122,3 +122,15 @@ img.png
 .codex*
 .ruff*
 update_stock.sql
+
+# AI agent configuration (local tooling — not committed)
+.cursor/
+.opencode/
+.agents/
+AGENTS.md
+.cursorrules
+.github/copilot-instructions.md
+.windsurf/
+.aider*
+.continue/
+.claude/

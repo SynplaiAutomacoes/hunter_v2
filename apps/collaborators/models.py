@@ -60,6 +60,7 @@ class WorkshopCollaborator(TimeStampedModel):
     class CollaboratorType(models.TextChoices):
         ADMINISTRATIVE = "A", "Administrativo"
         PRODUCTIVE = "P", "Produtivo"
+        PRO_LABORE = "L", "Pró Labore"
 
     class PaymentDayType(models.TextChoices):
         FIFTH_BUSINESS_DAY = "FIFTH_BUSINESS_DAY", "5o dia util"
@@ -114,6 +115,10 @@ class WorkshopCollaborator(TimeStampedModel):
             self.name = name_case(self.name)
         if self.position:
             self.position = sentence_case(self.position)
+        if self.salary is None:
+            self.salary = Money(0, "BRL")
+        if self.transport_allowance_daily is None:
+            self.transport_allowance_daily = Money(0, "BRL")
         super().save(*args, **kwargs)
 
     @property
@@ -126,10 +131,13 @@ class WorkshopCollaborator(TimeStampedModel):
 
     def get_payment_reference_date(self, *, reference_date: date | None = None) -> date:
         base_date = reference_date or timezone.localdate()
-        return date(base_date.year, base_date.month, 1)
+        if base_date.month == 12:
+            return date(base_date.year + 1, 1, 1)
+        return date(base_date.year, base_date.month + 1, 1)
 
-    def get_due_date_for_reference(self, *, reference_date: date | None = None) -> date:
-        target_month = self.get_payment_reference_date(reference_date=reference_date)
+    def get_due_date_for_payment_month(self, *, payment_month: date) -> date:
+        """Compute the due date inside the given payment month (year/month)."""
+        target_month = date(payment_month.year, payment_month.month, 1)
         if self.payment_day_type == self.PaymentDayType.FIXED_DAY and self.payment_day_of_month:
             last_day = calendar.monthrange(target_month.year, target_month.month)[1]
             return date(target_month.year, target_month.month, min(self.payment_day_of_month, last_day))
@@ -144,12 +152,22 @@ class WorkshopCollaborator(TimeStampedModel):
                     return current_date
             day += 1
 
+    def get_due_date_for_reference(self, *, reference_date: date | None = None) -> date:
+        target_month = self.get_payment_reference_date(reference_date=reference_date)
+        return self.get_due_date_for_payment_month(payment_month=target_month)
+
+    def get_legacy_same_month_due_date_for_reference(self, *, reference_date: date | None = None) -> date:
+        """Previous rule: due date inside the competence month (not the following month)."""
+        base_date = reference_date or timezone.localdate()
+        return self.get_due_date_for_payment_month(payment_month=date(base_date.year, base_date.month, 1))
+
 
 class CollaboratorBenefit(TimeStampedModel):
     collaborator = models.ForeignKey("collaborators.WorkshopCollaborator", on_delete=models.CASCADE, related_name="benefits")
     name = models.CharField(verbose_name="Nome do benefício", max_length=255)
     description = models.TextField(verbose_name="Descrição", blank=True)
     monthly_amount = MoneyField(verbose_name="Valor mensal", max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    budget_plan = models.ForeignKey("finance.FinancialGroup", verbose_name="Plano Orçamentário", on_delete=models.PROTECT, null=True, blank=True, related_name="collaborator_benefits")
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
 
     class Meta(TimeStampedModel.Meta):
@@ -179,6 +197,8 @@ class CollaboratorPayroll(TimeStampedModel):
     reference_year = models.PositiveIntegerField(verbose_name="Ano de referência")
     reference_month = models.PositiveSmallIntegerField(verbose_name="Mês de referência")
     due_date = models.DateField(verbose_name="Data prevista para pagamento")
+    work_days = models.PositiveSmallIntegerField(verbose_name="Dias úteis", default=0)
+    work_days_is_custom = models.BooleanField(verbose_name="Dias úteis personalizados", default=False)
     salary_amount = MoneyField(verbose_name="Salário", max_digits=14, decimal_places=2, default=Decimal("0.00"))
     transport_allowance_amount = MoneyField(verbose_name="Vale Transporte", max_digits=14, decimal_places=2, default=Decimal("0.00"))
     benefits_amount = MoneyField(verbose_name="Benefícios", max_digits=14, decimal_places=2, default=Decimal("0.00"))
@@ -193,25 +213,76 @@ class CollaboratorPayroll(TimeStampedModel):
         constraints = [
             models.UniqueConstraint(fields=("collaborator", "reference_year", "reference_month"), name="unique_collaborator_payroll_reference"),
         ]
+        indexes = [
+            models.Index(fields=["workshop", "reference_year", "reference_month"], name="collab_payroll_ws_ref_idx"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.collaborator.name} - {self.reference_month:02d}/{self.reference_year}"
 
+    @staticmethod
+    def _component_order(item) -> int:
+        component = getattr(item, "payroll_component", None)
+        order = {
+            "SALARY": 0,
+            "BENEFIT": 1,
+            "TRANSPORT": 2,
+            "COMMISSION": 3,
+        }
+        return order.get(str(component or ""), 99)
+
+    def get_financial_movements(self) -> list:
+        movements = list(self.financial_movements.all())
+        if movements:
+            return sorted(movements, key=lambda movement: (self._component_order(movement), movement.pk or 0))
+        if self.financial_movement is not None:
+            return [self.financial_movement]
+        return []
+
+    @property
+    def primary_financial_movement(self):
+        movements = self.get_financial_movements()
+        return movements[0] if movements else None
+
+    @property
+    def has_split_financial_movements(self) -> bool:
+        return bool(self.financial_movements.exists())
+
+    @property
+    def is_reconciled(self) -> bool:
+        movements = self.get_financial_movements()
+        return bool(movements) and all(movement.is_reconciled for movement in movements)
+
     @property
     def paid_amount(self) -> Money:
-        if self.financial_movement and self.financial_movement.is_paid:
-            return self.total_amount
-        return Money(0, "BRL")
+        movements = self.get_financial_movements()
+        if not movements:
+            return Money(0, "BRL")
+
+        paid_total = sum((Decimal(str(movement.amount.amount or 0)) for movement in movements if movement.is_paid), start=Decimal("0.00"))
+        return Money(paid_total, "BRL")
 
     @property
     def status(self) -> str:
-        if self.financial_movement and self.financial_movement.is_paid:
+        movements = self.get_financial_movements()
+        if not movements:
+            return self.Status.FORECAST
+
+        paid_count = sum(1 for movement in movements if movement.is_paid)
+        if paid_count == len(movements):
             return self.Status.PAID
+        if paid_count > 0:
+            return self.Status.PARTIAL
         return self.Status.FORECAST
 
     @property
     def status_label(self) -> str:
-        return str(self.Status(self.status).label)
+        labels = {
+            self.Status.FORECAST: "Não Pago",
+            self.Status.PARTIAL: "Parcial",
+            self.Status.PAID: "Pago",
+        }
+        return labels.get(self.status, str(self.Status(self.status).label))
 
 
 class CollaboratorPayrollItem(TimeStampedModel):
@@ -260,6 +331,15 @@ class CollaboratorCommissionEntry(TimeStampedModel):
         constraints = [
             models.UniqueConstraint(fields=("collaborator", "workorder"), name="unique_collaborator_commission_workorder"),
         ]
+        indexes = [
+            models.Index(fields=["collaborator", "reference_year", "reference_month"], name="collab_comm_ref_idx"),
+            models.Index(fields=["workshop", "reference_year", "reference_month"], name="collab_comm_ws_ref_idx"),
+        ]
 
     def __str__(self) -> str:
         return f"Comissão {self.collaborator.name} - OS #{self.workorder.pk}"
+
+    @property
+    def percentage_display(self) -> str:
+        percentage_value = (Decimal(str(self.percentage or 0)) * Decimal("100")).quantize(Decimal("0.01"))
+        return f"{str(percentage_value).replace('.', ',')}%"

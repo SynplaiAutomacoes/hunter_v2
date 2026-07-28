@@ -40,9 +40,15 @@ BUDGET_SSE_CHECK_INTERVAL_SECONDS = float(os.getenv("BUDGET_SSE_CHECK_INTERVAL_S
 PERF_LOGGING_ENABLED = os.getenv("PERF_LOGGING_ENABLED", "0").lower() in ("1", "true", "yes")
 PERF_LOG_QUERIES = os.getenv("PERF_LOG_QUERIES", "0").lower() in ("1", "true", "yes")
 PERF_LOG_MIN_MS = int(os.getenv("PERF_LOG_MIN_MS", "300"))
+NFSE_DEBUG_LOGS = os.getenv("NFSE_DEBUG_LOGS", "0").lower() in ("1", "true", "yes")
+TAX_CLASS_DEBUG_LOGS = os.getenv("TAX_CLASS_DEBUG_LOGS", "0").lower() in ("1", "true", "yes")
 
 # Environment (required for structured logging)
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+OTEL_SERVICE_NAME = os.getenv("OTEL_SERVICE_NAME", "hunter-web")
+OTEL_SERVICE_NAMESPACE = os.getenv("OTEL_SERVICE_NAMESPACE", "synplai")
+OTEL_SERVICE_VERSION = os.getenv("OTEL_SERVICE_VERSION", "0.1.0")
+OTEL_METRIC_EXPORT_INTERVAL_MS = int(os.getenv("OTEL_METRIC_EXPORT_INTERVAL_MS", "300000"))
 
 # Grafana Cloud OTLP (OpenTelemetry)
 # Endpoint lido automaticamente de OTEL_EXPORTER_OTLP_ENDPOINT (definido no ambiente)
@@ -80,6 +86,7 @@ STORAGE_ENDPOINT = os.getenv("ENDPOINT", "")
 STORAGE_REGION = os.getenv("REGION", "auto")
 
 WHATSAPP_API_URL = os.getenv("WHATSAPP_API_URL", "https://whatsapp-hunter.up.railway.app")
+EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL", "")
 
 if not DEBUG:
     SECURE_SSL_REDIRECT = os.getenv("DJANGO_SECURE_SSL_REDIRECT", "1").lower() in ("1", "true", "yes")
@@ -184,9 +191,22 @@ CRISPY_TEMPLATE_PACK = "tailwind"
 CRISPY_ALLOWED_TEMPLATE_PACKS = ("tailwind",)
 
 WHATSAPP_API_URL = os.getenv("WHATSAPP_API_URL", "https://whatsapp-hunter.up.railway.app")
+EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL", "")
+
+RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "localhost")
+RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", "5672"))
+RABBITMQ_USER = os.getenv("RABBITMQ_USER", "guest")
+RABBITMQ_PASSWORD = os.getenv("RABBITMQ_PASSWORD", "guest")
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+
+# Reuse DB connections within each Gunicorn worker (seconds). 0 = close after each request.
+_CONN_MAX_AGE_RAW = os.getenv("CONN_MAX_AGE", "0").strip()
+try:
+    CONN_MAX_AGE = int(_CONN_MAX_AGE_RAW)
+except ValueError:
+    CONN_MAX_AGE = 0
 
 DATABASES = {
     "default": {
@@ -196,6 +216,8 @@ DATABASES = {
         "PASSWORD": os.getenv("DB_PASSWORD", "senha_secreta"),
         "HOST": os.getenv("DB_HOST", "localhost"),
         "PORT": os.getenv("DB_PORT", "5432"),
+        "CONN_MAX_AGE": CONN_MAX_AGE,
+        "CONN_HEALTH_CHECKS": True,
     }
 }
 
@@ -281,8 +303,9 @@ CURRENCY_DECIMAL_PLACES = 2
 PHONENUMBER_DEFAULT_REGION = "BR"
 PHONENUMBER_DEFAULT_FORMAT = "NATIONAL"
 
-DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "DEBUG").upper()
-DJANGO_ROOT_LOG_LEVEL = os.getenv("DJANGO_ROOT_LOG_LEVEL", "DEBUG").upper()
+_DEFAULT_LOG_LEVEL = "INFO" if ENVIRONMENT == "production" else "DEBUG"
+DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", _DEFAULT_LOG_LEVEL).upper()
+DJANGO_ROOT_LOG_LEVEL = os.getenv("DJANGO_ROOT_LOG_LEVEL", _DEFAULT_LOG_LEVEL).upper()
 
 LOGGING = {
     "version": 1,
@@ -358,7 +381,7 @@ LOGGING = {
     },
 }
 
-# OpenTelemetry (logs + traces)
+# OpenTelemetry (logs + traces + metrics)
 # Só ativa se ambas as configs estiverem presentes (endpoint + auth)
 _otel_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
 _otel_run = os.getenv("RUN_MAIN") == "true" or not os.getenv("RUN_MAIN")
@@ -366,7 +389,10 @@ if OTLP_AUTH_HEADER and _otel_endpoint and _otel_run:
     from apps.core.otel_logging import setup_otel  # noqa: PLC0415
 
     setup_otel(
-        service_name=ENVIRONMENT,
+        service_name=OTEL_SERVICE_NAME,
         environment=ENVIRONMENT,
         auth_header=OTLP_AUTH_HEADER,
+        service_namespace=OTEL_SERVICE_NAMESPACE,
+        service_version=OTEL_SERVICE_VERSION,
+        metric_export_interval_millis=OTEL_METRIC_EXPORT_INTERVAL_MS,
     )

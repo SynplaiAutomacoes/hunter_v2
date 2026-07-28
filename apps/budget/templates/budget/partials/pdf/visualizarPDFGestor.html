@@ -122,36 +122,73 @@
         <div>
           <h4 class="font-bold mb-2 uppercase">Cliente</h4>
           <div class="grid grid-cols-2 gap-x-4 gap-y-1">
-            <p><span class="text-gray-500">Nome:</span> {{ budget.customer.name|default:budget.customer }}</p>
-            <p><span class="text-gray-500">CPF/CNPJ:</span> {{ budget.customer.cpf_or_cnpj|default:"-" }}</p>
-            <p><span class="text-gray-500">Telefone:</span> {{ budget.customer.phone|default:"-" }}</p>
-            <p><span class="text-gray-500">Email:</span> {{ budget.customer.email|default:"-" }}</p>
-            <p><span class="text-gray-500">Bairro:</span> {{ budget.customer.bairro|default:"-" }}</p>
-            <p><span class="text-gray-500">Cidade:</span> {{ budget.customer.cidade|default:"-" }}</p>
-            <p><span class="text-gray-500">Endereço:</span> {{ budget.customer.estado|default:"-" }}, {{ budget.customer.logradouro|default:"-" }}, {{ budget.customer.numero|default:"-" }}</p>
-            <p><span class="text-gray-500">CEP:</span> {{ budget.customer.cep|default:"-" }}</p>
+            <p>
+              <span class="text-gray-500">Nome:</span> {{ budget.customer.name|default:budget.customer }}
+            </p>
+            <p>
+              <span class="text-gray-500">CPF/CNPJ:</span> {{ budget.customer.cpf_or_cnpj|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Telefone:</span> {{ budget.customer.phone|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Email:</span> {{ budget.customer.email|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Bairro:</span> {{ budget.customer.bairro|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Cidade:</span> {{ budget.customer.cidade|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Endereço:</span> {{ budget.customer.estado|default:"-" }}, {{ budget.customer.logradouro|default:"-" }}, {{ budget.customer.numero|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">CEP:</span> {{ budget.customer.cep|default:"-" }}
+            </p>
           </div>
         </div>
         <div>
           <h4 class="font-bold mb-2 uppercase">Veículo</h4>
-          <div class="grid grid-cols-2 gap-x-4 gap-y-1">
-            <p><span class="text-gray-500">Placa:</span> {{ budget.vehicle.plate|default:"-" }}</p>
-            <p><span class="text-gray-500">Marca:</span> {{ budget.vehicle.brand|default:"-" }}</p>
-            <p><span class="text-gray-500">Modelo:</span> {{ budget.vehicle.model|default:"-" }}</p>
-            <p><span class="text-gray-500">Motor:</span> {{ budget.vehicle.engine|default:"-" }}</p>
-            <p><span class="text-gray-500">Combustível:</span> {{ budget.vehicle.fuel|default:"-" }}</p>
-            <p><span class="text-gray-500">Ano/Mod:</span> {{ budget.vehicle.year_model|default:"-" }}</p>
-            <p><span class="text-gray-500">Ano/Fab:</span> {{ budget.vehicle.year_fabrication|default:"-" }}</p>
-            <p><span class="text-gray-500">Cor:</span> {{ budget.vehicle.color|default:"-" }}</p>
-            <p><span class="text-gray-500">Km-E:</span> {{ budget.current_km|default:"-" }}</p>
-          </div>
+            <p>
+              <span class="text-gray-500">Placa:</span> {{ budget.vehicle.plate|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Marca:</span> {{ budget.vehicle.brand|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Modelo:</span> {{ budget.vehicle.model|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Motor:</span> {{ budget.vehicle.engine|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Combustível:</span> {{ budget.vehicle.fuel|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Ano/Mod:</span> {{ budget.vehicle.year_model|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Ano/Fab:</span> {{ budget.vehicle.year_fabrication|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Cor:</span> {{ budget.vehicle.color|default:"-" }}
+            </p>
+            <p>
+              <span class="text-gray-500">Km-E:</span> {{ budget.current_km|default:"-" }}
+            </p>
         </div>
       </div>
 
       <div class="p-4 border-b border-gray-200">
         <h4 class="font-bold mb-2 uppercase">Reclamações/Problemas</h4>
-        <p><span class="text-gray-500 italic">Relato principal do cliente:</span> {{ budget.problem_description|default:"Não informado." }}</p>
-        <p><span class="text-gray-500 italic">Observações da Oficina:</span> {{ budget.technical_diagnosis|default:"Não informado." }}</p>
+        <p>
+          <span class="text-gray-500 italic">Relato principal do cliente:</span>
+          {{ budget.problem_description|default:"Não informado." }}
+        </p>
+        <p>
+          <span class="text-gray-500 italic">Observações da Oficina:</span> {{ budget.technical_diagnosis|default:"Não informado." }}
+        </p>
       </div>
 
       <div class="p-3 border-b border-gray-200">
@@ -178,7 +215,13 @@
           <tbody>
             {% for p in produtos %}
             <tr class="border-b border-gray-100">
-              <td class="p-1">{{ p.description }}{% if p.item_benefit_type == "warranty" %}<span class="benefit-badge benefit-badge-warranty">Garantia</span>{% elif p.item_benefit_type == "courtesy" %}<span class="benefit-badge benefit-badge-courtesy">Cortesia</span>{% endif %}</td>
+              <td class="p-1">
+                {{ p.description }}{% if p.item_benefit_type == "warranty" %}
+                <span class="benefit-badge benefit-badge-warranty">Garantia</span>
+                {% elif p.item_benefit_type == "courtesy" %}
+                <span class="benefit-badge benefit-badge-courtesy">Cortesia</span>
+                {% endif %}
+              </td>
               <td class="p-1 text-center">{{ p.quantity|default:"0" }}</td>
               <td class="p-1 text-center">
                 {% if p.is_customer_supplied %}Sim{% else %}Não{% endif %}
@@ -208,35 +251,68 @@
           class="w-full table-fixed text-left border-collapse text-[10px] mt-1 leading-tight"
         >
           <colgroup>
-            <col class="w-[31%]" />
-            <col class="w-[8%]" />
-            <col class="w-[13%]" />
-            <col class="w-[13%]" />
-            <col class="w-[10%]" />
-            <col class="w-[13%]" />
+            <col class="w-[28%]" />
+            <col class="w-[7%]" />
             <col class="w-[12%]" />
+            <col class="w-[9%]" />
+            <col class="w-[12%]" />
+            <col class="w-[9%]" />
+            <col class="w-[12%]" />
+            <col class="w-[11%]" />
           </colgroup>
           <thead>
             <tr class="bg-gray-100 border-b-2 border-gray-200">
               <th class="p-1 font-semibold">Descrição</th>
               <th class="p-1 font-semibold text-center">Quantidade</th>
-              <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">Valor de Venda</th>
-              <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">Valor Total</th>
-              <th class="p-1 px-2 font-semibold text-center whitespace-nowrap">Tempo</th>
-              <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">Custo/Mecânico</th>
-              <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">Lucro</th>
+              <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">
+                Valor de Venda
+              </th>
+              <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">
+                Frete
+              </th>
+              <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">
+                Valor Total
+              </th>
+              <th class="p-1 px-2 font-semibold text-center whitespace-nowrap">
+                Tempo
+              </th>
+              <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">
+                Custo/Mecânico
+              </th>
+              <th class="p-1 px-2 font-semibold text-right whitespace-nowrap">
+                Lucro
+              </th>
             </tr>
           </thead>
           <tbody>
             {% for s in servicos %}
             <tr class="border-b border-gray-100">
-              <td class="p-1">{{ s.description }}{% if s.item_benefit_type == "warranty" %}<span class="benefit-badge benefit-badge-warranty">Garantia</span>{% elif s.item_benefit_type == "courtesy" %}<span class="benefit-badge benefit-badge-courtesy">Cortesia</span>{% endif %}</td>
+              <td class="p-1">
+                {{ s.description }}{% if s.item_benefit_type == "warranty" %}
+                <span class="benefit-badge benefit-badge-warranty">Garantia</span>
+                {% elif s.item_benefit_type == "courtesy" %}
+                <span class="benefit-badge benefit-badge-courtesy">Cortesia</span>
+                {% endif %}
+              </td>
               <td class="p-1 text-center">{{ s.quantity|default:"0" }}</td>
-              <td class="p-1 px-2 text-right whitespace-nowrap">{{ s.unit_price|money_br }}</td>
-              <td class="p-1 px-2 text-right whitespace-nowrap">{{ s.total_price|money_br }}</td>
-              <td class="p-1 px-2 text-center whitespace-nowrap">{{ s.duration_display }}</td>
-              <td class="p-1 px-2 text-right font-bold whitespace-nowrap">{{ s.service_mechanic_cost_price|money_br }}</td>
-              <td class="p-1 px-2 text-right font-bold whitespace-nowrap">{{ s.profit_value|money_br }}</td>
+              <td class="p-1 px-2 text-right whitespace-nowrap">
+                {{ s.unit_price|money_br }}
+              </td>
+              <td class="p-1 px-2 text-right whitespace-nowrap">
+                {{ s.shipping|money_br }}
+              </td>
+              <td class="p-1 px-2 text-right whitespace-nowrap">
+                {{ s.total_price|money_br }}
+              </td>
+              <td class="p-1 px-2 text-center whitespace-nowrap">
+                {{ s.duration_display }}
+              </td>
+              <td class="p-1 px-2 text-right font-bold whitespace-nowrap">
+                {{ s.service_mechanic_cost_price|money_br }}
+              </td>
+              <td class="p-1 px-2 text-right font-bold whitespace-nowrap">
+                {{ s.profit_value|money_br }}
+              </td>
             </tr>
             {% endfor %}
           </tbody>
@@ -261,7 +337,9 @@
             >
               CÁLCULO MARKUP
             </p>
-            <p class="text-[26px] font-bold leading-none mt-2 text-gray-900">{{ soma_markup_display }}</p>
+            <p class="text-[26px] font-bold leading-none mt-2 text-gray-900">
+              {{ soma_markup_display }}
+            </p>
             <p class="text-[10px] text-gray-500 mt-2">
               Total do orçamento dividido pelo custo de peças e serviços.
             </p>
@@ -291,17 +369,17 @@
             <span>Total de Serviços:</span>
             <span>{{ total_servicos|money_br }}</span>
           </div>
-          {% if discount_type == "products" %}
+          {% if desconto.amount > 0 and discount_type == "products" %}
           <div class="flex justify-between mb-1 text-red-500">
             <span>Desconto para Produtos:</span>
             <span>- {{ discount_products|money_br }}</span>
           </div>
-          {% elif discount_type == "services" %}
+          {% elif desconto.amount > 0 and discount_type == "services" %}
           <div class="flex justify-between mb-1 text-red-500">
             <span>Desconto para Serviços:</span>
             <span>- {{ discount_services|money_br }}</span>
           </div>
-          {% else %}
+          {% elif desconto.amount > 0 %}
           <div class="flex justify-between mb-1 text-red-500">
             <span>Desconto para Produtos:</span>
             <span>- {{ discount_products|money_br }}</span>
@@ -309,6 +387,11 @@
           <div class="flex justify-between mb-1 text-red-500">
             <span>Desconto para Serviços:</span>
             <span>- {{ discount_services|money_br }}</span>
+          </div>
+          {% endif %} {% if benefit_total.amount > 0 %}
+          <div class="flex justify-between mb-1 text-red-500">
+            <span>{{ benefit_label }}:</span>
+            <span>- {{ benefit_total }}</span>
           </div>
           {% endif %}
 
@@ -340,8 +423,16 @@
       <div
         class="text-center text-[11px] text-gray-500 pt-4 mt-4 border-t border-gray-200"
       >
-        <p>Aberto por: {{ request.user.get_full_name }} em: {{ budget.criado_em|date:"d/m/Y" }} às {{ budget.criado_em|date:"H:i" }}</p>
-        <p>Status: <span class="uppercase font-bold text-gray-700">{{ budget.budget_status }}</span></p>
+        <p>
+          Aberto por: {{ request.user.get_full_name }} em: {{
+          budget.criado_em|date:"d/m/Y" }} às {{ budget.criado_em|date:"H:i" }}
+        </p>
+        <p>
+          Status:
+          <span class="uppercase font-bold text-gray-700"
+            >{{ budget.budget_status }}</span
+          >
+        </p>
       </div>
     </div>
   </body>

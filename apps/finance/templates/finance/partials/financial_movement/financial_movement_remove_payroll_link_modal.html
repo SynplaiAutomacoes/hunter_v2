@@ -1,0 +1,49 @@
+<dialog
+  id="financial-movement-remove-payroll-link-modal"
+  class="modal"
+  x-data="{}"
+  x-ref="removePayrollLinkModal"
+  x-init="$nextTick(() => $el.showModal())"
+  @click="if ($event.target === $el) $el.close()"
+  @close="$el.remove()"
+>
+  <div class="modal-box">
+    <h3 class="text-lg font-bold text-base-content">
+      Excluir da Folha de Pagamento
+    </h3>
+    <p class="mt-1 text-base-content/70">
+      Esta ação exclui a movimentação financeira vinculada a folha.
+    </p>
+
+    <div class="alert alert-warning mt-4">
+      <span class="material-icons">warning</span>
+      <div>
+        <div class="font-semibold">Confirmar remoção</div>
+        <div class="text-sm">
+          Tem certeza que deseja excluir esta movimentação da folha de pagamento
+          <span class="font-medium">{{ object.description|default:object.source }}</span>?
+        </div>
+        <div class="mt-2 text-sm">
+          O valor correspondente será zerado na folha de pagamento. Para gerar a movimentação novamente, use o botão "Atualizar" na tela de folha.
+        </div>
+      </div>
+    </div>
+
+    <form
+      method="post"
+      class="modal-action"
+      hx-post="{{ request.path }}"
+      hx-target="closest dialog"
+      hx-swap="outerHTML"
+    >
+      {% csrf_token %}
+      <button type="button" class="btn btn-ghost" @click="$refs.removePayrollLinkModal.close()">
+        Cancelar
+      </button>
+      <button type="submit" class="btn btn-error">Excluir</button>
+    </form>
+  </div>
+  <form method="dialog" class="modal-backdrop">
+    <button>Close</button>
+  </form>
+</dialog>

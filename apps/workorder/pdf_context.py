@@ -7,10 +7,10 @@ from typing import Any
 from djmoney.money import Money
 
 from apps.budget.pdf_context import build_workshop_logo_data_uri, is_visible_pdf_pricing_line
-from apps.budget.pricing import money_from_decimal, zero_money
+from apps.budget.pricing import money_div, money_from_decimal, zero_money
 from apps.finance.services.pricing import distribute_total_proportionally
 from apps.customer.models import Customer, Vehicle
-from apps.workorder.models import WorkOrder, WorkOrderStatus, WorkOrderDiscountType
+from apps.workorder.models import WorkOrder, WorkOrderItem, WorkOrderStatus, WorkOrderDiscountType
 from apps.workshops.models.workshops import Workshop
 
 
@@ -72,6 +72,63 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
         for p in workorder.iter_payments()
     ]
 
+    _item_data: dict[int, dict] = {}
+    for _wo_item in WorkOrderItem.objects.filter(workorder=workorder).only(
+        "id", "product_id", "service_id", "item_benefit_type",
+        "product_selling_price", "product_selling_price_currency",
+        "service_selling_price", "service_selling_price_currency",
+        "shipping", "shipping_currency",
+    ):
+        unit_price = _wo_item.product_selling_price or _wo_item.service_selling_price
+        _item_data[_wo_item.id] = {
+            "benefit_type": _wo_item.item_benefit_type,
+            "unit_price": unit_price,
+            "shipping": _wo_item.shipping,
+        }
+        eid = _wo_item.product_id or _wo_item.service_id
+        if eid and eid not in _item_data:
+            _item_data[eid] = _item_data[_wo_item.id]
+
+    def _item_data_for_line(line) -> dict | None:
+        if line.source_item_id is not None and line.source_item_id in _item_data:
+            return _item_data[line.source_item_id]
+        if line.entity_id is not None and line.entity_id in _item_data:
+            return _item_data[line.entity_id]
+        return None
+
+    def _benefit_type(line) -> str:
+        data = _item_data_for_line(line)
+        if data:
+            return data["benefit_type"]
+        return "normal"
+
+    def _should_include_in_pdf(line) -> bool:
+        if is_visible_pdf_pricing_line(line):
+            return True
+        if _benefit_type(line) != "normal":
+            return True
+        if line.is_customer_supplied:
+            return True
+        return False
+
+    def _line_display_unit_price(line) -> Money:
+        if line.is_customer_supplied:
+            return ZERO
+        if _benefit_type(line) != "normal":
+            data = _item_data_for_line(line)
+            if data and data["unit_price"] and data["unit_price"].amount > 0:
+                return data["unit_price"]
+        return line.unit_price
+
+    def _line_display_total_price(line) -> Money:
+        if line.is_customer_supplied:
+            return ZERO
+        if _benefit_type(line) != "normal":
+            data = _item_data_for_line(line)
+            if data and data["unit_price"] and data["unit_price"].amount > 0:
+                return (data["unit_price"] * line.quantity) + line.shipping
+        return line.total_price
+
     produtos = [
         {
             "id": line.entity_id,
@@ -81,16 +138,17 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
             "application": line.application or "-",
             "code": line.code or "-",
             "location": line.location or "-",
-            "unit_price": line.unit_price,
-            "adjusted_unit_price": line.adjusted_unit_price,
+            "unit_price": _line_display_unit_price(line),
+            "adjusted_unit_price": _line_display_unit_price(line),
             "shipping": line.shipping,
-            "total_price": line.total_price,
+            "total_price": _line_display_total_price(line),
             "product_cost_price": line.cost_total,
             "profit_value": line.profit_value,
             "show_kit_duplicate_warning": line.show_kit_duplicate_warning,
+            "item_benefit_type": _benefit_type(line),
         }
         for line in snapshot.product_lines
-        if is_visible_pdf_pricing_line(line)
+        if _should_include_in_pdf(line)
     ]
 
     servicos = [
@@ -98,15 +156,145 @@ def build_workorder_pdf_context(*, workorder: WorkOrder, request=None) -> dict[s
             "id": line.entity_id,
             "description": line.description,
             "quantity": line.quantity,
-            "unit_price": line.adjusted_unit_price,
-            "total_price": line.total_price,
+            "unit_price": _line_display_unit_price(line),
+            "total_price": _line_display_total_price(line),
             "service_cost_price": line.cost_total,
             "profit_value": line.profit_value,
             "duration_display": line.duration_display,
+            "item_benefit_type": _benefit_type(line),
         }
         for line in snapshot.service_lines
-        if is_visible_pdf_pricing_line(line)
+        if _should_include_in_pdf(line)
     ]
+
+    _existing_produto_ids = {p["id"] for p in produtos}
+    for _wo_item in WorkOrderItem.objects.filter(
+        workorder=workorder,
+        product__isnull=False,
+        item_benefit_type__in=("warranty", "courtesy"),
+    ).select_related("product"):
+        pid = _wo_item.product_id
+        if pid in _existing_produto_ids:
+            continue
+        _existing_produto_ids.add(pid)
+        product = _wo_item.product
+        if product is None:
+            continue
+        unit_price = _wo_item.product_selling_price
+        total_price = (unit_price * _wo_item.quantity) + _wo_item.shipping
+        cost_total = _wo_item.product_cost_price * _wo_item.quantity
+        display_unit_price = money_div(total_price, _wo_item.quantity) if _wo_item.quantity > 0 else ZERO
+        produtos.append({
+            "id": product.id,
+            "description": product.description or product.name,
+            "quantity": _wo_item.quantity,
+            "is_customer_supplied": _wo_item.is_customer_supplied,
+            "application": product.application or "-",
+            "code": product.code or "-",
+            "location": product.location or "-",
+            "unit_price": unit_price,
+            "adjusted_unit_price": unit_price,
+            "display_unit_price": display_unit_price,
+            "shipping": _wo_item.shipping,
+            "total_price": total_price,
+            "product_cost_price": cost_total,
+            "profit_value": total_price - cost_total,
+            "show_kit_duplicate_warning": False,
+            "item_benefit_type": _wo_item.item_benefit_type,
+        })
+
+    for _kit_item in WorkOrderItem.objects.filter(
+        workorder=workorder,
+        kit__isnull=False,
+        item_benefit_type__in=("warranty", "courtesy"),
+    ):
+        for override in _kit_item._iter_frozen_kit_product_overrides():
+            product = override.product
+            if product is None:
+                continue
+            pid = product.id
+            if pid in _existing_produto_ids:
+                continue
+            _existing_produto_ids.add(pid)
+            qty = override.quantity * _kit_item.quantity
+            unit_price = override.product_selling_price
+            total_price = (unit_price * qty) + override.shipping
+            cost_total = override.product_cost_price * qty
+            display_unit_price = money_div(total_price, qty) if qty > 0 else ZERO
+            produtos.append({
+                "id": product.id,
+                "description": product.description or product.name,
+                "quantity": qty,
+                "is_customer_supplied": False,
+                "application": getattr(product, "application", "") or "-",
+                "code": getattr(product, "code", "") or "-",
+                "location": getattr(product, "location", "") or "-",
+                "unit_price": unit_price,
+                "adjusted_unit_price": unit_price,
+                "display_unit_price": display_unit_price,
+                "shipping": override.shipping,
+                "total_price": total_price,
+                "product_cost_price": cost_total,
+                "profit_value": total_price - cost_total,
+                "show_kit_duplicate_warning": False,
+                "item_benefit_type": _kit_item.item_benefit_type,
+            })
+
+    _existing_servico_ids = {s["id"] for s in servicos}
+    for _wo_item in WorkOrderItem.objects.filter(
+        workorder=workorder,
+        service__isnull=False,
+        item_benefit_type__in=("warranty", "courtesy"),
+    ).select_related("service"):
+        sid = _wo_item.service_id
+        if sid in _existing_servico_ids:
+            continue
+        _existing_servico_ids.add(sid)
+        service = _wo_item.service
+        if service is None:
+            continue
+        unit_price = _wo_item.service_selling_price
+        total_price = unit_price * _wo_item.quantity
+        cost_total = _wo_item.service_cost_price * _wo_item.quantity
+        servicos.append({
+            "id": service.id,
+            "description": service.name,
+            "quantity": _wo_item.quantity,
+            "unit_price": unit_price,
+            "total_price": total_price,
+            "service_cost_price": cost_total,
+            "profit_value": total_price - cost_total,
+            "duration_display": "",
+            "item_benefit_type": _wo_item.item_benefit_type,
+        })
+
+    for _kit_item in WorkOrderItem.objects.filter(
+        workorder=workorder,
+        kit__isnull=False,
+        item_benefit_type__in=("warranty", "courtesy"),
+    ):
+        for override in _kit_item._iter_frozen_kit_service_overrides():
+            service = override.service
+            if service is None:
+                continue
+            sid = service.id
+            if sid in _existing_servico_ids:
+                continue
+            _existing_servico_ids.add(sid)
+            qty = override.quantity * _kit_item.quantity
+            total_price = override.service_selling_price * qty
+            cost_total = override.service_cost_price * qty
+            servicos.append({
+                "id": service.id,
+                "description": service.name,
+                "quantity": qty,
+                "unit_price": override.service_selling_price,
+                "total_price": total_price,
+                "service_cost_price": cost_total,
+                "profit_value": total_price - cost_total,
+                "duration_display": "",
+                "item_benefit_type": _kit_item.item_benefit_type,
+            })
 
     budget_proxy = WorkOrderPdfBudgetProxy(
         id=workorder.get_id,

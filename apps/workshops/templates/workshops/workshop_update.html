@@ -16,7 +16,89 @@
 
     <div
         class="card bg-base-100 shadow-xl"
-        x-data="{ activeTab: '{{ active_tab }}', nfTab: '{{ active_nf_subtab }}', showCredentials: false }"
+        x-data="{
+            activeTab: '{{ active_tab }}',
+            nfTab: '{{ active_nf_subtab }}',
+            showCredentials: false,
+            whatsappModal: false,
+            whatsappQrCode: '',
+            whatsappInstanceName: '',
+            whatsappConnected: false,
+            whatsappChecking: false,
+            whatsappPolling: null,
+            init() {
+                this.initWhatsappStatus();
+            },
+            initWhatsappStatus() {
+                this.whatsappChecking = true;
+                fetch('{% url "workshops:whatsapp_status" workshop.pk %}')
+                    .then(r => r.json())
+                    .then(data => {
+                        this.whatsappConnected = data.connected === true;
+                    })
+                    .catch(() => {})
+                    .finally(() => { this.whatsappChecking = false; });
+            },
+            connectWhatsapp() {
+                this.whatsappChecking = true;
+                fetch('{% url "workshops:whatsapp_connect" workshop.pk %}', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.ok) {
+                            this.whatsappQrCode = data.qrcode;
+                            this.whatsappInstanceName = data.instance_name;
+                            this.whatsappModal = true;
+                            this.startPolling();
+                        } else {
+                            document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: data.message, type: 'error' } }));
+                        }
+                    })
+                    .catch(() => {
+                        document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Erro ao conectar WhatsApp.', type: 'error' } }));
+                    })
+                    .finally(() => { this.whatsappChecking = false; });
+            },
+            startPolling() {
+                if (this.whatsappPolling) clearInterval(this.whatsappPolling);
+                this.whatsappPolling = setInterval(() => {
+                    fetch('{% url "workshops:whatsapp_status" workshop.pk %}')
+                        .then(r => r.json())
+                        .then(data => {
+                            if (data.connected === true) {
+                                this.whatsappConnected = true;
+                                this.whatsappModal = false;
+                                this.stopPolling();
+                                document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'WhatsApp conectado com sucesso!', type: 'success' } }));
+                            }
+                        })
+                        .catch(() => {});
+                }, 3000);
+            },
+            stopPolling() {
+                if (this.whatsappPolling) {
+                    clearInterval(this.whatsappPolling);
+                    this.whatsappPolling = null;
+                }
+            },
+            disconnectWhatsapp() {
+                if (!confirm('Desconectar WhatsApp desta oficina?')) return;
+                this.whatsappChecking = true;
+                fetch('{% url "workshops:whatsapp_disconnect" workshop.pk %}', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.ok) {
+                            this.whatsappConnected = false;
+                            document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: data.message, type: 'success' } }));
+                        } else {
+                            document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: data.message, type: 'error' } }));
+                        }
+                    })
+                    .catch(() => {
+                        document.body.dispatchEvent(new CustomEvent('showToast', { detail: { message: 'Erro ao desconectar WhatsApp.', type: 'error' } }));
+                    })
+                    .finally(() => { this.whatsappChecking = false; });
+            },
+        }"
     >
         <div class="card-body p-6 md:p-8 space-y-6">
             <div class="app-tabs tabs tabs-lift flex-wrap gap-1">
@@ -61,6 +143,38 @@
                     <div class="col-span-12 lg:col-span-4">{{ company_form.unidade_empresa|as_crispy_field }}</div>
                     <div class="col-span-12 lg:col-span-4">{{ company_form.regime_tributario|as_crispy_field }}</div>
                     <div class="col-span-12 lg:col-span-4">{{ company_form.telefone|as_crispy_field }}</div>
+                    <div class="col-span-12 lg:col-span-4">
+                        <div class="flex items-end gap-2">
+                            <div class="flex-1">{{ company_form.whatsapp_phone|as_crispy_field }}</div>
+                            <div class="flex items-center gap-1 pb-3">
+                                <template x-if="whatsappChecking">
+                                    <span class="loading loading-spinner loading-sm"></span>
+                                </template>
+                                <template x-if="!whatsappChecking && whatsappConnected">
+                                    <span class="badge badge-success badge-sm gap-1">
+                                        <span class="material-icons text-sm">check_circle</span>
+                                        Conectado
+                                    </span>
+                                </template>
+                                <template x-if="!whatsappChecking && !whatsappConnected">
+                                    <span class="badge badge-ghost badge-sm gap-1">
+                                        <span class="material-icons text-sm">link_off</span>
+                                        Nao conectado
+                                    </span>
+                                </template>
+                                <template x-if="whatsappConnected">
+                                    <button type="button" class="btn btn-outline btn-error btn-xs" @click="disconnectWhatsapp()" :disabled="whatsappChecking">
+                                        <span class="material-icons text-sm">link_off</span>
+                                    </button>
+                                </template>
+                                <template x-if="!whatsappConnected">
+                                    <button type="button" class="btn btn-primary btn-xs" @click="connectWhatsapp()" :disabled="whatsappChecking">
+                                        <span class="material-icons text-sm">qr_code</span>
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
 
                     <div class="col-span-12 lg:col-span-6">{{ company_form.email|as_crispy_field }}</div>
                     <div class="col-span-12 lg:col-span-6">{{ company_form.contabilidade|as_crispy_field }}</div>
@@ -352,6 +466,46 @@
                     {% endif %}
                 </div>
             </form>
+
+            <div
+                x-show="whatsappModal"
+                x-cloak
+                class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+                @click.self="whatsappModal = false; stopPolling();"
+            >
+                <div class="card bg-base-100 shadow-xl max-w-2xl w-full mx-4" @click.stop>
+                    <div class="card-body p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-bold">Conectar WhatsApp</h3>
+                            <button type="button" class="btn btn-ghost btn-sm btn-square" @click="whatsappModal = false; stopPolling();">
+                                <span class="material-icons">close</span>
+                            </button>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div class="space-y-4">
+                                <h4 class="text-sm font-semibold uppercase tracking-wide text-base-content/70">Instrucoes</h4>
+                                <ol class="steps steps-vertical">
+                                    <li class="step step-primary text-sm">Abra o WhatsApp no seu celular</li>
+                                    <li class="step step-primary text-sm">Toque em "Aparelhos conectados"</li>
+                                    <li class="step step-primary text-sm">Toque em "Conectar um aparelho"</li>
+                                    <li class="step step-primary text-sm">Aponte a camera para o QR Code ao lado</li>
+                                </ol>
+                                <p class="text-xs text-base-content/60 mt-2">A pagina verificara automaticamente a conexao.</p>
+                            </div>
+
+                            <div class="flex items-center justify-center">
+                                <template x-if="whatsappQrCode">
+                                    <img :src="whatsappQrCode" alt="QR Code WhatsApp" class="w-48 h-48 object-contain border border-base-300 rounded-lg p-2">
+                                </template>
+                                <template x-if="!whatsappQrCode">
+                                    <span class="loading loading-spinner loading-lg"></span>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
             <div x-show="activeTab === 'credenciais'" x-cloak>
                 <div class="flex items-center justify-between gap-3 mb-4">

@@ -110,6 +110,19 @@ class StockMovement(TimeStampedModel):
     def total_value(self):
         return self.stock_product.unit_cost * self.quantity
 
+    @property
+    def display_date(self):
+        if self.type == self.MovementType.EXIT and self.workorder_id and self.workorder.delivered_at:
+            return self.workorder.delivered_at
+        return self.criado_em
+
+    @property
+    def workorder_reference(self):
+        if self.workorder_id:
+            budget_id = getattr(self.workorder, "budget_id", None)
+            return f"OS #{budget_id}" if budget_id else f"OS (WO #{self.workorder_id})"
+        return None
+
 
 class StockPaymentMethod(TimeStampedModel):
     workshop = models.ForeignKey("workshops.Workshop", on_delete=models.CASCADE, related_name="stockpayments")
@@ -174,6 +187,7 @@ class StockImport(TimeStampedModel):
     items_data = models.JSONField(default=list)
     payments_data = models.JSONField(default=list)
     method = models.CharField(verbose_name="Selecione o método de Importação de Itens", max_length=30, choices=ImportMethods.choices, default=ImportMethods.XML)
+    xml_file_key = models.CharField(max_length=1024, blank=True, default="", db_index=True, verbose_name="XML no Bucket")
     status = models.CharField(max_length=20, choices=ImportStatus.choices, default=ImportStatus.DRAFT)
 
     class Meta:

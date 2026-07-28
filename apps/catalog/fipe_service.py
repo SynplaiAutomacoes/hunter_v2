@@ -6,7 +6,6 @@ from contextlib import contextmanager
 import logging
 import re
 import threading
-import time
 import unicodedata
 from urllib.parse import urlencode
 
@@ -16,6 +15,7 @@ from django.utils import timezone
 
 import requests
 
+from apps.core.observability import observe_dependency_call
 from apps.catalog.models import FipeModelFuelCache, FipeSyncState, FipeVehicleBrand, FipeVehicleModel, FipeVehicleType
 from apps.customer.vehicle_fuel import VehicleFuel, normalize_vehicle_fuel_choice
 
@@ -474,19 +474,19 @@ def get_vehicle_model_metadata(
 
 def _request_json(path: str) -> list[dict[str, object]]:
     url = _build_url(path)
-    started_at = time.monotonic()
-    logger.info("fipe_api_request_started", extra={"path": path})
-
-    try:
+    with observe_dependency_call(
+        logger=logger,
+        dependency_type="http",
+        dependency_name="fipe",
+        operation="request_json",
+        log_context={"path": path},
+    ) as dependency_call:
         response = requests.get(url, timeout=15)
-        elapsed_ms = round((time.monotonic() - started_at) * 1000, 2)
-        logger.info("fipe_api_request_finished", extra={"path": path, "status_code": response.status_code, "duration_ms": elapsed_ms})
+        dependency_call.set_http_status_code(response.status_code)
         response.raise_for_status()
         payload = response.json()
-    except Exception:
-        elapsed_ms = round((time.monotonic() - started_at) * 1000, 2)
-        logger.exception("fipe_api_request_failed", extra={"path": path, "duration_ms": elapsed_ms})
-        raise
+        dependency_call.set_attribute("app.payload_type", type(payload).__name__)
+        dependency_call.success(extra={"path": path, "payload_type": type(payload).__name__})
 
     if not isinstance(payload, list):
         extracted_payload = _extract_list_payload(payload)

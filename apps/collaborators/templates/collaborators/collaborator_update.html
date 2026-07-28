@@ -21,26 +21,39 @@
         payment_day_type: '{{ form.payment_day_type.value|default:form.instance.payment_day_type|default:'FIFTH_BUSINESS_DAY' }}',
         transportDailyDisplay: '',
         workDays: {{ current_work_days }},
+        workshopDefaultWorkDays: {{ workshop_default_work_days|default:current_work_days }},
         transportTotalDisplay: '{{ current_transport_total }}',
         pendingMovementsCount: {{ pending_financial_movements|length }},
-        pendingMovementIds: [{% for movement in pending_financial_movements %}'{{ movement.pk }}'{% if not forloop.last %}, {% endif %}{% endfor %}],
+        pendingMovementIds: [{% for movement in pending_financial_movements %}'{{ movement.pk|unlocalize }}'{% if not forloop.last %}, {% endif %}{% endfor %}],
         selectedDeletionIds: [],
         allPendingSelected: false,
-        terminationModalShown: false,
+        initialTerminationDate: '{% if form.termination_date.value %}{{ form.termination_date.value|date:"Y-m-d" }}{% elif form.instance.termination_date %}{{ form.instance.termination_date|date:"Y-m-d" }}{% endif %}',
+        openPendingDeleteOnLoad: {{ open_pending_delete|yesno:'true,false' }},
+        pendingSyncSubmit: false,
         parseMoney(value) {
-            let normalized = String(value || '').trim().replace(/[^0-9,.-]/g, '');
-            if (normalized.includes(',')) {
-                normalized = normalized.replace(/\./g, '').replace(',', '.');
-            }
-            const parsed = Number.parseFloat(normalized);
+            const parsed = Number.parseFloat(String(value || '').trim());
             return Number.isFinite(parsed) ? parsed : 0;
         },
         formatMoney(value) {
             return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
         },
         updateTransportTotal() {
-            const total = this.parseMoney(this.transportDailyDisplay) * this.workDays;
+            const resolvedDays = (this.workDays === null || this.workDays === '' || Number.isNaN(Number(this.workDays)))
+                ? Number(this.workshopDefaultWorkDays || 0)
+                : Number(this.workDays || 0);
+            const total = this.parseMoney(this.transportDailyDisplay) * resolvedDays;
             this.transportTotalDisplay = this.formatMoney(total);
+        },
+        fillWorkDaysFromWorkshopDefault() {
+            if (this.workDays === null || this.workDays === '' || Number.isNaN(Number(this.workDays))) {
+                this.workDays = Number(this.workshopDefaultWorkDays || 0);
+            }
+            this.updateTransportTotal();
+        },
+        syncTransportDailyFromAmount(amountInput, detailValue) {
+            const raw = detailValue !== undefined && detailValue !== null ? detailValue : (amountInput && amountInput.value);
+            this.transportDailyDisplay = raw || '';
+            this.updateTransportTotal();
         },
         syncAllPendingSelection() {
             this.allPendingSelected = this.pendingMovementsCount > 0 && this.selectedDeletionIds.length === this.pendingMovementsCount;
@@ -55,77 +68,84 @@
         togglePendingSelection() {
             this.syncAllPendingSelection();
         },
+        syncDeletionPayload() {
+            const payloadInput = document.getElementById('id_delete_movement_ids_payload');
+            if (!payloadInput) {
+                return;
+            }
+
+            payloadInput.value = this.selectedDeletionIds.join(',');
+        },
+        submitDeletionForm() {
+            this.syncDeletionPayload();
+
+            const form = this.$refs.deleteMovementsForm;
+            if (!form) {
+                console.warn('delete movements form not found');
+                return;
+            }
+
+            console.debug('collaborator pending delete submit', {
+                selectedDeletionIds: [...this.selectedDeletionIds],
+                payload: document.getElementById('id_delete_movement_ids_payload')?.value || '',
+            });
+
+            form.requestSubmit();
+        },
         openTerminationPendingModal() {
             if (!this.$refs.terminationPendingModal || this.pendingMovementsCount === 0) {
                 return;
             }
             this.$refs.terminationPendingModal.showModal();
-            this.terminationModalShown = true;
         },
-        handleSubmit(event) {
-            const terminationInput = document.getElementById('id_termination_date');
-            const hasTerminationDate = Boolean(terminationInput && (terminationInput.value || '').trim());
-            if (this.selectedDeletionIds.length > 0 && !hasTerminationDate) {
-                event.preventDefault();
-                window.alert('Preencha a data de saída para apagar lançamentos.');
-                if (terminationInput) {
-                    terminationInput.focus();
-                }
-            }
-        },
-        handleTerminationDateChange() {
-            const terminationInput = document.getElementById('id_termination_date');
-            if (!terminationInput) {
+        handleCollaboratorSubmit(event) {
+            if (this.pendingSyncSubmit) {
+                this.pendingSyncSubmit = false;
                 return;
             }
-
-            const hasTerminationDate = Boolean((terminationInput.value || '').trim());
-            if (!hasTerminationDate) {
-                this.terminationModalShown = false;
-                this.selectedDeletionIds = [];
-                this.syncAllPendingSelection();
-                return;
-            }
-
-            if (this.pendingMovementsCount > 0 && !this.terminationModalShown) {
+            event.preventDefault();
+            this.$refs.syncMonthlyCostsModal.showModal();
+        },
+        confirmSyncMonthlyCosts(shouldSync) {
+            this.$refs.syncMonthlyCostsInput.value = shouldSync ? '1' : '0';
+            this.pendingSyncSubmit = true;
+            this.$refs.syncMonthlyCostsModal.close();
+            this.$nextTick(() => this.$refs.collaboratorForm.requestSubmit());
+        },
+        onTerminationDateChanged(event) {
+            const nextValue = String(event.target && event.target.value || '').trim();
+            const hadValue = Boolean(String(this.initialTerminationDate || '').trim());
+            if (nextValue && !hadValue && this.pendingMovementsCount > 0) {
                 this.openTerminationPendingModal();
             }
+            this.initialTerminationDate = nextValue;
         },
         init() {
-            const displayInput = document.getElementById('id_transport_allowance_daily_0_display');
             const amountInput = document.getElementById('id_transport_allowance_daily_0');
-            const terminationInput = document.getElementById('id_termination_date');
-            const initialValue = (displayInput && displayInput.value) || (amountInput && amountInput.value) || '';
-
-            this.transportDailyDisplay = initialValue;
-            this.updateTransportTotal();
+            this.syncTransportDailyFromAmount(amountInput);
             this.syncAllPendingSelection();
 
-            if (displayInput) {
-                displayInput.addEventListener('input', (event) => {
-                    this.transportDailyDisplay = event.target.value || '';
-                    this.updateTransportTotal();
-                });
-                displayInput.addEventListener('change', (event) => {
-                    this.transportDailyDisplay = event.target.value || '';
-                    this.updateTransportTotal();
-                });
+            if (this.openPendingDeleteOnLoad) {
+                this.$nextTick(() => this.openTerminationPendingModal());
             }
 
-            if (terminationInput) {
-                terminationInput.addEventListener('input', () => this.handleTerminationDateChange());
-                terminationInput.addEventListener('change', () => this.handleTerminationDateChange());
+            if (!amountInput) {
+                return;
             }
+            amountInput.addEventListener('widget:formatted-change', (event) => {
+                const detailValue = event.detail && event.detail.value;
+                this.syncTransportDailyFromAmount(amountInput, detailValue);
+            });
+            amountInput.addEventListener('input', () => this.syncTransportDailyFromAmount(amountInput));
+            amountInput.addEventListener('change', () => this.syncTransportDailyFromAmount(amountInput));
         }
     }"
     class="space-y-6"
 >
-    <form method="post" novalidate @submit="handleSubmit($event)">
+    <form id="collaborator-update-form" method="post" novalidate x-ref="collaboratorForm" @submit="handleCollaboratorSubmit($event)">
         {% csrf_token %}
+        <input type="hidden" name="sync_monthly_costs" value="" x-ref="syncMonthlyCostsInput">
         <input type="hidden" name="tab" value="cadastro">
-        <template x-for="movementId in selectedDeletionIds" :key="movementId">
-            <input type="hidden" name="delete_movement_ids" :value="movementId">
-        </template>
 
         {% if form.non_field_errors or benefit_formset.non_form_errors %}
             <div class="alert alert-error">
@@ -152,7 +172,9 @@
 
                 <div class="col-span-12 lg:col-span-4">{{ form.admission_date|as_crispy_field }}</div>
                 <div class="col-span-12 lg:col-span-4 space-y-2">
-                    {{ form.termination_date|as_crispy_field }}
+                    <div @change="onTerminationDateChanged($event)">
+                        {{ form.termination_date|as_crispy_field }}
+                    </div>
                     {% if pending_financial_movements %}
                         <button type="button" class="btn btn-outline btn-xs" @click="openTerminationPendingModal()">
                             Selecionar lançamentos para apagar
@@ -175,10 +197,60 @@
                 <div class="col-span-12 lg:col-span-4">{{ form.payment_day_type|as_crispy_field }}</div>
                 <div class="col-span-12 lg:col-span-4" x-show="payment_day_type === 'FIXED_DAY'" x-cloak>{{ form.payment_day_of_month|as_crispy_field }}</div>
 
+                <div class="col-span-12 lg:col-span-4" x-data="{ showGenerate: false, genMonth: {% now 'n' %}, genYear: {% now 'Y' %} }">
+                    {{ form.salary_repeat_count|as_crispy_field }}
+                    <div class="mt-2 flex items-center gap-2">
+                        <button type="button" class="btn btn-outline btn-primary btn-sm" @click="showGenerate = !showGenerate">
+                            <span class="material-icons text-sm">payments</span>
+                            Gerar Movimentações
+                        </button>
+                        <div x-show="showGenerate" x-cloak class="flex items-center gap-2" id="generate-movements-controls-{{ object.pk }}">
+                            <span class="text-xs text-base-content/70 whitespace-nowrap">A partir de:</span>
+                            <select name="starting_month" x-model="genMonth" class="select select-bordered select-xs" aria-label="Mês">
+                                <option value="1">Janeiro</option>
+                                <option value="2">Fevereiro</option>
+                                <option value="3">Março</option>
+                                <option value="4">Abril</option>
+                                <option value="5">Maio</option>
+                                <option value="6">Junho</option>
+                                <option value="7">Julho</option>
+                                <option value="8">Agosto</option>
+                                <option value="9">Setembro</option>
+                                <option value="10">Outubro</option>
+                                <option value="11">Novembro</option>
+                                <option value="12">Dezembro</option>
+                            </select>
+                            <input type="number" name="starting_year" x-model="genYear" min="2000" max="9999" class="input input-bordered input-xs w-20" aria-label="Ano" />
+                            <button
+                                type="button"
+                                class="btn btn-primary btn-sm"
+                                hx-post="{% url 'collaborators:collaborator_generate_movements' object.pk %}"
+                                hx-include="#generate-movements-controls-{{ object.pk }} [name], #id_salary_repeat_count"
+                                hx-swap="none"
+                                @click="showGenerate = false"
+                            >
+                                Confirmar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="col-span-12 lg:col-span-4">{{ form.transport_allowance_daily|as_crispy_field }}</div>
                 <div class="col-span-12 lg:col-span-4">
-                    <label class="label pb-1"><span class="label-text text-xs">Dias úteis do mês atual</span></label>
-                    <div class="input input-bordered flex items-center bg-base-200">{{ current_work_days }}</div>
+                    <label class="label pb-1" for="id_collaborator_work_days"><span class="label-text text-xs">Dias úteis do mês atual</span></label>
+                    <input
+                        id="id_collaborator_work_days"
+                        type="number"
+                        name="work_days"
+                        min="0"
+                        max="31"
+                        class="input input-bordered w-full"
+                        x-model.number="workDays"
+                        @input="updateTransportTotal()"
+                        @change="updateTransportTotal()"
+                        @blur="fillWorkDaysFromWorkshopDefault()"
+                    >
+                    <p class="mt-1 text-xs text-base-content/60">Não altera o custo do mês da oficina.</p>
                 </div>
                 <div class="col-span-12 lg:col-span-4">
                     <label class="label pb-1"><span class="label-text text-xs">Total previsto do vale transporte</span></label>
@@ -208,9 +280,10 @@
                                 {% endif %}
                             {% endfor %}
                             <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-                                <div class="col-span-12 lg:col-span-3">{{ benefit_form.name|as_crispy_field }}</div>
-                                <div class="col-span-12 lg:col-span-5">{{ benefit_form.description|as_crispy_field }}</div>
+                                <div class="col-span-12 lg:col-span-2">{{ benefit_form.name|as_crispy_field }}</div>
+                                <div class="col-span-12 lg:col-span-3">{{ benefit_form.description|as_crispy_field }}</div>
                                 <div class="col-span-12 lg:col-span-2">{{ benefit_form.monthly_amount|as_crispy_field }}</div>
+                                <div class="col-span-12 lg:col-span-3">{{ benefit_form.budget_plan|as_crispy_field }}</div>
                                 <div class="col-span-12 lg:col-span-1">{{ benefit_form.is_active|as_crispy_field }}</div>
                                 <div class="col-span-12 lg:col-span-1 flex items-center justify-end lg:min-h-full">
                                     {% if benefit_form.instance.pk %}
@@ -259,9 +332,10 @@
                             {% endif %}
                         {% endfor %}
                         <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-                            <div class="col-span-12 lg:col-span-3">{{ benefit_empty_form.name|as_crispy_field }}</div>
-                            <div class="col-span-12 lg:col-span-5">{{ benefit_empty_form.description|as_crispy_field }}</div>
+                            <div class="col-span-12 lg:col-span-2">{{ benefit_empty_form.name|as_crispy_field }}</div>
+                            <div class="col-span-12 lg:col-span-3">{{ benefit_empty_form.description|as_crispy_field }}</div>
                             <div class="col-span-12 lg:col-span-2">{{ benefit_empty_form.monthly_amount|as_crispy_field }}</div>
+                            <div class="col-span-12 lg:col-span-3">{{ benefit_empty_form.budget_plan|as_crispy_field }}</div>
                             <div class="col-span-12 lg:col-span-1">{{ benefit_empty_form.is_active|as_crispy_field }}</div>
                             <div class="col-span-12 lg:col-span-1 flex items-center justify-end lg:min-h-full">
                                 <button type="button" class="btn btn-ghost btn-sm text-error" @click="removeUnsavedBenefit($event)">Remover</button>
@@ -294,6 +368,16 @@
         </div>
     </form>
 
+    {% include 'collaborators/partials/sync_monthly_costs_confirm_modal.html' %}
+
+    <form id="collaborator-delete-movements-form" x-ref="deleteMovementsForm" method="post" action="{% url 'collaborators:collaborator_delete_pending_movements' pk=object.pk %}">
+        {% csrf_token %}
+        <input type="hidden" id="id_delete_movement_ids_payload" name="delete_movement_ids_payload" value="">
+        <template x-for="movementId in selectedDeletionIds" :key="`delete-${movementId}`">
+            <input type="hidden" name="delete_movement_ids" :value="movementId">
+        </template>
+    </form>
+
     <dialog
         class="modal"
         x-ref="terminationPendingModal"
@@ -303,7 +387,7 @@
             <div class="flex items-start justify-between gap-4">
                 <div>
                     <h3 class="text-lg font-semibold text-base-content">Apagar lançamentos pendentes</h3>
-                    <p class="mt-1 text-sm text-base-content/70">Selecione um ou mais lançamentos deste colaborador para excluir quando salvar.</p>
+                    <p class="mt-1 text-sm text-base-content/70">Selecione um ou mais lançamentos deste colaborador para excluir agora.</p>
                 </div>
                 <button type="button" class="btn btn-circle btn-ghost btn-sm" aria-label="Fechar" @click="$refs.terminationPendingModal.close()">
                     <span class="material-icons">close</span>
@@ -340,7 +424,7 @@
                                                 <input
                                                     type="checkbox"
                                                     class="checkbox checkbox-sm"
-                                                    value="{{ movement.pk }}"
+                                                    value="{{ movement.pk|unlocalize }}"
                                                     x-model="selectedDeletionIds"
                                                     @change="togglePendingSelection()"
                                                 />
@@ -362,7 +446,15 @@
             {% endif %}
 
             <div class="modal-action mt-6 border-t border-base-200 pt-4">
-                <button type="button" class="btn btn-ghost" @click="$refs.terminationPendingModal.close()">Continuar edição</button>
+                <button type="button" class="btn btn-ghost" @click="$refs.terminationPendingModal.close()">Cancelar</button>
+                <button
+                    type="button"
+                    class="btn btn-error"
+                    :disabled="selectedDeletionIds.length === 0"
+                    @click="submitDeletionForm()"
+                >
+                    Apagar
+                </button>
             </div>
         </div>
     </dialog>
@@ -517,7 +609,7 @@
             <div class="mt-4 rounded-xl border border-base-200 bg-base-50/40 p-4">
                 <div class="mb-4 flex items-center justify-between gap-2">
                     <div>
-                        <h4 class="font-semibold">Holerite simplificado</h4>
+                        <h4 class="font-semibold">Resumo simplificado</h4>
                         <p class="text-sm text-base-content/70">Competencia {{ payroll.reference_month|stringformat:'02d' }}/{{ payroll.reference_year|unlocalize }}</p>
                     </div>
                     <div class="flex flex-col items-end gap-2 text-right text-sm">
@@ -529,9 +621,9 @@
                             <button
                                 type="button"
                                 class="btn btn-primary btn-xs"
-                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Holerite do colaborador', url: '{% url 'collaborators:collaborator_payroll_receipt' form.instance.pk payroll.pk %}' } }))"
+                                onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{% url 'collaborators:collaborator_payroll_receipt' form.instance.pk payroll.pk %}' } }))"
                             >
-                                Holerite
+                                Resumo
                             </button>
                             {% if payroll.financial_movement %}
                                 <a href="{% url 'finance:reports_home' %}?search={{ payroll.financial_movement.description|urlencode }}" class="btn btn-ghost btn-xs">Ver no financeiro</a>
@@ -561,16 +653,25 @@
                         </thead>
                         <tbody>
                             {% for item in payroll.items.all %}
+                                {% if item.item_type != "COMMISSION" %}
                                 <tr>
                                     <td>{{ item.title }}</td>
                                     <td>{{ item.description|default:'-' }}</td>
                                     <td>{{ item.amount }}</td>
                                 </tr>
+                                {% endif %}
                             {% empty %}
                                 <tr>
                                     <td colspan="3" class="text-center text-base-content/60">Nenhum item detalhado.</td>
                                 </tr>
                             {% endfor %}
+                            {% if payroll.commission_amount.amount > 0 %}
+                                <tr>
+                                    <td>Comissões</td>
+                                    <td>Valor consolidado das comissões da competência.</td>
+                                    <td>{{ payroll.commission_amount }}</td>
+                                </tr>
+                            {% endif %}
                         </tbody>
                     </table>
                 </div>
@@ -594,8 +695,8 @@
 <dialog
     id="pdfModal"
     class="modal"
-    x-data="{ url: '', downloadUrl: '', title: 'Visualização do holerite' }"
-    @open-pdf-modal.window="url = $event.detail.url; downloadUrl = $event.detail.downloadUrl || ''; title = $event.detail.title || 'Visualização do holerite'; $el.showModal()"
+    x-data="{ url: '', downloadUrl: '', title: 'Visualização do resumo' }"
+    @open-pdf-modal.window="url = $event.detail.url; downloadUrl = $event.detail.downloadUrl || ''; title = $event.detail.title || 'Visualização do resumo'; $el.showModal()"
 >
     <div class="modal-box flex h-[90vh] w-full max-w-5xl flex-col p-0">
         <div class="flex items-center justify-between border-b bg-base-200 px-6 py-4">

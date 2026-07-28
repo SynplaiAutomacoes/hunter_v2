@@ -7,6 +7,8 @@ from typing import Any
 import requests
 from django.conf import settings
 
+from apps.core.observability import observe_dependency_call
+
 
 logger = logging.getLogger(__name__)
 
@@ -45,13 +47,21 @@ def get_signed_document_download_url(*, document_id: str) -> str:
 
     for include_authorization in (False, True):
         try:
-            response = requests.get(
-                f"{base_url}/v2/documents/{document_id}/download",
-                headers=_supersign_download_headers(include_authorization=include_authorization),
-                params={"type": "signed"},
-                timeout=20,
-            )
-            response.raise_for_status()
+            with observe_dependency_call(
+                logger=logger,
+                dependency_type="http",
+                dependency_name="supersign",
+                operation="get_signed_document_download_url",
+                log_context={"document_id": document_id, "include_authorization": include_authorization},
+            ) as dependency_call:
+                response = requests.get(
+                    f"{base_url}/v2/documents/{document_id}/download",
+                    headers=_supersign_download_headers(include_authorization=include_authorization),
+                    params={"type": "signed"},
+                    timeout=20,
+                )
+                dependency_call.set_http_status_code(response.status_code)
+                response.raise_for_status()
             break
         except requests.RequestException as exc:
             last_exception = exc
@@ -92,12 +102,20 @@ def get_supersign_envelope_signed_document_id(*, envelope_id: str) -> str:
     logger.info("supersign_envelope_details_start", extra={"envelope_id": envelope_id})
 
     try:
-        response = requests.get(
-            f"{base_url}/v2/envelopes/{envelope_id}",
-            headers=_supersign_headers(),
-            timeout=20,
-        )
-        response.raise_for_status()
+        with observe_dependency_call(
+            logger=logger,
+            dependency_type="http",
+            dependency_name="supersign",
+            operation="get_envelope_details",
+            log_context={"envelope_id": envelope_id},
+        ) as dependency_call:
+            response = requests.get(
+                f"{base_url}/v2/envelopes/{envelope_id}",
+                headers=_supersign_headers(),
+                timeout=20,
+            )
+            dependency_call.set_http_status_code(response.status_code)
+            response.raise_for_status()
     except requests.RequestException as exc:
         response_text = exc.response.text if exc.response is not None else ""
         logger.error(
@@ -169,12 +187,19 @@ def list_supersign_webhooks() -> list[dict[str, Any]]:
     base_url = settings.SUPERSIGN_BASE_URL.rstrip("/")
     logger.info("supersign_webhooks_list_start")
     try:
-        response = requests.get(
-            f"{base_url}/v2/webhooks/",
-            headers=_supersign_headers(),
-            timeout=20,
-        )
-        response.raise_for_status()
+        with observe_dependency_call(
+            logger=logger,
+            dependency_type="http",
+            dependency_name="supersign",
+            operation="list_webhooks",
+        ) as dependency_call:
+            response = requests.get(
+                f"{base_url}/v2/webhooks/",
+                headers=_supersign_headers(),
+                timeout=20,
+            )
+            dependency_call.set_http_status_code(response.status_code)
+            response.raise_for_status()
     except requests.RequestException as exc:
         response_text = exc.response.text if exc.response is not None else ""
         logger.error("supersign_webhooks_list_failed", extra={"status_code": exc.response.status_code if exc.response is not None else None})
@@ -197,13 +222,21 @@ def create_supersign_webhook(*, url: str, events: list[str] | None = None, is_ac
     logger.info("supersign_webhook_create_start", extra={"url": url, "events": events or ["ENVELOPE_COMPLETED"]})
 
     try:
-        response = requests.post(
-            f"{base_url}/v2/webhooks/",
-            json=payload,
-            headers=_supersign_headers(),
-            timeout=20,
-        )
-        response.raise_for_status()
+        with observe_dependency_call(
+            logger=logger,
+            dependency_type="http",
+            dependency_name="supersign",
+            operation="create_webhook",
+            log_context={"url": url},
+        ) as dependency_call:
+            response = requests.post(
+                f"{base_url}/v2/webhooks/",
+                json=payload,
+                headers=_supersign_headers(),
+                timeout=20,
+            )
+            dependency_call.set_http_status_code(response.status_code)
+            response.raise_for_status()
     except requests.RequestException as exc:
         response_text = exc.response.text if exc.response is not None else ""
         logger.error(
@@ -227,8 +260,16 @@ def download_signed_document(*, document_id: str) -> bytes:
     logger.info("supersign_download_signed_start", extra={"document_id": document_id})
 
     try:
-        response = requests.get(download_url, timeout=30)
-        response.raise_for_status()
+        with observe_dependency_call(
+            logger=logger,
+            dependency_type="http",
+            dependency_name="supersign",
+            operation="download_signed_document",
+            log_context={"document_id": document_id},
+        ) as dependency_call:
+            response = requests.get(download_url, timeout=30)
+            dependency_call.set_http_status_code(response.status_code)
+            response.raise_for_status()
     except requests.RequestException as exc:
         response_text = exc.response.text if exc.response is not None else ""
         logger.error(
@@ -309,13 +350,21 @@ def send_pdf_for_signature(
     )
 
     try:
-        create_resp = requests.post(
-            f"{base_url}/v2/envelopes/",
-            json=create_payload,
-            headers=_supersign_headers(),
-            timeout=20,
-        )
-        create_resp.raise_for_status()
+        with observe_dependency_call(
+            logger=logger,
+            dependency_type="http",
+            dependency_name="supersign",
+            operation="create_envelope",
+            log_context={"document_ref_id": document_ref_id, "file_name": file_name, "folder_id": folder_id},
+        ) as dependency_call:
+            create_resp = requests.post(
+                f"{base_url}/v2/envelopes/",
+                json=create_payload,
+                headers=_supersign_headers(),
+                timeout=20,
+            )
+            dependency_call.set_http_status_code(create_resp.status_code)
+            create_resp.raise_for_status()
     except requests.RequestException as exc:
         response_text = exc.response.text if exc.response is not None else ""
         logger.error(
@@ -379,13 +428,21 @@ def send_pdf_for_signature(
                 "pdf_bytes_size": len(pdf_bytes),
             },
         )
-        upload_resp = requests.put(
-            upload_url,
-            data=pdf_bytes,
-            headers=upload_headers,
-            timeout=30,
-        )
-        upload_resp.raise_for_status()
+        with observe_dependency_call(
+            logger=logger,
+            dependency_type="http",
+            dependency_name="supersign",
+            operation="upload_signed_pdf",
+            log_context={"document_ref_id": document_ref_id, "envelope_id": envelope_id, "document_id": document_id},
+        ) as dependency_call:
+            upload_resp = requests.put(
+                upload_url,
+                data=pdf_bytes,
+                headers=upload_headers,
+                timeout=30,
+            )
+            dependency_call.set_http_status_code(upload_resp.status_code)
+            upload_resp.raise_for_status()
     except requests.RequestException as exc:
         response_text = exc.response.text if exc.response is not None else ""
         logger.error(

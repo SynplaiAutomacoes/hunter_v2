@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date
 
 from django.contrib import messages
@@ -17,7 +18,18 @@ from django.views.generic import CreateView, DeleteView, ListView, UpdateView, V
 
 from apps.collaborators.forms import CollaboratorBenefitFormSet, WorkshopCollaboratorCreateForm, WorkshopCollaboratorModalForm, WorkshopCollaboratorUpdateForm
 from apps.collaborators.models import CollaboratorBenefit, CollaboratorPayroll, WorkshopCollaborator, WorkshopMember
-from apps.collaborators.services import calculate_transport_allowance_total, freeze_existing_pricing_history, get_reference_work_days, sync_collaborator_payroll, sync_current_month_salary_costs
+from apps.collaborators.services import (
+    apply_collaborator_work_days_for_reference,
+    calculate_transport_allowance_total,
+    delete_collaborator_benefit_and_sync_payrolls,
+    delete_selected_pending_collaborator_movements,
+    freeze_existing_pricing_history,
+    get_reference_work_days,
+    get_workshop_work_days,
+    mark_payroll_as_paid,
+    sync_collaborator_payroll_range,
+    sync_current_month_salary_costs,
+)
 from apps.core.presentation.navigation import COLLABORATOR_CREATE_FAVORITE_PAGE
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
 from apps.core.presentation.tables import TableActionDefaults
@@ -29,6 +41,11 @@ from apps.workshops.mixin import WorkshopScopedMixin
 
 AuthUser = get_user_model()
 User = get_user_model()
+logger = logging.getLogger(__name__)
+
+
+def _should_sync_monthly_costs(request) -> bool:
+    return bool(request.POST.get("sync_monthly_costs") == "1")
 
 
 COLLABORATOR_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
@@ -107,6 +124,8 @@ class WorkshopCollaboratorCreateView(PageFavoriteMixin, LoginRequiredMixin, Work
 
             if form.instance.salary is None:
                 form.instance.salary = 0
+            if form.instance.transport_allowance_daily is None:
+                form.instance.transport_allowance_daily = 0
 
             if form.cleaned_data.get("system_access"):
                 username = form.cleaned_data["system_username"]
@@ -142,9 +161,9 @@ class WorkshopCollaboratorCreateView(PageFavoriteMixin, LoginRequiredMixin, Work
                 form.instance.user = None
                 response = super().form_valid(form)
 
-            sync_collaborator_payroll(collaborator=self.object)
             freeze_existing_pricing_history(workshop=self.workshop, cutoff=self.object.criado_em)
-            sync_current_month_salary_costs(workshop=self.workshop)
+            if _should_sync_monthly_costs(self.request):
+                sync_current_month_salary_costs(workshop=self.workshop)
 
         return response
 
@@ -170,22 +189,40 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
                 movement_ids.append(int(value))
         return movement_ids
 
+    def _get_selected_movement_ids(self) -> list[int]:
+        movement_ids = self._parse_selected_movement_ids(self.request.POST.getlist("delete_movement_ids"))
+        if movement_ids:
+            return movement_ids
+
+        payload = str(self.request.POST.get("delete_movement_ids_payload") or "").strip()
+        if not payload:
+            return []
+
+        return self._parse_selected_movement_ids(payload.split(","))
+
     def _delete_selected_pending_movements(self, *, collaborator: WorkshopCollaborator) -> None:
         if collaborator.termination_date is None:
             return
 
-        movement_ids = self._parse_selected_movement_ids(self.request.POST.getlist("delete_movement_ids"))
+        movement_ids = self._get_selected_movement_ids()
         if not movement_ids:
             return
 
-        deleted_count, _ = FinancialMovement.objects.filter(
-            workshop=self.workshop,
+        deleted_count = delete_selected_pending_collaborator_movements(
             collaborator=collaborator,
-            is_paid=False,
-            pk__in=movement_ids,
-        ).delete()
+            workshop=self.workshop,
+            movement_ids=movement_ids,
+        )
         if deleted_count:
             messages.success(self.request, f"{deleted_count} lançamento(s) removido(s) com sucesso.")
+
+    def get_success_url(self):
+        params = ["tab=cadastro"]
+        request = getattr(self, "request", None)
+        open_from_query = bool(request is not None and request.GET.get("open_pending_delete") == "1")
+        if open_from_query or getattr(self, "_open_pending_delete", False):
+            params.append("open_pending_delete=1")
+        return f"{reverse('collaborators:collaborator_update', kwargs={'pk': clean_id(self.object.pk)})}?{'&'.join(params)}"
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -197,7 +234,7 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         context = super().get_context_data(**kwargs)
         benefit_formset = kwargs.get("benefit_formset")
         if benefit_formset is None:
-            benefit_formset = CollaboratorBenefitFormSet(instance=self.object, prefix="benefits")
+            benefit_formset = CollaboratorBenefitFormSet(instance=self.object, prefix="benefits", form_kwargs={"workshop": self.workshop})
         reference_date = self.request.GET.get("reference_date")
         history_month = str(self.request.GET.get("history_month") or "").strip()
         history_year = str(self.request.GET.get("history_year") or "").strip()
@@ -220,6 +257,7 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         context["benefit_empty_form"] = benefit_formset.empty_form
         context["payroll_history"] = payroll_history[:24]
         context["current_work_days"] = get_reference_work_days(collaborator=self.object)
+        context["workshop_default_work_days"] = get_workshop_work_days(workshop=self.workshop)
         context["current_transport_total"] = calculate_transport_allowance_total(collaborator=self.object)
         context["active_tab"] = self.request.POST.get("tab") or self.request.GET.get("tab") or "cadastro"
         context["reference_date"] = reference_date
@@ -229,26 +267,45 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
         context["selected_history_year"] = history_year
         context["selected_history_status"] = history_status
         context["pending_financial_movements"] = pending_financial_movements
+        context["open_pending_delete"] = str(self.request.GET.get("open_pending_delete") or "").strip() == "1"
         return context
 
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
         form = self.get_form()
-        benefit_formset = CollaboratorBenefitFormSet(request.POST, instance=self.object, prefix="benefits")
+        benefit_formset = CollaboratorBenefitFormSet(request.POST, instance=self.object, prefix="benefits", form_kwargs={"workshop": self.workshop})
         if form.is_valid() and benefit_formset.is_valid():
             return self.forms_valid(form, benefit_formset)
         return self.forms_invalid(form, benefit_formset)
 
     def forms_valid(self, form, benefit_formset: BaseInlineFormSet):
+        previous_termination_date = WorkshopCollaborator.objects.filter(pk=self.object.pk).values_list("termination_date", flat=True).first()
         with transaction.atomic():
             if form.instance.salary is None:
                 form.instance.salary = 0
+            if form.instance.transport_allowance_daily is None:
+                form.instance.transport_allowance_daily = 0
 
             response = super().form_valid(form)
             collaborator = self.object
+            should_sync_monthly_costs = _should_sync_monthly_costs(self.request)
 
             benefit_formset.instance = collaborator
             benefit_formset.save()
+
+            raw_work_days = str(self.request.POST.get("work_days") or "").strip()
+            if raw_work_days == "":
+                apply_collaborator_work_days_for_reference(
+                    collaborator=collaborator,
+                    work_days=None,
+                    sync_salary_costs=should_sync_monthly_costs,
+                )
+            elif raw_work_days.isdigit():
+                apply_collaborator_work_days_for_reference(
+                    collaborator=collaborator,
+                    work_days=int(raw_work_days),
+                    sync_salary_costs=should_sync_monthly_costs,
+                )
 
             if collaborator.system_access:
                 role = form.cleaned_data["role"]
@@ -289,17 +346,129 @@ class WorkshopCollaboratorUpdateView(LoginRequiredMixin, WorkshopScopedMixin, Up
                 collaborator.user.is_active = False
                 collaborator.user.save(update_fields=["is_active"])
 
-            sync_collaborator_payroll(collaborator=collaborator)
-            sync_current_month_salary_costs(workshop=self.workshop)
-            self._delete_selected_pending_movements(collaborator=collaborator)
+            if should_sync_monthly_costs:
+                sync_current_month_salary_costs(workshop=self.workshop)
+
+            termination_newly_set = previous_termination_date is None and collaborator.termination_date is not None
+            has_pending = FinancialMovement.objects.filter(workshop=self.workshop, collaborator=collaborator, is_paid=False).exists()
+            self._open_pending_delete = bool(termination_newly_set and has_pending)
+            if self._open_pending_delete:
+                return HttpResponseRedirect(self.get_success_url())
             return response
 
     def forms_invalid(self, form, benefit_formset: BaseInlineFormSet):
         return self.render_to_response(self.get_context_data(form=form, benefit_formset=benefit_formset))
 
     def form_valid(self, form):
-        benefit_formset = CollaboratorBenefitFormSet(self.request.POST or None, instance=form.instance, prefix="benefits")
+        benefit_formset = CollaboratorBenefitFormSet(self.request.POST or None, instance=form.instance, prefix="benefits", form_kwargs={"workshop": self.workshop})
         return self.forms_valid(form, benefit_formset)
+
+
+class WorkshopCollaboratorGenerateMovementsView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkshopCollaborator
+    workshop_permission_codename = "change_workshopcollaborator"
+
+    def post(self, request, *args, **kwargs):
+        collaborator = get_object_or_404(WorkshopCollaborator, pk=kwargs["pk"], workshop=self.workshop)
+        logger.warning(
+            "Collaborator generate movements request received",
+            extra={
+                "collaborator_id": collaborator.pk,
+                "workshop_id": self.workshop.pk,
+                "starting_month": request.POST.get("starting_month"),
+                "starting_year": request.POST.get("starting_year"),
+                "repeat_count": request.POST.get("repeat_count"),
+                "salary_repeat_count": request.POST.get("salary_repeat_count"),
+                "payment_day_type": collaborator.payment_day_type,
+                "payment_day_of_month": collaborator.payment_day_of_month,
+                "is_active": collaborator.is_active,
+                "salary_amount": str(collaborator.salary.amount if collaborator.salary is not None else "0"),
+            },
+        )
+        if not collaborator.is_active:
+            logger.warning(
+                "Collaborator generate movements skipped because collaborator is inactive",
+                extra={"collaborator_id": collaborator.pk, "workshop_id": self.workshop.pk},
+            )
+            response = HttpResponse(status=204)
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": "Colaborador inativo. Ative-o para gerar movimentações.", "type": "warning"}})
+            return response
+
+        try:
+            starting_month = int(str(request.POST.get("starting_month") or ""))
+            starting_year = int(str(request.POST.get("starting_year") or ""))
+            repeat_count = int(str(request.POST.get("repeat_count") or request.POST.get("salary_repeat_count") or "0"))
+        except (TypeError, ValueError):
+            logger.warning(
+                "Collaborator generate movements received invalid parameters",
+                extra={
+                    "collaborator_id": collaborator.pk,
+                    "workshop_id": self.workshop.pk,
+                    "starting_month": request.POST.get("starting_month"),
+                    "starting_year": request.POST.get("starting_year"),
+                    "repeat_count": request.POST.get("repeat_count"),
+                    "salary_repeat_count": request.POST.get("salary_repeat_count"),
+                },
+            )
+            response = HttpResponse(status=204)
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": "Parâmetros inválidos.", "type": "error"}})
+            return response
+
+        if repeat_count <= 0:
+            logger.warning(
+                "Collaborator generate movements skipped because repeat count is not positive",
+                extra={"collaborator_id": collaborator.pk, "workshop_id": self.workshop.pk, "repeat_count": repeat_count},
+            )
+            response = HttpResponse(status=204)
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": "A quantidade de meses deve ser maior que zero.", "type": "warning"}})
+            return response
+
+        if collaborator.salary is None or collaborator.salary.amount is None or float(str(collaborator.salary.amount or 0)) <= 0:
+            logger.warning(
+                "Collaborator generate movements skipped because salary is zero",
+                extra={"collaborator_id": collaborator.pk, "workshop_id": self.workshop.pk, "salary_amount": str(collaborator.salary.amount if collaborator.salary is not None else "0")},
+            )
+            response = HttpResponse(status=204)
+            response["HX-Trigger"] = json.dumps({"showToast": {"message": "O salário do colaborador está zerado. Nenhuma movimentação foi gerada.", "type": "warning"}})
+            return response
+
+        reference_date = date(starting_year, starting_month, 1)
+        with transaction.atomic():
+            generated_payrolls = sync_collaborator_payroll_range(
+                collaborator=collaborator,
+                start_reference_date=reference_date,
+                months_count=repeat_count,
+            )
+            sync_current_month_salary_costs(workshop=self.workshop)
+        logger.warning(
+            "Collaborator generate movements completed",
+            extra={
+                "collaborator_id": collaborator.pk,
+                "workshop_id": self.workshop.pk,
+                "requested_repeat_count": repeat_count,
+                "generated_payroll_count": len(generated_payrolls),
+                "generated_payrolls": [
+                    {
+                        "payroll_id": payroll.pk,
+                        "reference_year": payroll.reference_year,
+                        "reference_month": payroll.reference_month,
+                        "due_date": payroll.due_date.isoformat(),
+                        "financial_movement_id": payroll.financial_movement_id,
+                        "financial_movements_count": payroll.financial_movements.count(),
+                        "salary_amount": str(payroll.salary_amount.amount),
+                        "transport_amount": str(payroll.transport_allowance_amount.amount),
+                        "benefits_amount": str(payroll.benefits_amount.amount),
+                        "commission_amount": str(payroll.commission_amount.amount),
+                        "total_amount": str(payroll.total_amount.amount),
+                    }
+                    for payroll in generated_payrolls
+                ],
+            },
+        )
+
+        response = HttpResponse(status=204)
+        response["HX-Trigger"] = json.dumps({"showToast": {"message": f"{repeat_count} folhas de pagamento geradas com sucesso.", "type": "success"}, "collaboratorMovementsGenerated": {}})
+        return response
 
 
 class WorkshopCollaboratorDeleteView(LoginRequiredMixin, WorkshopScopedMixin, HtmxDeleteResponseMixin, DeleteView):
@@ -333,6 +502,73 @@ class WorkshopCollaboratorDeleteView(LoginRequiredMixin, WorkshopScopedMixin, Ht
         return HttpResponseRedirect(self.get_success_url())
 
 
+class WorkshopCollaboratorPendingMovementDeleteView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    model = WorkshopCollaborator
+    workshop_permission_codename = "change_workshopcollaborator"
+
+    @staticmethod
+    def _parse_selected_movement_ids(raw_values: list[str]) -> list[int]:
+        movement_ids: list[int] = []
+        for raw_value in raw_values:
+            value = str(raw_value or "").strip()
+            if value.isdigit():
+                movement_ids.append(int(value))
+        return movement_ids
+
+    def _get_selected_movement_ids(self, request) -> list[int]:
+        movement_ids = self._parse_selected_movement_ids(request.POST.getlist("delete_movement_ids"))
+        if movement_ids:
+            return movement_ids
+
+        payload = str(request.POST.get("delete_movement_ids_payload") or "").strip()
+        if not payload:
+            return []
+
+        return self._parse_selected_movement_ids(payload.split(","))
+
+    def post(self, request, pk):
+        collaborator = get_object_or_404(WorkshopCollaborator, pk=clean_id(pk), workshop=self.workshop)
+        movement_ids = self._get_selected_movement_ids(request)
+
+        logger.warning(
+            "Collaborator pending delete payload received",
+            extra={
+                "collaborator_id": collaborator.pk,
+                "workshop_id": self.workshop.pk,
+                "delete_movement_ids": request.POST.getlist("delete_movement_ids"),
+                "delete_movement_ids_payload": request.POST.get("delete_movement_ids_payload", ""),
+                "parsed_movement_ids": movement_ids,
+            },
+        )
+
+        if not movement_ids:
+            messages.warning(request, "Selecione ao menos um lançamento para apagar.")
+            return HttpResponseRedirect(f"{reverse('collaborators:collaborator_update', kwargs={'pk': clean_id(collaborator.pk)})}?tab=cadastro")
+
+        deleted_count = delete_selected_pending_collaborator_movements(
+            collaborator=collaborator,
+            workshop=self.workshop,
+            movement_ids=movement_ids,
+        )
+
+        logger.warning(
+            "Collaborator pending delete result",
+            extra={
+                "collaborator_id": collaborator.pk,
+                "workshop_id": self.workshop.pk,
+                "parsed_movement_ids": movement_ids,
+                "deleted_count": deleted_count,
+            },
+        )
+
+        if deleted_count:
+            messages.success(request, f"{deleted_count} lançamento(s) removido(s) com sucesso.")
+        else:
+            messages.warning(request, "Nenhum lançamento pendente selecionado foi removido.")
+
+        return HttpResponseRedirect(f"{reverse('collaborators:collaborator_update', kwargs={'pk': clean_id(collaborator.pk)})}?tab=cadastro")
+
+
 class CollaboratorPayrollMarkPaidView(LoginRequiredMixin, WorkshopScopedMixin, View):
     model = WorkshopCollaborator
     workshop_permission_codename = "change_financialmovement"
@@ -342,9 +578,7 @@ class CollaboratorPayrollMarkPaidView(LoginRequiredMixin, WorkshopScopedMixin, V
         payroll = get_object_or_404(CollaboratorPayroll.objects.select_related("financial_movement"), pk=payroll_id, collaborator=collaborator)
 
         if payroll.financial_movement is not None:
-            payroll.financial_movement.is_paid = True
-            payroll.financial_movement.save(update_fields=["is_paid"])
-            sync_collaborator_payroll(collaborator=collaborator, reference_date=date(payroll.reference_year, payroll.reference_month, 1))
+            mark_payroll_as_paid(payroll=payroll)
 
         query_params = self.request.POST.copy()
         query_params.pop("csrfmiddlewaretoken", None)
@@ -384,8 +618,9 @@ class CollaboratorBenefitDeleteView(LoginRequiredMixin, WorkshopScopedMixin, Vie
     def post(self, request, pk, benefit_id):
         collaborator = get_object_or_404(WorkshopCollaborator, pk=clean_id(pk), workshop=self.workshop)
         benefit = get_object_or_404(CollaboratorBenefit, pk=clean_id(benefit_id), collaborator=collaborator)
-        benefit.delete()
-        sync_collaborator_payroll(collaborator=collaborator)
+        with transaction.atomic():
+            delete_collaborator_benefit_and_sync_payrolls(benefit=benefit)
+            sync_current_month_salary_costs(workshop=self.workshop)
         return HttpResponseRedirect(f"{reverse('collaborators:collaborator_update', kwargs={'pk': clean_id(collaborator.pk)})}?tab=cadastro")
 
 
@@ -401,11 +636,13 @@ class WorkshopCollaboratorModalCreateView(LoginRequiredMixin, WorkshopScopedMixi
 
             if self.object.salary is None:
                 self.object.salary = 0
+            if self.object.transport_allowance_daily is None:
+                self.object.transport_allowance_daily = 0
 
             self.object.save()
-            sync_collaborator_payroll(collaborator=self.object)
             freeze_existing_pricing_history(workshop=self.workshop, cutoff=self.object.criado_em)
-            sync_current_month_salary_costs(workshop=self.workshop)
+            if _should_sync_monthly_costs(self.request):
+                sync_current_month_salary_costs(workshop=self.workshop)
 
         response = HttpResponse(status=204)
         response["HX-Trigger"] = json.dumps({"collaboratorSaved": {"id": str(self.object.pk), "name": self.object.name}})
@@ -423,10 +660,12 @@ class WorkshopCollaboratorModalUpdateView(LoginRequiredMixin, WorkshopScopedMixi
 
             if self.object.salary is None:
                 self.object.salary = 0
+            if self.object.transport_allowance_daily is None:
+                self.object.transport_allowance_daily = 0
 
             self.object.save()
-            sync_collaborator_payroll(collaborator=self.object)
-            sync_current_month_salary_costs(workshop=self.workshop)
+            if _should_sync_monthly_costs(self.request):
+                sync_current_month_salary_costs(workshop=self.workshop)
 
             if self.object.user_id:
                 user = self.object.user

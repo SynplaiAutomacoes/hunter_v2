@@ -1,0 +1,442 @@
+{% extends 'crud/page.html' %}
+{% load l10n %}
+
+{% block crud_content %}
+    <div class="space-y-6" x-data>
+        <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-base-content">Folha de Pagamento</h1>
+                <p class="text-base-content/70">Acompanhe a folha consolidada por colaborador.</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <button type="button" class="btn btn-outline btn-primary" {% if not can_refresh_payroll %}disabled title="Indisponível com filtro por data"{% else %}hx-post="{% url 'finance:payroll_refresh' %}" hx-include="#payroll-filter-form [name]" hx-vals='{"mes": "{{ selected_month|unlocalize }}", "ano": "{{ selected_year|unlocalize }}", "search": "{{ request.GET.search|default:""|escapejs }}", "data_inicial": "{{ request.GET.data_inicial|default:""|escapejs }}", "data_final": "{{ request.GET.data_final|default:""|escapejs }}", "collaborator": "{{ selected_collaborator_id|default:""|unlocalize }}", "status": "{{ selected_status|default:""|escapejs }}"}' hx-target="#payroll-edit-modal-container" hx-swap="innerHTML"{% endif %}>
+                    <span class="material-icons">sync</span>
+                    Atualizar folha
+                </button>
+                <button type="button" class="btn btn-info" id="btn-conciliar-selecionados" disabled @click="$refs.payrollBulkConciliateModal.showModal()">
+                    <span class="material-icons">account_balance</span>
+                    Conciliar selecionados
+                </button>
+                <button type="button" class="btn btn-success" id="btn-pagar-selecionados" disabled @click="$refs.payrollBulkPayModal.showModal()">
+                    <span class="material-icons">payments</span>
+                    Pagar selecionados
+                </button>
+                <button type="button" class="btn btn-warning" id="btn-desfazer-pagamentos" disabled @click="$refs.payrollBulkUnpayModal.showModal()">
+                    <span class="material-icons">undo</span>
+                    Desfazer pagamentos
+                </button>
+            </div>
+        </div>
+
+        <dialog id="payroll-bulk-pay-modal" class="modal" x-ref="payrollBulkPayModal" @click="if ($event.target === $el) $el.close()">
+            <div class="modal-box w-11/12 max-w-lg border border-base-300 bg-base-100 shadow-2xl">
+                <div class="flex items-start gap-3">
+                    <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-success/10 text-success">
+                        <span class="material-icons">payments</span>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold text-base-content">Confirmar pagamento em lote</h3>
+                        <p class="mt-2 text-sm leading-6 text-base-content/70">As folhas selecionadas serão marcadas como pagas, e as comissões vinculadas também serão marcadas como pagas.</p>
+                    </div>
+                </div>
+
+                <div class="mt-5 rounded-xl border border-base-300 bg-base-200/40 px-4 py-3 text-sm text-base-content/80">
+                    Revise os itens selecionados antes de continuar. Esta ação atualiza todos os registros marcados de uma só vez.
+                </div>
+
+                <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                    <button type="button" class="btn-form-cancel" @click="$refs.payrollBulkPayModal.close()">Cancelar</button>
+                    <button
+                        type="button"
+                        class="btn btn-success"
+                        hx-post="{% url 'finance:payroll_bulk_pay' %}"
+                        hx-include="#payroll-table .payroll-checkbox:checked"
+                        hx-target="#payroll-section"
+                        hx-swap="outerHTML"
+                        @click="$refs.payrollBulkPayModal.close()"
+                    >
+                        <span class="material-icons text-[18px]">check_circle</span>
+                        Confirmar pagamento
+                    </button>
+                </div>
+            </div>
+            <button type="button" class="modal-backdrop" @click="$refs.payrollBulkPayModal.close()">close</button>
+        </dialog>
+
+        <dialog id="payroll-bulk-unpay-modal" class="modal" x-ref="payrollBulkUnpayModal" @click="if ($event.target === $el) $el.close()">
+            <div class="modal-box w-11/12 max-w-lg border border-base-300 bg-base-100 shadow-2xl">
+                <div class="flex items-start gap-3">
+                    <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-warning/10 text-warning">
+                        <span class="material-icons">undo</span>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold text-base-content">Confirmar desfazer pagamentos</h3>
+                        <p class="mt-2 text-sm leading-6 text-base-content/70">As folhas selecionadas voltarão para não pagas, e as comissões vinculadas também serão marcadas como não pagas.</p>
+                    </div>
+                </div>
+
+                <div class="mt-5 rounded-xl border border-base-300 bg-base-200/40 px-4 py-3 text-sm text-base-content/80">
+                    Revise os itens selecionados antes de continuar. Esta ação desfaz o pagamento de todos os registros marcados de uma só vez.
+                </div>
+
+                <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                    <button type="button" class="btn-form-cancel" @click="$refs.payrollBulkUnpayModal.close()">Cancelar</button>
+                    <button
+                        type="button"
+                        class="btn btn-warning"
+                        hx-post="{% url 'finance:payroll_bulk_unpay' %}"
+                        hx-include="#payroll-table .payroll-checkbox:checked"
+                        hx-target="#payroll-section"
+                        hx-swap="outerHTML"
+                        @click="$refs.payrollBulkUnpayModal.close()"
+                    >
+                        <span class="material-icons text-[18px]">undo</span>
+                        Confirmar desfazer
+                    </button>
+                </div>
+            </div>
+            <button type="button" class="modal-backdrop" @click="$refs.payrollBulkUnpayModal.close()">close</button>
+        </dialog>
+
+        <dialog id="payroll-bulk-conciliate-modal" class="modal" x-ref="payrollBulkConciliateModal" @click="if ($event.target === $el) $el.close()">
+            <div class="modal-box w-11/12 max-w-lg border border-base-300 bg-base-100 shadow-2xl">
+                <div class="flex items-start gap-3">
+                    <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-info/10 text-info">
+                        <span class="material-icons">account_balance</span>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-semibold text-base-content">Confirmar conciliação em lote</h3>
+                        <p class="mt-2 text-sm leading-6 text-base-content/70">As folhas selecionadas terão as movimentações marcadas como conciliadas e vinculadas à conta bancária escolhida.</p>
+                    </div>
+                </div>
+
+                <div class="mt-5 space-y-3 rounded-xl border border-base-300 bg-base-200/40 px-4 py-4 text-sm text-base-content/80">
+                    <div>
+                        <label for="payroll-bulk-bank-account" class="mb-1 block text-sm font-medium text-base-content">Conta bancária</label>
+                        <select id="payroll-bulk-bank-account" class="select select-bordered w-full">
+                            <option value="">Selecione</option>
+                            {% for account in bank_account_filters %}
+                                <option value="{{ account.pk|unlocalize }}">{{ account }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <p>Somente movimentações pagas e com plano orçamentário serão conciliadas.</p>
+                </div>
+
+                <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                    <button type="button" class="btn-form-cancel" @click="$refs.payrollBulkConciliateModal.close()">Cancelar</button>
+                    <button
+                        type="button"
+                        class="btn btn-info"
+                        hx-post="{% url 'finance:payroll_bulk_conciliate' %}"
+                        hx-include="#payroll-table .payroll-checkbox:checked"
+                        hx-vals='js:{ bank_account_id: document.getElementById("payroll-bulk-bank-account")?.value || "" }'
+                        hx-target="#payroll-section"
+                        hx-swap="outerHTML"
+                        @click="$refs.payrollBulkConciliateModal.close()"
+                    >
+                        <span class="material-icons text-[18px]">account_balance</span>
+                        Confirmar conciliação
+                    </button>
+                </div>
+            </div>
+            <button type="button" class="modal-backdrop" @click="$refs.payrollBulkConciliateModal.close()">close</button>
+        </dialog>
+
+        <form method="get" action="{% url 'finance:payroll_list' %}" id="payroll-filter-form" class="card border border-base-300 bg-base-100 shadow-xl" x-data>
+            {% csrf_token %}
+            <div class="card-body gap-4 p-5 md:p-6">
+                <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-end">
+                    <div>
+                        <label for="payroll-search">Pesquisar</label>
+                        <input id="payroll-search" type="text" name="search" value="{{ request.GET.search|default:'' }}" placeholder="Colaborador..." class="input input-bordered w-full" />
+                    </div>
+
+                    <div class="{% if has_modal_date_filter %}opacity-50{% endif %}">
+                        <label for="payroll-month">Competência</label>
+                        <div class="flex items-center gap-2 rounded-xl border border-base-300 bg-base-100 p-2 {% if has_modal_date_filter %}pointer-events-none bg-base-200{% endif %}">
+                            <span class="material-icons text-primary">calendar_month</span>
+                            <select id="payroll-month" name="mes" class="select select-sm bg-base-100 font-medium" onchange="this.form.requestSubmit()" {% if has_modal_date_filter %}disabled{% endif %}>
+                                {% for value, label in month_choices %}
+                                    <option value="{{ value|unlocalize }}" {% if selected_month == value %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                            <select name="ano" class="select select-sm bg-base-100 font-medium" onchange="this.form.requestSubmit()" {% if has_modal_date_filter %}disabled{% endif %}>
+                                {% for value in year_choices %}
+                                    <option value="{{ value|unlocalize }}" {% if selected_year == value %}selected{% endif %}>{{ value|unlocalize }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        {% if has_modal_date_filter %}
+                            <p class="mt-1 text-xs text-warning">Ignorado enquanto o filtro por data estiver ativo.</p>
+                            <input type="hidden" name="mes" value="{{ selected_month|unlocalize }}">
+                            <input type="hidden" name="ano" value="{{ selected_year|unlocalize }}">
+                        {% endif %}
+                    </div>
+
+                    <div class="flex flex-col gap-2 sm:flex-row">
+                        <button type="submit" class="btn btn-primary">Buscar</button>
+                        <button type="button" class="btn btn-primary" @click="$refs.payrollFilterModal.showModal()">
+                            <span class="material-icons text-[18px]">filter_list</span>
+                            Filtro
+                        </button>
+                        {% if has_active_filters %}
+                            <a href="{{ clear_filters_url }}" class="btn btn-error text-white">Limpar</a>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <dialog id="payroll-filter-modal" class="modal" x-ref="payrollFilterModal" @click="if ($event.target === $el) $el.close()">
+                    <div class="modal-box w-11/12 max-w-3xl border border-base-300 bg-base-100 shadow-2xl">
+                        <h3 class="text-base font-semibold text-base-content">Filtrar folha</h3>
+                        <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                            <div>
+                                <label for="payroll-start-date">Data inicial</label>
+                                <input id="payroll-start-date" type="date" name="data_inicial" value="{{ request.GET.data_inicial|default:'' }}" class="input input-bordered w-full" />
+                            </div>
+                            <div>
+                                <label for="payroll-end-date">Data final</label>
+                                <input id="payroll-end-date" type="date" name="data_final" value="{{ request.GET.data_final|default:'' }}" class="input input-bordered w-full" />
+                            </div>
+                            <div>
+                                <label for="payroll-collaborator">Colaborador</label>
+                                <select id="payroll-collaborator" name="collaborator" class="select select-bordered w-full">
+                                    <option value="">Todos</option>
+                                    {% for collaborator in collaborator_filters %}
+                                        <option value="{{ collaborator.pk|unlocalize }}" {% if selected_collaborator_id == collaborator.pk %}selected{% endif %}>{{ collaborator.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div>
+                                <label for="payroll-paid">Pago</label>
+                                <select id="payroll-paid" name="status" class="select select-bordered w-full">
+                                    {% for value, label in status_choices %}
+                                        <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="modal-action mt-6 flex items-center justify-end gap-2 border-t border-base-200 pt-4">
+                            <button type="button" class="btn-form-cancel" @click="$refs.payrollFilterModal.close()">Cancelar</button>
+                            <button type="submit" class="btn btn-primary">Filtrar</button>
+                        </div>
+                    </div>
+                    <button type="button" class="modal-backdrop" @click="$refs.payrollFilterModal.close()">close</button>
+                </dialog>
+            </div>
+        </form>
+
+        <div class="grid gap-4 md:grid-cols-2">
+            <div class="rounded-xl border border-base-300 bg-base-100 p-5 shadow-xl">
+                <p class="text-sm font-medium uppercase tracking-[0.16em] text-base-content/55">Total Pendente</p>
+                <p class="mt-2 text-3xl font-black">R$ {{ pending_amount|floatformat:2 }}</p>
+            </div>
+            <div class="rounded-xl border border-base-300 bg-base-100 p-5 shadow-xl">
+                <p class="text-sm font-medium uppercase tracking-[0.16em] text-base-content/55">Total pago</p>
+                <p class="mt-2 text-3xl font-black">R$ {{ paid_amount|floatformat:2 }}</p>
+            </div>
+        </div>
+
+        <div
+            id="payroll-section"
+            hx-get="{% url 'finance:payroll_list' %}"
+            hx-trigger="payrollListRefresh from:body"
+            hx-include="#payroll-filter-form"
+            hx-select="#payroll-section"
+            hx-target="this"
+            hx-swap="outerHTML"
+            hx-disinherit="*"
+        >
+            <div class="card border border-base-300 bg-base-100 shadow-xl">
+                <div class="card-body gap-4 p-5 md:p-6">
+                    {% if payroll_rows %}
+                        <div class="overflow-x-auto">
+                            <table class="table table-sm md:table-md" id="payroll-table">
+                                <thead class="bg-base-200/70 text-[11px] uppercase tracking-[0.16em] text-base-content/55">
+                                    <tr>
+                                        <th class="w-10">
+                                            <input type="checkbox" id="select-all-payroll" class="checkbox checkbox-primary checkbox-sm" />
+                                        </th>
+                                        <th>Colaborador</th>
+                                        <th>Vencimento</th>
+                                        <th>Pago</th>
+                                        <th>Conciliado</th>
+                                        <th>Salário</th>
+                                        <th>VT</th>
+                                        <th>Benefícios</th>
+                                        <th>Comissões</th>
+                                        <th>Total</th>
+                                        <th class="text-right">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for row in payroll_rows %}
+                                        <tr>
+                                            <td>
+                                                {% if row.can_select %}
+                                                    <input type="checkbox" name="payroll_ids" value="{{ row.id }}" data-is-paid="{{ row.is_paid|yesno:'true,false' }}" data-is-reconciled="{{ row.is_reconciled|yesno:'true,false' }}" class="checkbox checkbox-primary checkbox-sm payroll-checkbox" />
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                <div class="space-y-1">
+                                                    <div>{{ row.collaborator_name }}</div>
+                                                    {% if row.missing_components %}
+                                                        <div class="text-xs text-warning">
+                                                            {% if row.is_pending_creation %}
+                                                                Será criado: {{ row.missing_components|join:", " }}
+                                                            {% else %}
+                                                                Faltando: {{ row.missing_components|join:", " }}
+                                                            {% endif %}
+                                                        </div>
+                                                    {% endif %}
+                                                </div>
+                                            </td>
+                                            <td>{{ row.due_date|date:"d/m/Y" }}</td>
+                                            <td>
+                                                <span class="inline-flex items-center gap-1 whitespace-nowrap {{ row.paid_indicator.class }}" title="{{ row.status_label }}" aria-label="{{ row.status_label }}">
+                                                    <span class="material-icons text-base leading-none">{{ row.paid_indicator.icon }}</span>
+                                                    <span class="font-medium">{{ row.status_label }}</span>
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <span class="inline-flex items-center gap-1 whitespace-nowrap {{ row.reconciliation_indicator.class }}" title="{{ row.reconciliation_label }}" aria-label="{{ row.reconciliation_label }}">
+                                                    <span class="material-icons text-base leading-none">{{ row.reconciliation_indicator.icon }}</span>
+                                                    <span class="font-medium">{{ row.reconciliation_label }}</span>
+                                                </span>
+                                            </td>
+                                            <td>{{ row.salary_amount }}</td>
+                                            <td>{{ row.transport_allowance_amount }}</td>
+                                            <td>{{ row.benefits_amount }}</td>
+                                            <td>{{ row.commission_amount }}</td>
+                                            <td class="font-semibold">{{ row.total_amount }}</td>
+                                            <td class="text-right whitespace-nowrap">
+                                                <div class="flex justify-end gap-2">
+                                                    <button type="button" class="btn btn-outline btn-primary btn-xs" title="Editar folha" aria-label="Editar folha" hx-get="{{ row.edit_url }}" hx-target="#payroll-edit-modal-container" hx-swap="innerHTML">
+                                                        <span class="material-icons text-sm">edit</span>
+                                                        Editar
+                                                    </button>
+                                                    <button type="button" class="btn btn-primary btn-xs" title="Abrir resumo da folha" aria-label="Abrir resumo da folha" {% if row.receipt_url %}onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', { detail: { title: 'Resumo do pagamento', url: '{{ row.receipt_url }}', downloadUrl: '{{ row.receipt_url }}?download=1' } }))"{% else %}disabled{% endif %}>
+                                                        Resumo
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <script>
+                        (function () {
+                            if (window.__payrollSelectionInitDone) {
+                                return;
+                            }
+                            window.__payrollSelectionInitDone = true;
+
+                            var btnConciliar = document.getElementById('btn-conciliar-selecionados');
+                            var btnPagar = document.getElementById('btn-pagar-selecionados');
+                            var btnDesfazer = document.getElementById('btn-desfazer-pagamentos');
+
+                            function setButtonState(button, enabled) {
+                                if (!button) {
+                                    return;
+                                }
+                                button.disabled = !enabled;
+                                if (enabled) button.removeAttribute('disabled');
+                                else button.setAttribute('disabled', 'disabled');
+                            }
+
+                            function updateActionButtons() {
+                                var checkboxes = document.querySelectorAll('#payroll-table .payroll-checkbox:checked');
+                                var hasSelection = checkboxes.length > 0;
+                                var paidSelected = 0;
+                                var unpaidSelected = 0;
+                                var unreconciledSelected = 0;
+
+                                for (var i = 0; i < checkboxes.length; i++) {
+                                    if (checkboxes[i].dataset.isPaid === 'true') paidSelected++;
+                                    else unpaidSelected++;
+                                    if (checkboxes[i].dataset.isReconciled !== 'true') unreconciledSelected++;
+                                }
+
+                                setButtonState(btnConciliar, hasSelection && paidSelected > 0 && unreconciledSelected > 0);
+                                setButtonState(btnPagar, hasSelection && unpaidSelected > 0);
+                                setButtonState(btnDesfazer, hasSelection && paidSelected > 0);
+                            }
+
+                            function init() {
+                                btnConciliar = document.getElementById('btn-conciliar-selecionados');
+                                btnPagar = document.getElementById('btn-pagar-selecionados');
+                                btnDesfazer = document.getElementById('btn-desfazer-pagamentos');
+                                var selectAll = document.getElementById('select-all-payroll');
+                                if (!selectAll) {
+                                    updateActionButtons();
+                                    return;
+                                }
+                                var checkboxes = document.querySelectorAll('#payroll-table .payroll-checkbox');
+                                var checked = 0;
+                                for (var i = 0; i < checkboxes.length; i++) {
+                                    if (checkboxes[i].checked) checked++;
+                                }
+                                selectAll.checked = checked === checkboxes.length && checkboxes.length > 0;
+                                selectAll.indeterminate = checked > 0 && checked < checkboxes.length;
+                                updateActionButtons();
+                            }
+
+                            document.addEventListener('change', function (e) {
+                                if (e.target.id === 'select-all-payroll') {
+                                    var checkboxes = document.querySelectorAll('#payroll-table .payroll-checkbox');
+                                    for (var i = 0; i < checkboxes.length; i++) {
+                                        checkboxes[i].checked = e.target.checked;
+                                    }
+                                    e.target.checked = e.target.checked;
+                                    e.target.indeterminate = false;
+                                }
+                                if (e.target.matches('#payroll-table .payroll-checkbox')) {
+                                    var selectAll = document.getElementById('select-all-payroll');
+                                    if (!selectAll) return;
+                                    var checkboxes = document.querySelectorAll('#payroll-table .payroll-checkbox');
+                                    var checked = 0;
+                                    for (var i = 0; i < checkboxes.length; i++) {
+                                        if (checkboxes[i].checked) checked++;
+                                    }
+                                    selectAll.checked = checked === checkboxes.length;
+                                    selectAll.indeterminate = checked > 0 && checked < checkboxes.length;
+                                }
+                                updateActionButtons();
+                            });
+
+                            document.body.addEventListener('htmx:afterSwap', function () {
+                                init();
+                            });
+
+                            init();
+                        })();
+                        </script>
+                    {% else %}
+                        <div class="rounded-xl border border-dashed border-base-300 px-6 py-8 text-center text-sm text-base-content/60">
+                            Nenhuma folha encontrada para os filtros selecionados.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div id="payroll-edit-modal-container"></div>
+
+        <dialog id="pdfModal" class="modal" x-data="{ url: '', downloadUrl: '', title: 'Resumo do pagamento' }" @open-pdf-modal.window="url = $event.detail.url; downloadUrl = $event.detail.downloadUrl || ''; title = $event.detail.title || 'Resumo do pagamento'; $el.showModal()">
+            <div class="modal-box flex h-[90vh] w-full max-w-5xl flex-col p-0">
+                <div class="flex items-center justify-between border-b bg-base-200 px-6 py-4">
+                    <h3 class="flex items-center gap-2 text-xl font-bold"><span class="material-icons">description</span><span x-text="title"></span></h3>
+                    <div class="flex gap-2">
+                        <button type="button" class="btn btn-sm btn-primary" onclick="const frame = document.querySelector('#pdfModal iframe'); if (frame && frame.contentWindow) { frame.contentWindow.focus(); frame.contentWindow.print(); }">Imprimir</button>
+                        <button type="button" class="btn btn-sm btn-success" x-show="downloadUrl" @click="window.open(downloadUrl, '_blank')">Baixar PDF</button>
+                        <button type="button" class="btn btn-sm" onclick="document.getElementById('pdfModal').close()">Fechar</button>
+                    </div>
+                </div>
+                <div class="flex-1 bg-gray-100"><template x-if="url"><iframe :src="url" class="h-full w-full" frameborder="0"></iframe></template></div>
+            </div>
+            <form method="dialog" class="modal-backdrop"><button>close</button></form>
+        </dialog>
+    </div>
+{% endblock crud_content %}

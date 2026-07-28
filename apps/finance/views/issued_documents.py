@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import logging
 import re
 import zipfile
 from datetime import date
 from io import BytesIO
 from typing import Any
-from urllib.parse import urlencode
 
 from functools import reduce
 
@@ -23,6 +23,11 @@ from apps.core.infrastructure.providers import get_fiscal_service
 from apps.core.domain.contracts.fiscal import FiscalServiceError
 from apps.finance.views.navigation import append_query_params, build_issued_documents_origin_params
 from apps.workshops.mixin import WorkshopScopedMixin
+
+
+logger = logging.getLogger(__name__)
+
+ARCHIVE_DOWNLOAD_MAX_WORKERS = 5
 
 
 class IssuedDocumentsFilterMixin:
@@ -76,8 +81,13 @@ class IssuedDocumentsFilterMixin:
         except ValueError:
             return None
 
+    def _get_request_param(self, name: str, default: str = "") -> str:
+        if self.request.method == "POST" and name in self.request.POST:
+            return str(self.request.POST.get(name) or default).strip()
+        return str(self.request.GET.get(name) or default).strip()
+
     def _get_selected_note_type(self) -> str:
-        raw_value = str(self.request.GET.get("tipo") or "all").strip().lower()
+        raw_value = self._get_request_param("tipo", "all").lower()
         allowed_values = {value for value, _label in self.NOTE_TYPE_CHOICES}
         if raw_value not in allowed_values:
             return "all"
@@ -114,6 +124,42 @@ class IssuedDocumentsFilterMixin:
             "is_valid": is_valid,
             "filter_error": filter_error,
         }
+
+    @staticmethod
+    def _parse_id_list(raw_values: list[str]) -> list[int]:
+        ids: list[int] = []
+        seen: set[int] = set()
+        for raw_value in raw_values:
+            value = str(raw_value or "").strip()
+            if not value.isdigit():
+                continue
+            parsed = int(value)
+            if parsed in seen:
+                continue
+            seen.add(parsed)
+            ids.append(parsed)
+        return ids
+
+    def _get_selected_request_ids(self) -> tuple[list[int], list[int]]:
+        source = self.request.POST if self.request.method == "POST" else self.request.GET
+        return (
+            self._parse_id_list(source.getlist("nfe_ids")),
+            self._parse_id_list(source.getlist("nfse_ids")),
+        )
+
+    def _get_selected_requests(self, *, nfe_ids: list[int], nfse_ids: list[int]) -> tuple[list[NfeRequest], list[NfseRequest]]:
+        nfe_requests = list(self._build_nfe_queryset(start_date=None, end_date=None).filter(pk__in=nfe_ids)) if nfe_ids else []
+        nfse_requests = list(self._build_nfse_queryset(start_date=None, end_date=None).filter(pk__in=nfse_ids)) if nfse_ids else []
+        return nfe_requests, nfse_requests
+
+    def _item_has_document_group(self, *, note_type: str, item: object | None, document_group: str) -> bool:
+        if item is None:
+            return False
+
+        for field_name, _label in self.DOCUMENT_LABELS_BY_TYPE[note_type][document_group]:
+            if str(getattr(item, field_name, "") or "").strip():
+                return True
+        return False
 
     @staticmethod
     def _sanitize_archive_fragment(value: object) -> str:
@@ -173,7 +219,8 @@ class IssuedDocumentsFilterMixin:
         prefetched_items = getattr(request_obj, "prefetched_items", None)
         if not prefetched_items:
             return None
-        return prefetched_items[0]
+        latest_item: object = prefetched_items[0]
+        return latest_item
 
     def _build_available_document_labels(self, *, note_type: str, item: object | None) -> list[str]:
         if item is None:
@@ -202,12 +249,18 @@ class IssuedDocumentsFilterMixin:
         available_documents = self._build_available_document_labels(note_type="nfe", item=latest_item)
         latest_series = str(getattr(latest_item, "series", "") or "").strip() if latest_item is not None else ""
         series_value = latest_series or (str(request_obj.reserved_series) if request_obj.reserved_series is not None else "-")
+        has_xml = self._item_has_document_group(note_type="nfe", item=latest_item, document_group="xml")
+        has_pdf = self._item_has_document_group(note_type="nfe", item=latest_item, document_group="pdfs")
 
         return {
             "note_type": "nfe",
             "note_type_label": "Nota Fiscal de Produto",
             "note_type_badge_class": "badge-soft badge-info",
             "request_id": request_obj.pk,
+            "selection_key": f"nfe:{request_obj.pk}",
+            "has_xml": has_xml,
+            "has_pdf": has_pdf,
+            "is_selectable": has_xml or has_pdf,
             "number": request_obj.number_display,
             "reference": f"Serie {series_value}",
             "workorder_id": request_obj.workorder.get_id,
@@ -229,12 +282,18 @@ class IssuedDocumentsFilterMixin:
             reference_parts.append(f"RPS {rps_number}")
         if rps_series:
             reference_parts.append(f"Serie {rps_series}")
+        has_xml = self._item_has_document_group(note_type="nfse", item=latest_item, document_group="xml")
+        has_pdf = self._item_has_document_group(note_type="nfse", item=latest_item, document_group="pdfs")
 
         return {
             "note_type": "nfse",
             "note_type_label": "Nota Fiscal Serviço",
             "note_type_badge_class": "badge-soft badge-success",
             "request_id": request_obj.pk,
+            "selection_key": f"nfse:{request_obj.pk}",
+            "has_xml": has_xml,
+            "has_pdf": has_pdf,
+            "is_selectable": has_xml or has_pdf,
             "number": note_number or request_obj.rps_number_display,
             "reference": " / ".join(reference_parts) if reference_parts else "-",
             "workorder_id": request_obj.workorder.get_id,
@@ -250,19 +309,6 @@ class IssuedDocumentsFilterMixin:
         rows.extend(self._build_nfse_row(request_obj, state=state) for request_obj in nfse_requests)
         rows.sort(key=lambda row: (row["created_at"], row["request_id"]), reverse=True)
         return rows
-
-    def _build_download_query_string(self, *, state: dict[str, Any]) -> str:
-        if not state["is_valid"]:
-            return ""
-
-        params = {
-            "data_inicial": state["start_raw"],
-            "data_final": state["end_raw"],
-            "tipo": state["selected_note_type"],
-        }
-        if state["search_raw"]:
-            params["search"] = state["search_raw"]
-        return urlencode(params)
 
     def _collect_document_entries(self, *, nfe_requests: list[NfeRequest], nfse_requests: list[NfseRequest], document_group: str) -> list[dict[str, str]]:
         entries: list[dict[str, str]] = []
@@ -359,9 +405,6 @@ class IssuedDocumentsListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
         state = self._get_filter_state()
         nfe_requests, nfse_requests = self._get_filtered_requests(state=state)
         rows = self._build_rows(nfe_requests=nfe_requests, nfse_requests=nfse_requests, state=state)
-        download_query_string = self._build_download_query_string(state=state)
-        xml_entries = self._collect_document_entries(nfe_requests=nfe_requests, nfse_requests=nfse_requests, document_group="xml") if state["is_valid"] else []
-        pdf_entries = self._collect_document_entries(nfe_requests=nfe_requests, nfse_requests=nfse_requests, document_group="pdfs") if state["is_valid"] else []
 
         context.update(
             {
@@ -371,10 +414,8 @@ class IssuedDocumentsListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTempl
                 "issued_notes_total": len(rows),
                 "issued_nfe_total": len(nfe_requests),
                 "issued_nfse_total": len(nfse_requests),
-                "can_download_xml": bool(xml_entries),
-                "can_download_pdfs": bool(pdf_entries),
-                "download_xml_url": f"{reverse('finance:issued_documents_download', kwargs={'document_group': 'xml'})}?{download_query_string}" if download_query_string else "",
-                "download_pdfs_url": f"{reverse('finance:issued_documents_download', kwargs={'document_group': 'pdfs'})}?{download_query_string}" if download_query_string else "",
+                "download_xml_url": reverse("finance:issued_documents_download", kwargs={"document_group": "xml"}),
+                "download_pdfs_url": reverse("finance:issued_documents_download", kwargs={"document_group": "pdfs"}),
             }
         )
         return context
@@ -385,19 +426,19 @@ class IssuedDocumentsArchiveDownloadView(LoginRequiredMixin, WorkshopScopedMixin
     workshop_permission_model = "nfserequest"
     workshop_permission_codename = "view_nfserequest"
 
-    def get(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):
         document_group = str(kwargs.get("document_group") or "").strip().lower()
         if document_group not in {"xml", "pdfs"}:
             raise Http404("Grupo de documentos nao suportado")
 
-        state = self._get_filter_state()
-        if not state["is_valid"]:
-            return HttpResponse("Informe um periodo valido para gerar o arquivo ZIP.", status=400, content_type="text/plain; charset=utf-8")
+        nfe_ids, nfse_ids = self._get_selected_request_ids()
+        if not nfe_ids and not nfse_ids:
+            return HttpResponse("Selecione ao menos uma nota para baixar.", status=400, content_type="text/plain; charset=utf-8")
 
-        nfe_requests, nfse_requests = self._get_filtered_requests(state=state)
+        nfe_requests, nfse_requests = self._get_selected_requests(nfe_ids=nfe_ids, nfse_ids=nfse_ids)
         entries = self._collect_document_entries(nfe_requests=nfe_requests, nfse_requests=nfse_requests, document_group=document_group)
         if not entries:
-            return HttpResponse("Nenhum documento disponivel para o filtro selecionado.", status=404, content_type="text/plain; charset=utf-8")
+            return HttpResponse("Nenhum documento disponivel para as notas selecionadas.", status=404, content_type="text/plain; charset=utf-8")
 
         archive_buffer = BytesIO()
         try:
@@ -406,15 +447,19 @@ class IssuedDocumentsArchiveDownloadView(LoginRequiredMixin, WorkshopScopedMixin
                 for entry, downloaded in downloaded_entries:
                     archive_file.writestr(entry["archive_name"], downloaded.content)
         except FiscalServiceError as exc:
+            logger.exception(
+                "issued_documents_archive_download_failed",
+                extra={"workshop_id": self.workshop.pk, "document_group": document_group},
+            )
             return HttpResponse(str(exc), status=502, content_type="text/plain; charset=utf-8")
 
-        archive_filename = self._build_archive_filename(state=state, document_group=document_group)
+        archive_filename = self._build_archive_filename(document_group=document_group)
         response = HttpResponse(archive_buffer.getvalue(), content_type="application/zip")
         response["Content-Disposition"] = f'attachment; filename="{archive_filename}"'
         return response
 
-    def _build_archive_filename(self, *, state: dict[str, Any], document_group: str) -> str:
-        selected_note_type = self.ARCHIVE_TYPE_LABELS.get(str(state["selected_note_type"]), "todas")
+    def _build_archive_filename(self, *, document_group: str) -> str:
+        selected_note_type = self.ARCHIVE_TYPE_LABELS.get(self._get_selected_note_type(), "todas")
         document_group_label = self.DOCUMENT_GROUP_LABELS.get(document_group, document_group)
         return f"{selected_note_type}-{document_group_label}.zip"
 
@@ -424,9 +469,11 @@ class IssuedDocumentsArchiveDownloadView(LoginRequiredMixin, WorkshopScopedMixin
             return [(entry, get_fiscal_service().download_document(workshop=self.workshop, url=entry["url"]))]
 
         downloaded_entries: list[tuple[dict[str, str], Any]] = []
-        max_workers = min(8, len(entries))
+        max_workers = min(ARCHIVE_DOWNLOAD_MAX_WORKERS, len(entries))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_map = {executor.submit(download_webmania_document, workshop=self.workshop, url=entry["url"]): entry for entry in entries}
+            future_map = {
+                executor.submit(get_fiscal_service().download_document, workshop=self.workshop, url=entry["url"]): entry for entry in entries
+            }
             for future in as_completed(future_map):
                 entry = future_map[future]
                 downloaded_entries.append((entry, future.result()))

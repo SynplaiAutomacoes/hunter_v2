@@ -103,21 +103,32 @@
         <div class="flex flex-wrap gap-3">
             <div class="flex flex-wrap gap-3">
                 <button type="button" class="btn btn-primary" data-allow-locked="1"
-                    onclick="window.dispatchEvent(new CustomEvent('open-pdf-modal', {
-                        detail: {
-                            url: '{% url 'workorder:visualizar_pdf' workorder.pk %}',
-                            downloadUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?download=1',
-                            showSignatureBtn: true,
-                            signatureBlocked: {% if workorder.has_signature_blockers %}true{% else %}false{% endif %},
-                            signatureBlockedReason: '{{ workorder.signature_blockers_display|escapejs }}',
-                            showPdfVariantToggle: {% if workorder.signature_request_status == 'sent' or workorder.signature_request_status == 'approved' %}{% if workorder.signature_external_id or workorder.signature_document_id %}true{% else %}false{% endif %}{% else %}false{% endif %},
-                            pdfVariant: '',
-                            signedPdfUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?variant=signed',
-                            basePdfUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?variant=base',
-                            signedDownloadUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?download=1&variant=signed',
-                            baseDownloadUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?download=1&variant=base'
-                        }
-                    }))">
+                    onclick="(function() {
+                        const gate = window.workorderSignatureGate || {};
+                        const el = document.getElementById('id_km_final');
+                        const hasKm = Boolean(el && el.value.trim());
+                        const kmValid = hasKm && el.checkValidity();
+                        window.dispatchEvent(new CustomEvent('open-pdf-modal', {
+                            detail: {
+                                url: '{% url 'workorder:visualizar_pdf' workorder.pk %}',
+                                downloadUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?download=1',
+                                showSignatureBtn: true,
+                                isStatusLocked: {% if workorder.is_status_locked %}true{% else %}false{% endif %},
+                                signatureBlocked: Boolean(gate.hasSignatureBlockers),
+                                signatureBlockedReason: gate.signatureBlockersDisplay || '',
+                                kmBlocked: !kmValid,
+                                kmBlockedReason: !hasKm
+                                    ? 'É necessário inserir o Km Final para desbloquear o botão'
+                                    : (!kmValid ? (el.validationMessage || 'KM final inválido') : ''),
+                                showPdfVariantToggle: {% if workorder.signature_request_status == 'sent' or workorder.signature_request_status == 'approved' %}{% if workorder.signature_external_id or workorder.signature_document_id %}true{% else %}false{% endif %}{% else %}false{% endif %},
+                                pdfVariant: '',
+                                signedPdfUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?variant=signed',
+                                basePdfUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?variant=base',
+                                signedDownloadUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?download=1&variant=signed',
+                                baseDownloadUrl: '{% url 'workorder:visualizar_pdf' workorder.pk %}?download=1&variant=base'
+                            }
+                        }));
+                    })()">
                     <span class="material-icons mr-2">visibility</span>
                     Visualizar PDF
                 </button>
@@ -269,6 +280,23 @@
         const reopenToggleButton = document.getElementById('toggle-reopen-workorder-form');
         const reopenCancelButton = document.getElementById('cancel-reopen-workorder-form');
 
+        window.workorderSignatureGate = {
+            hasSignatureBlockers: {% if workorder.has_signature_blockers %}true{% else %}false{% endif %},
+            signatureBlockersDisplay: '{{ workorder.signature_blockers_display|escapejs }}',
+        };
+
+        const setSignatureGate = ({ hasSignatureBlockers, signatureBlockersDisplay } = {}) => {
+            if (!window.workorderSignatureGate) {
+                window.workorderSignatureGate = {};
+            }
+            if (hasSignatureBlockers !== undefined) {
+                window.workorderSignatureGate.hasSignatureBlockers = Boolean(hasSignatureBlockers);
+            }
+            if (signatureBlockersDisplay !== undefined) {
+                window.workorderSignatureGate.signatureBlockersDisplay = signatureBlockersDisplay || '';
+            }
+        };
+
         const hideStatusForms = (...formsToKeep) => {
             [cancelForm, rejectForm, reopenForm].forEach((currentForm) => {
                 if (!currentForm || formsToKeep.includes(currentForm)) {
@@ -377,6 +405,16 @@
 
             if (!kmFinalIsValid) {
                 setDeliveryButtonTooltip(currentDeliveryButton, kmFinalUnlockTooltip);
+                const pdfModal = document.getElementById('pdfModal');
+                if (pdfModal?.open && typeof Alpine !== 'undefined') {
+                    const data = Alpine.$data(pdfModal);
+                    if (data) {
+                        data.kb = !kmFinalIsValid;
+                        data.kbr = !hasKmFinal
+                            ? 'É necessário inserir o Km Final para desbloquear o botão'
+                            : (!kmInput.checkValidity() ? (kmInput.validationMessage || 'KM final inválido') : '');
+                    }
+                }
                 return;
             }
 
@@ -386,6 +424,17 @@
             }
 
             setDeliveryButtonTooltip(currentDeliveryButton, '');
+
+            const pdfModal = document.getElementById('pdfModal');
+            if (pdfModal?.open && typeof Alpine !== 'undefined') {
+                const data = Alpine.$data(pdfModal);
+                if (data) {
+                    data.kb = !kmFinalIsValid;
+                    data.kbr = !hasKmFinal
+                        ? 'É necessário inserir o Km Final para desbloquear o botão'
+                        : (!kmInput.checkValidity() ? (kmInput.validationMessage || 'KM final inválido') : '');
+                }
+            }
         };
 
         const persistKmFinal = async () => {
@@ -432,8 +481,25 @@
 
                 lastSavedValue = currentValue;
                 kmInput.setCustomValidity('');
-                window.updateWorkorderDeliveryButtonState();
+                window.updateWorkorderDeliveryButtonState({
+                    hasCompletionBlockers: Boolean(payload.has_completion_blockers),
+                    completionBlockersDisplay: payload.completion_blockers_display || '',
+                });
+                setSignatureGate({
+                    hasSignatureBlockers: Boolean(payload.has_signature_blockers),
+                    signatureBlockersDisplay: payload.signature_blockers_display || '',
+                });
                 setStatus('');
+                window.dispatchEvent(new CustomEvent('update-pdf-modal-state', {
+                    detail: {
+                        kmBlocked: !lastSavedValue || !kmInput.checkValidity(),
+                        kmBlockedReason: !lastSavedValue
+                            ? 'É necessário inserir o Km Final para desbloquear o botão'
+                            : (!kmInput.checkValidity() ? kmInput.validationMessage || 'KM final inválido' : ''),
+                        signatureBlocked: Boolean(payload.has_signature_blockers),
+                        signatureBlockedReason: payload.signature_blockers_display || '',
+                    }
+                }));
             } catch (error) {
                 if (error.name === 'AbortError') {
                     return;

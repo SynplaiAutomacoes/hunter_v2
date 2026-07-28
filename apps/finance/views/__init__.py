@@ -124,8 +124,9 @@ from .nfse_substitution_preview import (
     NfseSubstitutionPreviewListView,
     NfseSubstitutionPreviewPayloadView,
 )
+from .payroll import PayrollBulkConciliateView, PayrollBulkPayView, PayrollBulkUnpayView, PayrollEditModalView, PayrollListView, PayrollRefreshView
 from .reports import FinancialReportsHomeView, ReportMovementEditView, ReportMovementDeleteView
-from .tax_class import TaxClassCreateView, TaxClassListView, TaxClassManagerView, TaxClassPresetCreateView, TaxClassPresetListView, TaxClassPresetUpdateView, TaxClassUpdateView
+from .tax_class import TaxClassCreateView, TaxClassDeleteView, TaxClassListView, TaxClassManagerView, TaxClassPresetCreateView, TaxClassPresetListView, TaxClassPresetUpdateView, TaxClassUpdateView
 from .webhook import WebhookView
 from .webmania import (
     WebmaniaCompanyDetailView,
@@ -155,6 +156,12 @@ __all__ = [
     "FinancialReportsHomeView",
     "ReportMovementEditView",
     "ReportMovementDeleteView",
+    "PayrollBulkConciliateView",
+    "PayrollBulkPayView",
+    "PayrollBulkUnpayView",
+    "PayrollEditModalView",
+    "PayrollListView",
+    "PayrollRefreshView",
     "FinancialGroupUpdateView",
     "FiscalReferencedBasisApproveView",
     "FiscalReferencedBasisCreateView",
@@ -277,6 +284,7 @@ __all__ = [
     "NfseSubstitutionPayloadView",
     "NfseSubstitutionDownloadView",
     "TaxClassCreateView",
+    "TaxClassDeleteView",
     "TaxClassListView",
     "TaxClassManagerView",
     "TaxClassPresetCreateView",

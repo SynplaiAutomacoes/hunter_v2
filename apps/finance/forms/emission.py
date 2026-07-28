@@ -7,6 +7,7 @@ from typing import Any
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Div, Field, HTML, Layout
 from django import forms
+from django.db.models import Exists, OuterRef
 from django.urls import reverse
 from djmoney.forms import MoneyField
 from djmoney.money import Money
@@ -26,6 +27,7 @@ from apps.finance.forms.nfe_transport import build_nfe_transport_form_layout, cl
 from apps.core.infrastructure.services.webmania.emission import build_default_service_description_for_workorder, compute_service_discount_for_nfse
 from apps.core.infrastructure.services.webmania.nfe_emission import build_nfe_preview_rows, build_nfe_preview_warning_messages, compute_product_discount_for_nfe
 from apps.finance.services.pricing import build_emission_pricing_snapshot_for_workorder, build_nfse_service_preview_rows, build_slider_allocation_for_workorder
+from apps.finance.models.finance import NfeRequest, NfseRequest
 from apps.workorder.models import WorkOrder, WorkOrderStatus
 
 
@@ -66,7 +68,10 @@ def _build_step3_rows(*, workorder: WorkOrder) -> tuple[list[dict[str, Any]], li
     product_rows: list[dict[str, Any]] = []
     service_rows: list[dict[str, Any]] = []
 
-    workorder_items = list(workorder.items.select_related("product", "service", "kit").prefetch_related("kit_overrides", "kit__kit_products__product", "kit__kit_services__service").order_by("id"))
+    # Prefer WorkOrder._iter_items() so we reuse the nested kit Prefetch from
+    # EmissionRequestCreateView._selected_workorder. Chaining prefetch_related
+    # on workorder.items after that load raises ValueError (duplicate kit_overrides).
+    workorder_items = list(workorder._iter_items())
 
     for item in workorder_items:
         if item.product_id:
@@ -456,14 +461,22 @@ class EmissionStep1Form(CoreForm):
 
     def __init__(self, *args, **kwargs):
         workshop = kwargs.pop("workshop", None)
+        workorder = kwargs.pop("workorder", None)
         super().__init__(*args, **kwargs)
 
         queryset = WorkOrder.objects.none()
         if workshop is not None:
-            queryset = WorkOrder.objects.filter(workshop=workshop, status=WorkOrderStatus.APPROVED).select_related(
-                "budget",
-                "budget__customer",
-                "budget__vehicle",
+            nfe_exists = NfeRequest.objects.filter(workorder=OuterRef("pk"))
+            nfse_exists = NfseRequest.objects.filter(workorder=OuterRef("pk"))
+
+            queryset = (
+                WorkOrder.objects.filter(workshop=workshop, status=WorkOrderStatus.APPROVED)
+                .select_related("budget", "budget__customer", "budget__vehicle")
+                .annotate(
+                    has_nfe=Exists(nfe_exists),
+                    has_nfse=Exists(nfse_exists),
+                )
+                .exclude(has_nfe=True, has_nfse=True)
             )
 
         field = self.fields["workorder"]
@@ -476,6 +489,23 @@ class EmissionStep1Form(CoreForm):
 
         field.label_from_instance = _label_from_instance
         field.widget = SearchableSelectInput(choices=list(field.choices))
+        field.widget.attrs.update(
+            {
+                "hx-get": reverse("finance:emission_check_workorder"),
+                "hx-trigger": "change",
+                "hx-target": "#workorder-warning-container",
+                "hx-swap": "innerHTML",
+            }
+        )
+
+        warning_html = ""
+        if workorder is not None:
+            has_nfe = NfeRequest.objects.filter(workorder=workorder).exists()
+            has_nfse = NfseRequest.objects.filter(workorder=workorder).exists()
+            if has_nfe and not has_nfse:
+                warning_html = "<div class='alert alert-warning'>Esta OS já possui Nota Fiscal de Produto emitida. Apenas a Nota Fiscal de Serviço será processada nesta emissão.</div>"
+            elif has_nfse and not has_nfe:
+                warning_html = "<div class='alert alert-warning'>Esta OS já possui Nota Fiscal de Serviço emitida. Apenas a Nota Fiscal de Produto será processada nesta emissão.</div>"
 
         self.helper = FormHelper()
         self.helper.form_tag = False
@@ -484,6 +514,7 @@ class EmissionStep1Form(CoreForm):
                 HTML("<h2 class='text-2xl font-bold'>Selecionar Ordem de Servico</h2>"),
                 HTML("<p class='text-base-content/70 mb-6'>Selecione a OS aprovada que sera usada na emissão fiscal.</p>"),
                 Field("workorder"),
+                HTML(f"<div id='workorder-warning-container'>{warning_html}</div>"),
                 css_class="space-y-4",
             )
         )

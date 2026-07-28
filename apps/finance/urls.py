@@ -141,7 +141,14 @@ from apps.finance.views import (
     NfseMunicipalCapabilityListView,
     NfseMunicipalCapabilityStatusView,
     NfseMunicipalCapabilityUpdateView,
+    PayrollBulkConciliateView,
+    PayrollBulkPayView,
+    PayrollBulkUnpayView,
+    PayrollEditModalView,
+    PayrollListView,
+    PayrollRefreshView,
     TaxClassCreateView,
+    TaxClassDeleteView,
     TaxClassListView,
     TaxClassPresetCreateView,
     TaxClassPresetListView,
@@ -161,10 +168,12 @@ from apps.finance.views import (
 
 from apps.finance.views.cash_flow import CashFlowView
 from apps.finance.views.bank_account import BankAccountListView, BankAccountUpdateView, BankAccountCreateView
+from apps.finance.views.emission import EmissionCheckWorkorderView
 from apps.finance.views.financial_movement import (
     FinancialMovementCreateView,
     FinancialMovementDeleteView,
     FinancialMovementListView,
+    FinancialMovementRemovePayrollLinkView,
     FinancialMovementUpdateView,
     EntityListView,
     EntityDetailView,
@@ -220,6 +229,13 @@ urlpatterns = [
     path("reports/bulk-pay/", FinancialBulkPayView.as_view(), name="bulk_pay"),
     path("reports/group/wizard/", GroupMovementWizardView.as_view(), name="group_movement_wizard"),
     path("reports/group/<int:pk>/delete/", GroupMovementDeleteView.as_view(), name="group_movement_delete"),
+    path("folha-pagamento/", PayrollListView.as_view(), name="payroll_list"),
+    path("folha-pagamento/atualizar/", PayrollRefreshView.as_view(), name="payroll_refresh"),
+    path("folha-pagamento/bulk-pay/", PayrollBulkPayView.as_view(), name="payroll_bulk_pay"),
+    path("folha-pagamento/bulk-conciliate/", PayrollBulkConciliateView.as_view(), name="payroll_bulk_conciliate"),
+    path("folha-pagamento/bulk-unpay/", PayrollBulkUnpayView.as_view(), name="payroll_bulk_unpay"),
+    path("folha-pagamento/<int:pk>/edit/", PayrollEditModalView.as_view(), name="payroll_edit_modal"),
+    path("folha-pagamento/collaborator/<int:collaborator_pk>/edit/", PayrollEditModalView.as_view(), name="payroll_edit_modal_for_collaborator"),
     path("comissoes/", CommissionReportView.as_view(), name="commission_report"),
     path("comissoes/pdf/", CommissionReportPdfView.as_view(), name="commission_report_pdf"),
     path("notas-emitidas/", IssuedDocumentsListView.as_view(), name="issued_documents_list"),
@@ -237,6 +253,7 @@ urlpatterns = [
     path("emissao/preview/", EmissionPreviewView.as_view(), name="emission_preview"),
     path("emissao/workorder/<int:workorder_pk>/item/<int:item_id>/edit/", EmissionWorkOrderItemUpdateView.as_view(), name="emission_workorder_item_edit"),
     path("emissao/workorder/<int:workorder_pk>/kit-item/<int:item_id>/<str:component_type>/<int:component_id>/edit/", EmissionWorkOrderKitComponentUpdateView.as_view(), name="emission_workorder_kit_component_edit"),
+    path("emissao/check-workorder/", EmissionCheckWorkorderView.as_view(), name="emission_check_workorder"),
     path("emissao/", EmissionRequestCreateView.as_view(), name="emission_create"),
     # NFE
     path("nfe/", NfeRequestListView.as_view(), name="nfe_emit"),
@@ -282,6 +299,7 @@ urlpatterns = [
     path("classe-imposto/", TaxClassListView.as_view(), name="tax_class_manager"),
     path("classe-imposto/create/", TaxClassCreateView.as_view(), name="tax_class_create"),
     path("classe-imposto/<str:reference>/edit/", TaxClassUpdateView.as_view(), name="tax_class_update"),
+    path("classe-imposto/<str:reference>/delete/", TaxClassDeleteView.as_view(), name="tax_class_delete"),
     path("classe-imposto/presets/", TaxClassPresetListView.as_view(), name="tax_class_preset_list"),
     path("classe-imposto/presets/create/", TaxClassPresetCreateView.as_view(), name="tax_class_preset_create"),
     path("classe-imposto/presets/<int:pk>/edit/", TaxClassPresetUpdateView.as_view(), name="tax_class_preset_update"),
@@ -295,6 +313,7 @@ urlpatterns = [
     path("financial-movement/create/", FinancialMovementCreateView.as_view(), name="financial_movement_create"),
     path("financial-movement/<int:pk>/update/", FinancialMovementUpdateView.as_view(), name="financial_movement_update"),
     path("financial-movement/<int:pk>/delete/", FinancialMovementDeleteView.as_view(), name="financial_movement_delete"),
+    path("financial-movement/<int:pk>/remove-payroll-link/", FinancialMovementRemovePayrollLinkView.as_view(), name="financial_movement_remove_payroll_link"),
     path("entities", EntityListView.as_view(), name="entities"),
     path("entity_details", EntityDetailView.as_view(), name="entity_details"),
     # NFS-e

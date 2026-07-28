@@ -1,0 +1,466 @@
+{% load static %}
+
+<div
+    id="customer-message-group-segment-builder"
+    x-data="segmentBuilder({
+        filterCriteriaElementId: 'customer-message-group-filter-criteria-data'
+    })"
+    x-init="init()"
+    class="space-y-5"
+>
+    {{ filter_criteria|json_script:'customer-message-group-filter-criteria-data' }}
+
+    <div class="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_320px]">
+        <div class="min-w-0 space-y-5">
+            <div>
+                <h3 class="text-sm font-semibold text-base-content">Filtros rápidos</h3>
+                <p class="mt-0.5 text-xs text-base-content/50">Use modelos prontos para encontrar clientes rapidamente.</p>
+                <div class="mt-3 flex flex-wrap gap-2">
+                    <button
+                        type="button"
+                        class="btn btn-outline btn-xs rounded-full border-base-300 px-3 hover:border-primary/50 hover:bg-primary/5"
+                        :class="{ 'border-primary/60 bg-primary/10 text-primary': activePreset === 'birthday_this_month' }"
+                        @click="addPreset('birthday_this_month')"
+                    >
+                        Aniversariantes do mês
+                    </button>
+                    <button
+                        type="button"
+                        class="btn btn-outline btn-xs rounded-full border-base-300 px-3 hover:border-primary/50 hover:bg-primary/5"
+                        :class="{ 'border-primary/60 bg-primary/10 text-primary': activePreset === 'no_visit_90_days' }"
+                        @click="addPreset('no_visit_90_days')"
+                    >
+                        Sem volta há 90 dias
+                    </button>
+                    <button
+                        type="button"
+                        class="btn btn-outline btn-xs rounded-full border-base-300 px-3 hover:border-primary/50 hover:bg-primary/5"
+                        :class="{ 'border-primary/60 bg-primary/10 text-primary': activePreset === 'budget_open' }"
+                        @click="addPreset('budget_open')"
+                    >
+                        Orçamento em aberto
+                    </button>
+                    <button
+                        type="button"
+                        class="btn btn-outline btn-xs rounded-full border-base-300 px-3 hover:border-primary/50 hover:bg-primary/5"
+                        :class="{ 'border-primary/60 bg-primary/10 text-primary': activePreset === 'workorder_in_progress' }"
+                        @click="addPreset('workorder_in_progress')"
+                    >
+                        OS em andamento
+                    </button>
+                </div>
+            </div>
+
+            <div class="border-t border-base-300/60 pt-4">
+                <h3 class="text-sm font-semibold text-base-content">Regras personalizadas</h3>
+                <p class="mt-0.5 text-xs text-base-content/50">Defina condições para segmentar clientes.</p>
+
+                <div class="mt-3 flex items-center gap-3">
+                    <span class="text-xs font-medium text-base-content/70">Clientes devem atender:</span>
+                    <div class="flex gap-1">
+                        <label class="btn btn-outline btn-xs rounded-full px-3 has-[:checked]:btn-primary has-[:checked]:text-primary-content">
+                            <input type="radio" x-model="criteria.logical_operator" value="all" class="hidden">
+                            Todas as regras
+                        </label>
+                        <label class="btn btn-outline btn-xs rounded-full px-3 has-[:checked]:btn-primary has-[:checked]:text-primary-content">
+                            <input type="radio" x-model="criteria.logical_operator" value="any" class="hidden">
+                            Qualquer regra
+                        </label>
+                    </div>
+                </div>
+
+                <div class="mt-3 space-y-1">
+                    <template x-for="(rule, index) in criteria.rules" :key="index">
+                        <div class="flex flex-wrap items-center gap-1.5 rounded-md bg-base-200/20 px-2.5 py-1.5">
+                            <select
+                                x-model="rule.rule_type"
+                                @change="onRuleTypeChange(index)"
+                                class="input-theme w-36"
+                            >
+                                <option value="birthday">Aniversariantes</option>
+                                <option value="last_visit">Inatividade (sem O.S.)</option>
+                                <option value="budget_status">Status do orçamento</option>
+                                <option value="workorder_status">Status da O.S.</option>
+                                <option value="customer_field">Campo do cliente</option>
+                                <option value="created_since">Data de cadastro</option>
+                                <option value="budget_value">Valor do orçamento</option>
+                            </select>
+
+                            <div x-show="rule.rule_type === 'birthday'" class="flex items-center gap-1.5">
+                                <select x-model="rule.operator" class="input-theme w-32">
+                                    <option value="is_this_month">É este mês</option>
+                                    <option value="is_today">É hoje</option>
+                                </select>
+                            </div>
+
+                            <div x-show="rule.rule_type === 'last_visit'" class="flex items-center gap-1.5">
+                                <select x-model="rule.operator" class="input-theme w-20">
+                                    <option value="days_ago_gte">≥</option>
+                                    <option value="days_ago_lte">≤</option>
+                                </select>
+                                <input type="text" inputmode="numeric" :value="formatNumber(rule.value)" @input="onNumberInput($event, index)" class="input-theme w-20" placeholder="dias">
+                                <span class="text-xs text-base-content/50">dias</span>
+                            </div>
+
+                            <div x-show="rule.rule_type === 'budget_status'" class="flex items-center gap-1.5">
+                                <select x-model="rule.value" class="input-theme w-48">
+                                    <option value="draft">Em Aberto</option>
+                                    <option value="waiting_client">Aguardando Relato</option>
+                                    <option value="waiting_diagnosis">Aguardando Diagnóstico</option>
+                                    <option value="waiting_items">Aguardando Itens</option>
+                                    <option value="waiting_pricing">Aguardando Precificação</option>
+                                    <option value="waiting_review">Aguardando Revisão</option>
+                                    <option value="waiting_approval">Aguardando Aprovação</option>
+                                    <option value="approved">Aprovado</option>
+                                    <option value="rejected">Reprovado</option>
+                                    <option value="cancelled">Cancelado</option>
+                                </select>
+                            </div>
+
+                            <div x-show="rule.rule_type === 'workorder_status'" class="flex items-center gap-1.5">
+                                <select x-model="rule.value" class="input-theme w-40">
+                                    <option value="draft">Em andamento</option>
+                                    <option value="approved">Veículo Entregue</option>
+                                    <option value="rejected">Reprovado</option>
+                                    <option value="cancelled">Cancelado</option>
+                                </select>
+                            </div>
+
+                            <div x-show="rule.rule_type === 'customer_field'" class="flex items-center gap-1.5">
+                                <select x-model="rule.field" class="input-theme w-32">
+                                    <option value="customer_type">Tipo (PF/PJ)</option>
+                                    <option value="city">Cidade</option>
+                                    <option value="estado">Estado</option>
+                                    <option value="is_active">Ativo</option>
+                                </select>
+                                <select x-model="rule.operator" class="input-theme w-24">
+                                    <option value="equals">Igual</option>
+                                    <option value="icontains">Contém</option>
+                                </select>
+                                <input type="text" x-model="rule.value" class="input-theme w-28" placeholder="Valor">
+                            </div>
+
+                            <div x-show="rule.rule_type === 'created_since'" class="flex items-center gap-1.5">
+                                <select x-model="rule.operator" class="input-theme w-20">
+                                    <option value="days_ago_gte">≥</option>
+                                    <option value="days_ago_lte">≤</option>
+                                </select>
+                                <input type="text" inputmode="numeric" :value="formatNumber(rule.value)" @input="onNumberInput($event, index)" class="input-theme w-20" placeholder="dias">
+                                <span class="text-xs text-base-content/50">dias</span>
+                            </div>
+
+                            <div x-show="rule.rule_type === 'budget_value'" class="flex items-center gap-1.5">
+                                <select x-model="rule.operator" class="input-theme w-20">
+                                    <option value="gte">Maior que</option>
+                                    <option value="lte">Menor que</option>
+                                </select>
+                                <div class="relative">
+                                    <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-2">
+                                        <span class="text-xs text-base-content/60">R$</span>
+                                    </div>
+                                    <input type="text" inputmode="numeric" :value="formatMoney(rule.value)" @input="onMoneyInput($event, index)" class="input-theme w-28 pl-7" placeholder="0,00">
+                                </div>
+                            </div>
+
+                            <button type="button" class="btn btn-ghost btn-xs btn-square text-error/60 hover:text-error hover:bg-error/10" @click="removeRule(index)" title="Remover regra">
+                                <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </template>
+                </div>
+
+                <button type="button" class="btn btn-outline btn-xs mt-3" @click="addRule">
+                    <svg class="mr-1 h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"></path>
+                    </svg>
+                    Adicionar regra
+                </button>
+            </div>
+        </div>
+
+        <div class="w-full">
+            <div class="rounded-box border border-base-300 bg-base-100 p-4">
+                <h3 class="text-sm font-semibold text-base-content">Prévia dos clientes</h3>
+                <p class="mt-0.5 text-xs text-base-content/50">Veja quantos clientes serão incluídos antes de aplicar a segmentação.</p>
+
+                <div class="mt-4 min-h-28">
+                    <template x-if="!previewLoading && previewCount === null && !previewError">
+                        <div class="flex flex-col items-center justify-center gap-2 py-4 text-center">
+                            <svg class="h-8 w-8 text-base-content/20" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z"></path>
+                                <path fill-rule="evenodd" d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"></path>
+                            </svg>
+                            <span class="text-xs text-base-content/40">Nenhuma prévia gerada.</span>
+                            <span class="text-xs text-base-content/30">Clique em "Ver prévia" para calcular.</span>
+                        </div>
+                    </template>
+
+                    <template x-if="previewLoading">
+                        <div class="flex flex-col items-center justify-center gap-2 py-4 text-center">
+                            <span class="loading loading-spinner loading-sm text-primary"></span>
+                            <span class="text-xs text-base-content/50">Calculando prévia...</span>
+                        </div>
+                    </template>
+
+                    <template x-if="!previewLoading && previewError">
+                        <div class="flex flex-col items-center justify-center gap-2 py-4 text-center">
+                            <svg class="h-8 w-8 text-error/40" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                            </svg>
+                            <span class="text-xs text-error/60">Não foi possível carregar a prévia.</span>
+                            <span class="text-xs text-base-content/30">Tente novamente.</span>
+                        </div>
+                    </template>
+
+                    <template x-if="!previewLoading && !previewError && previewCount !== null">
+                        <div class="space-y-3">
+                            <div class="flex items-center gap-2">
+                                <span class="flex h-7 w-7 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary" x-text="formatNumber(previewCount)"></span>
+                                <span class="text-sm text-base-content">
+                                    <span x-text="previewCount === 1 ? 'cliente encontrado' : 'clientes encontrados'"></span>
+                                </span>
+                            </div>
+                            <template x-if="previewCustomers.length > 0">
+                                <ul class="space-y-1">
+                                    <template x-for="customer in previewCustomers" :key="customer.id">
+                                        <li class="flex items-center gap-2 text-xs text-base-content/70">
+                                            <svg class="h-3.5 w-3.5 shrink-0 text-base-content/30" viewBox="0 0 20 20" fill="currentColor">
+                                                <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"></path>
+                                            </svg>
+                                            <span x-text="customer.name"></span>
+                                        </li>
+                                    </template>
+                                    <template x-if="previewCount > previewCustomers.length">
+                                        <li class="text-xs text-base-content/40">
+                                            + <span x-text="previewCount - previewCustomers.length"></span> outros clientes
+                                        </li>
+                                    </template>
+                                </ul>
+                            </template>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="mt-4 space-y-2">
+                    <button
+                        type="button"
+                        class="btn btn-primary btn-sm w-full"
+                        @click="previewSegment"
+                        :disabled="previewLoading || criteria.rules.length === 0"
+                    >
+                        <template x-if="!previewLoading">
+                            <span x-text="previewCount !== null ? 'Atualizar prévia' : 'Ver prévia'"></span>
+                        </template>
+                        <template x-if="previewLoading">
+                            <span>Calculando...</span>
+                        </template>
+                    </button>
+                    <template x-if="!previewLoading && !previewError && previewCount !== null">
+                        <p class="text-center text-xs text-base-content/40">A prévia não adiciona clientes automaticamente.</p>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <input type="hidden" name="filter_criteria" x-model="filterCriteriaJson">
+</div>
+
+<script>
+    (function () {
+        if (window.segmentBuilder) {
+            return;
+        }
+
+        window.segmentBuilder = function segmentBuilder(config) {
+            return {
+                criteria: {
+                    logical_operator: 'all',
+                    rules: []
+                },
+                previewCount: null,
+                previewCustomers: [],
+                previewLoading: false,
+                previewError: false,
+                activePreset: null,
+                filterCriteriaJson: '',
+                filterCriteriaElementId: config.filterCriteriaElementId,
+
+                init() {
+                    const saved = this.parseJsonScript(this.filterCriteriaElementId);
+                    if (saved && saved.rules && saved.rules.length > 0) {
+                        this.criteria = saved;
+                    }
+                    this.syncHiddenField();
+                },
+
+                parseJsonScript(elementId) {
+                    const element = document.getElementById(elementId);
+                    if (!element) return null;
+                    try {
+                        return JSON.parse(element.textContent || 'null');
+                    } catch (e) {
+                        return null;
+                    }
+                },
+
+                formatNumber(value) {
+                    if (value === null || value === undefined || value === '') return '';
+                    const n = parseInt(String(value).replace(/\D/g, ''), 10);
+                    if (isNaN(n)) return '';
+                    return n.toLocaleString('pt-BR');
+                },
+
+                parseNumber(value) {
+                    if (!value) return '';
+                    return String(value).replace(/\D/g, '');
+                },
+
+                formatMoney(value) {
+                    if (value === null || value === undefined || value === '') return '';
+                    const n = Number(value);
+                    if (isNaN(n)) return '';
+                    return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                },
+
+                parseMoney(value) {
+                    if (!value) return '';
+                    const digits = String(value).replace(/\D/g, '');
+                    if (digits === '') return '';
+                    return (parseInt(digits, 10) / 100).toFixed(2);
+                },
+
+                onNumberInput(event, index) {
+                    const raw = event.target.value;
+                    const parsed = this.parseNumber(raw);
+                    this.criteria.rules[index].value = parsed;
+                    event.target.value = this.formatNumber(parsed);
+                    this.resetPreview();
+                    this.syncHiddenField();
+                },
+
+                onMoneyInput(event, index) {
+                    const raw = event.target.value;
+                    const parsed = this.parseMoney(raw);
+                    this.criteria.rules[index].value = parsed;
+                    event.target.value = this.formatMoney(parsed);
+                    this.resetPreview();
+                    this.syncHiddenField();
+                },
+
+                addRule() {
+                    this.criteria.rules.push({
+                        rule_type: 'birthday',
+                        operator: 'is_this_month',
+                        value: null,
+                        field: null
+                    });
+                    this.activePreset = null;
+                    this.resetPreview();
+                    this.syncHiddenField();
+                },
+
+                removeRule(index) {
+                    this.criteria.rules.splice(index, 1);
+                    this.activePreset = null;
+                    this.resetPreview();
+                    this.syncHiddenField();
+                },
+
+                onRuleTypeChange(index) {
+                    const rule = this.criteria.rules[index];
+                    const defaults = {
+                        birthday: { operator: 'is_this_month', value: null, field: null },
+                        last_visit: { operator: 'days_ago_gte', value: 90, field: null },
+                        budget_status: { operator: 'in', value: 'draft', field: null },
+                        workorder_status: { operator: 'in', value: 'draft', field: null },
+                        customer_field: { operator: 'equals', value: '', field: 'customer_type' },
+                        created_since: { operator: 'days_ago_gte', value: 30, field: null },
+                        budget_value: { operator: 'gte', value: '', field: null },
+                    };
+                    const d = defaults[rule.rule_type] || { operator: '', value: null, field: null };
+                    rule.operator = d.operator;
+                    rule.value = d.value;
+                    rule.field = d.field;
+                    this.resetPreview();
+                    this.syncHiddenField();
+                },
+
+                addPreset(presetName) {
+                    const presets = {
+                        birthday_this_month: {
+                            logical_operator: 'all',
+                            rules: [{ rule_type: 'birthday', operator: 'is_this_month', value: null, field: null }]
+                        },
+                        no_visit_90_days: {
+                            logical_operator: 'all',
+                            rules: [{ rule_type: 'last_visit', operator: 'days_ago_gte', value: 90, field: null }]
+                        },
+                        budget_open: {
+                            logical_operator: 'all',
+                            rules: [{ rule_type: 'budget_status', operator: 'in', value: ['draft', 'waiting_approval'], field: null }]
+                        },
+                        workorder_in_progress: {
+                            logical_operator: 'all',
+                            rules: [{ rule_type: 'workorder_status', operator: 'in', value: 'draft', field: null }]
+                        },
+                    };
+                    const preset = presets[presetName];
+                    if (preset) {
+                        this.criteria = JSON.parse(JSON.stringify(preset));
+                        this.activePreset = presetName;
+                        this.resetPreview();
+                        this.syncHiddenField();
+                    }
+                },
+
+                resetPreview() {
+                    this.previewCount = null;
+                    this.previewCustomers = [];
+                    this.previewError = false;
+                    this.previewLoading = false;
+                },
+
+                syncHiddenField() {
+                    const payload = {
+                        logical_operator: this.criteria.logical_operator,
+                        rules: this.criteria.rules.map(r => ({
+                            type: r.rule_type,
+                            operator: r.operator,
+                            value: r.value,
+                            field: r.field || null
+                        }))
+                    };
+                    this.filterCriteriaJson = JSON.stringify(payload);
+                },
+
+                async previewSegment() {
+                    this.syncHiddenField();
+                    this.previewLoading = true;
+                    this.previewError = false;
+                    this.previewCount = null;
+                    this.previewCustomers = [];
+
+                    const url = "{% url 'messaging:customer_message_group_segment_preview' %}?filter_criteria=" + encodeURIComponent(this.filterCriteriaJson);
+
+                    try {
+                        const response = await fetch(url);
+                        const data = await response.json();
+                        if (data.error) {
+                            this.previewError = true;
+                        } else {
+                            this.previewCount = data.count;
+                            this.previewCustomers = data.customers || [];
+                        }
+                    } catch (e) {
+                        this.previewError = true;
+                    } finally {
+                        this.previewLoading = false;
+                    }
+                }
+            };
+        };
+    })();
+</script>

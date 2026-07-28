@@ -2,10 +2,10 @@ import json
 import logging
 import os
 import re
-import time
 
 import requests
 
+from apps.core.observability import observe_dependency_call
 from apps.customer.vehicle_engine import normalize_vehicle_engine_choice
 from apps.customer.models import Vehicle, Customer
 from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice
@@ -66,14 +66,19 @@ def fetch_vehicle_data(plate):
     url = f"https://wdapi2.com.br/consulta/{plate}/{token}"
 
     try:
-        started_at = time.monotonic()
-        logger.info("vehicle_api_request_started", extra={"plate": plate})
-        response = requests.get(url, timeout=10)
-        elapsed_ms = round((time.monotonic() - started_at) * 1000, 2)
-        logger.info("vehicle_api_request_finished", extra={"plate": plate, "status_code": response.status_code, "duration_ms": elapsed_ms})
-        response.raise_for_status()
-        data = response.json()
-        logger.info("vehicle_api_response_received", extra={"plate": plate, "payload_type": type(data).__name__, "duration_ms": elapsed_ms})
+        with observe_dependency_call(
+            logger=logger,
+            dependency_type="http",
+            dependency_name="wdapi",
+            operation="fetch_vehicle_data",
+            log_context={"plate": plate},
+        ) as dependency_call:
+            response = requests.get(url, timeout=10)
+            dependency_call.set_http_status_code(response.status_code)
+            response.raise_for_status()
+            data = response.json()
+            dependency_call.set_attribute("app.payload_type", type(data).__name__)
+            dependency_call.success(extra={"plate": plate, "payload_type": type(data).__name__})
 
         payload = data.get("data") if isinstance(data, dict) else None
         payload_data = payload if isinstance(payload, dict) else {}
@@ -122,12 +127,17 @@ def fetch_vehicle_data(plate):
         vehicle_info["fuel"] = normalize_vehicle_fuel_choice(vehicle_info.get("fuel"))
         return vehicle_info
     except (requests.RequestException, ValueError):
-        logger.exception("vehicle_api_request_failed", extra={"plate": plate})
         return None
 
 
 def build_vehicle_saved_trigger(vehicle: Vehicle) -> str:
-    return json.dumps({"vehicleSaved": {"id": str(vehicle.pk), "label": str(vehicle), "customer_id": str(vehicle.customer.pk)}})
+    return json.dumps({
+        "vehicleSaved": {
+            "id": str(vehicle.pk),
+            "label": str(vehicle),
+            "customer_id": str(vehicle.customer.pk) if vehicle.customer else "",
+        }
+    })
 
 
 def build_customer_saved_trigger(customer: Customer) -> str:

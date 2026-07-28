@@ -32,6 +32,13 @@ class BudgetReviewKitLine:
     item: Any
     products_summary: str
     services_summary: str
+    allocated_product_base: Money
+    product_shipping: Money
+    allocated_labor_total: Money
+    allocated_labor_cost: Money
+    third_party_raw_total: Money
+    third_party_cost_total: Money
+    allocated_third_party_total: Money
 
 
 @dataclass(slots=True)
@@ -54,11 +61,13 @@ class _SelectedItemContribution:
     labor_raw_total: Money = field(default_factory=zero_money)
     labor_duration: timedelta = field(default_factory=timedelta)
     labor_quantity: int = 0
+    service_shipping: Money = field(default_factory=zero_money)
     third_party_raw_total: Money = field(default_factory=zero_money)
     third_party_cost_total: Money = field(default_factory=zero_money)
     allocated_product_base: Money = field(default_factory=zero_money)
     allocated_labor_cost: Money = field(default_factory=zero_money)
     allocated_labor_total: Money = field(default_factory=zero_money)
+    allocated_third_party_total: Money = field(default_factory=zero_money)
 
 
 def _item_quantity(item: Any) -> int:
@@ -98,6 +107,7 @@ def _build_direct_service_contribution(*, item: Any, sort_order: int) -> _Select
         item=item,
         sort_order=sort_order,
         is_direct_service=True,
+        service_shipping=item.service_shipping,
     )
 
     raw_total = item.service_selling_price * quantity
@@ -197,6 +207,19 @@ def _allocate_labor_totals(*, budget: Any, contributions: list[_SelectedItemCont
         contribution.allocated_labor_total = contribution.allocated_labor_cost + allocated_profit
 
 
+def _allocate_third_party_totals(*, budget: Any, contributions: list[_SelectedItemContribution]) -> None:
+    third_party_entries = [contribution for contribution in contributions if contribution.third_party_raw_total.amount > 0]
+    if not third_party_entries:
+        return
+
+    # Target includes shipping already present on direct service contributions.
+    target_total = budget.get_total_third_party_by_slider
+    base_values = [contribution.third_party_raw_total + contribution.service_shipping for contribution in third_party_entries]
+    allocated_totals = _distribute_totals(base_values=base_values, target_total=target_total)
+    for contribution, allocated_total in zip(third_party_entries, allocated_totals, strict=False):
+        contribution.allocated_third_party_total = allocated_total
+
+
 def build_budget_review_display(*, budget: Any) -> BudgetReviewDisplay:
     contributions: list[_SelectedItemContribution] = []
     for sort_order, item in enumerate(budget._iter_items()):
@@ -223,16 +246,22 @@ def build_budget_review_display(*, budget: Any) -> BudgetReviewDisplay:
 
     _allocate_product_totals(budget=budget, contributions=normal_contributions)
     _allocate_labor_totals(budget=budget, contributions=normal_contributions)
+    _allocate_third_party_totals(budget=budget, contributions=normal_contributions)
 
     for contribution in benefit_contributions:
         quantity = _item_quantity(contribution.item)
         if quantity <= 0:
             continue
-        if contribution.is_direct_product:
+        if contribution.is_direct_product or contribution.is_kit:
             contribution.allocated_product_base = contribution.product_base
-        elif contribution.is_direct_service and contribution.labor_raw_total.amount > 0:
+        if contribution.is_direct_service and contribution.labor_raw_total.amount > 0:
             contribution.allocated_labor_cost = contribution.item.service_cost_price * quantity
             contribution.allocated_labor_total = contribution.item.service_selling_price * quantity
+        elif contribution.is_kit:
+            contribution.allocated_labor_cost = contribution.labor_raw_total
+            contribution.allocated_labor_total = contribution.labor_raw_total
+        if contribution.third_party_raw_total.amount > 0:
+            contribution.allocated_third_party_total = contribution.third_party_raw_total + contribution.service_shipping
 
     for contribution in customer_supplied_contributions:
         if contribution.is_direct_product:
@@ -240,6 +269,8 @@ def build_budget_review_display(*, budget: Any) -> BudgetReviewDisplay:
         elif contribution.is_direct_service and contribution.labor_raw_total.amount > 0:
             contribution.allocated_labor_cost = contribution.labor_raw_total
             contribution.allocated_labor_total = contribution.labor_raw_total
+        if contribution.third_party_raw_total.amount > 0:
+            contribution.allocated_third_party_total = contribution.third_party_raw_total + contribution.service_shipping
 
     direct_products: list[BudgetReviewDirectProductLine] = []
     direct_services: list[BudgetReviewDirectServiceLine] = []
@@ -262,7 +293,8 @@ def build_budget_review_display(*, budget: Any) -> BudgetReviewDisplay:
 
         if contribution.is_direct_service:
             is_third_party = contribution.third_party_raw_total.amount > 0
-            total_price = contribution.third_party_raw_total if is_third_party else contribution.allocated_labor_total
+            labor_total = contribution.allocated_labor_total + contribution.service_shipping
+            total_price = contribution.allocated_third_party_total if is_third_party else labor_total
             warranty_total_price = contribution.third_party_cost_total if is_third_party else contribution.allocated_labor_cost
             direct_services.append(
                 BudgetReviewDirectServiceLine(
@@ -281,6 +313,13 @@ def build_budget_review_display(*, budget: Any) -> BudgetReviewDisplay:
                     item=contribution.item,
                     products_summary=_summarize_components(contribution.item.effective_kit_products),
                     services_summary=_summarize_components(contribution.item.effective_kit_services),
+                    allocated_product_base=contribution.allocated_product_base,
+                    product_shipping=contribution.product_shipping,
+                    allocated_labor_total=contribution.allocated_labor_total,
+                    allocated_labor_cost=contribution.allocated_labor_cost,
+                    third_party_raw_total=contribution.third_party_raw_total,
+                    third_party_cost_total=contribution.third_party_cost_total,
+                    allocated_third_party_total=contribution.allocated_third_party_total,
                 )
             )
 
