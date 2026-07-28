@@ -1,3 +1,5 @@
+{{ dispatch_customer_ids|json_script:"customer-message-group-dispatch-customer-ids" }}
+
 <input type="checkbox" id="customer-message-group-dispatch-modal" class="modal-toggle" checked />
 
 <div class="modal" role="dialog" aria-modal="true">
@@ -24,8 +26,32 @@
             hx-post="{{ request.path }}"
             hx-target="#modal-container"
             hx-swap="innerHTML"
+            @submit="prepareClientMessageIds($event)"
+            x-data="{
+                prepareClientMessageIds(event) {
+                    const source = document.getElementById('customer-message-group-dispatch-customer-ids');
+                    const input = event.target.querySelector('input[name=client_message_ids]');
+                    if (!source || !input) {
+                        return;
+                    }
+                    let customerIds = [];
+                    try {
+                        customerIds = JSON.parse(source.textContent || '[]');
+                    } catch (error) {
+                        customerIds = [];
+                    }
+                    const mapping = {};
+                    customerIds.forEach((customerId) => {
+                        mapping[String(customerId)] = (window.crypto && window.crypto.randomUUID)
+                            ? window.crypto.randomUUID()
+                            : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+                    });
+                    input.value = JSON.stringify(mapping);
+                }
+            }"
         >
             {% csrf_token %}
+            <input type="hidden" name="client_message_ids" value="">
             <label for="customer-message-group-dispatch-modal" class="btn btn-ghost">Cancelar</label>
             <button type="submit" class="btn btn-primary">
                 <span class="material-icons">send</span>

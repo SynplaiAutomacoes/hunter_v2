@@ -44,11 +44,11 @@ Se a aplicacao passar a falhar em conversao de SVG no ambiente remoto, revise pr
 
 ## Startup do container
 
-`entrypoint.sh` executa esta sequencia:
+`entrypoint.sh` escolhe o processo com a env `APP_PROCESS` (`web` default, ou `realtime`):
 
-1. sincroniza o webhook de assinatura com `manage.py webhook`
-2. aplica migrations com `manage.py migrate --noinput`
-3. sobe Gunicorn via `gunicorn.conf.py` em `0.0.0.0:8000`
+1. aplica migrations com `manage.py migrate --noinput`
+2. se `APP_PROCESS=web`: sincroniza webhook (`manage.py webhook`) e sobe Gunicorn
+3. se `APP_PROCESS=realtime`: sobe um poller em background (`run_due_outbound_messages` a cada `OUTBOUND_POLLER_INTERVAL_SECONDS`, default 60s; respeita o horario de disparo configurado por oficina) e o Daphne (`config.asgi:application`) na porta `PORT`
 
 Configuracao operacional do Gunicorn (env vars, defaults entre parenteses):
 
@@ -58,13 +58,15 @@ Configuracao operacional do Gunicorn (env vars, defaults entre parenteses):
 - `GUNICORN_GRACEFUL_TIMEOUT` (`30`)
 - `GUNICORN_MAX_REQUESTS` (`1000`)
 - `GUNICORN_MAX_REQUESTS_JITTER` (`100`)
+- `GUNICORN_BIND` (`0.0.0.0:8000`, ou `0.0.0.0:$PORT` quando `PORT` != 8000)
 
 Isso tem algumas implicacoes:
 
 - o startup depende de banco acessivel
-- o startup depende das credenciais necessarias para sincronizar webhook, se o fluxo estiver habilitado
+- o startup do `web` depende das credenciais necessarias para sincronizar webhook, se o fluxo estiver habilitado
 - migrations fazem parte da subida da aplicacao
 - workers/threads devem ser ajustados apos baseline de p95 e uso de CPU/memoria
+- o service `realtime` deve rodar com 1 replica (channel layer in-memory)
 
 ## Railway
 

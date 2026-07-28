@@ -29,6 +29,7 @@ from apps.core.presentation.mixins import HtmxDeleteResponseMixin, HtmxTemplateR
 from apps.core.utils import clean_id
 from apps.finance.forms.financial_movement import MovementStep1Form, MovementStep2Form, MovementStep3Form, MovementStep4Form
 from apps.finance.models.financial_movement import FinancialMovement
+from apps.finance.services.payroll_visibility import resolve_payroll_movement_display
 from apps.finance.views.navigation import append_query_params
 from apps.accounts.models import User
 from apps.collaborators.services import delete_payroll_component_and_recalculate, recalculate_payroll_from_linked_movements
@@ -122,7 +123,11 @@ def _apply_paid_status_filter_to_queryset(queryset: QuerySet[FinancialMovement],
     if not paid_status:
         return queryset
     is_paid_lookup = paid_status == "paid"
-    return queryset.filter(is_paid=is_paid_lookup)
+    matched_ids = list(queryset.exclude(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False).filter(is_paid=is_paid_lookup).values_list("pk", flat=True))
+    for movement in queryset.filter(movement_kind=FinancialMovement.MovementKind.WORKORDER_PARENT, workorder__isnull=False):
+        if (is_paid_lookup and movement.is_paid) or (not is_paid_lookup and not movement.is_paid):
+            matched_ids.append(movement.pk)
+    return queryset.filter(pk__in=matched_ids)
 
 
 def _apply_report_filters_to_queryset(queryset: QuerySet[FinancialMovement], *, params: dict[str, Any]) -> QuerySet[FinancialMovement]:
@@ -290,7 +295,7 @@ def _filter_payments_for_pdf(payments: list[object], *, filter_params: dict[str,
     return filtered
 
 
-def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], workshop: Any, filter_params: dict[str, Any] | None = None) -> list[dict[str, object]]:
+def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], workshop: Any, user: Any, request: HttpRequest, filter_params: dict[str, Any] | None = None) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     filter_params = filter_params or {}
 
@@ -335,6 +340,7 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
                 payment_amount = getattr(payment, "total_paid", None) or Money(0, "BRL")
                 payment_movement = per_payment_movements.get(payment.pk) or movement
                 payment_method = getattr(payment, "payment_method", None)
+                agent, description = resolve_payroll_movement_display(movement=payment_movement, user=user, workshop=workshop, request=request)
                 rows.append(
                     {
                         "paid_status": "Sim" if payment_movement.is_paid else "Não",
@@ -342,8 +348,8 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
                         "direction": FinancialMovement.MovementDirection.CREDIT,
                         "direction_label": "Crédito",
                         "due_date": payment.due_date or movement.due_date,
-                        "agent": payment_movement.report_agent_display,
-                        "description": _resolve_workorder_description(workorder),
+                        "agent": agent,
+                        "description": _resolve_workorder_description(workorder) if workorder is not None else description,
                         "budget_plan": payment_movement.report_budget_plan_display,
                         "payment_type": getattr(payment_method, "description", "-") or "-",
                         "amount": payment_amount,
@@ -357,6 +363,7 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
                 payment_amount = getattr(payment, "total_paid", None) or Money(0, "BRL")
                 payment_movement = per_payment_movements.get(payment.pk) or movement
                 payment_method = getattr(payment, "payment_method", None)
+                agent, description = resolve_payroll_movement_display(movement=payment_movement, user=user, workshop=workshop, request=request)
                 rows.append(
                     {
                         "paid_status": "Sim" if payment_movement.is_paid else "Não",
@@ -364,14 +371,15 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
                         "direction": FinancialMovement.MovementDirection.CREDIT,
                         "direction_label": "Crédito",
                         "due_date": payment.due_date or movement.due_date,
-                        "agent": payment_movement.report_agent_display,
-                        "description": _resolve_workorder_description(workorder),
+                        "agent": agent,
+                        "description": _resolve_workorder_description(workorder) if workorder is not None else description,
                         "budget_plan": payment_movement.report_budget_plan_display,
                         "payment_type": getattr(payment_method, "description", "-") or "-",
                         "amount": payment_amount,
                     }
                 )
             continue
+        agent, description = resolve_payroll_movement_display(movement=movement, user=user, workshop=workshop, request=request)
         rows.append(
             {
                 "paid_status": "Sim" if movement.is_paid else "Não",
@@ -379,8 +387,8 @@ def _build_financial_movement_pdf_rows(*, movements: list[FinancialMovement], wo
                 "direction": movement.direction,
                 "direction_label": _movement_pdf_direction_label(movement),
                 "due_date": movement.due_date,
-                "agent": movement.report_agent_display,
-                "description": movement.report_description_display,
+                "agent": agent,
+                "description": description,
                 "budget_plan": movement.report_budget_plan_display,
                 "payment_type": movement.report_payment_method_display,
                 "amount": movement.amount or Money(0, "BRL"),
@@ -568,7 +576,7 @@ def financial_movement_pdf(request: HttpRequest) -> HttpResponse:
     ).order_by("-pk")
     movements.extend(list(fallback))
 
-    rows = _build_financial_movement_pdf_rows(movements=movements, workshop=workshop, filter_params=filter_params)
+    rows = _build_financial_movement_pdf_rows(movements=movements, workshop=workshop, user=request.user, request=request, filter_params=filter_params)
     totals = _build_financial_movement_pdf_totals(rows=rows)
     context = {
         "workshop": workshop,

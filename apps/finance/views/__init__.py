@@ -12,6 +12,7 @@ from .fiscal_debit_product_preview import (
 )
 from .nfe_credit import NfeCreditCancellationDownloadView, NfeCreditCancellationPayloadView, NfeCreditCancellationView, NfeCreditDownloadView, NfeCreditIssueView, NfeCreditPayloadView
 from .nfe_debit import NfeDebitCancellationDownloadView as NfeDebitCancellationDownloadView, NfeDebitCancellationPayloadView as NfeDebitCancellationPayloadView, NfeDebitCancellationView as NfeDebitCancellationView, NfeDebitDownloadView as NfeDebitDownloadView, NfeDebitEmissionFeatureToggleView as NfeDebitEmissionFeatureToggleView, NfeDebitIssueView as NfeDebitIssueView, NfeDebitPayloadView as NfeDebitPayloadView
+from .financial_group import FinancialGroupBulkDeleteView, FinancialGroupCreateView, FinancialGroupDeleteView, FinancialGroupListView, FinancialGroupUpdateView
 from .common import DirectorWorkshopAccessMixin
 from .emission import EmissionPreviewView, EmissionRequestCreateView, EmissionWorkOrderItemUpdateView, EmissionWorkOrderKitComponentUpdateView, NfeCreateRedirectView, NfseCreateRedirectView
 from .issued_documents import IssuedDocumentsArchiveDownloadView, IssuedDocumentsListView
@@ -151,6 +152,7 @@ __all__ = [
     "EmissionWorkOrderKitComponentUpdateView",
     "EmissionWorkOrderItemUpdateView",
     "FinancialGroupCreateView",
+    "FinancialGroupBulkDeleteView",
     "FinancialGroupDeleteView",
     "FinancialGroupListView",
     "FinancialReportsHomeView",

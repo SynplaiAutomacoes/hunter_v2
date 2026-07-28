@@ -101,6 +101,8 @@ if not DEBUG:
 # Application definition
 
 INSTALLED_APPS = [
+    # ASGI / realtime (safe when unused by Gunicorn WSGI process)
+    "daphne",
     # Django
     "django.contrib.admin",
     "django.contrib.auth",
@@ -120,6 +122,7 @@ INSTALLED_APPS = [
     "phonenumber_field",
     "simple_history",
     "django_tables2",
+    "channels",
     # Local
     "apps.core",
     "apps.accounts",
@@ -186,12 +189,22 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = "config.wsgi.application"
+ASGI_APPLICATION = "config.asgi.application"
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+    }
+}
 
 CRISPY_TEMPLATE_PACK = "tailwind"
 CRISPY_ALLOWED_TEMPLATE_PACKS = ("tailwind",)
 
 WHATSAPP_API_URL = os.getenv("WHATSAPP_API_URL", "https://whatsapp-hunter.up.railway.app")
 EVOLUTION_API_URL = os.getenv("EVOLUTION_API_URL", "")
+MESSAGE_WORKER_BASE_URL = os.getenv("MESSAGE_WORKER_BASE_URL", "").strip()
+MESSAGE_DISPATCH_STATUS_TOKEN = os.getenv("MESSAGE_DISPATCH_STATUS_TOKEN", "").strip()
+MESSAGE_DISPATCH_WS_BASE_URL = os.getenv("MESSAGE_DISPATCH_WS_BASE_URL", "").strip()
 
 RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "localhost")
 RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", "5672"))

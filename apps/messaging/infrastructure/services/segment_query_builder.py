@@ -12,6 +12,19 @@ from apps.customer.models import Customer
 from apps.messaging.domain.value_objects import FilterCriteria, SegmentRule
 
 
+def eligible_customers_queryset(*, workshop: Any) -> QuerySet[Customer]:
+    """Customers eligible for message groups: active and with a phone number."""
+    return Customer.objects.filter(workshop=workshop, is_active=True).exclude(phone__isnull=True).exclude(phone="")
+
+
+def merge_customer_querysets(*querysets: QuerySet[Customer]) -> QuerySet[Customer]:
+    """Union customer querysets by primary key (avoids distinct/non-distinct | TypeError)."""
+    ids: set[int] = set()
+    for qs in querysets:
+        ids.update(qs.values_list("pk", flat=True))
+    return Customer.objects.filter(pk__in=ids)
+
+
 def _apply_birthday_rule(queryset: QuerySet[Customer], rule: SegmentRule) -> QuerySet[Customer]:
     today = timezone.localdate()
     if rule.operator == "is_today":
@@ -134,9 +147,7 @@ def resolve_segment(
     workshop: Any,
     filter_criteria: FilterCriteria,
 ) -> QuerySet:
-    from apps.customer.models import Customer
-
-    base = Customer.objects.filter(workshop=workshop, is_active=True)
+    base = eligible_customers_queryset(workshop=workshop)
 
     if filter_criteria.logical_operator == "any":
         q_objects = Q()
