@@ -4,6 +4,7 @@ import logging
 import re
 import unicodedata
 from typing import Any
+from uuid import UUID
 
 import requests
 from django.conf import settings
@@ -283,7 +284,15 @@ def apply_cce_event_payload(*, event: FiscalDocumentEvent, response_payload: dic
     event.response_payload = sanitized_payload
     event.status = _status_from_cce_payload(response_payload)
     event.remote_uuid = str(response_payload.get("uuid") or event.remote_uuid or "").strip()
-    event.remote_event_id = str(response_payload.get("protocolo") or response_payload.get("protocol") or response_payload.get("id_evento") or event.remote_event_id or "").strip()
+    event.remote_event_id = str(
+        response_payload.get("protocolo")
+        or response_payload.get("protocolo_evento")
+        or response_payload.get("protocol")
+        or response_payload.get("id_evento")
+        or response_payload.get("nProt")
+        or event.remote_event_id
+        or ""
+    ).strip()
     event.remote_model = str(response_payload.get("modelo") or response_payload.get("model") or event.remote_model or "cce").strip().lower()
     event.xml_url = str(response_payload.get("xml") or event.xml_url or "").strip()
     event.dacce_url = str(response_payload.get("dacce") or event.dacce_url or "").strip()
@@ -311,31 +320,60 @@ def confirm_cce_event_from_payload(*, event: FiscalDocumentEvent, response_paylo
 
 def _resolve_cce_remote_uuid(*, event: FiscalDocumentEvent) -> str:
     remote_uuid = str(event.remote_uuid or "").strip()
-    if remote_uuid:
-        return remote_uuid
-
-    attempt = _cce_attempt_for_event(event=event)
-    if attempt is not None:
-        remote_uuid = str(attempt.remote_uuid or "").strip()
+    if not remote_uuid:
+        attempt = _cce_attempt_for_event(event=event)
+        if attempt is not None:
+            remote_uuid = str(attempt.remote_uuid or "").strip()
     if not remote_uuid:
         raise NfeCorrectionError("Carta de correcao em estado incerto sem UUID remoto. Aguarde o webhook antes de tentar novamente.")
+    _parse_cce_uuid(remote_uuid, error_message="Carta de correcao em estado incerto com UUID remoto invalido. Aguarde identificacao segura antes de reconciliar.")
     return remote_uuid
 
 
-def _validate_cce_consulta_identity(*, event: FiscalDocumentEvent, payload: dict[str, Any], expected_uuid: str) -> None:
+def _parse_cce_uuid(value: str, *, error_message: str) -> UUID:
+    try:
+        return UUID(str(value or "").strip())
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise NfeCorrectionError(error_message) from exc
+
+
+def validate_cce_payload_identity(
+    *,
+    event: FiscalDocumentEvent,
+    payload: dict[str, Any],
+    expected_uuid: str | None = None,
+    require_uuid: bool = False,
+    require_sequence: bool = False,
+    require_document_key: bool = False,
+) -> None:
     payload_uuid = str(payload.get("uuid") or "").strip()
     payload_model = str(payload.get("modelo") or payload.get("model") or "").strip().lower()
-    if payload_uuid.lower() != expected_uuid.lower() or payload_model != "cce":
+    if payload_model != "cce":
         raise NfeCorrectionError("A consulta retornou um documento diferente da carta de correcao esperada.")
 
+    if require_uuid and not payload_uuid:
+        raise NfeCorrectionError("A resposta da carta de correcao nao possui UUID remoto seguro.")
+    if payload_uuid:
+        parsed_payload_uuid = _parse_cce_uuid(payload_uuid, error_message="A resposta da carta de correcao possui UUID remoto invalido.")
+        if expected_uuid and parsed_payload_uuid != _parse_cce_uuid(expected_uuid, error_message="A carta de correcao local possui UUID remoto invalido."):
+            raise NfeCorrectionError("A consulta retornou um documento diferente da carta de correcao esperada.")
+
     payload_sequence = payload.get("evento")
+    if require_sequence and payload_sequence in (None, ""):
+        raise NfeCorrectionError("A resposta da carta de correcao nao possui sequencia segura.")
     if payload_sequence not in (None, "") and (not str(payload_sequence).isdigit() or int(payload_sequence) != event.event_sequence):
         raise NfeCorrectionError("A consulta retornou uma sequencia de carta de correcao diferente da esperada.")
 
     payload_key = str(payload.get("chave") or "").strip()
     document_key = str(event.document.access_key or "").strip()
+    if require_document_key and document_key and not payload_key:
+        raise NfeCorrectionError("A resposta da carta de correcao nao identifica a NF-e relacionada.")
     if payload_key and document_key and payload_key != document_key:
         raise NfeCorrectionError("A consulta retornou uma carta de correcao vinculada a outra NF-e.")
+
+
+def _validate_cce_consulta_identity(*, event: FiscalDocumentEvent, payload: dict[str, Any], expected_uuid: str) -> None:
+    validate_cce_payload_identity(event=event, payload=payload, expected_uuid=expected_uuid, require_uuid=True)
 
 
 def consult_cce_event(*, event: FiscalDocumentEvent) -> dict[str, Any]:
@@ -371,9 +409,12 @@ def reconcile_cce_event(*, event: FiscalDocumentEvent) -> FiscalDocumentEvent:
     return confirm_cce_event_from_payload(event=event, response_payload=payload)
 
 
-def mark_cce_event_uncertain(*, event: FiscalDocumentEvent, error_message: str) -> None:
+def mark_cce_event_uncertain(*, event: FiscalDocumentEvent, error_message: str, response_payload: dict[str, Any] | None = None) -> None:
     event.status = FiscalDocumentEventStatus.UNCERTAIN
-    event.response_payload = sanitize_fiscal_payload({"error": error_message})
+    uncertain_payload = dict(response_payload) if response_payload is not None else {"error": error_message}
+    if response_payload is not None:
+        uncertain_payload["reconciliation_error"] = error_message
+    event.response_payload = sanitize_fiscal_payload(uncertain_payload)
     event.save(update_fields=["status", "response_payload", "atualizado_em"])
 
 
@@ -429,12 +470,21 @@ def emit_nfe_correction(*, nfe_item: NfeItem, correction_text: str, requested_by
         mark_cce_event_uncertain(event=event, error_message=message)
         raise NfeCorrectionError(message)
 
-    event = apply_cce_event_payload(event=event, response_payload=response_payload)
     if _is_failed_cce_response(response_payload):
+        event = apply_cce_event_payload(event=event, response_payload=response_payload)
         message = extract_webmania_error_message(response_payload, scope="nfe") or "Carta de correcao rejeitada pela Webmania."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfeCorrectionError(message)
 
+    try:
+        validate_cce_payload_identity(event=event, payload=response_payload, require_uuid=True, require_sequence=True)
+    except NfeCorrectionError as exc:
+        message = f"Resposta inconsistente da Webmania ao emitir carta de correcao; estado remoto incerto. {exc}"
+        mark_attempt_uncertain(attempt=attempt, error_message=message)
+        mark_cce_event_uncertain(event=event, error_message=message, response_payload=response_payload)
+        raise NfeCorrectionError(message) from exc
+
+    event = apply_cce_event_payload(event=event, response_payload=response_payload)
     mark_attempt_succeeded(attempt=attempt, response_payload=response_payload)
     if event.remote_uuid:
         _replay_pending_cce_webhooks_for_uuid(event_uuid=event.remote_uuid)

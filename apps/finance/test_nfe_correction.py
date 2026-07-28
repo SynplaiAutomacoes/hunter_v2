@@ -74,13 +74,21 @@ class NfeCorrectionOperationalTests(TestCase):
             xml_url=f"https://example.test/nfe-{suffix}.xml",
         )
 
-    def _emit_success(self, *, item: NfeItem | None = None, status: str = "aprovado", remote_uuid: str | None = None) -> FiscalDocumentEvent:
+    def _emit_success(
+        self,
+        *,
+        item: NfeItem | None = None,
+        status: str = "aprovado",
+        remote_uuid: str | None = None,
+        event_sequence: int = 1,
+        protocol: str = "135260000000001",
+    ) -> FiscalDocumentEvent:
         payload = {
             "uuid": remote_uuid or str(uuid4()),
             "modelo": "cce",
             "status": status,
-            "evento": 1,
-            "protocolo": "135260000000001",
+            "evento": event_sequence,
+            "protocolo": protocol,
             "xml": "https://example.test/cce.xml",
             "dacce": "https://example.test/dacce.pdf",
             "log": {"authorization": "secret"},
@@ -132,6 +140,22 @@ class NfeCorrectionOperationalTests(TestCase):
         self.assertEqual(attempt.status, FiscalEmissionAttemptStatus.FAILED)
         self.item.refresh_from_db()
         self.assertEqual(self.item.status, "aprovado")
+
+    def test_success_response_with_invalid_uuid_remains_uncertain(self) -> None:
+        payload = {"uuid": "uuid-invalido", "modelo": "cce", "status": "aprovado", "evento": 1}
+        with (
+            patch("apps.finance.services.nfe_events._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_events.requests.post", return_value=_mock_response(payload)) as post_mock,
+        ):
+            with self.assertRaisesMessage(NfeCorrectionError, "estado remoto incerto"):
+                emit_nfe_correction(nfe_item=self.item, correction_text=CORRECTION_TEXT, requested_by=self.user)
+
+        event = FiscalDocumentEvent.objects.get(document__legacy_nfe_item=self.item)
+        attempt = FiscalEmissionAttempt.objects.get(fiscal_document_event=event)
+        post_mock.assert_called_once()
+        self.assertEqual(event.status, FiscalDocumentEventStatus.UNCERTAIN)
+        self.assertEqual(event.response_payload["uuid"], "uuid-invalido")
+        self.assertEqual(attempt.status, FiscalEmissionAttemptStatus.UNCERTAIN)
 
     def test_timeout_is_uncertain_and_manual_duplicate_does_not_resend(self) -> None:
         with (
@@ -187,6 +211,24 @@ class NfeCorrectionOperationalTests(TestCase):
         self.assertEqual(attempt.status, FiscalEmissionAttemptStatus.SUCCEEDED)
         self.item.refresh_from_db()
         self.assertEqual(self.item.status, "aprovado")
+
+    def test_multiple_corrections_preserve_sequence_protocol_and_history_order(self) -> None:
+        first_event = self._emit_success(event_sequence=1, protocol="135260000000101")
+        second_event = self._emit_success(event_sequence=2, protocol="135260000000102")
+
+        detail_request = RequestFactory().get("/")
+        detail_request.user = self.user
+        detail_request.session = {}
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            detail_response = NfeRequestDetailView.as_view()(detail_request, pk=self.item.request_id)
+            detail_response.render()
+
+        self.assertEqual(list(detail_response.context_data["cce_events"]), [first_event, second_event])
+        self.assertContains(detail_response, "135260000000101")
+        self.assertContains(detail_response, "135260000000102")
 
     def test_ambiguous_webhook_does_not_update_events_across_workshops(self) -> None:
         from apps.core.infrastructure.services.webmania.webmania_webhooks import process_webhook_event, store_webhook_event
@@ -245,6 +287,43 @@ class NfeCorrectionOperationalTests(TestCase):
                 reconcile_cce_event(event=event)
         event.refresh_from_db()
         self.assertEqual(event.status, FiscalDocumentEventStatus.UNCERTAIN)
+
+    def test_reconciliation_rejects_invalid_local_uuid_without_remote_request(self) -> None:
+        event = self._emit_timeout()
+        event.remote_uuid = "uuid-invalido"
+        event.save(update_fields=["remote_uuid"])
+
+        with patch("apps.finance.services.nfe_events.requests.get") as get_mock:
+            with self.assertRaisesMessage(NfeCorrectionError, "UUID remoto invalido"):
+                reconcile_cce_event(event=event)
+
+        get_mock.assert_not_called()
+        event.refresh_from_db()
+        self.assertEqual(event.status, FiscalDocumentEventStatus.UNCERTAIN)
+
+    def test_webhook_with_mismatched_nfe_identity_is_deferred_without_state_change(self) -> None:
+        from apps.core.infrastructure.services.webmania.webmania_webhooks import process_webhook_event, store_webhook_event
+
+        event = self._emit_timeout()
+        remote_uuid = str(uuid4())
+        event.remote_uuid = remote_uuid
+        event.save(update_fields=["remote_uuid"])
+        webhook = store_webhook_event(
+            payload={
+                "modelo": "cce",
+                "uuid": remote_uuid,
+                "status": "aprovado",
+                "chave": "35" + ("9" * 42),
+                "evento": event.event_sequence,
+            }
+        )
+
+        self.assertFalse(process_webhook_event(webhook))
+        webhook.refresh_from_db()
+        event.refresh_from_db()
+        self.assertIn("outra NF-e", webhook.processing_error)
+        self.assertEqual(event.status, FiscalDocumentEventStatus.UNCERTAIN)
+        self.assertFalse(webhook.processed_at)
 
     def test_management_reconciliation_uses_existing_cce_uuid_without_post(self) -> None:
         event = self._emit_timeout()

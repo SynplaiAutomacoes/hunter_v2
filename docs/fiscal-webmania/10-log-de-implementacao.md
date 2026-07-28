@@ -769,6 +769,19 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 - `mypy` complementar foi executado e permaneceu bloqueado pelo baseline preexistente de stubs e managers; os apontamentos locais simples foram saneados.
 - Nenhum valor de frete, total, calculo financeiro, endpoint, OpenAPI, cancelamento, inutilizacao, CC-e, devolucao ou novo documento fiscal foi alterado.
 
+## 2026-07-28 - Fase 4.1.4 - Completar suporte da Carta de Correcao NF-e
+
+- Revalidado o contrato oficial `POST /1/nfe/cartacorrecao/`: a resposta documentada possui `uuid`, `status`, `evento`, `modelo=cce`, `xml`, `dacce` e `log`; o endpoint de consulta permanece `GET /1/nfe/consulta/`.
+- Preservados `FiscalDocumentEvent`, `FiscalEmissionAttempt`, payload de emissao, endpoint, permissoes, downloads e fluxo produtivo existente.
+- Nenhuma migration foi necessaria: `remote_event_id`, `xml_url` e `dacce_url` ja comportavam protocolo/identificador, XML e DACCE separados da NF-e original.
+- Respostas bem-sucedidas de emissao passam a exigir UUID valido, modelo `cce` e sequencia coerente. Resposta inconclusiva permanece `uncertain`, conserva o retorno sanitizado e nunca provoca reenvio automatico.
+- A reconciliacao valida o UUID local antes do GET e continua aplicando apenas resposta com UUID/modelo coerentes; chave e sequencia, quando retornadas pela consulta, tambem devem corresponder ao evento e a NF-e original.
+- O webhook valida modelo, sequencia e chave da NF-e antes de alterar o evento; payload inconsistente ou ambiguo fica pendente, inclusive entre oficinas.
+- O historico existente continua listando multiplas CC-e por sequencia e agora exibe tambem o protocolo/identificador persistido, ao lado dos documentos XML e DACCE.
+- Cobertura focada ampliada para multiplos eventos, ordem/sequencia, protocolo no historico, UUID local invalido sem consulta e webhook vinculado a outra NF-e.
+- Limitacao oficial registrada: a documentacao atual da Webmania nao define campo de protocolo na resposta da CC-e. O sistema preserva os aliases ja aceitos e adiciona aliases defensivos no mesmo `remote_event_id`, sem criar campo ou contrato novo.
+- OpenAPI, NF-e normal, cancelamento, inutilizacao, devolucao, transporte e demais dominios fiscais permaneceram inalterados.
+
 ## 2026-06-23 - Fase 2.6.0 - Reavaliacao documental do roadmap
 
 - Fase 2.5.8 reconhecida como validada no checkpoint `df1a163e`.

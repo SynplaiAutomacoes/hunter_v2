@@ -1076,3 +1076,13 @@ Consequencias:
 - Auditoria: o snapshot nao consulta fornecedor, OS ou outro cadastro. O payload final continua congelado por `FiscalEmissionAttempt` antes do POST.
 - Consequencias: modalidade, transportador e volumes ficam disponiveis; valor de frete e qualquer alteracao de total permanecem proibidos.
 - OpenAPI: inalterado. Nenhum endpoint ou contrato remoto existente foi substituido.
+
+## ADR - Fase 4.1.4: identidade segura e historico completo da CC-e
+
+- Status: implementada em 2026-07-28.
+- Contexto: a CC-e ja era operacional e os campos existentes armazenavam UUID, identificador/protocolo, XML e DACCE. As lacunas estavam na validacao uniforme da identidade remota e na exposicao do protocolo no historico.
+- Decisao: manter o fluxo e a modelagem existentes; validar UUID/modelo/sequencia nas respostas conclusivas, validar tambem a chave da NF-e em webhook e bloquear a consulta antes do GET quando o UUID local for invalido.
+- Estado incerto: resposta bem-sucedida sem identidade segura permanece `uncertain`, com retorno sanitizado para auditoria. Timeout e inconsistencia nunca disparam novo POST.
+- Compatibilidade: respostas de rejeicao continuam seguindo o tratamento produtivo existente; protocolo, quando retornado sob alias conhecido, permanece em `FiscalDocumentEvent.remote_event_id`.
+- UX: a tabela de eventos existente exibe sequencia, status, UUID, protocolo e documentos por CC-e, sem criar pagina ou fluxo paralelo.
+- OpenAPI e banco: inalterados. Nenhuma migration, permissao, entidade ou endpoint foi criado.

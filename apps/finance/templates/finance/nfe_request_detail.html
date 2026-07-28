@@ -279,6 +279,7 @@
                                         <th>Sequência</th>
                                         <th>Status</th>
                                         <th>UUID</th>
+                                        <th>Protocolo</th>
                                         <th>Atualizado em</th>
                                         <th class="text-right">Documentos</th>
                                     </tr>
@@ -289,6 +290,7 @@
                                             <td>{{ event.event_sequence }}</td>
                                             <td>{{ event.status }}</td>
                                             <td class="break-all">{{ event.remote_uuid|default:'-' }}</td>
+                                            <td class="break-all">{{ event.remote_event_id|default:'-' }}</td>
                                             <td>{{ event.atualizado_em|date:'d/m/Y H:i' }}</td>
                                             <td class="text-right">
                                                 <div class="flex flex-wrap justify-end gap-2">
