@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('budget', '0059_merge_0056_alter_0058_stored_totals'),
+        ('budget', '0060_add_rejection_reason_field'),
         ('workshops', '0031_oil_change_tracking'),
     ]
 
