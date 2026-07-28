@@ -1,6 +1,9 @@
 # ruff: noqa: F403,F405
 from apps.budget.forms.steps.common import *
+from apps.budget.models import BudgetItem
 from dataclasses import dataclass
+from datetime import timedelta
+from django.db.models import F, Sum
 
 
 @dataclass
@@ -43,18 +46,41 @@ def build_step5_context(budget) -> Step5PricingContext:
     custo_frete_pecas = budget.total_products_shipping
     custo_frete_servicos = budget.total_services_shipping
     custo_servico_terceiros = budget.total_third_party_services_cost
+
+    benefit_tp_agg = (
+        BudgetItem.objects.filter(
+            budget=budget,
+            item_benefit_type__in=("warranty", "courtesy"),
+            service__is_third_party=True,
+        ).aggregate(
+            total=Sum(F("service_cost_price") * F("quantity"))
+        )["total"]
+    )
+    if benefit_tp_agg:
+        custo_servico_terceiros += Money(benefit_tp_agg, "BRL")
+
     custo_hora_mecanico = dados.get("custo_hora_mecanico") or zerado
 
-    duracao_total = budget.total_duration_display
+    snapshot_total_td = budget.total_duration or timedelta()
 
-    def _parse_duracao_em_horas(duracao):
-        try:
-            h, m = duracao.replace("h", "").replace("m", "").split()
-            return Decimal(h) + (Decimal(m) / Decimal(60))
-        except Exception:
-            return Decimal("0")
+    benefit_items_qs = BudgetItem.objects.filter(
+        budget=budget,
+        item_benefit_type__in=("warranty", "courtesy"),
+    )
+    benefit_duration = timedelta()
+    for item in benefit_items_qs:
+        if item.duration:
+            benefit_duration += item.duration * item.quantity
 
-    duracao_em_horas = _parse_duracao_em_horas(duracao_total)
+    total_td = snapshot_total_td + benefit_duration
+
+    if not total_td:
+        duracao_total = "00h 00m"
+    else:
+        ts = int(total_td.total_seconds())
+        duracao_total = f"{ts // 3600:02d}h {(ts % 3600) // 60:02d}m"
+
+    duracao_em_horas = Decimal(total_td.total_seconds()) / Decimal(3600)
     custo_total_mao_obra = custo_hora_mecanico * duracao_em_horas
 
     venda_servico_terceiros = budget.display_total_third_party_by_slider

@@ -176,8 +176,6 @@ class WorkOrder(TimeStampedModel):
         total = timedelta(0)
         for item in self._iter_items():
             if item.service and item.duration:
-                if item.service.is_third_party:
-                    continue
                 total += item.duration * item.quantity
                 continue
 
@@ -186,9 +184,6 @@ class WorkOrder(TimeStampedModel):
 
             _, service_overrides = item._get_kit_override_maps()
             for kit_service in item._iter_kit_services():
-                if kit_service.service.is_third_party:
-                    continue
-
                 override = service_overrides.get(kit_service.service_id)
                 if override:
                     if override.quantity > 0 and override.duration:
