@@ -5,6 +5,7 @@
 - O inventario confirmou que a Fase 4.1.3A ja persistia e enviava todos os campos solicitados de transportador, veiculo e volumes no mesmo `transport_snapshot`.
 - Mantidos `NfeRequest`, os dois formularios existentes, `build_nfe_payload` e `FiscalEmissionAttempt`; nenhum fluxo, builder ou endpoint paralelo foi criado.
 - A validacao foi alinhada ao contrato oficial para IE de 2-14 caracteres ou `0` (isento), UF obrigatoria com IE, UF exterior `EX`, placas nos formatos aceitos pela Webmania, RNTRC de ate 20 caracteres e quantidade de volumes com ate 15 digitos.
+- O subgrupo oficial `transporte.reboque` passou a aceitar uma lista opcional validada com placa, `uf_veiculo`, `rntc`, vagao e balsa, persistida dentro do mesmo snapshot.
 - Transportador e veiculo continuam opcionais. Nenhum dado e inferido de fornecedor, cliente, orcamento ou ordem de servico.
 - Modalidade `9` continua produzindo snapshot vazio, `pedido.modalidade_frete=9` e ausencia completa do grupo `transporte`.
 - `pedido.frete`, seguro e outras despesas permanecem fora do escopo porque podem alterar totais fiscais.

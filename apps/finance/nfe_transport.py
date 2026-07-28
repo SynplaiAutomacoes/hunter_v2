@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from decimal import Decimal
 from typing import Any
@@ -28,6 +29,7 @@ TRANSPORT_FORM_FIELD_NAMES: tuple[str, ...] = (
     "transport_volume_brand",
     "transport_volume_numbering",
     "transport_seals",
+    "nfe_transport_trailers_json",
 )
 
 FREIGHT_MODE_CHOICES: tuple[tuple[str, str], ...] = (
@@ -74,6 +76,13 @@ _VOLUME_KEYS = {
     "numeracao",
     "lacres",
 }
+_TRAILER_KEYS = {
+    "placa",
+    "uf_veiculo",
+    "rntc",
+    "vagao",
+    "balsa",
+}
 
 
 class NfeTransportValidationError(ValueError):
@@ -106,7 +115,15 @@ def _freight_mode(value: object) -> int:
 
 
 def _has_transport_details(values: dict[str, Any]) -> bool:
-    return any(values.get(field_name) not in (None, "") for field_name in TRANSPORT_FORM_FIELD_NAMES if field_name != "freight_mode")
+    for field_name in TRANSPORT_FORM_FIELD_NAMES:
+        if field_name == "freight_mode":
+            continue
+        value = values.get(field_name)
+        if field_name == "nfe_transport_trailers_json" and _text(value) in {"", "[]"}:
+            continue
+        if value not in (None, ""):
+            return True
+    return False
 
 
 def _build_carrier_snapshot(values: dict[str, Any]) -> dict[str, Any]:
@@ -220,6 +237,60 @@ def _build_volume_snapshot(values: dict[str, Any]) -> dict[str, Any]:
     return volumes
 
 
+def _build_trailers_snapshot(values: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_trailers = values.get("nfe_transport_trailers_json")
+    if raw_trailers in (None, "", []):
+        return []
+    if isinstance(raw_trailers, str):
+        try:
+            raw_trailers = json.loads(raw_trailers)
+        except ValueError as exc:
+            raise NfeTransportValidationError("Informe os reboques em JSON valido.") from exc
+    if not isinstance(raw_trailers, list):
+        raise NfeTransportValidationError("Reboques devem ser informados como uma lista JSON.")
+
+    trailers: list[dict[str, Any]] = []
+    for raw_trailer in raw_trailers:
+        if not isinstance(raw_trailer, dict) or not raw_trailer:
+            raise NfeTransportValidationError("Cada reboque deve ser um objeto JSON preenchido.")
+        if set(raw_trailer) - _TRAILER_KEYS:
+            raise NfeTransportValidationError("Reboque possui campos nao permitidos.")
+
+        trailer: dict[str, Any] = {}
+        plate = _text(raw_trailer.get("placa")).upper()
+        vehicle_state = _text(raw_trailer.get("uf_veiculo")).upper()
+        rntc = _text(raw_trailer.get("rntc"))
+        wagon = _text(raw_trailer.get("vagao"))
+        ferry = _text(raw_trailer.get("balsa"))
+
+        if plate:
+            if not _WEBMANIA_VEHICLE_PLATE_RE.match(plate):
+                raise NfeTransportValidationError("Informe uma placa de reboque valida.")
+            trailer["placa"] = plate
+        if vehicle_state:
+            if vehicle_state not in _ALLOWED_TRANSPORT_STATES:
+                raise NfeTransportValidationError("Informe uma UF valida para o reboque.")
+            if not plate:
+                raise NfeTransportValidationError("Informe a placa antes da UF do reboque.")
+            trailer["uf_veiculo"] = vehicle_state
+        if rntc:
+            if len(rntc) > 20:
+                raise NfeTransportValidationError("O RNTRC/ANTT do reboque deve possuir no maximo 20 caracteres.")
+            trailer["rntc"] = rntc
+        if wagon:
+            if not wagon.isdigit() or len(wagon) > 20:
+                raise NfeTransportValidationError("O vagao do reboque deve ser numerico e possuir no maximo 20 digitos.")
+            trailer["vagao"] = int(wagon)
+        if ferry:
+            if len(ferry) > 20:
+                raise NfeTransportValidationError("A identificacao da balsa deve possuir no maximo 20 caracteres.")
+            trailer["balsa"] = ferry
+        if not trailer:
+            raise NfeTransportValidationError("Informe ao menos um dado para cada reboque.")
+        trailers.append(trailer)
+    return trailers
+
+
 def build_nfe_transport_snapshot(values: dict[str, Any]) -> dict[str, Any]:
     mode = _freight_mode(values.get("freight_mode", 9))
     if mode == 9:
@@ -227,11 +298,15 @@ def build_nfe_transport_snapshot(values: dict[str, Any]) -> dict[str, Any]:
             raise NfeTransportValidationError("Selecione uma modalidade com transporte ou remova os dados de transportador e volumes.")
         return {}
 
-    return {
+    snapshot = {
         "modalidade": mode,
         "transportador": _build_carrier_snapshot(values),
         "volumes": _build_volume_snapshot(values),
     }
+    trailers = _build_trailers_snapshot(values)
+    if trailers:
+        snapshot["reboques"] = trailers
+    return snapshot
 
 
 def build_nfe_transport_form_initial(snapshot: object) -> dict[str, Any]:
@@ -240,8 +315,10 @@ def build_nfe_transport_form_initial(snapshot: object) -> dict[str, Any]:
 
     carrier = snapshot.get("transportador")
     volumes = snapshot.get("volumes")
+    trailers = snapshot.get("reboques")
     carrier = carrier if isinstance(carrier, dict) else {}
     volumes = volumes if isinstance(volumes, dict) else {}
+    trailers = trailers if isinstance(trailers, list) else []
 
     person_type = _text(carrier.get("tipo_pessoa"))
     document = carrier.get("cnpj") if person_type == "pj" else carrier.get("cpf")
@@ -267,6 +344,7 @@ def build_nfe_transport_form_initial(snapshot: object) -> dict[str, Any]:
         "transport_volume_brand": _text(volumes.get("marca")),
         "transport_volume_numbering": _text(volumes.get("numeracao")),
         "transport_seals": _text(volumes.get("lacres")),
+        "nfe_transport_trailers_json": json.dumps(trailers, ensure_ascii=False) if trailers else "",
     }
 
 
@@ -283,8 +361,11 @@ def build_webmania_transport_payload(*, freight_mode: object, snapshot: object) 
 
     carrier = snapshot.get("transportador")
     volumes = snapshot.get("volumes")
+    trailers = snapshot.get("reboques", [])
     if not isinstance(carrier, dict) or not isinstance(volumes, dict):
         raise NfeTransportValidationError("Snapshot de transporte incompleto.")
+    if not isinstance(trailers, list):
+        raise NfeTransportValidationError("Snapshot de reboques invalido.")
     if set(carrier) - _CARRIER_KEYS or set(volumes) - _VOLUME_KEYS:
         raise NfeTransportValidationError("Snapshot de transporte possui campos nao permitidos.")
 
@@ -294,4 +375,6 @@ def build_webmania_transport_payload(*, freight_mode: object, snapshot: object) 
 
     transport_payload = {key: value for key, value in carrier.items() if key != "tipo_pessoa" and value not in (None, "")}
     transport_payload.update({key: value for key, value in volumes.items() if value not in (None, "")})
+    if trailers:
+        transport_payload["reboque"] = trailers
     return mode, transport_payload

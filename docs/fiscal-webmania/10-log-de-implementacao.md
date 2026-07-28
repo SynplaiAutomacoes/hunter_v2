@@ -801,11 +801,12 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 - Revalidado o grupo oficial `transporte` da Webmania: `cnpj`/`cpf`, razao social/nome, IE, endereco, UF, cidade, CEP, placa, `uf_veiculo`, `rntc`, volume, especie, pesos, marca, numeracao e lacres.
 - O inventario confirmou que todos esses campos ja existiam no snapshot e no builder entregue pelo checkpoint `4a831d54`; nao foram criados model, campo persistente, builder, service ou endpoint.
 - Lacunas corrigidas: IE limitada a 14 caracteres e vinculada a UF, marcador `0` preservado para isento, `EX` aceito para exterior, placas legadas de seis caracteres aceitas conforme o contrato e quantidade de volumes corrigida de limite numerico 15 para comprimento maximo de 15 digitos.
+- Cobertura nao monetaria completada com o array oficial `transporte.reboque`; cada item aceita somente placa, `uf_veiculo`, `rntc`, vagao e balsa validados e permanece dentro do `transport_snapshot`.
 - CPF/CNPJ, endereco, municipio, CEP, veiculo, RNTRC, especie, marca, numeracao, lacres e pesos continuam opcionais e congelados no mesmo `transport_snapshot`.
 - Os dois fluxos (`NfeRequestStep3Form` e `EmissionNfeConfigForm`) continuam compartilhando configuracao e normalizacao; preview, emissao e tentativa continuam usando o mesmo `build_nfe_payload`.
 - Compatibilidade preservada: modalidade `9` retorna antes da leitura do snapshot, mantem `pedido.modalidade_frete=9` e nao adiciona grupo `transporte`.
-- Valor de frete, seguro, outras despesas, reboque, cadastro de frota, CT-e e MDF-e nao foram iniciados.
-- Validacoes aprovadas: migration check sem alteracoes, Django check, 11 testes focados, 53 testes de regressao NF-e/transporte/CC-e/devolucao, Ruff nos arquivos Python alterados e `git diff --check`.
+- Valor de frete, seguro, outras despesas, cadastro de frota, CT-e e MDF-e nao foram iniciados.
+- Validacoes aprovadas: migration check sem alteracoes, Django check, 14 testes focados, 56 testes de regressao NF-e/transporte/CC-e/devolucao, Ruff nos arquivos Python alterados e `git diff --check`.
 - OpenAPI, emission service, NF-e normal fora do grupo opcional, CC-e, devolucao, cancelamento e inutilizacao permaneceram inalterados.
 
 ## 2026-06-23 - Fase 2.6.0 - Reavaliacao documental do roadmap

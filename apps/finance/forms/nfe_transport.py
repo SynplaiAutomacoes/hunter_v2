@@ -5,7 +5,7 @@ from typing import Any
 from crispy_forms.layout import Div, Field, HTML
 from django import forms
 
-from apps.core.presentation.widgets import CEPInput, CPForCNPJInput, DecimalInput, NumberInput, PlateInput, SearchableSelectInput, TextInput
+from apps.core.presentation.widgets import CEPInput, CPForCNPJInput, DecimalInput, NumberInput, PlateInput, SearchableSelectInput, TextareaInput, TextInput
 from apps.finance.nfe_transport import (
     BRAZILIAN_STATE_CHOICES,
     FREIGHT_MODE_CHOICES,
@@ -43,6 +43,12 @@ def configure_nfe_transport_form(*, form: forms.BaseForm, snapshot: object = Non
     form.fields["transport_volume_brand"] = forms.CharField(label="Marca dos volumes", required=False, max_length=60, widget=TextInput())
     form.fields["transport_volume_numbering"] = forms.CharField(label="Numeracao dos volumes", required=False, max_length=60, widget=TextInput())
     form.fields["transport_seals"] = forms.CharField(label="Lacres", required=False, max_length=60, widget=TextInput())
+    form.fields["nfe_transport_trailers_json"] = forms.CharField(
+        label="Reboques",
+        required=False,
+        help_text='Lista JSON opcional. Ex.: [{"placa":"ABC1234","uf_veiculo":"SP","rntc":"123","vagao":1,"balsa":"B1"}]',
+        widget=TextareaInput(rows=3),
+    )
 
     initial = build_nfe_transport_form_initial(snapshot)
     initial.setdefault("freight_mode", str(initial_freight_mode))
@@ -87,5 +93,7 @@ def build_nfe_transport_form_layout() -> Any:
             Field("transport_seals", wrapper_class="col-span-12 lg:col-span-3"),
             css_class="grid grid-cols-1 lg:grid-cols-12 gap-4",
         ),
+        HTML("<h4 class='font-semibold pt-2'>Reboques</h4>"),
+        Field("nfe_transport_trailers_json"),
         css_class="space-y-4 rounded-2xl border border-base-300 p-4",
     )

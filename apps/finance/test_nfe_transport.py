@@ -40,6 +40,23 @@ TRANSPORT_SNAPSHOT = {
     },
 }
 
+TRANSPORT_SNAPSHOT_WITH_TRAILERS = {
+    **TRANSPORT_SNAPSHOT,
+    "reboques": [
+        {
+            "placa": "ABC1234",
+            "uf_veiculo": "SP",
+            "rntc": "998877",
+            "vagao": 123,
+            "balsa": "BALSA-1",
+        },
+        {
+            "placa": "AB1234",
+            "uf_veiculo": "EX",
+        },
+    ],
+}
+
 
 class NfeTransportFormTests(SimpleTestCase):
     def _form_data(self) -> dict[str, str]:
@@ -197,6 +214,27 @@ class NfeTransportFormTests(SimpleTestCase):
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.cleaned_data["transport_snapshot"]["volumes"]["volume"], 999999999999999)
 
+    def test_legacy_and_unified_forms_persist_complete_trailers_in_same_snapshot(self) -> None:
+        data = self._form_data()
+        data["nfe_transport_trailers_json"] = '[{"placa":"ABC1234","uf_veiculo":"SP","rntc":"998877","vagao":"123","balsa":"BALSA-1"},{"placa":"AB1234","uf_veiculo":"EX"}]'
+        legacy_form = NfeRequestStep3Form(data=data, instance=NfeRequest(), tax_class_choices=[("REF-NFE", "Classe NF-e")])
+        unified_form = EmissionNfeConfigForm(data=data, tax_class_choices=[("REF-NFE", "Classe NF-e")])
+
+        self.assertTrue(legacy_form.is_valid(), legacy_form.errors)
+        self.assertTrue(unified_form.is_valid(), unified_form.errors)
+        self.assertEqual(legacy_form.cleaned_data["transport_snapshot"], TRANSPORT_SNAPSHOT_WITH_TRAILERS)
+        self.assertEqual(unified_form.cleaned_data["transport_snapshot"], TRANSPORT_SNAPSHOT_WITH_TRAILERS)
+        request = legacy_form.save(commit=False)
+        self.assertEqual(request.transport_snapshot, TRANSPORT_SNAPSHOT_WITH_TRAILERS)
+
+    def test_trailers_reject_unknown_fields_before_snapshot(self) -> None:
+        data = self._form_data()
+        data["nfe_transport_trailers_json"] = '[{"placa":"ABC1234","seguro":"10.00"}]'
+        form = EmissionNfeConfigForm(data=data, tax_class_choices=[("REF-NFE", "Classe NF-e")])
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("campos nao permitidos", form.non_field_errors()[0])
+
 
 @override_settings(WEBMANIA_NFE_NATUREZA_OPERACAO="Venda de mercadoria", WEBMANIA_AMBIENT="2")
 class NfeTransportPayloadTests(SimpleTestCase):
@@ -299,8 +337,15 @@ class NfeTransportPayloadTests(SimpleTestCase):
         self.assertEqual(payload["pedido"]["modalidade_frete"], 3)
         self.assertEqual(payload["transporte"], {"volume": 1, "especie": "Pacote", "peso_bruto": "2.500"})
 
+    def test_nfe_sends_complete_trailers_in_official_transport_array(self) -> None:
+        payload = self._build_payload(self._nfe_request(freight_mode=2, transport_snapshot=TRANSPORT_SNAPSHOT_WITH_TRAILERS))
+
+        self.assertEqual(payload["transporte"]["reboque"], TRANSPORT_SNAPSHOT_WITH_TRAILERS["reboques"])
+        self.assertNotIn("seguro", payload["transporte"])
+        self.assertNotIn("frete", payload["pedido"])
+
     def test_preview_emission_and_attempt_use_same_frozen_transport(self) -> None:
-        nfe_request = self._nfe_request(freight_mode=2, transport_snapshot=TRANSPORT_SNAPSHOT)
+        nfe_request = self._nfe_request(freight_mode=2, transport_snapshot=TRANSPORT_SNAPSHOT_WITH_TRAILERS)
         allocation = SimpleNamespace(products_target=Decimal("100.00"), services_target=Decimal("0.00"), slider=0)
         preview_response = Mock()
         preview_response.raise_for_status.return_value = None
@@ -338,6 +383,7 @@ class NfeTransportPayloadTests(SimpleTestCase):
         self.assertEqual(preview_payload["transporte"], emission_payload["transporte"])
         self.assertEqual(emission_payload["transporte"], attempted_payload["transporte"])
         self.assertEqual(preview_payload["pedido"]["modalidade_frete"], emission_payload["pedido"]["modalidade_frete"])
+        self.assertEqual(attempted_payload["transporte"]["reboque"], TRANSPORT_SNAPSHOT_WITH_TRAILERS["reboques"])
 
         nfe_request.transport_snapshot["transportador"]["razao_social"] = "Alterada depois"
         self.assertEqual(attempted_payload["transporte"]["razao_social"], "Transportadora teste")
