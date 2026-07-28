@@ -695,6 +695,24 @@ Backlog que continua separado:
 - criar view de payload/resposta remota somente se houver demanda e permissao dedicada aplicada.
 
 Continuam nao iniciados: manifestacao NF-e, contingencia/offline NFC-e, relatorios Webmania, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
+
+## Apos a Fase 4.1.3 - Transporte na NF-e
+
+Proxima fase funcional recomendada:
+
+- adicionar modalidade com default `9` e snapshot de transporte a `NfeRequest`;
+- expor os campos nos fluxos legado e unificado;
+- aplicar grupo opcional no `build_nfe_payload`, sem builder paralelo;
+- cobrir builder, formulario, preview, payload congelado, idempotencia e regressao sem transporte;
+- revalidar o contrato oficial antes de atualizar o OpenAPI local.
+
+Decisoes pendentes separadas:
+
+- inclusao de valor monetario em `pedido.frete` e sua composicao no total fiscal;
+- necessidade real de cadastro mestre de transportadora;
+- multiplos volumes heterogeneos, reboque e seguro avancado.
+
+Permanecem proibidos neste ciclo: inferir frete fiscal do custo de frete do orcamento/OS, converter fornecedor automaticamente em transportadora, criar fluxo paralelo, iniciar CT-e, MDF-e, NFCom ou outro documento fiscal.
 ## Fase 4.2.0 - Backlog apos fechamento CC-e
 
 - Homologar CC-e em ambiente Webmania com caso real antes de liberar uso amplo em producao.

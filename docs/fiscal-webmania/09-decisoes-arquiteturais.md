@@ -1055,3 +1055,14 @@ Consequencias:
 - Decisao: manter `FiscalDocumentEvent(event_type="cce")`, `FiscalEmissionAttempt(operation_type="cce")` e endpoint `POST /1/nfe/cartacorrecao/`; adicionar apenas hardening operacional com validacao textual conservadora, payload/response por permissao dedicada e ocultacao da acao em estado ativo/incerto.
 - Consequencias: evita tratar CC-e como documento derivado, preserva a NF-e original imutavel e reduz risco de uso para alteracoes fiscais proibidas. A validacao textual e deliberadamente conservadora e pode exigir ajuste fiscal futuro por homologacao.
 - Nao decisoes: nao iniciar Fase 4.0.2, nao criar CC-e para NFC-e, nao alterar devolucao/estorno, NFS-e, credito/debito, complementar tributaria, eventos IBS/CBS pendentes ou familias novas.
+
+## ADR - Fase 4.1.3: estender a NF-e normal com transporte
+
+- Status: aceita documentalmente em 2026-07-27.
+- Contexto: a NF-e normal usa `NfeRequest`, um unico `build_nfe_payload` para preview e emissao e `FiscalEmissionAttempt` para congelamento/idempotencia. O payload atual fixa `pedido.modalidade_frete=9` e nao possui grupo `transporte`.
+- Decisao: adicionar futuramente a intencao de transporte na mesma `NfeRequest` e aplica-la de forma aditiva no builder existente. Preservar modalidade `9` como default e omitir o grupo para requisicoes antigas ou sem transporte.
+- Modelagem recomendada: modalidade explicita mais snapshot JSON opcional, validado por lista permitida. Nao criar entidade fiscal, request, builder ou endpoint paralelo.
+- Justificativa: esse ponto mantem preview e emissao identicos, reaproveita tentativa, idempotencia, timeout, webhook, reconciliacao, auditoria, permissoes e downloads sem tocar nos fluxos posteriores.
+- Consequencias: os dois formularios existentes devem editar a mesma intencao. Frete comercial da OS/orcamento nao e fonte automatica de `pedido.frete`; fornecedor nao se torna transportadora por inferencia.
+- Recorte inicial: modalidade, transportador e volumes, sem valor monetario de frete, cadastro mestre, reboque, CT-e ou MDF-e.
+- OpenAPI: mantido inalterado; a lacuna local do grupo `transporte` deve ser revalidada antes de eventual atualizacao.

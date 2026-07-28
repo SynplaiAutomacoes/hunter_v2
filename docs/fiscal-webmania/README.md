@@ -1,5 +1,15 @@
 # Fiscal Webmania - PRDs vivos
 
+## Atualizacao Fase 4.1.3 - Inventario de dados de transporte na NF-e
+
+- O fluxo produtivo da NF-e normal foi mapeado sem alteracao funcional: `NfeRequest`, builder unico `build_nfe_payload`, preview, emissao, tentativa idempotente, webhook, consulta e downloads.
+- O payload atual fixa `pedido.modalidade_frete=9` e nao envia grupo `transporte`.
+- Decisao: estender futuramente a mesma `NfeRequest` e o mesmo builder, preservando o default sem transporte e sem criar fluxo, documento ou endpoint paralelo.
+- O frete comercial da OS/orcamento nao deve ser inferido como frete fiscal. `Supplier` nao deve ser convertido automaticamente em transportadora.
+- Primeira entrega recomendada: modalidade, snapshot do transportador e volumes; valor monetario de frete, cadastro mestre, reboque, CT-e e MDF-e permanecem fora do recorte.
+- Inventario detalhado: `12-fase-4-1-3-inventario-transporte-nfe.md`.
+- Nenhum codigo, model, migration, service, view, form, template, teste, OpenAPI ou payload fiscal foi alterado.
+
 ## Atualizacao Fase 4.1.2 - Finalizacao operacional da NF-e de devolucao
 
 - O fluxo produtivo existente foi preservado: NF-e original projetada em `FiscalDocument`, documento derivado separado, `FiscalDocumentLink`, tentativa fiscal, `POST /1/nfe/devolucao/`, webhook, consulta, historico e downloads.
@@ -61,7 +71,7 @@ Transformar a camada fiscal do Hunter V2 em um modulo completo, seguro e extensi
 
 ## Status atual
 
-Fase atual: Fase 4.2.0 - Finalizacao Prioritaria da Carta de Correcao NF-e, em implementacao em 2026-07-02. A Fase 4.1.0 foi validada e encerrada no checkpoint `af76387f`, endurecendo devolucao/estorno NF-e sem reabrir outros dominios. A Fase 4.0.2 de permissoes dedicadas genericas da NF-e normal permanece pausada por mudanca de prioridade e nao deve ser continuada nesta execucao.
+Fase atual: Fase 4.1.3 - Inventario de dados de transporte na NF-e, concluida documentalmente em 2026-07-27. CC-e e devolucao foram fechadas nos ciclos imediatamente anteriores. A proxima fase recomendada estende a NF-e normal existente com modalidade, snapshot do transportador e volumes, sem iniciar valor monetario de frete, CT-e ou MDF-e.
 
 Marco consolidado: NF-e/NFC-e existentes preservadas, NFS-e legada preservada, NFS-e manual com preview, emissao, cancelamento e substituicao, manifestacao NFS-e Padrao Nacional, NFS-e recebida por XML unitario, consulta/reconciliacao GET-only, manifestacao de recebida, lote XML, inbox externa local/manual/assistida, ampliacao operacional da inbox, auditoria tecnica/fiscal geral e saneamento tecnico pos-auditoria. Permanecem confirmadas as ausencias de conectores reais de e-mail/ERP, consulta Webmania automatica, manifestacao automatica, criacao direta de `NfseReceivedDocument` pela inbox, criacao de documento recebido sem XML, `NfseItem`, `FiscalDocument(nfse)`, `FiscalEmissionAttempt`, CT-e, MDF-e, NFCom, DC-e, eventos IBS/CBS pendentes, creditos/debitos pendentes e complementar tributaria.
 
@@ -91,7 +101,8 @@ Fase 2.4.0 aprovada documentalmente. A Fase 2.4A+B foi validada para combinar co
 10. `09-decisoes-arquiteturais.md`
 11. `10-log-de-implementacao.md`
 12. `11-backlog-e-pendencias.md`
-13. `api/webmania_fiscal_openapi_validated.json`
+13. `12-fase-4-1-3-inventario-transporte-nfe.md`
+14. `api/webmania_fiscal_openapi_validated.json`
 
 ## Fase 4.2.0 - Carta de Correcao NF-e
 

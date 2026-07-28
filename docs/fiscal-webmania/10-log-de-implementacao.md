@@ -745,6 +745,17 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 - Limitacao preservada: timeout sem UUID/chave do documento derivado nao possui identificador seguro para consulta e deve aguardar identificacao remota/webhook; nenhum reenvio e realizado.
 - Nenhum model, migration, payload Webmania, endpoint remoto, OpenAPI, NF-e normal, CC-e, cancelamento/inutilizacao, CT-e, MDF-e, NFCom, DC-e ou outro bloco fiscal foi alterado.
 
+## 2026-07-27 - Fase 4.1.3 - Inventario de dados de transporte na NF-e
+
+- Inventario exclusivamente documental sobre model, entidade de emissao, builder Webmania, formularios, emissao unificada, fluxo legado, preview, campos correlatos, tentativa, permissao, webhook, reconciliacao e testes.
+- Confirmado que `NfeRequest` e a intencao primaria da NF-e normal e que preview/emissao convergem em `build_nfe_payload`.
+- Confirmado o comportamento atual `pedido.modalidade_frete=9`, sem grupo `transporte`.
+- Mapeado que frete do orcamento/OS e dado de custo/precificacao, nao responsabilidade ou valor fiscal de transporte; `Supplier` tambem nao e cadastro suficiente de transportadora.
+- Decidida extensao minima futura na mesma `NfeRequest`, com modalidade explicita, snapshot estruturado e helper aditivo no builder unico.
+- Recomendado primeiro recorte sem valor monetario de frete, cadastro mestre, reboque, CT-e ou MDF-e.
+- Registrada lacuna de testes diretos do payload NF-e normal e do contrato local para o grupo `transporte`.
+- Nenhum codigo funcional, model, migration, service, view, form, template, teste, OpenAPI, endpoint remoto ou payload fiscal foi alterado.
+
 ## 2026-06-23 - Fase 2.6.0 - Reavaliacao documental do roadmap
 
 - Fase 2.5.8 reconhecida como validada no checkpoint `df1a163e`.
