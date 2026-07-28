@@ -272,6 +272,8 @@ class CashFlowView(LoginRequiredMixin, WorkshopScopedMixin, TemplateView):
             row = self._build_financial_movement_row(movement, filter_params["start_date"], filter_params["end_date"])
             if row is not None:
                 rows.append(row)
+
+        rows.sort(key=lambda r: (r["due_date"], r["component"]), reverse=True)
         return rows
 
     def get_context_data(self, **kwargs):
