@@ -97,6 +97,15 @@ def _build_cce_url() -> str:
     return f"{base_url}/1/nfe/cartacorrecao/"
 
 
+def _build_cce_consulta_url() -> str:
+    custom_endpoint = sanitize_webmania_setting(getattr(settings, "WEBMANIA_NFE_CONSULTA_ENDPOINT", ""))
+    if custom_endpoint:
+        return f"{custom_endpoint.rstrip('/')}/"
+
+    base_url = sanitize_webmania_setting(getattr(settings, "WEBMANIA_TAX_CLASS_BASE_URL", "https://webmania.com.br/api")).rstrip("/")
+    return f"{base_url}/1/nfe/consulta/"
+
+
 def validate_correction_text(correction_text: str) -> str:
     normalized = str(correction_text or "").strip()
     if len(normalized) < CCE_MIN_TEXT_LENGTH or len(normalized) > CCE_MAX_TEXT_LENGTH:
@@ -274,11 +283,92 @@ def apply_cce_event_payload(*, event: FiscalDocumentEvent, response_payload: dic
     event.response_payload = sanitized_payload
     event.status = _status_from_cce_payload(response_payload)
     event.remote_uuid = str(response_payload.get("uuid") or event.remote_uuid or "").strip()
+    event.remote_event_id = str(response_payload.get("protocolo") or response_payload.get("protocol") or response_payload.get("id_evento") or event.remote_event_id or "").strip()
     event.remote_model = str(response_payload.get("modelo") or response_payload.get("model") or event.remote_model or "cce").strip().lower()
     event.xml_url = str(response_payload.get("xml") or event.xml_url or "").strip()
     event.dacce_url = str(response_payload.get("dacce") or event.dacce_url or "").strip()
-    event.save(update_fields=["response_payload", "status", "remote_uuid", "remote_model", "xml_url", "dacce_url", "atualizado_em"])
+    event.save(update_fields=["response_payload", "status", "remote_uuid", "remote_event_id", "remote_model", "xml_url", "dacce_url", "atualizado_em"])
     return event
+
+
+def _cce_attempt_for_event(*, event: FiscalDocumentEvent) -> FiscalEmissionAttempt | None:
+    return event.emission_attempts.filter(operation_type=FiscalEmissionOperationType.CCE).order_by("-pk").first()
+
+
+def confirm_cce_event_from_payload(*, event: FiscalDocumentEvent, response_payload: dict[str, Any]) -> FiscalDocumentEvent:
+    event = apply_cce_event_payload(event=event, response_payload=response_payload)
+    attempt = _cce_attempt_for_event(event=event)
+    if attempt is None:
+        return event
+
+    if event.status in {FiscalDocumentEventStatus.APPROVED, FiscalDocumentEventStatus.SUCCEEDED}:
+        mark_attempt_succeeded(attempt=attempt, response_payload=response_payload)
+    elif event.status in {FiscalDocumentEventStatus.REPROVED, FiscalDocumentEventStatus.FAILED}:
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "Carta de correcao rejeitada pela Webmania."
+        mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
+    return event
+
+
+def _resolve_cce_remote_uuid(*, event: FiscalDocumentEvent) -> str:
+    remote_uuid = str(event.remote_uuid or "").strip()
+    if remote_uuid:
+        return remote_uuid
+
+    attempt = _cce_attempt_for_event(event=event)
+    if attempt is not None:
+        remote_uuid = str(attempt.remote_uuid or "").strip()
+    if not remote_uuid:
+        raise NfeCorrectionError("Carta de correcao em estado incerto sem UUID remoto. Aguarde o webhook antes de tentar novamente.")
+    return remote_uuid
+
+
+def _validate_cce_consulta_identity(*, event: FiscalDocumentEvent, payload: dict[str, Any], expected_uuid: str) -> None:
+    payload_uuid = str(payload.get("uuid") or "").strip()
+    payload_model = str(payload.get("modelo") or payload.get("model") or "").strip().lower()
+    if payload_uuid.lower() != expected_uuid.lower() or payload_model != "cce":
+        raise NfeCorrectionError("A consulta retornou um documento diferente da carta de correcao esperada.")
+
+    payload_sequence = payload.get("evento")
+    if payload_sequence not in (None, "") and (not str(payload_sequence).isdigit() or int(payload_sequence) != event.event_sequence):
+        raise NfeCorrectionError("A consulta retornou uma sequencia de carta de correcao diferente da esperada.")
+
+    payload_key = str(payload.get("chave") or "").strip()
+    document_key = str(event.document.access_key or "").strip()
+    if payload_key and document_key and payload_key != document_key:
+        raise NfeCorrectionError("A consulta retornou uma carta de correcao vinculada a outra NF-e.")
+
+
+def consult_cce_event(*, event: FiscalDocumentEvent) -> dict[str, Any]:
+    expected_uuid = _resolve_cce_remote_uuid(event=event)
+    try:
+        response = requests.get(
+            _build_cce_consulta_url(),
+            params={"uuid": expected_uuid},
+            headers=_build_headers(workshop=event.document.workshop),
+            timeout=30,
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        message = build_webmania_request_exception_message(exc, default="Falha ao consultar carta de correcao", scope="nfe")
+        raise NfeCorrectionError(message) from exc
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise NfeCorrectionError("Resposta invalida da API de consulta da carta de correcao.") from exc
+    if not isinstance(payload, dict):
+        raise NfeCorrectionError("Resposta invalida da API de consulta da carta de correcao.")
+
+    error_message = extract_webmania_error_message(payload.get("error") or payload.get("msg") or payload.get("message"), scope="nfe")
+    if error_message:
+        raise NfeCorrectionError(error_message)
+    _validate_cce_consulta_identity(event=event, payload=payload, expected_uuid=expected_uuid)
+    return payload
+
+
+def reconcile_cce_event(*, event: FiscalDocumentEvent) -> FiscalDocumentEvent:
+    payload = consult_cce_event(event=event)
+    return confirm_cce_event_from_payload(event=event, response_payload=payload)
 
 
 def mark_cce_event_uncertain(*, event: FiscalDocumentEvent, error_message: str) -> None:

@@ -1,5 +1,13 @@
 # Fiscal Webmania - PRDs vivos
 
+## Atualizacao Fase 4.1.1 - Finalizacao da Carta de Correcao NF-e
+
+- O fluxo produtivo existente de CC-e permanece como fonte da verdade: UI no detalhe da NF-e, `FiscalDocumentEvent`, `FiscalEmissionAttempt`, Webmania, webhook, historico, payload protegido e downloads XML/DACCE.
+- A finalizacao adiciona reconciliacao segura por `GET /1/nfe/consulta/` somente quando o UUID remoto da propria CC-e e conhecido; modelo, UUID, sequencia e chave retornados sao conferidos antes de atualizar o evento.
+- Timeout continua em `uncertain` e nunca dispara novo `POST`. Sem UUID remoto seguro, a operacao aguarda webhook e a consulta e bloqueada.
+- Webhook confirmado passa a sincronizar tambem a tentativa idempotente associada, sem alterar a NF-e nem seu XML original.
+- Nenhum model, migration, payload Webmania, contrato remoto, OpenAPI, fluxo de emissao/cancelamento/inutilizacao NF-e ou dominio fiscal adicional foi alterado.
+
 ## Atualizacao Fase 4.0.5
 
 - A Fase 4.0.4 foi validada e encerrada no checkpoint `9486f8ca`.

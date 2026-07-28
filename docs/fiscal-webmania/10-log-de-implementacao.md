@@ -722,6 +722,17 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 - Endpoint mantido: `POST /1/nfe/cartacorrecao/`; OpenAPI local nao exigiu alteracao.
 - Devolucao/estorno nao foram reabertos indevidamente; NFS-e, CT-e, MDF-e, NFCom, DC-e, credito/debito, complementar tributaria, IBS/CBS pendentes e conectores nao foram iniciados.
 
+## 2026-07-27 - Fase 4.1.1 - Finalizacao da Carta de Correcao NF-e
+
+- Preservados os componentes produtivos existentes: `NfeRequest`/`NfeItem` como NF-e original, projecao `FiscalDocument`, evento `FiscalDocumentEvent(event_type="cce")`, tentativa `FiscalEmissionAttempt(operation_type="cce")`, endpoint `POST /1/nfe/cartacorrecao/`, UI e historico no detalhe, webhook e downloads protegidos.
+- Permissoes mantidas: `issue_nfe_correction`, `download_nfe_correction` e `view_nfe_correction_payload`, sempre sob escopo da oficina ativa.
+- Estados observados no evento: `started`, `sent`, `processando`, `aprovado`, `succeeded`, `reprovado`, `failed` e `uncertain`; protocolo/identificador do evento, XML da CC-e e DACCE permanecem no evento, separados do XML da NF-e original.
+- Fechada a lacuna operacional de reconciliacao: eventos ativos com UUID remoto conhecido usam exclusivamente `GET /1/nfe/consulta/`; a resposta somente e aplicada se UUID, modelo `cce`, sequencia e chave forem coerentes.
+- O webhook existente continua recusando identificacao ambigua e agora conclui ou falha tambem a tentativa idempotente vinculada.
+- Limitacao conhecida e deliberada: um timeout ocorrido antes de a Webmania devolver o UUID deixa evento e tentativa em `uncertain`; nao ha consulta segura pela chave da NF-e original nem reenvio automatico/manual, portanto a confirmacao depende do webhook.
+- Cobertura comportamental restaurada para sucesso, rejeicao, permissao, escopo entre oficinas, duplicidade, timeout, webhook, historico, download, reconciliacao GET-only e preservacao da NF-e original.
+- Nenhum model, migration, payload CC-e, endpoint remoto, OpenAPI, emissao/cancelamento/inutilizacao NF-e, devolucao, transporte ou novo dominio fiscal foi alterado.
+
 ## 2026-06-23 - Fase 2.6.0 - Reavaliacao documental do roadmap
 
 - Fase 2.5.8 reconhecida como validada no checkpoint `df1a163e`.

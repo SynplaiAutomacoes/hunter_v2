@@ -18,7 +18,7 @@ from apps.finance.services.nfe_credit import apply_nfe_credit_document_payload, 
 from apps.finance.services.nfe_credit_cancellation import apply_credit_cancellation_payload, is_ambiguous_credit_cancellation_webhook, resolve_credit_cancellation_for_webhook
 from apps.finance.services.nfe_debit import apply_nfe_debit_document_payload, is_ambiguous_nfe_debit_webhook, resolve_nfe_debit_document_for_webhook
 from apps.finance.services.nfe_debit_cancellation import apply_debit_cancellation_payload, is_ambiguous_debit_cancellation_webhook, resolve_debit_cancellation_for_webhook
-from apps.finance.services.nfe_events import apply_cce_event_payload
+from apps.finance.services.nfe_events import confirm_cce_event_from_payload
 from apps.finance.services.nfe_ibs_cbs_events import apply_ibs_cbs_event_cancellation_payload, apply_ibs_cbs_event_payload, is_ambiguous_ibs_cbs_event_cancellation_webhook, is_ambiguous_ibs_cbs_event_webhook, resolve_ibs_cbs_event_cancellation_for_webhook, resolve_ibs_cbs_event_for_webhook
 from apps.finance.services.nfe_returns import apply_nfe_return_document_payload, is_ambiguous_nfe_return_webhook, resolve_nfe_return_document_for_webhook
 from apps.finance.services.nfce_cancellation import apply_nfce_cancellation_event_payload, is_ambiguous_nfce_cancellation_webhook, resolve_nfce_cancellation_event_for_webhook
@@ -461,7 +461,7 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
         with transaction.atomic():
             cce_event = FiscalDocumentEvent.objects.select_for_update().get(pk=cce_event.pk)
             if not _is_regressive_status(model="cce", current_status=cce_event.status, incoming_status=str(payload.get("status") or "")):
-                apply_cce_event_payload(event=cce_event, response_payload=payload)
+                confirm_cce_event_from_payload(event=cce_event, response_payload=payload)
 
         _mark_event_processed(event)
         return True
