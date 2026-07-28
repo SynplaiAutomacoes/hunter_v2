@@ -11,6 +11,7 @@ from apps.core.infrastructure.services.webmania.nfe_emission import build_nfe_pa
 from apps.finance.forms.emission import EmissionNfeConfigForm
 from apps.finance.forms.nfe import NfeRequestStep3Form
 from apps.finance.models.finance import NfeFreightMode, NfeRequest
+from apps.finance.nfe_transport import build_nfe_transport_snapshot
 
 
 TRANSPORT_SNAPSHOT = {
@@ -114,6 +115,87 @@ class NfeTransportFormTests(SimpleTestCase):
 
         self.assertFalse(form.is_valid())
         self.assertIn("Selecione uma modalidade com transporte", form.non_field_errors()[0])
+
+    def test_complete_individual_carrier_uses_cpf_and_full_address(self) -> None:
+        data = self._form_data()
+        data.update(
+            {
+                "transport_person_type": "pf",
+                "transport_document": "529.982.247-25",
+                "transport_name": "Transportador Autonomo",
+                "transport_state_registration": "",
+            }
+        )
+        form = EmissionNfeConfigForm(data=data, tax_class_choices=[("REF-NFE", "Classe NF-e")])
+
+        self.assertTrue(form.is_valid(), form.errors)
+        carrier = form.cleaned_data["transport_snapshot"]["transportador"]
+        self.assertEqual(
+            carrier,
+            {
+                "tipo_pessoa": "pf",
+                "cpf": "52998224725",
+                "nome_completo": "Transportador autonomo",
+                "endereco": "Rua do transporte, 10",
+                "uf": "SP",
+                "cidade": "Sao paulo",
+                "cep": "01001000",
+                "rntc": "12345678",
+                "placa": "ABC1D23",
+                "uf_veiculo": "SP",
+            },
+        )
+
+    def test_state_registration_requires_state_and_accepts_exempt_marker(self) -> None:
+        missing_state = self._form_data()
+        missing_state["transport_state"] = ""
+        invalid_form = EmissionNfeConfigForm(data=missing_state, tax_class_choices=[("REF-NFE", "Classe NF-e")])
+        self.assertFalse(invalid_form.is_valid())
+        self.assertIn("Informe a UF da transportadora", invalid_form.non_field_errors()[0])
+
+        exempt = self._form_data()
+        exempt["transport_state_registration"] = "0"
+        valid_form = EmissionNfeConfigForm(data=exempt, tax_class_choices=[("REF-NFE", "Classe NF-e")])
+        self.assertTrue(valid_form.is_valid(), valid_form.errors)
+        self.assertEqual(valid_form.cleaned_data["transport_snapshot"]["transportador"]["ie"], "0")
+
+    def test_vehicle_accepts_webmania_legacy_formats_and_exterior_state(self) -> None:
+        for plate in ("ABC123", "AB1234", "ABCD123"):
+            with self.subTest(plate=plate):
+                snapshot = build_nfe_transport_snapshot(
+                    {
+                        "freight_mode": "3",
+                        "transport_vehicle_plate": plate,
+                        "transport_vehicle_state": "EX",
+                        "transport_rntc": "12345678901234567890",
+                    }
+                )
+                self.assertEqual(
+                    snapshot["transportador"],
+                    {
+                        "placa": plate,
+                        "uf_veiculo": "EX",
+                        "rntc": "12345678901234567890",
+                    },
+                )
+
+    def test_volume_quantity_uses_fifteen_digit_contract_limit(self) -> None:
+        data = {
+            "tax_class": "REF-NFE",
+            "additional_information": "",
+            "freight_mode": "3",
+            "transport_volume_quantity": "999999999999999",
+            "transport_volume_species": "CAIXAS",
+            "transport_volume_brand": "HUNTER",
+            "transport_volume_numbering": "1-999",
+            "transport_seals": "LACRE-1",
+            "transport_gross_weight": "12.500",
+            "transport_net_weight": "11.750",
+        }
+        form = EmissionNfeConfigForm(data=data, tax_class_choices=[("REF-NFE", "Classe NF-e")])
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["transport_snapshot"]["volumes"]["volume"], 999999999999999)
 
 
 @override_settings(WEBMANIA_NFE_NATUREZA_OPERACAO="Venda de mercadoria", WEBMANIA_AMBIENT="2")

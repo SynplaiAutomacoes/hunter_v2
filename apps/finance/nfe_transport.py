@@ -4,7 +4,7 @@ import re
 from decimal import Decimal
 from typing import Any
 
-from apps.core.domain.value_objects import Plate, State
+from apps.core.domain.value_objects import State
 from apps.customer.cpf_cnpj_validator import is_valid_cnpj, is_valid_cpf
 
 
@@ -45,9 +45,11 @@ TRANSPORT_PERSON_TYPE_CHOICES: tuple[tuple[str, str], ...] = (
     ("pf", "Pessoa fisica"),
 )
 
-BRAZILIAN_STATE_CHOICES: tuple[tuple[str, str], ...] = (("", "Selecione"), *((state.value, state.value) for state in State))
+BRAZILIAN_STATE_CHOICES: tuple[tuple[str, str], ...] = (("", "Selecione"), *((state.value, state.value) for state in State), ("EX", "EX"))
 
 _ALLOWED_FREIGHT_MODES = {0, 1, 2, 3, 4, 9}
+_ALLOWED_TRANSPORT_STATES = {state.value for state in State} | {"EX"}
+_WEBMANIA_VEHICLE_PLATE_RE = re.compile(r"^(?:[A-Z]{3}\d[A-Z0-9]\d{2}|[A-Z]{3}\d{3}|[A-Z]{2}\d{4}|[A-Z]{4}\d{3})$")
 _CARRIER_KEYS = {
     "tipo_pessoa",
     "cnpj",
@@ -119,6 +121,8 @@ def _build_carrier_snapshot(values: dict[str, Any]) -> dict[str, Any]:
             raise NfeTransportValidationError("Selecione um tipo de transportador valido.")
         if not document or not name:
             raise NfeTransportValidationError("Informe documento e nome do transportador.")
+        if len(name) < 2 or len(name) > 60:
+            raise NfeTransportValidationError("O nome do transportador deve possuir entre 2 e 60 caracteres.")
         carrier["tipo_pessoa"] = person_type
         if person_type == "pj":
             if not is_valid_cnpj(document):
@@ -126,6 +130,8 @@ def _build_carrier_snapshot(values: dict[str, Any]) -> dict[str, Any]:
             carrier["cnpj"] = document
             carrier["razao_social"] = name
             if state_registration:
+                if state_registration != "0" and (len(state_registration) < 2 or len(state_registration) > 14):
+                    raise NfeTransportValidationError("A inscricao estadual deve possuir entre 2 e 14 caracteres.")
                 carrier["ie"] = state_registration
         else:
             if not is_valid_cpf(document):
@@ -150,23 +156,28 @@ def _build_carrier_snapshot(values: dict[str, Any]) -> dict[str, Any]:
             value = _digits(value)
             if value and len(value) != 8:
                 raise NfeTransportValidationError("Informe um CEP valido para o transportador.")
-        if snapshot_key == "uf" and value and value not in {state.value for state in State}:
+        if snapshot_key == "uf" and value and value not in _ALLOWED_TRANSPORT_STATES:
             raise NfeTransportValidationError("Informe uma UF valida para o transportador.")
+        if snapshot_key in {"endereco", "cidade"} and len(value) > 60:
+            raise NfeTransportValidationError("Endereco e cidade do transportador devem possuir no maximo 60 caracteres.")
+        if snapshot_key == "rntc" and len(value) > 20:
+            raise NfeTransportValidationError("O RNTRC/ANTT deve possuir no maximo 20 caracteres.")
         if value:
             carrier[snapshot_key] = value
 
     if not person_type and any(key in carrier for key in {"endereco", "uf", "cidade", "cep"}):
         raise NfeTransportValidationError("Selecione o tipo de transportador antes de informar seu endereco.")
+    if state_registration and not carrier.get("uf"):
+        raise NfeTransportValidationError("Informe a UF da transportadora quando houver inscricao estadual.")
 
     plate = _text(values.get("transport_vehicle_plate")).upper()
     vehicle_state = _text(values.get("transport_vehicle_state")).upper()
     if plate:
-        try:
-            carrier["placa"] = Plate(plate).value
-        except ValueError as exc:
-            raise NfeTransportValidationError("Informe uma placa de veiculo valida.") from exc
+        if not _WEBMANIA_VEHICLE_PLATE_RE.match(plate):
+            raise NfeTransportValidationError("Informe uma placa de veiculo valida.")
+        carrier["placa"] = plate
     if vehicle_state:
-        if vehicle_state not in {state.value for state in State}:
+        if vehicle_state not in _ALLOWED_TRANSPORT_STATES:
             raise NfeTransportValidationError("Informe uma UF valida para o veiculo.")
         if not plate:
             raise NfeTransportValidationError("Informe a placa antes da UF do veiculo.")
@@ -180,8 +191,8 @@ def _build_volume_snapshot(values: dict[str, Any]) -> dict[str, Any]:
     quantity = values.get("transport_volume_quantity")
     if quantity not in (None, ""):
         normalized_quantity = int(quantity)
-        if normalized_quantity < 1 or normalized_quantity > 15:
-            raise NfeTransportValidationError("A quantidade de volumes deve estar entre 1 e 15.")
+        if normalized_quantity < 1 or len(str(normalized_quantity)) > 15:
+            raise NfeTransportValidationError("A quantidade de volumes deve possuir entre 1 e 15 digitos.")
         volumes["volume"] = normalized_quantity
 
     for snapshot_key, field_name in {
@@ -191,6 +202,8 @@ def _build_volume_snapshot(values: dict[str, Any]) -> dict[str, Any]:
         "lacres": "transport_seals",
     }.items():
         value = _text(values.get(field_name))
+        if len(value) > 60:
+            raise NfeTransportValidationError("Especie, marca, numeracao e lacres devem possuir no maximo 60 caracteres.")
         if value:
             volumes[snapshot_key] = value
 

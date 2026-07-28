@@ -1097,3 +1097,13 @@ Consequencias:
 - Estado incerto: timeout ou identificador remoto invalido continua `uncertain`; consulta usa somente UUID/chave validados e nenhum caminho de reconciliacao realiza POST.
 - UX: o historico reaproveitado exibe finalidade, status, numero/serie, recibo, UUID, chave e documentos, preservando escopo e permissoes existentes.
 - OpenAPI e banco: inalterados. Nenhuma migration, permissao, entidade ou endpoint foi criado.
+
+## ADR - Fase 4.1.6: completar validacao do snapshot de transporte
+
+- Status: implementada em 2026-07-28.
+- Contexto: o snapshot criado na Fase 4.1.3A ja possuia o conjunto completo de transportador, veiculo e volumes solicitado. As lacunas eram divergencias pequenas entre validacao local e limites oficiais da Webmania.
+- Decisao: manter a modelagem e o payload existentes; ampliar apenas validacao e opcoes dos formularios compartilhados para IE/UF, exterior, formatos de placa e quantidade de volumes.
+- Compatibilidade: modalidade `9` continua ignorando snapshot e omitindo `transporte`. Snapshots validos ja persistidos continuam gerando o mesmo grupo e preview/emissao permanecem identicos.
+- Fiscal: `pedido.frete`, seguro e outras despesas nao sao enviados nesta fase. Esses valores exigem decisao especifica sobre composicao de totais.
+- Nao decisoes: nao criar transportadora mestre, frota, reboque, CT-e, MDF-e ou inferencia a partir de fornecedor, cliente, orcamento ou OS.
+- OpenAPI e banco: inalterados. Nenhuma migration, entidade, endpoint ou builder foi criado.

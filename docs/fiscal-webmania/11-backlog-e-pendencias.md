@@ -720,6 +720,13 @@ Permanecem proibidos neste ciclo: inferir frete fiscal do custo de frete do orca
 - Decidir em fase fiscal propria se `pedido.frete` sera necessario e como participara dos totais.
 - Avaliar cadastro mestre de transportadora somente se houver demanda operacional repetitiva; o snapshot da NF-e deve continuar imutavel.
 - Reboque, seguro avancado, multiplos volumes heterogeneos, CT-e e MDF-e permanecem fora do escopo.
+
+## Apos a Fase 4.1.6 - Transporte NF-e completo no recorte sem valores
+
+- Homologar na Webmania transportadora PJ, transportador PF, UF `EX`, placa em formato legado e volume de maior quantidade.
+- Tratar `pedido.frete`, `transporte.seguro` e outras despesas somente em fase fiscal propria, com definicao explicita de composicao dos totais e testes contabeis.
+- Avaliar reboque e multiplos volumes heterogeneos apenas mediante demanda operacional; nao criar dominio de frota implicitamente.
+- CT-e e MDF-e continuam dominios fiscais separados e nao devem ser iniciados como extensao deste snapshot.
 ## Fase 4.2.0 - Backlog apos fechamento CC-e
 
 - Homologar CC-e em ambiente Webmania com caso real antes de liberar uso amplo em producao.
