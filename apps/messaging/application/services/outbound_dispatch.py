@@ -7,6 +7,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from apps.customer.services.messaging_consent import blocked_customer_ids
 from apps.messaging.application.services.birthday_alert import enqueue_birthday_alerts_for_day
 from apps.messaging.application.services.dispatch_history import (
     create_dispatch_batch,
@@ -47,11 +48,22 @@ def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> D
 
     with transaction.atomic():
         due = list(ScheduledOutboundMessage.objects.select_for_update(skip_locked=True).select_related("workshop").filter(status=ScheduledOutboundMessage.Status.PENDING, run_at__lte=now).order_by("run_at", "pk")[:limit])
+        blocked_customers = blocked_customer_ids(row.customer_id for row in due)
+        opted_out_ids: list[int] = []
         for row in due:
+            if row.customer_id in blocked_customers:
+                opted_out_ids.append(row.pk)
+                continue
             if force or is_within_outbound_business_hours(row.workshop, moment=now):
                 claimed_ids.append(row.pk)
             else:
                 had_due_outside_hours = True
+        if opted_out_ids:
+            ScheduledOutboundMessage.objects.filter(pk__in=opted_out_ids).update(
+                status=ScheduledOutboundMessage.Status.CANCELLED,
+                atualizado_em=now,
+            )
+            logger.info("outbound_dispatch_cancelled_customer_opted_out", extra={"cancelled_count": len(opted_out_ids)})
         if claimed_ids:
             ScheduledOutboundMessage.objects.filter(pk__in=claimed_ids).update(
                 status=ScheduledOutboundMessage.Status.PROCESSING,
@@ -141,3 +153,14 @@ def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> D
         failed=failed,
         birthdays_enqueued=birthdays_enqueued,
     )
+
+
+def cancel_pending_outbound_for_customer(customer_id: int) -> int:
+    """Cancel every pending outbound message of a customer that opted out."""
+    cancelled = ScheduledOutboundMessage.objects.filter(
+        customer_id=customer_id,
+        status=ScheduledOutboundMessage.Status.PENDING,
+    ).update(status=ScheduledOutboundMessage.Status.CANCELLED, atualizado_em=timezone.now())
+    if cancelled:
+        logger.info("outbound_pending_cancelled_customer_opted_out", extra={"customer_id": customer_id, "cancelled_count": cancelled})
+    return cancelled

@@ -4,6 +4,7 @@ import logging
 from datetime import datetime
 
 from apps.customer.models import Vehicle
+from apps.customer.services.messaging_consent import customer_can_receive_messages
 from apps.customer.services.oil_change import notification_run_at_for_vehicle
 from apps.messaging.application.services.typed_templates import get_active_template
 from apps.messaging.models import MessageTemplate, ScheduledOutboundMessage
@@ -50,7 +51,8 @@ def sync_oil_change_alert_schedule(vehicle: Vehicle, *, now: datetime | None = N
     run_at = notification_run_at_for_vehicle(vehicle, now=now)
     phone = resolve_vehicle_whatsapp_phone(vehicle)
     message = build_oil_change_alert_message(vehicle)
-    should_schedule = bool(run_at is not None and phone and vehicle.next_oil_change_date and message)
+    accepts_messages = customer_can_receive_messages(getattr(vehicle, "customer", None))
+    should_schedule = bool(run_at is not None and phone and vehicle.next_oil_change_date and message and accepts_messages)
 
     if not should_schedule:
         pending_qs.update(status=ScheduledOutboundMessage.Status.CANCELLED)

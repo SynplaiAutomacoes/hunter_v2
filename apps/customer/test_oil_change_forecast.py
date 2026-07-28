@@ -108,6 +108,7 @@ class OilChangeIntegrationTests(TestCase):
             email="oleo@example.com",
             phone="+5511988887777",
             is_active=True,
+            accepts_messages=True,
         )
         self.oil_type = OilType.objects.create(
             workshop=self.workshop,

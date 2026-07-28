@@ -19,6 +19,7 @@ from apps.core.infrastructure.services.dashboard_query_service import (
     _prepare_budget_for_dashboard_pricing,
     _prepare_workorder_for_dashboard_pricing,
 )
+from apps.messaging.application.services.outbound_dispatch import cancel_pending_outbound_for_customer
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import get_active_workshop_or_404
 from apps.workshops.models.workshop_costs import WorkshopCost
@@ -45,6 +46,7 @@ CUSTOMER_LIST_FILTERS: tuple[QueryParamFilter, ...] = (
         normalizer=str.upper,
     ),
     QueryParamFilter(param_name="is_active", lookup="is_active", kind="boolean"),
+    QueryParamFilter(param_name="accepts_messages", lookup="accepts_messages", kind="boolean"),
     QueryParamFilter(param_name="city", lookup="cidade", kind="icontains"),
     QueryParamFilter(param_name="state", lookup="estado", kind="iexact", normalizer=str.upper),
 )
@@ -164,6 +166,7 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
             TableColumn(Customer.cpf_or_cnpj.field.verbose_name, attr="cpf_or_cnpj_formatted", search_by="cpf_or_cnpj"),
             TableColumn("Endereço", attr="full_address", search_by=("logradouro", "numero", "cidade", "estado")),
             TableColumn(Customer.is_active.field.verbose_name, attr=Customer.is_active.field.name),
+            TableColumn(Customer.accepts_messages.field.verbose_name, attr=Customer.accepts_messages.field.name),
         ]
 
         context["actions"] = [
@@ -402,6 +405,9 @@ class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
 
             for obj in vehicles.deleted_objects:
                 obj.delete()
+
+            if "accepts_messages" in form.changed_data and not self.object.accepts_messages:
+                cancel_pending_outbound_for_customer(self.object.pk)
 
             response = super().form_valid(form)
             response["HX-Trigger"] = "vehicle-section-refresh"
