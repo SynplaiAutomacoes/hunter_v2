@@ -782,6 +782,20 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 - Limitacao oficial registrada: a documentacao atual da Webmania nao define campo de protocolo na resposta da CC-e. O sistema preserva os aliases ja aceitos e adiciona aliases defensivos no mesmo `remote_event_id`, sem criar campo ou contrato novo.
 - OpenAPI, NF-e normal, cancelamento, inutilizacao, devolucao, transporte e demais dominios fiscais permaneceram inalterados.
 
+## 2026-07-28 - Fase 4.1.5 - Completar suporte da NF-e de devolucao
+
+- Revalidado o contrato oficial `POST /1/nfe/devolucao/`: chave original, natureza, CFOP, produtos/quantidades parciais, volume, informacoes ao Fisco, informacoes complementares e notificacao ja se encaixam no fluxo existente; a resposta documentada possui UUID, status, numero, serie, recibo, chave, XML, DANFE e log.
+- Preservados `FiscalDocument` derivado, `FiscalDocumentLink`, snapshot original, saldo por item, `FiscalEmissionAttempt`, endpoint, payload fiscal existente, permissoes, downloads e reconciliacao GET-only.
+- Nenhuma migration foi necessaria. Numero, serie, recibo, UUID, chave, XML e DANFE ja possuiam campos de persistencia no documento derivado.
+- O campo oficial `volume` passou a ser exposto na UI e normalizado como quantidade textual de ate 15 digitos. A UI tambem passou a expor `informacoes_fisco` e a respeitar os limites oficiais de 2.000/5.000 caracteres para informacoes ao Fisco/complementares.
+- Finalidade, CFOP, natureza e impostos nao sao inferidos: o endpoint de devolucao e o CFOP informado continuam definindo a operacao; IBS/CBS permanece restrito ao snapshot confiavel ja implementado.
+- Respostas conclusivas e consultas passam a exigir UUID/chave sintaticamente seguros e, quando ja conhecidos, identicos ao documento derivado. Identificador invalido mantem o documento `uncertain` e nao causa novo POST.
+- O webhook valida modelo NF-e, UUID/chave conhecidos, natureza derivada e vinculo unico com a NF-e original da mesma oficina antes de atualizar status ou artefatos.
+- O historico existente continua ordenando multiplas devolucoes e agora exibe numero/serie e recibo ja persistidos, alem de status, UUID, chave, XML, DANFE e payload protegido.
+- Cobertura focada ampliada para multiplas devolucoes parciais, saldo remanescente, payload opcional, limites da UI, identificador invalido, webhook incoerente e consulta bloqueada antes do GET.
+- Validacoes aprovadas: migration check sem alteracoes, Django check, 17 testes focados, 49 testes de regressao NF-e/devolucao/CC-e/transporte, Ruff nos arquivos Python alterados e `git diff --check`.
+- OpenAPI, NF-e normal, CC-e, cancelamento, inutilizacao, transporte e demais dominios fiscais permaneceram inalterados.
+
 ## 2026-06-23 - Fase 2.6.0 - Reavaliacao documental do roadmap
 
 - Fase 2.5.8 reconhecida como validada no checkpoint `df1a163e`.

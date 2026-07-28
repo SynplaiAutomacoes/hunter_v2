@@ -5,6 +5,7 @@ import re
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any
+from uuid import UUID
 
 import requests
 from django.conf import settings
@@ -94,6 +95,30 @@ def validate_access_key(access_key: str) -> str:
     normalized = str(access_key or "").strip()
     if not ACCESS_KEY_RE.match(normalized):
         raise NfeReturnError("Informe uma chave de acesso de NF-e com 44 digitos.")
+    return normalized
+
+
+def _validate_remote_uuid(value: str, *, error_message: str) -> str:
+    normalized = str(value or "").strip()
+    try:
+        return str(UUID(normalized))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise NfeReturnError(error_message) from exc
+
+
+def _validate_remote_access_key(value: str, *, error_message: str) -> str:
+    normalized = str(value or "").strip()
+    if not ACCESS_KEY_RE.match(normalized):
+        raise NfeReturnError(error_message)
+    return normalized
+
+
+def _normalize_return_volume(volume: str | int | None) -> str:
+    normalized = str(volume or "").strip()
+    if not normalized:
+        return ""
+    if not normalized.isdigit() or int(normalized) <= 0 or len(normalized) > 15:
+        raise NfeReturnError("Informe uma quantidade de volumes entre 1 e 15 digitos.")
     return normalized
 
 
@@ -360,7 +385,7 @@ def _build_return_payload(
     products: list[dict[str, Any]] | None,
     natureza_operacao: str,
     codigo_cfop: str,
-    volume: dict[str, Any] | None = None,
+    volume: str | int | None = None,
     informacoes_fisco: str = "",
     informacoes_complementares: str = "",
     request: HttpRequest | None = None,
@@ -386,8 +411,9 @@ def _build_return_payload(
         payload["quantidade"] = quantities
     if purpose == FiscalDocumentPurpose.REVERSAL:
         payload["tipo_operacao_hunter"] = "estorno"
-    if volume:
-        payload["volume"] = volume
+    normalized_volume = _normalize_return_volume(volume)
+    if normalized_volume:
+        payload["volume"] = normalized_volume
     if informacoes_fisco:
         payload["informacoes_fisco"] = str(informacoes_fisco).strip()
     if informacoes_complementares:
@@ -406,7 +432,7 @@ def create_nfe_return_draft(
     requested_by: Any | None = None,
     natureza_operacao: str = "",
     codigo_cfop: str = "",
-    volume: dict[str, Any] | None = None,
+    volume: str | int | None = None,
     informacoes_fisco: str = "",
     informacoes_complementares: str = "",
     request: HttpRequest | None = None,
@@ -469,7 +495,7 @@ def create_nfe_return_draft_from_item(
     requested_by: Any | None = None,
     natureza_operacao: str = "",
     codigo_cfop: str = "",
-    volume: dict[str, Any] | None = None,
+    volume: str | int | None = None,
     informacoes_fisco: str = "",
     informacoes_complementares: str = "",
     request: HttpRequest | None = None,
@@ -501,7 +527,7 @@ def create_nfe_return_draft_from_external(
     confirmed_external: bool = False,
     natureza_operacao: str = "",
     codigo_cfop: str = "",
-    volume: dict[str, Any] | None = None,
+    volume: str | int | None = None,
     informacoes_fisco: str = "",
     informacoes_complementares: str = "",
     request: HttpRequest | None = None,
@@ -563,6 +589,13 @@ def _return_attempt_for_document(*, document: FiscalDocument) -> FiscalEmissionA
 
 
 def confirm_nfe_return_document_from_payload(*, document: FiscalDocument, response_payload: dict[str, Any]) -> FiscalDocument:
+    validate_nfe_return_payload_identity(
+        document=document,
+        payload=response_payload,
+        expected_uuid=str(document.remote_uuid or "").strip(),
+        expected_access_key=str(document.access_key or "").strip(),
+        require_safe_identifier=True,
+    )
     document = apply_nfe_return_document_payload(document=document, response_payload=response_payload)
     attempt = _return_attempt_for_document(document=document)
     if attempt is None:
@@ -574,6 +607,50 @@ def confirm_nfe_return_document_from_payload(*, document: FiscalDocument, respon
         message = extract_webmania_error_message(response_payload, scope="nfe") or "Devolucao ou estorno rejeitado pela Webmania."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
     return document
+
+
+def validate_nfe_return_payload_identity(
+    *,
+    document: FiscalDocument,
+    payload: dict[str, Any],
+    expected_uuid: str = "",
+    expected_access_key: str = "",
+    require_model: bool = False,
+    require_safe_identifier: bool = False,
+) -> None:
+    if document.origin != FiscalDocumentOrigin.DERIVED or document.purpose not in {FiscalDocumentPurpose.RETURN, FiscalDocumentPurpose.REVERSAL}:
+        raise NfeReturnError("Documento local nao representa uma devolucao ou estorno derivado.")
+
+    payload_model = str(payload.get("modelo") or payload.get("model") or "").strip().lower()
+    if require_model and payload_model != "nfe":
+        raise NfeReturnError("A resposta remota nao identifica uma NF-e de devolucao ou estorno.")
+    if payload_model and payload_model != "nfe":
+        raise NfeReturnError("A resposta remota pertence a um modelo fiscal diferente da devolucao ou estorno.")
+
+    payload_uuid = str(payload.get("uuid") or "").strip()
+    payload_access_key = str(payload.get("chave") or "").strip()
+    normalized_payload_uuid = _validate_remote_uuid(payload_uuid, error_message="A resposta remota possui UUID invalido para a devolucao ou estorno.") if payload_uuid else ""
+    normalized_payload_key = (
+        _validate_remote_access_key(payload_access_key, error_message="A resposta remota possui chave de acesso invalida para a devolucao ou estorno.") if payload_access_key else ""
+    )
+    if require_safe_identifier and not normalized_payload_uuid and not normalized_payload_key:
+        raise NfeReturnError("A resposta remota nao possui identificador seguro para a devolucao ou estorno.")
+
+    if expected_uuid:
+        normalized_expected_uuid = _validate_remote_uuid(expected_uuid, error_message="A devolucao ou estorno local possui UUID remoto invalido.")
+        if not normalized_payload_uuid or normalized_payload_uuid != normalized_expected_uuid:
+            raise NfeReturnError("A resposta remota pertence a uma NF-e diferente da devolucao ou estorno esperado.")
+    if expected_access_key:
+        normalized_expected_key = _validate_remote_access_key(expected_access_key, error_message="A devolucao ou estorno local possui chave de acesso remota invalida.")
+        if not normalized_payload_key or normalized_payload_key != normalized_expected_key:
+            raise NfeReturnError("A resposta remota pertence a uma NF-e diferente da devolucao ou estorno esperado.")
+
+
+def validate_nfe_return_document_link(*, document: FiscalDocument) -> None:
+    expected_role = _role_for_purpose(document.purpose)
+    links = list(document.links_from.select_related("related_document").filter(role=expected_role)[:2])
+    if len(links) != 1 or links[0].related_document.workshop_id != document.workshop_id:
+        raise NfeReturnError("Vinculo da devolucao ou estorno com a NF-e original nao e seguro para atualizacao.")
 
 
 def _assert_transmittable(*, document: FiscalDocument) -> None:
@@ -651,17 +728,21 @@ def transmit_nfe_return_document(*, document: FiscalDocument) -> FiscalDocument:
         _mark_document_uncertain(document=locked_document, error_message=message)
         raise NfeReturnError(message)
 
-    locked_document = apply_nfe_return_document_payload(document=locked_document, response_payload=response_payload)
     if _is_failed_response(response_payload):
+        locked_document = apply_nfe_return_document_payload(document=locked_document, response_payload=response_payload)
         message = extract_webmania_error_message(response_payload, scope="nfe") or "Devolucao ou estorno rejeitado pela Webmania."
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfeReturnError(message)
 
-    if not locked_document.remote_uuid and not locked_document.access_key:
-        message = "Resposta inconclusiva da Webmania ao emitir devolucao ou estorno; estado remoto incerto."
+    try:
+        validate_nfe_return_payload_identity(document=locked_document, payload=response_payload, require_safe_identifier=True)
+    except NfeReturnError as exc:
+        message = f"Resposta inconclusiva da Webmania ao emitir devolucao ou estorno; estado remoto incerto. {exc}"
         mark_attempt_uncertain(attempt=attempt, error_message=message)
         _mark_document_uncertain(document=locked_document, error_message=message, response_payload=response_payload)
-        raise NfeReturnError(message)
+        raise NfeReturnError(message) from exc
+
+    locked_document = apply_nfe_return_document_payload(document=locked_document, response_payload=response_payload)
     if locked_document.status == FiscalDocumentStatus.APPROVED:
         mark_attempt_succeeded(attempt=attempt, response_payload=response_payload)
     return locked_document
@@ -680,13 +761,13 @@ def create_and_emit_nfe_return_from_external(**kwargs: Any) -> FiscalDocument:
 def consult_nfe_return_document(*, document: FiscalDocument) -> dict[str, Any]:
     params: dict[str, str] = {}
     if str(document.remote_uuid or "").strip():
-        params["uuid"] = str(document.remote_uuid).strip()
+        params["uuid"] = _validate_remote_uuid(str(document.remote_uuid), error_message="A devolucao ou estorno local possui UUID remoto invalido.")
     elif str(document.access_key or "").strip():
-        params["chave"] = str(document.access_key).strip()
+        params["chave"] = _validate_remote_access_key(str(document.access_key), error_message="A devolucao ou estorno local possui chave de acesso remota invalida.")
     else:
         attempt = document.emission_attempts.exclude(remote_uuid="").order_by("-pk").first()
         if attempt is not None:
-            params["uuid"] = str(attempt.remote_uuid).strip()
+            params["uuid"] = _validate_remote_uuid(str(attempt.remote_uuid), error_message="A tentativa da devolucao ou estorno possui UUID remoto invalido.")
     if not params:
         raise NfeReturnError("Nao foi possivel consultar a devolucao ou estorno sem UUID ou chave de acesso.")
 
@@ -706,10 +787,13 @@ def consult_nfe_return_document(*, document: FiscalDocument) -> dict[str, Any]:
     error_message = extract_webmania_error_message(payload.get("error") or payload.get("msg") or payload.get("message"), scope="nfe")
     if error_message:
         raise NfeReturnError(error_message)
-    if params.get("uuid") and str(payload.get("uuid") or "").strip().lower() != params["uuid"].lower():
-        raise NfeReturnError("A consulta retornou uma NF-e diferente da devolucao ou estorno esperado.")
-    if params.get("chave") and str(payload.get("chave") or "").strip() != params["chave"]:
-        raise NfeReturnError("A consulta retornou uma NF-e diferente da devolucao ou estorno esperado.")
+    validate_nfe_return_payload_identity(
+        document=document,
+        payload=payload,
+        expected_uuid=params.get("uuid", ""),
+        expected_access_key=params.get("chave", "") or (str(document.access_key or "").strip() if params.get("uuid") else ""),
+        require_safe_identifier=True,
+    )
     return payload
 
 

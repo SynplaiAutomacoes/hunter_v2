@@ -20,7 +20,14 @@ from apps.finance.services.nfe_debit import apply_nfe_debit_document_payload, is
 from apps.finance.services.nfe_debit_cancellation import apply_debit_cancellation_payload, is_ambiguous_debit_cancellation_webhook, resolve_debit_cancellation_for_webhook
 from apps.finance.services.nfe_events import NfeCorrectionError, confirm_cce_event_from_payload, validate_cce_payload_identity
 from apps.finance.services.nfe_ibs_cbs_events import apply_ibs_cbs_event_cancellation_payload, apply_ibs_cbs_event_payload, is_ambiguous_ibs_cbs_event_cancellation_webhook, is_ambiguous_ibs_cbs_event_webhook, resolve_ibs_cbs_event_cancellation_for_webhook, resolve_ibs_cbs_event_for_webhook
-from apps.finance.services.nfe_returns import confirm_nfe_return_document_from_payload, is_ambiguous_nfe_return_webhook, resolve_nfe_return_document_for_webhook
+from apps.finance.services.nfe_returns import (
+    NfeReturnError,
+    confirm_nfe_return_document_from_payload,
+    is_ambiguous_nfe_return_webhook,
+    resolve_nfe_return_document_for_webhook,
+    validate_nfe_return_document_link,
+    validate_nfe_return_payload_identity,
+)
 from apps.finance.services.nfce_cancellation import apply_nfce_cancellation_event_payload, is_ambiguous_nfce_cancellation_webhook, resolve_nfce_cancellation_event_for_webhook
 from apps.finance.services.nfce_emission import apply_nfce_document_payload, is_ambiguous_nfce_webhook, resolve_nfce_document_for_webhook
 from apps.finance.services.nfse_cancellation import NfseCancellationError, confirm_nfse_cancellation_from_payload
@@ -414,10 +421,23 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
 
         derived_document = resolve_nfe_return_document_for_webhook(payload=payload)
         if derived_document is not None:
-            with transaction.atomic():
-                derived_document = derived_document.__class__.objects.select_for_update().get(pk=derived_document.pk)
-                if not _is_regressive_status(model="nfe", current_status=derived_document.status, incoming_status=str(payload.get("status") or "")):
-                    confirm_nfe_return_document_from_payload(document=derived_document, response_payload=payload)
+            try:
+                with transaction.atomic():
+                    derived_document = derived_document.__class__.objects.select_for_update().get(pk=derived_document.pk)
+                    validate_nfe_return_document_link(document=derived_document)
+                    validate_nfe_return_payload_identity(
+                        document=derived_document,
+                        payload=payload,
+                        expected_uuid=str(derived_document.remote_uuid or "").strip(),
+                        expected_access_key=str(derived_document.access_key or "").strip(),
+                        require_model=True,
+                        require_safe_identifier=True,
+                    )
+                    if not _is_regressive_status(model="nfe", current_status=derived_document.status, incoming_status=str(payload.get("status") or "")):
+                        confirm_nfe_return_document_from_payload(document=derived_document, response_payload=payload)
+            except NfeReturnError as exc:
+                _mark_event_deferred(event, error=str(exc))
+                return False
 
             _mark_event_processed(event)
             return True

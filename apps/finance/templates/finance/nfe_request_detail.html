@@ -467,6 +467,8 @@
                                     <tr>
                                         <th>Finalidade</th>
                                         <th>Status</th>
+                                        <th>NF-e / Série</th>
+                                        <th>Recibo</th>
                                         <th>UUID</th>
                                         <th>Chave</th>
                                         <th class="text-right">Documentos</th>
@@ -477,6 +479,8 @@
                                         <tr>
                                             <td>{{ document.get_purpose_display }}</td>
                                             <td>{{ document.status }}</td>
+                                            <td>{{ document.number|default:'-' }} / {{ document.series|default:'-' }}</td>
+                                            <td>{{ document.receipt|default:'-' }}</td>
                                             <td class="break-all">{{ document.remote_uuid|default:'-' }}</td>
                                             <td class="break-all">{{ document.access_key|default:'-' }}</td>
                                             <td class="text-right">
@@ -665,7 +669,11 @@
                         </div>
                         <div class="md:col-span-2">
                             <label for="nfe-return-nature" class="label"><span class="label-text">Natureza da operação</span></label>
-                            <input id="nfe-return-nature" name="natureza_operacao" class="input input-bordered w-full" maxlength="120" required>
+                            <input id="nfe-return-nature" name="natureza_operacao" class="input input-bordered w-full" maxlength="60" required>
+                        </div>
+                        <div>
+                            <label for="nfe-return-volume" class="label"><span class="label-text">Quantidade de volumes</span></label>
+                            <input id="nfe-return-volume" type="number" min="1" max="999999999999999" name="volume" class="input input-bordered w-full">
                         </div>
                         <div class="md:col-span-2">
                             <label for="nfe-return-products" class="label"><span class="label-text">Produtos para devolução parcial em JSON</span></label>
@@ -674,7 +682,11 @@
                         </div>
                         <div class="md:col-span-2">
                             <label for="nfe-return-info" class="label"><span class="label-text">Informações complementares</span></label>
-                            <textarea id="nfe-return-info" name="informacoes_complementares" class="textarea textarea-bordered w-full" rows="3" maxlength="1000"></textarea>
+                            <textarea id="nfe-return-info" name="informacoes_complementares" class="textarea textarea-bordered w-full" rows="3" maxlength="5000"></textarea>
+                        </div>
+                        <div class="md:col-span-2">
+                            <label for="nfe-return-fisco" class="label"><span class="label-text">Informações ao Fisco</span></label>
+                            <textarea id="nfe-return-fisco" name="informacoes_fisco" class="textarea textarea-bordered w-full" rows="3" maxlength="2000"></textarea>
                         </div>
                     </div>
                     <label class="label cursor-pointer justify-start gap-3 mt-4">

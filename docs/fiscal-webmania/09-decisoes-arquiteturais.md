@@ -1086,3 +1086,14 @@ Consequencias:
 - Compatibilidade: respostas de rejeicao continuam seguindo o tratamento produtivo existente; protocolo, quando retornado sob alias conhecido, permanece em `FiscalDocumentEvent.remote_event_id`.
 - UX: a tabela de eventos existente exibe sequencia, status, UUID, protocolo e documentos por CC-e, sem criar pagina ou fluxo paralelo.
 - OpenAPI e banco: inalterados. Nenhuma migration, permissao, entidade ou endpoint foi criado.
+
+## ADR - Fase 4.1.5: completar a devolucao no documento derivado existente
+
+- Status: implementada em 2026-07-28.
+- Contexto: devolucao/estorno ja possuia documento derivado, vinculo, snapshot, saldo, tentativa, webhook e consulta. O contrato oficial ainda oferecia volume e limites maiores para textos, enquanto identificadores remotos precisavam de validacao uniforme.
+- Decisao: manter o endpoint e o payload existentes; adicionar somente o campo opcional `volume`, expor informacoes ao Fisco ja suportadas e validar UUID/chave/modelo/vinculo antes de aplicar resposta, webhook ou reconciliacao.
+- Fiscal: finalidade nao e acrescentada ao payload especifico. CFOP e natureza continuam declarados pelo usuario; impostos nao sao inferidos e IBS/CBS continua dependente do snapshot seguro existente.
+- Saldo: documentos `processing`, `approved`, `contingency` e `uncertain` continuam reservando quantidades. Multiplas devolucoes usam o mesmo calculo por sequencial e nunca alteram o snapshot original.
+- Estado incerto: timeout ou identificador remoto invalido continua `uncertain`; consulta usa somente UUID/chave validados e nenhum caminho de reconciliacao realiza POST.
+- UX: o historico reaproveitado exibe finalidade, status, numero/serie, recibo, UUID, chave e documentos, preservando escopo e permissoes existentes.
+- OpenAPI e banco: inalterados. Nenhuma migration, permissao, entidade ou endpoint foi criado.

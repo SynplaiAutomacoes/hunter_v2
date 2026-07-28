@@ -79,11 +79,12 @@ class NfeReturnForm(CoreForm):
 
     purpose = forms.ChoiceField(choices=((FiscalDocumentPurpose.RETURN, "Devolucao"), (FiscalDocumentPurpose.REVERSAL, "Estorno")))
     return_scope = forms.ChoiceField(required=False, choices=((RETURN_SCOPE_TOTAL, "Total"), (RETURN_SCOPE_PARTIAL, "Parcial")))
-    natureza_operacao = forms.CharField(max_length=120)
+    natureza_operacao = forms.CharField(max_length=60)
     codigo_cfop = forms.CharField(max_length=10)
     produtos_json = forms.CharField(required=False, widget=forms.Textarea)
-    informacoes_complementares = forms.CharField(required=False, max_length=1000)
-    informacoes_fisco = forms.CharField(required=False, max_length=1000)
+    volume = forms.IntegerField(required=False, min_value=1, max_value=999999999999999)
+    informacoes_complementares = forms.CharField(required=False, max_length=5000)
+    informacoes_fisco = forms.CharField(required=False, max_length=2000)
     confirm_return = forms.BooleanField(required=True)
 
     def clean_produtos_json(self):
@@ -745,6 +746,7 @@ class NfeReturnIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 requested_by=request.user,
                 natureza_operacao=str(form.cleaned_data["natureza_operacao"]),
                 codigo_cfop=str(form.cleaned_data["codigo_cfop"]),
+                volume=form.cleaned_data.get("volume"),
                 informacoes_complementares=str(form.cleaned_data.get("informacoes_complementares") or ""),
                 informacoes_fisco=str(form.cleaned_data.get("informacoes_fisco") or ""),
                 request=request,
