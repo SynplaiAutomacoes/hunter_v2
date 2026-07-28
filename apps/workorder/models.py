@@ -176,8 +176,6 @@ class WorkOrder(TimeStampedModel):
         total = timedelta(0)
         for item in self._iter_items():
             if item.service and item.duration:
-                if item.service.is_third_party:
-                    continue
                 total += item.duration * item.quantity
                 continue
 
@@ -186,9 +184,6 @@ class WorkOrder(TimeStampedModel):
 
             _, service_overrides = item._get_kit_override_maps()
             for kit_service in item._iter_kit_services():
-                if kit_service.service.is_third_party:
-                    continue
-
                 override = service_overrides.get(kit_service.service_id)
                 if override:
                     if override.quantity > 0 and override.duration:
@@ -248,7 +243,7 @@ class WorkOrder(TimeStampedModel):
             return
         if getattr(self, "_skip_stored_total_refresh", False):
             return
-        total = self.total_budget_value
+        total = self.stored_total_source_value
         type(self).objects.filter(pk=self.pk).update(stored_total_amount=total)
         self.stored_total_amount = total
 
@@ -262,7 +257,7 @@ class WorkOrder(TimeStampedModel):
     def refresh_stored_amounts(self) -> None:
         if self.pk is None:
             return
-        total = self.total_budget_value
+        total = self.stored_total_source_value
         paid = self.paid_value
         type(self).objects.filter(pk=self.pk).update(stored_total_amount=total, stored_paid_amount=paid)
         self.stored_total_amount = total
@@ -761,6 +756,25 @@ class WorkOrder(TimeStampedModel):
     @property
     def total_budget_value(self) -> Money:
         return self.pricing_snapshot.total_budget_value
+
+    @property
+    def is_fixed_budget(self) -> bool:
+        return self.budget_type in ("warranty", "courtesy")
+
+    @property
+    def operational_total_value(self) -> Money:
+        """Catalog face total including warranty/courtesy items (for listings)."""
+        total = Money(0, "BRL")
+        for item in self._iter_items():
+            total += item.total_price
+        return total
+
+    @property
+    def stored_total_source_value(self) -> Money:
+        """Canonical value persisted into ``stored_total_amount``."""
+        if self.is_fixed_budget:
+            return self.operational_total_value
+        return self.total_budget_value
 
     @property
     def resolved_discount_value(self) -> Money:

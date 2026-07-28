@@ -80,6 +80,7 @@ INDICATOR_LABELS: dict[str, tuple[str, str]] = {
     "reprovados": ("Total Reprovados", "Orçamentos"),
     "carros_mes": ("Carros no Mês", "Ordens de Serviço"),
     "garantia_cortesia_mes": ("Garantia + Cortesia", "Ordens de Serviço"),
+    "venda_do_dia": ("Venda do Dia", "Ordens de Serviço"),
 }
 
 # ─── Prefetch descriptors (reused across all queries) ─────────────────────────
@@ -386,6 +387,12 @@ def resolve_indicator_row_amount(*, item: Any, indicator: str, is_budget_report:
             return max(pending, Decimal("0.00"))
         return resolve_decimal_amount(item.pending_payment_value)
 
+    if indicator == "venda_do_dia":
+        stored = getattr(item, "_today_payment_value", None)
+        if stored is not None:
+            return resolve_decimal_amount(stored)
+        return Decimal("0.00")
+
     stored_total = getattr(item, "stored_total_amount", None)
     if stored_total is not None:
         return resolve_decimal_amount(stored_total)
@@ -432,7 +439,7 @@ def _build_workorder_groups(*, items: list[WorkOrder], indicator: str) -> list[F
 def _resolve_value_column_label(indicator: str) -> str:
     if indicator.startswith("a_receber"):
         return "Valor pendente"
-    if indicator in {"carros_mes", "garantia_cortesia_mes"}:
+    if indicator in {"carros_mes", "garantia_cortesia_mes", "venda_do_dia"}:
         return "Valor consolidado"
     return "Valor total"
 
@@ -973,6 +980,7 @@ class DashboardQueryService:
             WorkOrder.objects.filter(
                 workshop_id=workshop_id,
                 status=WorkOrderStatus.DRAFT,
+                budget_type="sale",
                 budget__isnull=False,
             )
             .annotate(pending_amount=pending_expr)
@@ -1038,6 +1046,7 @@ class DashboardQueryService:
         decimal_out = DecimalField(max_digits=14, decimal_places=2)
         result = Budget.objects.filter(
             workshop_id=workshop_id,
+            budget_type=BudgetType.SALE,
             status__in=REJECTED_BUDGET_STATUS_VALUES,
             entry_date__month=selected_month,
             entry_date__year=selected_year,
@@ -1050,21 +1059,21 @@ class DashboardQueryService:
 _INDICATOR_QUERIES: dict[str, dict[str, Any]] = {
     "a_receber_em_execucao": {
         "model": "workorder",
-        "filters": {"status": WorkOrderStatus.DRAFT},
+        "filters": {"status": WorkOrderStatus.DRAFT, "budget_type": "sale"},
         "date_field": "criado_em",
         "value_field": "pending_payment_value",
         "exclude_month": False,
     },
     "a_receber_mes_atual": {
         "model": "workorder",
-        "filters": {"status": WorkOrderStatus.DRAFT},
+        "filters": {"status": WorkOrderStatus.DRAFT, "budget_type": "sale"},
         "date_field": "criado_em",
         "value_field": "pending_payment_value",
         "exclude_month": False,
     },
     "a_receber_meses_anteriores": {
         "model": "workorder",
-        "filters": {"status": WorkOrderStatus.DRAFT},
+        "filters": {"status": WorkOrderStatus.DRAFT, "budget_type": "sale"},
         "date_field": "criado_em",
         "value_field": "pending_payment_value",
         "exclude_month": True,
@@ -1092,7 +1101,7 @@ _INDICATOR_QUERIES: dict[str, dict[str, Any]] = {
     },
     "reprovados": {
         "model": "budget",
-        "filters": {"status__in": REJECTED_BUDGET_STATUS_VALUES},
+        "filters": {"budget_type": BudgetType.SALE, "status__in": REJECTED_BUDGET_STATUS_VALUES},
         "date_field": "entry_date",
         "value_field": "display_total_budget_value",
         "exclude_month": False,
@@ -1115,6 +1124,16 @@ _INDICATOR_QUERIES: dict[str, dict[str, Any]] = {
         "value_field": None,
         "exclude_month": False,
     },
+    "venda_do_dia": {
+        "model": "workorder",
+        "filters": {
+            "budget_type": "sale",
+            "status__in": (WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+        },
+        "date_field": "criado_em",
+        "value_field": "total_budget_value",
+        "exclude_month": False,
+    },
 }
 
 
@@ -1127,6 +1146,9 @@ def get_financial_indicator_data(
     query_config = _INDICATOR_QUERIES.get(indicator)
     if query_config is None:
         return [], False, "R$ 0,00"
+
+    if indicator == "venda_do_dia":
+        return _get_venda_do_dia_data(workshop)
 
     filters = {**query_config["filters"], "workshop": workshop}
     date_field: str = query_config["date_field"]
@@ -1153,6 +1175,38 @@ def get_financial_indicator_data(
         Decimal("0.00"),
     )
     return items, is_budget_report, _format_brl(total)
+
+
+def _get_venda_do_dia_data(workshop: Workshop) -> tuple[list[WorkOrder], bool, str]:
+    today = timezone.localdate()
+    payment_qs = WorkOrderPaymentMethod.objects.filter(
+        workorder__workshop=workshop,
+        workorder__status__in=(WorkOrderStatus.APPROVED, WorkOrderStatus.DRAFT),
+        workorder__budget_type="sale",
+        due_date=today,
+    )
+    payment_data = payment_qs.values("workorder_id").annotate(
+        today_payment_sum=Sum(
+            ExpressionWrapper(
+                F("first_installment_amount") + (F("installments_count") - 1) * F("remaining_installments_amount"),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            )
+        )
+    )
+    wo_ids = [p["workorder_id"] for p in payment_data]
+    payment_map = {p["workorder_id"]: p["today_payment_sum"] for p in payment_data}
+
+    items = list(
+        WorkOrder.objects.filter(pk__in=wo_ids)
+        .select_related("budget__customer", "budget__vehicle")
+        .prefetch_related(_WORKORDER_ITEMS_PREFETCH, "payments")
+        .order_by("criado_em")
+    )
+    for item in items:
+        item._today_payment_value = payment_map.get(item.pk, Decimal("0.00"))
+
+    total_value = sum(payment_map.values(), Decimal("0.00"))
+    return items, False, _format_brl(total_value)
 
 
 def _build_indicator_queryset(model_name: str, filters: dict[str, Any]):

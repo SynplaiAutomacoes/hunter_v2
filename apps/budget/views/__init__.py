@@ -22,6 +22,7 @@ from .pdf_views import download_pdf_gestor, signature_file, signature_preview, v
 from .realtime_views import BudgetEventsView
 from .shared import reset_steps_after_step_4
 from .workflow_views import (
+    BudgetCheckOpenBudgetView,
     BudgetCreateView,
     BudgetDeleteView,
     BudgetLinkModalView,
@@ -44,6 +45,7 @@ from .workflow_views import (
 )
 
 __all__ = [
+    "BudgetCheckOpenBudgetView",
     "BudgetListView",
     "BudgetCreateView",
     "BudgetUpdateView",

@@ -248,12 +248,17 @@ class Budget(TimeStampedModel):
                 self.refresh_stored_total_amount()
 
     def refresh_stored_total_amount(self) -> None:
-        """Persist live pricing total for dashboard SQL aggregates."""
+        """Persist list/dashboard total for SQL aggregates.
+
+        Sale budgets store the chargeable pricing total. Warranty/courtesy store the
+        operational catalog total so listings show face value while chargeable
+        pricing (`total_budget_value`) remains zero.
+        """
         if self.pk is None:
             return
         if getattr(self, "_skip_stored_total_refresh", False):
             return
-        total = self.total_budget_value
+        total = self.stored_total_source_value
         type(self).objects.filter(pk=self.pk).update(stored_total_amount=total)
         self.stored_total_amount = total
 
@@ -699,8 +704,6 @@ class Budget(TimeStampedModel):
         total = timedelta(0)
         for item in self._iter_items():
             if (item.service or self._is_local_service_item(item)) and item.duration:
-                if item.service and item.service.is_third_party:
-                    continue
                 total += item.duration * item.quantity
                 continue
 
@@ -709,9 +712,6 @@ class Budget(TimeStampedModel):
 
             _, service_overrides = item._get_kit_override_maps()
             for kit_service in item._iter_kit_services():
-                if kit_service.service.is_third_party:
-                    continue
-
                 override = service_overrides.get(kit_service.service_id)
                 if override:
                     if override.quantity > 0 and override.duration:
@@ -910,7 +910,16 @@ class Budget(TimeStampedModel):
         return self.resolved_discount_value
 
     @property
+    def stored_total_source_value(self) -> Money:
+        """Canonical value persisted into ``stored_total_amount``."""
+        if self.is_fixed_budget:
+            return self.summary_total_before_benefit_value
+        return self.total_budget_value
+
+    @property
     def display_total_budget_value(self) -> Money:
+        if self.is_fixed_budget:
+            return self.summary_total_before_benefit_value
         return self.total_budget_value
 
     @property

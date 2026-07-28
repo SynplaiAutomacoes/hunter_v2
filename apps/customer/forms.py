@@ -1207,13 +1207,6 @@ class QuickVehicleForm(VehicleEngineModelValidationBypassMixin, CoreModelForm):
             })();
             </script>"""),
             Div(
-                HTML(
-                    """
-                    <div class="col-span-12 rounded-2xl border border-base-300/80 bg-base-200/30 px-4 py-3 text-sm text-base-content/70">
-                        Preencha os dados principais do veículo para vincular ao cliente. Marca, modelo, motor e combustível usam o catálogo local para evitar inconsistências.
-                    </div>
-                    """
-                ),
                 Field("plate", wrapper_class="col-span-12 md:col-span-6 xl:col-span-3"),
                 Field("brand", wrapper_class="col-span-12 md:col-span-6 xl:col-span-3"),
                 Field("model", wrapper_class="col-span-12 xl:col-span-6"),
