@@ -1095,6 +1095,9 @@ def _compute_budget_diff(state_old, state_new):
         s_new = str(val_new or "").strip()
 
         if s_old != s_new:
+            if field == "budget_type":
+                val_old = BudgetType(val_old).label if val_old in BudgetType.values else val_old
+                val_new = BudgetType(val_new).label if val_new in BudgetType.values else val_new
             diff["fields"][field] = {"label": label, "old": val_old, "new": val_new}
 
     old_items = state_old.get("items", {})
