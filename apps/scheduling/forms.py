@@ -19,6 +19,7 @@ from apps.customer.vehicle_engine import normalize_vehicle_engine_choice, vehicl
 from apps.customer.models import Customer, Vehicle
 from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
 from apps.core.text_normalization import name_case, plate_case, sentence_case
+from apps.messaging.application.services.appointment_alert import ALERT_LEAD_TIME_CHOICES, sync_appointment_alert_schedule
 from apps.scheduling.models import Appointment, AppointmentStatus
 from apps.workorder.models import WorkOrder
 from apps.workshops.models.workshops import Workshop
@@ -201,6 +202,7 @@ class AppointmentForm(CoreModelForm):
             "ends_at",
             "block_color",
             "alert_customer",
+            "alert_lead_time",
             "status",
             "budget",
             "workorder",
@@ -222,6 +224,7 @@ class AppointmentForm(CoreModelForm):
             "ends_at": forms.DateTimeInput(format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local", "class": "input-theme h-12"}),
             "block_color": forms.HiddenInput(),
             "alert_customer": CheckboxInput(),
+            "alert_lead_time": forms.Select(attrs={"class": "select select-bordered w-full h-12"}),
             "status": SearchableSelectInput(attrs={"class": "h-12"}),
             "notes": TextareaInput(rows=3),
         }
@@ -427,7 +430,24 @@ class AppointmentForm(CoreModelForm):
         all_engine_choices_json = json.dumps(_all_engine_choices)
         all_fuel_choices_json = json.dumps(_all_fuel_choices)
 
-        customer_vehicle_x_data = json.dumps({"customerId": selected_customer_id, "vehicleId": selected_vehicle_id, "isCustomerRegistered": is_customer_registered})
+        alert_customer_initial = bool(self.instance.alert_customer) if self.instance and self.instance.pk else bool(self.initial.get("alert_customer", False))
+        if self.is_bound:
+            alert_customer_initial = (self.data.get("alert_customer") or "") in {"on", "true", "1", "True"}
+
+        alert_lead_time_field = self.fields["alert_lead_time"]
+        alert_lead_time_field.choices = [("", "Selecione a antecedência")] + [(str(value), label) for value, label in ALERT_LEAD_TIME_CHOICES]
+        alert_lead_time_field.required = False
+        if self.instance and self.instance.alert_lead_time:
+            alert_lead_time_field.initial = self.instance.alert_lead_time
+
+        customer_vehicle_x_data = json.dumps(
+            {
+                "customerId": selected_customer_id,
+                "vehicleId": selected_vehicle_id,
+                "isCustomerRegistered": is_customer_registered,
+                "alertCustomer": alert_customer_initial,
+            }
+        )
         registered_vehicle_fields_html = "".join(
             [
                 _build_readonly_vehicle_field(
@@ -1060,7 +1080,12 @@ class AppointmentForm(CoreModelForm):
                 HTML('<div class="col-span-12 mb-1 mt-2 text-sm font-semibold uppercase tracking-wide text-base-content/70">Horario e Status</div>'),
                 Field("starts_at", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("ends_at", wrapper_class="col-span-12 lg:col-span-6"),
-                Field("alert_customer", wrapper_class="col-span-12 lg:col-span-6"),
+                Field(
+                    "alert_customer",
+                    wrapper_class="col-span-12 lg:col-span-6",
+                    **{"@change": "alertCustomer = !!$event.target.checked"},
+                ),
+                Field("alert_lead_time", wrapper_class="col-span-12 lg:col-span-6", **{"x-show": "alertCustomer", "x-cloak": True}),
                 Field("status", wrapper_class="col-span-12 lg:col-span-6"),
                 HTML('<div class="col-span-12 mb-1 mt-2 text-sm font-semibold uppercase tracking-wide text-base-content/70">Vinculos</div>'),
                 Field("budget", wrapper_class="col-span-12 lg:col-span-6"),
@@ -1219,6 +1244,13 @@ class AppointmentForm(CoreModelForm):
         if vehicle and customer is None:
             self.add_error("vehicle", "Selecione um cliente cadastrado para vincular um veiculo.")
 
+        alert_customer = bool(cleaned_data.get("alert_customer"))
+        alert_lead_time = cleaned_data.get("alert_lead_time")
+        if alert_customer and not alert_lead_time:
+            self.add_error("alert_lead_time", "Selecione a antecedência do alerta.")
+        if not alert_customer:
+            cleaned_data["alert_lead_time"] = None
+
         return cleaned_data
 
     def save(self, commit: bool = True) -> Appointment:
@@ -1239,7 +1271,10 @@ class AppointmentForm(CoreModelForm):
             self.instance.vehicle = None
             self.instance.budget = None
             self.instance.workorder = None
-        return super().save(commit=commit)
+        appointment = super().save(commit=commit)
+        if commit:
+            sync_appointment_alert_schedule(appointment)
+        return appointment
 
 
 class AppointmentCalendarFilterForm(CoreForm):
