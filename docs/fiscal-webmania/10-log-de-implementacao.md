@@ -809,6 +809,15 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 - Validacoes aprovadas: migration check sem alteracoes, Django check, 14 testes focados, 56 testes de regressao NF-e/transporte/CC-e/devolucao, Ruff nos arquivos Python alterados e `git diff --check`.
 - OpenAPI, emission service, NF-e normal fora do grupo opcional, CC-e, devolucao, cancelamento e inutilizacao permaneceram inalterados.
 
+## 2026-07-28 - Fase 4.1.7 - Cobertura completa da Carta de Correcao NF-e
+
+- Reauditado o fluxo completo de emissao, retorno, webhook, consulta, reconciliacao, historico, permissoes e downloads contra a documentacao oficial da Webmania.
+- Nenhum campo remoto estava ausente: o payload existente cobre chave/UUID, correcao, ambiente, sequencia e notificacao; UUID, status, evento, modelo, XML, DACCE, log, mensagens e aliases defensivos de protocolo ja sao preservados no evento/resposta sanitizada.
+- A unica lacuna operacional comprovada era de apresentacao. A tabela existente agora mostra texto da correcao, status legivel e mensagem remota, mantendo sequencia, UUID, protocolo/identificador e documentos.
+- Testes ampliados para o contrato oficial de entrada/retorno, persistencia de log e artefatos, historico com mensagem e correcao, downloads de XML/DACCE e bloqueio cross-workshop.
+- Validacoes aprovadas: migration check sem alteracoes, Django check, 15 testes focados, 57 testes de regressao NF-e/transporte/CC-e/devolucao, Ruff no arquivo Python alterado e `git diff --check`.
+- Nenhum model, migration, service, payload, endpoint, webhook, reconciliacao, permissao ou OpenAPI foi alterado.
+
 ## 2026-06-23 - Fase 2.6.0 - Reavaliacao documental do roadmap
 
 - Fase 2.5.8 reconhecida como validada no checkpoint `df1a163e`.

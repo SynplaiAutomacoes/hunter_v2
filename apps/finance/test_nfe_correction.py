@@ -89,6 +89,7 @@ class NfeCorrectionOperationalTests(TestCase):
             "status": status,
             "evento": event_sequence,
             "protocolo": protocol,
+            "motivo": "Evento de carta de correcao registrado",
             "xml": "https://example.test/cce.xml",
             "dacce": "https://example.test/dacce.pdf",
             "log": {"authorization": "secret"},
@@ -124,6 +125,42 @@ class NfeCorrectionOperationalTests(TestCase):
         self.item.refresh_from_db()
         self.assertEqual(self.item.status, "aprovado")
         self.assertEqual(self.item.xml_url, original_xml)
+
+    def test_official_request_and_response_contract_is_preserved_in_existing_event(self) -> None:
+        remote_uuid = str(uuid4())
+        response_payload = {
+            "uuid": remote_uuid,
+            "status": "aprovado",
+            "evento": "1",
+            "modelo": "cce",
+            "protocolo_evento": "135260000000999",
+            "xml": "https://example.test/official-cce.xml",
+            "dacce": "https://example.test/official-dacce.pdf",
+            "log": {"codigo": "135", "mensagem": "Evento registrado"},
+        }
+        with (
+            patch("apps.finance.services.nfe_events._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_events.requests.post", return_value=_mock_response(response_payload)) as post_mock,
+        ):
+            event = emit_nfe_correction(nfe_item=self.item, correction_text=CORRECTION_TEXT, requested_by=self.user)
+
+        sent_payload = post_mock.call_args.kwargs["json"]
+        self.assertEqual(
+            {key: sent_payload[key] for key in ("correcao", "ambiente", "evento", "chave")},
+            {
+                "correcao": CORRECTION_TEXT,
+                "ambiente": 2,
+                "evento": 1,
+                "chave": self.item.access_key,
+            },
+        )
+        self.assertTrue(str(sent_payload["url_notificacao"]).startswith("http://localhost:8000/finance/webmania/webhook/"))
+        self.assertEqual(event.remote_uuid, remote_uuid)
+        self.assertEqual(event.remote_event_id, "135260000000999")
+        self.assertEqual(event.xml_url, response_payload["xml"])
+        self.assertEqual(event.dacce_url, response_payload["dacce"])
+        self.assertEqual(event.response_payload["log"], response_payload["log"])
+        self.assertEqual(event.document.legacy_nfe_item_id, self.item.pk)
 
     def test_rejected_response_fails_attempt_without_changing_original_nfe(self) -> None:
         payload = {"uuid": str(uuid4()), "modelo": "cce", "status": "reprovado", "evento": 1, "motivo": "Rejeicao do evento"}
@@ -229,6 +266,9 @@ class NfeCorrectionOperationalTests(TestCase):
         self.assertEqual(list(detail_response.context_data["cce_events"]), [first_event, second_event])
         self.assertContains(detail_response, "135260000000101")
         self.assertContains(detail_response, "135260000000102")
+        self.assertContains(detail_response, CORRECTION_TEXT, count=2)
+        self.assertContains(detail_response, "Evento de carta de correcao registrado", count=2)
+        self.assertContains(detail_response, "<td>Aprovado</td>", count=2, html=True)
 
     def test_ambiguous_webhook_does_not_update_events_across_workshops(self) -> None:
         from apps.core.infrastructure.services.webmania.webmania_webhooks import process_webhook_event, store_webhook_event
@@ -360,7 +400,7 @@ class NfeCorrectionOperationalTests(TestCase):
             with self.assertRaises(Http404):
                 NfeCorrectionIssueView.as_view()(request, pk=self.item.request_id)
 
-    def test_history_and_download_reuse_existing_detail_and_protected_gateway(self) -> None:
+    def test_history_and_downloads_reuse_existing_detail_and_protected_gateway(self) -> None:
         event = self._emit_success()
         detail_request = RequestFactory().get("/")
         detail_request.user = self.user
@@ -372,16 +412,27 @@ class NfeCorrectionOperationalTests(TestCase):
 
         self.assertEqual(list(detail_response.context_data["cce_events"]), [event])
 
-        download_request = RequestFactory().get("/")
-        download_request.user = self.user
-        downloaded = SimpleNamespace(content=b"xml-cce", content_type="application/xml")
+        downloaded = SimpleNamespace(content=b"documento-cce", content_type="application/octet-stream")
         with (
             patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
             patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
             patch("apps.finance.views.nfe.download_webmania_document", return_value=downloaded) as download_mock,
         ):
-            download_response = NfeCorrectionDownloadView.as_view()(download_request, pk=self.item.request_id, event_pk=event.pk, document="xml")
+            for document_kind, expected_url in (("xml", event.xml_url), ("dacce", event.dacce_url)):
+                download_request = RequestFactory().get("/")
+                download_request.user = self.user
+                download_response = NfeCorrectionDownloadView.as_view()(download_request, pk=self.item.request_id, event_pk=event.pk, document=document_kind)
 
-        self.assertEqual(download_response.status_code, 200)
-        download_mock.assert_called_once_with(workshop=self.workshop, url=event.xml_url)
+                self.assertEqual(download_response.status_code, 200)
+                download_mock.assert_called_with(workshop=self.workshop, url=expected_url)
+
+        cross_workshop_request = RequestFactory().get("/")
+        cross_workshop_request.user = self.user
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.other_workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            with self.assertRaises(Http404):
+                NfeCorrectionDownloadView.as_view()(cross_workshop_request, pk=self.item.request_id, event_pk=event.pk, document="xml")
+
         self.assertEqual(WebmaniaWebhookEvent.objects.count(), 0)

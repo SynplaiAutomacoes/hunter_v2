@@ -732,4 +732,5 @@ Permanecem proibidos neste ciclo: inferir frete fiscal do custo de frete do orca
 - Homologar CC-e em ambiente Webmania com caso real antes de liberar uso amplo em producao.
 - Refinar lista de termos proibidos com assessoria fiscal se houver falsos positivos/negativos; a implementacao atual e conservadora por seguranca.
 - Avaliar consulta operacional especifica de CC-e apenas se a Webmania documentar necessidade diferente do webhook/reconciliacao atual.
+- Manter monitoramento do contrato oficial: novos artefatos ou identificadores so devem ser incorporados quando documentados pela Webmania, preservando `FiscalDocumentEvent`.
 - Permanecem fora de escopo: Fase 4.0.2, devolucao/estorno adicional, NFS-e, CT-e, MDF-e, NFCom, DC-e, credito/debito, complementar tributaria e eventos IBS/CBS pendentes.

@@ -1,5 +1,12 @@
 # Fiscal Webmania - PRDs vivos
 
+## Atualizacao Fase 4.1.7 - Cobertura completa da Carta de Correcao NF-e
+
+- O contrato oficial da CC-e foi revalidado sem lacuna de integracao: `POST /1/nfe/cartacorrecao/`, entrada por chave/UUID, correcao e ambiente, e retorno com UUID, status, evento, modelo, XML, DACCE e log.
+- `FiscalDocumentEvent`, `FiscalEmissionAttempt`, webhook, reconciliacao GET-only, permissoes e downloads permanecem como fonte da verdade; nenhum payload, endpoint, model ou migration foi alterado.
+- O historico existente passou a exibir o texto da correcao, o rotulo operacional do status e a mensagem remota ja preservada em `response_payload`, alem da sequencia, UUID, protocolo/identificador, XML e DACCE.
+- XML e DACCE continuam separados da NF-e original e protegidos por oficina e permissao.
+
 ## Atualizacao Fase 4.1.6 - Transporte NF-e conforme Webmania
 
 - O inventario confirmou que a Fase 4.1.3A ja persistia e enviava todos os campos solicitados de transportador, veiculo e volumes no mesmo `transport_snapshot`.

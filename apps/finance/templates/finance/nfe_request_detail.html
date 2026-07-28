@@ -278,6 +278,8 @@
                                     <tr>
                                         <th>Sequência</th>
                                         <th>Status</th>
+                                        <th>Correção</th>
+                                        <th>Mensagem</th>
                                         <th>UUID</th>
                                         <th>Protocolo</th>
                                         <th>Atualizado em</th>
@@ -288,7 +290,23 @@
                                     {% for event in cce_events %}
                                         <tr>
                                             <td>{{ event.event_sequence }}</td>
-                                            <td>{{ event.status }}</td>
+                                            <td>{{ event.get_status_display }}</td>
+                                            <td class="min-w-64 whitespace-normal">{{ event.correction_text|default:'-' }}</td>
+                                            <td class="min-w-48 whitespace-normal">
+                                                {% if event.response_payload.motivo %}
+                                                    {{ event.response_payload.motivo }}
+                                                {% elif event.response_payload.message %}
+                                                    {{ event.response_payload.message }}
+                                                {% elif event.response_payload.msg %}
+                                                    {{ event.response_payload.msg }}
+                                                {% elif event.response_payload.error %}
+                                                    {{ event.response_payload.error }}
+                                                {% elif event.response_payload.reconciliation_error %}
+                                                    {{ event.response_payload.reconciliation_error }}
+                                                {% else %}
+                                                    -
+                                                {% endif %}
+                                            </td>
                                             <td class="break-all">{{ event.remote_uuid|default:'-' }}</td>
                                             <td class="break-all">{{ event.remote_event_id|default:'-' }}</td>
                                             <td>{{ event.atualizado_em|date:'d/m/Y H:i' }}</td>

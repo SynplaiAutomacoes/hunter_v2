@@ -1107,3 +1107,13 @@ Consequencias:
 - Fiscal: `pedido.frete`, seguro e outras despesas nao sao enviados nesta fase. Esses valores exigem decisao especifica sobre composicao de totais.
 - Nao decisoes: nao criar transportadora mestre, dominio de frota, CT-e, MDF-e ou inferencia a partir de fornecedor, cliente, orcamento ou OS. Reboques sao somente dados declarados da NF-e.
 - OpenAPI e banco: inalterados. Nenhuma migration, entidade, endpoint ou builder foi criado.
+
+## ADR - Fase 4.1.7: cobertura completa da CC-e sem ampliar o contrato
+
+- Status: implementada em 2026-07-28.
+- Contexto: a auditoria do contrato oficial confirmou que o fluxo existente ja envia todos os campos documentados e preserva todos os retornos da CC-e. A lacuna remanescente era somente a rastreabilidade desses dados no historico operacional.
+- Decisao: nao alterar service, payload, endpoint, model, webhook ou reconciliacao. Expor na tabela existente o texto corrigido, o status legivel e a mensagem remota ja sanitizada e persistida em `response_payload`.
+- Artefatos: XML e DACCE continuam em `FiscalDocumentEvent`, separados do XML/DANFE da NF-e original e baixados pelo gateway protegido existente.
+- Compatibilidade: emissao, idempotencia, timeout `uncertain`, reconciliacao GET-only, validacao de identidade e bloqueio cross-workshop permanecem inalterados.
+- Protocolo: a resposta oficial de CC-e nao documenta protocolo; aliases ja aceitos continuam sendo preservados defensivamente em `remote_event_id`, sem novo campo.
+- OpenAPI e banco: inalterados. Nenhuma migration, permissao, entidade, endpoint ou contrato remoto foi criado.
