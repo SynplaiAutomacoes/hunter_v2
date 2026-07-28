@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
         ('budget', '0060_oil_change_tracking'),
         ('customer', '0017_alter_vehicle_engine'),
         ('workorder', '0037_wave2_stored_totals'),
-        ('workshops', '0028_oil_change_tracking'),
+        ('workshops', '0031_oil_change_tracking'),
     ]
 
     operations = [

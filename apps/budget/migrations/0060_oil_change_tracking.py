@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('budget', '0059_merge_0056_alter_0058_stored_totals'),
-        ('workshops', '0028_oil_change_tracking'),
+        ('workshops', '0031_oil_change_tracking'),
     ]
 
     operations = [

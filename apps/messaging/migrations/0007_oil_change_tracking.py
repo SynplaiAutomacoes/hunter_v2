@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
         ('customer', '0018_oil_change_tracking'),
         ('messaging', '0006_remove_pending_add_cancelled_dispatch_status'),
         ('scheduling', '0009_messaging_history_outbound_and_alert_lead'),
-        ('workshops', '0028_oil_change_tracking'),
+        ('workshops', '0031_oil_change_tracking'),
     ]
 
     operations = [
