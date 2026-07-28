@@ -733,6 +733,18 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 - Cobertura comportamental restaurada para sucesso, rejeicao, permissao, escopo entre oficinas, duplicidade, timeout, webhook, historico, download, reconciliacao GET-only e preservacao da NF-e original.
 - Nenhum model, migration, payload CC-e, endpoint remoto, OpenAPI, emissao/cancelamento/inutilizacao NF-e, devolucao, transporte ou novo dominio fiscal foi alterado.
 
+## 2026-07-27 - Fase 4.1.2 - Finalizacao operacional da NF-e de devolucao
+
+- Inventario confirmou a implementacao produtiva em `apps/finance/services/nfe_returns.py`, `NfeReturnForm`, views/URLs/templates do detalhe NF-e, `FiscalDocument`, `FiscalDocumentLink`, `FiscalEmissionAttempt`, webhook, comando de reconciliacao e downloads protegidos.
+- Componentes preservados: criacao de documento derivado, vinculo `returns`/`reverses` com a NF-e original, snapshot fiscal original, selecao parcial, endpoint `POST /1/nfe/devolucao/`, consulta `GET /1/nfe/consulta/`, permissoes `issue_nfe_return`, `issue_nfe_reversal`, `download_nfe_return` e `view_nfe_return_payload`.
+- Corrigida a validacao local sem alterar o body remoto: sequencial repetido e item inexistente sao bloqueados; parcial sem snapshot verificavel nao avanca; quantidades originais usam uma unica fonte autoritativa em vez de somar copias do mesmo snapshot.
+- Devolucao total e estorno passam a reservar todos os itens da origem para calculo de saldo, inclusive quando o payload de homologacao continua sem `produtos`/`quantidade`; uma parcial ja reservada bloqueia nova operacao total.
+- Resposta sem UUID/chave conclusivos passa a manter documento e tentativa em `uncertain`, preservando o retorno sanitizado. Timeout continua sem reenvio.
+- Webhook e reconciliacao GET-only atualizam a tentativa vinculada apenas quando a devolucao/estorno e confirmada ou rejeitada; a consulta valida o identificador usado antes de aplicar a resposta.
+- Cobertura comportamental restaurada para total, parcial, multiplos itens, saldo, item inexistente/repetido, duplicidade, timeout, resposta inconclusiva, webhook, ambiguidade entre oficinas, reconciliacao GET-only, vinculo/snapshot e download.
+- Limitacao preservada: timeout sem UUID/chave do documento derivado nao possui identificador seguro para consulta e deve aguardar identificacao remota/webhook; nenhum reenvio e realizado.
+- Nenhum model, migration, payload Webmania, endpoint remoto, OpenAPI, NF-e normal, CC-e, cancelamento/inutilizacao, CT-e, MDF-e, NFCom, DC-e ou outro bloco fiscal foi alterado.
+
 ## 2026-06-23 - Fase 2.6.0 - Reavaliacao documental do roadmap
 
 - Fase 2.5.8 reconhecida como validada no checkpoint `df1a163e`.

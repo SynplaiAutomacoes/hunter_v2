@@ -21,6 +21,7 @@ from apps.finance.models.finance import (
     FiscalDocumentPurpose,
     FiscalDocumentStatus,
     FiscalDocumentType,
+    FiscalEmissionAttempt,
     FiscalEmissionAttemptStatus,
     FiscalEmissionDocumentKind,
     FiscalEmissionOperationType,
@@ -115,13 +116,18 @@ def _product_sequence(product: dict[str, Any], *, fallback_index: int | None = N
 
 def _normalized_partial_products(products: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
+    seen_sequences: set[int] = set()
     for product in products or []:
         if not isinstance(product, dict):
             raise NfeReturnError("Produtos da devolucao devem ser objetos.")
         quantity = _decimal(product.get("quantidade"))
         if quantity <= 0:
             raise NfeReturnError("A quantidade de cada produto deve ser maior que zero.")
-        normalized.append({"sequencial": _product_sequence(product), "quantidade": str(quantity.normalize())})
+        sequence = _product_sequence(product)
+        if sequence in seen_sequences:
+            raise NfeReturnError(f"Item fiscal {sequence} foi informado mais de uma vez na devolucao parcial.")
+        seen_sequences.add(sequence)
+        normalized.append({"sequencial": sequence, "quantidade": str(quantity.normalize())})
     return normalized
 
 
@@ -219,16 +225,18 @@ def _original_quantities(document: FiscalDocument) -> dict[int, Decimal]:
     if document.legacy_nfe_item_id:
         payload_sources.extend([document.legacy_nfe_item.raw_payload, document.legacy_nfe_item.log_payload])
 
-    quantities: dict[int, Decimal] = {}
     for payload in payload_sources:
+        quantities: dict[int, Decimal] = {}
         for index, product in enumerate(_extract_products_from_payload(payload), start=1):
             try:
                 sequence = _product_sequence(product, fallback_index=index)
                 quantity = _decimal(product.get("quantidade"))
             except NfeReturnError:
                 continue
-            quantities[sequence] = quantities.get(sequence, Decimal("0")) + quantity
-    return quantities
+            quantities[sequence] = quantity
+        if quantities:
+            return quantities
+    return {}
 
 
 def _partial_products_from_return_payload(payload: Any) -> list[dict[str, Any]]:
@@ -254,7 +262,13 @@ def _reserved_return_quantities(*, original_document: FiscalDocument) -> dict[in
     )
     quantities: dict[int, Decimal] = {}
     for document in documents:
-        for product in _partial_products_from_return_payload(document.request_payload):
+        reserved_products = _partial_products_from_return_payload(document.request_payload)
+        if not reserved_products:
+            reserved_products = [
+                {"sequencial": sequence, "quantidade": str(quantity.normalize())}
+                for sequence, quantity in _original_quantities(original_document).items()
+            ]
+        for product in reserved_products:
             try:
                 sequence = _product_sequence(product)
                 quantity = _decimal(product.get("quantidade"))
@@ -270,15 +284,23 @@ def calculate_available_return_quantities(*, original_document: FiscalDocument) 
     return {sequence: quantity - reserved_quantities.get(sequence, Decimal("0")) for sequence, quantity in original_quantities.items()}
 
 
-def _validate_available_quantities(*, original_document: FiscalDocument, products: list[dict[str, Any]]) -> None:
-    if not products:
-        return
+def _validate_available_quantities(*, original_document: FiscalDocument, purpose: str, products: list[dict[str, Any]]) -> None:
     original_quantities = _original_quantities(original_document)
     if not original_quantities:
+        if products:
+            raise NfeReturnError("Documento original nao possui snapshot de itens para validar a devolucao parcial.")
         return
     available_quantities = calculate_available_return_quantities(original_document=original_document)
+    if not products:
+        if any(available_quantities.get(sequence, Decimal("0")) < quantity for sequence, quantity in original_quantities.items()):
+            operation = "estorno" if purpose == FiscalDocumentPurpose.REVERSAL else "devolucao total"
+            raise NfeReturnError(f"O saldo disponivel nao permite novo {operation} da NF-e original.")
+        return
+
     for product in products:
         sequence = _product_sequence(product)
+        if sequence not in original_quantities:
+            raise NfeReturnError(f"Item fiscal {sequence} nao foi encontrado no snapshot da NF-e original.")
         requested = _decimal(product.get("quantidade"))
         available = available_quantities.get(sequence, Decimal("0"))
         if requested > available:
@@ -405,7 +427,7 @@ def create_nfe_return_draft(
             raise NfeReturnError("NF-e externa minima sem itens importados permite somente devolucao total ou estorno; devolucao parcial exige XML/importacao validada.")
         if purpose == FiscalDocumentPurpose.REVERSAL:
             products = []
-        _validate_available_quantities(original_document=locked_original, products=products)
+        _validate_available_quantities(original_document=locked_original, purpose=purpose, products=products)
         payload = _build_return_payload(
             original_document=locked_original,
             purpose=purpose,
@@ -529,11 +551,29 @@ def apply_nfe_return_document_payload(*, document: FiscalDocument, response_payl
     return document
 
 
-def _mark_document_uncertain(*, document: FiscalDocument, error_message: str) -> None:
+def _mark_document_uncertain(*, document: FiscalDocument, error_message: str, response_payload: dict[str, Any] | None = None) -> None:
     document.status = FiscalDocumentStatus.UNCERTAIN
-    document.response_payload = sanitize_fiscal_payload({"error": error_message})
+    document.response_payload = sanitize_fiscal_payload(response_payload if response_payload is not None else {"error": error_message})
     document.remote_status = FiscalDocumentStatus.UNCERTAIN
     document.save(update_fields=["status", "response_payload", "remote_status", "atualizado_em"])
+
+
+def _return_attempt_for_document(*, document: FiscalDocument) -> FiscalEmissionAttempt | None:
+    return document.emission_attempts.filter(operation_type__in=[FiscalEmissionOperationType.RETURN, FiscalEmissionOperationType.REVERSAL]).order_by("-pk").first()
+
+
+def confirm_nfe_return_document_from_payload(*, document: FiscalDocument, response_payload: dict[str, Any]) -> FiscalDocument:
+    document = apply_nfe_return_document_payload(document=document, response_payload=response_payload)
+    attempt = _return_attempt_for_document(document=document)
+    if attempt is None:
+        return document
+
+    if document.status == FiscalDocumentStatus.APPROVED:
+        mark_attempt_succeeded(attempt=attempt, response_payload=response_payload)
+    elif document.status in {FiscalDocumentStatus.REPROVED, FiscalDocumentStatus.DENIED}:
+        message = extract_webmania_error_message(response_payload, scope="nfe") or "Devolucao ou estorno rejeitado pela Webmania."
+        mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
+    return document
 
 
 def _assert_transmittable(*, document: FiscalDocument) -> None:
@@ -617,7 +657,13 @@ def transmit_nfe_return_document(*, document: FiscalDocument) -> FiscalDocument:
         mark_attempt_failed(attempt=attempt, error_message=message, response_payload=response_payload)
         raise NfeReturnError(message)
 
-    mark_attempt_succeeded(attempt=attempt, response_payload=response_payload)
+    if not locked_document.remote_uuid and not locked_document.access_key:
+        message = "Resposta inconclusiva da Webmania ao emitir devolucao ou estorno; estado remoto incerto."
+        mark_attempt_uncertain(attempt=attempt, error_message=message)
+        _mark_document_uncertain(document=locked_document, error_message=message, response_payload=response_payload)
+        raise NfeReturnError(message)
+    if locked_document.status == FiscalDocumentStatus.APPROVED:
+        mark_attempt_succeeded(attempt=attempt, response_payload=response_payload)
     return locked_document
 
 
@@ -660,12 +706,16 @@ def consult_nfe_return_document(*, document: FiscalDocument) -> dict[str, Any]:
     error_message = extract_webmania_error_message(payload.get("error") or payload.get("msg") or payload.get("message"), scope="nfe")
     if error_message:
         raise NfeReturnError(error_message)
+    if params.get("uuid") and str(payload.get("uuid") or "").strip().lower() != params["uuid"].lower():
+        raise NfeReturnError("A consulta retornou uma NF-e diferente da devolucao ou estorno esperado.")
+    if params.get("chave") and str(payload.get("chave") or "").strip() != params["chave"]:
+        raise NfeReturnError("A consulta retornou uma NF-e diferente da devolucao ou estorno esperado.")
     return payload
 
 
 def reconcile_nfe_return_document(*, document: FiscalDocument) -> FiscalDocument:
     payload = consult_nfe_return_document(document=document)
-    document = apply_nfe_return_document_payload(document=document, response_payload=payload)
+    document = confirm_nfe_return_document_from_payload(document=document, response_payload=payload)
     document.refresh_from_db()
     return document
 

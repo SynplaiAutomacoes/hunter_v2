@@ -20,7 +20,7 @@ from apps.finance.services.nfe_debit import apply_nfe_debit_document_payload, is
 from apps.finance.services.nfe_debit_cancellation import apply_debit_cancellation_payload, is_ambiguous_debit_cancellation_webhook, resolve_debit_cancellation_for_webhook
 from apps.finance.services.nfe_events import confirm_cce_event_from_payload
 from apps.finance.services.nfe_ibs_cbs_events import apply_ibs_cbs_event_cancellation_payload, apply_ibs_cbs_event_payload, is_ambiguous_ibs_cbs_event_cancellation_webhook, is_ambiguous_ibs_cbs_event_webhook, resolve_ibs_cbs_event_cancellation_for_webhook, resolve_ibs_cbs_event_for_webhook
-from apps.finance.services.nfe_returns import apply_nfe_return_document_payload, is_ambiguous_nfe_return_webhook, resolve_nfe_return_document_for_webhook
+from apps.finance.services.nfe_returns import confirm_nfe_return_document_from_payload, is_ambiguous_nfe_return_webhook, resolve_nfe_return_document_for_webhook
 from apps.finance.services.nfce_cancellation import apply_nfce_cancellation_event_payload, is_ambiguous_nfce_cancellation_webhook, resolve_nfce_cancellation_event_for_webhook
 from apps.finance.services.nfce_emission import apply_nfce_document_payload, is_ambiguous_nfce_webhook, resolve_nfce_document_for_webhook
 from apps.finance.services.nfse_cancellation import NfseCancellationError, confirm_nfse_cancellation_from_payload
@@ -417,7 +417,7 @@ def process_webhook_event(event: WebmaniaWebhookEvent) -> bool:
             with transaction.atomic():
                 derived_document = derived_document.__class__.objects.select_for_update().get(pk=derived_document.pk)
                 if not _is_regressive_status(model="nfe", current_status=derived_document.status, incoming_status=str(payload.get("status") or "")):
-                    apply_nfe_return_document_payload(document=derived_document, response_payload=payload)
+                    confirm_nfe_return_document_from_payload(document=derived_document, response_payload=payload)
 
             _mark_event_processed(event)
             return True

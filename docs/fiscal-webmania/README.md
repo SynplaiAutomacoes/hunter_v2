@@ -1,5 +1,13 @@
 # Fiscal Webmania - PRDs vivos
 
+## Atualizacao Fase 4.1.2 - Finalizacao operacional da NF-e de devolucao
+
+- O fluxo produtivo existente foi preservado: NF-e original projetada em `FiscalDocument`, documento derivado separado, `FiscalDocumentLink`, tentativa fiscal, `POST /1/nfe/devolucao/`, webhook, consulta, historico e downloads.
+- A selecao parcial passa a bloquear item repetido, item ausente no snapshot e quantidade superior ao saldo; snapshots duplicados entre request/response/legado nao multiplicam a quantidade original.
+- Devolucao total e estorno continuam sem selecao parcial no payload de homologacao, mas agora reservam internamente todo o saldo e nao podem coexistir com devolucao parcial ativa/concluida.
+- Timeout e resposta sem UUID/chave conclusivos permanecem `uncertain` e nao geram novo POST. Webhook e reconciliacao GET-only passam a sincronizar tambem a tentativa existente.
+- Nenhum model, migration, endpoint remoto, payload Webmania, OpenAPI, NF-e normal, CC-e ou outro dominio fiscal foi alterado.
+
 ## Atualizacao Fase 4.1.1 - Finalizacao da Carta de Correcao NF-e
 
 - O fluxo produtivo existente de CC-e permanece como fonte da verdade: UI no detalhe da NF-e, `FiscalDocumentEvent`, `FiscalEmissionAttempt`, Webmania, webhook, historico, payload protegido e downloads XML/DACCE.
