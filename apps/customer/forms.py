@@ -224,6 +224,7 @@ class CustomerForm(AddressFormMixin, CoreModelForm):
             "phone",
             "email",
             "is_active",
+            "accepts_messages",
             "fantasy_name",
             "state_registration",
             "municipal_registration",
@@ -249,6 +250,7 @@ class CustomerForm(AddressFormMixin, CoreModelForm):
             "phone": PhoneInput(),
             "email": EmailInput(),
             "is_active": CheckboxInput(),
+            "accepts_messages": CheckboxInput(),
         }
 
     def __init__(self, *args, workshop: Workshop | None = None, **kwargs):
@@ -392,6 +394,7 @@ class CustomerForm(AddressFormMixin, CoreModelForm):
                 # Ativo | Data de Nascimento | Sexo
                 # ─────────────────────────────
                 Field("is_active", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("accepts_messages", wrapper_class="col-span-12 lg:col-span-4"),
                 HTML('<div x-show="tipo === \'PF\'" class="col-span-12 lg:col-span-4">'),
                 Field("birth_date", wrapper_class="col-span-12"),
                 HTML("</div>"),

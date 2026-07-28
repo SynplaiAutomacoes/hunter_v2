@@ -46,6 +46,7 @@ def _customer(workshop: Workshop, suffix: int = 1) -> Customer:
         email=f"hist{suffix}@example.com",
         phone="+5511988887777",
         is_active=True,
+        accepts_messages=True,
     )
 
 

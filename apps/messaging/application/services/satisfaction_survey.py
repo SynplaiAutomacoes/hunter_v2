@@ -7,6 +7,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from apps.customer.services.messaging_consent import customer_can_receive_messages
 from apps.messaging.models import SatisfactionReview, ScheduledOutboundMessage
 from apps.messaging.rendering import render_message_template
 from apps.workorder.models import WorkOrder
@@ -77,6 +78,10 @@ def schedule_satisfaction_survey_for_workorder(workorder: WorkOrder) -> Satisfac
     customer = getattr(getattr(workorder, "budget", None), "customer", None)
     if customer is None:
         logger.info("satisfaction_survey_skipped_no_customer", extra={"workorder_id": workorder.pk})
+        return None
+
+    if not customer_can_receive_messages(customer):
+        logger.info("satisfaction_survey_skipped_customer_opted_out", extra={"workorder_id": workorder.pk, "customer_id": customer.pk})
         return None
 
     phone = resolve_workorder_customer_phone(workorder)

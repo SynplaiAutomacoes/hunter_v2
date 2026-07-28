@@ -32,6 +32,7 @@ class Customer(TimeStampedModel, Address):
     phone = PhoneNumberField(verbose_name="Telefone", blank=True)
     email = models.EmailField(verbose_name="Email", blank=False, null=False)
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
+    accepts_messages = models.BooleanField(verbose_name="Receber mensagens", default=False)
 
     # CAMPOS PESSOA FISICA
     rg = models.CharField(verbose_name="RG", max_length=9, blank=True, null=True)

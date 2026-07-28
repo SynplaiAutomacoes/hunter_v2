@@ -5,6 +5,7 @@ from datetime import timedelta
 
 from django.utils import timezone
 
+from apps.customer.services.messaging_consent import customer_can_receive_messages
 from apps.messaging.application.services.typed_templates import get_active_template
 from apps.messaging.models import MessageTemplate, ScheduledOutboundMessage
 from apps.messaging.rendering import render_message_template
@@ -68,6 +69,10 @@ def sync_appointment_alert_schedule(appointment: Appointment) -> ScheduledOutbou
     )
 
     should_schedule = bool(appointment.alert_customer and appointment.alert_lead_time and appointment.status == AppointmentStatus.SCHEDULED)
+
+    # Guests have no Customer record, so there is no toggle to honour for them.
+    if should_schedule and appointment.customer_id and not customer_can_receive_messages(appointment.customer):
+        should_schedule = False
 
     if not should_schedule:
         pending_qs.update(status=ScheduledOutboundMessage.Status.CANCELLED)

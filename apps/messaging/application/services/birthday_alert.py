@@ -8,6 +8,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from apps.customer.models import Customer
+from apps.customer.services.messaging_consent import filter_messageable_customers
 from apps.messaging.application.services.typed_templates import get_active_template
 from apps.messaging.models import MessageTemplate, ScheduledOutboundMessage
 from apps.messaging.rendering import render_message_template
@@ -52,11 +53,12 @@ def enqueue_birthday_alerts_for_day(*, target_date: date | None = None, now: dat
             continue
 
         customers = (
-            Customer.objects.filter(
-                workshop_id=workshop.pk,
-                is_active=True,
-                birth_date__month=today.month,
-                birth_date__day=today.day,
+            filter_messageable_customers(
+                Customer.objects.filter(
+                    workshop_id=workshop.pk,
+                    birth_date__month=today.month,
+                    birth_date__day=today.day,
+                )
             )
             .exclude(Q(phone__isnull=True) | Q(phone=""))
             .iterator()

@@ -100,6 +100,7 @@ class TypedAlertTemplateTests(TestCase):
             cpf_or_cnpj="12345678901",
             email="alerta@example.com",
             phone="+5511988887777",
+            accepts_messages=True,
         )
         self.vehicle = Vehicle.objects.create(
             workshop=self.workshop,
@@ -177,6 +178,7 @@ class BirthdayAlertTests(TestCase):
             phone="+5511977776666",
             birth_date=date(1990, today.month, today.day),
             is_active=True,
+            accepts_messages=True,
         )
         MessageTemplate.objects.create(
             workshop=self.workshop,
@@ -210,6 +212,7 @@ class SatisfactionSurveyTests(TestCase):
             cpf_or_cnpj="12345678903",
             email="review@example.com",
             phone="+5511966665555",
+            accepts_messages=True,
         )
         self.vehicle = Vehicle.objects.create(
             workshop=self.workshop,
