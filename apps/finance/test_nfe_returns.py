@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 from uuid import uuid4
 
 import requests
+from django.http import Http404
 from django.test import RequestFactory, TestCase
 from django.utils import timezone
 
@@ -96,6 +97,7 @@ class NfeReturnOperationalTests(TestCase):
         item: NfeItem,
         products: list[dict[str, object]],
         purpose: str = FiscalDocumentPurpose.RETURN,
+        classe_imposto: str = "",
         volume: str | int | None = None,
         informacoes_fisco: str = "",
         informacoes_complementares: str = "",
@@ -107,6 +109,7 @@ class NfeReturnOperationalTests(TestCase):
             requested_by=self.user,
             natureza_operacao="Devolucao de mercadoria",
             codigo_cfop="1202",
+            classe_imposto=classe_imposto,
             volume=volume,
             informacoes_fisco=informacoes_fisco,
             informacoes_complementares=informacoes_complementares,
@@ -123,6 +126,7 @@ class NfeReturnOperationalTests(TestCase):
             "uuid": remote_uuid or str(uuid4()),
             "modelo": "nfe",
             "status": status,
+            "motivo": "Devolucao autorizada",
             "nfe": "9001",
             "serie": "1",
             "recibo": "REC-RETURN",
@@ -157,6 +161,7 @@ class NfeReturnOperationalTests(TestCase):
         self.assertEqual(link.role, FiscalDocumentLinkRole.RETURNS)
         self.assertNotIn("produtos", document.request_payload)
         self.assertNotIn("quantidade", document.request_payload)
+        self.assertNotIn("classe_imposto", document.request_payload)
         self.assertEqual(calculate_available_return_quantities(original_document=original), {1: 0, 2: 0})
         item.refresh_from_db()
         self.assertEqual(item.xml_url, original_xml)
@@ -187,7 +192,7 @@ class NfeReturnOperationalTests(TestCase):
 
     def test_multiple_partial_returns_preserve_balance_and_history_order(self) -> None:
         item = self._create_nfe_item(products=[{"sequencial": 1, "codigo": "P1", "quantidade": "3"}])
-        first = self._transmit(document=self._draft(item=item, products=[{"sequencial": 1, "quantidade": "1"}]))
+        first = self._transmit(document=self._draft(item=item, products=[{"sequencial": 1, "quantidade": "1"}], classe_imposto="REF-DEVOLUCAO", volume=1))
         second = self._transmit(
             document=self._draft(item=item, products=[{"sequencial": 1, "quantidade": "1.5"}]),
             payload=self._remote_payload(access_key=f"35{9002:042d}"[-44:]),
@@ -207,28 +212,46 @@ class NfeReturnOperationalTests(TestCase):
         self.assertEqual(calculate_available_return_quantities(original_document=original), {1: Decimal("0.5")})
         self.assertEqual(list(detail_response.context_data["return_documents"]), [first, second])
         self.assertContains(detail_response, "REC-RETURN", count=2)
+        self.assertContains(detail_response, "Devolucao de mercadoria", count=2)
+        self.assertContains(detail_response, "CFOP: 1202", count=2)
+        self.assertContains(detail_response, "Classe: REF-DEVOLUCAO")
+        self.assertContains(detail_response, "Volumes: 1")
+        self.assertContains(detail_response, "Devolucao autorizada", count=2)
+        self.assertContains(detail_response, "<td>Aprovado</td>", count=2, html=True)
 
-    def test_payload_exposes_supported_volume_and_information_without_inferred_taxes(self) -> None:
+    def test_payload_exposes_supported_tax_class_volume_and_information_without_inferred_taxes(self) -> None:
         item = self._create_nfe_item()
         document = self._draft(
             item=item,
             products=[{"sequencial": 1, "quantidade": "1"}],
+            classe_imposto="REF-DEVOLUCAO",
             volume=3,
             informacoes_fisco="Informacao fiscal declarada.",
             informacoes_complementares="Informacao complementar declarada.",
         )
 
+        self.assertEqual(document.request_payload["classe_imposto"], "REF-DEVOLUCAO")
         self.assertEqual(document.request_payload["volume"], "3")
         self.assertEqual(document.request_payload["informacoes_fisco"], "Informacao fiscal declarada.")
         self.assertEqual(document.request_payload["informacoes_complementares"], "Informacao complementar declarada.")
         self.assertNotIn("finalidade", document.request_payload)
         self.assertNotIn("impostos", document.request_payload)
+        with (
+            patch("apps.finance.services.nfe_returns._build_headers", return_value={}),
+            patch("apps.finance.services.nfe_returns.requests.post", return_value=_mock_response(self._remote_payload())) as post_mock,
+        ):
+            transmitted = transmit_nfe_return_document(document=document)
+        self.assertEqual(post_mock.call_args.kwargs["json"]["classe_imposto"], "REF-DEVOLUCAO")
+        attempt = FiscalEmissionAttempt.objects.get(fiscal_document=transmitted)
+        self.assertEqual(attempt.request_payload["classe_imposto"], "REF-DEVOLUCAO")
+
         form = NfeReturnForm(
             {
                 "purpose": FiscalDocumentPurpose.RETURN,
                 "return_scope": NfeReturnForm.RETURN_SCOPE_TOTAL,
                 "natureza_operacao": "Devolucao de mercadoria",
                 "codigo_cfop": "1202",
+                "classe_imposto": "REF-DEVOLUCAO",
                 "volume": "3",
                 "informacoes_fisco": "F" * 2000,
                 "informacoes_complementares": "C" * 5000,
@@ -236,6 +259,21 @@ class NfeReturnOperationalTests(TestCase):
             }
         )
         self.assertTrue(form.is_valid(), form.errors)
+
+        invalid_form = NfeReturnForm(
+            {
+                "purpose": FiscalDocumentPurpose.RETURN,
+                "return_scope": NfeReturnForm.RETURN_SCOPE_TOTAL,
+                "natureza_operacao": "Devolucao de mercadoria",
+                "codigo_cfop": "1202",
+                "classe_imposto": "R" * 31,
+                "confirm_return": "on",
+            }
+        )
+        self.assertFalse(invalid_form.is_valid())
+        invalid_item = self._create_nfe_item(suffix=21)
+        with self.assertRaisesMessage(NfeReturnError, "no maximo 30 caracteres"):
+            self._draft(item=invalid_item, products=[], classe_imposto="R" * 31)
 
     def test_partial_return_rejects_insufficient_balance_unknown_and_duplicate_items(self) -> None:
         item = self._create_nfe_item(products=[{"sequencial": 1, "codigo": "P1", "quantidade": "2"}])
@@ -480,16 +518,26 @@ class NfeReturnOperationalTests(TestCase):
     def test_existing_download_gateway_remains_scoped_to_original_nfe(self) -> None:
         item = self._create_nfe_item()
         document = self._transmit(document=self._draft(item=item, products=[]))
-        request = RequestFactory().get("/")
-        request.user = self.user
-        downloaded = SimpleNamespace(content=b"xml-return", content_type="application/xml")
+        downloaded = SimpleNamespace(content=b"documento-return", content_type="application/octet-stream")
 
         with (
             patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.workshop),
             patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
             patch("apps.finance.views.nfe.download_webmania_document", return_value=downloaded) as download_mock,
         ):
-            response = NfeReturnDownloadView.as_view()(request, pk=item.request_id, document_pk=document.pk, document="xml")
+            for document_kind, expected_url in (("xml", document.xml_url), ("danfe", document.danfe_url)):
+                request = RequestFactory().get("/")
+                request.user = self.user
+                response = NfeReturnDownloadView.as_view()(request, pk=item.request_id, document_pk=document.pk, document=document_kind)
 
-        self.assertEqual(response.status_code, 200)
-        download_mock.assert_called_once_with(workshop=self.workshop, url=document.xml_url)
+                self.assertEqual(response.status_code, 200)
+                download_mock.assert_called_with(workshop=self.workshop, url=expected_url)
+
+        cross_workshop_request = RequestFactory().get("/")
+        cross_workshop_request.user = self.user
+        with (
+            patch("apps.workshops.mixin.get_active_workshop_or_404", return_value=self.other_workshop),
+            patch("apps.workshops.mixin.has_workshop_perm", return_value=True),
+        ):
+            with self.assertRaises(Http404):
+                NfeReturnDownloadView.as_view()(cross_workshop_request, pk=item.request_id, document_pk=document.pk, document="xml")

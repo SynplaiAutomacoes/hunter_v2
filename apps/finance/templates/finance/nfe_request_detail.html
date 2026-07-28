@@ -485,6 +485,8 @@
                                     <tr>
                                         <th>Finalidade</th>
                                         <th>Status</th>
+                                        <th>Operação</th>
+                                        <th>Mensagem</th>
                                         <th>NF-e / Série</th>
                                         <th>Recibo</th>
                                         <th>UUID</th>
@@ -496,7 +498,30 @@
                                     {% for document in return_documents %}
                                         <tr>
                                             <td>{{ document.get_purpose_display }}</td>
-                                            <td>{{ document.status }}</td>
+                                            <td>{{ document.get_status_display }}</td>
+                                            <td class="min-w-56 whitespace-normal">
+                                                <div>{{ document.request_payload.natureza_operacao|default:'-' }}</div>
+                                                <div class="text-xs text-base-content/60">CFOP: {{ document.request_payload.codigo_cfop|default:'-' }}</div>
+                                                {% if document.request_payload.classe_imposto %}
+                                                    <div class="text-xs text-base-content/60">Classe: {{ document.request_payload.classe_imposto }}</div>
+                                                {% endif %}
+                                                {% if document.request_payload.volume %}
+                                                    <div class="text-xs text-base-content/60">Volumes: {{ document.request_payload.volume }}</div>
+                                                {% endif %}
+                                            </td>
+                                            <td class="min-w-48 whitespace-normal">
+                                                {% if document.response_payload.motivo %}
+                                                    {{ document.response_payload.motivo }}
+                                                {% elif document.response_payload.message %}
+                                                    {{ document.response_payload.message }}
+                                                {% elif document.response_payload.msg %}
+                                                    {{ document.response_payload.msg }}
+                                                {% elif document.response_payload.error %}
+                                                    {{ document.response_payload.error }}
+                                                {% else %}
+                                                    -
+                                                {% endif %}
+                                            </td>
                                             <td>{{ document.number|default:'-' }} / {{ document.series|default:'-' }}</td>
                                             <td>{{ document.receipt|default:'-' }}</td>
                                             <td class="break-all">{{ document.remote_uuid|default:'-' }}</td>
@@ -684,6 +709,11 @@
                         <div>
                             <label for="nfe-return-cfop" class="label"><span class="label-text">CFOP</span></label>
                             <input id="nfe-return-cfop" name="codigo_cfop" class="input input-bordered w-full" maxlength="10" required>
+                        </div>
+                        <div>
+                            <label for="nfe-return-tax-class" class="label"><span class="label-text">Classe de imposto da devolução</span></label>
+                            <input id="nfe-return-tax-class" name="classe_imposto" class="input input-bordered w-full" maxlength="30">
+                            <p class="mt-1 text-xs text-base-content/60">Opcional. Informe somente uma referência fiscal validada; nenhuma classe é copiada automaticamente.</p>
                         </div>
                         <div class="md:col-span-2">
                             <label for="nfe-return-nature" class="label"><span class="label-text">Natureza da operação</span></label>

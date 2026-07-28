@@ -1117,3 +1117,13 @@ Consequencias:
 - Compatibilidade: emissao, idempotencia, timeout `uncertain`, reconciliacao GET-only, validacao de identidade e bloqueio cross-workshop permanecem inalterados.
 - Protocolo: a resposta oficial de CC-e nao documenta protocolo; aliases ja aceitos continuam sendo preservados defensivamente em `remote_event_id`, sem novo campo.
 - OpenAPI e banco: inalterados. Nenhuma migration, permissao, entidade, endpoint ou contrato remoto foi criado.
+
+## ADR - Fase 4.1.8: classe fiscal explicita na devolucao existente
+
+- Status: implementada em 2026-07-28.
+- Contexto: o fluxo derivado ja cobria itens, saldo, volume, informacoes, retorno, artefatos e identidade segura. A auditoria oficial encontrou apenas `classe_imposto` sem ponto de entrada local.
+- Decisao: adicionar a referencia opcional ao formulario e ao mesmo builder de devolucao, com limite compativel com `NfeRequest.tax_class`, persistencia no snapshot atual e congelamento pela tentativa existente.
+- Regra fiscal: a referencia deve ser declarada explicitamente. Nao copiar classe da origem, nao consultar cadastro automaticamente e nao inferir CFOP, finalidade ou impostos.
+- Compatibilidade: ausencia de `classe_imposto` omite a chave e mantem byte a byte a estrutura anterior da intencao fiscal.
+- UX: a tabela existente exibe natureza, CFOP, classe, volumes, status legivel e mensagem remota sem criar modulo ou pagina.
+- OpenAPI e banco: inalterados. Nenhuma migration, entidade, endpoint ou permissao foi criada.

@@ -122,6 +122,13 @@ def _normalize_return_volume(volume: str | int | None) -> str:
     return normalized
 
 
+def _normalize_return_tax_class(value: str | None) -> str:
+    normalized = str(value or "").strip()
+    if len(normalized) > 30:
+        raise NfeReturnError("A referencia da classe de imposto deve possuir no maximo 30 caracteres.")
+    return normalized
+
+
 def _decimal(value: Any) -> Decimal:
     try:
         return Decimal(str(value or "0").replace(",", "."))
@@ -385,6 +392,7 @@ def _build_return_payload(
     products: list[dict[str, Any]] | None,
     natureza_operacao: str,
     codigo_cfop: str,
+    classe_imposto: str = "",
     volume: str | int | None = None,
     informacoes_fisco: str = "",
     informacoes_complementares: str = "",
@@ -397,6 +405,9 @@ def _build_return_payload(
         "ambiente": int(str(original_document.environment or getattr(settings, "WEBMANIA_AMBIENT", "2") or "2")),
         "codigo_cfop": str(codigo_cfop or "").strip(),
     }
+    normalized_tax_class = _normalize_return_tax_class(classe_imposto)
+    if normalized_tax_class:
+        payload["classe_imposto"] = normalized_tax_class
     if purpose == FiscalDocumentPurpose.RETURN and products:
         if requires_ibs_cbs:
             enriched_products, quantities = _build_products_with_ibs_cbs(original_document=original_document, selected_products=products, include_all_original_items=False)
@@ -432,6 +443,7 @@ def create_nfe_return_draft(
     requested_by: Any | None = None,
     natureza_operacao: str = "",
     codigo_cfop: str = "",
+    classe_imposto: str = "",
     volume: str | int | None = None,
     informacoes_fisco: str = "",
     informacoes_complementares: str = "",
@@ -460,6 +472,7 @@ def create_nfe_return_draft(
             products=products,
             natureza_operacao=natureza_operacao,
             codigo_cfop=codigo_cfop,
+            classe_imposto=classe_imposto,
             volume=volume,
             informacoes_fisco=informacoes_fisco,
             informacoes_complementares=informacoes_complementares,
@@ -495,6 +508,7 @@ def create_nfe_return_draft_from_item(
     requested_by: Any | None = None,
     natureza_operacao: str = "",
     codigo_cfop: str = "",
+    classe_imposto: str = "",
     volume: str | int | None = None,
     informacoes_fisco: str = "",
     informacoes_complementares: str = "",
@@ -510,6 +524,7 @@ def create_nfe_return_draft_from_item(
         requested_by=requested_by,
         natureza_operacao=natureza_operacao,
         codigo_cfop=codigo_cfop,
+        classe_imposto=classe_imposto,
         volume=volume,
         informacoes_fisco=informacoes_fisco,
         informacoes_complementares=informacoes_complementares,
@@ -527,6 +542,7 @@ def create_nfe_return_draft_from_external(
     confirmed_external: bool = False,
     natureza_operacao: str = "",
     codigo_cfop: str = "",
+    classe_imposto: str = "",
     volume: str | int | None = None,
     informacoes_fisco: str = "",
     informacoes_complementares: str = "",
@@ -540,6 +556,7 @@ def create_nfe_return_draft_from_external(
         requested_by=requested_by,
         natureza_operacao=natureza_operacao,
         codigo_cfop=codigo_cfop,
+        classe_imposto=classe_imposto,
         volume=volume,
         informacoes_fisco=informacoes_fisco,
         informacoes_complementares=informacoes_complementares,

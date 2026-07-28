@@ -734,3 +734,9 @@ Permanecem proibidos neste ciclo: inferir frete fiscal do custo de frete do orca
 - Avaliar consulta operacional especifica de CC-e apenas se a Webmania documentar necessidade diferente do webhook/reconciliacao atual.
 - Manter monitoramento do contrato oficial: novos artefatos ou identificadores so devem ser incorporados quando documentados pela Webmania, preservando `FiscalDocumentEvent`.
 - Permanecem fora de escopo: Fase 4.0.2, devolucao/estorno adicional, NFS-e, CT-e, MDF-e, NFCom, DC-e, credito/debito, complementar tributaria e eventos IBS/CBS pendentes.
+
+## Apos a Fase 4.1.8 - Devolucao NF-e completa
+
+- Homologar uma devolucao total e uma parcial com `classe_imposto` explicitamente validada na Webmania.
+- Manter assessoria fiscal responsavel por selecionar classe, CFOP, natureza e textos; o sistema nao deve inferir esses dados da nota original.
+- Frete monetario, seguro, despesas e transporte detalhado exigem fase propria por impacto em totais; o endpoint simplificado permanece limitado ao volume documentado.

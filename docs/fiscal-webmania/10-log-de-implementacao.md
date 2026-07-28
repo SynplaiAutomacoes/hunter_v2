@@ -818,6 +818,17 @@ Este arquivo deve ser atualizado a partir da primeira fase de codigo aprovada.
 - Validacoes aprovadas: migration check sem alteracoes, Django check, 15 testes focados, 57 testes de regressao NF-e/transporte/CC-e/devolucao, Ruff no arquivo Python alterado e `git diff --check`.
 - Nenhum model, migration, service, payload, endpoint, webhook, reconciliacao, permissao ou OpenAPI foi alterado.
 
+## 2026-07-28 - Fase 4.1.8 - Cobertura completa da Devolucao NF-e
+
+- Reauditado o fluxo de origem, selecao/saldo, payload, emissao, retorno, webhook, consulta, reconciliacao, historico, permissoes e downloads contra o contrato oficial da Webmania.
+- Volume, informacoes fiscais/complementares, natureza, CFOP, produtos/quantidades e notificacao ja estavam cobertos; a unica chave oficial ausente era a referencia opcional `classe_imposto`.
+- A classe passa pelo formulario e pelo builder existentes, e fica congelada no mesmo `request_payload` e `FiscalEmissionAttempt`. Quando vazia, nao e enviada e o payload anterior permanece inalterado.
+- Nenhuma classe e inferida da NF-e original e nenhuma regra de CFOP, finalidade ou tributacao foi modificada.
+- UUID, chave, modelo, status, numero, serie, recibo, XML, DANFE, log e mensagens continuam persistidos no documento derivado e separados da NF-e original.
+- O historico existente agora mostra natureza, CFOP, classe declarada, volumes, status legivel e mensagem remota; downloads XML/DANFE continuam protegidos por oficina e permissao.
+- Validacoes aprovadas: migration check sem alteracoes, Django check, 17 testes focados, 57 testes de regressao NF-e/devolucao/CC-e/transporte, Ruff nos arquivos Python alterados e `git diff --check`.
+- Nenhum model, migration, endpoint, webhook, reconciliacao, permissao ou OpenAPI foi alterado.
+
 ## 2026-06-23 - Fase 2.6.0 - Reavaliacao documental do roadmap
 
 - Fase 2.5.8 reconhecida como validada no checkpoint `df1a163e`.

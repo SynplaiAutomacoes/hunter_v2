@@ -1,5 +1,13 @@
 # Fiscal Webmania - PRDs vivos
 
+## Atualizacao Fase 4.1.8 - Cobertura completa da Devolucao NF-e
+
+- A auditoria do endpoint oficial `POST /1/nfe/devolucao/` confirmou que chave/UUID original, natureza, ambiente, CFOP, itens/quantidades, volume, informacoes fiscais/complementares e notificacao ja estavam integrados.
+- A referencia opcional `classe_imposto`, prevista no contrato simplificado, passou a ser aceita somente quando declarada pelo usuario e congelada no `request_payload`/`FiscalEmissionAttempt`.
+- Nenhuma classe e copiada da NF-e original, nenhum CFOP/finalidade e inferido e nenhuma tributacao e alterada automaticamente.
+- O historico existente passou a exibir operacao, CFOP, classe declarada, volumes, status legivel e mensagem remota, mantendo numero/serie, recibo, UUID, chave, XML e DANFE.
+- `FiscalDocument`, `FiscalDocumentLink`, saldo, snapshots, endpoint, webhook e reconciliacao GET-only permanecem como fonte da verdade.
+
 ## Atualizacao Fase 4.1.7 - Cobertura completa da Carta de Correcao NF-e
 
 - O contrato oficial da CC-e foi revalidado sem lacuna de integracao: `POST /1/nfe/cartacorrecao/`, entrada por chave/UUID, correcao e ambiente, e retorno com UUID, status, evento, modelo, XML, DACCE e log.

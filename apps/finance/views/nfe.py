@@ -81,6 +81,7 @@ class NfeReturnForm(CoreForm):
     return_scope = forms.ChoiceField(required=False, choices=((RETURN_SCOPE_TOTAL, "Total"), (RETURN_SCOPE_PARTIAL, "Parcial")))
     natureza_operacao = forms.CharField(max_length=60)
     codigo_cfop = forms.CharField(max_length=10)
+    classe_imposto = forms.CharField(required=False, max_length=30)
     produtos_json = forms.CharField(required=False, widget=forms.Textarea)
     volume = forms.IntegerField(required=False, min_value=1, max_value=999999999999999)
     informacoes_complementares = forms.CharField(required=False, max_length=5000)
@@ -746,6 +747,7 @@ class NfeReturnIssueView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 requested_by=request.user,
                 natureza_operacao=str(form.cleaned_data["natureza_operacao"]),
                 codigo_cfop=str(form.cleaned_data["codigo_cfop"]),
+                classe_imposto=str(form.cleaned_data.get("classe_imposto") or ""),
                 volume=form.cleaned_data.get("volume"),
                 informacoes_complementares=str(form.cleaned_data.get("informacoes_complementares") or ""),
                 informacoes_fisco=str(form.cleaned_data.get("informacoes_fisco") or ""),
