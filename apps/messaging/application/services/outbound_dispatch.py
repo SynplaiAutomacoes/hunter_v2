@@ -184,3 +184,19 @@ def cancel_pending_outbound_for_customer(customer_id: int) -> int:
     if cancelled:
         logger.info("outbound_pending_cancelled_customer_opted_out", extra={"customer_id": customer_id, "cancelled_count": cancelled})
     return cancelled
+
+
+def cancel_pending_outbound_for_customers(customer_ids: list[int]) -> int:
+    """Cancel pending outbound messages for many customers at once."""
+    if not customer_ids:
+        return 0
+    cancelled = ScheduledOutboundMessage.objects.filter(
+        customer_id__in=customer_ids,
+        status=ScheduledOutboundMessage.Status.PENDING,
+    ).update(status=ScheduledOutboundMessage.Status.CANCELLED, atualizado_em=timezone.now())
+    if cancelled:
+        logger.info(
+            "outbound_pending_cancelled_customers_opted_out",
+            extra={"customer_count": len(customer_ids), "cancelled_count": cancelled},
+        )
+    return cancelled

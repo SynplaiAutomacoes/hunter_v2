@@ -6,10 +6,16 @@ from django.db import models
 from phonenumber_field.modelfields import PhoneNumberField
 
 from apps.core.infrastructure.models import TimeStampedModel, Address
+from apps.core.infrastructure.runtime_environment import is_production_environment
 from apps.core.text_normalization import name_case, plate_case, sentence_case
 
 from .vehicle_engine import VehicleEngine, normalize_vehicle_engine_choice
 from .vehicle_fuel import VehicleFuel, normalize_vehicle_fuel_choice
+
+
+def default_customer_accepts_messages() -> bool:
+    """Prod liga recebimento por padrão; fora de produção nasce desligado."""
+    return is_production_environment()
 
 
 class Customer(TimeStampedModel, Address):
@@ -32,7 +38,10 @@ class Customer(TimeStampedModel, Address):
     phone = PhoneNumberField(verbose_name="Telefone", blank=True)
     email = models.EmailField(verbose_name="Email", blank=False, null=False)
     is_active = models.BooleanField(verbose_name="Ativo", default=True)
-    accepts_messages = models.BooleanField(verbose_name="Receber mensagens", default=False)
+    accepts_messages = models.BooleanField(
+        verbose_name="Receber mensagens",
+        default=default_customer_accepts_messages,
+    )
 
     # CAMPOS PESSOA FISICA
     rg = models.CharField(verbose_name="RG", max_length=9, blank=True, null=True)

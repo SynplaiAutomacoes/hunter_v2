@@ -257,6 +257,9 @@ class CustomerForm(AddressFormMixin, CoreModelForm):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
         self.setup_address_fields()
+        # Callable model default enables show_hidden_initial; our checkbox widget does not
+        # reliably pair with that hidden input under crispy, so compare against instance/initial.
+        self.fields["accepts_messages"].show_hidden_initial = False
 
         initial_customer_type = str(self.data.get("customer_type") or self.initial.get("customer_type") or getattr(self.instance, "customer_type", "PF") or "PF").upper()
         if initial_customer_type not in {"PF", "PJ"}:
