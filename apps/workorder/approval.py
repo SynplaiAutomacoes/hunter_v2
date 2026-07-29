@@ -8,6 +8,7 @@ from django.db import transaction
 from apps.catalog.product_issues import has_invalid_ncm
 from apps.core.infrastructure.kit_prefetch import workorder_kit_overrides_prefetch
 from apps.stock.models import StockMovement, StockProduct
+from apps.stock.services.workorder_stock import has_unreversed_exit_movements
 from apps.workorder.models import WorkOrderItem
 from apps.workorder.models import WorkOrder, WorkOrderSignatureStatus, WorkOrderStatus
 
@@ -107,13 +108,17 @@ def approve_workorder_with_stock(*, workorder: WorkOrder, user: object | None = 
             },
         )
 
-        has_exit_movements = StockMovement.objects.filter(
-            workorder=locked_workorder,
-            type=StockMovement.MovementType.EXIT,
-        ).exists()
+        has_active_exit_movements = has_unreversed_exit_movements(workorder=locked_workorder)
 
-        if has_exit_movements:
-            if signature_approved and locked_workorder.signature_request_status != WorkOrderSignatureStatus.APPROVED:
+        if has_active_exit_movements:
+            if locked_workorder.status != WorkOrderStatus.APPROVED:
+                locked_workorder._skip_stock_consumption_guard = True
+                locked_workorder.approve()
+                logger.info(
+                    "workorder_stock_approval_recovered_status_for_consumed_stock",
+                    extra={"workorder_id": locked_workorder.pk, "status": locked_workorder.status},
+                )
+            elif signature_approved and locked_workorder.signature_request_status != WorkOrderSignatureStatus.APPROVED:
                 locked_workorder.signature_request_status = WorkOrderSignatureStatus.APPROVED
                 locked_workorder.save(update_fields=["signature_request_status"])
                 logger.info("workorder_stock_approval_signature_updated_for_approved_workorder", extra={"workorder_id": locked_workorder.pk})

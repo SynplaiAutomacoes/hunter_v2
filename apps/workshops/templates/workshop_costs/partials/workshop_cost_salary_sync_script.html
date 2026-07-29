@@ -1,0 +1,33 @@
+<script>
+window.applyWorkshopSalaryCostFields = function (event) {
+    if (!event || !event.detail || !event.detail.successful) {
+        return;
+    }
+    let data;
+    try {
+        data = JSON.parse(event.detail.xhr.responseText);
+    } catch (error) {
+        return;
+    }
+    const fields = (data && data.fields) || {};
+    Object.entries(fields).forEach(([name, value]) => {
+        const input = document.querySelector(`[name="${CSS.escape(name)}"]`);
+        if (!input) {
+            return;
+        }
+
+        const wrapper = input.closest("[x-data]");
+        const alpineData = wrapper && window.Alpine ? window.Alpine.$data(wrapper) : null;
+        if (alpineData && typeof alpineData.syncDisplay === "function" && name.endsWith("_0")) {
+            alpineData.syncDisplay(String(value));
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            input.dispatchEvent(new Event("change", { bubbles: true }));
+            return;
+        }
+
+        input.value = value;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+};
+</script>

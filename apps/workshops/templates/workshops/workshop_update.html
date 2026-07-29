@@ -587,6 +587,7 @@
                 </div>
 
                 <div x-show="nfTab === 'nfce'" x-cloak class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                    <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfce_enabled|as_crispy_field }}</div>
                     <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfce_serie|as_crispy_field }}</div>
                     <div class="col-span-12 lg:col-span-3">{{ fiscal_form.nfce_numero|as_crispy_field }}</div>
                     {% if fiscal_form.show_homolog_fields %}

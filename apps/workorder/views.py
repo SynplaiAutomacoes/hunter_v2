@@ -1335,9 +1335,20 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
                 approve_workorder_with_stock(workorder=workorder, user=request.user)
                 sync_workorder_financial_movement(workorder=workorder)
 
+                workorder.refresh_from_db(fields=["status"])
+                if workorder.status != WorkOrderStatus.APPROVED:
+                    logger.warning(
+                        "workorder_delivery_status_not_updated",
+                        extra={"workorder_id": workorder.pk, "status": workorder.status},
+                    )
+                    response = render(request, "workorder/partials/customer_approvement_section.html", _build_customer_approvement_context(workorder, request=request))
+                    response["HX-Trigger"] = json.dumps(
+                        {"showToast": {"message": "Não foi possível concluir a entrega da ordem de serviço.", "type": "error"}}
+                    )
+                    return response
+
                 from apps.customer.services.oil_change import handle_workorder_delivery_oil_and_mileage
 
-                workorder.refresh_from_db()
                 handle_workorder_delivery_oil_and_mileage(workorder=workorder)
 
                 from apps.messaging.application.services.satisfaction_survey import schedule_satisfaction_survey_for_workorder

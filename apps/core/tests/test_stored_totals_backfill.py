@@ -160,6 +160,84 @@ class StoredTotalsBackfillTests(TestCase):
         self.assertEqual(workorder.stored_total_amount, Money(0, "BRL"))
         self.assertEqual(workorder.stored_paid_amount, Money(0, "BRL"))
 
+    def test_backfill_uses_operational_total_for_fixed_warranty_budget(self) -> None:
+        from apps.budget.models import BudgetType
+
+        budget = Budget(workshop=self.workshop, entry_date=date(2026, 7, 3), budget_type=BudgetType.WARRANTY)
+        Budget.objects.bulk_create([budget])
+        BudgetItem.objects.bulk_create(
+            [
+                BudgetItem(
+                    workshop=self.workshop,
+                    budget=budget,
+                    product=self.product,
+                    quantity=1,
+                    product_cost_price=Money(20, "BRL"),
+                    product_selling_price=Money(100, "BRL"),
+                    shipping=Money(5, "BRL"),
+                    item_benefit_type="warranty",
+                ),
+            ]
+        )
+        workorder = WorkOrder(workshop=self.workshop, budget=budget, budget_type="warranty")
+        WorkOrder.objects.bulk_create([workorder])
+        WorkOrderItem.objects.bulk_create(
+            [
+                WorkOrderItem(
+                    workshop=self.workshop,
+                    workorder=workorder,
+                    product=self.product,
+                    quantity=1,
+                    product_cost_price=Money(20, "BRL"),
+                    product_selling_price=Money(100, "BRL"),
+                    shipping=Money(5, "BRL"),
+                    item_benefit_type="warranty",
+                ),
+            ]
+        )
+        Budget.objects.filter(pk=budget.pk).update(stored_total_amount=Money(0, "BRL"))
+        WorkOrder.objects.filter(pk=workorder.pk).update(stored_total_amount=Money(0, "BRL"))
+
+        result = backfill_stored_totals(workshop_id=self.workshop.pk, budget_types={"warranty", "courtesy"})
+        budget.refresh_from_db()
+        workorder.refresh_from_db()
+
+        self.assertEqual(result.budgets_updated, 1)
+        self.assertEqual(result.workorders_updated, 1)
+        self.assertEqual(budget.stored_total_amount.amount, Decimal("105.00"))
+        self.assertEqual(workorder.stored_total_amount.amount, Decimal("105.00"))
+        self.assertEqual(budget.total_budget_value.amount, Decimal("0.00"))
+        self.assertEqual(workorder.total_budget_value.amount, Decimal("0.00"))
+
+    def test_budget_types_filter_skips_sale_documents(self) -> None:
+        from apps.budget.models import BudgetType
+
+        sale = Budget(workshop=self.workshop, entry_date=date(2026, 7, 4), budget_type=BudgetType.SALE)
+        warranty = Budget(workshop=self.workshop, entry_date=date(2026, 7, 4), budget_type=BudgetType.WARRANTY)
+        Budget.objects.bulk_create([sale, warranty])
+        BudgetItem.objects.bulk_create(
+            [
+                BudgetItem(
+                    workshop=self.workshop,
+                    budget=warranty,
+                    product=self.product,
+                    quantity=1,
+                    product_selling_price=Money(50, "BRL"),
+                    item_benefit_type="warranty",
+                ),
+            ]
+        )
+        Budget.objects.filter(pk__in=[sale.pk, warranty.pk]).update(stored_total_amount=Money(0, "BRL"))
+
+        result = backfill_stored_totals(workshop_id=self.workshop.pk, budget_types={"warranty"})
+        sale.refresh_from_db()
+        warranty.refresh_from_db()
+
+        self.assertEqual(result.budgets_scanned, 1)
+        self.assertEqual(result.budgets_updated, 1)
+        self.assertEqual(sale.stored_total_amount.amount, Decimal("0.00"))
+        self.assertEqual(warranty.stored_total_amount.amount, Decimal("50.00"))
+
     def test_rejects_non_positive_batch_size(self) -> None:
         with self.assertRaisesRegex(ValueError, "greater than zero"):
             backfill_stored_totals(batch_size=0)

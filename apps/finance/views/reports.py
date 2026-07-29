@@ -26,6 +26,7 @@ from apps.finance.models.bank_account import BankAccount
 from apps.finance.models.financial_group import FinancialGroup
 from apps.finance.models.financial_movement import FinancialMovement
 from apps.finance.models.payment_method import PaymentMethod
+from apps.finance.services.payroll_visibility import resolve_payroll_movement_display
 from apps.finance.services.reports import FinancialOverview, build_month_and_year_financial_overviews
 from apps.workorder.models import WorkOrder, WorkOrderPaymentMethod
 from apps.workshops.mixin import WorkshopScopedMixin
@@ -459,6 +460,7 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         payment_amount = getattr(payment, "total_paid", None)
         resolved_amount = self._resolve_money_amount(payment_amount)
         workorder_url = reverse("workorder:workorder_detail", kwargs={"pk": movement.workorder_id}) if movement.workorder_id else None
+        agent, description = resolve_payroll_movement_display(movement=payment_movement, user=self.request.user, workshop=self.workshop, request=self.request)
 
         return {
             "component": f"workorder-payment-{payment.pk}",
@@ -467,9 +469,9 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
             "reconciliation_status": self._resolve_workorder_conciliation_status(is_reconciled=bool(payment_movement.is_reconciled)),
             "type_badge": payment_movement.report_direction_badge,
             "due_date": payment.due_date,
-            "agent": payment_movement.report_agent_display,
+            "agent": agent,
             "origin": f"OS #{workorder.pk}" if workorder is not None else "-",
-            "description": self._resolve_workorder_description(workorder) if workorder is not None else movement.report_description_display,
+            "description": self._resolve_workorder_description(workorder) if workorder is not None else description,
             "budget_plan": payment_movement.report_budget_plan_display,
             "account": payment_movement.report_bank_account_display,
             "payment_type": getattr(payment_method, "description", "-") or "-",
@@ -636,9 +638,8 @@ class FinancialReportsHomeView(LoginRequiredMixin, WorkshopScopedMixin, Template
         latest_payment_date = max((payment.due_date for payment in payments if payment.due_date), default=None)
         paid_status = self._resolve_movement_paid_status_display(movement)
         reconciliation_status = self._resolve_workorder_conciliation_status(is_reconciled=bool(movement.is_reconciled))
-        agent = movement.report_agent_display
+        agent, description = resolve_payroll_movement_display(movement=movement, user=self.request.user, workshop=self.workshop, request=self.request)
         due_date = movement.due_date
-        description = movement.report_description_display
         payment_type = movement.report_payment_method_display
         details = []
         edit_modal_url = reverse("finance:report_movement_edit", kwargs={"pk": movement.pk})

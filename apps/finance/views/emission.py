@@ -75,6 +75,35 @@ class NfseCreateRedirectView(EmissionCreateRedirectBaseView):
     emission_note_type = "nfse"
 
 
+class EmissionCheckWorkorderView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    workshop_permission_app_label = "finance"
+    workshop_permission_model = "nfserequest"
+    workshop_permission_codename = "view_nfserequest"
+
+    def get(self, request, *args, **kwargs):
+        workorder_id = request.GET.get("workorder")
+        if not workorder_id:
+            return HttpResponse("")
+
+        workorder = WorkOrder.objects.filter(pk=workorder_id, workshop=self.workshop).first()
+        if workorder is None:
+            return HttpResponse("")
+
+        has_nfe = NfeRequest.objects.filter(workorder=workorder).exists()
+        has_nfse = NfseRequest.objects.filter(workorder=workorder).exists()
+
+        if has_nfe and not has_nfse:
+            return HttpResponse(
+                "<div class='alert alert-warning'>Esta OS já possui Nota Fiscal de Produto emitida. Apenas a Nota Fiscal de Serviço será processada nesta emissão.</div>"
+            )
+        if has_nfse and not has_nfe:
+            return HttpResponse(
+                "<div class='alert alert-warning'>Esta OS já possui Nota Fiscal de Serviço emitida. Apenas a Nota Fiscal de Produto será processada nesta emissão.</div>"
+            )
+
+        return HttpResponse("")
+
+
 class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormView):
     template_name: str | None = "finance/emission_request_form.html"
     workshop_permission_app_label = "finance"
@@ -124,6 +153,15 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         "both": "Produtos e Serviços",
     }
 
+    @staticmethod
+    def _empty_nfe_config() -> dict[str, Any]:
+        return {
+            "tax_class": "",
+            "additional_information": "",
+            "freight_mode": "9",
+            "transport_snapshot": {},
+        }
+
     def _default_state(self) -> dict[str, Any]:
         return {
             "current_step": 1,
@@ -132,7 +170,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             "pricing_slider": None,
             "discount_type_override": "",
             "note_mode": "",
-            "nfe_config": {"tax_class": "", "additional_information": ""},
+            "nfe_config": self._empty_nfe_config(),
             "nfse_config": {"tax_class": "", "service_description": "", "additional_information": ""},
             "nfe_request_id": None,
             "nfse_request_id": None,
@@ -147,7 +185,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             state.update(stored_state)
 
         if not isinstance(state.get("nfe_config"), dict):
-            state["nfe_config"] = {"tax_class": "", "additional_information": ""}
+            state["nfe_config"] = self._empty_nfe_config()
         if not isinstance(state.get("nfse_config"), dict):
             state["nfse_config"] = {"tax_class": "", "service_description": "", "additional_information": ""}
 
@@ -281,12 +319,46 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         has_services = allocation.services_target > 0
 
         if has_products and has_services:
-            return {"nfe", "nfse", "both"}, ""
-        if has_products:
-            return {"nfe"}, "Nao ha saldo de servicos para emitir Nota Fiscal de Serviço com a configuracao atual."
-        if has_services:
-            return {"nfse"}, "Nao ha saldo de produtos para emitir Nota Fiscal de Produto com a configuracao atual."
-        return set(), "Nao ha saldo de produtos ou servicos para emitir nota com a configuracao atual."
+            slider_modes = {"nfe", "nfse", "both"}
+        elif has_products:
+            slider_modes = {"nfe"}
+        elif has_services:
+            slider_modes = {"nfse"}
+        else:
+            return set(), "Não há saldo de produtos ou serviços para emitir nota com a configuração atual."
+
+        has_nfe = NfeRequest.objects.filter(workorder=workorder).exists()
+        has_nfse = NfseRequest.objects.filter(workorder=workorder).exists()
+
+        emission_modes = {"nfe", "nfse", "both"}
+        emission_messages = []
+
+        if has_nfe and has_nfse:
+            return set(), "Esta OS já possui ambas as notas fiscais emitidas."
+
+        if has_nfe:
+            emission_modes.discard("nfe")
+            emission_modes.discard("both")
+            emission_messages.append("Esta OS já possui Nota Fiscal de Produto emitida.")
+
+        if has_nfse:
+            emission_modes.discard("nfse")
+            emission_modes.discard("both")
+            emission_messages.append("Esta OS já possui Nota Fiscal de Serviço emitida.")
+
+        allowed = slider_modes & emission_modes
+
+        if not allowed:
+            return set(), "Não ha opções de emissão disponiveis para esta OS."
+
+        messages_list = list(emission_messages)
+        if not messages_list:
+            if has_products and not has_services:
+                messages_list.append("Não há saldo de serviços para emitir Nota Fiscal de Serviço com a configuração atual.")
+            elif has_services and not has_products:
+                messages_list.append("Não há saldo de produtos para emitir Nota Fiscal de Produto com a configuração atual.")
+
+        return allowed, " ".join(messages_list)
 
     @staticmethod
     def _detect_discount_type_mismatch(*, workorder: WorkOrder, note_mode: str) -> tuple[bool, str]:
@@ -460,6 +532,9 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
         if step_key == "workorder":
             kwargs["workshop"] = self.workshop
+            selected_wo = self._selected_workorder(state)
+            if selected_wo is not None:
+                kwargs["workorder"] = selected_wo
         elif step_key in {"customer", "items", "summary"}:
             kwargs["workorder"] = workorder
         elif step_key == "note_mode":
@@ -601,6 +676,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
         nfe_request.status = NfeRequestStatus.CHECKING_PRODUCTS
         nfe_request.tax_class = str((state.get("nfe_config") or {}).get("tax_class") or "")
         nfe_request.additional_information = str((state.get("nfe_config") or {}).get("additional_information") or "")
+        nfe_request.freight_mode = int((state.get("nfe_config") or {}).get("freight_mode") or 9)
+        nfe_request.transport_snapshot = dict((state.get("nfe_config") or {}).get("transport_snapshot") or {})
         nfe_request.pricing_slider = self._selected_slider(state=state, workorder=workorder)
         nfe_request.discount_type_override = str(state.get("discount_type_override") or "")
         nfe_request.save()
@@ -784,6 +861,12 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
 
         if current_step_key == "workorder":
             workorder = form.cleaned_data["workorder"]
+            has_nfe = NfeRequest.objects.filter(workorder=workorder).exists()
+            has_nfse = NfseRequest.objects.filter(workorder=workorder).exists()
+            if has_nfe and not has_nfse:
+                messages.warning(self.request, "Esta OS ja possui Nota Fiscal de Produto emitida. Apenas a Nota Fiscal de Servico sera processada nesta emissao.")
+            elif has_nfse and not has_nfe:
+                messages.warning(self.request, "Esta OS ja possui Nota Fiscal de Servico emitida. Apenas a Nota Fiscal de Produto sera processada nesta emissao.")
             if state.get("workorder_id") != workorder.pk:
                 state.update(
                     {
@@ -791,7 +874,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                         "pricing_slider": None,
                         "discount_type_override": "",
                         "note_mode": _normalize_note_mode(self.request.GET.get("tipo")),
-                        "nfe_config": {"tax_class": "", "additional_information": ""},
+                        "nfe_config": self._empty_nfe_config(),
                         "nfse_config": {"tax_class": "", "service_description": "", "additional_information": ""},
                     }
                 )
@@ -848,7 +931,7 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
                 if selected_mode == "nfe":
                     state["nfse_config"] = {"tax_class": "", "service_description": "", "additional_information": ""}
                 elif selected_mode == "nfse":
-                    state["nfe_config"] = {"tax_class": "", "additional_information": ""}
+                    state["nfe_config"] = self._empty_nfe_config()
             state["note_mode"] = selected_mode
             next_key = "nfe_config" if selected_mode in {"nfe", "both"} else "nfse_config"
             next_step = self._set_current_step(state=state, step_key=next_key)
@@ -859,6 +942,8 @@ class EmissionRequestCreateView(LoginRequiredMixin, WorkshopScopedMixin, FormVie
             state["nfe_config"] = {
                 "tax_class": form.cleaned_data["tax_class"],
                 "additional_information": form.cleaned_data.get("additional_information", ""),
+                "freight_mode": form.cleaned_data.get("freight_mode", "9"),
+                "transport_snapshot": form.cleaned_data.get("transport_snapshot", {}),
             }
             self._write_state(state)
             if state.get("note_mode") == "both":

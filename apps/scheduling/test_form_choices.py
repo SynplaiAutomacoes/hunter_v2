@@ -6,6 +6,7 @@ from django.test import TestCase
 
 from apps.budget.models import Budget
 from apps.customer.models import Customer, Vehicle
+from apps.customer.vehicle_fuel import VehicleFuel
 from apps.scheduling.forms import AppointmentCalendarFilterForm, AppointmentForm
 from apps.workorder.models import WorkOrder
 from apps.workshops.models.workshops import Workshop
@@ -79,3 +80,18 @@ class AppointmentFormChoiceLoadingTests(TestCase):
         form = AppointmentCalendarFilterForm(workshop=self.workshop)
 
         self.assertFalse(form.fields["customer"].queryset.exists())
+
+    def test_guest_vehicle_fuel_falls_back_to_full_choices_without_fipe_cache(self) -> None:
+        form = AppointmentForm(
+            workshop=self.workshop,
+            initial={
+                "guest_vehicle_brand": "Marca Inexistente",
+                "guest_vehicle_model": "Modelo Inexistente",
+            },
+        )
+
+        fuel_choices = [value for value, _label in form.fields["guest_vehicle_fuel"].widget.choices if value]
+
+        self.assertIn(VehicleFuel.GASOLINA, fuel_choices)
+        self.assertIn(VehicleFuel.FLEX, fuel_choices)
+        self.assertGreater(len(fuel_choices), 1)
