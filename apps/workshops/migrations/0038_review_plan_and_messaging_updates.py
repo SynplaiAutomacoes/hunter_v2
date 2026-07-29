@@ -7,10 +7,10 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("workshops", "0034_satisfaction_survey_send_immediately_toggle"),
+        ("workshops", "0037_satisfaction_survey_send_immediately_toggle"),
         # Ensure oil_type FKs that still reference workshops.oiltype are created
         # before this RenameModel, otherwise fresh migrate / test DB setup fails.
-        ("budget", "0060_oil_change_tracking"),
+        ("budget", "0061_oil_change_tracking"),
         ("customer", "0018_oil_change_tracking"),
     ]
 

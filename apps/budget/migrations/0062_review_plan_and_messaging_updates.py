@@ -6,8 +6,8 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("budget", "0060_oil_change_tracking"),
-        ("workshops", "0035_review_plan_and_messaging_updates"),
+        ("budget", "0061_oil_change_tracking"),
+        ("workshops", "0038_review_plan_and_messaging_updates"),
     ]
 
     operations = [

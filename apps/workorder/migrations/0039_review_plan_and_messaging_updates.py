@@ -7,8 +7,8 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('workorder', '0037_wave2_stored_totals'),
-        ('workshops', '0035_review_plan_and_messaging_updates'),
+        ('workorder', '0038_merge_20260715_0157'),
+        ('workshops', '0038_review_plan_and_messaging_updates'),
     ]
 
     operations = [

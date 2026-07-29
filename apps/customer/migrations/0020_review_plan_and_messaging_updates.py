@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("customer", "0019_customer_accepts_messages"),
-        ("workshops", "0035_review_plan_and_messaging_updates"),
+        ("workshops", "0038_review_plan_and_messaging_updates"),
     ]
 
     operations = [
