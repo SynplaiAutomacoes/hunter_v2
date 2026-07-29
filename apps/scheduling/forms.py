@@ -13,14 +13,14 @@ from django.utils import timezone
 
 from apps.budget.models import Budget
 from apps.catalog.models import FipeModelFuelCache, FipeVehicleBrand, FipeVehicleModel, FipeVehicleType
-from apps.core.presentation.widgets import CPForCNPJInput, CheckboxInput, PhoneInput, PlateInput, SearchableSelectInput, TextInput, TextareaInput
+from apps.core.presentation.widgets import CPForCNPJInput, CheckboxButtonGroupInput, CheckboxInput, PhoneInput, PlateInput, SearchableSelectInput, TextInput, TextareaInput
 from apps.customer.cpf_cnpj_validator import is_valid_cpf
 from apps.customer.vehicle_engine import normalize_vehicle_engine_choice, vehicle_engine_form_choices
 from apps.customer.models import Customer, Vehicle
 from apps.customer.vehicle_fuel import normalize_vehicle_fuel_choice, vehicle_fuel_form_choices
 from apps.core.text_normalization import name_case, plate_case, sentence_case
-from apps.messaging.application.services.appointment_alert import ALERT_LEAD_TIME_CHOICES, sync_appointment_alert_schedule
-from apps.scheduling.models import Appointment, AppointmentStatus
+from apps.messaging.application.services.appointment_alert import sync_appointment_alert_schedule
+from apps.scheduling.models import ALERT_LEAD_TIME_CHOICES, Appointment, AppointmentStatus
 from apps.workorder.models import WorkOrder
 from apps.workshops.models.workshops import Workshop
 from apps.core.presentation.forms import CoreForm, CoreModelForm
@@ -181,6 +181,12 @@ class AppointmentForm(CoreModelForm):
     guest_vehicle_fuel = forms.CharField(label="Combustivel", required=False, widget=SearchableSelectInput(choices=vehicle_fuel_form_choices()))
     budget = forms.ModelChoiceField(label="Orcamento vinculado", queryset=Budget.objects.none(), widget=SearchableSelectInput(), required=False)
     workorder = forms.ModelChoiceField(label="Ordem de servico vinculada", queryset=WorkOrder.objects.none(), widget=SearchableSelectInput(), required=False)
+    alert_lead_times = forms.MultipleChoiceField(
+        label="Antecedência do alerta",
+        choices=ALERT_LEAD_TIME_CHOICES,
+        widget=CheckboxButtonGroupInput,
+        required=False,
+    )
 
     class Meta:
         model = Appointment
@@ -202,7 +208,7 @@ class AppointmentForm(CoreModelForm):
             "ends_at",
             "block_color",
             "alert_customer",
-            "alert_lead_time",
+            "alert_lead_times",
             "status",
             "budget",
             "workorder",
@@ -224,7 +230,6 @@ class AppointmentForm(CoreModelForm):
             "ends_at": forms.DateTimeInput(format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local", "class": "input-theme h-12"}),
             "block_color": forms.HiddenInput(),
             "alert_customer": CheckboxInput(),
-            "alert_lead_time": forms.Select(attrs={"class": "select select-bordered w-full h-12"}),
             "status": SearchableSelectInput(attrs={"class": "h-12"}),
             "notes": TextareaInput(rows=3),
         }
@@ -434,11 +439,11 @@ class AppointmentForm(CoreModelForm):
         if self.is_bound:
             alert_customer_initial = (self.data.get("alert_customer") or "") in {"on", "true", "1", "True"}
 
-        alert_lead_time_field = self.fields["alert_lead_time"]
-        alert_lead_time_field.choices = [("", "Selecione a antecedência")] + [(str(value), label) for value, label in ALERT_LEAD_TIME_CHOICES]
-        alert_lead_time_field.required = False
-        if self.instance and self.instance.alert_lead_time:
-            alert_lead_time_field.initial = self.instance.alert_lead_time
+        alert_lead_times_field = self.fields["alert_lead_times"]
+        alert_lead_times_field.required = False
+        alert_lead_times_field.label = ""
+        if self.instance and self.instance.pk and self.instance.alert_lead_times and not self.is_bound:
+            alert_lead_times_field.initial = [str(value) for value in self.instance.alert_lead_times]
 
         customer_vehicle_x_data = json.dumps(
             {
@@ -1085,8 +1090,20 @@ class AppointmentForm(CoreModelForm):
                     wrapper_class="col-span-12 lg:col-span-6",
                     **{"@change": "alertCustomer = !!$event.target.checked"},
                 ),
-                Field("alert_lead_time", wrapper_class="col-span-12 lg:col-span-6", **{"x-show": "alertCustomer", "x-cloak": True}),
                 Field("status", wrapper_class="col-span-12 lg:col-span-6"),
+                Div(
+                    HTML(
+                        """
+                        <div class="mb-3">
+                            <span class="block text-sm font-semibold text-base-content">Antecedência do alerta</span>
+                            <p class="mt-0.5 text-xs text-base-content/60">Escolha um ou mais horários antes do agendamento para avisar o cliente.</p>
+                        </div>
+                        """
+                    ),
+                    Field("alert_lead_times", wrapper_class="mb-0"),
+                    css_class="col-span-12 rounded-box border border-base-300 bg-base-200/30 p-4",
+                    **{"x-show": "alertCustomer", "x-cloak": True},
+                ),
                 HTML('<div class="col-span-12 mb-1 mt-2 text-sm font-semibold uppercase tracking-wide text-base-content/70">Vinculos</div>'),
                 Field("budget", wrapper_class="col-span-12 lg:col-span-6"),
                 Field("workorder", wrapper_class="col-span-12 lg:col-span-6"),
@@ -1245,11 +1262,13 @@ class AppointmentForm(CoreModelForm):
             self.add_error("vehicle", "Selecione um cliente cadastrado para vincular um veiculo.")
 
         alert_customer = bool(cleaned_data.get("alert_customer"))
-        alert_lead_time = cleaned_data.get("alert_lead_time")
-        if alert_customer and not alert_lead_time:
-            self.add_error("alert_lead_time", "Selecione a antecedência do alerta.")
+        alert_lead_times = cleaned_data.get("alert_lead_times") or []
+        if alert_customer and not alert_lead_times:
+            self.add_error("alert_lead_times", "Selecione ao menos uma antecedência do alerta.")
         if not alert_customer:
-            cleaned_data["alert_lead_time"] = None
+            cleaned_data["alert_lead_times"] = []
+        else:
+            cleaned_data["alert_lead_times"] = [int(value) for value in alert_lead_times]
 
         return cleaned_data
 

@@ -119,6 +119,9 @@ node_modules/
 
 # Local scratch images
 img.png
+.codex*
+.ruff*
+update_stock.sql
 
 # AI agent configuration (local tooling — not committed)
 .cursor/

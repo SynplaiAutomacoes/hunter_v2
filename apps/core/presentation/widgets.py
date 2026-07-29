@@ -228,5 +228,10 @@ class RadioButtonGroupInput(forms.RadioSelect):
     option_template_name = "widgets/radio_button_group_option.html"
 
 
+class CheckboxButtonGroupInput(forms.CheckboxSelectMultiple):
+    template_name = "widgets/checkbox_button_group.html"
+    option_template_name = "widgets/checkbox_button_group_option.html"
+
+
 class ImageInput(forms.ClearableFileInput):
     template_name = "widgets/image_input.html"

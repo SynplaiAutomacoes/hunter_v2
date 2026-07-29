@@ -427,7 +427,6 @@ class StockReportListView(LoginRequiredMixin, StockReportDataMixin, WorkshopScop
     context_object_name = "stock_report_items"
     htmx_template_name = "stock/partials/report_table.html"
     workshop_permission_codename = "view_stockproduct"
-    paginate_by = 20
 
     def get_queryset(self):
         return self._get_stock_report_queryset()
