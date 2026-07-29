@@ -8,13 +8,12 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.customer.services.messaging_consent import customer_can_receive_messages
-from apps.messaging.models import SatisfactionReview, ScheduledOutboundMessage
+from apps.messaging.application.services.typed_templates import get_active_template
+from apps.messaging.models import MessageTemplate, SatisfactionReview, ScheduledOutboundMessage
 from apps.messaging.rendering import render_message_template
 from apps.workorder.models import WorkOrder
 
 logger = logging.getLogger(__name__)
-
-SATISFACTION_SURVEY_MESSAGE = "Oi %%nome%%, tudo bem? Faz um tempinho que você esteve na %%nome_oficina%% para um serviço no seu carro, e ficamos curiosos: como foi? Sua avaliação nos ajuda muito a melhorar cada vez mais. Clique aqui: %%link-avaliacao%%"
 
 
 def allows_immediate_satisfaction_survey() -> bool:
@@ -54,11 +53,19 @@ def resolve_workorder_customer_phone(workorder: WorkOrder) -> str:
     return str(as_e164).lstrip("+")
 
 
-def build_satisfaction_survey_message(*, workorder: WorkOrder, public_token: str) -> str:
+def build_satisfaction_survey_message(*, workorder: WorkOrder, public_token: str) -> str | None:
+    template = get_active_template(workorder.workshop_id, MessageTemplate.TemplateType.SATISFACTION)
+    if template is None:
+        logger.info(
+            "satisfaction_survey_skipped_no_active_template",
+            extra={"workshop_id": workorder.workshop_id, "workorder_id": workorder.pk},
+        )
+        return None
+
     customer = workorder.budget.customer
     workshop = workorder.workshop
     return render_message_template(
-        SATISFACTION_SURVEY_MESSAGE,
+        template.message,
         customer=customer,
         workshop=workshop,
         workorder=workorder,
@@ -106,6 +113,11 @@ def schedule_satisfaction_survey_for_workorder(workorder: WorkOrder) -> Satisfac
         status=SatisfactionReview.Status.PENDING,
     )
     message = build_satisfaction_survey_message(workorder=workorder, public_token=review.public_token)
+    if not message:
+        review.status = SatisfactionReview.Status.CANCELLED
+        review.save(update_fields=["status", "atualizado_em"])
+        return None
+
     scheduled = ScheduledOutboundMessage.objects.create(
         workshop_id=workshop.pk,
         customer_id=customer.pk,

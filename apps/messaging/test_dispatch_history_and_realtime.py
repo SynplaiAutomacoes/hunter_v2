@@ -22,6 +22,7 @@ from apps.messaging.models import (
     CustomerMessageGroupMembership,
     MessageDispatchBatch,
     MessageDispatchLog,
+    MessageTemplate,
     ScheduledOutboundMessage,
 )
 from apps.messaging.test_dispatch_message_groups import FakeGroupRepository, FakeQueuePublisher, FakeSegmentBuilder
@@ -203,6 +204,13 @@ class AppointmentAlertScheduleTests(TestCase):
     def test_sync_creates_and_cancels_scheduled_outbound(self) -> None:
         workshop = _workshop(3)
         customer = _customer(workshop, 3)
+        MessageTemplate.objects.create(
+            workshop=workshop,
+            name="Agenda Hist",
+            message="Oi %%nome%% em %%data_agendamento%% %%hora_agendamento%%",
+            template_type=MessageTemplate.TemplateType.APPOINTMENT,
+            is_active=True,
+        )
         starts = timezone.now() + timedelta(hours=5)
         appointment = Appointment.objects.create(
             workshop=workshop,
@@ -211,24 +219,31 @@ class AppointmentAlertScheduleTests(TestCase):
             starts_at=starts,
             ends_at=starts + timedelta(hours=1),
             alert_customer=True,
-            alert_lead_time=60,
+            alert_lead_times=[60],
             status=AppointmentStatus.SCHEDULED,
         )
 
         scheduled = sync_appointment_alert_schedule(appointment)
-        assert scheduled is not None
-        self.assertEqual(scheduled.status, ScheduledOutboundMessage.Status.PENDING)
-        self.assertEqual(scheduled.run_at, starts - timedelta(minutes=60))
-        self.assertEqual(scheduled.phone, "5511988887777")
+        self.assertEqual(len(scheduled), 1)
+        self.assertEqual(scheduled[0].status, ScheduledOutboundMessage.Status.PENDING)
+        self.assertEqual(scheduled[0].run_at, starts - timedelta(minutes=60))
+        self.assertEqual(scheduled[0].phone, "5511988887777")
 
         appointment.alert_customer = False
         appointment.save(update_fields=["alert_customer"])
-        self.assertIsNone(sync_appointment_alert_schedule(appointment))
-        scheduled.refresh_from_db()
-        self.assertEqual(scheduled.status, ScheduledOutboundMessage.Status.CANCELLED)
+        self.assertEqual(sync_appointment_alert_schedule(appointment), [])
+        scheduled[0].refresh_from_db()
+        self.assertEqual(scheduled[0].status, ScheduledOutboundMessage.Status.CANCELLED)
 
     def test_sync_uses_e164_phone_for_guest_customer(self) -> None:
         workshop = _workshop(31)
+        MessageTemplate.objects.create(
+            workshop=workshop,
+            name="Agenda Guest",
+            message="Oi %%nome%% em %%data_agendamento%% %%hora_agendamento%%",
+            template_type=MessageTemplate.TemplateType.APPOINTMENT,
+            is_active=True,
+        )
         starts = timezone.now() + timedelta(hours=5)
         appointment = Appointment.objects.create(
             workshop=workshop,
@@ -238,15 +253,15 @@ class AppointmentAlertScheduleTests(TestCase):
             starts_at=starts,
             ends_at=starts + timedelta(hours=1),
             alert_customer=True,
-            alert_lead_time=30,
+            alert_lead_times=[30],
             status=AppointmentStatus.SCHEDULED,
         )
 
         scheduled = sync_appointment_alert_schedule(appointment)
-        assert scheduled is not None
-        self.assertEqual(scheduled.phone, "5511989472983")
-        self.assertNotIn("(", scheduled.phone)
-        self.assertNotIn("-", scheduled.phone)
+        self.assertEqual(len(scheduled), 1)
+        self.assertEqual(scheduled[0].phone, "5511989472983")
+        self.assertNotIn("(", scheduled[0].phone)
+        self.assertNotIn("-", scheduled[0].phone)
 
 
 class OutboundTickerTests(TestCase):

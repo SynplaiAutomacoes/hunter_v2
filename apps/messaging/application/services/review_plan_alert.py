@@ -13,11 +13,11 @@ from apps.messaging.rendering import render_message_template
 logger = logging.getLogger(__name__)
 
 
-def build_oil_change_alert_message(vehicle: Vehicle) -> str | None:
-    template = get_active_template(vehicle.workshop_id, MessageTemplate.TemplateType.OIL_CHANGE)
+def build_review_plan_alert_message(vehicle: Vehicle) -> str | None:
+    template = get_active_template(vehicle.workshop_id, MessageTemplate.TemplateType.REVIEW_PLAN)
     if template is None:
         logger.info(
-            "oil_change_alert_skipped_no_active_template",
+            "review_plan_alert_skipped_no_active_template",
             extra={"workshop_id": vehicle.workshop_id, "vehicle_id": vehicle.pk},
         )
         return None
@@ -41,16 +41,16 @@ def resolve_vehicle_whatsapp_phone(vehicle: Vehicle) -> str:
     return str(as_e164).lstrip("+")
 
 
-def sync_oil_change_alert_schedule(vehicle: Vehicle, *, now: datetime | None = None) -> ScheduledOutboundMessage | None:
+def sync_review_plan_alert_schedule(vehicle: Vehicle, *, now: datetime | None = None) -> ScheduledOutboundMessage | None:
     pending_qs = ScheduledOutboundMessage.objects.filter(
         vehicle=vehicle,
-        source=ScheduledOutboundMessage.Source.OIL_CHANGE_ALERT,
+        source=ScheduledOutboundMessage.Source.REVIEW_PLAN_ALERT,
         status=ScheduledOutboundMessage.Status.PENDING,
     )
 
     run_at = notification_run_at_for_vehicle(vehicle, now=now)
     phone = resolve_vehicle_whatsapp_phone(vehicle)
-    message = build_oil_change_alert_message(vehicle)
+    message = build_review_plan_alert_message(vehicle)
     accepts_messages = customer_can_receive_messages(getattr(vehicle, "customer", None))
     should_schedule = bool(run_at is not None and phone and vehicle.next_oil_change_date and message and accepts_messages)
 
@@ -72,7 +72,7 @@ def sync_oil_change_alert_schedule(vehicle: Vehicle, *, now: datetime | None = N
             message=message,
             run_at=run_at,
             status=ScheduledOutboundMessage.Status.PENDING,
-            source=ScheduledOutboundMessage.Source.OIL_CHANGE_ALERT,
+            source=ScheduledOutboundMessage.Source.REVIEW_PLAN_ALERT,
         )
 
     existing.customer_id = customer_id

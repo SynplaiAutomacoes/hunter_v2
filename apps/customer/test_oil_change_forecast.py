@@ -16,11 +16,12 @@ from apps.customer.models import Customer, MileageReadingSource, Vehicle, Vehicl
 from apps.customer.services.oil_change import (
     handle_workorder_delivery_oil_and_mileage,
     recalculate_and_sync_oil_alert,
-    recalculate_oil_forecasts_for_oil_type,
+    recalculate_oil_forecasts_for_review_plan,
+    reschedule_after_review_plan_alert_sent,
 )
-from apps.messaging.models import ScheduledOutboundMessage
+from apps.messaging.models import MessageTemplate, ScheduledOutboundMessage
 from apps.workorder.models import WorkOrder
-from apps.workshops.models.oil_types import OilType
+from apps.workshops.models.review_plans import ReviewPlan
 from apps.workshops.models.workshops import Workshop
 
 
@@ -110,12 +111,19 @@ class OilChangeIntegrationTests(TestCase):
             is_active=True,
             accepts_messages=True,
         )
-        self.oil_type = OilType.objects.create(
+        self.review_plan = ReviewPlan.objects.create(
             workshop=self.workshop,
             name="Sintetico 5W30",
             validity_days=180,
             validity_km=5_000,
             notification_lead_days=7,
+        )
+        MessageTemplate.objects.create(
+            workshop=self.workshop,
+            name="Plano de revisao",
+            message="Ola %%nome%%, revisao do %%modelo%% (%%placa%%) na %%nome_oficina%%.",
+            template_type=MessageTemplate.TemplateType.REVIEW_PLAN,
+            is_active=True,
         )
         self.vehicle = Vehicle.objects.create(
             workshop=self.workshop,
@@ -136,11 +144,15 @@ class OilChangeIntegrationTests(TestCase):
             vehicle=self.vehicle,
             entry_date=date(2026, 7, 20),
             current_km=12_000,
+        )
+        workorder = WorkOrder.objects.create(
+            workshop=self.workshop,
+            budget=budget,
+            km_final=12_050,
             last_oil_change_date=date(2026, 6, 30),
             last_oil_change_km=12_000,
-            oil_type=self.oil_type,
+            review_plan=self.review_plan,
         )
-        workorder = WorkOrder.objects.create(workshop=self.workshop, budget=budget, km_final=12_050)
         workorder.delivered_at = timezone.now()
         workorder.save(update_fields=["delivered_at"])
 
@@ -153,14 +165,14 @@ class OilChangeIntegrationTests(TestCase):
         self.assertEqual(oil_change.validity_days, 180)
         self.assertEqual(self.vehicle.last_oil_change_date, date(2026, 6, 30))
         self.assertEqual(self.vehicle.last_oil_change_km, 12_000)
-        self.assertEqual(self.vehicle.oil_type_id, self.oil_type.pk)
+        self.assertEqual(self.vehicle.review_plan_id, self.review_plan.pk)
         self.assertEqual(self.vehicle.km, 12_050)
         self.assertEqual(VehicleMileageReading.objects.filter(vehicle=self.vehicle).count(), 1)
         self.assertIsNotNone(self.vehicle.next_oil_change_date)
 
         scheduled = ScheduledOutboundMessage.objects.filter(
             vehicle=self.vehicle,
-            source=ScheduledOutboundMessage.Source.OIL_CHANGE_ALERT,
+            source=ScheduledOutboundMessage.Source.REVIEW_PLAN_ALERT,
             status=ScheduledOutboundMessage.Status.PENDING,
         )
         self.assertEqual(scheduled.count(), 1)
@@ -174,7 +186,7 @@ class OilChangeIntegrationTests(TestCase):
     def test_expired_oil_schedules_immediate_run_at(self) -> None:
         self.vehicle.last_oil_change_date = date(2025, 1, 1)
         self.vehicle.last_oil_change_km = 1_000
-        self.vehicle.oil_type = self.oil_type
+        self.vehicle.review_plan = self.review_plan
         self.vehicle.km = 20_000
         self.vehicle.save()
 
@@ -185,36 +197,78 @@ class OilChangeIntegrationTests(TestCase):
 
         scheduled = ScheduledOutboundMessage.objects.get(
             vehicle=self.vehicle,
-            source=ScheduledOutboundMessage.Source.OIL_CHANGE_ALERT,
+            source=ScheduledOutboundMessage.Source.REVIEW_PLAN_ALERT,
             status=ScheduledOutboundMessage.Status.PENDING,
         )
         self.assertLessEqual(scheduled.run_at, now + timedelta(seconds=5))
 
-    def test_oil_type_config_change_recalculates_trigger(self) -> None:
+    def test_review_plan_config_change_recalculates_trigger(self) -> None:
         self.vehicle.last_oil_change_date = date(2026, 6, 30)
         self.vehicle.last_oil_change_km = 10_000
-        self.vehicle.oil_type = self.oil_type
+        self.vehicle.review_plan = self.review_plan
         self.vehicle.km = 10_500
         self.vehicle.save()
         recalculate_and_sync_oil_alert(self.vehicle)
         first = ScheduledOutboundMessage.objects.get(
             vehicle=self.vehicle,
-            source=ScheduledOutboundMessage.Source.OIL_CHANGE_ALERT,
+            source=ScheduledOutboundMessage.Source.REVIEW_PLAN_ALERT,
             status=ScheduledOutboundMessage.Status.PENDING,
         )
         first_run_at = first.run_at
 
-        self.oil_type.validity_days = 30
-        self.oil_type.notification_lead_days = 3
-        self.oil_type.save(update_fields=["validity_days", "notification_lead_days", "atualizado_em"])
-        recalculate_oil_forecasts_for_oil_type(oil_type=self.oil_type)
+        self.review_plan.validity_days = 30
+        self.review_plan.notification_lead_days = 3
+        self.review_plan.save(update_fields=["validity_days", "notification_lead_days", "atualizado_em"])
+        recalculate_oil_forecasts_for_review_plan(review_plan=self.review_plan)
 
         pending = ScheduledOutboundMessage.objects.filter(
             vehicle=self.vehicle,
-            source=ScheduledOutboundMessage.Source.OIL_CHANGE_ALERT,
+            source=ScheduledOutboundMessage.Source.REVIEW_PLAN_ALERT,
             status=ScheduledOutboundMessage.Status.PENDING,
         )
         self.assertEqual(pending.count(), 1)
         self.assertNotEqual(pending.get().run_at, first_run_at)
         self.vehicle.refresh_from_db()
         self.assertEqual(self.vehicle.next_oil_change_date, date(2026, 6, 30) + timedelta(days=30))
+
+    def test_repeat_notification_advances_next_date_and_reschedules(self) -> None:
+        self.review_plan.repeat_notification = True
+        self.review_plan.save(update_fields=["repeat_notification", "atualizado_em"])
+        self.vehicle.last_oil_change_date = date(2026, 1, 1)
+        self.vehicle.last_oil_change_km = 1_000
+        self.vehicle.review_plan = self.review_plan
+        self.vehicle.next_oil_change_date = date(2026, 7, 1)
+        self.vehicle.km = 5_000
+        self.vehicle.save()
+
+        reschedule_after_review_plan_alert_sent(self.vehicle)
+        self.vehicle.refresh_from_db()
+        today = timezone.localdate()
+        expected_base = max(date(2026, 7, 1), today)
+        self.assertEqual(self.vehicle.next_oil_change_date, expected_base + timedelta(days=180))
+
+        pending = ScheduledOutboundMessage.objects.filter(
+            vehicle=self.vehicle,
+            source=ScheduledOutboundMessage.Source.REVIEW_PLAN_ALERT,
+            status=ScheduledOutboundMessage.Status.PENDING,
+        )
+        self.assertEqual(pending.count(), 1)
+
+    def test_repeat_notification_off_does_not_reschedule(self) -> None:
+        self.vehicle.last_oil_change_date = date(2026, 1, 1)
+        self.vehicle.last_oil_change_km = 1_000
+        self.vehicle.review_plan = self.review_plan
+        self.vehicle.next_oil_change_date = date(2026, 7, 1)
+        self.vehicle.save()
+
+        result = reschedule_after_review_plan_alert_sent(self.vehicle)
+        self.assertIsNone(result)
+        self.vehicle.refresh_from_db()
+        self.assertEqual(self.vehicle.next_oil_change_date, date(2026, 7, 1))
+        self.assertFalse(
+            ScheduledOutboundMessage.objects.filter(
+                vehicle=self.vehicle,
+                source=ScheduledOutboundMessage.Source.REVIEW_PLAN_ALERT,
+                status=ScheduledOutboundMessage.Status.PENDING,
+            ).exists()
+        )

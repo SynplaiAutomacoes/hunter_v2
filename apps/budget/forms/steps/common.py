@@ -12,7 +12,6 @@ from apps.core.utils import alert_confirm_layout
 from apps.customer.models import Customer, Vehicle
 from apps.quote.models.investigative_questions import InvestigativeQuestion, InvestigativeResponse
 from apps.workorder.models import WorkOrderDiscountType, WorkOrderStatus
-from apps.workshops.models.oil_types import OilType
 from apps.workshops.util.workshops import has_workshop_perm
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import HTML, Div, Field, Layout
@@ -61,7 +60,6 @@ __all__ = [
     "alert_confirm_layout",
     "Customer",
     "Vehicle",
-    "OilType",
     "InvestigativeQuestion",
     "InvestigativeResponse",
     "WorkOrderDiscountType",

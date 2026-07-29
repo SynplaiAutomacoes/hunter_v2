@@ -89,7 +89,7 @@ NAVBAR_MENU_DEFINITIONS: tuple[dict[str, Any], ...] = (
             {"label": "Kit", "view_name": "catalog:kits_list"},
             {"label": "Grupo", "view_name": "catalog:group_list"},
             {"label": "Checklist", "view_name": "checklist:checklist_list"},
-            {"label": "Tipos de Óleo", "view_name": "workshops:oil_type_list"},
+            {"label": "Planos de Revisão", "view_name": "workshops:review_plan_list"},
         ),
     },
     {

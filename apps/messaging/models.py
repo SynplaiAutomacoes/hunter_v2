@@ -18,15 +18,17 @@ def generate_satisfaction_review_token() -> str:
 class MessageTemplate(models.Model):
     class TemplateType(models.TextChoices):
         GENERIC = "generic", "Genérico"
-        OIL_CHANGE = "oil_change", "Lembrete troca de óleo"
+        REVIEW_PLAN = "review_plan", "Plano de revisão"
         BIRTHDAY = "birthday", "Aniversário"
         APPOINTMENT = "appointment", "Agendamento"
+        SATISFACTION = "satisfaction", "Avaliação"
 
     SPECIAL_TYPES: frozenset[str] = frozenset(
         {
-            TemplateType.OIL_CHANGE,
+            TemplateType.REVIEW_PLAN,
             TemplateType.BIRTHDAY,
             TemplateType.APPOINTMENT,
+            TemplateType.SATISFACTION,
         }
     )
 
@@ -124,7 +126,7 @@ class MessageDispatchBatch(TimeStampedModel):
     class Source(models.TextChoices):
         GROUP_MANUAL = "group_manual", "Disparo manual de grupo"
         APPOINTMENT_ALERT = "appointment_alert", "Alerta de agendamento"
-        OIL_CHANGE_ALERT = "oil_change_alert", "Alerta de troca de óleo"
+        REVIEW_PLAN_ALERT = "review_plan_alert", "Alerta de plano de revisão"
         BIRTHDAY_ALERT = "birthday_alert", "Alerta de aniversário"
         SATISFACTION_SURVEY = "satisfaction_survey", "Pesquisa de satisfação"
         COMMAND = "command", "Comando"
@@ -236,7 +238,7 @@ class MessageDispatchLog(TimeStampedModel):
 class ScheduledOutboundMessage(TimeStampedModel):
     class Source(models.TextChoices):
         APPOINTMENT_ALERT = "appointment_alert", "Alerta de agendamento"
-        OIL_CHANGE_ALERT = "oil_change_alert", "Alerta de troca de óleo"
+        REVIEW_PLAN_ALERT = "review_plan_alert", "Alerta de plano de revisão"
         BIRTHDAY_ALERT = "birthday_alert", "Alerta de aniversário"
         SATISFACTION_SURVEY = "satisfaction_survey", "Pesquisa de satisfação"
 

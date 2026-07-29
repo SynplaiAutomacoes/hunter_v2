@@ -1324,7 +1324,13 @@ class UpdateWorkOrderStatusView(LoginRequiredMixin, WorkshopScopedMixin, View):
             try:
                 km_final = approval_form.cleaned_data["km_final"]
                 unsigned_delivery_reason = approval_form.cleaned_data["unsigned_delivery_reason"]
-                workorder.complete_delivery(km_final=km_final, unsigned_delivery_reason=unsigned_delivery_reason)
+                workorder.complete_delivery(
+                    km_final=km_final,
+                    unsigned_delivery_reason=unsigned_delivery_reason,
+                    last_oil_change_date=approval_form.cleaned_data.get("last_oil_change_date"),
+                    last_oil_change_km=approval_form.cleaned_data.get("last_oil_change_km"),
+                    review_plan=approval_form.cleaned_data.get("review_plan"),
+                )
 
                 approve_workorder_with_stock(workorder=workorder, user=request.user)
                 sync_workorder_financial_movement(workorder=workorder)

@@ -120,9 +120,9 @@ class Vehicle(TimeStampedModel):
     chassi = models.CharField(verbose_name="Chassi", max_length=500, null=True, blank=True)
     last_oil_change_date = models.DateField(verbose_name="Data da última troca de óleo", null=True, blank=True)
     last_oil_change_km = models.PositiveIntegerField(verbose_name="KM da última troca de óleo", null=True, blank=True)
-    oil_type = models.ForeignKey(
-        "workshops.OilType",
-        verbose_name="Tipo de óleo",
+    review_plan = models.ForeignKey(
+        "workshops.ReviewPlan",
+        verbose_name="Plano de revisão",
         on_delete=models.SET_NULL,
         related_name="vehicles",
         null=True,
@@ -170,9 +170,9 @@ class VehicleOilChange(TimeStampedModel):
     vehicle = models.ForeignKey(Vehicle, verbose_name="Veículo", on_delete=models.CASCADE, related_name="oil_changes")
     changed_at = models.DateField(verbose_name="Data da troca")
     odometer_km = models.PositiveIntegerField(verbose_name="Quilometragem da troca")
-    oil_type = models.ForeignKey(
-        "workshops.OilType",
-        verbose_name="Tipo de óleo",
+    review_plan = models.ForeignKey(
+        "workshops.ReviewPlan",
+        verbose_name="Plano de revisão",
         on_delete=models.SET_NULL,
         related_name="oil_changes",
         null=True,
