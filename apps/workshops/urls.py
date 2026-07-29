@@ -8,6 +8,7 @@ from .views.workshops import (
     WorkshopDeleteView,
     WorkshopListView,
     WorkshopLogoView,
+    WorkshopWebmaniaProvisionToggleView,
     WorkshopWebmaniaSyncView,
     WorkshopUpdateView,
 )
@@ -82,6 +83,11 @@ urlpatterns = [
     path("workshops_costs/copy-selection/", WorkshopCostSelectionModalView.as_view(), name="workshop_cost_copy_selection"),
     #
     path("webmania/empresas/sync/", WorkshopWebmaniaSyncView.as_view(), name="webmania_company_sync"),
+    path(
+        "webmania/empresas/provision-toggle/",
+        WorkshopWebmaniaProvisionToggleView.as_view(),
+        name="webmania_provision_toggle",
+    ),
     path("historico-emissoes/", WorkshopEmissionHistoryView.as_view(), name="emission_history"),
     # WhatsApp
     path("<int:pk>/whatsapp/connect/", WhatsAppConnectView.as_view(), name="whatsapp_connect"),
