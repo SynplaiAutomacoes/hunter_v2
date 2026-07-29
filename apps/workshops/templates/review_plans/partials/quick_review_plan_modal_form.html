@@ -4,7 +4,7 @@
         <div class="space-y-1">
             <h3 class="flex items-center gap-2 text-xl font-bold text-base-content whitespace-nowrap">
                 <span class="material-icons text-primary">{% if form.instance.pk %}edit{% else %}opacity{% endif %}</span>
-                <span>{% if form.instance.pk %}Editar tipo de óleo{% else %}Cadastro rápido de tipo de óleo{% endif %}</span>
+                <span>{% if form.instance.pk %}Editar plano de revisão{% else %}Cadastro rápido de plano de revisão{% endif %}</span>
             </h3>
             <p class="text-sm text-base-content/70 whitespace-nowrap">
                 Defina o nome, validade e antecedência da notificação.
@@ -21,7 +21,7 @@
 
         <div class="flex flex-col-reverse gap-2 border-t border-base-300 pt-4 sm:flex-row sm:items-center sm:justify-end">
             <button type="button" class="btn btn-ghost" onclick="this.closest('dialog').close()">Cancelar</button>
-            <button type="submit" class="btn btn-primary whitespace-nowrap">Salvar tipo de óleo</button>
+            <button type="submit" class="btn btn-primary whitespace-nowrap">Salvar plano de revisão</button>
         </div>
     </form>
 </div>

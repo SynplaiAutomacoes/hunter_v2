@@ -22,7 +22,7 @@ from apps.customer.models import (
 if TYPE_CHECKING:
     from apps.budget.models import Budget
     from apps.workorder.models import WorkOrder
-    from apps.workshops.models.oil_types import OilType
+    from apps.workshops.models.review_plans import ReviewPlan
 
 
 def _local_today() -> date:
@@ -35,11 +35,11 @@ def _readings_for_vehicle(vehicle: Vehicle) -> list[MileageReadingPoint]:
 
 
 def build_vehicle_oil_forecast(vehicle: Vehicle, *, today: date | None = None) -> OilChangeForecast | None:
-    if vehicle.last_oil_change_date is None or vehicle.last_oil_change_km is None or vehicle.oil_type_id is None:
+    if vehicle.last_oil_change_date is None or vehicle.last_oil_change_km is None or vehicle.review_plan_id is None:
         return None
 
-    oil_type = vehicle.oil_type
-    if oil_type is None:
+    review_plan = vehicle.review_plan
+    if review_plan is None:
         return None
 
     effective_today = today or _local_today()
@@ -47,8 +47,8 @@ def build_vehicle_oil_forecast(vehicle: Vehicle, *, today: date | None = None) -
     return compute_oil_change_forecast(
         last_oil_change_date=vehicle.last_oil_change_date,
         last_oil_change_km=vehicle.last_oil_change_km,
-        validity_days=oil_type.validity_days,
-        validity_km=oil_type.validity_km,
+        validity_days=review_plan.validity_days,
+        validity_km=review_plan.validity_km,
         current_km=vehicle.km,
         today=effective_today,
         daily_km_average=daily_average,
@@ -69,10 +69,36 @@ def apply_forecast_to_vehicle(vehicle: Vehicle, forecast: OilChangeForecast | No
 def recalculate_and_sync_oil_alert(vehicle: Vehicle) -> OilChangeForecast | None:
     forecast = build_vehicle_oil_forecast(vehicle)
     apply_forecast_to_vehicle(vehicle, forecast)
-    from apps.messaging.application.services.oil_change_alert import sync_oil_change_alert_schedule
+    from apps.messaging.application.services.review_plan_alert import sync_review_plan_alert_schedule
 
-    sync_oil_change_alert_schedule(vehicle)
+    sync_review_plan_alert_schedule(vehicle)
     return forecast
+
+
+def reschedule_after_review_plan_alert_sent(vehicle: Vehicle) -> OilChangeForecast | None:
+    """Advance the next reminder window and reschedule after a review-plan alert is sent.
+
+    Used when the review plan has `repeat_notification` enabled and no new oil change was
+    recorded yet. Advances `next_oil_change_date` by another `validity_days` period from
+    the current next date (or today if already past), then overwrites the pending alert
+    so the customer is notified again. Once a real `VehicleOilChange` is recorded, the
+    forecast is recalculated from fresh data and this loop naturally stops.
+    """
+    review_plan = vehicle.review_plan
+    if review_plan is None or not review_plan.repeat_notification:
+        return None
+
+    today = _local_today()
+    base = vehicle.next_oil_change_date or today
+    if base < today:
+        base = today
+    vehicle.next_oil_change_date = base + timedelta(days=int(review_plan.validity_days))
+    vehicle.save(update_fields=["next_oil_change_date", "atualizado_em"])
+
+    from apps.messaging.application.services.review_plan_alert import sync_review_plan_alert_schedule
+
+    sync_review_plan_alert_schedule(vehicle)
+    return build_vehicle_oil_forecast(vehicle)
 
 
 def record_mileage_reading(
@@ -102,10 +128,10 @@ def record_mileage_reading(
 def record_oil_change_from_workorder_delivery(*, workorder: WorkOrder) -> VehicleOilChange | None:
     budget = workorder.budget
     vehicle = getattr(budget, "vehicle", None) if budget is not None else None
-    if vehicle is None or budget is None:
+    if vehicle is None:
         return None
 
-    has_oil_change = bool(budget.last_oil_change_date and budget.last_oil_change_km is not None and budget.oil_type_id)
+    has_oil_change = bool(workorder.last_oil_change_date and workorder.last_oil_change_km is not None and workorder.review_plan_id)
     if not has_oil_change:
         return None
 
@@ -113,24 +139,24 @@ def record_oil_change_from_workorder_delivery(*, workorder: WorkOrder) -> Vehicl
     if existing is not None:
         return existing
 
-    oil_type = budget.oil_type
-    if oil_type is None:
+    review_plan = workorder.review_plan
+    if review_plan is None:
         return None
 
     oil_change = VehicleOilChange.objects.create(
         vehicle=vehicle,
-        changed_at=budget.last_oil_change_date,
-        odometer_km=int(budget.last_oil_change_km),
-        oil_type=oil_type,
-        validity_days=oil_type.validity_days,
-        validity_km=oil_type.validity_km,
+        changed_at=workorder.last_oil_change_date,
+        odometer_km=int(workorder.last_oil_change_km),
+        review_plan=review_plan,
+        validity_days=review_plan.validity_days,
+        validity_km=review_plan.validity_km,
         budget=budget,
         workorder=workorder,
     )
     vehicle.last_oil_change_date = oil_change.changed_at
     vehicle.last_oil_change_km = oil_change.odometer_km
-    vehicle.oil_type = oil_type
-    vehicle.save(update_fields=["last_oil_change_date", "last_oil_change_km", "oil_type", "atualizado_em"])
+    vehicle.review_plan = review_plan
+    vehicle.save(update_fields=["last_oil_change_date", "last_oil_change_km", "review_plan", "atualizado_em"])
     return oil_change
 
 
@@ -183,22 +209,22 @@ def handle_budget_approved_mileage(*, budget: Budget) -> None:
         update_vehicle_km=False,
     )
     vehicle.refresh_from_db()
-    if vehicle.oil_type_id and vehicle.last_oil_change_date and vehicle.last_oil_change_km is not None:
+    if vehicle.review_plan_id and vehicle.last_oil_change_date and vehicle.last_oil_change_km is not None:
         recalculate_and_sync_oil_alert(vehicle)
 
 
-def recalculate_oil_forecasts_for_oil_type(*, oil_type: OilType) -> None:
-    vehicles = Vehicle.objects.filter(oil_type=oil_type).select_related("oil_type", "customer")
+def recalculate_oil_forecasts_for_review_plan(*, review_plan: ReviewPlan) -> None:
+    vehicles = Vehicle.objects.filter(review_plan=review_plan).select_related("review_plan", "customer")
     for vehicle in vehicles.iterator():
         recalculate_and_sync_oil_alert(vehicle)
 
 
 def notification_run_at_for_vehicle(vehicle: Vehicle, *, now: datetime | None = None) -> datetime | None:
-    if vehicle.next_oil_change_date is None or vehicle.oil_type_id is None or vehicle.oil_type is None:
+    if vehicle.next_oil_change_date is None or vehicle.review_plan_id is None or vehicle.review_plan is None:
         return None
 
     current = now or timezone.now()
-    lead_days = int(vehicle.oil_type.notification_lead_days)
+    lead_days = int(vehicle.review_plan.notification_lead_days)
     trigger_date = vehicle.next_oil_change_date - timedelta(days=lead_days)
     local_tz = timezone.get_current_timezone()
     run_at = timezone.make_aware(datetime.combine(trigger_date, time.min), local_tz)

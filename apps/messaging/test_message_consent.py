@@ -11,11 +11,11 @@ from apps.customer.models import Customer, Vehicle
 from apps.customer.services.messaging_consent import customer_can_receive_messages
 from apps.messaging.application.services.appointment_alert import sync_appointment_alert_schedule
 from apps.messaging.application.services.birthday_alert import enqueue_birthday_alerts_for_day
-from apps.messaging.application.services.oil_change_alert import sync_oil_change_alert_schedule
 from apps.messaging.application.services.outbound_dispatch import (
     cancel_pending_outbound_for_customer,
     process_due_outbound_messages,
 )
+from apps.messaging.application.services.review_plan_alert import sync_review_plan_alert_schedule
 from apps.messaging.application.services.satisfaction_survey import schedule_satisfaction_survey_for_workorder
 from apps.messaging.application.use_cases.dispatch_message_groups import (
     DispatchGroupsRequest,
@@ -144,9 +144,9 @@ class AlertSchedulingConsentTests(TestCase):
         )
         MessageTemplate.objects.create(
             workshop=self.workshop,
-            name="Oleo Consent",
+            name="Revisao Consent",
             message="Troca %%placa%%",
-            template_type=MessageTemplate.TemplateType.OIL_CHANGE,
+            template_type=MessageTemplate.TemplateType.REVIEW_PLAN,
             is_active=True,
         )
         MessageTemplate.objects.create(
@@ -169,51 +169,50 @@ class AlertSchedulingConsentTests(TestCase):
             ends_at=starts + timedelta(hours=1),
             status=AppointmentStatus.SCHEDULED,
             alert_customer=True,
-            alert_lead_time=60,
+            alert_lead_times=[60],
         )
 
-    def test_oil_change_alert_is_not_scheduled_for_opted_out_customer(self) -> None:
+    def test_review_plan_alert_is_not_scheduled_for_opted_out_customer(self) -> None:
         with patch(
-            "apps.messaging.application.services.oil_change_alert.notification_run_at_for_vehicle",
+            "apps.messaging.application.services.review_plan_alert.notification_run_at_for_vehicle",
             return_value=timezone.now() + timedelta(days=1),
         ):
-            scheduled = sync_oil_change_alert_schedule(self.vehicle)
+            scheduled = sync_review_plan_alert_schedule(self.vehicle)
         self.assertIsNone(scheduled)
         self.assertFalse(ScheduledOutboundMessage.objects.filter(vehicle=self.vehicle).exists())
 
-    def test_oil_change_alert_cancels_pending_when_customer_opts_out(self) -> None:
+    def test_review_plan_alert_cancels_pending_when_customer_opts_out(self) -> None:
         self.customer.accepts_messages = True
         self.customer.save(update_fields=["accepts_messages"])
         with patch(
-            "apps.messaging.application.services.oil_change_alert.notification_run_at_for_vehicle",
+            "apps.messaging.application.services.review_plan_alert.notification_run_at_for_vehicle",
             return_value=timezone.now() + timedelta(days=1),
         ):
-            scheduled = sync_oil_change_alert_schedule(self.vehicle)
+            scheduled = sync_review_plan_alert_schedule(self.vehicle)
         assert scheduled is not None
 
         self.customer.accepts_messages = False
         self.customer.save(update_fields=["accepts_messages"])
         self.vehicle.refresh_from_db()
         with patch(
-            "apps.messaging.application.services.oil_change_alert.notification_run_at_for_vehicle",
+            "apps.messaging.application.services.review_plan_alert.notification_run_at_for_vehicle",
             return_value=timezone.now() + timedelta(days=1),
         ):
-            self.assertIsNone(sync_oil_change_alert_schedule(self.vehicle))
+            self.assertIsNone(sync_review_plan_alert_schedule(self.vehicle))
 
         scheduled.refresh_from_db()
         self.assertEqual(scheduled.status, ScheduledOutboundMessage.Status.CANCELLED)
 
     def test_appointment_alert_is_not_scheduled_for_opted_out_customer(self) -> None:
         appointment = self._create_appointment(customer=self.customer)
-        self.assertIsNone(sync_appointment_alert_schedule(appointment))
+        self.assertEqual(sync_appointment_alert_schedule(appointment), [])
         self.assertFalse(ScheduledOutboundMessage.objects.filter(appointment=appointment).exists())
 
     def test_appointment_alert_still_schedules_for_guest_without_customer(self) -> None:
         appointment = self._create_appointment(customer=None, guest_phone="+5511989472983")
         scheduled = sync_appointment_alert_schedule(appointment)
-        self.assertIsNotNone(scheduled)
-        assert scheduled is not None
-        self.assertEqual(scheduled.phone, "5511989472983")
+        self.assertEqual(len(scheduled), 1)
+        self.assertEqual(scheduled[0].phone, "5511989472983")
 
     def test_birthday_alert_skips_opted_out_customer(self) -> None:
         today = timezone.localdate()
@@ -250,6 +249,13 @@ class SatisfactionSurveyConsentTests(TestCase):
             budget=self.budget,
             status=WorkOrderStatus.APPROVED,
             delivered_at=timezone.now(),
+        )
+        MessageTemplate.objects.create(
+            workshop=self.workshop,
+            name="Avaliacao Consent",
+            message="Oi %%nome%% da %%nome_oficina%%. Avalie: %%link-avaliacao%%",
+            template_type=MessageTemplate.TemplateType.SATISFACTION,
+            is_active=True,
         )
 
     def test_survey_is_not_scheduled_for_opted_out_customer(self) -> None:

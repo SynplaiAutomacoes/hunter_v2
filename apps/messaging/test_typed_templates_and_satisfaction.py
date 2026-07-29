@@ -11,11 +11,8 @@ from apps.budget.models import Budget
 from apps.customer.models import Customer, Vehicle
 from apps.messaging.application.services.appointment_alert import sync_appointment_alert_schedule
 from apps.messaging.application.services.birthday_alert import enqueue_birthday_alerts_for_day
-from apps.messaging.application.services.oil_change_alert import sync_oil_change_alert_schedule
-from apps.messaging.application.services.satisfaction_survey import (
-    SATISFACTION_SURVEY_MESSAGE,
-    schedule_satisfaction_survey_for_workorder,
-)
+from apps.messaging.application.services.review_plan_alert import sync_review_plan_alert_schedule
+from apps.messaging.application.services.satisfaction_survey import schedule_satisfaction_survey_for_workorder
 from apps.messaging.infrastructure.forms.message_group_form import MessageTemplateForm
 from apps.messaging.models import MessageTemplate, SatisfactionReview, ScheduledOutboundMessage
 from apps.messaging.rendering import render_message_template
@@ -41,15 +38,15 @@ class MessageTemplateTypeTests(TestCase):
     def test_activating_typed_template_deactivates_previous(self) -> None:
         first = MessageTemplate.objects.create(
             workshop=self.workshop,
-            name="Oleo 1",
+            name="Revisao 1",
             message="Troca %%placa%%",
-            template_type=MessageTemplate.TemplateType.OIL_CHANGE,
+            template_type=MessageTemplate.TemplateType.REVIEW_PLAN,
             is_active=True,
         )
         form = MessageTemplateForm(
             data={
-                "name": "Oleo 2",
-                "template_type": MessageTemplate.TemplateType.OIL_CHANGE,
+                "name": "Revisao 2",
+                "template_type": MessageTemplate.TemplateType.REVIEW_PLAN,
                 "message": "Nova troca %%placa%%",
                 "is_active": True,
             },
@@ -60,7 +57,7 @@ class MessageTemplateTypeTests(TestCase):
         first.refresh_from_db()
         self.assertFalse(first.is_active)
         self.assertTrue(second.is_active)
-        self.assertEqual(second.template_type, MessageTemplate.TemplateType.OIL_CHANGE)
+        self.assertEqual(second.template_type, MessageTemplate.TemplateType.REVIEW_PLAN)
 
     def test_multiple_generic_templates_can_be_active(self) -> None:
         MessageTemplate.objects.create(
@@ -114,30 +111,30 @@ class TypedAlertTemplateTests(TestCase):
             next_oil_change_date=timezone.localdate() + timedelta(days=10),
         )
 
-    def test_oil_alert_uses_active_template(self) -> None:
+    def test_review_plan_alert_uses_active_template(self) -> None:
         MessageTemplate.objects.create(
             workshop=self.workshop,
-            name="Oleo Ativo",
+            name="Revisao Ativa",
             message="Ola %%nome%% placa %%placa%%",
-            template_type=MessageTemplate.TemplateType.OIL_CHANGE,
+            template_type=MessageTemplate.TemplateType.REVIEW_PLAN,
             is_active=True,
         )
         with patch(
-            "apps.messaging.application.services.oil_change_alert.notification_run_at_for_vehicle",
+            "apps.messaging.application.services.review_plan_alert.notification_run_at_for_vehicle",
             return_value=timezone.now() + timedelta(days=1),
         ):
-            scheduled = sync_oil_change_alert_schedule(self.vehicle)
+            scheduled = sync_review_plan_alert_schedule(self.vehicle)
         self.assertIsNotNone(scheduled)
         assert scheduled is not None
         self.assertIn("Cliente Alerta", scheduled.message)
         self.assertIn("ABC1D23", scheduled.message)
 
-    def test_oil_alert_skips_without_template(self) -> None:
+    def test_review_plan_alert_skips_without_template(self) -> None:
         with patch(
-            "apps.messaging.application.services.oil_change_alert.notification_run_at_for_vehicle",
+            "apps.messaging.application.services.review_plan_alert.notification_run_at_for_vehicle",
             return_value=timezone.now() + timedelta(days=1),
         ):
-            scheduled = sync_oil_change_alert_schedule(self.vehicle)
+            scheduled = sync_review_plan_alert_schedule(self.vehicle)
         self.assertIsNone(scheduled)
 
     def test_appointment_alert_uses_active_template(self) -> None:
@@ -157,13 +154,53 @@ class TypedAlertTemplateTests(TestCase):
             ends_at=starts + timedelta(hours=1),
             status=AppointmentStatus.SCHEDULED,
             alert_customer=True,
-            alert_lead_time=60,
+            alert_lead_times=[60],
         )
         scheduled = sync_appointment_alert_schedule(appointment)
-        self.assertIsNotNone(scheduled)
-        assert scheduled is not None
-        self.assertIn("Cliente Alerta", scheduled.message)
-        self.assertIn(timezone.localtime(starts).strftime("%d/%m/%Y"), scheduled.message)
+        self.assertEqual(len(scheduled), 1)
+        self.assertIn("Cliente Alerta", scheduled[0].message)
+        self.assertIn(timezone.localtime(starts).strftime("%d/%m/%Y"), scheduled[0].message)
+
+    def test_appointment_alert_creates_one_message_per_lead_time(self) -> None:
+        MessageTemplate.objects.create(
+            workshop=self.workshop,
+            name="Agenda Multi",
+            message="Lembrete %%nome%% em %%data_agendamento%%",
+            template_type=MessageTemplate.TemplateType.APPOINTMENT,
+            is_active=True,
+        )
+        starts = timezone.now() + timedelta(days=3)
+        appointment = Appointment.objects.create(
+            workshop=self.workshop,
+            customer=self.customer,
+            title="Revisao multi",
+            starts_at=starts,
+            ends_at=starts + timedelta(hours=1),
+            status=AppointmentStatus.SCHEDULED,
+            alert_customer=True,
+            alert_lead_times=[60, 1440],
+        )
+        scheduled = sync_appointment_alert_schedule(appointment)
+        self.assertEqual(len(scheduled), 2)
+        run_ats = {row.run_at for row in scheduled}
+        self.assertEqual(
+            run_ats,
+            {starts - timedelta(minutes=60), starts - timedelta(minutes=1440)},
+        )
+
+        appointment.alert_lead_times = [30]
+        appointment.save(update_fields=["alert_lead_times"])
+        scheduled_again = sync_appointment_alert_schedule(appointment)
+        self.assertEqual(len(scheduled_again), 1)
+        self.assertEqual(scheduled_again[0].run_at, starts - timedelta(minutes=30))
+        self.assertEqual(
+            ScheduledOutboundMessage.objects.filter(
+                appointment=appointment,
+                source=ScheduledOutboundMessage.Source.APPOINTMENT_ALERT,
+                status=ScheduledOutboundMessage.Status.PENDING,
+            ).count(),
+            1,
+        )
 
 
 class BirthdayAlertTests(TestCase):
@@ -236,8 +273,15 @@ class SatisfactionSurveyTests(TestCase):
             status=WorkOrderStatus.APPROVED,
             delivered_at=timezone.now(),
         )
+        self.satisfaction_template = MessageTemplate.objects.create(
+            workshop=self.workshop,
+            name="Avaliacao",
+            message="Oi %%nome%% da %%nome_oficina%%. Avalie: %%link-avaliacao%%",
+            template_type=MessageTemplate.TemplateType.SATISFACTION,
+            is_active=True,
+        )
 
-    def test_schedule_uses_fixed_message_and_delay(self) -> None:
+    def test_schedule_uses_active_template_and_delay(self) -> None:
         review = schedule_satisfaction_survey_for_workorder(self.workorder)
         self.assertIsNotNone(review)
         assert review is not None
@@ -343,12 +387,12 @@ class SatisfactionSurveyTests(TestCase):
         review.refresh_from_db()
         self.assertFalse(review.google_cta_shown)
 
-    def test_fixed_message_constant_contains_expected_tokens(self) -> None:
-        self.assertIn("%%nome%%", SATISFACTION_SURVEY_MESSAGE)
-        self.assertIn("%%nome_oficina%%", SATISFACTION_SURVEY_MESSAGE)
-        self.assertIn("%%link-avaliacao%%", SATISFACTION_SURVEY_MESSAGE)
+    def test_active_satisfaction_template_contains_expected_tokens(self) -> None:
+        self.assertIn("%%nome%%", self.satisfaction_template.message)
+        self.assertIn("%%nome_oficina%%", self.satisfaction_template.message)
+        self.assertIn("%%link-avaliacao%%", self.satisfaction_template.message)
         rendered = render_message_template(
-            SATISFACTION_SURVEY_MESSAGE,
+            self.satisfaction_template.message,
             customer=self.customer,
             workshop=self.workshop,
             extras={"link-avaliacao": "https://example.com/review/abc"},

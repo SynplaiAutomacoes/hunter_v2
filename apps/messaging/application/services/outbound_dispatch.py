@@ -24,11 +24,28 @@ from apps.messaging.models import MessageDispatchBatch, ScheduledOutboundMessage
 logger = logging.getLogger(__name__)
 
 _BATCH_SOURCE_BY_OUTBOUND: dict[str, str] = {
-    ScheduledOutboundMessage.Source.OIL_CHANGE_ALERT: MessageDispatchBatch.Source.OIL_CHANGE_ALERT,
+    ScheduledOutboundMessage.Source.REVIEW_PLAN_ALERT: MessageDispatchBatch.Source.REVIEW_PLAN_ALERT,
     ScheduledOutboundMessage.Source.APPOINTMENT_ALERT: MessageDispatchBatch.Source.APPOINTMENT_ALERT,
     ScheduledOutboundMessage.Source.BIRTHDAY_ALERT: MessageDispatchBatch.Source.BIRTHDAY_ALERT,
     ScheduledOutboundMessage.Source.SATISFACTION_SURVEY: MessageDispatchBatch.Source.SATISFACTION_SURVEY,
 }
+
+
+def _reschedule_review_plan_alert_if_repeating(row: ScheduledOutboundMessage) -> None:
+    if row.source != ScheduledOutboundMessage.Source.REVIEW_PLAN_ALERT:
+        return
+
+    vehicle = row.vehicle
+    if vehicle is None:
+        return
+
+    review_plan = getattr(vehicle, "review_plan", None)
+    if review_plan is None or not review_plan.repeat_notification:
+        return
+
+    from apps.customer.services.oil_change import reschedule_after_review_plan_alert_sent
+
+    reschedule_after_review_plan_alert_sent(vehicle)
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,7 +107,9 @@ def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> D
     notified_workshops: dict[int, str] = {}
 
     try:
-        rows = list(ScheduledOutboundMessage.objects.select_related("workshop", "appointment", "vehicle").filter(pk__in=claimed_ids))
+        rows = list(
+            ScheduledOutboundMessage.objects.select_related("workshop", "appointment", "vehicle", "vehicle__review_plan").filter(pk__in=claimed_ids)
+        )
         for row in rows:
             batch_source = _BATCH_SOURCE_BY_OUTBOUND.get(row.source, MessageDispatchBatch.Source.APPOINTMENT_ALERT)
             batch = create_dispatch_batch(
@@ -122,6 +141,7 @@ def process_due_outbound_messages(*, limit: int = 100, force: bool = False) -> D
                 row.error = ""
                 row.save(update_fields=["status", "batch", "error", "atualizado_em"])
                 mark_satisfaction_review_sent(row)
+                _reschedule_review_plan_alert_if_repeating(row)
                 instance_name = str(getattr(row.workshop, "whatsapp_instance_name", "") or "")
                 notified_workshops[row.workshop_id] = instance_name
                 sent += 1

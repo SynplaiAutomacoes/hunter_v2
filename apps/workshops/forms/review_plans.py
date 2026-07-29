@@ -8,19 +8,20 @@ from crispy_forms.layout import Div, Field, HTML, Layout, Submit
 
 from apps.core.presentation.forms import CoreModelForm
 from apps.core.presentation.widgets import CheckboxInput, NumberInput, TextInput
-from apps.workshops.models.oil_types import OilType
+from apps.workshops.models.review_plans import ReviewPlan
 from apps.workshops.models.workshops import Workshop
 
 
-class OilTypeForm(CoreModelForm):
+class ReviewPlanForm(CoreModelForm):
     class Meta:
-        model = OilType
-        fields = ["name", "validity_days", "validity_km", "notification_lead_days", "is_active"]
+        model = ReviewPlan
+        fields = ["name", "validity_days", "validity_km", "notification_lead_days", "repeat_notification", "is_active"]
         widgets = {
             "name": TextInput(attrs={"placeholder": "Ex: Sintético 5W30"}),
             "validity_days": NumberInput(),
             "validity_km": NumberInput(),
             "notification_lead_days": NumberInput(),
+            "repeat_notification": CheckboxInput(),
             "is_active": CheckboxInput(),
         }
 
@@ -33,7 +34,7 @@ class OilTypeForm(CoreModelForm):
         self.helper.layout = self.get_layout()
 
     def get_layout(self):
-        cancel_url = reverse("workshops:oil_type_list")
+        cancel_url = reverse("workshops:review_plan_list")
 
         return Layout(
             Div(
@@ -41,6 +42,7 @@ class OilTypeForm(CoreModelForm):
                 Field("validity_days", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("validity_km", wrapper_class="col-span-12 lg:col-span-4"),
                 Field("notification_lead_days", wrapper_class="col-span-12 lg:col-span-4"),
+                Field("repeat_notification", wrapper_class="col-span-12"),
                 Field("is_active", wrapper_class="col-span-12"),
                 css_class="grid grid-cols-12 gap-4",
             ),
@@ -55,18 +57,18 @@ class OilTypeForm(CoreModelForm):
     def clean_name(self):
         name = self.cleaned_data.get("name")
         if name and self.workshop:
-            qs = OilType.objects.filter(workshop=self.workshop, name__iexact=name)
+            qs = ReviewPlan.objects.filter(workshop=self.workshop, name__iexact=name)
             if self.instance.pk:
                 qs = qs.exclude(pk=self.instance.pk)
             if qs.exists():
-                raise forms.ValidationError("Já existe um tipo de óleo com este nome.")
+                raise forms.ValidationError("Já existe um plano de revisão com este nome.")
         return name
 
 
-class QuickOilTypeForm(OilTypeForm):
-    """Oil type form for HTMX quick-create/update modal (no outer form tag/buttons)."""
+class QuickReviewPlanForm(ReviewPlanForm):
+    """Review plan form for HTMX quick-create/update modal (no outer form tag/buttons)."""
 
-    class Meta(OilTypeForm.Meta):
+    class Meta(ReviewPlanForm.Meta):
         fields = ["name", "validity_days", "validity_km", "notification_lead_days"]
 
     def __init__(self, *args, workshop: Workshop | None = None, **kwargs):

@@ -14,18 +14,6 @@ from apps.scheduling.models import Appointment, AppointmentStatus
 logger = logging.getLogger(__name__)
 
 
-ALERT_LEAD_TIME_CHOICES: list[tuple[int, str]] = [
-    (30, "30 minutos"),
-    (60, "1 hora"),
-    (120, "2 horas"),
-    (180, "3 horas"),
-    (300, "5 horas"),
-    (1440, "1 dia"),
-    (2880, "2 dias"),
-    (10080, "1 semana"),
-]
-
-
 def build_appointment_alert_message(appointment: Appointment) -> str | None:
     template = get_active_template(appointment.workshop_id, MessageTemplate.TemplateType.APPOINTMENT)
     if template is None:
@@ -61,14 +49,16 @@ def resolve_appointment_whatsapp_phone(appointment: Appointment) -> str:
     return ""
 
 
-def sync_appointment_alert_schedule(appointment: Appointment) -> ScheduledOutboundMessage | None:
+def sync_appointment_alert_schedule(appointment: Appointment) -> list[ScheduledOutboundMessage]:
+    """Create/update one pending outbound message per selected alert lead time."""
     pending_qs = ScheduledOutboundMessage.objects.filter(
         appointment=appointment,
         source=ScheduledOutboundMessage.Source.APPOINTMENT_ALERT,
         status=ScheduledOutboundMessage.Status.PENDING,
     )
 
-    should_schedule = bool(appointment.alert_customer and appointment.alert_lead_time and appointment.status == AppointmentStatus.SCHEDULED)
+    lead_times = [int(value) for value in (appointment.alert_lead_times or []) if value]
+    should_schedule = bool(appointment.alert_customer and lead_times and appointment.status == AppointmentStatus.SCHEDULED)
 
     # Guests have no Customer record, so there is no toggle to honour for them.
     if should_schedule and appointment.customer_id and not customer_can_receive_messages(appointment.customer):
@@ -76,37 +66,44 @@ def sync_appointment_alert_schedule(appointment: Appointment) -> ScheduledOutbou
 
     if not should_schedule:
         pending_qs.update(status=ScheduledOutboundMessage.Status.CANCELLED)
-        return None
+        return []
 
     message = build_appointment_alert_message(appointment)
     if not message:
         pending_qs.update(status=ScheduledOutboundMessage.Status.CANCELLED)
-        return None
+        return []
 
-    run_at = appointment.starts_at - timedelta(minutes=int(appointment.alert_lead_time))
     phone = resolve_appointment_whatsapp_phone(appointment)
     if not phone:
         pending_qs.update(status=ScheduledOutboundMessage.Status.CANCELLED)
-        return None
+        return []
 
-    existing = pending_qs.order_by("-criado_em").first()
+    desired_run_ats = {appointment.starts_at - timedelta(minutes=lead_minutes): lead_minutes for lead_minutes in lead_times}
+    existing_by_run_at = {row.run_at: row for row in pending_qs.order_by("-criado_em")}
+    kept_ids: list[int] = []
+    result: list[ScheduledOutboundMessage] = []
 
-    if existing is None:
-        return ScheduledOutboundMessage.objects.create(
-            workshop_id=appointment.workshop_id,
-            appointment=appointment,
-            customer_id=appointment.customer_id,
-            phone=phone,
-            message=message,
-            run_at=run_at,
-            status=ScheduledOutboundMessage.Status.PENDING,
-            source=ScheduledOutboundMessage.Source.APPOINTMENT_ALERT,
-        )
+    for run_at in desired_run_ats:
+        existing = existing_by_run_at.get(run_at)
+        if existing is None:
+            existing = ScheduledOutboundMessage.objects.create(
+                workshop_id=appointment.workshop_id,
+                appointment=appointment,
+                customer_id=appointment.customer_id,
+                phone=phone,
+                message=message,
+                run_at=run_at,
+                status=ScheduledOutboundMessage.Status.PENDING,
+                source=ScheduledOutboundMessage.Source.APPOINTMENT_ALERT,
+            )
+        else:
+            existing.customer_id = appointment.customer_id
+            existing.phone = phone
+            existing.message = message
+            existing.run_at = run_at
+            existing.save(update_fields=["customer_id", "phone", "message", "run_at", "atualizado_em"])
+        kept_ids.append(existing.pk)
+        result.append(existing)
 
-    existing.customer_id = appointment.customer_id
-    existing.phone = phone
-    existing.message = message
-    existing.run_at = run_at
-    existing.save(update_fields=["customer_id", "phone", "message", "run_at", "atualizado_em"])
-    pending_qs.exclude(pk=existing.pk).update(status=ScheduledOutboundMessage.Status.CANCELLED)
-    return existing
+    pending_qs.exclude(pk__in=kept_ids).update(status=ScheduledOutboundMessage.Status.CANCELLED)
+    return result

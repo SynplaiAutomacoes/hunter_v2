@@ -29,6 +29,7 @@ from apps.finance.models.finance import WebmaniaCompany
 from apps.core.infrastructure.services.webmania.webmania_secrets import decrypt_secret
 from apps.finance.views.common import DirectorWorkshopAccessMixin
 from apps.iam.utils import get_or_create_director_role
+from apps.messaging.application.services.default_templates import create_default_message_templates
 from apps.workshops.forms.workshops import (
     BaseWebmaniaCompanySectionForm,
     WorkshopAddressSectionForm,
@@ -154,6 +155,7 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
                 )
 
                 create_default_monthly_costs(workshop=workshop)
+                create_default_message_templates(workshop=workshop)
 
                 self.object = workshop
                 logger.info(
