@@ -19,6 +19,7 @@ from apps.core.infrastructure.services.webmania.webmania_errors import build_web
 from apps.core.infrastructure.services.webmania.webmania_secrets import encrypt_secret
 from apps.iam.utils import get_or_create_director_role
 from apps.workshops.models.workshops import Workshop
+from apps.workshops.util.default_setup import create_default_workshop_setup
 from apps.workshops.util.monthly_costs import create_default_monthly_costs
 
 
@@ -173,6 +174,7 @@ def _ensure_workshop_for_company_payload(*, payload: dict[str, Any], base_worksh
             is_active=True,
         )
         create_default_monthly_costs(workshop=workshop)
+        create_default_workshop_setup(workshop=workshop)
 
     if actor_user is not None:
         director_role = get_or_create_director_role(account=account)

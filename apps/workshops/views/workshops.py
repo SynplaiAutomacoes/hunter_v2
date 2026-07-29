@@ -48,6 +48,7 @@ from apps.workshops.services.files import (
     schedule_workshop_files_cleanup,
 )
 from apps.workshops.usecases.upload_file_usecase import UploadWorkshopFileUseCase
+from apps.workshops.util.default_setup import create_default_workshop_setup
 from apps.workshops.util.monthly_costs import create_default_monthly_costs
 from apps.workshops.util.workshops import has_workshop_perm, is_workshop_director, is_workshop_manager
 
@@ -153,6 +154,7 @@ class WorkshopCreateView(LoginRequiredMixin, CreateView):
                 )
 
                 create_default_monthly_costs(workshop=workshop)
+                create_default_workshop_setup(workshop=workshop)
 
                 self.object = workshop
                 logger.info(
