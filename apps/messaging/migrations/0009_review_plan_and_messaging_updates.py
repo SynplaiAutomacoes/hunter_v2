@@ -98,7 +98,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("messaging", "0008_typed_templates_and_satisfaction_reviews"),
-        ("workshops", "0035_review_plan_and_messaging_updates"),
+        ("workshops", "0038_review_plan_and_messaging_updates"),
     ]
 
     operations = [

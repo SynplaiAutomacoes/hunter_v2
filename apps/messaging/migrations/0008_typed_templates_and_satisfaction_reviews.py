@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
         ("customer", "0018_oil_change_tracking"),
         ("messaging", "0007_oil_change_tracking"),
         ("workorder", "0037_wave2_stored_totals"),
-        ("workshops", "0031_typed_templates_and_satisfaction_reviews"),
+        ("workshops", "0034_typed_templates_and_satisfaction_reviews"),
     ]
 
     operations = [

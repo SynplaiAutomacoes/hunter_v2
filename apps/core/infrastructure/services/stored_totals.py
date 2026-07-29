@@ -35,12 +35,20 @@ def _iter_batches(queryset: QuerySet[ModelT], *, batch_size: int) -> Iterator[li
         yield batch
 
 
-def backfill_stored_totals(*, batch_size: int = 250, workshop_id: int | None = None) -> StoredTotalsBackfillResult:
+def backfill_stored_totals(
+    *,
+    batch_size: int = 250,
+    workshop_id: int | None = None,
+    budget_types: frozenset[str] | set[str] | None = None,
+) -> StoredTotalsBackfillResult:
     """Rebuild denormalized totals with the canonical pricing and payment rules.
 
     This is intentionally an idempotent maintenance operation instead of a data
     migration: historical Django models cannot safely reproduce the complete
     pricing graph (kits, benefits, discounts and frozen workshop costs).
+
+    Pass ``budget_types`` (e.g. ``{\"warranty\", \"courtesy\"}``) to limit the
+    rebuild to those document types — useful for targeted retroactive fixes.
     """
     if batch_size <= 0:
         raise ValueError("batch_size must be greater than zero")
@@ -54,6 +62,9 @@ def backfill_stored_totals(*, batch_size: int = 250, workshop_id: int | None = N
     if workshop_id is not None:
         budget_queryset = budget_queryset.filter(workshop_id=workshop_id)
         workorder_queryset = workorder_queryset.filter(workshop_id=workshop_id)
+    if budget_types is not None:
+        budget_queryset = budget_queryset.filter(budget_type__in=budget_types)
+        workorder_queryset = workorder_queryset.filter(budget_type__in=budget_types)
 
     budgets_scanned = 0
     budgets_updated = 0
@@ -61,7 +72,7 @@ def backfill_stored_totals(*, batch_size: int = 250, workshop_id: int | None = N
         changed_budgets: list[Budget] = []
         for budget in budgets:
             stored_total_before = budget.stored_total_amount
-            canonical_total = Money(budget.total_budget_value.amount, "BRL")
+            canonical_total = Money(budget.stored_total_source_value.amount, "BRL")
             if stored_total_before != canonical_total:
                 budgets_updated += 1
             if budget.stored_total_amount != canonical_total:
@@ -79,7 +90,7 @@ def backfill_stored_totals(*, batch_size: int = 250, workshop_id: int | None = N
         for workorder in workorders:
             stored_total_before = workorder.stored_total_amount
             stored_paid_before = workorder.stored_paid_amount
-            canonical_total = Money(workorder.total_budget_value.amount, "BRL")
+            canonical_total = Money(workorder.stored_total_source_value.amount, "BRL")
             canonical_paid = Money(workorder.paid_value.amount, "BRL")
             if stored_total_before != canonical_total or stored_paid_before != canonical_paid:
                 workorders_updated += 1

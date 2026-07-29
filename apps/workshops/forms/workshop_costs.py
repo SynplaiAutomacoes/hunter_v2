@@ -27,7 +27,14 @@ from apps.core.presentation.widgets import (
 from apps.workshops.models.workshop_costs import WorkshopCost, WorkshopCostWorkDay, WorkshopCostItem
 from apps.workshops.models.monthly_costs import MonthlyCost
 from apps.workshops.models.workshops import Workshop
-from apps.workshops.util.monthly_costs import ADMIN_SALARY_MONTHLY_COST_NAME, MECHANIC_SALARY_MONTHLY_COST_NAME
+from apps.workshops.util.monthly_costs import (
+    ADMIN_SALARY_MONTHLY_COST_NAME,
+    MECHANIC_SALARY_MONTHLY_COST_NAME,
+    PRO_LABORE_MONTHLY_COST_ALIASES,
+    PRO_LABORE_MONTHLY_COST_NAME,
+    TRANSPORT_ALLOWANCE_MONTHLY_COST_ALIASES,
+    TRANSPORT_ALLOWANCE_MONTHLY_COST_NAME,
+)
 
 BRAZILIAN_STATE_CHOICES: list[tuple[str, str]] = [
     ("AC", "Acre (AC)"),
@@ -64,6 +71,14 @@ class WorkshopCostForm(CoreModelForm):
     EDIT_WARNING_MESSAGES = {
         MECHANIC_SALARY_MONTHLY_COST_NAME: "Esta é a soma total dos salários dos colaboradores produtivos, deseja manter?",
         ADMIN_SALARY_MONTHLY_COST_NAME: "Esta é a soma total dos salários dos colaboradores administrativos, deseja manter?",
+    }
+    SALARY_SYNC_COST_KINDS_BY_NAME = {
+        MECHANIC_SALARY_MONTHLY_COST_NAME: "productive",
+        ADMIN_SALARY_MONTHLY_COST_NAME: "administrative",
+        PRO_LABORE_MONTHLY_COST_NAME: "pro_labore",
+        **{alias: "pro_labore" for alias in PRO_LABORE_MONTHLY_COST_ALIASES},
+        TRANSPORT_ALLOWANCE_MONTHLY_COST_NAME: "transport",
+        **{alias: "transport" for alias in TRANSPORT_ALLOWANCE_MONTHLY_COST_ALIASES},
     }
     work_day_dates = forms.CharField(required=False, widget=forms.HiddenInput())
     state = forms.ChoiceField(
@@ -123,6 +138,15 @@ class WorkshopCostForm(CoreModelForm):
         super().__init__(*args, **kwargs)
         self.workshop = workshop
 
+        if workshop is not None:
+            from apps.workshops.util.monthly_costs import (
+                unify_pro_labore_monthly_cost,
+                unify_transport_allowance_monthly_cost,
+            )
+
+            unify_pro_labore_monthly_cost(workshop=workshop)
+            unify_transport_allowance_monthly_cost(workshop=workshop)
+
         if not self.instance.pk and not self.data:
             today = datetime.date.today()
             self.fields["month"].initial = today.month
@@ -138,6 +162,7 @@ class WorkshopCostForm(CoreModelForm):
         self.initial.setdefault("state", "SP")
 
         self.cost_fields_names = []
+        self.cost_fields_by_name: dict[str, MonthlyCost] = {}
         for cost in self.active_costs:
             cost_id = cost.pk
             if cost_id is None:
@@ -145,6 +170,7 @@ class WorkshopCostForm(CoreModelForm):
 
             field_name = f"cost_item_{cost_id}"
             self.cost_fields_names.append(field_name)
+            self.cost_fields_by_name[field_name] = cost
 
             self.fields[field_name] = MoneyField(label=cost.name, required=False, widget=MoneyInput())
 
@@ -152,17 +178,31 @@ class WorkshopCostForm(CoreModelForm):
                 self.initial[field_name] = saved_values[cost_id]
 
             self._set_cost_field_restore_metadata(field_name=field_name, cost_name=cost.name, original_value=saved_values.get(cost_id))
+            self._set_cost_field_salary_sync_metadata(field_name=field_name, monthly_cost=cost)
 
         self.helper = FormHelper()
         self.helper.form_method = "post"
         self.helper.layout = self.get_layout()
+
+    @classmethod
+    def salary_sync_kind_for_cost_name(cls, cost_name: str) -> str | None:
+        from apps.workshops.util.monthly_costs import _normalize_cost_name
+
+        target = _normalize_cost_name(cost_name)
+        for canonical_name, kind in cls.SALARY_SYNC_COST_KINDS_BY_NAME.items():
+            if _normalize_cost_name(canonical_name) == target:
+                return kind
+        return None
+
+    def _build_cost_fields_layout(self) -> list[Field]:
+        return [Field(field_name, wrapper_class="col-span-12 lg:col-span-3") for field_name in self.cost_fields_names]
 
     def get_layout(self) -> Layout:
         cancel_url = reverse("workshops:workshop_cost_list")
         calculate_url = reverse("workshops:workshop_cost_calculate")
         copy_modal_url = reverse("workshops:workshop_cost_copy_selection")
 
-        cost_fields_layout = [Field(name, wrapper_class="col-span-12 lg:col-span-3") for name in self.cost_fields_names]
+        cost_fields_layout = self._build_cost_fields_layout()
 
         copy_btn_html = ""
         if not self.instance.pk:
@@ -259,6 +299,24 @@ class WorkshopCostForm(CoreModelForm):
 
         field.widget.attrs["restore_original_value"] = self._serialize_money_value(original_value)
         field.widget.attrs["restore_warning_message"] = warning_message
+
+    def _set_cost_field_salary_sync_metadata(self, *, field_name: str, monthly_cost: MonthlyCost) -> None:
+        if monthly_cost.pk is None:
+            return
+
+        cost_kind = self.salary_sync_kind_for_cost_name(monthly_cost.name)
+        if cost_kind is None:
+            return
+
+        field = self.fields.get(field_name)
+        if field is None:
+            return
+
+        field.widget.attrs["salary_sync_url"] = reverse("workshops:workshop_cost_sync_salary_items")
+        field.widget.attrs["salary_sync_vals"] = json.dumps(
+            {"cost_kind": cost_kind, "monthly_cost_id": str(monthly_cost.pk)}
+        )
+        field.widget.attrs["salary_sync_label"] = f"Atualizar {monthly_cost.name}"
 
     @staticmethod
     def _serialize_money_value(value: object | None) -> str:
@@ -487,7 +545,7 @@ class WorkshopCostForm(CoreModelForm):
                             button.type = 'button';
                             button.textContent = String(day);
                             button.dataset.date = dateValue;
-                            
+
                             let buttonClass = 'h-7 w-7 rounded-sm border text-[11px] font-semibold transition cursor-pointer ';
                             if (isSelected) {{
                                 buttonClass += 'cal-day-selected border-success bg-success/25 text-success-content hover:bg-success/35';

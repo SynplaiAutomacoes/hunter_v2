@@ -1,11 +1,44 @@
-from typing import Literal
+from typing import Any, Literal
 
 from django import forms
 from djmoney.forms import MoneyWidget
 
 
+def _looks_like_money_amount(value: object) -> bool:
+    if value is None:
+        return False
+    text = str(value).strip().replace(",", ".")
+    if not text:
+        return False
+    try:
+        float(text)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
 class MoneyInput(MoneyWidget):
+    """Money widget that always posts amount in ``*_0`` and currency in ``*_1``."""
+
     template_name = "widgets/money_input.html"
+
+    def value_from_datadict(self, data: Any, files: Any, name: str) -> list[Any]:
+        values = super().value_from_datadict(data, files, name)
+        if not isinstance(values, list) or len(values) < 2:
+            return values
+
+        amount, currency = values[0], values[1]
+        # Guard against swapped/duplicated POST values where the amount lands on the currency ChoiceField
+        # ("Faça uma escolha válida. 55000.00 não é uma das escolhas disponíveis.").
+        if _looks_like_money_amount(currency):
+            if amount in (None, "") or (isinstance(amount, str) and amount.strip().upper() == "BRL"):
+                amount, currency = currency, "BRL"
+            else:
+                currency = "BRL"
+        elif currency in (None, ""):
+            currency = "BRL"
+
+        return [amount, currency]
 
 
 class CPForCNPJInput(forms.TextInput):

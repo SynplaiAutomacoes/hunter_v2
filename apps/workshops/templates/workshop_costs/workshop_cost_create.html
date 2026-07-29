@@ -1,5 +1,11 @@
 {% extends 'crud/form_page.html' %}
+{% load crispy_forms_tags %}
 
 {% block crud_title %}Novo Custo Mensal da Oficina{% endblock %}
 {% block crud_subtitle %}Preencha os dados do mês de referência.{% endblock %}
 {% block crud_back_url %}{% url 'workshops:workshop_cost_list' %}{% endblock %}
+
+{% block crud_form %}
+    {% crispy form %}
+    {% include 'workshop_costs/partials/workshop_cost_salary_sync_script.html' %}
+{% endblock %}
