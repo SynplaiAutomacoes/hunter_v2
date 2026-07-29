@@ -8,6 +8,11 @@ urlpatterns = [
     # Customer
     path("", views.CustomerListView.as_view(), name="customer_list"),
     path("create/", views.CustomerCreateView.as_view(), name="customer_create"),
+    path(
+        "disable-all-messaging/",
+        views.CustomerDisableAllMessagingView.as_view(),
+        name="disable_all_messaging",
+    ),
     path("<int:pk>/edit/", views.CustomerUpdateView.as_view(), name="customer_update"),
     path("<int:pk>/vehicle-section/", views.VehicleSectionView.as_view(), name="vehicle-section"),
     path("<int:pk>/delete/", views.CustomerDeleteView.as_view(), name="customer_delete"),

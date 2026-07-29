@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from django.db.models import Q, QuerySet
 
 from apps.customer.models import Customer
+from apps.workshops.models.workshops import Workshop
 
 
 MESSAGEABLE_CUSTOMER_Q = Q(is_active=True, accepts_messages=True)
@@ -28,3 +29,13 @@ def blocked_customer_ids(customer_ids: Iterable[int | None]) -> set[int]:
         return set()
     allowed = set(filter_messageable_customers(Customer.objects.filter(pk__in=wanted)).values_list("pk", flat=True))
     return wanted - allowed
+
+
+def disable_workshop_customer_messaging(*, workshop: Workshop) -> dict[str, int]:
+    """Desliga `accepts_messages` de todos os clientes da oficina e cancela outbound pendente."""
+    from apps.messaging.application.services.outbound_dispatch import cancel_pending_outbound_for_customers
+
+    opted_in_ids = list(Customer.objects.filter(workshop=workshop, accepts_messages=True).values_list("pk", flat=True))
+    updated = Customer.objects.filter(pk__in=opted_in_ids).update(accepts_messages=False) if opted_in_ids else 0
+    cancelled = cancel_pending_outbound_for_customers(opted_in_ids)
+    return {"customers_updated": updated, "outbound_cancelled": cancelled}

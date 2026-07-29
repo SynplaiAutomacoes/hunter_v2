@@ -1,24 +1,29 @@
 from typing import Any
 
+from django.contrib import messages
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Count, Prefetch
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, redirect
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse, JsonResponse
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
+from django.views import View
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
 from apps.catalog.models import FipeModelFuelCache, FipeVehicleBrand, FipeVehicleModel, FipeVehicleType
 from apps.budget.models import Budget
 from apps.core.infrastructure.kit_prefetch import budget_items_with_kit_prefetch, workorder_items_with_kit_prefetch
 from apps.core.infrastructure.query_filters import QueryParamFilter, apply_is_active_filter, apply_query_param_filters
+from apps.core.infrastructure.runtime_environment import is_non_production_environment
 from apps.core.infrastructure.search import apply_text_search
 from apps.core.infrastructure.services.dashboard_query_service import (
     _build_injected_pricing_context,
     _prepare_budget_for_dashboard_pricing,
     _prepare_workorder_for_dashboard_pricing,
 )
+from apps.customer.services.messaging_consent import disable_workshop_customer_messaging
 from apps.messaging.application.services.outbound_dispatch import cancel_pending_outbound_for_customer
 from apps.workshops.mixin import WorkshopScopedMixin
 from apps.workshops.util.workshops import get_active_workshop_or_404
@@ -102,11 +107,7 @@ def _build_customer_history_context(customer: Customer) -> dict[str, Any]:
     workshop_cost = WorkshopCost.objects.filter(workshop=workshop, month=today.month, year=today.year).first()
     pricing_context = _build_injected_pricing_context(workshop=workshop, workshop_cost=workshop_cost)
 
-    workorder_qs = (
-        WorkOrder.objects.select_related("budget", "budget__vehicle")
-        .prefetch_related(workorder_items_with_kit_prefetch(with_kit_tree=False))
-        .order_by("pk")
-    )
+    workorder_qs = WorkOrder.objects.select_related("budget", "budget__vehicle").prefetch_related(workorder_items_with_kit_prefetch(with_kit_tree=False)).order_by("pk")
     budgets = (
         Budget.objects.filter(customer=customer)
         .select_related("vehicle", "workshop")
@@ -174,8 +175,27 @@ class CustomerListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateResp
         ]
 
         context["state_choices"] = Customer.estado.field.choices
+        context["show_disable_all_messaging_action"] = is_non_production_environment()
 
         return context
+
+
+class CustomerDisableAllMessagingView(LoginRequiredMixin, WorkshopScopedMixin, View):
+    """Desliga recebimento de mensagens de todos os clientes da oficina ativa (somente fora de prod)."""
+
+    model = Customer
+    workshop_permission_codename = "change_customer"
+
+    def post(self, request, *args: object, **kwargs: object):
+        if not is_non_production_environment():
+            raise PermissionDenied
+
+        result = disable_workshop_customer_messaging(workshop=self.workshop)
+        messages.success(
+            request,
+            f"Envio de mensagens desativado para {result['customers_updated']} cliente(s). {result['outbound_cancelled']} mensagem(ns) pendente(s) cancelada(s).",
+        )
+        return redirect("customer:customer_list")
 
 
 class CustomerCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMixin, CreateView):
@@ -196,6 +216,7 @@ class CustomerCreateView(PageFavoriteMixin, LoginRequiredMixin, WorkshopScopedMi
             data["vehicles"] = VehicleFormSet(self.request.POST, prefix="vehicles", form_kwargs={"workshop": self.workshop})
         else:
             data["vehicles"] = VehicleFormSet(prefix="vehicles", form_kwargs={"workshop": self.workshop})
+        data["show_disable_all_messaging_action"] = is_non_production_environment()
         return data
 
     @transaction.atomic
@@ -380,6 +401,10 @@ class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
         form.instance.workshop = self.workshop
 
         if form.is_valid() and vehicles.is_valid():
+            # Callable defaults set show_hidden_initial; without the hidden field in POST,
+            # changed_data may miss accepts_messages. Compare against form.initial instead.
+            previously_accepted_messages = bool(form.initial.get("accepts_messages", False))
+            
             transfer_vehicle_ids = self.request.POST.getlist("transfer_plate")
             transferred_plates: set[str] = set()
             if transfer_vehicle_ids:
@@ -406,7 +431,7 @@ class CustomerUpdateView(LoginRequiredMixin, WorkshopScopedMixin, UpdateView):
             for obj in vehicles.deleted_objects:
                 obj.delete()
 
-            if "accepts_messages" in form.changed_data and not self.object.accepts_messages:
+            if previously_accepted_messages and not self.object.accepts_messages:
                 cancel_pending_outbound_for_customer(self.object.pk)
 
             response = super().form_valid(form)
