@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('budget', '0060_oil_change_tracking'),
+        ('budget', '0061_oil_change_tracking'),
         ('customer', '0017_alter_vehicle_engine'),
         ('workorder', '0037_wave2_stored_totals'),
         ('workshops', '0031_oil_change_tracking'),
