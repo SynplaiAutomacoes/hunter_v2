@@ -1149,7 +1149,7 @@ def _compute_budget_diff(state_old, state_new):
                 "product_selling_price": "Valor Venda (Peça)",
                 "service_selling_price": "Valor Venda (Serviço)",
                 "shipping": "Frete",
-                "is_customer_supplied": "Peça trazida pelo cliente",
+                "is_customer_supplied": "Peça fornecida pelo cliente",
                 "total": "Total",
             }
             for f, f_label in item_fields.items():
