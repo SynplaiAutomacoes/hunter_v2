@@ -8,7 +8,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("workshops", "0030_unify_transport_allowance_monthly_cost"),
+        ("workshops", "0038_review_plan_and_messaging_updates"),
     ]
 
     operations = [

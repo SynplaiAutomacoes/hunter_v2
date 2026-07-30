@@ -6,12 +6,12 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("workorder", "0038_merge_20260715_0157"),
+        ("budget", "0062_review_plan_and_messaging_updates"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name="workorderitem",
+            model_name="budgetitem",
             name="is_customer_supplied",
             field=models.BooleanField(
                 default=False, verbose_name="Peça fornecida pelo cliente"
