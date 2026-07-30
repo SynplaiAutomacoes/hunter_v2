@@ -71,7 +71,7 @@ class NfeRequestListView(LoginRequiredMixin, WorkshopScopedMixin, HtmxTemplateRe
         context = super().get_context_data(**kwargs)
         context["fields"] = [
             TableColumn("ID", attr="id"),
-            TableColumn("Numero", attr="number_display", search_by="reserved_number"),
+            TableColumn("Numero", attr="number_display_listing", search_by="reserved_number"),
             TableColumn("Ordem de Servico", attr="workorder", search_by="workorder__id"),
             TableColumn("Cliente", attr="customer_name", search_by="workorder__budget__customer__name"),
             TableColumn("Criado em", attr=NfeRequest.criado_em.field.name),
